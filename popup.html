@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MarkContIt</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="title">MarkContIt</div>
+      <div class="subtitle">Label meaningful text segments</div>
+    </header>
+
+    <section class="section">
+      <label class="toggle">
+        <input type="checkbox" id="enableToggle" />
+        <span>Enable on this tab</span>
+      </label>
+    </section>
+
+    <section class="section">
+      <label class="field-label" for="baseUrlInput">Base URL scope</label>
+      <input id="baseUrlInput" class="field-input" type="text" placeholder="https://example.com/blog/" />
+      <button id="setBaseUrl" class="button">Set base URL</button>
+      <div id="baseUrlHint" class="hint"></div>
+    </section>
+
+    <section class="section list-section">
+      <div class="list-header">
+        <div class="list-title">Selectors</div>
+        <div id="selectorsCount" class="count"></div>
+      </div>
+      <div id="selectorsList" class="list"></div>
+    </section>
+
+    <section class="section actions">
+      <button id="exportJson" class="button button-secondary">Export JSON</button>
+    </section>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
