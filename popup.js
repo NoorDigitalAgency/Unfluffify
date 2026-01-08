@@ -205,14 +205,14 @@ async function exportJson() {
     setStatus("Nothing to export yet.");
     return;
   }
-  const include = (currentConfig.includeSelectors || []).map((item) => item.selector).join("\n");
-  const exclude = (currentConfig.excludeSelectors || []).map((item) => item.selector).join("\n");
+  const inclusions = (currentConfig.includeSelectors || []).map((item) => item.selector);
+  const exclusions = (currentConfig.excludeSelectors || []).map((item) => item.selector);
   const payload = {
     baseUrl: currentConfig.baseUrl,
     domain: currentConfig.domain,
-    inclusions: include,
-    exclusions: exclude,
-    selectorsCount: (currentConfig.includeSelectors || []).length + (currentConfig.excludeSelectors || []).length
+    inclusions: inclusions,
+    exclusions: exclusions,
+    selectorsCount: inclusions.length + exclusions.length
   };
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: "application/json" });
