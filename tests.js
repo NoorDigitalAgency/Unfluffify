@@ -79,23 +79,26 @@ function testVisualClassification() {
     setupDOM();
 
     const sets = {
+        permanentExcludeSet: new Set(['header']),
         explicitExcludeSet: new Set(['#section-2']),
-        explicitIncludeSet: new Set(['#login-btn']),
+        explicitIncludeSet: new Set(['#login-btn', 'h1']), // Also target h1 to test precedence
         excludeSelectors: new Set(['.user-panel']),
         includeSelectors: new Set(['.text-lead'])
     };
     
+    const header = document.querySelector('header');
     const section2 = document.getElementById('section-2');
     const loginBtn = document.getElementById('login-btn');
     const userPanel = document.querySelector('.user-panel');
     const textLead = document.querySelector('.text-lead');
     const h1 = document.querySelector('h1');
 
-    assertEquals(getElementState(section2, sets), ElementState.EXPLICIT_EXCLUDE, 'Explicit exclude has top priority');
+    assertEquals(getElementState(header, sets), ElementState.PERMANENT_EXCLUDE, 'Permanent exclude has the highest priority');
+    assertEquals(getElementState(h1, sets), ElementState.PERMANENT_EXCLUDE, 'Permanent exclude overrides explicit include on a child element');
+    assertEquals(getElementState(section2, sets), ElementState.EXPLICIT_EXCLUDE, 'Explicit exclude has second priority');
     assertEquals(getElementState(loginBtn, sets), ElementState.EXPLICIT_INCLUDE, 'Explicit include is next');
     assertEquals(getElementState(userPanel, sets), ElementState.INFERRED_EXCLUDE, 'Inferred exclude is next');
     assertEquals(getElementState(textLead, sets), ElementState.INFERRED_INCLUDE, 'Inferred include is last match');
-    assertEquals(getElementState(h1, sets), ElementState.NONE, 'Element with no match should be NONE');
     
     // Test that explicit include inside inferred exclude still wins for the element itself
     const btnInsideInferredExclude = userPanel.querySelector('#login-btn');
@@ -104,38 +107,51 @@ function testVisualClassification() {
 
 function testConstraintChecking() {
     setupDOM();
-    document.body.innerHTML += `<div id="outer" data-testid="outer"><div id="inner"><p id="text"></p></div></div>`;
+    document.body.innerHTML += `<div id="perm-excluded" data-testid="perm-excluded"><div id="outer" data-testid="outer"><div id="inner"><p id="text"></p></div></div></div>`;
     
     const outer = document.getElementById('outer');
     const inner = document.getElementById('inner');
     const text = document.getElementById('text');
 
-    // Case 1: Ancestor is explicitly excluded
+    // Case 1: Ancestor is permanently excluded
     let sets1 = {
+        permanentExcludeSet: new Set(['#perm-excluded']),
+        explicitExcludeSet: new Set(),
+        explicitIncludeSet: new Set(),
+        excludeSelectors: new Set(),
+        includeSelectors: new Set()
+    };
+    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_INCLUDE, sets1), false, 'Should not allow marking inside a permanently excluded ancestor');
+
+    // Case 2: Ancestor is explicitly excluded
+    let sets2 = {
+        permanentExcludeSet: new Set(),
         explicitExcludeSet: new Set(['#outer']),
         explicitIncludeSet: new Set(),
         excludeSelectors: new Set(),
         includeSelectors: new Set()
     };
-    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_INCLUDE, sets1), false, 'Should not allow marking inside an explicitly excluded ancestor');
+    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_INCLUDE, sets2), false, 'Should not allow marking inside an explicitly excluded ancestor');
     
-    // Case 2: Ancestor is explicitly included
-    let sets2 = {
+    // Case 3: Ancestor is explicitly included
+    let sets3 = {
+        permanentExcludeSet: new Set(),
         explicitExcludeSet: new Set(),
         explicitIncludeSet: new Set(['#outer']),
         excludeSelectors: new Set(),
         includeSelectors: new Set()
     };
-    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_EXCLUDE, sets2), true, 'Should allow marking inside an explicitly included ancestor (by default)');
+    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_EXCLUDE, sets3), true, 'Should allow marking inside an explicitly included ancestor (by default)');
 
-    // Case 3: No explicit ancestor
-    let sets3 = {
+    // Case 4: No authoritative ancestor
+    let sets4 = {
+        permanentExcludeSet: new Set(),
         explicitExcludeSet: new Set(),
         explicitIncludeSet: new Set(),
         excludeSelectors: new Set(['#outer']),
         includeSelectors: new Set()
     };
-    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_INCLUDE, sets3), true, 'Should allow marking if ancestor is only inferred');
+    assertEquals(isMarkAllowed(text, ElementState.EXPLICIT_INCLUDE, sets4), true, 'Should allow marking if ancestor is only inferred');
 }
 
 // To run in a browser console:

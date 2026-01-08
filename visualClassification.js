@@ -1,4 +1,5 @@
 const ElementState = {
+    PERMANENT_EXCLUDE: 'permanent-exclude',
     EXPLICIT_INCLUDE: 'explicit-include',
     EXPLICIT_EXCLUDE: 'explicit-exclude',
     INFERRED_INCLUDE: 'inferred-include',
@@ -7,6 +8,7 @@ const ElementState = {
 };
 
 const stateToClassMap = {
+    [ElementState.PERMANENT_EXCLUDE]: 'gemini-permanent-exclude',
     [ElementState.EXPLICIT_INCLUDE]: 'gemini-explicit-include',
     [ElementState.EXPLICIT_EXCLUDE]: 'gemini-explicit-exclude',
     [ElementState.INFERRED_INCLUDE]: 'gemini-inferred-include',
@@ -15,19 +17,25 @@ const stateToClassMap = {
 
 /**
  * Determines the classification state of an element based on inclusion/exclusion selectors.
- * The precedence order is: explicit exclude > explicit include > inferred exclude > inferred include.
+ * The precedence order is: permanent exclude > explicit exclude > explicit include > inferred exclude > inferred include.
  *
  * @param {Element} element The element to classify.
  * @param {object} sets The selector sets.
+ * @param {Set<string>} sets.permanentExcludeSet Predefined, high-precedence selectors for permanent exclusion.
  * @param {Set<string>} sets.explicitExcludeSet Selectors for explicit exclusion.
  * @param {Set<string>} sets.explicitIncludeSet Selectors for explicit inclusion.
  * @param {Set<string>} sets.excludeSelectors Selectors for inferred exclusion.
  * @param {Set<string>} sets.includeSelectors Selectors for inferred inclusion.
  * @returns {ElementState} The classification state of the element.
  */
-function getElementState(element, { explicitExcludeSet, explicitIncludeSet, excludeSelectors, includeSelectors }) {
+function getElementState(element, { permanentExcludeSet, explicitExcludeSet, explicitIncludeSet, excludeSelectors, includeSelectors }) {
     if (!element) return ElementState.NONE;
 
+    if (permanentExcludeSet) {
+        for (const selector of permanentExcludeSet) {
+            if (element.matches(selector)) return ElementState.PERMANENT_EXCLUDE;
+        }
+    }
     for (const selector of explicitExcludeSet) {
         if (element.matches(selector)) return ElementState.EXPLICIT_EXCLUDE;
     }
