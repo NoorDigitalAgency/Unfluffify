@@ -1,3 +1,30 @@
+/**
+ * NOTE: Before using `getElementState`, the `permanentExcludeSet` should be fetched
+ * from the extension's storage.
+ *
+ * Example in a content script:
+ *
+ * import { getPermanentExclusionSelectors } from './storageManager.js';
+ *
+ * async function runClassification() {
+ *   const permanentExclusions = await getPermanentExclusionSelectors();
+ *   const allElements = document.querySelectorAll('*');
+ *
+ *   const classificationSets = {
+ *     permanentExcludeSet: permanentExclusions,
+ *     explicitExcludeSet: new Set(), // From user actions on the page
+ *     explicitIncludeSet: new Set(), // From user actions on the page
+ *     excludeSelectors: new Set(),
+ *     includeSelectors: new Set()
+ *   };
+ *
+ *   allElements.forEach(el => {
+ *     const state = getElementState(el, classificationSets);
+ *     applyClassificationStyles(el, state);
+ *   });
+ * }
+ */
+
 const ElementState = {
     PERMANENT_EXCLUDE: 'permanent-exclude',
     EXPLICIT_INCLUDE: 'explicit-include',
