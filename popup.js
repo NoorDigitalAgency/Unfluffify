@@ -56,6 +56,7 @@ let currentTab = null;
 let currentBaseUrl = "";
 let currentConfig = null;
 let toastTimer = 0;
+let refreshTimer = 0;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -637,6 +638,17 @@ async function handleExportJson() {
   URL.revokeObjectURL(url);
 }
 
+function scheduleRefresh() {
+  if (refreshTimer) {
+    return;
+  }
+  refreshTimer = window.setTimeout(async () => {
+    refreshTimer = 0;
+    await loadActiveTab();
+    await refreshUi();
+  }, 120);
+}
+
 async function init() {
   await loadActiveTab();
 
@@ -663,6 +675,18 @@ async function init() {
     if (changeInfo.url || changeInfo.status === "complete") {
       currentTab = tab;
       await refreshUi();
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" && areaName !== "session") {
+      return;
+    }
+    if (
+      (areaName === "local" && changes.configs) ||
+      (areaName === "session" && currentTab && changes[`tabState:${currentTab.id}`])
+    ) {
+      scheduleRefresh();
     }
   });
 
