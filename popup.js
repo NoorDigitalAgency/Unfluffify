@@ -284,13 +284,17 @@ function renderExcludeList(listEl, items, emptyText, onView, onRemove) {
   items.forEach((item) => {
     const li = document.createElement("li");
     const text = document.createElement("span");
-    text.textContent = item;
+    const label = item.text || item.xpath || "";
+    text.textContent = label;
+    if (item.xpath) {
+      text.title = item.xpath;
+    }
     const viewButton = document.createElement("button");
     viewButton.textContent = "View";
-    viewButton.addEventListener("click", () => onView(item));
+    viewButton.addEventListener("click", () => onView(item.xpath));
     const removeButton = document.createElement("button");
     removeButton.textContent = "Remove";
-    removeButton.addEventListener("click", () => onRemove(item));
+    removeButton.addEventListener("click", () => onRemove(item.xpath));
     li.appendChild(text);
     li.appendChild(viewButton);
     li.appendChild(removeButton);
@@ -369,14 +373,17 @@ async function refreshUi() {
       currentConfig.domainAiSelectorSet.exclusionSelectors) ||
     [];
 
-  let pageExplicitExclude = explicitExclude;
+  let pageExplicitExclude = explicitExclude.map((xpath) => ({
+    xpath,
+    text: xpath
+  }));
   if (currentBaseUrl) {
     const response = await sendTabMessage({
-      type: "filterXPathsOnPage",
+      type: "describeXPathsOnPage",
       xpaths: explicitExclude
     });
-    if (response && Array.isArray(response.xpaths)) {
-      pageExplicitExclude = response.xpaths;
+    if (response && Array.isArray(response.items)) {
+      pageExplicitExclude = response.items;
     }
   }
 

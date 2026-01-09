@@ -412,6 +412,26 @@
     }
   }
 
+  function getElementLabel(el) {
+    if (!el || el.nodeType !== 1) {
+      return "";
+    }
+    let text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    if (!text) {
+      text = (el.getAttribute("aria-label") || "").trim();
+    }
+    if (!text) {
+      text = (el.getAttribute("title") || "").trim();
+    }
+    if (!text) {
+      text = el.tagName.toLowerCase();
+    }
+    if (text.length > 80) {
+      text = `${text.slice(0, 77)}...`;
+    }
+    return text;
+  }
+
   function collectXPathElements(xpaths) {
     const elements = new Set();
     for (const xpath of xpaths || []) {
@@ -1336,6 +1356,20 @@
         return el && isVisible(el);
       });
       sendResponse({ xpaths: filtered });
+      return;
+    }
+
+    if (message.type === "describeXPathsOnPage") {
+      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
+      const items = [];
+      xpaths.forEach((xpath) => {
+        const el = getElementFromXPath(xpath);
+        if (!el || !isVisible(el)) {
+          return;
+        }
+        items.push({ xpath, text: getElementLabel(el) });
+      });
+      sendResponse({ items });
       return;
     }
 
