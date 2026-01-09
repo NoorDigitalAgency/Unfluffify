@@ -163,6 +163,54 @@
     return false;
   }
 
+  function isWithinHardExcluded(el) {
+    let node = el;
+    while (node && node.nodeType === 1) {
+      if (matchesHardExcluded(node)) {
+        return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  function hasExcludedDescendant(target, config) {
+    if (!target || !config) {
+      return false;
+    }
+    const tagSelector = HARD_EXCLUDED_TAGS.map((tag) => tag.toLowerCase()).join(
+      ","
+    );
+    if (tagSelector && target.querySelector(tagSelector)) {
+      return true;
+    }
+    for (const selector of HARD_EXCLUDED_SELECTORS) {
+      try {
+        if (target.querySelector(selector)) {
+          return true;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+    for (const xpath of config.explicitXPathDecisions.exclude || []) {
+      const excludedEl = getElementFromXPath(xpath);
+      if (excludedEl && excludedEl !== target && target.contains(excludedEl)) {
+        return true;
+      }
+    }
+    for (const selector of config.domainAiSelectorSet.exclusionSelectors || []) {
+      try {
+        if (target.querySelector(selector)) {
+          return true;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+    return false;
+  }
+
   function getVisibleRect(el) {
     if (!isVisible(el)) {
       return null;
@@ -232,6 +280,97 @@
       }
     }
     return elements;
+  }
+
+  function collectDefaultHighlightTargets(root, options) {
+    if (!root) {
+      return [];
+    }
+    const {
+      excludedSet = new Set(),
+      hardExcludedSet = new Set(),
+      hasHigherPrecedence = () => false,
+      precedenceSet = new Set(),
+      explicitIncludeSet = new Set()
+    } = options || {};
+    const results = [];
+    const stack = [
+      {
+        node: root,
+        index: 0,
+        hasExcludedDescendant: false,
+        hasCandidateDescendant: false,
+        hasExplicitIncludeDescendant: false,
+        ancestorHardExcluded: false,
+        ancestorHasPrecedence: false
+      }
+    ];
+
+    while (stack.length) {
+      const frame = stack[stack.length - 1];
+      const children = frame.node.children;
+      if (frame.index < children.length) {
+        const child = children[frame.index];
+        frame.index += 1;
+        const childHardExcluded =
+          frame.ancestorHardExcluded ||
+          hardExcludedSet.has(frame.node) ||
+          hardExcludedSet.has(child);
+        const childHasPrecedence =
+          frame.ancestorHasPrecedence ||
+          precedenceSet.has(frame.node) ||
+          precedenceSet.has(child);
+        stack.push({
+          node: child,
+          index: 0,
+          hasExcludedDescendant: false,
+          hasCandidateDescendant: false,
+          hasExplicitIncludeDescendant: false,
+          ancestorHardExcluded: childHardExcluded,
+          ancestorHasPrecedence: childHasPrecedence
+        });
+        continue;
+      }
+
+      const node = frame.node;
+      const excludedSelf = excludedSet.has(node);
+      const explicitIncludeSelf = explicitIncludeSet.has(node);
+      const isRoot = node === document.body || node === document.documentElement;
+      const candidate =
+        !excludedSelf &&
+        !isRoot &&
+        !frame.ancestorHardExcluded &&
+        !frame.ancestorHasPrecedence &&
+        isTextualContainer(node) &&
+        !hasHigherPrecedence(node) &&
+        !frame.hasExcludedDescendant &&
+        !frame.hasExplicitIncludeDescendant;
+
+      if (candidate && !frame.hasCandidateDescendant) {
+        results.push(node);
+      }
+
+      const hasExcludedSubtree = excludedSelf || frame.hasExcludedDescendant;
+      const hasCandidateSubtree = candidate || frame.hasCandidateDescendant;
+      const hasExplicitIncludeSubtree =
+        explicitIncludeSelf || frame.hasExplicitIncludeDescendant;
+
+      stack.pop();
+      if (stack.length) {
+        const parent = stack[stack.length - 1];
+        if (hasExcludedSubtree) {
+          parent.hasExcludedDescendant = true;
+        }
+        if (hasCandidateSubtree) {
+          parent.hasCandidateDescendant = true;
+        }
+        if (hasExplicitIncludeSubtree) {
+          parent.hasExplicitIncludeDescendant = true;
+        }
+      }
+    }
+
+    return results;
   }
 
   function collectSelectorElements(selectors) {
@@ -462,7 +601,13 @@
     }
     event.stopPropagation();
     const target = getTargetElement(event.clientX, event.clientY);
-    if (!target || matchesHardExcluded(target)) {
+    if (!target || isWithinHardExcluded(target)) {
+      if (state.hoverBox) {
+        state.hoverBox.style.display = "none";
+      }
+      return;
+    }
+    if (state.config && hasExcludedDescendant(target, state.config)) {
       if (state.hoverBox) {
         state.hoverBox.style.display = "none";
       }
@@ -486,7 +631,7 @@
     if (!state.baseUrl) {
       return;
     }
-    if (matchesHardExcluded(target) && type === "include") {
+    if (isWithinHardExcluded(target)) {
       showToast("Default exclusions cannot be overridden");
       return;
     }
@@ -500,12 +645,18 @@
     const include = new Set(config.explicitXPathDecisions.include || []);
     const exclude = new Set(config.explicitXPathDecisions.exclude || []);
 
+    let addedInclude = false;
     if (type === "include") {
       if (include.has(xpath)) {
         include.delete(xpath);
       } else {
+        if (hasExcludedDescendant(target, config)) {
+          showToast("Cannot include an element containing excluded blocks");
+          return;
+        }
         include.add(xpath);
         exclude.delete(xpath);
+        addedInclude = true;
       }
     } else {
       if (exclude.has(xpath)) {
@@ -514,6 +665,18 @@
         exclude.add(xpath);
         include.delete(xpath);
       }
+    }
+
+    if (addedInclude) {
+      Array.from(include).forEach((existingXPath) => {
+        if (existingXPath === xpath) {
+          return;
+        }
+        const existingEl = getElementFromXPath(existingXPath);
+        if (existingEl && existingEl.contains(target)) {
+          include.delete(existingXPath);
+        }
+      });
     }
 
     config.explicitXPathDecisions = {
@@ -705,14 +868,26 @@
     });
 
     if (state.config.showDefaultHighlights) {
-      const all = document.body ? document.body.querySelectorAll("*") : [];
-      all.forEach((el) => {
-        if (!isTextualContainer(el)) {
-          return;
-        }
-        if (hasHigherPrecedence(el)) {
-          return;
-        }
+      const precedenceSet = new Set([
+        ...hardExcluded,
+        ...explicitExclude,
+        ...explicitInclude,
+        ...aiExclude,
+        ...aiInclude
+      ]);
+      const excludedSet = new Set([
+        ...hardExcluded,
+        ...explicitExclude,
+        ...aiExclude
+      ]);
+      const defaultTargets = collectDefaultHighlightTargets(document.body, {
+        excludedSet,
+        hardExcludedSet: hardExcluded,
+        hasHigherPrecedence,
+        precedenceSet,
+        explicitIncludeSet: explicitInclude
+      });
+      defaultTargets.forEach((el) => {
         const rect = getVisibleRect(el);
         if (rect) {
           drawRect(layerDefault, rect, "mc-default");
