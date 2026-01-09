@@ -47,9 +47,7 @@ const ui = {
   showDefault: document.getElementById("show-default"),
   computeButton: document.getElementById("compute"),
   exportButton: document.getElementById("export"),
-  explicitIncludes: document.getElementById("explicit-includes"),
   explicitExcludes: document.getElementById("explicit-excludes"),
-  aiIncludes: document.getElementById("ai-includes"),
   aiExcludes: document.getElementById("ai-excludes"),
   toast: document.getElementById("toast")
 };
@@ -207,31 +205,10 @@ async function refreshUi() {
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   ui.tokenInput.value = tokenResult.globalToken || "";
 
-  const explicitInclude =
-    (currentConfig && currentConfig.explicitXPathDecisions.include) || [];
   const explicitExclude =
     (currentConfig && currentConfig.explicitXPathDecisions.exclude) || [];
-  const aiInclude =
-    (currentConfig && currentConfig.domainAiSelectorSet.inclusionSelectors) || [];
   const aiExclude =
     (currentConfig && currentConfig.domainAiSelectorSet.exclusionSelectors) || [];
-
-  renderList(
-    ui.explicitIncludes,
-    explicitInclude,
-    "None yet",
-    async (value) => {
-      if (!currentBaseUrl) {
-        return;
-      }
-      currentConfig = await updateConfig(currentBaseUrl, (config) => {
-        config.explicitXPathDecisions.include =
-          config.explicitXPathDecisions.include.filter((item) => item !== value);
-      });
-      await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-      refreshUi();
-    }
-  );
 
   renderList(
     ui.explicitExcludes,
@@ -249,20 +226,6 @@ async function refreshUi() {
       refreshUi();
     }
   );
-
-  renderList(ui.aiIncludes, aiInclude, "None yet", async (value) => {
-    if (!currentBaseUrl) {
-      return;
-    }
-    currentConfig = await updateConfig(currentBaseUrl, (config) => {
-      config.domainAiSelectorSet.inclusionSelectors =
-        config.domainAiSelectorSet.inclusionSelectors.filter(
-          (item) => item !== value
-        );
-    });
-    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-    refreshUi();
-  });
 
   renderList(ui.aiExcludes, aiExclude, "None yet", async (value) => {
     if (!currentBaseUrl) {
@@ -414,9 +377,10 @@ async function handleComputeSelectors() {
 
   currentConfig = await updateConfig(baseUrlValue, (config) => {
     config.domainAiSelectorSet = {
-      inclusionSelectors: selectorSet.inclusionSelectors || [],
+      inclusionSelectors: [],
       exclusionSelectors: selectorSet.exclusionSelectors || []
     };
+    config.explicitXPathDecisions.include = [];
   });
 
   await sendTabMessage({ type: "configUpdated", baseUrl: baseUrlValue });
@@ -435,11 +399,9 @@ async function handleExportJson() {
     baseUrl: currentConfig.baseUrl || "",
     domain: currentConfig.domain || "",
     defaultExclusions: defaultExclusions.join("\n"),
-    xpathsInclude: (currentConfig.explicitXPathDecisions.include || []).join("\n"),
+    xpathsInclude: "",
     xpathsExclude: (currentConfig.explicitXPathDecisions.exclude || []).join("\n"),
-    aiInclusions: (currentConfig.domainAiSelectorSet.inclusionSelectors || []).join(
-      "\n"
-    ),
+    aiInclusions: "",
     aiExclusions: (currentConfig.domainAiSelectorSet.exclusionSelectors || []).join(
       "\n"
     )

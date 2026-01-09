@@ -103,6 +103,13 @@
     if (!configs[baseUrl]) {
       configs[baseUrl] = createDefaultConfig(baseUrl);
       await storageSet({ configs });
+    } else if (
+      configs[baseUrl].explicitXPathDecisions &&
+      configs[baseUrl].explicitXPathDecisions.include &&
+      configs[baseUrl].explicitXPathDecisions.include.length
+    ) {
+      configs[baseUrl].explicitXPathDecisions.include = [];
+      await storageSet({ configs });
     }
     return configs[baseUrl];
   }
@@ -323,8 +330,7 @@
       excludedSet = new Set(),
       hardExcludedSet = new Set(),
       hasHigherPrecedence = () => false,
-      precedenceSet = new Set(),
-      explicitIncludeSet = new Set()
+      precedenceSet = new Set()
     } = options || {};
     const results = [];
     const stack = [
@@ -333,7 +339,6 @@
         index: 0,
         hasExcludedDescendant: false,
         hasCandidateDescendant: false,
-        hasExplicitIncludeDescendant: false,
         ancestorHardExcluded: false,
         ancestorHasPrecedence: false
       }
@@ -358,7 +363,6 @@
           index: 0,
           hasExcludedDescendant: false,
           hasCandidateDescendant: false,
-          hasExplicitIncludeDescendant: false,
           ancestorHardExcluded: childHardExcluded,
           ancestorHasPrecedence: childHasPrecedence
         });
@@ -367,7 +371,6 @@
 
       const node = frame.node;
       const excludedSelf = excludedSet.has(node);
-      const explicitIncludeSelf = explicitIncludeSet.has(node);
       const isRoot = node === document.body || node === document.documentElement;
       const candidate =
         !excludedSelf &&
@@ -376,8 +379,7 @@
         !frame.ancestorHasPrecedence &&
         isTextualContainer(node) &&
         !hasHigherPrecedence(node) &&
-        !frame.hasExcludedDescendant &&
-        !frame.hasExplicitIncludeDescendant;
+        !frame.hasExcludedDescendant;
 
       if (candidate && !frame.hasCandidateDescendant) {
         results.push(node);
@@ -385,8 +387,6 @@
 
       const hasExcludedSubtree = excludedSelf || frame.hasExcludedDescendant;
       const hasCandidateSubtree = candidate || frame.hasCandidateDescendant;
-      const hasExplicitIncludeSubtree =
-        explicitIncludeSelf || frame.hasExplicitIncludeDescendant;
 
       stack.pop();
       if (stack.length) {
@@ -396,9 +396,6 @@
         }
         if (hasCandidateSubtree) {
           parent.hasCandidateDescendant = true;
-        }
-        if (hasExplicitIncludeSubtree) {
-          parent.hasExplicitIncludeDescendant = true;
         }
       }
     }
@@ -718,7 +715,7 @@
     state.hoverBox.style.height = `${rect.height}px`;
   }
 
-  async function toggleExplicit(target, type) {
+  async function toggleExplicit(target) {
     if (!state.baseUrl) {
       return;
     }
@@ -733,21 +730,8 @@
     }
 
     const config = await loadConfig(state.baseUrl);
-    const include = new Set(config.explicitXPathDecisions.include || []);
     const exclude = new Set(config.explicitXPathDecisions.exclude || []);
     const cleanupHierarchy = (currentXPath) => {
-      Array.from(include).forEach((existingXPath) => {
-        if (existingXPath === currentXPath) {
-          return;
-        }
-        const existingEl = getElementFromXPath(existingXPath);
-        if (!existingEl) {
-          return;
-        }
-        if (existingEl.contains(target) || target.contains(existingEl)) {
-          include.delete(existingXPath);
-        }
-      });
       Array.from(exclude).forEach((existingXPath) => {
         if (existingXPath === currentXPath) {
           return;
@@ -762,40 +746,20 @@
       });
     };
 
-    let addedInclude = false;
     let addedExclude = false;
-    if (type === "include") {
-      if (include.has(xpath)) {
-        include.delete(xpath);
-      } else {
-        if (
-          hasExcludedDescendant(target, config, {
-            includeExplicitExcludes: false
-          })
-        ) {
-          showToast("Cannot include an element containing excluded blocks");
-          return;
-        }
-        include.add(xpath);
-        exclude.delete(xpath);
-        addedInclude = true;
-      }
+    if (exclude.has(xpath)) {
+      exclude.delete(xpath);
     } else {
-      if (exclude.has(xpath)) {
-        exclude.delete(xpath);
-      } else {
-        exclude.add(xpath);
-        include.delete(xpath);
-        addedExclude = true;
-      }
+      exclude.add(xpath);
+      addedExclude = true;
     }
 
-    if (addedInclude || addedExclude) {
+    if (addedExclude) {
       cleanupHierarchy(xpath);
     }
 
     config.explicitXPathDecisions = {
-      include: Array.from(include),
+      include: [],
       exclude: Array.from(exclude)
     };
 
@@ -812,7 +776,7 @@
     event.stopPropagation();
     const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
-      toggleExplicit(target, "include");
+      toggleExplicit(target);
     }
   }
 
@@ -824,7 +788,7 @@
     event.stopPropagation();
     const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
-      toggleExplicit(target, "exclude");
+      toggleExplicit(target);
     }
   }
 
@@ -899,14 +863,8 @@
     const explicitExclude = collectXPathElements(
       state.config.explicitXPathDecisions.exclude
     );
-    const explicitInclude = collectXPathElements(
-      state.config.explicitXPathDecisions.include
-    );
     const aiExclude = collectSelectorElements(
       state.config.domainAiSelectorSet.exclusionSelectors
-    );
-    const aiInclude = collectSelectorElements(
-      state.config.domainAiSelectorSet.inclusionSelectors
     );
 
     const layerHard = state.layers["hard"];
@@ -924,11 +882,7 @@
     clearLayer(layerDefault);
 
     const hasHigherPrecedence = (el) =>
-      hardExcluded.has(el) ||
-      explicitExclude.has(el) ||
-      explicitInclude.has(el) ||
-      aiExclude.has(el) ||
-      aiInclude.has(el);
+      hardExcluded.has(el) || explicitExclude.has(el) || aiExclude.has(el);
 
     hardExcluded.forEach((el) => {
       const rect = getVisibleRect(el);
@@ -947,18 +901,8 @@
       }
     });
 
-    explicitInclude.forEach((el) => {
-      if (hardExcluded.has(el) || explicitExclude.has(el)) {
-        return;
-      }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(layerExplicitInclude, rect, "mc-explicit-include");
-      }
-    });
-
     aiExclude.forEach((el) => {
-      if (hardExcluded.has(el) || explicitExclude.has(el) || explicitInclude.has(el)) {
+      if (hardExcluded.has(el) || explicitExclude.has(el)) {
         return;
       }
       const rect = getVisibleRect(el);
@@ -967,28 +911,11 @@
       }
     });
 
-    aiInclude.forEach((el) => {
-      if (
-        hardExcluded.has(el) ||
-        explicitExclude.has(el) ||
-        explicitInclude.has(el) ||
-        aiExclude.has(el)
-      ) {
-        return;
-      }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(layerAiInclude, rect, "mc-ai-include");
-      }
-    });
-
     if (state.config.showDefaultHighlights) {
       const precedenceSet = new Set([
         ...hardExcluded,
         ...explicitExclude,
-        ...explicitInclude,
-        ...aiExclude,
-        ...aiInclude
+        ...aiExclude
       ]);
       const excludedSet = new Set([
         ...hardExcluded,
@@ -999,8 +926,7 @@
         excludedSet,
         hardExcludedSet: hardExcluded,
         hasHigherPrecedence,
-        precedenceSet,
-        explicitIncludeSet: explicitInclude
+        precedenceSet
       });
       defaultTargets.forEach((el) => {
         const rect = getVisibleRect(el);
@@ -1125,7 +1051,7 @@
             tags: HARD_EXCLUDED_TAGS,
             selectors: HARD_EXCLUDED_SELECTORS
           },
-          xpathsInclude: config.explicitXPathDecisions.include,
+          xpathsInclude: [],
           xpathsExclude: config.explicitXPathDecisions.exclude
         });
       });
