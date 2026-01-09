@@ -619,19 +619,73 @@
     return null;
   }
 
+  function isMarkableElement(el, config) {
+    if (!config) {
+      return false;
+    }
+    if (!isTextualContainer(el)) {
+      return false;
+    }
+    if (isWithinHardExcluded(el)) {
+      return false;
+    }
+    if (hasExcludedDescendant(el, config)) {
+      return false;
+    }
+    return true;
+  }
+
+  function resolveMarkableElement(el, config) {
+    if (!isMarkableElement(el, config)) {
+      return null;
+    }
+    let current = el;
+    while (current) {
+      const markableChildren = [];
+      for (const child of current.children) {
+        if (isMarkableElement(child, config)) {
+          markableChildren.push(child);
+          if (markableChildren.length > 1) {
+            break;
+          }
+        }
+      }
+      if (markableChildren.length === 1) {
+        current = markableChildren[0];
+        continue;
+      }
+      return current;
+    }
+    return null;
+  }
+
+  function getMarkableTarget(x, y) {
+    const elements = document.elementsFromPoint(x, y);
+    for (const el of elements) {
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+        continue;
+      }
+      if (el === document.documentElement || el === document.body) {
+        continue;
+      }
+      const resolved = resolveMarkableElement(el, state.config);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    return null;
+  }
+
   function handleMouseMove(event) {
     if (!state.enabled) {
       return;
     }
     event.stopPropagation();
-    const target = getTargetElement(event.clientX, event.clientY);
-    if (!target || isWithinHardExcluded(target)) {
-      if (state.hoverBox) {
-        state.hoverBox.style.display = "none";
-      }
-      return;
-    }
-    if (state.config && hasExcludedDescendant(target, state.config)) {
+    const target = getMarkableTarget(event.clientX, event.clientY);
+    if (!target) {
       if (state.hoverBox) {
         state.hoverBox.style.display = "none";
       }
@@ -739,7 +793,7 @@
     }
     event.preventDefault();
     event.stopPropagation();
-    const target = getTargetElement(event.clientX, event.clientY);
+    const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
       toggleExplicit(target, "include");
     }
@@ -751,7 +805,7 @@
     }
     event.preventDefault();
     event.stopPropagation();
-    const target = getTargetElement(event.clientX, event.clientY);
+    const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
       toggleExplicit(target, "exclude");
     }
