@@ -44,7 +44,6 @@ const ui = {
   toggleEnabled: document.getElementById("toggle-enabled"),
   baseUrlInput: document.getElementById("base-url"),
   tokenInput: document.getElementById("token"),
-  showDefault: document.getElementById("show-default"),
   computeButton: document.getElementById("compute"),
   exportButton: document.getElementById("export"),
   explicitExcludes: document.getElementById("explicit-excludes"),
@@ -79,6 +78,7 @@ function createDefaultConfig(baseUrl) {
     domain,
     showDefaultHighlights: true,
     explicitXPathDecisions: { include: [], exclude: [] },
+    defaultToggleExclusionsDisabled: [],
     domainAiSelectorSet: { inclusionSelectors: [], exclusionSelectors: [] }
   };
 }
@@ -148,9 +148,56 @@ async function updateConfig(baseUrl, updater) {
 async function sendTabMessage(message) {
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(currentTab.id, message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
       resolve(response);
     });
   });
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function sendTabMessageWithRetry(message, attempts = 3) {
+  for (let i = 0; i < attempts; i += 1) {
+    const response = await sendTabMessage(message);
+    if (response) {
+      return response;
+    }
+    await delay(250);
+  }
+  return null;
+}
+
+async function ensureEnabledOnOpen() {
+  if (!currentTab || !currentTab.url) {
+    return;
+  }
+  const configs = await getConfigs();
+  const tabState = await getTabState(currentTab.id);
+  let baseUrl = tabState.baseUrl || findMatchingBaseUrl(currentTab.url, configs);
+  if (!baseUrl) {
+    try {
+      baseUrl = new URL(currentTab.url).origin;
+    } catch (error) {
+      baseUrl = "";
+    }
+  }
+  if (!baseUrl) {
+    return;
+  }
+  if (!configs[baseUrl]) {
+    configs[baseUrl] = createDefaultConfig(baseUrl);
+    await saveConfigs(configs);
+  }
+  await setTabState(currentTab.id, { enabled: true, baseUrl });
+  await sendTabMessageWithRetry({
+    type: "setEnabled",
+    enabled: true,
+    baseUrl
+  });
+  await sendTabMessageWithRetry({ type: "forceRefresh" });
 }
 
 function renderList(listEl, items, emptyText, onRemove) {
@@ -175,6 +222,32 @@ function renderList(listEl, items, emptyText, onRemove) {
   });
 }
 
+function renderExcludeList(listEl, items, emptyText, onView, onRemove) {
+  listEl.textContent = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = emptyText;
+    listEl.appendChild(li);
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.textContent = item;
+    const viewButton = document.createElement("button");
+    viewButton.textContent = "View";
+    viewButton.addEventListener("click", () => onView(item));
+    const removeButton = document.createElement("button");
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => onRemove(item));
+    li.appendChild(text);
+    li.appendChild(viewButton);
+    li.appendChild(removeButton);
+    listEl.appendChild(li);
+  });
+}
+
 function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
   listEl.textContent = "";
   if (!items.length) {
@@ -191,11 +264,15 @@ function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
     const status = document.createElement("span");
     status.className = "status";
     status.textContent = item.excluded ? "Excluded" : "Included";
+    const viewButton = document.createElement("button");
+    viewButton.textContent = "View";
+    viewButton.addEventListener("click", () => onToggle(item, "view"));
     const button = document.createElement("button");
     button.textContent = item.excluded ? "Allow" : "Exclude";
-    button.addEventListener("click", () => onToggle(item));
+    button.addEventListener("click", () => onToggle(item, "toggle"));
     li.appendChild(text);
     li.appendChild(status);
+    li.appendChild(viewButton);
     li.appendChild(button);
     listEl.appendChild(li);
   });
@@ -223,12 +300,6 @@ async function refreshUi() {
       currentTab.url.startsWith(tabState.baseUrl)
   );
 
-  if (currentConfig) {
-    ui.showDefault.checked = Boolean(currentConfig.showDefaultHighlights);
-  } else {
-    ui.showDefault.checked = false;
-  }
-
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   ui.tokenInput.value = tokenResult.globalToken || "";
 
@@ -237,10 +308,30 @@ async function refreshUi() {
   const aiExclude =
     (currentConfig && currentConfig.domainAiSelectorSet.exclusionSelectors) || [];
 
-  renderList(
+  let pageExplicitExclude = explicitExclude;
+  if (currentBaseUrl) {
+    const response = await sendTabMessage({
+      type: "filterXPathsOnPage",
+      xpaths: explicitExclude
+    });
+    if (response && Array.isArray(response.xpaths)) {
+      pageExplicitExclude = response.xpaths;
+    }
+  }
+
+  renderExcludeList(
     ui.explicitExcludes,
-    explicitExclude,
+    pageExplicitExclude,
     "None yet",
+    async (value) => {
+      const response = await sendTabMessage({
+        type: "focusElement",
+        xpath: value
+      });
+      if (!response || !response.ok) {
+        showToast("Unable to focus element");
+      }
+    },
     async (value) => {
       if (!currentBaseUrl) {
         return;
@@ -268,7 +359,17 @@ async function refreshUi() {
     ui.headingDefaults,
     headingDefaults,
     "None yet",
-    async (item) => {
+    async (item, action) => {
+      if (action === "view") {
+        const response = await sendTabMessage({
+          type: "focusElement",
+          xpath: item.xpath
+        });
+        if (!response || !response.ok) {
+          showToast("Unable to focus element");
+        }
+        return;
+      }
       if (!currentBaseUrl) {
         return;
       }
@@ -320,14 +421,15 @@ async function handleEnableToggle() {
     }
     await ensureConfig(baseUrlValue);
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
-    await sendTabMessage({
+    await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue
     });
+    await sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
     await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
-    await sendTabMessage({ type: "setEnabled", enabled: false });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
@@ -340,7 +442,7 @@ async function handleBaseUrlBlur() {
   if (!baseUrlValue) {
     if (ui.toggleEnabled.checked) {
       await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
-      await sendTabMessage({ type: "setEnabled", enabled: false });
+      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
     currentBaseUrl = "";
     currentConfig = null;
@@ -361,15 +463,16 @@ async function handleBaseUrlBlur() {
       showToast("Current page is outside the base URL scope");
       ui.toggleEnabled.checked = false;
       await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
-      await sendTabMessage({ type: "setEnabled", enabled: false });
+      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
       return;
     }
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
-    await sendTabMessage({
+    await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue
     });
+    await sendTabMessageWithRetry({ type: "forceRefresh" });
   }
   await refreshUi();
 }
@@ -378,18 +481,6 @@ async function handleTokenBlur() {
   const token = ui.tokenInput.value.trim();
   await storageSet(chrome.storage.sync, { globalToken: token });
   showToast("Token saved");
-}
-
-async function handleShowDefaultToggle() {
-  if (!currentBaseUrl) {
-    showToast("Set a base URL scope first");
-    ui.showDefault.checked = false;
-    return;
-  }
-  currentConfig = await updateConfig(currentBaseUrl, (config) => {
-    config.showDefaultHighlights = ui.showDefault.checked;
-  });
-  await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
 }
 
 async function requestAiSelectors(payload, token) {
@@ -488,10 +579,10 @@ async function init() {
     }
   });
   ui.tokenInput.addEventListener("blur", handleTokenBlur);
-  ui.showDefault.addEventListener("change", handleShowDefaultToggle);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);
 
+  await ensureEnabledOnOpen();
   await refreshUi();
 }
 

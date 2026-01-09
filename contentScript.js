@@ -67,8 +67,11 @@
     overlay: null,
     layers: {},
     hoverBox: null,
+    focusBox: null,
+    focusElement: null,
     toast: null,
     toastHideTimer: 0,
+    headingToggleableTargets: new Set(),
     renderRaf: 0,
     urlCheckTimer: 0,
     mutationObserver: null
@@ -124,6 +127,10 @@
       configs[baseUrl].explicitXPathDecisions.include = [];
       await storageSet({ configs });
     }
+    if (configs[baseUrl].showDefaultHighlights !== true) {
+      configs[baseUrl].showDefaultHighlights = true;
+      await storageSet({ configs });
+    }
     if (!Array.isArray(configs[baseUrl].defaultToggleExclusionsDisabled)) {
       configs[baseUrl].defaultToggleExclusionsDisabled = [];
       await storageSet({ configs });
@@ -142,12 +149,16 @@
     if (!el || el.nodeType !== 1) {
       return false;
     }
-    const style = window.getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden") {
-      return false;
-    }
-    if (parseFloat(style.opacity) === 0) {
-      return false;
+    let node = el;
+    while (node && node.nodeType === 1) {
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+      if (parseFloat(style.opacity) === 0) {
+        return false;
+      }
+      node = node.parentElement;
     }
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
@@ -206,21 +217,39 @@
     return false;
   }
 
-  function isToggleableDefaultTarget(el) {
+  function isToggleableDefaultTarget(el, config, toggleableTargets) {
     if (!el || el.nodeType !== 1) {
       return false;
     }
-    if (!TOGGLEABLE_TAG_SELECTOR) {
+    if (!TOGGLEABLE_TAG_SELECTOR || !config) {
       return false;
     }
-    const heading = el.closest(TOGGLEABLE_TAG_SELECTOR);
-    if (!heading) {
-      return false;
+    let targets = toggleableTargets || state.headingToggleableTargets;
+    if (!targets || targets.size === 0) {
+      targets = collectHeadingToggleableTargets(config);
     }
-    if (isWithinHardExcluded(heading)) {
-      return false;
+    return targets.has(el);
+  }
+
+  function collectHeadingToggleableTargets(config) {
+    if (!config || !TOGGLEABLE_TAG_SELECTOR) {
+      return new Set();
     }
-    return true;
+    const targets = new Set();
+    document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
+      if (isWithinHardExcluded(heading)) {
+        return;
+      }
+      if (isMarkableElement(heading, config)) {
+        targets.add(heading);
+      }
+      heading.querySelectorAll("*").forEach((child) => {
+        if (isMarkableElement(child, config)) {
+          targets.add(child);
+        }
+      });
+    });
+    return targets;
   }
 
   function isWithinHardExcluded(el) {
@@ -250,22 +279,33 @@
       const immutableSelector = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
         tag.toLowerCase()
       ).join(",");
-      if (immutableSelector && target.querySelector(immutableSelector)) {
-        return true;
+      if (immutableSelector) {
+        const matches = target.querySelectorAll(immutableSelector);
+        for (const el of matches) {
+          if (isVisible(el)) {
+            return true;
+          }
+        }
       }
       for (const selector of HARD_EXCLUDED_SELECTORS) {
         try {
-          if (target.querySelector(selector)) {
-            return true;
+          const matches = target.querySelectorAll(selector);
+          for (const el of matches) {
+            if (isVisible(el)) {
+              return true;
+            }
           }
         } catch (error) {
           continue;
         }
       }
-      if (TOGGLEABLE_TAG_SELECTOR) {
-        const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
-        const toggleableEls = target.querySelectorAll(TOGGLEABLE_TAG_SELECTOR);
-        for (const el of toggleableEls) {
+      const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
+      const toggleableTargets =
+        state.headingToggleableTargets.size > 0
+          ? state.headingToggleableTargets
+          : collectHeadingToggleableTargets(config);
+      for (const el of toggleableTargets) {
+        if (el !== target && target.contains(el)) {
           const xpath = getXPath(el);
           if (!disabled.has(xpath)) {
             return true;
@@ -461,7 +501,7 @@
     return elements;
   }
 
-  function collectDefaultExcludedElements(config) {
+  function collectDefaultExcludedElements(config, toggleableTargets) {
     const toggleable = new Set();
     const immutable = new Set();
     const all = new Set();
@@ -471,6 +511,9 @@
     ).join(",");
     if (immutableSelector) {
       document.querySelectorAll(immutableSelector).forEach((el) => {
+        if (!isVisible(el)) {
+          return;
+        }
         immutable.add(el);
         all.add(el);
       });
@@ -479,6 +522,9 @@
     for (const selector of HARD_EXCLUDED_SELECTORS) {
       try {
         document.querySelectorAll(selector).forEach((el) => {
+          if (!isVisible(el)) {
+            return;
+          }
           immutable.add(el);
           all.add(el);
         });
@@ -487,22 +533,10 @@
       }
     }
 
-    if (TOGGLEABLE_TAG_SELECTOR && config) {
-      document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
-        if (isWithinHardExcluded(heading)) {
-          return;
-        }
-        if (isMarkableElement(heading, config)) {
-          toggleable.add(heading);
-          all.add(heading);
-          return;
-        }
-        heading.querySelectorAll("*").forEach((child) => {
-          if (isMarkableElement(child, config)) {
-            toggleable.add(child);
-            all.add(child);
-          }
-        });
+    if (toggleableTargets) {
+      toggleableTargets.forEach((el) => {
+        toggleable.add(el);
+        all.add(el);
       });
     }
 
@@ -514,29 +548,16 @@
       return [];
     }
     const results = new Map();
-    document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
-      if (isWithinHardExcluded(heading)) {
+    const toggleableTargets = collectHeadingToggleableTargets(config);
+    toggleableTargets.forEach((el) => {
+      const xpath = getXPath(el);
+      if (!xpath || results.has(xpath)) {
         return;
       }
-      const candidates = [];
-      if (isMarkableElement(heading, config)) {
-        candidates.push(heading);
-      }
-      heading.querySelectorAll("*").forEach((child) => {
-        if (isMarkableElement(child, config)) {
-          candidates.push(child);
-        }
-      });
-      candidates.forEach((el) => {
-        const xpath = getXPath(el);
-        if (!xpath || results.has(xpath)) {
-          return;
-        }
-        const text = (el.innerText || "").trim();
-        results.set(xpath, {
-          xpath,
-          text: text || el.tagName.toLowerCase()
-        });
+      const text = (el.innerText || "").trim();
+      results.set(xpath, {
+        xpath,
+        text: text || el.tagName.toLowerCase()
       });
     });
 
@@ -585,6 +606,10 @@
       #markcontit-overlay .mc-hover {
         border: 2px solid #ffb300;
         background: rgba(255, 179, 0, 0.1);
+      }
+      #markcontit-overlay .mc-focus {
+        border: 3px solid #00acc1;
+        background: rgba(0, 172, 193, 0.12);
       }
       #markcontit-overlay .mc-hard-toggle {
         border: 2px solid #b71c1c;
@@ -647,6 +672,7 @@
       "ai-exclude",
       "ai-include",
       "default",
+      "focus",
       "hover"
     ];
 
@@ -663,6 +689,12 @@
     hoverBox.style.display = "none";
     state.layers.hover.appendChild(hoverBox);
     state.hoverBox = hoverBox;
+
+    const focusBox = document.createElement("div");
+    focusBox.className = "mc-rect mc-focus";
+    focusBox.style.display = "none";
+    state.layers.focus.appendChild(focusBox);
+    state.focusBox = focusBox;
 
     const toast = document.createElement("div");
     toast.className = "mc-toast";
@@ -691,6 +723,8 @@
       state.overlay = null;
       state.layers = {};
       state.hoverBox = null;
+      state.focusBox = null;
+      state.focusElement = null;
       state.toast = null;
     }
     window.removeEventListener("keydown", handleKeydown, true);
@@ -724,6 +758,34 @@
         state.toast.classList.remove("mc-toast-show");
       }
     }, 1800);
+  }
+
+  function updateFocusHighlight() {
+    if (!state.focusBox) {
+      return;
+    }
+    if (!state.focusElement) {
+      state.focusBox.style.display = "none";
+      return;
+    }
+    const rect = getVisibleRect(state.focusElement);
+    if (!rect) {
+      state.focusBox.style.display = "none";
+      return;
+    }
+    state.focusBox.style.display = "block";
+    state.focusBox.style.top = `${rect.top}px`;
+    state.focusBox.style.left = `${rect.left}px`;
+    state.focusBox.style.width = `${rect.width}px`;
+    state.focusBox.style.height = `${rect.height}px`;
+  }
+
+  function clearFocusHighlight() {
+    if (!state.focusElement) {
+      return;
+    }
+    state.focusElement = null;
+    updateFocusHighlight();
   }
 
   function getTargetElement(x, y) {
@@ -868,7 +930,7 @@
     };
 
     let addedExclude = false;
-    const isToggleable = isToggleableDefaultTarget(target);
+    const isToggleable = isToggleableDefaultTarget(target, config);
     if (isToggleable) {
       const wasDisabled = toggleDisabled.has(xpath);
       if (wasDisabled) {
@@ -910,6 +972,12 @@
     }
     event.preventDefault();
     event.stopPropagation();
+    if (state.focusElement) {
+      const rawTarget = getTargetElement(event.clientX, event.clientY);
+      if (!rawTarget || !state.focusElement.contains(rawTarget)) {
+        clearFocusHighlight();
+      }
+    }
     const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
       toggleExplicit(target);
@@ -922,6 +990,12 @@
     }
     event.preventDefault();
     event.stopPropagation();
+    if (state.focusElement) {
+      const rawTarget = getTargetElement(event.clientX, event.clientY);
+      if (!rawTarget || !state.focusElement.contains(rawTarget)) {
+        clearFocusHighlight();
+      }
+    }
     const target = getMarkableTarget(event.clientX, event.clientY);
     if (target) {
       toggleExplicit(target);
@@ -995,7 +1069,11 @@
 
     updateOverlayGutter();
 
-    const defaultExcluded = collectDefaultExcludedElements(state.config);
+    state.headingToggleableTargets = collectHeadingToggleableTargets(state.config);
+    const defaultExcluded = collectDefaultExcludedElements(
+      state.config,
+      state.headingToggleableTargets
+    );
     const immutableExcluded = defaultExcluded.immutable;
     const disabledToggleable = collectXPathElements(
       state.config.defaultToggleExclusionsDisabled
@@ -1094,6 +1172,8 @@
         }
       });
     }
+
+    updateFocusHighlight();
   }
 
   function startObservers() {
@@ -1199,6 +1279,13 @@
       return;
     }
 
+    if (message.type === "forceRefresh") {
+      refreshFromTabState().then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
+
     if (message.type === "collectPageData") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
@@ -1225,6 +1312,30 @@
       return true;
     }
 
+    if (message.type === "filterXPathsOnPage") {
+      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
+      const filtered = xpaths.filter((xpath) => {
+        const el = getElementFromXPath(xpath);
+        return el && isVisible(el);
+      });
+      sendResponse({ xpaths: filtered });
+      return;
+    }
+
+    if (message.type === "focusElement") {
+      const xpath = message.xpath || "";
+      const target = xpath ? getElementFromXPath(xpath) : null;
+      if (!target) {
+        sendResponse({ ok: false });
+        return;
+      }
+      state.focusElement = target;
+      target.scrollIntoView({ block: "center", inline: "center" });
+      scheduleRender();
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === "toggleHeadingDefault") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       const xpath = message.xpath || "";
@@ -1234,7 +1345,7 @@
       }
       loadConfig(targetBaseUrl).then(async (config) => {
         const target = getElementFromXPath(xpath);
-        if (!target || !isToggleableDefaultTarget(target)) {
+        if (!target || !isToggleableDefaultTarget(target, config)) {
           sendResponse({ ok: false });
           return;
         }

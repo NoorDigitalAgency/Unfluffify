@@ -18,8 +18,9 @@
 body {
   margin: 0;
   padding: 14px;
-  min-width: 500px;
-  max-width: 1000px;
+  min-width: 415px;
+  max-width: 415px;
+  width: 415px;
   font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
   color: var(--ink);
   background: radial-gradient(circle at top, var(--bg-accent), var(--bg));
@@ -140,11 +141,15 @@ button:hover {
 
 .list li span {
   display: block;
-  max-width: 250px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: "Courier New", Courier, monospace;
+}
+
+.list li span:not(.status) {
+  flex: 1;
 }
 
 .list li .status {

@@ -67,3 +67,21 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   chrome.storage.session.remove(key);
 });
+
+chrome.runtime.onInstalled.addListener(() => {
+  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.id) {
+    chrome.sidePanel.open({ tabId: tab.id });
+  }
+});

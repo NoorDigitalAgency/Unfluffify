@@ -4,11 +4,14 @@
   "version": "0.1.0",
   "description": "Chrome extension to label meaningful text content for SEO specialists.",
   "action": {
-    "default_popup": "popup.html",
     "default_title": "MarkContIt"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   },
   "permissions": [
     "storage",
+    "sidePanel",
     "tabs",
     "scripting"
   ],
