@@ -43,7 +43,8 @@ const tabsQuery = (query) =>
 const ui = {
   toggleEnabled: document.getElementById("toggle-enabled"),
   baseUrlInput: document.getElementById("base-url"),
-  tokenInput: document.getElementById("token"),
+  tokenStatus: document.getElementById("token-status"),
+  tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
   exportButton: document.getElementById("export"),
   explicitExcludes: document.getElementById("explicit-excludes"),
@@ -214,6 +215,10 @@ async function sendTabMessageWithRetry(message, attempts = 3) {
   return null;
 }
 
+async function clearFocusedElement() {
+  await sendTabMessage({ type: "clearFocus" });
+}
+
 async function loadActiveTab() {
   const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
   currentTab = tabs[0] || null;
@@ -360,7 +365,9 @@ async function refreshUi() {
   );
 
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
-  ui.tokenInput.value = tokenResult.globalToken || "";
+  const tokenValue = tokenResult.globalToken || "";
+  ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
+  ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
 
   const explicitExclude =
     (currentConfig &&
@@ -404,6 +411,7 @@ async function refreshUi() {
       if (!currentBaseUrl) {
         return;
       }
+      await clearFocusedElement();
       currentConfig = await updateConfig(currentBaseUrl, (config) => {
         config.explicitXPathDecisions.exclude =
           config.explicitXPathDecisions.exclude.filter((item) => item !== value);
@@ -441,6 +449,7 @@ async function refreshUi() {
       if (!currentBaseUrl) {
         return;
       }
+      await clearFocusedElement();
       const response = await sendTabMessage({
         type: "toggleHeadingDefault",
         baseUrl: currentBaseUrl,
@@ -458,6 +467,7 @@ async function refreshUi() {
     if (!currentBaseUrl) {
       return;
     }
+    await clearFocusedElement();
     currentConfig = await updateConfig(currentBaseUrl, (config) => {
       config.domainAiSelectorSet.exclusionSelectors =
         config.domainAiSelectorSet.exclusionSelectors.filter(
@@ -548,9 +558,16 @@ async function handleBaseUrlBlur() {
 }
 
 async function handleTokenBlur() {
-  const token = ui.tokenInput.value.trim();
+  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const existing = tokenResult.globalToken || "";
+  const entered = window.prompt("Enter token", existing);
+  if (entered === null) {
+    return;
+  }
+  const token = entered.trim();
   await storageSet(chrome.storage.sync, { globalToken: token });
-  showToast("Token saved");
+  showToast(token ? "Token saved" : "Token cleared");
+  await refreshUi();
 }
 
 async function requestAiSelectors(payload, token) {
@@ -666,7 +683,7 @@ async function init() {
       ui.baseUrlInput.blur();
     }
   });
-  ui.tokenInput.addEventListener("blur", handleTokenBlur);
+  ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);
 

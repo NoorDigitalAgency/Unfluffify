@@ -1387,6 +1387,12 @@
       return;
     }
 
+    if (message.type === "clearFocus") {
+      clearFocusHighlight();
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === "toggleHeadingDefault") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       const xpath = message.xpath || "";
