@@ -116,23 +116,43 @@
   async function loadConfig(baseUrl) {
     const result = await storageGet("configs");
     const configs = result.configs || {};
+    let changed = false;
     if (!configs[baseUrl]) {
       configs[baseUrl] = createDefaultConfig(baseUrl);
-      await storageSet({ configs });
+      changed = true;
+    }
+    if (
+      !configs[baseUrl].explicitXPathDecisions ||
+      !Array.isArray(configs[baseUrl].explicitXPathDecisions.exclude)
+    ) {
+      configs[baseUrl].explicitXPathDecisions = { include: [], exclude: [] };
+      changed = true;
     } else if (
-      configs[baseUrl].explicitXPathDecisions &&
       configs[baseUrl].explicitXPathDecisions.include &&
       configs[baseUrl].explicitXPathDecisions.include.length
     ) {
       configs[baseUrl].explicitXPathDecisions.include = [];
-      await storageSet({ configs });
+      changed = true;
     }
     if (configs[baseUrl].showDefaultHighlights !== true) {
       configs[baseUrl].showDefaultHighlights = true;
-      await storageSet({ configs });
+      changed = true;
     }
     if (!Array.isArray(configs[baseUrl].defaultToggleExclusionsDisabled)) {
       configs[baseUrl].defaultToggleExclusionsDisabled = [];
+      changed = true;
+    }
+    if (
+      !configs[baseUrl].domainAiSelectorSet ||
+      !Array.isArray(configs[baseUrl].domainAiSelectorSet.exclusionSelectors)
+    ) {
+      configs[baseUrl].domainAiSelectorSet = {
+        inclusionSelectors: [],
+        exclusionSelectors: []
+      };
+      changed = true;
+    }
+    if (changed) {
       await storageSet({ configs });
     }
     return configs[baseUrl];
@@ -240,11 +260,11 @@
       if (isWithinHardExcluded(heading)) {
         return;
       }
-      if (isMarkableElement(heading, config)) {
+      if (isTextualContainer(heading)) {
         targets.add(heading);
       }
       heading.querySelectorAll("*").forEach((child) => {
-        if (isMarkableElement(child, config)) {
+        if (!isWithinHardExcluded(child) && isTextualContainer(child)) {
           targets.add(child);
         }
       });
@@ -300,11 +320,8 @@
         }
       }
       const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
-      const toggleableTargets =
-        state.headingToggleableTargets.size > 0
-          ? state.headingToggleableTargets
-          : collectHeadingToggleableTargets(config);
-      for (const el of toggleableTargets) {
+      const toggleableTargets = state.headingToggleableTargets;
+      for (const el of toggleableTargets || []) {
         if (el !== target && target.contains(el)) {
           const xpath = getXPath(el);
           if (!disabled.has(xpath)) {

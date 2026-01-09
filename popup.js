@@ -83,6 +83,44 @@ function createDefaultConfig(baseUrl) {
   };
 }
 
+function normalizeConfig(baseUrl, config) {
+  const normalized = config || createDefaultConfig(baseUrl);
+  let changed = false;
+
+  if (!normalized.explicitXPathDecisions) {
+    normalized.explicitXPathDecisions = { include: [], exclude: [] };
+    changed = true;
+  }
+  if (!Array.isArray(normalized.explicitXPathDecisions.exclude)) {
+    normalized.explicitXPathDecisions.exclude = [];
+    changed = true;
+  }
+  if (!Array.isArray(normalized.explicitXPathDecisions.include)) {
+    normalized.explicitXPathDecisions.include = [];
+    changed = true;
+  }
+  if (!Array.isArray(normalized.defaultToggleExclusionsDisabled)) {
+    normalized.defaultToggleExclusionsDisabled = [];
+    changed = true;
+  }
+  if (
+    !normalized.domainAiSelectorSet ||
+    !Array.isArray(normalized.domainAiSelectorSet.exclusionSelectors)
+  ) {
+    normalized.domainAiSelectorSet = {
+      inclusionSelectors: [],
+      exclusionSelectors: []
+    };
+    changed = true;
+  }
+  if (normalized.showDefaultHighlights !== true) {
+    normalized.showDefaultHighlights = true;
+    changed = true;
+  }
+
+  return { config: normalized, changed };
+}
+
 async function getConfigs() {
   const result = await storageGet(chrome.storage.local, "configs");
   return result.configs || {};
@@ -129,8 +167,9 @@ function parseBaseUrl(value) {
 
 async function ensureConfig(baseUrl) {
   const configs = await getConfigs();
-  if (!configs[baseUrl]) {
-    configs[baseUrl] = createDefaultConfig(baseUrl);
+  const { config, changed } = normalizeConfig(baseUrl, configs[baseUrl]);
+  if (!configs[baseUrl] || changed) {
+    configs[baseUrl] = config;
     await saveConfigs(configs);
   }
   return configs[baseUrl];
@@ -138,7 +177,7 @@ async function ensureConfig(baseUrl) {
 
 async function updateConfig(baseUrl, updater) {
   const configs = await getConfigs();
-  const config = configs[baseUrl] || createDefaultConfig(baseUrl);
+  const { config } = normalizeConfig(baseUrl, configs[baseUrl]);
   updater(config);
   configs[baseUrl] = config;
   await saveConfigs(configs);
@@ -147,6 +186,10 @@ async function updateConfig(baseUrl, updater) {
 
 async function sendTabMessage(message) {
   return new Promise((resolve) => {
+    if (!currentTab || !currentTab.id) {
+      resolve(null);
+      return;
+    }
     chrome.tabs.sendMessage(currentTab.id, message, (response) => {
       if (chrome.runtime.lastError) {
         resolve(null);
@@ -170,6 +213,11 @@ async function sendTabMessageWithRetry(message, attempts = 3) {
   return null;
 }
 
+async function loadActiveTab() {
+  const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
+  currentTab = tabs[0] || null;
+}
+
 async function ensureEnabledOnOpen() {
   if (!currentTab || !currentTab.url) {
     return;
@@ -187,8 +235,9 @@ async function ensureEnabledOnOpen() {
   if (!baseUrl) {
     return;
   }
-  if (!configs[baseUrl]) {
-    configs[baseUrl] = createDefaultConfig(baseUrl);
+  const normalized = normalizeConfig(baseUrl, configs[baseUrl]);
+  if (!configs[baseUrl] || normalized.changed) {
+    configs[baseUrl] = normalized.config;
     await saveConfigs(configs);
   }
   await setTabState(currentTab.id, { enabled: true, baseUrl });
@@ -286,11 +335,16 @@ async function refreshUi() {
   const tabState = await getTabState(currentTab.id);
   const fallbackBaseUrl = findMatchingBaseUrl(currentTab.url, configs);
   currentBaseUrl = tabState.baseUrl || fallbackBaseUrl || "";
-  if (currentBaseUrl && !configs[currentBaseUrl]) {
-    configs[currentBaseUrl] = createDefaultConfig(currentBaseUrl);
-    await saveConfigs(configs);
+  if (currentBaseUrl) {
+    const normalized = normalizeConfig(currentBaseUrl, configs[currentBaseUrl]);
+    if (!configs[currentBaseUrl] || normalized.changed) {
+      configs[currentBaseUrl] = normalized.config;
+      await saveConfigs(configs);
+    }
+    currentConfig = configs[currentBaseUrl];
+  } else {
+    currentConfig = null;
   }
-  currentConfig = currentBaseUrl ? configs[currentBaseUrl] : null;
 
   ui.baseUrlInput.value = currentBaseUrl;
   ui.toggleEnabled.checked = Boolean(
@@ -304,9 +358,15 @@ async function refreshUi() {
   ui.tokenInput.value = tokenResult.globalToken || "";
 
   const explicitExclude =
-    (currentConfig && currentConfig.explicitXPathDecisions.exclude) || [];
+    (currentConfig &&
+      currentConfig.explicitXPathDecisions &&
+      currentConfig.explicitXPathDecisions.exclude) ||
+    [];
   const aiExclude =
-    (currentConfig && currentConfig.domainAiSelectorSet.exclusionSelectors) || [];
+    (currentConfig &&
+      currentConfig.domainAiSelectorSet &&
+      currentConfig.domainAiSelectorSet.exclusionSelectors) ||
+    [];
 
   let pageExplicitExclude = explicitExclude;
   if (currentBaseUrl) {
@@ -402,6 +462,7 @@ async function refreshUi() {
 }
 
 async function handleEnableToggle() {
+  await loadActiveTab();
   if (!currentTab) {
     return;
   }
@@ -435,6 +496,7 @@ async function handleEnableToggle() {
 }
 
 async function handleBaseUrlBlur() {
+  await loadActiveTab();
   if (!currentTab) {
     return;
   }
@@ -494,6 +556,7 @@ async function requestAiSelectors(payload, token) {
 }
 
 async function handleComputeSelectors() {
+  await loadActiveTab();
   if (!currentTab) {
     return;
   }
@@ -538,22 +601,29 @@ async function handleComputeSelectors() {
 }
 
 async function handleExportJson() {
+  await loadActiveTab();
   if (!currentBaseUrl || !currentConfig) {
     showToast("Set a base URL scope first");
     return;
   }
 
   const defaultExclusions = HARD_EXCLUDED_TAGS.concat(HARD_EXCLUDED_SELECTORS);
+  const explicitExcludes =
+    (currentConfig.explicitXPathDecisions &&
+      currentConfig.explicitXPathDecisions.exclude) ||
+    [];
+  const aiExcludes =
+    (currentConfig.domainAiSelectorSet &&
+      currentConfig.domainAiSelectorSet.exclusionSelectors) ||
+    [];
   const payload = {
     baseUrl: currentConfig.baseUrl || "",
     domain: currentConfig.domain || "",
     defaultExclusions: defaultExclusions.join("\n"),
     xpathsInclude: "",
-    xpathsExclude: (currentConfig.explicitXPathDecisions.exclude || []).join("\n"),
+    xpathsExclude: explicitExcludes.join("\n"),
     aiInclusions: "",
-    aiExclusions: (currentConfig.domainAiSelectorSet.exclusionSelectors || []).join(
-      "\n"
-    )
+    aiExclusions: aiExcludes.join("\n")
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -568,8 +638,7 @@ async function handleExportJson() {
 }
 
 async function init() {
-  const tabs = await tabsQuery({ active: true, currentWindow: true });
-  currentTab = tabs[0] || null;
+  await loadActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
   ui.baseUrlInput.addEventListener("blur", handleBaseUrlBlur);
@@ -581,6 +650,21 @@ async function init() {
   ui.tokenInput.addEventListener("blur", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);
+
+  chrome.tabs.onActivated.addListener(async () => {
+    await loadActiveTab();
+    await refreshUi();
+  });
+
+  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (!currentTab || tabId !== currentTab.id) {
+      return;
+    }
+    if (changeInfo.url || changeInfo.status === "complete") {
+      currentTab = tab;
+      await refreshUi();
+    }
+  });
 
   await ensureEnabledOnOpen();
   await refreshUi();
