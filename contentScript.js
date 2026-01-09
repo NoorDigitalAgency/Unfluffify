@@ -198,38 +198,52 @@
     return false;
   }
 
-  function hasExcludedDescendant(target, config) {
+  function hasExcludedDescendant(
+    target,
+    config,
+    {
+      includeHardExcludes = true,
+      includeExplicitExcludes = true,
+      includeAiExcludes = true
+    } = {}
+  ) {
     if (!target || !config) {
       return false;
     }
-    const tagSelector = HARD_EXCLUDED_TAGS.map((tag) => tag.toLowerCase()).join(
-      ","
-    );
-    if (tagSelector && target.querySelector(tagSelector)) {
-      return true;
-    }
-    for (const selector of HARD_EXCLUDED_SELECTORS) {
-      try {
-        if (target.querySelector(selector)) {
-          return true;
-        }
-      } catch (error) {
-        continue;
-      }
-    }
-    for (const xpath of config.explicitXPathDecisions.exclude || []) {
-      const excludedEl = getElementFromXPath(xpath);
-      if (excludedEl && excludedEl !== target && target.contains(excludedEl)) {
+    if (includeHardExcludes) {
+      const tagSelector = HARD_EXCLUDED_TAGS.map((tag) =>
+        tag.toLowerCase()
+      ).join(",");
+      if (tagSelector && target.querySelector(tagSelector)) {
         return true;
       }
+      for (const selector of HARD_EXCLUDED_SELECTORS) {
+        try {
+          if (target.querySelector(selector)) {
+            return true;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
     }
-    for (const selector of config.domainAiSelectorSet.exclusionSelectors || []) {
-      try {
-        if (target.querySelector(selector)) {
+    if (includeExplicitExcludes) {
+      for (const xpath of config.explicitXPathDecisions.exclude || []) {
+        const excludedEl = getElementFromXPath(xpath);
+        if (excludedEl && excludedEl !== target && target.contains(excludedEl)) {
           return true;
         }
-      } catch (error) {
-        continue;
+      }
+    }
+    if (includeAiExcludes) {
+      for (const selector of config.domainAiSelectorSet.exclusionSelectors || []) {
+        try {
+          if (target.querySelector(selector)) {
+            return true;
+          }
+        } catch (error) {
+          continue;
+        }
       }
     }
     return false;
@@ -629,7 +643,11 @@
     if (isWithinHardExcluded(el)) {
       return false;
     }
-    if (hasExcludedDescendant(el, config)) {
+    if (
+      hasExcludedDescendant(el, config, {
+        includeExplicitExcludes: false
+      })
+    ) {
       return false;
     }
     return true;
@@ -755,7 +773,11 @@
       if (include.has(xpath)) {
         include.delete(xpath);
       } else {
-        if (hasExcludedDescendant(target, config)) {
+        if (
+          hasExcludedDescendant(target, config, {
+            includeExplicitExcludes: false
+          })
+        ) {
           showToast("Cannot include an element containing excluded blocks");
           return;
         }
