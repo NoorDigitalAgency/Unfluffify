@@ -141,12 +141,12 @@
     return false;
   }
 
-  function hasTextualElementChild(el) {
+  function hasDirectTextChild(el) {
     for (const child of el.children) {
       if (!isVisible(child)) {
         continue;
       }
-      if (child.innerText && child.innerText.trim().length > 0) {
+      if (hasDirectText(child)) {
         return true;
       }
     }
@@ -157,15 +157,10 @@
     if (!isVisible(el)) {
       return false;
     }
-    const text = el.innerText;
-    if (!text || !text.trim()) {
+    if (!hasDirectText(el)) {
       return false;
     }
-    const style = window.getComputedStyle(el);
-    if (BLOCKLIKE_DISPLAYS.has(style.display)) {
-      return true;
-    }
-    return hasDirectText(el) && !hasTextualElementChild(el);
+    return !hasDirectTextChild(el);
   }
 
   function matchesHardExcluded(el) {
