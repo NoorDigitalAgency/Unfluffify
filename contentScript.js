@@ -1,12 +1,15 @@
 (() => {
-  const HARD_EXCLUDED_TAGS = [
-    "IMG",
+  const DEFAULT_EXCLUDED_TAGS_TOGGLEABLE = [
     "H1",
     "H2",
     "H3",
     "H4",
     "H5",
-    "H6",
+    "H6"
+  ];
+
+  const DEFAULT_EXCLUDED_TAGS_IMMUTABLE = [
+    "IMG",
     "FOOTER",
     "FORM",
     "BUTTON",
@@ -21,6 +24,15 @@
     "TITLE",
     "STYLE"
   ];
+
+  const DEFAULT_EXCLUDED_TAGS = [
+    ...DEFAULT_EXCLUDED_TAGS_TOGGLEABLE,
+    ...DEFAULT_EXCLUDED_TAGS_IMMUTABLE
+  ];
+
+  const TOGGLEABLE_TAG_SELECTOR = DEFAULT_EXCLUDED_TAGS_TOGGLEABLE.map((tag) =>
+    tag.toLowerCase()
+  ).join(",");
 
   const HARD_EXCLUDED_SELECTORS = [
     "[aria-hidden='true']",
@@ -90,6 +102,7 @@
         include: [],
         exclude: []
       },
+      defaultToggleExclusionsDisabled: [],
       domainAiSelectorSet: {
         inclusionSelectors: [],
         exclusionSelectors: []
@@ -109,6 +122,10 @@
       configs[baseUrl].explicitXPathDecisions.include.length
     ) {
       configs[baseUrl].explicitXPathDecisions.include = [];
+      await storageSet({ configs });
+    }
+    if (!Array.isArray(configs[baseUrl].defaultToggleExclusionsDisabled)) {
+      configs[baseUrl].defaultToggleExclusionsDisabled = [];
       await storageSet({ configs });
     }
     return configs[baseUrl];
@@ -170,11 +187,11 @@
     return !hasDirectTextChild(el);
   }
 
-  function matchesHardExcluded(el) {
+  function matchesImmutableExcluded(el) {
     if (!el || el.nodeType !== 1) {
       return false;
     }
-    if (HARD_EXCLUDED_TAGS.includes(el.tagName)) {
+    if (DEFAULT_EXCLUDED_TAGS_IMMUTABLE.includes(el.tagName)) {
       return true;
     }
     for (const selector of HARD_EXCLUDED_SELECTORS) {
@@ -189,10 +206,27 @@
     return false;
   }
 
+  function isToggleableDefaultTarget(el) {
+    if (!el || el.nodeType !== 1) {
+      return false;
+    }
+    if (!TOGGLEABLE_TAG_SELECTOR) {
+      return false;
+    }
+    const heading = el.closest(TOGGLEABLE_TAG_SELECTOR);
+    if (!heading) {
+      return false;
+    }
+    if (isWithinHardExcluded(heading)) {
+      return false;
+    }
+    return true;
+  }
+
   function isWithinHardExcluded(el) {
     let node = el;
     while (node && node.nodeType === 1) {
-      if (matchesHardExcluded(node)) {
+      if (matchesImmutableExcluded(node)) {
         return true;
       }
       node = node.parentElement;
@@ -213,10 +247,10 @@
       return false;
     }
     if (includeHardExcludes) {
-      const tagSelector = HARD_EXCLUDED_TAGS.map((tag) =>
+      const immutableSelector = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
         tag.toLowerCase()
       ).join(",");
-      if (tagSelector && target.querySelector(tagSelector)) {
+      if (immutableSelector && target.querySelector(immutableSelector)) {
         return true;
       }
       for (const selector of HARD_EXCLUDED_SELECTORS) {
@@ -226,6 +260,16 @@
           }
         } catch (error) {
           continue;
+        }
+      }
+      if (TOGGLEABLE_TAG_SELECTOR) {
+        const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
+        const toggleableEls = target.querySelectorAll(TOGGLEABLE_TAG_SELECTOR);
+        for (const el of toggleableEls) {
+          const xpath = getXPath(el);
+          if (!disabled.has(xpath)) {
+            return true;
+          }
         }
       }
     }
@@ -417,20 +461,52 @@
     return elements;
   }
 
-  function collectHardExcludedElements() {
-    const elements = new Set();
-    const tagSelector = HARD_EXCLUDED_TAGS.map((tag) => tag.toLowerCase()).join(",");
-    if (tagSelector) {
-      document.querySelectorAll(tagSelector).forEach((el) => elements.add(el));
+  function collectDefaultExcludedElements(config) {
+    const toggleable = new Set();
+    const immutable = new Set();
+    const all = new Set();
+
+    const immutableSelector = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
+      tag.toLowerCase()
+    ).join(",");
+    if (immutableSelector) {
+      document.querySelectorAll(immutableSelector).forEach((el) => {
+        immutable.add(el);
+        all.add(el);
+      });
     }
+
     for (const selector of HARD_EXCLUDED_SELECTORS) {
       try {
-        document.querySelectorAll(selector).forEach((el) => elements.add(el));
+        document.querySelectorAll(selector).forEach((el) => {
+          immutable.add(el);
+          all.add(el);
+        });
       } catch (error) {
         continue;
       }
     }
-    return elements;
+
+    if (TOGGLEABLE_TAG_SELECTOR && config) {
+      document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
+        if (isWithinHardExcluded(heading)) {
+          return;
+        }
+        if (isMarkableElement(heading, config)) {
+          toggleable.add(heading);
+          all.add(heading);
+          return;
+        }
+        heading.querySelectorAll("*").forEach((child) => {
+          if (isMarkableElement(child, config)) {
+            toggleable.add(child);
+            all.add(child);
+          }
+        });
+      });
+    }
+
+    return { toggleable, immutable, all };
   }
 
   function createOverlay() {
@@ -472,9 +548,13 @@
         border: 2px solid #ffb300;
         background: rgba(255, 179, 0, 0.1);
       }
-      #markcontit-overlay .mc-hard {
+      #markcontit-overlay .mc-hard-toggle {
         border: 2px solid #b71c1c;
         background: rgba(183, 28, 28, 0.12);
+      }
+      #markcontit-overlay .mc-hard-locked {
+        border: 2px dashed #9c6b6b;
+        background: rgba(183, 28, 28, 0.08);
       }
       #markcontit-overlay .mc-default {
         border: 1px solid #2e7d32;
@@ -731,6 +811,9 @@
 
     const config = await loadConfig(state.baseUrl);
     const exclude = new Set(config.explicitXPathDecisions.exclude || []);
+    const toggleDisabled = new Set(
+      config.defaultToggleExclusionsDisabled || []
+    );
     const cleanupHierarchy = (currentXPath) => {
       Array.from(exclude).forEach((existingXPath) => {
         if (existingXPath === currentXPath) {
@@ -747,21 +830,36 @@
     };
 
     let addedExclude = false;
-    if (exclude.has(xpath)) {
+    const isToggleable = isToggleableDefaultTarget(target);
+    if (isToggleable) {
+      const wasDisabled = toggleDisabled.has(xpath);
+      if (wasDisabled) {
+        toggleDisabled.delete(xpath);
+        addedExclude = true;
+      } else {
+        toggleDisabled.add(xpath);
+      }
       exclude.delete(xpath);
+      if (addedExclude) {
+        cleanupHierarchy(xpath);
+      }
     } else {
-      exclude.add(xpath);
-      addedExclude = true;
-    }
-
-    if (addedExclude) {
-      cleanupHierarchy(xpath);
+      if (exclude.has(xpath)) {
+        exclude.delete(xpath);
+      } else {
+        exclude.add(xpath);
+        addedExclude = true;
+      }
+      if (addedExclude) {
+        cleanupHierarchy(xpath);
+      }
     }
 
     config.explicitXPathDecisions = {
       include: [],
       exclude: Array.from(exclude)
     };
+    config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
 
     await saveConfig(state.baseUrl, config);
     state.config = config;
@@ -859,7 +957,20 @@
 
     updateOverlayGutter();
 
-    const hardExcluded = collectHardExcludedElements();
+    const defaultExcluded = collectDefaultExcludedElements(state.config);
+    const immutableExcluded = defaultExcluded.immutable;
+    const disabledToggleable = collectXPathElements(
+      state.config.defaultToggleExclusionsDisabled
+    );
+    const toggleableExcluded = new Set(
+      Array.from(defaultExcluded.toggleable).filter(
+        (el) => !disabledToggleable.has(el)
+      )
+    );
+    const allDefaultExcluded = new Set([
+      ...immutableExcluded,
+      ...toggleableExcluded
+    ]);
     const explicitExclude = collectXPathElements(
       state.config.explicitXPathDecisions.exclude
     );
@@ -882,17 +993,27 @@
     clearLayer(layerDefault);
 
     const hasHigherPrecedence = (el) =>
-      hardExcluded.has(el) || explicitExclude.has(el) || aiExclude.has(el);
+      allDefaultExcluded.has(el) || explicitExclude.has(el) || aiExclude.has(el);
 
-    hardExcluded.forEach((el) => {
+    immutableExcluded.forEach((el) => {
       const rect = getVisibleRect(el);
       if (rect) {
-        drawRect(layerHard, rect, "mc-hard");
+        drawRect(layerHard, rect, "mc-hard-locked");
       }
     });
 
     explicitExclude.forEach((el) => {
-      if (hardExcluded.has(el)) {
+      if (immutableExcluded.has(el)) {
+        return;
+      }
+      const rect = getVisibleRect(el);
+      if (rect) {
+        drawRect(layerExplicitExclude, rect, "mc-explicit-exclude");
+      }
+    });
+
+    toggleableExcluded.forEach((el) => {
+      if (explicitExclude.has(el)) {
         return;
       }
       const rect = getVisibleRect(el);
@@ -902,7 +1023,7 @@
     });
 
     aiExclude.forEach((el) => {
-      if (hardExcluded.has(el) || explicitExclude.has(el)) {
+      if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
         return;
       }
       const rect = getVisibleRect(el);
@@ -913,18 +1034,18 @@
 
     if (state.config.showDefaultHighlights) {
       const precedenceSet = new Set([
-        ...hardExcluded,
+        ...allDefaultExcluded,
         ...explicitExclude,
         ...aiExclude
       ]);
       const excludedSet = new Set([
-        ...hardExcluded,
+        ...allDefaultExcluded,
         ...explicitExclude,
         ...aiExclude
       ]);
       const defaultTargets = collectDefaultHighlightTargets(document.body, {
         excludedSet,
-        hardExcludedSet: hardExcluded,
+        hardExcludedSet: allDefaultExcluded,
         hasHigherPrecedence,
         precedenceSet
       });
@@ -1048,7 +1169,7 @@
           pageUrl: location.href,
           fullHtml: document.documentElement.outerHTML,
           defaultExclusions: {
-            tags: HARD_EXCLUDED_TAGS,
+            tags: DEFAULT_EXCLUDED_TAGS,
             selectors: HARD_EXCLUDED_SELECTORS
           },
           xpathsInclude: [],
