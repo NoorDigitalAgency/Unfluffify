@@ -132,16 +132,40 @@
     return true;
   }
 
+  function hasDirectText(el) {
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasTextualElementChild(el) {
+    for (const child of el.children) {
+      if (!isVisible(child)) {
+        continue;
+      }
+      if (child.innerText && child.innerText.trim().length > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function isTextualContainer(el) {
     if (!isVisible(el)) {
       return false;
     }
-    const style = window.getComputedStyle(el);
-    if (!BLOCKLIKE_DISPLAYS.has(style.display)) {
+    const text = el.innerText;
+    if (!text || !text.trim()) {
       return false;
     }
-    const text = el.innerText;
-    return Boolean(text && text.trim().length > 0);
+    const style = window.getComputedStyle(el);
+    if (BLOCKLIKE_DISPLAYS.has(style.display)) {
+      return true;
+    }
+    return hasDirectText(el) && !hasTextualElementChild(el);
   }
 
   function matchesHardExcluded(el) {
@@ -644,8 +668,35 @@
     const config = await loadConfig(state.baseUrl);
     const include = new Set(config.explicitXPathDecisions.include || []);
     const exclude = new Set(config.explicitXPathDecisions.exclude || []);
+    const cleanupHierarchy = (currentXPath) => {
+      Array.from(include).forEach((existingXPath) => {
+        if (existingXPath === currentXPath) {
+          return;
+        }
+        const existingEl = getElementFromXPath(existingXPath);
+        if (!existingEl) {
+          return;
+        }
+        if (existingEl.contains(target) || target.contains(existingEl)) {
+          include.delete(existingXPath);
+        }
+      });
+      Array.from(exclude).forEach((existingXPath) => {
+        if (existingXPath === currentXPath) {
+          return;
+        }
+        const existingEl = getElementFromXPath(existingXPath);
+        if (!existingEl) {
+          return;
+        }
+        if (existingEl.contains(target) || target.contains(existingEl)) {
+          exclude.delete(existingXPath);
+        }
+      });
+    };
 
     let addedInclude = false;
+    let addedExclude = false;
     if (type === "include") {
       if (include.has(xpath)) {
         include.delete(xpath);
@@ -664,22 +715,12 @@
       } else {
         exclude.add(xpath);
         include.delete(xpath);
+        addedExclude = true;
       }
     }
 
-    if (addedInclude) {
-      Array.from(include).forEach((existingXPath) => {
-        if (existingXPath === xpath) {
-          return;
-        }
-        const existingEl = getElementFromXPath(existingXPath);
-        if (!existingEl) {
-          return;
-        }
-        if (existingEl.contains(target) || target.contains(existingEl)) {
-          include.delete(existingXPath);
-        }
-      });
+    if (addedInclude || addedExclude) {
+      cleanupHierarchy(xpath);
     }
 
     config.explicitXPathDecisions = {
