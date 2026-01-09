@@ -673,7 +673,10 @@
           return;
         }
         const existingEl = getElementFromXPath(existingXPath);
-        if (existingEl && existingEl.contains(target)) {
+        if (!existingEl) {
+          return;
+        }
+        if (existingEl.contains(target) || target.contains(existingEl)) {
           include.delete(existingXPath);
         }
       });
