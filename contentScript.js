@@ -509,6 +509,44 @@
     return { toggleable, immutable, all };
   }
 
+  function collectHeadingDefaultStatus(config) {
+    if (!config || !TOGGLEABLE_TAG_SELECTOR) {
+      return [];
+    }
+    const results = new Map();
+    document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
+      if (isWithinHardExcluded(heading)) {
+        return;
+      }
+      const candidates = [];
+      if (isMarkableElement(heading, config)) {
+        candidates.push(heading);
+      }
+      heading.querySelectorAll("*").forEach((child) => {
+        if (isMarkableElement(child, config)) {
+          candidates.push(child);
+        }
+      });
+      candidates.forEach((el) => {
+        const xpath = getXPath(el);
+        if (!xpath || results.has(xpath)) {
+          return;
+        }
+        const text = (el.innerText || "").trim();
+        results.set(xpath, {
+          xpath,
+          text: text || el.tagName.toLowerCase()
+        });
+      });
+    });
+
+    const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
+    return Array.from(results.values()).map((item) => ({
+      ...item,
+      excluded: !disabled.has(item.xpath)
+    }));
+  }
+
   function createOverlay() {
     if (state.overlay) {
       return;
@@ -1175,6 +1213,46 @@
           xpathsInclude: [],
           xpathsExclude: config.explicitXPathDecisions.exclude
         });
+      });
+      return true;
+    }
+
+    if (message.type === "getHeadingDefaultStatus") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      loadConfig(targetBaseUrl).then((config) => {
+        sendResponse({ items: collectHeadingDefaultStatus(config) });
+      });
+      return true;
+    }
+
+    if (message.type === "toggleHeadingDefault") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      const xpath = message.xpath || "";
+      if (!xpath) {
+        sendResponse({ ok: false });
+        return;
+      }
+      loadConfig(targetBaseUrl).then(async (config) => {
+        const target = getElementFromXPath(xpath);
+        if (!target || !isToggleableDefaultTarget(target)) {
+          sendResponse({ ok: false });
+          return;
+        }
+        const toggleDisabled = new Set(
+          config.defaultToggleExclusionsDisabled || []
+        );
+        if (toggleDisabled.has(xpath)) {
+          toggleDisabled.delete(xpath);
+        } else {
+          toggleDisabled.add(xpath);
+        }
+        config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
+        await saveConfig(targetBaseUrl, config);
+        if (state.baseUrl === targetBaseUrl) {
+          state.config = config;
+          scheduleRender();
+        }
+        sendResponse({ ok: true });
       });
       return true;
     }

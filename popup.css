@@ -147,6 +147,13 @@ button:hover {
   font-family: "Courier New", Courier, monospace;
 }
 
+.list li .status {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .list li button {
   padding: 4px 8px;
   border-radius: 6px;

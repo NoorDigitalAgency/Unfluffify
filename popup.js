@@ -48,6 +48,7 @@ const ui = {
   computeButton: document.getElementById("compute"),
   exportButton: document.getElementById("export"),
   explicitExcludes: document.getElementById("explicit-excludes"),
+  headingDefaults: document.getElementById("heading-defaults"),
   aiExcludes: document.getElementById("ai-excludes"),
   toast: document.getElementById("toast")
 };
@@ -174,6 +175,32 @@ function renderList(listEl, items, emptyText, onRemove) {
   });
 }
 
+function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
+  listEl.textContent = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = emptyText;
+    listEl.appendChild(li);
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.textContent = item.text;
+    const status = document.createElement("span");
+    status.className = "status";
+    status.textContent = item.excluded ? "Excluded" : "Included";
+    const button = document.createElement("button");
+    button.textContent = item.excluded ? "Allow" : "Exclude";
+    button.addEventListener("click", () => onToggle(item));
+    li.appendChild(text);
+    li.appendChild(status);
+    li.appendChild(button);
+    listEl.appendChild(li);
+  });
+}
+
 async function refreshUi() {
   if (!currentTab) {
     return;
@@ -224,6 +251,37 @@ async function refreshUi() {
       });
       await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
       refreshUi();
+    }
+  );
+
+  let headingDefaults = [];
+  if (currentBaseUrl) {
+    const response = await sendTabMessage({
+      type: "getHeadingDefaultStatus",
+      baseUrl: currentBaseUrl
+    });
+    if (response && Array.isArray(response.items)) {
+      headingDefaults = response.items;
+    }
+  }
+  renderHeadingDefaults(
+    ui.headingDefaults,
+    headingDefaults,
+    "None yet",
+    async (item) => {
+      if (!currentBaseUrl) {
+        return;
+      }
+      const response = await sendTabMessage({
+        type: "toggleHeadingDefault",
+        baseUrl: currentBaseUrl,
+        xpath: item.xpath
+      });
+      if (!response || !response.ok) {
+        showToast("Unable to update heading");
+        return;
+      }
+      await refreshUi();
     }
   );
 
