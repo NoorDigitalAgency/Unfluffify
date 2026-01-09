@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MarkContIt",
+  "version": "0.1.0",
+  "description": "Chrome extension to label meaningful text content for SEO specialists.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MarkContIt"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "contentScript.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

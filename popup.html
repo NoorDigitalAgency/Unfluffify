@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarkContIt</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="title">MarkContIt</div>
+        <div class="subtitle">Label meaningful text content</div>
+      </header>
+
+      <section class="card">
+        <label class="row">
+          <span>Enable on this tab</span>
+          <input id="toggle-enabled" type="checkbox" />
+        </label>
+        <label class="field">
+          <span>Base URL scope</span>
+          <input id="base-url" type="text" placeholder="https://example.com" />
+        </label>
+        <label class="field">
+          <span>Token</span>
+          <input id="token" type="password" placeholder="Paste token" />
+        </label>
+        <label class="row">
+          <span>Show default highlights</span>
+          <input id="show-default" type="checkbox" />
+        </label>
+      </section>
+
+      <section class="card actions">
+        <button id="compute">Compute selectors</button>
+        <button id="export">Export JSON</button>
+      </section>
+
+      <section class="card">
+        <div class="section-title">Explicit includes</div>
+        <ul id="explicit-includes" class="list"></ul>
+        <div class="section-title">Explicit excludes</div>
+        <ul id="explicit-excludes" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="section-title">Active AI inclusions</div>
+        <ul id="ai-includes" class="list"></ul>
+        <div class="section-title">Active AI exclusions</div>
+        <ul id="ai-excludes" class="list"></ul>
+      </section>
+    </div>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
