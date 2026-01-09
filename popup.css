@@ -18,8 +18,8 @@
 body {
   margin: 0;
   padding: 14px;
-  min-width: 360px;
-  max-width: 420px;
+  min-width: 500px;
+  max-width: 1000px;
   font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
   color: var(--ink);
   background: radial-gradient(circle at top, var(--bg-accent), var(--bg));
