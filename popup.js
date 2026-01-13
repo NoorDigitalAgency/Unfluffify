@@ -46,6 +46,7 @@ const ui = {
   baseUrlInput: document.getElementById("base-url"),
   refreshContext: document.getElementById("refresh-context"),
   baseUrlSet: document.getElementById("base-url-set"),
+  baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
@@ -62,6 +63,7 @@ let currentBaseUrl = "";
 let currentConfig = null;
 let toastTimer = 0;
 let refreshTimer = 0;
+let baseUrlEditMode = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -355,7 +357,7 @@ async function refreshUi() {
     await setTabState(currentTab.id, effectiveTabState);
   }
   const fallbackBaseUrl = findMatchingBaseUrl(pageUrl, configs);
-  currentBaseUrl = fallbackBaseUrl || (effectiveTabState.baseUrl || "");
+  currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (currentBaseUrl) {
     const normalized = normalizeConfig(currentBaseUrl, configs[currentBaseUrl]);
     if (!configs[currentBaseUrl] || normalized.changed) {
@@ -366,8 +368,11 @@ async function refreshUi() {
   } else {
     currentConfig = null;
   }
+  if (!currentBaseUrl) {
+    baseUrlEditMode = false;
+  }
 
-  ui.currentPageUrl.value = pageUrl;
+  ui.currentPageUrl.textContent = pageUrl || "Unavailable";
   let suggestedBaseUrl = "";
   if (pageUrl) {
     try {
@@ -377,13 +382,16 @@ async function refreshUi() {
     }
   }
   const baseUrlSet = Boolean(currentBaseUrl);
-  if (baseUrlSet) {
+  const isEditing = !baseUrlSet || baseUrlEditMode;
+  if (!isEditing) {
     ui.baseUrlInput.value = currentBaseUrl;
   } else if (document.activeElement !== ui.baseUrlInput) {
-    ui.baseUrlInput.value = suggestedBaseUrl;
+    ui.baseUrlInput.value = baseUrlSet ? currentBaseUrl : suggestedBaseUrl;
   }
-  ui.baseUrlInput.readOnly = baseUrlSet;
-  ui.baseUrlSet.style.display = baseUrlSet ? "none" : "inline-flex";
+  ui.baseUrlInput.readOnly = !isEditing;
+  ui.baseUrlSet.style.display = isEditing ? "inline-flex" : "none";
+  ui.baseUrlEdit.style.display = baseUrlSet ? "inline-flex" : "none";
+  ui.baseUrlEdit.textContent = baseUrlEditMode ? "Cancel" : "Change";
   ui.baseUrlNotice.style.display = baseUrlSet ? "none" : "block";
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
@@ -391,9 +399,9 @@ async function refreshUi() {
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
-  ui.toggleEnabled.disabled = !baseUrlSet;
-  ui.computeButton.disabled = !baseUrlSet;
-  ui.exportButton.disabled = !baseUrlSet;
+  ui.toggleEnabled.disabled = !baseUrlSet || baseUrlEditMode;
+  ui.computeButton.disabled = !baseUrlSet || baseUrlEditMode;
+  ui.exportButton.disabled = !baseUrlSet || baseUrlEditMode;
 
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
@@ -578,7 +586,16 @@ async function handleBaseUrlSet() {
   await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
   currentBaseUrl = baseUrlValue;
   currentConfig = await ensureConfig(baseUrlValue);
+  baseUrlEditMode = false;
   await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  await refreshUi();
+}
+
+async function handleBaseUrlEditToggle() {
+  if (!currentBaseUrl) {
+    return;
+  }
+  baseUrlEditMode = !baseUrlEditMode;
   await refreshUi();
 }
 
@@ -597,6 +614,7 @@ async function handleTokenBlur() {
 
 async function handleContextRefresh() {
   await loadActiveTab();
+  baseUrlEditMode = false;
   await refreshUi();
 }
 
@@ -710,6 +728,7 @@ async function init() {
   });
   ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
+  ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);

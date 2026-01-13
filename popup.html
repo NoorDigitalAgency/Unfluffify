@@ -21,7 +21,7 @@
         <label class="field">
           <span>Current Page URL</span>
           <div class="input-row">
-            <input id="current-page-url" type="text" readonly />
+            <div id="current-page-url" class="readout"></div>
             <button id="refresh-context" type="button">Refresh</button>
           </div>
         </label>
@@ -30,6 +30,7 @@
           <div class="input-row">
             <input id="base-url" type="text" placeholder="https://example.com" />
             <button id="base-url-set" type="button">Set</button>
+            <button id="base-url-edit" type="button">Change</button>
           </div>
         </label>
         <div id="base-url-notice" class="notice" role="status" aria-live="polite">
