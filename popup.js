@@ -48,6 +48,7 @@ const ui = {
   baseUrlSet: document.getElementById("base-url-set"),
   baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
+  mainUi: document.getElementById("main-ui"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
@@ -242,16 +243,16 @@ async function ensureEnabledOnOpen() {
   if (!currentTab || !currentTab.url) {
     return;
   }
+  const configs = await getConfigs();
   const tabState = await getTabState(currentTab.id);
-  if (
-    tabState.enabled &&
-    tabState.baseUrl &&
-    currentTab.url.startsWith(tabState.baseUrl)
-  ) {
+  const fallbackBaseUrl = findMatchingBaseUrl(currentTab.url, configs);
+  const baseUrl = tabState.baseUrl || fallbackBaseUrl || "";
+  if (baseUrl && currentTab.url.startsWith(baseUrl)) {
+    await setTabState(currentTab.id, { enabled: true, baseUrl });
     await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
-      baseUrl: tabState.baseUrl
+      baseUrl
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
     return;
@@ -382,6 +383,7 @@ async function refreshUi() {
     }
   }
   const baseUrlSet = Boolean(currentBaseUrl);
+  const baseUrlReady = baseUrlSet && !baseUrlEditMode;
   const isEditing = !baseUrlSet || baseUrlEditMode;
   if (!isEditing) {
     ui.baseUrlInput.value = currentBaseUrl;
@@ -392,16 +394,26 @@ async function refreshUi() {
   ui.baseUrlSet.style.display = isEditing ? "inline-flex" : "none";
   ui.baseUrlEdit.style.display = baseUrlSet ? "inline-flex" : "none";
   ui.baseUrlEdit.textContent = baseUrlEditMode ? "Cancel" : "Change";
-  ui.baseUrlNotice.style.display = baseUrlSet ? "none" : "block";
+  if (!baseUrlSet) {
+    ui.baseUrlNotice.textContent =
+      "Set Base Page URL before enabling marking";
+    ui.baseUrlNotice.style.display = "block";
+  } else if (baseUrlEditMode) {
+    ui.baseUrlNotice.textContent = "Set Base Page URL to continue";
+    ui.baseUrlNotice.style.display = "block";
+  } else {
+    ui.baseUrlNotice.style.display = "none";
+  }
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
-  ui.toggleEnabled.disabled = !baseUrlSet || baseUrlEditMode;
-  ui.computeButton.disabled = !baseUrlSet || baseUrlEditMode;
-  ui.exportButton.disabled = !baseUrlSet || baseUrlEditMode;
+  ui.toggleEnabled.disabled = !baseUrlReady;
+  ui.computeButton.disabled = !baseUrlReady;
+  ui.exportButton.disabled = !baseUrlReady;
+  ui.mainUi.hidden = !baseUrlReady;
 
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
@@ -583,11 +595,16 @@ async function handleBaseUrlSet() {
     return;
   }
   await ensureConfig(baseUrlValue);
-  await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+  await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   currentBaseUrl = baseUrlValue;
   currentConfig = await ensureConfig(baseUrlValue);
   baseUrlEditMode = false;
-  await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  await sendTabMessageWithRetry({
+    type: "setEnabled",
+    enabled: true,
+    baseUrl: baseUrlValue
+  });
+  await sendTabMessageWithRetry({ type: "forceRefresh" });
   await refreshUi();
 }
 
@@ -596,6 +613,27 @@ async function handleBaseUrlEditToggle() {
     return;
   }
   baseUrlEditMode = !baseUrlEditMode;
+  if (baseUrlEditMode) {
+    await loadActiveTab();
+    if (currentTab && currentTab.id) {
+      await setTabState(currentTab.id, {
+        enabled: false,
+        baseUrl: currentBaseUrl
+      });
+      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    }
+  } else if (currentTab && currentTab.url.startsWith(currentBaseUrl)) {
+    await setTabState(currentTab.id, {
+      enabled: true,
+      baseUrl: currentBaseUrl
+    });
+    await sendTabMessageWithRetry({
+      type: "setEnabled",
+      enabled: true,
+      baseUrl: currentBaseUrl
+    });
+    await sendTabMessageWithRetry({ type: "forceRefresh" });
+  }
   await refreshUi();
 }
 

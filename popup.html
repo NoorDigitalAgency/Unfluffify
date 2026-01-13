@@ -14,10 +14,6 @@
       </header>
 
       <section class="card">
-        <label class="row">
-          <span>Enable on this tab</span>
-          <input id="toggle-enabled" type="checkbox" />
-        </label>
         <label class="field">
           <span>Current Page URL</span>
           <div class="input-row">
@@ -36,34 +32,43 @@
         <div id="base-url-notice" class="notice" role="status" aria-live="polite">
           Set Base Page URL before enabling marking
         </div>
-        <label class="field">
-          <span>Token</span>
-          <div class="token-row">
-            <span id="token-status" class="token-status"></span>
-            <button id="token-action" type="button">Set token</button>
-          </div>
-        </label>
       </section>
 
-      <section class="card actions">
-        <button id="compute">Compute selectors</button>
-        <button id="export">Export JSON</button>
-      </section>
+      <div id="main-ui">
+        <section class="card">
+          <label class="row">
+            <span>Enable on this tab</span>
+            <input id="toggle-enabled" type="checkbox" />
+          </label>
+          <label class="field">
+            <span>Token</span>
+            <div class="token-row">
+              <span id="token-status" class="token-status"></span>
+              <button id="token-action" type="button">Set token</button>
+            </div>
+          </label>
+        </section>
 
-      <section class="card">
-        <div class="section-title">Explicit excludes</div>
-        <ul id="explicit-excludes" class="list"></ul>
-      </section>
+        <section class="card actions">
+          <button id="compute">Compute selectors</button>
+          <button id="export">Export JSON</button>
+        </section>
 
-      <section class="card">
-        <div class="section-title">Heading defaults</div>
-        <ul id="heading-defaults" class="list"></ul>
-      </section>
+        <section class="card">
+          <div class="section-title">Explicit excludes</div>
+          <ul id="explicit-excludes" class="list"></ul>
+        </section>
 
-      <section class="card">
-        <div class="section-title">Active AI exclusions</div>
-        <ul id="ai-excludes" class="list"></ul>
-      </section>
+        <section class="card">
+          <div class="section-title">Heading defaults</div>
+          <ul id="heading-defaults" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <div class="section-title">Active AI exclusions</div>
+          <ul id="ai-excludes" class="list"></ul>
+        </section>
+      </div>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
