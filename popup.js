@@ -43,6 +43,7 @@ const tabsQuery = (query) =>
 const ui = {
   toggleEnabled: document.getElementById("toggle-enabled"),
   baseUrlInput: document.getElementById("base-url"),
+  refreshContext: document.getElementById("refresh-context"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
@@ -343,8 +344,14 @@ async function refreshUi() {
   }
   const configs = await getConfigs();
   const tabState = await getTabState(currentTab.id);
-  const fallbackBaseUrl = findMatchingBaseUrl(currentTab.url, configs);
-  currentBaseUrl = tabState.baseUrl || fallbackBaseUrl || "";
+  const pageUrl = currentTab.url || "";
+  let effectiveTabState = tabState;
+  if (tabState.baseUrl && pageUrl && !pageUrl.startsWith(tabState.baseUrl)) {
+    effectiveTabState = { enabled: false, baseUrl: "" };
+    await setTabState(currentTab.id, effectiveTabState);
+  }
+  const fallbackBaseUrl = findMatchingBaseUrl(pageUrl, configs);
+  currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (currentBaseUrl) {
     const normalized = normalizeConfig(currentBaseUrl, configs[currentBaseUrl]);
     if (!configs[currentBaseUrl] || normalized.changed) {
@@ -356,12 +363,20 @@ async function refreshUi() {
     currentConfig = null;
   }
 
-  ui.baseUrlInput.value = currentBaseUrl;
+  let displayBaseUrl = currentBaseUrl;
+  if (!displayBaseUrl && pageUrl) {
+    try {
+      displayBaseUrl = new URL(pageUrl).origin;
+    } catch (error) {
+      displayBaseUrl = "";
+    }
+  }
+  ui.baseUrlInput.value = displayBaseUrl;
   ui.toggleEnabled.checked = Boolean(
-    tabState.enabled &&
-      tabState.baseUrl &&
-      currentTab.url &&
-      currentTab.url.startsWith(tabState.baseUrl)
+    effectiveTabState.enabled &&
+      effectiveTabState.baseUrl &&
+      pageUrl &&
+      pageUrl.startsWith(effectiveTabState.baseUrl)
   );
 
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
@@ -570,6 +585,11 @@ async function handleTokenBlur() {
   await refreshUi();
 }
 
+async function handleContextRefresh() {
+  await loadActiveTab();
+  await refreshUi();
+}
+
 async function requestAiSelectors(payload, token) {
   const headers = { Authorization: `Bearer ${token}` };
   void headers;
@@ -683,6 +703,7 @@ async function init() {
       ui.baseUrlInput.blur();
     }
   });
+  ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);

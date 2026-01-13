@@ -80,6 +80,22 @@ body {
   font-size: 13px;
 }
 
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-row input[type="text"] {
+  flex: 1;
+}
+
+.input-row button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
 .token-row {
   display: flex;
   align-items: center;

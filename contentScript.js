@@ -72,6 +72,9 @@
     toast: null,
     toastHideTimer: 0,
     headingToggleableTargets: new Set(),
+    markIdCounter: 1,
+    markIds: new WeakMap(),
+    markedElements: new Set(),
     renderRaf: 0,
     urlCheckTimer: 0,
     mutationObserver: null
@@ -768,6 +771,7 @@
     if (style) {
       style.remove();
     }
+    clearMarkedElements();
   }
 
   function updateOverlayGutter() {
@@ -824,6 +828,44 @@
     updateFocusHighlight();
   }
 
+  function getMarkId(el) {
+    if (!el || el.nodeType !== 1) {
+      return "";
+    }
+    let id = state.markIds.get(el);
+    if (!id) {
+      id = `mc-${state.markIdCounter}`;
+      state.markIdCounter += 1;
+      state.markIds.set(el, id);
+    }
+    return id;
+  }
+
+  function clearMarkedElements() {
+    if (!state.markedElements) {
+      return;
+    }
+    state.markedElements.forEach((el) => {
+      if (el && el.nodeType === 1) {
+        el.removeAttribute("data-mc-mark-id");
+      }
+    });
+    state.markedElements = new Set();
+  }
+
+  function updateMarkedElements(currentMarked) {
+    if (!currentMarked) {
+      return;
+    }
+    const previous = state.markedElements || new Set();
+    previous.forEach((el) => {
+      if (!currentMarked.has(el) && el && el.nodeType === 1) {
+        el.removeAttribute("data-mc-mark-id");
+      }
+    });
+    state.markedElements = currentMarked;
+  }
+
   function getTargetElement(x, y) {
     const elements = document.elementsFromPoint(x, y);
     for (const el of elements) {
@@ -849,13 +891,6 @@
       return false;
     }
     if (isWithinHardExcluded(el)) {
-      return false;
-    }
-    if (
-      hasExcludedDescendant(el, config, {
-        includeExplicitExcludes: false
-      })
-    ) {
       return false;
     }
     return true;
@@ -1061,13 +1096,26 @@
     }
   }
 
-  function drawRect(layer, rect, className) {
+  function drawRect(layer, rect, className, el, kind, markedSet) {
     const box = document.createElement("div");
     box.className = `mc-rect ${className}`;
     box.style.top = `${rect.top}px`;
     box.style.left = `${rect.left}px`;
     box.style.width = `${rect.width}px`;
     box.style.height = `${rect.height}px`;
+    if (el) {
+      const markId = getMarkId(el);
+      if (markId) {
+        el.setAttribute("data-mc-mark-id", markId);
+        box.dataset.mcMarkId = markId;
+        if (kind) {
+          box.dataset.mcMarkKind = kind;
+        }
+        if (markedSet) {
+          markedSet.add(el);
+        }
+      }
+    }
     layer.appendChild(box);
   }
 
@@ -1126,6 +1174,7 @@
     clearLayer(layerAiExclude);
     clearLayer(layerAiInclude);
     clearLayer(layerDefault);
+    const markedElements = new Set();
 
     const hasHigherPrecedence = (el) =>
       allDefaultExcluded.has(el) || explicitExclude.has(el) || aiExclude.has(el);
@@ -1133,7 +1182,7 @@
     immutableExcluded.forEach((el) => {
       const rect = getVisibleRect(el);
       if (rect) {
-        drawRect(layerHard, rect, "mc-hard-locked");
+        drawRect(layerHard, rect, "mc-hard-locked", el, "immutable", markedElements);
       }
     });
 
@@ -1143,7 +1192,14 @@
       }
       const rect = getVisibleRect(el);
       if (rect) {
-        drawRect(layerExplicitExclude, rect, "mc-explicit-exclude");
+        drawRect(
+          layerExplicitExclude,
+          rect,
+          "mc-explicit-exclude",
+          el,
+          "explicit-exclude",
+          markedElements
+        );
       }
     });
 
@@ -1153,7 +1209,14 @@
       }
       const rect = getVisibleRect(el);
       if (rect) {
-        drawRect(layerExplicitExclude, rect, "mc-explicit-exclude");
+        drawRect(
+          layerExplicitExclude,
+          rect,
+          "mc-explicit-exclude",
+          el,
+          "toggleable-exclude",
+          markedElements
+        );
       }
     });
 
@@ -1163,7 +1226,14 @@
       }
       const rect = getVisibleRect(el);
       if (rect) {
-        drawRect(layerAiExclude, rect, "mc-ai-exclude");
+        drawRect(
+          layerAiExclude,
+          rect,
+          "mc-ai-exclude",
+          el,
+          "ai-exclude",
+          markedElements
+        );
       }
     });
 
@@ -1187,12 +1257,13 @@
       defaultTargets.forEach((el) => {
         const rect = getVisibleRect(el);
         if (rect) {
-          drawRect(layerDefault, rect, "mc-default");
+          drawRect(layerDefault, rect, "mc-default", el, "default", markedElements);
         }
       });
     }
 
     updateFocusHighlight();
+    updateMarkedElements(markedElements);
   }
 
   function startObservers() {
