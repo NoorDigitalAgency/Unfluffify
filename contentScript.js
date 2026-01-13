@@ -109,6 +109,7 @@
         include: [],
         exclude: []
       },
+      pageHtmlSnapshots: {},
       defaultToggleExclusionsDisabled: [],
       domainAiSelectorSet: {
         inclusionSelectors: [],
@@ -154,6 +155,13 @@
         inclusionSelectors: [],
         exclusionSelectors: []
       };
+      changed = true;
+    }
+    if (
+      !configs[baseUrl].pageHtmlSnapshots ||
+      typeof configs[baseUrl].pageHtmlSnapshots !== "object"
+    ) {
+      configs[baseUrl].pageHtmlSnapshots = {};
       changed = true;
     }
     if (changed) {
@@ -889,6 +897,16 @@
     updateFocusHighlight();
   }
 
+  function recordPageSnapshot(config, pageUrl) {
+    if (!config || !pageUrl) {
+      return;
+    }
+    if (!config.pageHtmlSnapshots || typeof config.pageHtmlSnapshots !== "object") {
+      config.pageHtmlSnapshots = {};
+    }
+    config.pageHtmlSnapshots[pageUrl] = document.documentElement.outerHTML;
+  }
+
   function setAltPassThrough(enabled) {
     state.altPassThrough = enabled;
     if (!state.overlay) {
@@ -1098,6 +1116,7 @@
       exclude: Array.from(exclude)
     };
     config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
+    recordPageSnapshot(config, location.href);
 
     await saveConfig(state.baseUrl, config);
     state.config = config;
@@ -1602,10 +1621,28 @@
           toggleDisabled.add(xpath);
         }
         config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
+        recordPageSnapshot(config, location.href);
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
           scheduleRender();
+        }
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
+
+    if (message.type === "capturePageSnapshot") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl) {
+        sendResponse({ ok: false });
+        return;
+      }
+      loadConfig(targetBaseUrl).then(async (config) => {
+        recordPageSnapshot(config, location.href);
+        await saveConfig(targetBaseUrl, config);
+        if (state.baseUrl === targetBaseUrl) {
+          state.config = config;
         }
         sendResponse({ ok: true });
       });

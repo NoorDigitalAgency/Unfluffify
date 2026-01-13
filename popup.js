@@ -81,6 +81,7 @@ function createDefaultConfig(baseUrl) {
     domain,
     showDefaultHighlights: true,
     explicitXPathDecisions: { include: [], exclude: [] },
+    pageHtmlSnapshots: {},
     defaultToggleExclusionsDisabled: [],
     domainAiSelectorSet: { inclusionSelectors: [], exclusionSelectors: [] }
   };
@@ -114,6 +115,13 @@ function normalizeConfig(baseUrl, config) {
       inclusionSelectors: [],
       exclusionSelectors: []
     };
+    changed = true;
+  }
+  if (
+    !normalized.pageHtmlSnapshots ||
+    typeof normalized.pageHtmlSnapshots !== "object"
+  ) {
+    normalized.pageHtmlSnapshots = {};
     changed = true;
   }
   if (normalized.showDefaultHighlights !== true) {
@@ -432,6 +440,7 @@ async function refreshUi() {
           config.explicitXPathDecisions.exclude.filter((item) => item !== value);
       });
       await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+      await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
       refreshUi();
     }
   );
