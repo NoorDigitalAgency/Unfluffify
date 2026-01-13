@@ -6,7 +6,7 @@ Chrome extension (Manifest V3) to label meaningful text content using exclude CS
 
 1. Open Chrome and go to `chrome://extensions`.
 2. Enable **Developer mode** (top right).
-3. Click **Load unpacked** and select this folder: `/home/rojan/Documents/Git/GitHub/MarkContIt`.
+3. Click **Load unpacked** and select this folder: `/path/to/repositories/MarkContIt`.
 4. Pin the extension for quick access.
 
 ## Use
