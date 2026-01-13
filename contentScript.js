@@ -71,6 +71,7 @@
     focusElement: null,
     toast: null,
     toastHideTimer: 0,
+    altPassThrough: false,
     headingToggleableTargets: new Set(),
     markIdCounter: 1,
     markIds: new WeakMap(),
@@ -799,8 +800,13 @@
 
     document.documentElement.appendChild(overlay);
     state.overlay = overlay;
+    if (state.altPassThrough) {
+      setAltPassThrough(true);
+    }
 
     window.addEventListener("keydown", handleKeydown, true);
+    window.addEventListener("click", handleAltClick, true);
+    window.addEventListener("keyup", handleKeyup, true);
     updateOverlayGutter();
   }
 
@@ -819,11 +825,14 @@
       state.toast = null;
     }
     window.removeEventListener("keydown", handleKeydown, true);
+    window.removeEventListener("click", handleAltClick, true);
+    window.removeEventListener("keyup", handleKeyup, true);
     const style = document.getElementById("markcontit-freeze-style");
     if (style) {
       style.remove();
     }
     clearMarkedElements();
+    state.altPassThrough = false;
   }
 
   function updateOverlayGutter() {
@@ -878,6 +887,21 @@
     }
     state.focusElement = null;
     updateFocusHighlight();
+  }
+
+  function setAltPassThrough(enabled) {
+    state.altPassThrough = enabled;
+    if (!state.overlay) {
+      return;
+    }
+    state.overlay.style.pointerEvents = enabled ? "none" : "auto";
+    state.overlay.style.opacity = enabled ? "0.5" : "1";
+    if (enabled && state.hoverBox) {
+      state.hoverBox.style.display = "none";
+    }
+    if (!enabled) {
+      scheduleRender();
+    }
   }
 
   function getMarkId(el) {
@@ -1120,6 +1144,9 @@
     if (!state.enabled) {
       return;
     }
+    if (state.altPassThrough) {
+      return;
+    }
     if (!event.altKey) {
       event.preventDefault();
       event.stopPropagation();
@@ -1128,6 +1155,13 @@
 
   function handleKeydown(event) {
     if (!state.enabled) {
+      return;
+    }
+    if (event.key === "Alt") {
+      setAltPassThrough(true);
+      return;
+    }
+    if (state.altPassThrough) {
       return;
     }
     const blockedKeys = new Set([
@@ -1144,6 +1178,46 @@
     if (blockedKeys.has(event.key)) {
       event.preventDefault();
       event.stopPropagation();
+    }
+  }
+
+  function handleKeyup(event) {
+    if (!state.enabled) {
+      return;
+    }
+    if (event.key === "Alt") {
+      setAltPassThrough(false);
+    }
+  }
+
+  function handleAltClick(event) {
+    if (!state.enabled || !state.altPassThrough) {
+      return;
+    }
+    if (!event.altKey) {
+      return;
+    }
+    const target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    const link = target.closest("a[href]");
+    if (!link) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const href = link.href;
+    if (!href) {
+      return;
+    }
+    const openInNewTab =
+      link.target === "_blank" || event.metaKey || event.ctrlKey || event.shiftKey;
+    if (openInNewTab) {
+      window.open(href, link.target || "_blank");
+    } else {
+      window.location.assign(href);
     }
   }
 
@@ -1386,6 +1460,7 @@
     state.enabled = false;
     state.baseUrl = "";
     state.config = null;
+    state.altPassThrough = false;
     removeOverlay();
     stopObservers();
     stopUrlWatcher();
