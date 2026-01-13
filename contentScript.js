@@ -215,7 +215,7 @@
     if (!hasDirectText(el)) {
       return false;
     }
-    return !hasDirectTextChild(el);
+    return true;
   }
 
   function matchesImmutableExcluded(el) {
@@ -499,10 +499,9 @@
         !frame.ancestorHardExcluded &&
         !frame.ancestorHasPrecedence &&
         isTextualContainer(node) &&
-        !hasHigherPrecedence(node) &&
-        !frame.hasExcludedDescendant;
+        !hasHigherPrecedence(node);
 
-      if (candidate && !frame.hasCandidateDescendant) {
+      if (candidate) {
         results.push(node);
       }
 
@@ -866,24 +865,7 @@
     if (!isMarkableElement(el, config)) {
       return null;
     }
-    let current = el;
-    while (current) {
-      const markableChildren = [];
-      for (const child of current.children) {
-        if (isMarkableElement(child, config)) {
-          markableChildren.push(child);
-          if (markableChildren.length > 1) {
-            break;
-          }
-        }
-      }
-      if (markableChildren.length === 1) {
-        current = markableChildren[0];
-        continue;
-      }
-      return current;
-    }
-    return null;
+    return el;
   }
 
   function getMarkableTarget(x, y) {
