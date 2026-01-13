@@ -174,11 +174,21 @@
     }
     let node = el;
     while (node && node.nodeType === 1) {
+      if (
+        node.classList &&
+        (node.classList.contains("sr-only") ||
+          node.classList.contains("visually-hidden"))
+      ) {
+        return false;
+      }
       const style = window.getComputedStyle(node);
       if (style.display === "none" || style.visibility === "hidden") {
         return false;
       }
       if (parseFloat(style.opacity) === 0) {
+        return false;
+      }
+      if (isVisuallyHiddenByStyle(style)) {
         return false;
       }
       node = node.parentElement;
@@ -188,6 +198,48 @@
       return false;
     }
     return true;
+  }
+
+  function isVisuallyHiddenByStyle(style) {
+    if (!style) {
+      return false;
+    }
+    const clip = (style.clip || "").replace(/\s+/g, "").toLowerCase();
+    if (clip && clip !== "auto" && clip.includes("rect(")) {
+      const numbers = clip.match(/-?\d*\.?\d+/g);
+      if (numbers && numbers.length >= 4) {
+        const allZero = numbers.every((value) => Number(value) === 0);
+        if (allZero) {
+          return true;
+        }
+      }
+    }
+    const clipPath = (style.clipPath || "").replace(/\s+/g, "").toLowerCase();
+    if (
+      clipPath &&
+      clipPath !== "none" &&
+      (clipPath.includes("inset(50%") ||
+        clipPath.includes("inset(100%") ||
+        clipPath.includes("circle(0") ||
+        clipPath.includes("ellipse(0"))
+    ) {
+      return true;
+    }
+    const width = parseFloat(style.width);
+    const height = parseFloat(style.height);
+    const position = style.position;
+    if (
+      (Number.isFinite(width) && width <= 1) ||
+      (Number.isFinite(height) && height <= 1)
+    ) {
+      if (
+        style.overflow === "hidden" &&
+        (position === "absolute" || position === "fixed" || position === "sticky")
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function hasDirectText(el) {
@@ -863,6 +915,14 @@
         el.removeAttribute("data-mc-mark-id");
       }
     });
+    currentMarked.forEach((el) => {
+      if (!previous.has(el) && el && el.nodeType === 1) {
+        const markId = getMarkId(el);
+        if (markId) {
+          el.setAttribute("data-mc-mark-id", markId);
+        }
+      }
+    });
     state.markedElements = currentMarked;
   }
 
@@ -1106,7 +1166,6 @@
     if (el) {
       const markId = getMarkId(el);
       if (markId) {
-        el.setAttribute("data-mc-mark-id", markId);
         box.dataset.mcMarkId = markId;
         if (kind) {
           box.dataset.mcMarkKind = kind;
