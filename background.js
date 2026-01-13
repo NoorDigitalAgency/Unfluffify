@@ -6,10 +6,6 @@ const storageSet = (area, items) =>
   new Promise((resolve) => area.set(items, resolve));
 const storageRemove = (area, keys) =>
   new Promise((resolve) => area.remove(keys, resolve));
-const tabsQuery = (query) =>
-  new Promise((resolve) => chrome.tabs.query(query, resolve));
-
-const PANEL_STATE_KEY = "panelStateByWindow";
 
 async function getTabState(tabId) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
@@ -20,15 +16,6 @@ async function getTabState(tabId) {
 async function setTabState(tabId, state) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });
-}
-
-async function getPanelStateByWindow() {
-  const result = await storageGet(chrome.storage.session, PANEL_STATE_KEY);
-  return result[PANEL_STATE_KEY] || {};
-}
-
-async function setPanelStateByWindow(state) {
-  await storageSet(chrome.storage.session, { [PANEL_STATE_KEY]: state });
 }
 
 async function updateActionForTab(tabId) {
@@ -43,41 +30,6 @@ async function updateActionForTab(tabId) {
   } else {
     chrome.action.setBadgeText({ tabId, text: "" });
   }
-}
-
-async function disableExtensionForTab(tabId) {
-  const state = await getTabState(tabId);
-  if (state && state.enabled) {
-    await setTabState(tabId, { enabled: false, baseUrl: state.baseUrl || "" });
-  }
-}
-
-async function setPanelForWindow(windowId, activeTabId) {
-  const panelState = await getPanelStateByWindow();
-  panelState[windowId] = activeTabId;
-  await setPanelStateByWindow(panelState);
-
-  const tabs = await tabsQuery({ windowId });
-  if (!chrome.sidePanel || !chrome.sidePanel.setOptions) {
-    return;
-  }
-  await Promise.all(
-    tabs.map(async (tab) => {
-      const enabled = tab.id === activeTabId;
-      try {
-        await chrome.sidePanel.setOptions({
-          tabId: tab.id,
-          enabled,
-          path: "popup.html"
-        });
-      } catch (error) {
-        return;
-      }
-      if (!enabled) {
-        await disableExtensionForTab(tab.id);
-      }
-    })
-  );
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -130,31 +82,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   chrome.storage.session.remove(key);
-  getPanelStateByWindow().then((panelState) => {
-    let changed = false;
-    Object.keys(panelState).forEach((windowId) => {
-      if (panelState[windowId] === tabId) {
-        delete panelState[windowId];
-        changed = true;
-      }
-    });
-    if (changed) {
-      setPanelStateByWindow(panelState);
-    }
-  });
 });
 
-chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await updateActionForTab(tabId);
-  const panelState = await getPanelStateByWindow();
-  if (chrome.sidePanel && chrome.sidePanel.setOptions) {
-    const enabled = panelState[windowId] === tabId;
-    chrome.sidePanel.setOptions({
-      tabId,
-      enabled,
-      path: "popup.html"
-    });
-  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -185,11 +116,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  if (!tab || !tab.id || !tab.windowId) {
-    return;
-  }
-  if (chrome.sidePanel && chrome.sidePanel.open) {
+  if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.id) {
     chrome.sidePanel.open({ tabId: tab.id });
   }
-  setPanelForWindow(tab.windowId, tab.id);
 });
