@@ -42,8 +42,11 @@ const tabsQuery = (query) =>
 
 const ui = {
   toggleEnabled: document.getElementById("toggle-enabled"),
+  currentPageUrl: document.getElementById("current-page-url"),
   baseUrlInput: document.getElementById("base-url"),
   refreshContext: document.getElementById("refresh-context"),
+  baseUrlSet: document.getElementById("base-url-set"),
+  baseUrlNotice: document.getElementById("base-url-notice"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
@@ -237,31 +240,24 @@ async function ensureEnabledOnOpen() {
   if (!currentTab || !currentTab.url) {
     return;
   }
-  const configs = await getConfigs();
   const tabState = await getTabState(currentTab.id);
-  let baseUrl = tabState.baseUrl || findMatchingBaseUrl(currentTab.url, configs);
-  if (!baseUrl) {
-    try {
-      baseUrl = new URL(currentTab.url).origin;
-    } catch (error) {
-      baseUrl = "";
-    }
-  }
-  if (!baseUrl) {
+  if (
+    tabState.enabled &&
+    tabState.baseUrl &&
+    currentTab.url.startsWith(tabState.baseUrl)
+  ) {
+    await sendTabMessageWithRetry({
+      type: "setEnabled",
+      enabled: true,
+      baseUrl: tabState.baseUrl
+    });
+    await sendTabMessageWithRetry({ type: "forceRefresh" });
     return;
   }
-  const normalized = normalizeConfig(baseUrl, configs[baseUrl]);
-  if (!configs[baseUrl] || normalized.changed) {
-    configs[baseUrl] = normalized.config;
-    await saveConfigs(configs);
+  if (tabState.enabled) {
+    await setTabState(currentTab.id, { enabled: false, baseUrl: tabState.baseUrl || "" });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  await setTabState(currentTab.id, { enabled: true, baseUrl });
-  await sendTabMessageWithRetry({
-    type: "setEnabled",
-    enabled: true,
-    baseUrl
-  });
-  await sendTabMessageWithRetry({ type: "forceRefresh" });
 }
 
 function renderList(listEl, items, emptyText, onRemove) {
@@ -359,7 +355,7 @@ async function refreshUi() {
     await setTabState(currentTab.id, effectiveTabState);
   }
   const fallbackBaseUrl = findMatchingBaseUrl(pageUrl, configs);
-  currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
+  currentBaseUrl = fallbackBaseUrl || (effectiveTabState.baseUrl || "");
   if (currentBaseUrl) {
     const normalized = normalizeConfig(currentBaseUrl, configs[currentBaseUrl]);
     if (!configs[currentBaseUrl] || normalized.changed) {
@@ -371,21 +367,33 @@ async function refreshUi() {
     currentConfig = null;
   }
 
-  let displayBaseUrl = currentBaseUrl;
-  if (!displayBaseUrl && pageUrl) {
+  ui.currentPageUrl.value = pageUrl;
+  let suggestedBaseUrl = "";
+  if (pageUrl) {
     try {
-      displayBaseUrl = new URL(pageUrl).origin;
+      suggestedBaseUrl = new URL(pageUrl).origin;
     } catch (error) {
-      displayBaseUrl = "";
+      suggestedBaseUrl = "";
     }
   }
-  ui.baseUrlInput.value = displayBaseUrl;
+  const baseUrlSet = Boolean(currentBaseUrl);
+  if (baseUrlSet) {
+    ui.baseUrlInput.value = currentBaseUrl;
+  } else if (document.activeElement !== ui.baseUrlInput) {
+    ui.baseUrlInput.value = suggestedBaseUrl;
+  }
+  ui.baseUrlInput.readOnly = baseUrlSet;
+  ui.baseUrlSet.style.display = baseUrlSet ? "none" : "inline-flex";
+  ui.baseUrlNotice.style.display = baseUrlSet ? "none" : "block";
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
+  ui.toggleEnabled.disabled = !baseUrlSet;
+  ui.computeButton.disabled = !baseUrlSet;
+  ui.exportButton.disabled = !baseUrlSet;
 
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
@@ -420,7 +428,7 @@ async function refreshUi() {
   renderExcludeList(
     ui.explicitExcludes,
     pageExplicitExclude,
-    "None yet",
+    baseUrlSet ? "None yet" : "Set Base Page URL first",
     async (value) => {
       const response = await sendTabMessage({
         type: "focusElement",
@@ -458,7 +466,7 @@ async function refreshUi() {
   renderHeadingDefaults(
     ui.headingDefaults,
     headingDefaults,
-    "None yet",
+    baseUrlSet ? "None yet" : "Set Base Page URL first",
     async (item, action) => {
       if (action === "view") {
         const response = await sendTabMessage({
@@ -487,7 +495,11 @@ async function refreshUi() {
     }
   );
 
-  renderList(ui.aiExcludes, aiExclude, "None yet", async (value) => {
+  renderList(
+    ui.aiExcludes,
+    aiExclude,
+    baseUrlSet ? "None yet" : "Set Base Page URL first",
+    async (value) => {
     if (!currentBaseUrl) {
       return;
     }
@@ -500,7 +512,8 @@ async function refreshUi() {
     });
     await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
     refreshUi();
-  });
+    }
+  );
 }
 
 async function handleEnableToggle() {
@@ -508,17 +521,22 @@ async function handleEnableToggle() {
   if (!currentTab) {
     return;
   }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL before enabling marking");
+    ui.toggleEnabled.checked = false;
+    return;
+  }
   const enabled = ui.toggleEnabled.checked;
-  const baseUrlValue = ui.baseUrlInput.value.trim();
+  const baseUrlValue = currentBaseUrl;
   if (enabled) {
     const parsed = parseBaseUrl(baseUrlValue);
     if (!parsed) {
-      showToast("Enter a valid base URL scope");
+      showToast("Enter a valid Base Page URL");
       ui.toggleEnabled.checked = false;
       return;
     }
     if (!currentTab.url.startsWith(baseUrlValue)) {
-      showToast("Current page is outside the base URL scope");
+      showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
       return;
     }
@@ -537,47 +555,30 @@ async function handleEnableToggle() {
   await refreshUi();
 }
 
-async function handleBaseUrlBlur() {
+async function handleBaseUrlSet() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!currentTab || !currentTab.url) {
     return;
   }
   const baseUrlValue = ui.baseUrlInput.value.trim();
   if (!baseUrlValue) {
-    if (ui.toggleEnabled.checked) {
-      await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
-      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-    }
-    currentBaseUrl = "";
-    currentConfig = null;
-    await refreshUi();
+    showToast("Enter a Base Page URL");
     return;
   }
   const parsed = parseBaseUrl(baseUrlValue);
   if (!parsed) {
-    showToast("Enter a valid base URL scope");
+    showToast("Enter a valid Base Page URL");
     return;
   }
-
-  currentConfig = await ensureConfig(baseUrlValue);
-  currentBaseUrl = baseUrlValue;
-
-  if (ui.toggleEnabled.checked) {
-    if (!currentTab.url.startsWith(baseUrlValue)) {
-      showToast("Current page is outside the base URL scope");
-      ui.toggleEnabled.checked = false;
-      await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
-      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-      return;
-    }
-    await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
-    await sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl: baseUrlValue
-    });
-    await sendTabMessageWithRetry({ type: "forceRefresh" });
+  if (!currentTab.url.startsWith(baseUrlValue)) {
+    showToast("Current page is outside the Base Page URL");
+    return;
   }
+  await ensureConfig(baseUrlValue);
+  await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+  currentBaseUrl = baseUrlValue;
+  currentConfig = await ensureConfig(baseUrlValue);
+  await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   await refreshUi();
 }
 
@@ -614,20 +615,14 @@ async function handleComputeSelectors() {
   if (!currentTab) {
     return;
   }
-  const baseUrlValue = ui.baseUrlInput.value.trim();
-  if (!baseUrlValue) {
-    showToast("Set a base URL scope first");
-    return;
-  }
-  const parsed = parseBaseUrl(baseUrlValue);
-  if (!parsed) {
-    showToast("Enter a valid base URL scope");
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
     return;
   }
 
   const payload = await sendTabMessage({
     type: "collectPageData",
-    baseUrl: baseUrlValue
+    baseUrl: currentBaseUrl
   });
 
   if (!payload) {
@@ -641,7 +636,7 @@ async function handleComputeSelectors() {
     tokenResult.globalToken || ""
   );
 
-  currentConfig = await updateConfig(baseUrlValue, (config) => {
+  currentConfig = await updateConfig(currentBaseUrl, (config) => {
     config.domainAiSelectorSet = {
       inclusionSelectors: [],
       exclusionSelectors: selectorSet.exclusionSelectors || []
@@ -649,7 +644,7 @@ async function handleComputeSelectors() {
     config.explicitXPathDecisions.include = [];
   });
 
-  await sendTabMessage({ type: "configUpdated", baseUrl: baseUrlValue });
+  await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
   showToast("Selectors updated");
   refreshUi();
 }
@@ -657,7 +652,7 @@ async function handleComputeSelectors() {
 async function handleExportJson() {
   await loadActiveTab();
   if (!currentBaseUrl || !currentConfig) {
-    showToast("Set a base URL scope first");
+    showToast("Set Base Page URL first");
     return;
   }
 
@@ -706,13 +701,15 @@ async function init() {
   await loadActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
-  ui.baseUrlInput.addEventListener("blur", handleBaseUrlBlur);
   ui.baseUrlInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
-      ui.baseUrlInput.blur();
+      if (!ui.baseUrlInput.readOnly) {
+        handleBaseUrlSet();
+      }
     }
   });
   ui.refreshContext.addEventListener("click", handleContextRefresh);
+  ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.exportButton.addEventListener("click", handleExportJson);

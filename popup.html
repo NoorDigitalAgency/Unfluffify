@@ -19,12 +19,22 @@
           <input id="toggle-enabled" type="checkbox" />
         </label>
         <label class="field">
-          <span>Base URL scope</span>
+          <span>Current Page URL</span>
           <div class="input-row">
-            <input id="base-url" type="text" placeholder="https://example.com" />
+            <input id="current-page-url" type="text" readonly />
             <button id="refresh-context" type="button">Refresh</button>
           </div>
         </label>
+        <label class="field">
+          <span>Base Page URL</span>
+          <div class="input-row">
+            <input id="base-url" type="text" placeholder="https://example.com" />
+            <button id="base-url-set" type="button">Set</button>
+          </div>
+        </label>
+        <div id="base-url-notice" class="notice" role="status" aria-live="polite">
+          Set Base Page URL before enabling marking
+        </div>
         <label class="field">
           <span>Token</span>
           <div class="token-row">
