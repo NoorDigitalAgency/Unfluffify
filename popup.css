@@ -84,6 +84,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .input-row input[type="text"] {
@@ -98,6 +99,7 @@ body {
 
 .readout {
   flex: 1;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
