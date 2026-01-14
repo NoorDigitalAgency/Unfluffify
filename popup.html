@@ -51,36 +51,45 @@
           <div class="section-title">Heading defaults</div>
           <ul id="heading-defaults" class="list"></ul>
         </section>
+
+        <section class="card margin-above margin-below">
+          <div class="padding-below section-title">Marked Pages</div>
+          <ul id="marked-pages" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <div class="section-title">AI controls</div>
+          <label class="field">
+            <span>Endpoint URL</span>
+            <div class="input-row">
+              <input id="endpoint-url" type="text" placeholder="https://example.com" />
+              <button id="endpoint-url-set" type="button">Set</button>
+              <button id="endpoint-url-edit" type="button">Change</button>
+            </div>
+          </label>
+          <div id="endpoint-notice" class="notice" role="status" aria-live="polite">
+            Set Endpoint URL before using AI
+          </div>
+          <label id="ai-token" class="field">
+            <span>Token</span>
+            <div class="token-row">
+              <span id="token-status" class="token-status"></span>
+              <button id="token-action" type="button">Set token</button>
+            </div>
+          </label>
+          <div id="ai-controls" class="border-above">
+            <div class="section-title padding-above padding-below">
+              Selector Computation
+            </div>
+            <button id="compute" class="full-width margin-above">
+              Decide Content
+            </button>
+            <button id="save-excludes" class="full-width margin-above">
+              Save Excludes
+            </button>
+          </div>
+        </section>
       </div>
-
-      <section class="card">
-        <div class="padding-below section-title">Marked Pages</div>
-        <ul id="marked-pages" class="list"></ul>
-      </section>
-
-      <section class="card">
-        <div class="section-title">AI controls</div>
-        <label class="field">
-          <span>Endpoint URL</span>
-          <div class="input-row">
-            <input id="endpoint-url" type="text" placeholder="https://example.com" />
-            <button id="endpoint-url-set" type="button">Set</button>
-            <button id="endpoint-url-edit" type="button">Change</button>
-          </div>
-        </label>
-        <label class="field">
-          <span>Token</span>
-          <div class="token-row">
-            <span id="token-status" class="token-status"></span>
-            <button id="token-action" type="button">Set token</button>
-          </div>
-        </label>
-        <div id="ai-controls" class="border-above">
-          <div class="section-title padding-above padding-below">Selector Computation</div>
-          <button id="compute" class="full-width margin-above">Decide Content</button>
-          <button id="save-excludes" class="full-width margin-above">Save Excludes</button>
-        </div>
-      </section>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>

@@ -1,38 +1,3 @@
-const HARD_EXCLUDED_TAGS = [
-  "IMG",
-  "H1",
-  "H2",
-  "H3",
-  "H4",
-  "H5",
-  "H6",
-  "FOOTER",
-  "FORM",
-  "BUTTON",
-  "INPUT",
-  "LABEL",
-  "NAV",
-  "HEADER",
-  "NOSCRIPT",
-  "DIALOG",
-  "ASIDE",
-  "SELECT",
-  "TITLE",
-  "STYLE"
-];
-
-const HARD_EXCLUDED_SELECTORS = [
-  "[aria-hidden='true']",
-  "[role='dialog']",
-  ".cookie",
-  ".cookies",
-  ".cookie-banner",
-  ".newsletter",
-  ".subscribe",
-  ".modal",
-  ".popup"
-];
-
 const storageGet = (area, keys) =>
   new Promise((resolve) => area.get(keys, resolve));
 const storageSet = (area, items) =>
@@ -49,13 +14,19 @@ const ui = {
   baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
   mainUi: document.getElementById("main-ui"),
+  markedPages: document.getElementById("marked-pages"),
+  endpointUrl: document.getElementById("endpoint-url"),
+  endpointSet: document.getElementById("endpoint-url-set"),
+  endpointEdit: document.getElementById("endpoint-url-edit"),
+  endpointNotice: document.getElementById("endpoint-notice"),
   aiControls: document.getElementById("ai-controls"),
+  aiToken: document.getElementById("ai-token"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
+  saveExcludesButton: document.getElementById("save-excludes"),
   explicitExcludes: document.getElementById("explicit-excludes"),
   headingDefaults: document.getElementById("heading-defaults"),
-  aiExcludes: document.getElementById("ai-excludes"),
   toast: document.getElementById("toast")
 };
 
@@ -65,6 +36,7 @@ let currentConfig = null;
 let toastTimer = 0;
 let refreshTimer = 0;
 let baseUrlEditMode = false;
+let endpointEditMode = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -88,6 +60,10 @@ function createDefaultConfig(baseUrl) {
     showDefaultHighlights: true,
     explicitXPathDecisions: { include: [], exclude: [] },
     pageHtmlSnapshots: {},
+    pageMarkings: {},
+    latestComputedSelectors: [],
+    lastSavedSelectors: [],
+    pendingAiSave: false,
     defaultToggleExclusionsDisabled: [],
     domainAiSelectorSet: { inclusionSelectors: [], exclusionSelectors: [] }
   };
@@ -128,6 +104,22 @@ function normalizeConfig(baseUrl, config) {
     typeof normalized.pageHtmlSnapshots !== "object"
   ) {
     normalized.pageHtmlSnapshots = {};
+    changed = true;
+  }
+  if (!normalized.pageMarkings || typeof normalized.pageMarkings !== "object") {
+    normalized.pageMarkings = {};
+    changed = true;
+  }
+  if (!Array.isArray(normalized.latestComputedSelectors)) {
+    normalized.latestComputedSelectors = [];
+    changed = true;
+  }
+  if (!Array.isArray(normalized.lastSavedSelectors)) {
+    normalized.lastSavedSelectors = [];
+    changed = true;
+  }
+  if (typeof normalized.pendingAiSave !== "boolean") {
+    normalized.pendingAiSave = false;
     changed = true;
   }
   if (normalized.showDefaultHighlights !== true) {
@@ -344,6 +336,34 @@ function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
   });
 }
 
+function renderMarkedPages(listEl, items, emptyText, onNavigate) {
+  listEl.textContent = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = emptyText;
+    listEl.appendChild(li);
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    const title = document.createElement("span");
+    title.className = "page-title";
+    title.textContent = item.title;
+    title.title = item.title;
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = item.count === 1 ? "1 mark" : `${item.count} marks`;
+    const button = document.createElement("button");
+    button.textContent = "Navigate";
+    button.addEventListener("click", () => onNavigate(item.url));
+    li.appendChild(title);
+    li.appendChild(count);
+    li.appendChild(button);
+    listEl.appendChild(li);
+  });
+}
+
 async function refreshUi() {
   if (!currentTab) {
     return;
@@ -412,24 +432,57 @@ async function refreshUi() {
   );
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
+  const endpointResult = await storageGet(
+    chrome.storage.sync,
+    "globalEndpoint"
+  );
+  const endpointValue = endpointResult.globalEndpoint || "";
+  if (!endpointValue) {
+    endpointEditMode = false;
+  }
+  const endpointSet = Boolean(endpointValue);
+  const endpointReady = endpointSet && !endpointEditMode;
+  const endpointEditing = !endpointSet || endpointEditMode;
+  if (!endpointEditing) {
+    ui.endpointUrl.value = endpointValue;
+  } else if (document.activeElement !== ui.endpointUrl) {
+    ui.endpointUrl.value = endpointValue;
+  }
+  ui.endpointUrl.readOnly = !endpointEditing;
+  ui.endpointSet.style.display = endpointEditing ? "inline-flex" : "none";
+  ui.endpointEdit.style.display = endpointSet ? "inline-flex" : "none";
+  ui.endpointEdit.textContent = endpointEditMode ? "Cancel" : "Change";
+  if (!endpointSet) {
+    ui.endpointNotice.textContent = "Set Endpoint URL before using AI";
+    ui.endpointNotice.style.display = "block";
+  } else if (endpointEditMode) {
+    ui.endpointNotice.textContent = "Set Endpoint URL to continue";
+    ui.endpointNotice.style.display = "block";
+  } else {
+    ui.endpointNotice.style.display = "none";
+  }
+
+  const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
+  const latestComputed =
+    (currentConfig && currentConfig.latestComputedSelectors) || [];
+  const pendingAiSave =
+    (currentConfig && currentConfig.pendingAiSave) || false;
+  const hasNewSelectors = pendingAiSave && latestComputed.length > 0;
+
   ui.toggleEnabled.disabled = !baseUrlReady;
-  ui.computeButton.disabled = !baseUrlReady || !tokenValue;
+  ui.computeButton.disabled = !aiReady;
+  ui.saveExcludesButton.disabled = !aiReady || !hasNewSelectors;
   ui.mainUi.hidden = !baseUrlReady;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
-  ui.aiControls.hidden = !tokenValue;
+  ui.aiToken.hidden = !endpointReady;
+  ui.aiControls.hidden = !endpointReady || !tokenValue;
 
   const explicitExclude =
     (currentConfig &&
       currentConfig.explicitXPathDecisions &&
       currentConfig.explicitXPathDecisions.exclude) ||
     [];
-  const aiExclude =
-    (currentConfig &&
-      currentConfig.domainAiSelectorSet &&
-      currentConfig.domainAiSelectorSet.exclusionSelectors) ||
-    [];
-
   let pageExplicitExclude = explicitExclude.map((xpath) => ({
     xpath,
     text: xpath
@@ -467,7 +520,11 @@ async function refreshUi() {
           config.explicitXPathDecisions.exclude.filter((item) => item !== value);
       });
       await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-      await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
+      await sendTabMessage({
+        type: "capturePageSnapshot",
+        baseUrl: currentBaseUrl,
+        xpaths: currentConfig.explicitXPathDecisions.exclude
+      });
       refreshUi();
     }
   );
@@ -514,23 +571,35 @@ async function refreshUi() {
     }
   );
 
-  renderList(
-    ui.aiExcludes,
-    aiExclude,
-    baseUrlSet ? "None yet" : "Set Base Page URL first",
-    async (value) => {
-    if (!currentBaseUrl) {
+  const markedPages = [];
+  const pageMarkings = (currentConfig && currentConfig.pageMarkings) || {};
+  Object.entries(pageMarkings).forEach(([url, entry]) => {
+    if (!url || !entry || !Array.isArray(entry.xpaths)) {
       return;
     }
-    await clearFocusedElement();
-    currentConfig = await updateConfig(currentBaseUrl, (config) => {
-      config.domainAiSelectorSet.exclusionSelectors =
-        config.domainAiSelectorSet.exclusionSelectors.filter(
-          (item) => item !== value
-        );
+    if (currentBaseUrl && !url.startsWith(currentBaseUrl)) {
+      return;
+    }
+    if (entry.xpaths.length === 0) {
+      return;
+    }
+    markedPages.push({
+      url,
+      title: entry.title || url,
+      count: entry.xpaths.length
     });
-    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-    refreshUi();
+  });
+  markedPages.sort((a, b) => a.title.localeCompare(b.title));
+  renderMarkedPages(
+    ui.markedPages,
+    markedPages,
+    baseUrlSet ? "None yet" : "Set Base Page URL first",
+    async (url) => {
+      await loadActiveTab();
+      if (!currentTab || !currentTab.id) {
+        return;
+      }
+      chrome.tabs.update(currentTab.id, { url });
     }
   );
 }
@@ -636,6 +705,28 @@ async function handleBaseUrlEditToggle() {
   await refreshUi();
 }
 
+async function handleEndpointSet() {
+  const endpointValue = ui.endpointUrl.value.trim();
+  if (!endpointValue) {
+    showToast("Enter an Endpoint URL");
+    return;
+  }
+  try {
+    new URL(endpointValue);
+  } catch (error) {
+    showToast("Enter a valid Endpoint URL");
+    return;
+  }
+  await storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
+  endpointEditMode = false;
+  await refreshUi();
+}
+
+async function handleEndpointEditToggle() {
+  endpointEditMode = !endpointEditMode;
+  await refreshUi();
+}
+
 async function handleTokenBlur() {
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const existing = tokenResult.globalToken || "";
@@ -652,17 +743,8 @@ async function handleTokenBlur() {
 async function handleContextRefresh() {
   await loadActiveTab();
   baseUrlEditMode = false;
+  endpointEditMode = false;
   await refreshUi();
-}
-
-async function requestAiSelectors(payload, token) {
-  const headers = { Authorization: `Bearer ${token}` };
-  void headers;
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({ inclusionSelectors: [], exclusionSelectors: [] });
-    }, 400);
-  });
 }
 
 async function handleComputeSelectors() {
@@ -674,33 +756,156 @@ async function handleComputeSelectors() {
     showToast("Set Base Page URL first");
     return;
   }
-
-  const payload = await sendTabMessage({
-    type: "collectPageData",
-    baseUrl: currentBaseUrl
-  });
-
-  if (!payload) {
-    showToast("Open the page and try again");
+  const endpointResult = await storageGet(
+    chrome.storage.sync,
+    "globalEndpoint"
+  );
+  const endpointValue = endpointResult.globalEndpoint || "";
+  if (!endpointValue) {
+    showToast("Set Endpoint URL first");
+    return;
+  }
+  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const tokenValue = tokenResult.globalToken || "";
+  if (!tokenValue) {
+    showToast("Set token first");
     return;
   }
 
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
-  const selectorSet = await requestAiSelectors(
-    payload,
-    tokenResult.globalToken || ""
-  );
+  const freshConfig = await ensureConfig(currentBaseUrl);
+  currentConfig = freshConfig;
+  const pageMarkings = freshConfig.pageMarkings || {};
+  const pageSnapshots =
+    (freshConfig && freshConfig.pageHtmlSnapshots) || {};
+  const payload = Object.entries(pageMarkings)
+    .map(([url, entry]) => {
+      if (!url || !entry) {
+        return null;
+      }
+      const html = entry.html || pageSnapshots[url];
+      return {
+        url,
+        html,
+        xpaths: entry.xpaths || []
+      };
+    })
+    .filter((entry) => {
+      if (!entry || !entry.url) {
+        return false;
+      }
+      if (currentBaseUrl && !entry.url.startsWith(currentBaseUrl)) {
+        return false;
+      }
+      return Array.isArray(entry.xpaths) && entry.xpaths.length > 0 && entry.html;
+    });
+
+  if (!payload.length) {
+    showToast("Mark pages before computing selectors");
+    return;
+  }
+
+  let selectors = [];
+  try {
+    const response = await fetch(endpointValue, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenValue}`
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      showToast("Endpoint response error");
+      return;
+    }
+    const data = await response.json();
+    if (!Array.isArray(data)) {
+      showToast("Endpoint response format error");
+      return;
+    }
+    selectors = data
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } catch (error) {
+    showToast("Endpoint request failed");
+    return;
+  }
 
   currentConfig = await updateConfig(currentBaseUrl, (config) => {
+    config.latestComputedSelectors = selectors;
     config.domainAiSelectorSet = {
       inclusionSelectors: [],
-      exclusionSelectors: selectorSet.exclusionSelectors || []
+      exclusionSelectors: selectors
     };
-    config.explicitXPathDecisions.include = [];
+    config.pendingAiSave = selectors.length > 0;
   });
 
   await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-  showToast("Selectors updated");
+  await sendTabMessage({
+    type: "showAiPreview",
+    selectors
+  });
+  showToast("Selectors computed");
+  refreshUi();
+}
+
+async function handleSaveExcludes() {
+  await loadActiveTab();
+  if (!currentTab) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const endpointResult = await storageGet(
+    chrome.storage.sync,
+    "globalEndpoint"
+  );
+  const endpointValue = endpointResult.globalEndpoint || "";
+  if (!endpointValue) {
+    showToast("Set Endpoint URL first");
+    return;
+  }
+  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const tokenValue = tokenResult.globalToken || "";
+  if (!tokenValue) {
+    showToast("Set token first");
+    return;
+  }
+  const selectors =
+    (currentConfig && currentConfig.latestComputedSelectors) || [];
+  if (!selectors.length) {
+    showToast("Compute selectors before saving");
+    return;
+  }
+  try {
+    const response = await fetch(endpointValue, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenValue}`
+      },
+      body: JSON.stringify({
+        baseUrl: currentBaseUrl,
+        selectors
+      })
+    });
+    if (!response.ok) {
+      showToast("Save response error");
+      return;
+    }
+  } catch (error) {
+    showToast("Save request failed");
+    return;
+  }
+
+  currentConfig = await updateConfig(currentBaseUrl, (config) => {
+    config.lastSavedSelectors = selectors;
+    config.pendingAiSave = false;
+  });
+  showToast("Excludes saved");
   refreshUi();
 }
 
@@ -726,11 +931,21 @@ async function init() {
       }
     }
   });
+  ui.endpointUrl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      if (!ui.endpointUrl.readOnly) {
+        handleEndpointSet();
+      }
+    }
+  });
   ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
   ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
+  ui.endpointSet.addEventListener("click", handleEndpointSet);
+  ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
+  ui.saveExcludesButton.addEventListener("click", handleSaveExcludes);
 
   chrome.tabs.onActivated.addListener(async () => {
     await loadActiveTab();

@@ -259,7 +259,21 @@ button:hover {
   font-family: "Courier New", Courier, monospace;
 }
 
-.list li span:not(.status) {
+.list li .page-title {
+  flex: 1;
+  max-width: none;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+.list li .count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.list li span:not(.status):not(.count) {
   flex: 1;
 }
 

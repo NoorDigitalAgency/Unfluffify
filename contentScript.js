@@ -69,6 +69,7 @@
     hoverBox: null,
     focusBox: null,
     focusElement: null,
+    aiPreview: null,
     toast: null,
     toastHideTimer: 0,
     altPassThrough: false,
@@ -110,6 +111,10 @@
         exclude: []
       },
       pageHtmlSnapshots: {},
+      pageMarkings: {},
+      latestComputedSelectors: [],
+      lastSavedSelectors: [],
+      pendingAiSave: false,
       defaultToggleExclusionsDisabled: [],
       domainAiSelectorSet: {
         inclusionSelectors: [],
@@ -162,6 +167,25 @@
       typeof configs[baseUrl].pageHtmlSnapshots !== "object"
     ) {
       configs[baseUrl].pageHtmlSnapshots = {};
+      changed = true;
+    }
+    if (
+      !configs[baseUrl].pageMarkings ||
+      typeof configs[baseUrl].pageMarkings !== "object"
+    ) {
+      configs[baseUrl].pageMarkings = {};
+      changed = true;
+    }
+    if (!Array.isArray(configs[baseUrl].latestComputedSelectors)) {
+      configs[baseUrl].latestComputedSelectors = [];
+      changed = true;
+    }
+    if (!Array.isArray(configs[baseUrl].lastSavedSelectors)) {
+      configs[baseUrl].lastSavedSelectors = [];
+      changed = true;
+    }
+    if (typeof configs[baseUrl].pendingAiSave !== "boolean") {
+      configs[baseUrl].pendingAiSave = false;
       changed = true;
     }
     if (changed) {
@@ -903,14 +927,187 @@
     updateFocusHighlight();
   }
 
-  function recordPageSnapshot(config, pageUrl) {
+  function ensureAiPreviewStyle() {
+    if (document.getElementById("markcontit-ai-preview-style")) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = "markcontit-ai-preview-style";
+    style.textContent = `
+      .mc-ai-preview-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 10, 10, 0.55);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .mc-ai-preview {
+        max-width: 720px;
+        width: 100%;
+        max-height: 80vh;
+        background: #fffaf1;
+        color: #2f2a24;
+        border-radius: 12px;
+        border: 1px solid rgba(47, 42, 36, 0.18);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        padding: 16px 18px;
+        overflow: hidden;
+        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      }
+      .mc-ai-preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .mc-ai-preview-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .mc-ai-preview-close {
+        border: 1px solid #8a6f52;
+        background: #f8e9d5;
+        color: #6c4c2b;
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .mc-ai-preview-list {
+        margin: 0;
+        padding-left: 18px;
+        max-height: calc(80vh - 90px);
+        overflow: auto;
+        display: grid;
+        gap: 8px;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+    `;
+    document.documentElement.appendChild(style);
+  }
+
+  function closeAiPreview() {
+    if (state.aiPreview) {
+      state.aiPreview.remove();
+      state.aiPreview = null;
+    }
+  }
+
+  function collectVisibleTextFromSelectors(selectors) {
+    const items = [];
+    const seen = new Set();
+    const candidates = [];
+    selectors.forEach((selector) => {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (!el || el.nodeType !== 1 || seen.has(el)) {
+            return;
+          }
+          if (!isVisible(el)) {
+            return;
+          }
+          seen.add(el);
+          const rect = el.getBoundingClientRect();
+          candidates.push({
+            el,
+            top: rect.top + window.scrollY,
+            left: rect.left + window.scrollX
+          });
+        });
+      } catch (error) {
+        return;
+      }
+    });
+    candidates.sort((a, b) => {
+      if (a.top === b.top) {
+        return a.left - b.left;
+      }
+      return a.top - b.top;
+    });
+    candidates.forEach((entry) => {
+      const text = (entry.el.innerText || "").replace(/\s+/g, " ").trim();
+      if (text) {
+        items.push(text);
+      }
+    });
+    return items;
+  }
+
+  function showAiPreview(items) {
+    ensureAiPreviewStyle();
+    closeAiPreview();
+    const backdrop = document.createElement("div");
+    backdrop.className = "mc-ai-preview-backdrop";
+    const panel = document.createElement("div");
+    panel.className = "mc-ai-preview";
+    const header = document.createElement("div");
+    header.className = "mc-ai-preview-header";
+    const title = document.createElement("div");
+    title.className = "mc-ai-preview-title";
+    title.textContent = "Content Preview";
+    const close = document.createElement("button");
+    close.className = "mc-ai-preview-close";
+    close.type = "button";
+    close.textContent = "Close";
+    close.addEventListener("click", () => closeAiPreview());
+    header.appendChild(title);
+    header.appendChild(close);
+    const list = document.createElement("ul");
+    list.className = "mc-ai-preview-list";
+    if (!items.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No content found";
+      list.appendChild(empty);
+    } else {
+      items.forEach((text) => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        list.appendChild(li);
+      });
+    }
+    panel.appendChild(header);
+    panel.appendChild(list);
+    backdrop.appendChild(panel);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) {
+        closeAiPreview();
+      }
+    });
+    document.documentElement.appendChild(backdrop);
+    state.aiPreview = backdrop;
+  }
+
+  function recordPageSnapshot(config, pageUrl, xpaths) {
     if (!config || !pageUrl) {
       return;
     }
     if (!config.pageHtmlSnapshots || typeof config.pageHtmlSnapshots !== "object") {
       config.pageHtmlSnapshots = {};
     }
-    config.pageHtmlSnapshots[pageUrl] = document.documentElement.outerHTML;
+    if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+      config.pageMarkings = {};
+    }
+    const html = document.documentElement.outerHTML;
+    const list = Array.isArray(xpaths) ? xpaths.slice() : [];
+    const filtered = list.filter((xpath) => {
+      const el = getElementFromXPath(xpath);
+      return el && isVisible(el);
+    });
+    if (filtered.length === 0) {
+      delete config.pageMarkings[pageUrl];
+    } else {
+      config.pageMarkings[pageUrl] = {
+        url: pageUrl,
+        title: document.title || pageUrl,
+        xpaths: filtered,
+        html
+      };
+    }
+    config.pageHtmlSnapshots[pageUrl] = html;
   }
 
   function setAltPassThrough(enabled) {
@@ -1122,7 +1319,7 @@
       exclude: Array.from(exclude)
     };
     config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-    recordPageSnapshot(config, location.href);
+    recordPageSnapshot(config, location.href, config.explicitXPathDecisions.exclude);
 
     await saveConfig(state.baseUrl, config);
     state.config = config;
@@ -1487,6 +1684,11 @@
     state.config = null;
     state.altPassThrough = false;
     removeOverlay();
+    closeAiPreview();
+    const previewStyle = document.getElementById("markcontit-ai-preview-style");
+    if (previewStyle) {
+      previewStyle.remove();
+    }
     stopObservers();
     stopUrlWatcher();
   }
@@ -1627,7 +1829,11 @@
           toggleDisabled.add(xpath);
         }
         config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-        recordPageSnapshot(config, location.href);
+        recordPageSnapshot(
+          config,
+          location.href,
+          config.explicitXPathDecisions.exclude
+        );
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
@@ -1644,8 +1850,13 @@
         sendResponse({ ok: false });
         return;
       }
+      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : null;
       loadConfig(targetBaseUrl).then(async (config) => {
-        recordPageSnapshot(config, location.href);
+        recordPageSnapshot(
+          config,
+          location.href,
+          xpaths || config.explicitXPathDecisions.exclude
+        );
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
@@ -1653,6 +1864,14 @@
         sendResponse({ ok: true });
       });
       return true;
+    }
+
+    if (message.type === "showAiPreview") {
+      const selectors = Array.isArray(message.selectors) ? message.selectors : [];
+      const items = collectVisibleTextFromSelectors(selectors);
+      showAiPreview(items);
+      sendResponse({ ok: true, count: items.length });
+      return;
     }
   });
 
