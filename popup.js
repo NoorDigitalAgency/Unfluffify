@@ -299,9 +299,7 @@ function renderExcludeList(listEl, items, emptyText, onView, onRemove) {
     const text = document.createElement("span");
     const label = item.text || item.xpath || "";
     text.textContent = label;
-    if (item.xpath) {
-      text.title = item.xpath;
-    }
+    text.title = label;
     const viewButton = document.createElement("button");
     viewButton.textContent = "View";
     viewButton.addEventListener("click", () => onView(item.xpath));
@@ -328,6 +326,7 @@ function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
     const li = document.createElement("li");
     const text = document.createElement("span");
     text.textContent = item.text;
+    text.title = item.text;
     const status = document.createElement("span");
     status.className = "status";
     status.textContent = item.excluded ? "Excluded" : "Included";
@@ -335,7 +334,7 @@ function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
     viewButton.textContent = "View";
     viewButton.addEventListener("click", () => onToggle(item, "view"));
     const button = document.createElement("button");
-    button.textContent = item.excluded ? "Allow" : "Exclude";
+    button.textContent = item.excluded ? "Include" : "Exclude";
     button.addEventListener("click", () => onToggle(item, "toggle"));
     li.appendChild(text);
     li.appendChild(status);

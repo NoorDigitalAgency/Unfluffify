@@ -229,8 +229,8 @@ button:hover {
   color: var(--warn);
   font-size: 11px;
 }
-.list li span:first-of-type {
-  flex-grow: 1;
+.list li button:first-of-type {
+  margin-left: auto;
 }
 
 .list li.empty {
