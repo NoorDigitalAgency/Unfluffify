@@ -192,6 +192,15 @@ button:hover {
   filter: brightness(1.05);
 }
 
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.loading:disabled {
+  cursor: progress;
+}
+
 .full-width {
   display: block;
   width: 100%;
@@ -216,6 +225,10 @@ button:hover {
 .border-above {
   border-top: 1px solid var(--line);
   padding-top: 8px;
+}
+
+.border-above[aria-busy="true"] {
+  opacity: 0.7;
 }
 
 .border-below {

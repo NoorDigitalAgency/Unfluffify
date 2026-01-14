@@ -37,6 +37,7 @@ let toastTimer = 0;
 let refreshTimer = 0;
 let baseUrlEditMode = false;
 let endpointEditMode = false;
+let aiRequestInFlight = null;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -364,6 +365,24 @@ function renderMarkedPages(listEl, items, emptyText, onNavigate) {
   });
 }
 
+function arraysEqual(left, right) {
+  if (left === right) {
+    return true;
+  }
+  if (!Array.isArray(left) || !Array.isArray(right)) {
+    return false;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 async function refreshUi() {
   if (!currentTab) {
     return;
@@ -465,18 +484,36 @@ async function refreshUi() {
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
     (currentConfig && currentConfig.latestComputedSelectors) || [];
-  const pendingAiSave =
-    (currentConfig && currentConfig.pendingAiSave) || false;
-  const hasNewSelectors = pendingAiSave && latestComputed.length > 0;
+  const lastSaved = (currentConfig && currentConfig.lastSavedSelectors) || [];
+  const hasNewSelectors =
+    latestComputed.length > 0 && !arraysEqual(latestComputed, lastSaved);
+  const aiBusy = Boolean(aiRequestInFlight);
 
   ui.toggleEnabled.disabled = !baseUrlReady;
-  ui.computeButton.disabled = !aiReady;
-  ui.saveExcludesButton.disabled = !aiReady || !hasNewSelectors;
+  ui.computeButton.disabled = aiBusy || !aiReady;
+  ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
   ui.mainUi.hidden = !baseUrlReady;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
   ui.aiToken.hidden = !endpointReady;
   ui.aiControls.hidden = !endpointReady || !tokenValue;
+  ui.tokenAction.disabled = aiBusy;
+  ui.endpointUrl.disabled = aiBusy;
+  ui.endpointSet.disabled = aiBusy;
+  ui.endpointEdit.disabled = aiBusy;
+  ui.computeButton.textContent =
+    aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
+  ui.saveExcludesButton.textContent =
+    aiRequestInFlight === "save" ? "Saving..." : "Save Excludes";
+  ui.computeButton.classList.toggle(
+    "loading",
+    aiRequestInFlight === "compute"
+  );
+  ui.saveExcludesButton.classList.toggle(
+    "loading",
+    aiRequestInFlight === "save"
+  );
+  ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
 
   const explicitExclude =
     (currentConfig &&
@@ -748,6 +785,9 @@ async function handleContextRefresh() {
 }
 
 async function handleComputeSelectors() {
+  if (aiRequestInFlight) {
+    return;
+  }
   await loadActiveTab();
   if (!currentTab) {
     return;
@@ -805,6 +845,8 @@ async function handleComputeSelectors() {
   }
 
   let selectors = [];
+  aiRequestInFlight = "compute";
+  await refreshUi();
   try {
     const response = await fetch(endpointValue, {
       method: "POST",
@@ -827,30 +869,33 @@ async function handleComputeSelectors() {
       .filter((item) => typeof item === "string")
       .map((item) => item.trim())
       .filter(Boolean);
+    currentConfig = await updateConfig(currentBaseUrl, (config) => {
+      config.latestComputedSelectors = selectors;
+      config.domainAiSelectorSet = {
+        inclusionSelectors: [],
+        exclusionSelectors: selectors
+      };
+      config.pendingAiSave = selectors.length > 0;
+    });
+
+    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+    await sendTabMessage({
+      type: "showAiPreview",
+      selectors
+    });
+    showToast("Selectors computed");
   } catch (error) {
     showToast("Endpoint request failed");
-    return;
+  } finally {
+    aiRequestInFlight = null;
+    await refreshUi();
   }
-
-  currentConfig = await updateConfig(currentBaseUrl, (config) => {
-    config.latestComputedSelectors = selectors;
-    config.domainAiSelectorSet = {
-      inclusionSelectors: [],
-      exclusionSelectors: selectors
-    };
-    config.pendingAiSave = selectors.length > 0;
-  });
-
-  await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-  await sendTabMessage({
-    type: "showAiPreview",
-    selectors
-  });
-  showToast("Selectors computed");
-  refreshUi();
 }
 
 async function handleSaveExcludes() {
+  if (aiRequestInFlight) {
+    return;
+  }
   await loadActiveTab();
   if (!currentTab) {
     return;
@@ -874,12 +919,19 @@ async function handleSaveExcludes() {
     showToast("Set token first");
     return;
   }
-  const selectors =
-    (currentConfig && currentConfig.latestComputedSelectors) || [];
+  const freshConfig = await ensureConfig(currentBaseUrl);
+  currentConfig = freshConfig;
+  const selectors = freshConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     showToast("Compute selectors before saving");
     return;
   }
+  if (arraysEqual(selectors, freshConfig.lastSavedSelectors || [])) {
+    showToast("No new selectors to save");
+    return;
+  }
+  aiRequestInFlight = "save";
+  await refreshUi();
   try {
     const response = await fetch(endpointValue, {
       method: "PUT",
@@ -896,17 +948,17 @@ async function handleSaveExcludes() {
       showToast("Save response error");
       return;
     }
+    currentConfig = await updateConfig(currentBaseUrl, (config) => {
+      config.lastSavedSelectors = selectors;
+      config.pendingAiSave = false;
+    });
+    showToast("Excludes saved");
   } catch (error) {
     showToast("Save request failed");
-    return;
+  } finally {
+    aiRequestInFlight = null;
+    await refreshUi();
   }
-
-  currentConfig = await updateConfig(currentBaseUrl, (config) => {
-    config.lastSavedSelectors = selectors;
-    config.pendingAiSave = false;
-  });
-  showToast("Excludes saved");
-  refreshUi();
 }
 
 function scheduleRefresh() {
