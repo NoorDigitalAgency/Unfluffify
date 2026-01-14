@@ -49,10 +49,10 @@ const ui = {
   baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
   mainUi: document.getElementById("main-ui"),
+  aiControls: document.getElementById("ai-controls"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
-  exportButton: document.getElementById("export"),
   explicitExcludes: document.getElementById("explicit-excludes"),
   headingDefaults: document.getElementById("heading-defaults"),
   aiExcludes: document.getElementById("ai-excludes"),
@@ -374,6 +374,7 @@ async function refreshUi() {
   }
 
   ui.currentPageUrl.textContent = pageUrl || "Unavailable";
+  ui.currentPageUrl.title = pageUrl || "Unavailable";
   let suggestedBaseUrl = "";
   if (pageUrl) {
     try {
@@ -410,15 +411,14 @@ async function refreshUi() {
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
-  ui.toggleEnabled.disabled = !baseUrlReady;
-  ui.computeButton.disabled = !baseUrlReady;
-  ui.exportButton.disabled = !baseUrlReady;
-  ui.mainUi.hidden = !baseUrlReady;
-
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
+  ui.toggleEnabled.disabled = !baseUrlReady;
+  ui.computeButton.disabled = !baseUrlReady || !tokenValue;
+  ui.mainUi.hidden = !baseUrlReady;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
+  ui.aiControls.hidden = !tokenValue;
 
   const explicitExclude =
     (currentConfig &&
@@ -705,43 +705,6 @@ async function handleComputeSelectors() {
   refreshUi();
 }
 
-async function handleExportJson() {
-  await loadActiveTab();
-  if (!currentBaseUrl || !currentConfig) {
-    showToast("Set Base Page URL first");
-    return;
-  }
-
-  const defaultExclusions = HARD_EXCLUDED_TAGS.concat(HARD_EXCLUDED_SELECTORS);
-  const explicitExcludes =
-    (currentConfig.explicitXPathDecisions &&
-      currentConfig.explicitXPathDecisions.exclude) ||
-    [];
-  const aiExcludes =
-    (currentConfig.domainAiSelectorSet &&
-      currentConfig.domainAiSelectorSet.exclusionSelectors) ||
-    [];
-  const payload = {
-    baseUrl: currentConfig.baseUrl || "",
-    domain: currentConfig.domain || "",
-    defaultExclusions: defaultExclusions.join("\n"),
-    xpathsInclude: "",
-    xpathsExclude: explicitExcludes.join("\n"),
-    aiInclusions: "",
-    aiExclusions: aiExcludes.join("\n")
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json"
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "markcontit.json";
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 function scheduleRefresh() {
   if (refreshTimer) {
     return;
@@ -769,7 +732,6 @@ async function init() {
   ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
-  ui.exportButton.addEventListener("click", handleExportJson);
 
   chrome.tabs.onActivated.addListener(async () => {
     await loadActiveTab();
