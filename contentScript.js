@@ -683,6 +683,10 @@
       html {
         scroll-behavior: auto !important;
       }
+      @keyframes fade {
+        0%,100% { opacity: 0 }
+        50% { opacity: 1 }
+      }
       #markcontit-overlay {
         position: fixed;
         top: 0;
@@ -710,6 +714,8 @@
       #markcontit-overlay .mc-focus {
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
+        opacity: 1;
+        animation: fade 1s linear;
       }
       #markcontit-overlay .mc-hard-toggle {
         border: 2px solid #b71c1c;
