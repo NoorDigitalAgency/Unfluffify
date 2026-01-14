@@ -683,7 +683,7 @@
       html {
         scroll-behavior: auto !important;
       }
-      @keyframes fade {
+      @keyframes blink {
         0%,100% { opacity: 0 }
         50% { opacity: 1 }
       }
@@ -715,7 +715,7 @@
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
         opacity: 1;
-        animation: fade 1s linear;
+        animation: blink 1s linear infinite !important;
       }
       #markcontit-overlay .mc-hard-toggle {
         border: 2px solid #b71c1c;

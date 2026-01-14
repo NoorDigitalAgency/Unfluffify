@@ -137,7 +137,7 @@ input[type="password"] {
   border: 1px solid var(--line);
   border-radius: 8px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   background: #fffdf9;
 }
@@ -228,6 +228,9 @@ button:hover {
   background: #fdf2e7;
   color: var(--warn);
   font-size: 11px;
+}
+.list li span:first-of-type {
+  flex-grow: 1;
 }
 
 .list li.empty {
