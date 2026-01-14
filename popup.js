@@ -829,6 +829,8 @@ async function handleComputeSelectors() {
     return;
   }
 
+  await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
+
   const freshConfig = await ensureConfig(currentBaseUrl);
   currentConfig = freshConfig;
   const pageMarkings = freshConfig.pageMarkings || {};
