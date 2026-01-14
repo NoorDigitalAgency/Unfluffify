@@ -692,6 +692,23 @@
     }));
   }
 
+  function collectToggleableExcludedXPaths(config) {
+    if (!config) {
+      return [];
+    }
+    const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
+    const targets = collectHeadingToggleableTargets(config);
+    const results = new Set();
+    targets.forEach((el) => {
+      const xpath = getXPath(el);
+      if (!xpath || disabled.has(xpath)) {
+        return;
+      }
+      results.add(xpath);
+    });
+    return Array.from(results);
+  }
+
   function createOverlay() {
     if (state.overlay) {
       return;
@@ -1092,8 +1109,14 @@
       config.pageMarkings = {};
     }
     const html = document.documentElement.outerHTML;
-    const list = Array.isArray(xpaths) ? xpaths.slice() : [];
-    const filtered = list.filter((xpath) => {
+    const explicitList = Array.isArray(xpaths)
+      ? xpaths.slice()
+      : (config.explicitXPathDecisions &&
+          config.explicitXPathDecisions.exclude) ||
+        [];
+    const toggleableExcluded = collectToggleableExcludedXPaths(config);
+    const combined = new Set([...explicitList, ...toggleableExcluded]);
+    const filtered = Array.from(combined).filter((xpath) => {
       const el = getElementFromXPath(xpath);
       return el && isVisible(el);
     });

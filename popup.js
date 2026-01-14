@@ -30,6 +30,23 @@ const ui = {
   toast: document.getElementById("toast")
 };
 
+const DEFAULT_IMMUTABLE_TAGS = [
+  "IMG",
+  "FOOTER",
+  "FORM",
+  "BUTTON",
+  "INPUT",
+  "LABEL",
+  "NAV",
+  "HEADER",
+  "NOSCRIPT",
+  "DIALOG",
+  "ASIDE",
+  "SELECT",
+  "TITLE",
+  "STYLE"
+];
+
 let currentTab = null;
 let currentBaseUrl = "";
 let currentConfig = null;
@@ -826,7 +843,8 @@ async function handleComputeSelectors() {
       return {
         url,
         html,
-        xpaths: entry.xpaths || []
+        xpaths: entry.xpaths || [],
+        defaultExclusionSelectors: DEFAULT_IMMUTABLE_TAGS.slice()
       };
     })
     .filter((entry) => {
