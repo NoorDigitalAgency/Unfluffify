@@ -1699,7 +1699,16 @@
     if (state.mutationObserver) {
       return;
     }
-    state.mutationObserver = new MutationObserver(() => {
+    state.mutationObserver = new MutationObserver((mutations) => {
+      if (state.overlay) {
+        const hasNonOverlayChange = mutations.some((mutation) => {
+          const target = mutation.target;
+          return !(target === state.overlay || state.overlay.contains(target));
+        });
+        if (!hasNonOverlayChange) {
+          return;
+        }
+      }
       scheduleRender();
     });
     if (document.body) {
