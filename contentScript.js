@@ -81,6 +81,10 @@
     renderTimer: 0,
     scrollHideTimer: 0,
     isScrolling: false,
+    saveTimer: 0,
+    saveInFlight: false,
+    saveAgain: false,
+    snapshotTimer: 0,
     urlCheckTimer: 0,
     mutationObserver: null
   };
@@ -762,6 +766,7 @@
       #markcontit-overlay .mc-focus {
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
+        box-shadow: 0px 0px 5px 5px #00acc178;
         opacity: 1;
         animation: blink 1s linear infinite !important;
       }
@@ -1119,6 +1124,55 @@
     config.pageHtmlSnapshots[pageUrl] = html;
   }
 
+  function queueConfigSave() {
+    if (!state.baseUrl || !state.config) {
+      return;
+    }
+    if (state.saveTimer) {
+      return;
+    }
+    state.saveTimer = window.setTimeout(async () => {
+      state.saveTimer = 0;
+      if (state.saveInFlight) {
+        state.saveAgain = true;
+        return;
+      }
+      state.saveInFlight = true;
+      state.saveAgain = false;
+      try {
+        if (state.baseUrl && state.config) {
+          await saveConfig(state.baseUrl, state.config);
+        }
+      } finally {
+        state.saveInFlight = false;
+      }
+      if (state.saveAgain) {
+        queueConfigSave();
+      }
+    }, 120);
+  }
+
+  function scheduleSnapshotSave() {
+    if (!state.baseUrl || !state.config) {
+      return;
+    }
+    if (state.snapshotTimer) {
+      window.clearTimeout(state.snapshotTimer);
+    }
+    state.snapshotTimer = window.setTimeout(() => {
+      state.snapshotTimer = 0;
+      if (!state.baseUrl || !state.config) {
+        return;
+      }
+      recordPageSnapshot(
+        state.config,
+        location.href,
+        state.config.explicitXPathDecisions.exclude
+      );
+      queueConfigSave();
+    }, 220);
+  }
+
   function setAltPassThrough(enabled) {
     state.altPassThrough = enabled;
     if (!state.overlay) {
@@ -1328,11 +1382,10 @@
       exclude: Array.from(exclude)
     };
     config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-    recordPageSnapshot(config, location.href, config.explicitXPathDecisions.exclude);
-
-    await saveConfig(state.baseUrl, config);
     state.config = config;
     scheduleRender();
+    queueConfigSave();
+    scheduleSnapshotSave();
   }
 
   function handleClick(event) {
@@ -1716,6 +1769,16 @@
       window.clearTimeout(state.scrollHideTimer);
       state.scrollHideTimer = 0;
     }
+    if (state.saveTimer) {
+      window.clearTimeout(state.saveTimer);
+      state.saveTimer = 0;
+    }
+    if (state.snapshotTimer) {
+      window.clearTimeout(state.snapshotTimer);
+      state.snapshotTimer = 0;
+    }
+    state.saveInFlight = false;
+    state.saveAgain = false;
     state.isScrolling = false;
     removeOverlay();
     closeAiPopover();
