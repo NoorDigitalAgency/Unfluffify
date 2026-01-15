@@ -34,6 +34,10 @@
     tag.toLowerCase()
   ).join(",");
 
+  const IMMUTABLE_TAG_SELECTOR = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
+    tag.toLowerCase()
+  ).join(",");
+
   const HARD_EXCLUDED_SELECTORS = [
     "[aria-hidden='true']",
     "[role='dialog']",
@@ -45,20 +49,6 @@
     ".modal",
     ".popup"
   ];
-
-  const BLOCKLIKE_DISPLAYS = new Set([
-    "block",
-    "flex",
-    "grid",
-    "table",
-    "table-row",
-    "table-cell",
-    "list-item",
-    "flow-root",
-    "inline-block",
-    "inline-flex",
-    "inline-grid"
-  ]);
 
   const state = {
     enabled: false,
@@ -291,18 +281,6 @@
     return false;
   }
 
-  function hasDirectTextChild(el) {
-    for (const child of el.children) {
-      if (!isVisible(child)) {
-        continue;
-      }
-      if (hasDirectText(child)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   function isTextualContainer(el) {
     if (!isVisible(el)) {
       return false;
@@ -341,13 +319,14 @@
     }
     let targets = toggleableTargets || state.headingToggleableTargets;
     if (!targets || targets.size === 0) {
-      targets = collectHeadingToggleableTargets(config);
+      targets = collectHeadingToggleableTargets();
+      state.headingToggleableTargets = targets;
     }
     return targets.has(el);
   }
 
-  function collectHeadingToggleableTargets(config) {
-    if (!config || !TOGGLEABLE_TAG_SELECTOR) {
+  function collectHeadingToggleableTargets() {
+    if (!TOGGLEABLE_TAG_SELECTOR) {
       return new Set();
     }
     const targets = new Set();
@@ -374,75 +353,6 @@
         return true;
       }
       node = node.parentElement;
-    }
-    return false;
-  }
-
-  function hasExcludedDescendant(
-    target,
-    config,
-    {
-      includeHardExcludes = true,
-      includeExplicitExcludes = true,
-      includeAiExcludes = true
-    } = {}
-  ) {
-    if (!target || !config) {
-      return false;
-    }
-    if (includeHardExcludes) {
-      const immutableSelector = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
-        tag.toLowerCase()
-      ).join(",");
-      if (immutableSelector) {
-        const matches = target.querySelectorAll(immutableSelector);
-        for (const el of matches) {
-          if (isVisible(el)) {
-            return true;
-          }
-        }
-      }
-      for (const selector of HARD_EXCLUDED_SELECTORS) {
-        try {
-          const matches = target.querySelectorAll(selector);
-          for (const el of matches) {
-            if (isVisible(el)) {
-              return true;
-            }
-          }
-        } catch (error) {
-          continue;
-        }
-      }
-      const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
-      const toggleableTargets = state.headingToggleableTargets;
-      for (const el of toggleableTargets || []) {
-        if (el !== target && target.contains(el)) {
-          const xpath = getXPath(el);
-          if (!disabled.has(xpath)) {
-            return true;
-          }
-        }
-      }
-    }
-    if (includeExplicitExcludes) {
-      for (const xpath of config.explicitXPathDecisions.exclude || []) {
-        const excludedEl = getElementFromXPath(xpath);
-        if (excludedEl && excludedEl !== target && target.contains(excludedEl)) {
-          return true;
-        }
-      }
-    }
-    if (includeAiExcludes) {
-      for (const selector of config.domainAiSelectorSet.exclusionSelectors || []) {
-        try {
-          if (target.querySelector(selector)) {
-            return true;
-          }
-        } catch (error) {
-          continue;
-        }
-      }
     }
     return false;
   }
@@ -553,8 +463,6 @@
       {
         node: root,
         index: 0,
-        hasExcludedDescendant: false,
-        hasCandidateDescendant: false,
         ancestorHardExcluded: false,
         ancestorHasPrecedence: false
       }
@@ -577,8 +485,6 @@
         stack.push({
           node: child,
           index: 0,
-          hasExcludedDescendant: false,
-          hasCandidateDescendant: false,
           ancestorHardExcluded: childHardExcluded,
           ancestorHasPrecedence: childHasPrecedence
         });
@@ -599,20 +505,7 @@
       if (candidate) {
         results.push(node);
       }
-
-      const hasExcludedSubtree = excludedSelf || frame.hasExcludedDescendant;
-      const hasCandidateSubtree = candidate || frame.hasCandidateDescendant;
-
       stack.pop();
-      if (stack.length) {
-        const parent = stack[stack.length - 1];
-        if (hasExcludedSubtree) {
-          parent.hasExcludedDescendant = true;
-        }
-        if (hasCandidateSubtree) {
-          parent.hasCandidateDescendant = true;
-        }
-      }
     }
 
     return results;
@@ -632,21 +525,16 @@
     return elements;
   }
 
-  function collectDefaultExcludedElements(config, toggleableTargets) {
+  function collectDefaultExcludedElements(toggleableTargets) {
     const toggleable = new Set();
     const immutable = new Set();
-    const all = new Set();
 
-    const immutableSelector = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
-      tag.toLowerCase()
-    ).join(",");
-    if (immutableSelector) {
-      document.querySelectorAll(immutableSelector).forEach((el) => {
+    if (IMMUTABLE_TAG_SELECTOR) {
+      document.querySelectorAll(IMMUTABLE_TAG_SELECTOR).forEach((el) => {
         if (!isVisible(el)) {
           return;
         }
         immutable.add(el);
-        all.add(el);
       });
     }
 
@@ -657,7 +545,6 @@
             return;
           }
           immutable.add(el);
-          all.add(el);
         });
       } catch (error) {
         continue;
@@ -667,11 +554,10 @@
     if (toggleableTargets) {
       toggleableTargets.forEach((el) => {
         toggleable.add(el);
-        all.add(el);
       });
     }
 
-    return { toggleable, immutable, all };
+    return { toggleable, immutable };
   }
 
   function collectHeadingDefaultStatus(config) {
@@ -679,7 +565,7 @@
       return [];
     }
     const results = new Map();
-    const toggleableTargets = collectHeadingToggleableTargets(config);
+    const toggleableTargets = collectHeadingToggleableTargets();
     toggleableTargets.forEach((el) => {
       const xpath = getXPath(el);
       if (!xpath || results.has(xpath)) {
@@ -704,7 +590,7 @@
       return [];
     }
     const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
-    const targets = collectHeadingToggleableTargets(config);
+    const targets = collectHeadingToggleableTargets();
     const results = new Set();
     targets.forEach((el) => {
       const xpath = getXPath(el);
@@ -877,8 +763,6 @@
     overlay.addEventListener("mousemove", handleMouseMove, true);
     overlay.addEventListener("click", handleClick, true);
     overlay.addEventListener("contextmenu", handleContextMenu, true);
-    overlay.addEventListener("wheel", handleWheel, { passive: false, capture: true });
-
     document.documentElement.appendChild(overlay);
     state.overlay = overlay;
     if (state.altPassThrough) {
@@ -896,7 +780,6 @@
       state.overlay.removeEventListener("mousemove", handleMouseMove, true);
       state.overlay.removeEventListener("click", handleClick, true);
       state.overlay.removeEventListener("contextmenu", handleContextMenu, true);
-      state.overlay.removeEventListener("wheel", handleWheel, true);
       state.overlay.remove();
       state.overlay = null;
       state.layers = {};
@@ -1388,7 +1271,7 @@
     scheduleSnapshotSave();
   }
 
-  function handleClick(event) {
+  function handleToggleEvent(event) {
     if (!state.enabled) {
       return;
     }
@@ -1404,33 +1287,14 @@
     if (target) {
       toggleExplicit(target);
     }
+  }
+
+  function handleClick(event) {
+    handleToggleEvent(event);
   }
 
   function handleContextMenu(event) {
-    if (!state.enabled) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    if (state.focusElement) {
-      const rawTarget = getTargetElement(event.clientX, event.clientY);
-      if (!rawTarget || !state.focusElement.contains(rawTarget)) {
-        clearFocusHighlight();
-      }
-    }
-    const target = getMarkableTarget(event.clientX, event.clientY);
-    if (target) {
-      toggleExplicit(target);
-    }
-  }
-
-  function handleWheel(event) {
-    if (!state.enabled) {
-      return;
-    }
-    if (state.aiPopover) {
-      return;
-    }
+    handleToggleEvent(event);
   }
 
   function handleKeydown(event) {
@@ -1567,9 +1431,8 @@
 
     updateOverlayGutter();
 
-    state.headingToggleableTargets = collectHeadingToggleableTargets(state.config);
+    state.headingToggleableTargets = collectHeadingToggleableTargets();
     const defaultExcluded = collectDefaultExcludedElements(
-      state.config,
       state.headingToggleableTargets
     );
     const immutableExcluded = defaultExcluded.immutable;
