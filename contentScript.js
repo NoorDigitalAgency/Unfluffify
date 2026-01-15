@@ -1471,7 +1471,7 @@
         state.renderRaf = 0;
         renderHighlights();
       });
-    }, 80);
+    }, 250);
   }
 
   function renderHighlights() {
