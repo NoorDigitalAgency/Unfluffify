@@ -372,6 +372,7 @@ button.loading:disabled {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  padding-right: 8px;
 }
 
 .list li button {

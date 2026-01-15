@@ -70,7 +70,6 @@
     focusBox: null,
     focusElement: null,
     aiPopover: null,
-    aiPopoverMode: "inline",
     toast: null,
     toastHideTimer: 0,
     altPassThrough: false,
@@ -776,8 +775,8 @@
         background: rgba(21, 101, 192, 0.12);
       }
       #markcontit-overlay .mc-ai-exclude {
-        border: 2px dashed #ef6c00;
-        background: rgba(239, 108, 0, 0.12);
+        border: 2px solid #ef6c00;
+        background: rgba(239, 108, 0, 0.1);
       }
       #markcontit-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
@@ -962,40 +961,8 @@
       .mc-ai-popover-toolbar {
         position: fixed;
         top: 12px;
-        left: 12px;
         right: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
         z-index: 2147483649;
-      }
-      .mc-ai-popover-toggle {
-        display: inline-flex;
-        gap: 6px;
-        background: #f8e9d5;
-        border: 1px solid #8a6f52;
-        border-radius: 999px;
-        padding: 4px;
-      }
-      .mc-ai-popover-toggle button {
-        border: 1px solid transparent;
-        background: transparent;
-        color: #6c4c2b;
-        border-radius: 999px;
-        padding: 4px 10px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      .mc-ai-popover-toggle button.active {
-        background: #fffdf8;
-        border-color: #8a6f52;
-      }
-      .mc-ai-popover-scroll {
-        position: relative;
-        min-height: 100%;
-        min-width: 100%;
       }
       .mc-ai-popover-close {
         border: 1px solid #8a6f52;
@@ -1008,24 +975,13 @@
       }
       .mc-ai-popover-list {
         max-width: 720px;
-        margin: 72px auto 40px;
+        margin: 60px auto 40px;
         padding: 0 28px 24px 44px;
         display: grid;
         gap: 8px;
         font-size: 13px;
         line-height: 1.35;
         color: #2f2a24;
-      }
-      .mc-ai-popover[data-mode="inline"] .mc-ai-popover-list {
-        display: none;
-      }
-      .mc-ai-popover[data-mode="list"] .mc-ai-popover-scroll {
-        display: none;
-      }
-      .mc-ai-popover-clone {
-        position: absolute;
-        margin: 0;
-        pointer-events: none;
       }
     `;
     document.documentElement.appendChild(style);
@@ -1038,10 +994,9 @@
     }
   }
 
-  function collectPreviewCandidates(selectors) {
-    const items = [];
+  function collectPreviewItems(selectors) {
     const seen = new Set();
-    const candidates = [];
+    const rows = [];
     selectors.forEach((selector) => {
       try {
         document.querySelectorAll(selector).forEach((el) => {
@@ -1053,9 +1008,12 @@
           }
           seen.add(el);
           const rect = el.getBoundingClientRect();
-          candidates.push({
-            el,
-            rect,
+          const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+          if (!text) {
+            return;
+          }
+          rows.push({
+            text,
             top: rect.top + window.scrollY,
             left: rect.left + window.scrollX
           });
@@ -1064,62 +1022,27 @@
         return;
       }
     });
-    candidates.sort((a, b) => {
+    rows.sort((a, b) => {
       if (a.top === b.top) {
         return a.left - b.left;
       }
       return a.top - b.top;
     });
-    candidates.forEach((entry) => {
-      const text = (entry.el.innerText || "").replace(/\s+/g, " ").trim();
-      if (text) {
-        items.push(text);
-      }
-    });
-    return { items, candidates };
+    return rows.map((row) => row.text);
   }
 
-  function setAiPopoverMode(popover, mode, inlineButton, listButton) {
-    const nextMode = mode === "list" ? "list" : "inline";
-    state.aiPopoverMode = nextMode;
-    popover.dataset.mode = nextMode;
-    if (inlineButton) {
-      inlineButton.classList.toggle("active", nextMode === "inline");
-    }
-    if (listButton) {
-      listButton.classList.toggle("active", nextMode === "list");
-    }
-  }
-
-  function showAiPopover(items, candidates) {
+  function showAiPopover(items) {
     ensureAiPopoverStyle();
     closeAiPopover();
     const popover = document.createElement("div");
     popover.className = "mc-ai-popover";
-    const initialMode =
-      candidates.length === 0 ? "list" : state.aiPopoverMode || "inline";
-    popover.dataset.mode = initialMode;
     const toolbar = document.createElement("div");
     toolbar.className = "mc-ai-popover-toolbar";
-    const toggle = document.createElement("div");
-    toggle.className = "mc-ai-popover-toggle";
-    const inlineButton = document.createElement("button");
-    inlineButton.type = "button";
-    inlineButton.textContent = "In place";
-    const listButton = document.createElement("button");
-    listButton.type = "button";
-    listButton.textContent = "List";
-    if (!candidates.length) {
-      inlineButton.disabled = true;
-    }
-    toggle.appendChild(inlineButton);
-    toggle.appendChild(listButton);
     const close = document.createElement("button");
     close.className = "mc-ai-popover-close";
     close.type = "button";
     close.textContent = "Close";
     close.addEventListener("click", () => closeAiPopover());
-    toolbar.appendChild(toggle);
     toolbar.appendChild(close);
     const list = document.createElement("ul");
     list.className = "mc-ai-popover-list";
@@ -1134,44 +1057,9 @@
         list.appendChild(li);
       });
     }
-    const scroll = document.createElement("div");
-    scroll.className = "mc-ai-popover-scroll";
-    const docWidth = Math.max(
-      document.documentElement.scrollWidth,
-      document.documentElement.clientWidth,
-      window.innerWidth
-    );
-    const docHeight = Math.max(
-      document.documentElement.scrollHeight,
-      document.documentElement.clientHeight,
-      window.innerHeight
-    );
-    scroll.style.width = `${docWidth}px`;
-    scroll.style.height = `${docHeight}px`;
-    candidates.forEach((entry) => {
-      const clone = entry.el.cloneNode(true);
-      clone.classList.add("mc-ai-popover-clone");
-      clone.style.top = `${entry.top}px`;
-      clone.style.left = `${entry.left}px`;
-      clone.style.width = `${entry.rect.width}px`;
-      clone.style.height = `${entry.rect.height}px`;
-      clone.style.maxWidth = "none";
-      clone.style.maxHeight = "none";
-      scroll.appendChild(clone);
-    });
     popover.appendChild(toolbar);
     popover.appendChild(list);
-    popover.appendChild(scroll);
-    inlineButton.addEventListener("click", () =>
-      setAiPopoverMode(popover, "inline", inlineButton, listButton)
-    );
-    listButton.addEventListener("click", () =>
-      setAiPopoverMode(popover, "list", inlineButton, listButton)
-    );
-    setAiPopoverMode(popover, popover.dataset.mode, inlineButton, listButton);
     document.documentElement.appendChild(popover);
-    popover.scrollTop = window.scrollY;
-    popover.scrollLeft = window.scrollX;
     state.aiPopover = popover;
   }
 
@@ -1687,6 +1575,23 @@
       }
     });
 
+    aiExclude.forEach((el) => {
+      if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
+        return;
+      }
+      const rect = getVisibleRect(el);
+      if (rect) {
+        drawRect(
+          layerAiExclude,
+          rect,
+          "mc-ai-exclude",
+          el,
+          "ai-exclude",
+          markedElements
+        );
+      }
+    });
+
     if (state.config.showDefaultHighlights) {
       const precedenceSet = new Set([
         ...allDefaultExcluded,
@@ -1963,8 +1868,8 @@
 
     if (message.type === "showAiPreview") {
       const selectors = Array.isArray(message.selectors) ? message.selectors : [];
-      const { items, candidates } = collectPreviewCandidates(selectors);
-      showAiPopover(items, candidates);
+      const items = collectPreviewItems(selectors);
+      showAiPopover(items);
       sendResponse({ ok: true, count: items.length });
       return;
     }
