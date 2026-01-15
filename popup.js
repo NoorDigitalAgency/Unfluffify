@@ -39,23 +39,6 @@ const ui = {
   toast: document.getElementById("toast")
 };
 
-const DEFAULT_IMMUTABLE_TAGS = [
-  "IMG",
-  "FOOTER",
-  "FORM",
-  "BUTTON",
-  "INPUT",
-  "LABEL",
-  "NAV",
-  "HEADER",
-  "NOSCRIPT",
-  "DIALOG",
-  "ASIDE",
-  "SELECT",
-  "TITLE",
-  "STYLE"
-];
-
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
 let currentTab = null;
@@ -260,6 +243,16 @@ async function sendTabMessageWithRetry(message, attempts = 3) {
     await delay(250);
   }
   return null;
+}
+
+async function getImmutableDefaultTags() {
+  const response = await sendTabMessageWithRetry({
+    type: "getDefaultExclusions"
+  });
+  if (response && Array.isArray(response.immutableTags)) {
+    return response.immutableTags;
+  }
+  return [];
 }
 
 async function clearFocusedElement() {
@@ -1139,6 +1132,7 @@ async function handleComputeSelectors() {
 
   const freshConfig = await ensureConfig(currentBaseUrl);
   currentConfig = freshConfig;
+  const immutableTags = await getImmutableDefaultTags();
   const pageMarkings = freshConfig.pageMarkings || {};
   const pageSnapshots =
     (freshConfig && freshConfig.pageHtmlSnapshots) || {};
@@ -1152,7 +1146,7 @@ async function handleComputeSelectors() {
         url,
         html,
         xpaths: entry.xpaths || [],
-        defaultExclusionSelectors: DEFAULT_IMMUTABLE_TAGS.slice()
+        defaultExclusionSelectors: immutableTags.slice()
       };
     })
     .filter((entry) => {

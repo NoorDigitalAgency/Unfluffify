@@ -1706,6 +1706,13 @@
       return true;
     }
 
+    if (message.type === "getDefaultExclusions") {
+      sendResponse({
+        immutableTags: DEFAULT_EXCLUDED_TAGS_IMMUTABLE.slice()
+      });
+      return;
+    }
+
     if (message.type === "collectPageData") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
