@@ -78,6 +78,7 @@
     markIds: new WeakMap(),
     markedElements: new Set(),
     renderRaf: 0,
+    renderTimer: 0,
     urlCheckTimer: 0,
     mutationObserver: null
   };
@@ -1371,51 +1372,20 @@
     if (state.aiPopover) {
       return;
     }
-    if (state.altPassThrough) {
-      return;
-    }
-    if (!event.altKey) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
   }
 
   function handleKeydown(event) {
     if (!state.enabled) {
       return;
     }
-    if (state.aiPopover) {
-      return;
-    }
     if (event.key === "Alt") {
       setAltPassThrough(true);
       return;
-    }
-    if (state.altPassThrough) {
-      return;
-    }
-    const blockedKeys = new Set([
-      "ArrowUp",
-      "ArrowDown",
-      "ArrowLeft",
-      "ArrowRight",
-      "PageUp",
-      "PageDown",
-      "Home",
-      "End",
-      " "
-    ]);
-    if (blockedKeys.has(event.key)) {
-      event.preventDefault();
-      event.stopPropagation();
     }
   }
 
   function handleKeyup(event) {
     if (!state.enabled) {
-      return;
-    }
-    if (state.aiPopover) {
       return;
     }
     if (event.key === "Alt") {
@@ -1489,13 +1459,19 @@
   }
 
   function scheduleRender() {
-    if (state.renderRaf) {
+    if (state.renderTimer) {
       return;
     }
-    state.renderRaf = window.requestAnimationFrame(() => {
-      state.renderRaf = 0;
-      renderHighlights();
-    });
+    state.renderTimer = window.setTimeout(() => {
+      state.renderTimer = 0;
+      if (state.renderRaf) {
+        return;
+      }
+      state.renderRaf = window.requestAnimationFrame(() => {
+        state.renderRaf = 0;
+        renderHighlights();
+      });
+    }, 80);
   }
 
   function renderHighlights() {
@@ -1695,6 +1671,14 @@
     state.baseUrl = "";
     state.config = null;
     state.altPassThrough = false;
+    if (state.renderTimer) {
+      window.clearTimeout(state.renderTimer);
+      state.renderTimer = 0;
+    }
+    if (state.renderRaf) {
+      window.cancelAnimationFrame(state.renderRaf);
+      state.renderRaf = 0;
+    }
     removeOverlay();
     closeAiPopover();
     const popoverStyle = document.getElementById("markcontit-ai-popover-style");
