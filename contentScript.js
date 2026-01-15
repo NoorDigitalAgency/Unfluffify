@@ -1476,7 +1476,7 @@
           state.overlay.classList.remove("mc-scrolling");
         }
       });
-    }, 125);
+    }, 50);
   }
 
   function handleAltClick(event) {
@@ -1557,7 +1557,7 @@
         state.renderRaf = 0;
         renderHighlights();
       });
-    }, 125);
+    }, 50);
   }
 
   function renderHighlights() {
