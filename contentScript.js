@@ -69,7 +69,8 @@
     hoverBox: null,
     focusBox: null,
     focusElement: null,
-    aiPreview: null,
+    aiPopover: null,
+    aiPopoverMode: "inline",
     toast: null,
     toastHideTimer: 0,
     altPassThrough: false,
@@ -944,77 +945,100 @@
     updateFocusHighlight();
   }
 
-  function ensureAiPreviewStyle() {
-    if (document.getElementById("markcontit-ai-preview-style")) {
+  function ensureAiPopoverStyle() {
+    if (document.getElementById("markcontit-ai-popover-style")) {
       return;
     }
     const style = document.createElement("style");
-    style.id = "markcontit-ai-preview-style";
+    style.id = "markcontit-ai-popover-style";
     style.textContent = `
-      .mc-ai-preview-backdrop {
+      .mc-ai-popover {
         position: fixed;
         inset: 0;
-        background: rgba(10, 10, 10, 0.55);
-        z-index: 2147483647;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        background: #ffffff;
+        z-index: 2147483648;
+        overflow: auto;
       }
-      .mc-ai-preview {
-        max-width: 720px;
-        width: 100%;
-        max-height: 80vh;
-        background: #fffaf1;
-        color: #2f2a24;
-        border-radius: 12px;
-        border: 1px solid rgba(47, 42, 36, 0.18);
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        padding: 16px 18px;
-        overflow: hidden;
-        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
-      }
-      .mc-ai-preview-header {
+      .mc-ai-popover-toolbar {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        right: 12px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        gap: 12px;
+        z-index: 2147483649;
       }
-      .mc-ai-preview-title {
-        font-size: 16px;
-        font-weight: 700;
+      .mc-ai-popover-toggle {
+        display: inline-flex;
+        gap: 6px;
+        background: #f8e9d5;
+        border: 1px solid #8a6f52;
+        border-radius: 999px;
+        padding: 4px;
       }
-      .mc-ai-preview-close {
+      .mc-ai-popover-toggle button {
+        border: 1px solid transparent;
+        background: transparent;
+        color: #6c4c2b;
+        border-radius: 999px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .mc-ai-popover-toggle button.active {
+        background: #fffdf8;
+        border-color: #8a6f52;
+      }
+      .mc-ai-popover-scroll {
+        position: relative;
+        min-height: 100%;
+        min-width: 100%;
+      }
+      .mc-ai-popover-close {
         border: 1px solid #8a6f52;
         background: #f8e9d5;
         color: #6c4c2b;
-        border-radius: 8px;
-        padding: 6px 10px;
+        border-radius: 999px;
+        padding: 6px 12px;
         cursor: pointer;
         font-size: 12px;
       }
-      .mc-ai-preview-list {
-        margin: 0;
-        padding-left: 18px;
-        max-height: calc(80vh - 90px);
-        overflow: auto;
+      .mc-ai-popover-list {
+        max-width: 720px;
+        margin: 72px auto 40px;
+        padding: 0 28px 24px 44px;
         display: grid;
         gap: 8px;
         font-size: 13px;
         line-height: 1.35;
+        color: #2f2a24;
+      }
+      .mc-ai-popover[data-mode="inline"] .mc-ai-popover-list {
+        display: none;
+      }
+      .mc-ai-popover[data-mode="list"] .mc-ai-popover-scroll {
+        display: none;
+      }
+      .mc-ai-popover-clone {
+        position: absolute;
+        margin: 0;
+        pointer-events: none;
       }
     `;
     document.documentElement.appendChild(style);
   }
 
-  function closeAiPreview() {
-    if (state.aiPreview) {
-      state.aiPreview.remove();
-      state.aiPreview = null;
+  function closeAiPopover() {
+    if (state.aiPopover) {
+      state.aiPopover.remove();
+      state.aiPopover = null;
     }
   }
 
-  function collectVisibleTextFromSelectors(selectors) {
+  function collectPreviewCandidates(selectors) {
     const items = [];
     const seen = new Set();
     const candidates = [];
@@ -1031,6 +1055,7 @@
           const rect = el.getBoundingClientRect();
           candidates.push({
             el,
+            rect,
             top: rect.top + window.scrollY,
             left: rect.left + window.scrollX
           });
@@ -1051,30 +1076,53 @@
         items.push(text);
       }
     });
-    return items;
+    return { items, candidates };
   }
 
-  function showAiPreview(items) {
-    ensureAiPreviewStyle();
-    closeAiPreview();
-    const backdrop = document.createElement("div");
-    backdrop.className = "mc-ai-preview-backdrop";
-    const panel = document.createElement("div");
-    panel.className = "mc-ai-preview";
-    const header = document.createElement("div");
-    header.className = "mc-ai-preview-header";
-    const title = document.createElement("div");
-    title.className = "mc-ai-preview-title";
-    title.textContent = "Content Preview";
+  function setAiPopoverMode(popover, mode, inlineButton, listButton) {
+    const nextMode = mode === "list" ? "list" : "inline";
+    state.aiPopoverMode = nextMode;
+    popover.dataset.mode = nextMode;
+    if (inlineButton) {
+      inlineButton.classList.toggle("active", nextMode === "inline");
+    }
+    if (listButton) {
+      listButton.classList.toggle("active", nextMode === "list");
+    }
+  }
+
+  function showAiPopover(items, candidates) {
+    ensureAiPopoverStyle();
+    closeAiPopover();
+    const popover = document.createElement("div");
+    popover.className = "mc-ai-popover";
+    const initialMode =
+      candidates.length === 0 ? "list" : state.aiPopoverMode || "inline";
+    popover.dataset.mode = initialMode;
+    const toolbar = document.createElement("div");
+    toolbar.className = "mc-ai-popover-toolbar";
+    const toggle = document.createElement("div");
+    toggle.className = "mc-ai-popover-toggle";
+    const inlineButton = document.createElement("button");
+    inlineButton.type = "button";
+    inlineButton.textContent = "In place";
+    const listButton = document.createElement("button");
+    listButton.type = "button";
+    listButton.textContent = "List";
+    if (!candidates.length) {
+      inlineButton.disabled = true;
+    }
+    toggle.appendChild(inlineButton);
+    toggle.appendChild(listButton);
     const close = document.createElement("button");
-    close.className = "mc-ai-preview-close";
+    close.className = "mc-ai-popover-close";
     close.type = "button";
     close.textContent = "Close";
-    close.addEventListener("click", () => closeAiPreview());
-    header.appendChild(title);
-    header.appendChild(close);
+    close.addEventListener("click", () => closeAiPopover());
+    toolbar.appendChild(toggle);
+    toolbar.appendChild(close);
     const list = document.createElement("ul");
-    list.className = "mc-ai-preview-list";
+    list.className = "mc-ai-popover-list";
     if (!items.length) {
       const empty = document.createElement("li");
       empty.textContent = "No content found";
@@ -1086,16 +1134,45 @@
         list.appendChild(li);
       });
     }
-    panel.appendChild(header);
-    panel.appendChild(list);
-    backdrop.appendChild(panel);
-    backdrop.addEventListener("click", (event) => {
-      if (event.target === backdrop) {
-        closeAiPreview();
-      }
+    const scroll = document.createElement("div");
+    scroll.className = "mc-ai-popover-scroll";
+    const docWidth = Math.max(
+      document.documentElement.scrollWidth,
+      document.documentElement.clientWidth,
+      window.innerWidth
+    );
+    const docHeight = Math.max(
+      document.documentElement.scrollHeight,
+      document.documentElement.clientHeight,
+      window.innerHeight
+    );
+    scroll.style.width = `${docWidth}px`;
+    scroll.style.height = `${docHeight}px`;
+    candidates.forEach((entry) => {
+      const clone = entry.el.cloneNode(true);
+      clone.classList.add("mc-ai-popover-clone");
+      clone.style.top = `${entry.top}px`;
+      clone.style.left = `${entry.left}px`;
+      clone.style.width = `${entry.rect.width}px`;
+      clone.style.height = `${entry.rect.height}px`;
+      clone.style.maxWidth = "none";
+      clone.style.maxHeight = "none";
+      scroll.appendChild(clone);
     });
-    document.documentElement.appendChild(backdrop);
-    state.aiPreview = backdrop;
+    popover.appendChild(toolbar);
+    popover.appendChild(list);
+    popover.appendChild(scroll);
+    inlineButton.addEventListener("click", () =>
+      setAiPopoverMode(popover, "inline", inlineButton, listButton)
+    );
+    listButton.addEventListener("click", () =>
+      setAiPopoverMode(popover, "list", inlineButton, listButton)
+    );
+    setAiPopoverMode(popover, popover.dataset.mode, inlineButton, listButton);
+    document.documentElement.appendChild(popover);
+    popover.scrollTop = window.scrollY;
+    popover.scrollLeft = window.scrollX;
+    state.aiPopover = popover;
   }
 
   function recordPageSnapshot(config, pageUrl, xpaths) {
@@ -1389,6 +1466,9 @@
     if (!state.enabled) {
       return;
     }
+    if (state.aiPopover) {
+      return;
+    }
     if (state.altPassThrough) {
       return;
     }
@@ -1400,6 +1480,9 @@
 
   function handleKeydown(event) {
     if (!state.enabled) {
+      return;
+    }
+    if (state.aiPopover) {
       return;
     }
     if (event.key === "Alt") {
@@ -1430,6 +1513,9 @@
     if (!state.enabled) {
       return;
     }
+    if (state.aiPopover) {
+      return;
+    }
     if (event.key === "Alt") {
       setAltPassThrough(false);
     }
@@ -1437,6 +1523,9 @@
 
   function handleAltClick(event) {
     if (!state.enabled || !state.altPassThrough) {
+      return;
+    }
+    if (state.aiPopover) {
       return;
     }
     if (!event.altKey) {
@@ -1598,23 +1687,6 @@
       }
     });
 
-    aiExclude.forEach((el) => {
-      if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
-        return;
-      }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(
-          layerAiExclude,
-          rect,
-          "mc-ai-exclude",
-          el,
-          "ai-exclude",
-          markedElements
-        );
-      }
-    });
-
     if (state.config.showDefaultHighlights) {
       const precedenceSet = new Set([
         ...allDefaultExcluded,
@@ -1707,10 +1779,10 @@
     state.config = null;
     state.altPassThrough = false;
     removeOverlay();
-    closeAiPreview();
-    const previewStyle = document.getElementById("markcontit-ai-preview-style");
-    if (previewStyle) {
-      previewStyle.remove();
+    closeAiPopover();
+    const popoverStyle = document.getElementById("markcontit-ai-popover-style");
+    if (popoverStyle) {
+      popoverStyle.remove();
     }
     stopObservers();
     stopUrlWatcher();
@@ -1891,8 +1963,8 @@
 
     if (message.type === "showAiPreview") {
       const selectors = Array.isArray(message.selectors) ? message.selectors : [];
-      const items = collectVisibleTextFromSelectors(selectors);
-      showAiPreview(items);
+      const { items, candidates } = collectPreviewCandidates(selectors);
+      showAiPopover(items, candidates);
       sendResponse({ ok: true, count: items.length });
       return;
     }

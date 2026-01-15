@@ -33,6 +33,7 @@ const ui = {
   tokenAction: document.getElementById("token-action"),
   computeButton: document.getElementById("compute"),
   saveExcludesButton: document.getElementById("save-excludes"),
+  previewLatestButton: document.getElementById("preview-latest"),
   explicitExcludes: document.getElementById("explicit-excludes"),
   headingDefaults: document.getElementById("heading-defaults"),
   toast: document.getElementById("toast")
@@ -526,10 +527,12 @@ async function refreshUi() {
   const hasNewSelectors =
     latestComputed.length > 0 && !arraysEqual(latestComputed, lastSaved);
   const aiBusy = Boolean(aiRequestInFlight);
+  const hasStoredSelectors = latestComputed.length > 0;
 
   ui.toggleEnabled.disabled = !baseUrlReady;
   ui.computeButton.disabled = aiBusy || !aiReady;
   ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
+  ui.previewLatestButton.disabled = aiBusy || !baseUrlReady || !hasStoredSelectors;
   ui.mainUi.hidden = !baseUrlReady;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
@@ -1284,6 +1287,27 @@ async function handleSaveExcludes() {
   }
 }
 
+async function handlePreviewLatest() {
+  await loadActiveTab();
+  if (!currentTab) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const freshConfig = await ensureConfig(currentBaseUrl);
+  const selectors = freshConfig.latestComputedSelectors || [];
+  if (!selectors.length) {
+    showToast("No stored selectors available");
+    return;
+  }
+  await sendTabMessage({
+    type: "showAiPreview",
+    selectors
+  });
+}
+
 function scheduleRefresh() {
   if (refreshTimer) {
     return;
@@ -1332,6 +1356,7 @@ async function init() {
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.saveExcludesButton.addEventListener("click", handleSaveExcludes);
+  ui.previewLatestButton.addEventListener("click", handlePreviewLatest);
 
   document.addEventListener("click", () => setConfigMenuOpen(false));
   document.addEventListener("keydown", (event) => {

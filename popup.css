@@ -382,7 +382,7 @@ button.loading:disabled {
   color: var(--warn);
   font-size: 11px;
 }
-.list li button:first-of-type {
+.list li *:nth-child(2) {
   margin-left: auto;
 }
 
