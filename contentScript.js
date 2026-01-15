@@ -1412,11 +1412,17 @@
     }
     state.scrollHideTimer = window.setTimeout(() => {
       state.scrollHideTimer = 0;
-      state.isScrolling = false;
-      if (state.overlay) {
-        state.overlay.classList.remove("mc-scrolling");
+      if (!state.overlay) {
+        state.isScrolling = false;
+        return;
       }
-      scheduleRender();
+      window.requestAnimationFrame(() => {
+        state.isScrolling = false;
+        renderHighlights();
+        if (state.overlay) {
+          state.overlay.classList.remove("mc-scrolling");
+        }
+      });
     }, 125);
   }
 
