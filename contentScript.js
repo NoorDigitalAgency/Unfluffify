@@ -770,11 +770,7 @@
         border: 1px solid #2e7d32;
         background: rgba(46, 125, 50, 0.08);
       }
-      #markcontit-overlay .mc-ai-include {
-        border: 2px solid #1565c0;
-        background: rgba(21, 101, 192, 0.12);
-      }
-      #markcontit-overlay .mc-ai-exclude {
+      #markcontit-overlay .mc-ai-content {
         border: 1px solid transparent;
         background-color: rgba(46, 125, 50, 0.08);
         background-image:
@@ -787,7 +783,7 @@
         background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
         background-origin: border-box;
         background-clip: border-box;
-        animation: mc-ai-exclude-dash 2s linear infinite !important;
+        animation: mc-ai-content-dash 2s linear infinite !important;
       }
       #markcontit-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
@@ -817,7 +813,7 @@
         opacity: 1;
         transform: translateY(0);
       }
-      @keyframes mc-ai-exclude-dash {
+      @keyframes mc-ai-content-dash {
         0% {
           background-position: 0 0, 0 100%, 0 0, 100% 0;
         }
@@ -835,8 +831,7 @@
       "hard",
       "explicit-exclude",
       "explicit-include",
-      "ai-exclude",
-      "ai-include",
+      "ai-content",
       "default",
       "focus",
       "hover"
@@ -1531,27 +1526,25 @@
     const explicitExclude = collectXPathElements(
       state.config.explicitXPathDecisions.exclude
     );
-    const aiExclude = collectSelectorElements(
+    const aiContent = collectSelectorElements(
       state.config.domainAiSelectorSet.exclusionSelectors
     );
 
     const layerHard = state.layers["hard"];
     const layerExplicitExclude = state.layers["explicit-exclude"];
     const layerExplicitInclude = state.layers["explicit-include"];
-    const layerAiExclude = state.layers["ai-exclude"];
-    const layerAiInclude = state.layers["ai-include"];
+    const layerAiContent = state.layers["ai-content"];
     const layerDefault = state.layers["default"];
 
     clearLayer(layerHard);
     clearLayer(layerExplicitExclude);
     clearLayer(layerExplicitInclude);
-    clearLayer(layerAiExclude);
-    clearLayer(layerAiInclude);
+    clearLayer(layerAiContent);
     clearLayer(layerDefault);
     const markedElements = new Set();
 
     const hasHigherPrecedence = (el) =>
-      allDefaultExcluded.has(el) || explicitExclude.has(el) || aiExclude.has(el);
+      allDefaultExcluded.has(el) || explicitExclude.has(el) || aiContent.has(el);
 
     immutableExcluded.forEach((el) => {
       const rect = getVisibleRect(el);
@@ -1594,18 +1587,18 @@
       }
     });
 
-    aiExclude.forEach((el) => {
+    aiContent.forEach((el) => {
       if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
         return;
       }
       const rect = getVisibleRect(el);
       if (rect) {
         drawRect(
-          layerAiExclude,
+          layerAiContent,
           rect,
-          "mc-ai-exclude",
+          "mc-ai-content",
           el,
-          "ai-exclude",
+          "ai-content",
           markedElements
         );
       }
@@ -1615,12 +1608,12 @@
       const precedenceSet = new Set([
         ...allDefaultExcluded,
         ...explicitExclude,
-        ...aiExclude
+        ...aiContent
       ]);
       const excludedSet = new Set([
         ...allDefaultExcluded,
         ...explicitExclude,
-        ...aiExclude
+        ...aiContent
       ]);
       const defaultTargets = collectDefaultHighlightTargets(document.body, {
         excludedSet,
