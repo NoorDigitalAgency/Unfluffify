@@ -15,6 +15,14 @@ const ui = {
   baseUrlNotice: document.getElementById("base-url-notice"),
   mainUi: document.getElementById("main-ui"),
   markedPages: document.getElementById("marked-pages"),
+  configToggle: document.getElementById("config-toggle"),
+  configMenu: document.getElementById("config-menu"),
+  configExportAll: document.getElementById("config-export-all"),
+  configExportCurrent: document.getElementById("config-export-current"),
+  configImport: document.getElementById("config-import"),
+  configClearCurrent: document.getElementById("config-clear-current"),
+  configClearAll: document.getElementById("config-clear-all"),
+  configImportFile: document.getElementById("config-import-file"),
   endpointUrl: document.getElementById("endpoint-url"),
   endpointSet: document.getElementById("endpoint-url-set"),
   endpointEdit: document.getElementById("endpoint-url-edit"),
@@ -47,6 +55,8 @@ const DEFAULT_IMMUTABLE_TAGS = [
   "STYLE"
 ];
 
+const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
+
 let currentTab = null;
 let currentBaseUrl = "";
 let currentConfig = null;
@@ -55,6 +65,7 @@ let refreshTimer = 0;
 let baseUrlEditMode = false;
 let endpointEditMode = false;
 let aiRequestInFlight = null;
+let configMenuOpen = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -63,6 +74,16 @@ function showToast(message) {
   toastTimer = setTimeout(() => {
     ui.toast.classList.remove("show");
   }, 1800);
+}
+
+function setConfigMenuOpen(open) {
+  configMenuOpen = open;
+  if (ui.configMenu) {
+    ui.configMenu.hidden = !open;
+  }
+  if (ui.configToggle) {
+    ui.configToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
 }
 
 function createDefaultConfig(baseUrl) {
@@ -518,6 +539,11 @@ async function refreshUi() {
   ui.endpointUrl.disabled = aiBusy;
   ui.endpointSet.disabled = aiBusy;
   ui.endpointEdit.disabled = aiBusy;
+  ui.configExportAll.disabled = aiBusy;
+  ui.configExportCurrent.disabled = aiBusy || !baseUrlReady;
+  ui.configImport.disabled = aiBusy;
+  ui.configClearCurrent.disabled = aiBusy || !currentBaseUrl;
+  ui.configClearAll.disabled = aiBusy;
   ui.computeButton.textContent =
     aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
   ui.saveExcludesButton.textContent =
@@ -694,6 +720,283 @@ async function handleEnableToggle() {
     await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
+  await refreshUi();
+}
+
+function normalizeImportedConfig(baseUrl, incoming) {
+  const { config } = normalizeConfig(baseUrl, incoming);
+  config.baseUrl = baseUrl;
+  if (!config.domain) {
+    try {
+      config.domain = new URL(baseUrl).hostname;
+    } catch (error) {
+      config.domain = "";
+    }
+  }
+  return config;
+}
+
+function looksLikeBaseUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function formatBytes(bytes) {
+  if (!bytes) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB"];
+  let size = bytes;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function makeSafeFilename(value) {
+  return value.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
+}
+
+function downloadJsonFile(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download(
+    {
+      url,
+      filename,
+      saveAs: true
+    },
+    () => {
+      const error = chrome.runtime.lastError;
+      window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+      if (error) {
+        showToast("Unable to save configuration");
+      }
+    }
+  );
+}
+
+async function handleExportAll() {
+  setConfigMenuOpen(false);
+  const configs = await getConfigs();
+  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const endpointResult = await storageGet(
+    chrome.storage.sync,
+    "globalEndpoint"
+  );
+  const payload = {
+    version: 1,
+    scope: "all",
+    configs,
+    globalToken: tokenResult.globalToken || "",
+    globalEndpoint: endpointResult.globalEndpoint || ""
+  };
+  const filename = `markcontit-all-${new Date().toISOString().slice(0, 10)}.json`;
+  downloadJsonFile(filename, payload);
+}
+
+async function handleExportCurrent() {
+  setConfigMenuOpen(false);
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const configs = await getConfigs();
+  const config = normalizeImportedConfig(
+    currentBaseUrl,
+    configs[currentBaseUrl] || createDefaultConfig(currentBaseUrl)
+  );
+  const payload = {
+    version: 1,
+    scope: "baseUrl",
+    baseUrl: currentBaseUrl,
+    config
+  };
+  const safeBase = makeSafeFilename(currentBaseUrl) || "base";
+  const filename = `markcontit-${safeBase}.json`;
+  downloadJsonFile(filename, payload);
+}
+
+function extractIncomingConfigs(parsed) {
+  const incomingConfigs = {};
+  let includeGlobals = false;
+  let globalToken = "";
+  let globalEndpoint = "";
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+  }
+
+  if (parsed.configs && typeof parsed.configs === "object") {
+    Object.assign(incomingConfigs, parsed.configs);
+    includeGlobals = parsed.scope === "all";
+    globalToken = parsed.globalToken || "";
+    globalEndpoint = parsed.globalEndpoint || "";
+    if (!includeGlobals && ("globalToken" in parsed || "globalEndpoint" in parsed)) {
+      includeGlobals = true;
+    }
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+  }
+
+  if (parsed.baseUrl && looksLikeBaseUrl(parsed.baseUrl)) {
+    const config =
+      parsed.config && typeof parsed.config === "object" ? parsed.config : parsed;
+    incomingConfigs[parsed.baseUrl] = config;
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+  }
+
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (!looksLikeBaseUrl(key)) {
+      return;
+    }
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    incomingConfigs[key] = value;
+  });
+
+  return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+}
+
+async function handleImport() {
+  setConfigMenuOpen(false);
+  if (ui.configImportFile) {
+    ui.configImportFile.click();
+  }
+}
+
+async function handleClearCurrent() {
+  setConfigMenuOpen(false);
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const confirmed = window.confirm(
+    "Clear all configuration for this Base Page URL? This cannot be undone."
+  );
+  if (!confirmed) {
+    return;
+  }
+  const configs = await getConfigs();
+  delete configs[currentBaseUrl];
+  await saveConfigs(configs);
+  await loadActiveTab();
+  if (currentTab && currentTab.id) {
+    await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  }
+  currentBaseUrl = "";
+  currentConfig = null;
+  baseUrlEditMode = false;
+  showToast("Base Page URL cleared");
+  await refreshUi();
+}
+
+async function handleClearAll() {
+  setConfigMenuOpen(false);
+  const confirmed = window.confirm(
+    "Clear all configuration and tokens? This cannot be undone."
+  );
+  if (!confirmed) {
+    return;
+  }
+  await saveConfigs({});
+  await storageSet(chrome.storage.sync, {
+    globalToken: "",
+    globalEndpoint: ""
+  });
+  await loadActiveTab();
+  if (currentTab && currentTab.id) {
+    await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  }
+  currentBaseUrl = "";
+  currentConfig = null;
+  baseUrlEditMode = false;
+  endpointEditMode = false;
+  showToast("All configuration cleared");
+  await refreshUi();
+}
+
+async function handleImportFile(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) {
+    return;
+  }
+  if (file.size > MAX_IMPORT_BYTES) {
+    const confirmLarge = window.confirm(
+      `File is ${formatBytes(file.size)}. Importing may take a moment. Continue?`
+    );
+    if (!confirmLarge) {
+      return;
+    }
+  }
+
+  let text = "";
+  try {
+    text = await file.text();
+  } catch (error) {
+    showToast("Unable to read file");
+    return;
+  }
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    showToast("Import file is not valid JSON");
+    return;
+  } finally {
+    text = "";
+  }
+
+  const {
+    incomingConfigs,
+    includeGlobals,
+    globalToken,
+    globalEndpoint
+  } = extractIncomingConfigs(parsed);
+  const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
+  if (!baseUrls.length) {
+    showToast("No configuration found in file");
+    return;
+  }
+
+  const confirmImport = window.confirm(
+    `Import ${baseUrls.length} configuration ${baseUrls.length === 1 ? "entry" : "entries"} and merge with existing data?`
+  );
+  if (!confirmImport) {
+    return;
+  }
+
+  const existing = await getConfigs();
+  baseUrls.forEach((baseUrl) => {
+    const normalized = normalizeImportedConfig(baseUrl, incomingConfigs[baseUrl]);
+    existing[baseUrl] = normalized;
+  });
+  await saveConfigs(existing);
+
+  if (includeGlobals) {
+    await storageSet(chrome.storage.sync, {
+      globalToken: globalToken || "",
+      globalEndpoint: globalEndpoint || ""
+    });
+  }
+
+  if (
+    currentBaseUrl &&
+    baseUrls.includes(currentBaseUrl) &&
+    currentTab &&
+    currentTab.id
+  ) {
+    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+  }
+
+  showToast("Configuration imported");
   await refreshUi();
 }
 
@@ -996,6 +1299,17 @@ async function init() {
   await loadActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
+  ui.configToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setConfigMenuOpen(!configMenuOpen);
+  });
+  ui.configMenu.addEventListener("click", (event) => event.stopPropagation());
+  ui.configExportAll.addEventListener("click", handleExportAll);
+  ui.configExportCurrent.addEventListener("click", handleExportCurrent);
+  ui.configImport.addEventListener("click", handleImport);
+  ui.configClearCurrent.addEventListener("click", handleClearCurrent);
+  ui.configClearAll.addEventListener("click", handleClearAll);
+  ui.configImportFile.addEventListener("change", handleImportFile);
   ui.baseUrlInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       if (!ui.baseUrlInput.readOnly) {
@@ -1018,6 +1332,13 @@ async function init() {
   ui.tokenAction.addEventListener("click", handleTokenBlur);
   ui.computeButton.addEventListener("click", handleComputeSelectors);
   ui.saveExcludesButton.addEventListener("click", handleSaveExcludes);
+
+  document.addEventListener("click", () => setConfigMenuOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setConfigMenuOpen(false);
+    }
+  });
 
   chrome.tabs.onActivated.addListener(async () => {
     await loadActiveTab();

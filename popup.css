@@ -32,11 +32,88 @@ body {
 }
 
 .app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 14px;
   background: linear-gradient(120deg, #fff5e6, #f4e3cd);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow);
+}
+
+.header-text {
+  display: grid;
+  gap: 4px;
+}
+
+.header-actions {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+
+.app-header .config-button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.config-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+  z-index: 10;
+}
+
+.config-menu[hidden] {
+  display: none;
+}
+
+.config-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 2px 0;
+}
+
+.config-menu button {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: #f6efe6;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.config-menu button:hover {
+  background: #efe3d4;
+}
+
+.config-menu button.danger {
+  border-color: rgba(177, 48, 48, 0.6);
+  background: #ffe9e9;
+  color: #8d1d1d;
+}
+
+.config-menu button.danger:hover {
+  background: #ffd4d4;
 }
 
 .title {

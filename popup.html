@@ -9,8 +9,28 @@
   <body>
     <div class="app">
       <header class="app-header">
-        <div class="title">MarkContIt</div>
-        <div class="subtitle">Label meaningful text content</div>
+        <div class="header-text">
+          <div class="title">MarkContIt</div>
+          <div class="subtitle">Label meaningful text content</div>
+        </div>
+        <div class="header-actions">
+          <button id="config-toggle" type="button" class="config-button" aria-haspopup="menu" aria-expanded="false">
+            Configuration
+          </button>
+          <div id="config-menu" class="config-menu" role="menu" hidden>
+            <button id="config-export-all" type="button" role="menuitem">Export all</button>
+            <button id="config-export-current" type="button" role="menuitem">Export current</button>
+            <div class="config-divider" role="separator"></div>
+            <button id="config-import" type="button" role="menuitem">Import</button>
+            <div class="config-divider" role="separator"></div>
+            <button id="config-clear-current" type="button" role="menuitem" class="danger">
+              Clear current Base Page URL
+            </button>
+            <button id="config-clear-all" type="button" role="menuitem" class="danger">
+              Clear all configuration
+            </button>
+          </div>
+        </div>
       </header>
 
       <section class="card">
@@ -89,10 +109,12 @@
             </button>
           </div>
         </section>
+
       </div>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
+    <input id="config-import-file" type="file" accept="application/json" hidden />
     <script src="popup.js"></script>
   </body>
 </html>
