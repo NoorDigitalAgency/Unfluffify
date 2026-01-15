@@ -775,8 +775,19 @@
         background: rgba(21, 101, 192, 0.12);
       }
       #markcontit-overlay .mc-ai-exclude {
-        border: 2px solid #ef6c00;
-        background: rgba(239, 108, 0, 0.1);
+        border: 1px solid transparent;
+        background-color: rgba(46, 125, 50, 0.08);
+        background-image:
+          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px);
+        background-size: 24px 1px, 24px 1px, 1px 24px, 1px 24px;
+        background-position: 0 0, 0 100%, 0 0, 100% 0;
+        background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+        background-origin: border-box;
+        background-clip: border-box;
+        animation: mc-ai-exclude-dash 2s linear infinite !important;
       }
       #markcontit-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
@@ -805,6 +816,14 @@
       #markcontit-overlay .mc-toast.mc-toast-show {
         opacity: 1;
         transform: translateY(0);
+      }
+      @keyframes mc-ai-exclude-dash {
+        0% {
+          background-position: 0 0, 0 100%, 0 0, 100% 0;
+        }
+        100% {
+          background-position: 24px 0, -24px 100%, 0 24px, 100% -24px;
+        }
       }
     `;
     document.documentElement.appendChild(style);
