@@ -45,7 +45,7 @@ body {
   border-radius: 12px;
   box-shadow: var(--shadow);
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .header-text {
