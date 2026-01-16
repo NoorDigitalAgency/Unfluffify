@@ -630,10 +630,6 @@
       html {
         scroll-behavior: auto !important;
       }
-      @keyframes blink {
-        0%,100% { opacity: 0 }
-        50% { opacity: 1 }
-      }
       #markcontit-overlay {
         position: fixed;
         top: 0;
@@ -662,6 +658,10 @@
         border: 2px solid #ffb300;
         background: rgba(255, 179, 0, 0.1);
       }
+      @keyframes blink {
+        0%,100% { opacity: 0 }
+        50% { opacity: 1 }
+      }
       #markcontit-overlay .mc-focus {
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
@@ -680,6 +680,14 @@
       #markcontit-overlay .mc-default {
         border: 1px solid #2e7d32;
         background: rgba(46, 125, 50, 0.08);
+      }
+      @keyframes mc-ai-content-dash {
+        0% {
+          background-position: 0 0, 0 100%, 0 0, 100% 0;
+        }
+        100% {
+          background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
+        }
       }
       #markcontit-overlay .mc-ai-content {
         border: 1px solid transparent;
@@ -723,14 +731,6 @@
       #markcontit-overlay .mc-toast.mc-toast-show {
         opacity: 1;
         transform: translateY(0);
-      }
-      @keyframes mc-ai-content-dash {
-        0% {
-          background-position: 0 0, 0 100%, 0 0, 100% 0;
-        }
-        100% {
-          background-position: 24px 0, -24px 100%, 0 24px, 100% -24px;
-        }
       }
     `;
     document.documentElement.appendChild(style);
