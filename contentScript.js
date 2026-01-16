@@ -801,17 +801,9 @@
       state.layers[key] = layer;
     });
 
-    const hoverBox = document.createElement("div");
-    hoverBox.className = "mc-rect mc-hover";
-    hoverBox.style.display = "none";
-    state.layers.hover.appendChild(hoverBox);
-    state.hoverBox = hoverBox;
-
-    const focusBox = document.createElement("div");
-    focusBox.className = "mc-rect mc-focus";
-    focusBox.style.display = "none";
-    state.layers.focus.appendChild(focusBox);
-    state.focusBox = focusBox;
+    // Hover and focus boxes are now managed dynamically via layers
+    state.hoverBox = null;
+    state.focusBox = null;
 
     const toast = document.createElement("div");
     toast.className = "mc-toast";
@@ -884,23 +876,18 @@
   }
 
   function updateFocusHighlight() {
-    if (!state.focusBox) {
+    const layerFocus = state.layers["focus"];
+    if (!layerFocus) {
       return;
     }
+    clearLayer(layerFocus);
     if (!state.focusElement) {
-      state.focusBox.style.display = "none";
       return;
     }
-    const rect = getVisibleRect(state.focusElement);
-    if (!rect) {
-      state.focusBox.style.display = "none";
-      return;
+    const rects = getVisibleRects(state.focusElement);
+    if (rects.length > 0) {
+      drawMultiRect(layerFocus, rects, "mc-focus", state.focusElement, null, null);
     }
-    state.focusBox.style.display = "block";
-    state.focusBox.style.top = `${rect.top}px`;
-    state.focusBox.style.left = `${rect.left}px`;
-    state.focusBox.style.width = `${rect.width}px`;
-    state.focusBox.style.height = `${rect.height}px`;
   }
 
   function clearFocusHighlight() {
@@ -1122,8 +1109,8 @@
     }
     state.overlay.style.pointerEvents = enabled ? "none" : "auto";
     state.overlay.style.opacity = enabled ? "0.5" : "1";
-    if (enabled && state.hoverBox) {
-      state.hoverBox.style.display = "none";
+    if (enabled && state.layers["hover"]) {
+      clearLayer(state.layers["hover"]);
     }
     if (!enabled) {
       scheduleRender();
@@ -1238,25 +1225,22 @@
       return;
     }
     event.stopPropagation();
+    const layerHover = state.layers["hover"];
+    if (!layerHover) {
+      return;
+    }
     const target = getMarkableTarget(event.clientX, event.clientY);
     if (!target) {
-      if (state.hoverBox) {
-        state.hoverBox.style.display = "none";
-      }
+      clearLayer(layerHover);
       return;
     }
-    const rect = getVisibleRect(target);
-    if (!rect || !state.hoverBox) {
-      if (state.hoverBox) {
-        state.hoverBox.style.display = "none";
-      }
+    const rects = getVisibleRects(target);
+    if (rects.length === 0) {
+      clearLayer(layerHover);
       return;
     }
-    state.hoverBox.style.display = "block";
-    state.hoverBox.style.top = `${rect.top}px`;
-    state.hoverBox.style.left = `${rect.left}px`;
-    state.hoverBox.style.width = `${rect.width}px`;
-    state.hoverBox.style.height = `${rect.height}px`;
+    clearLayer(layerHover);
+    drawMultiRect(layerHover, rects, "mc-hover", target, null, null);
   }
 
   function toggleExplicit(target) {
@@ -1470,6 +1454,51 @@
     layer.appendChild(box);
   }
 
+  function drawMultiRect(layer, rects, className, el, kind, markedSet) {
+    if (rects.length === 0) {
+      return;
+    }
+    // Add element to marked set once (not per rectangle)
+    if (el && markedSet) {
+      markedSet.add(el);
+    }
+    for (const rect of rects) {
+      // Pass null for markedSet since we already added it above
+      drawRect(layer, rect, className, el, kind, null);
+    }
+  }
+
+  function getVisibleRects(el) {
+    if (!isVisible(el)) {
+      return [];
+    }
+    const clientRects = el.getClientRects();
+    const visibleRects = [];
+    for (let i = 0; i < clientRects.length; i++) {
+      const rect = clientRects[i];
+      if (rect.width === 0 || rect.height === 0) {
+        continue;
+      }
+      if (
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight ||
+        rect.right < 0 ||
+        rect.left > window.innerWidth
+      ) {
+        continue;
+      }
+      visibleRects.push({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        right: rect.right,
+        bottom: rect.bottom
+      });
+    }
+    return visibleRects;
+  }
+
   function scheduleRender() {
     if (state.renderTimer) {
       return;
@@ -1534,9 +1563,9 @@
       allDefaultExcluded.has(el) || explicitExclude.has(el) || aiContent.has(el);
 
     for (const el of immutableExcluded) {
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(layerHard, rect, "mc-hard-locked", el, "immutable", markedElements);
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(layerHard, rects, "mc-hard-locked", el, "immutable", markedElements);
       }
     }
 
@@ -1544,11 +1573,11 @@
       if (immutableExcluded.has(el)) {
         continue;
       }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(
           layerExplicitExclude,
-          rect,
+          rects,
           "mc-explicit-exclude",
           el,
           "explicit-exclude",
@@ -1561,11 +1590,11 @@
       if (explicitExclude.has(el)) {
         continue;
       }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(
           layerExplicitExclude,
-          rect,
+          rects,
           "mc-explicit-exclude",
           el,
           "toggleable-exclude",
@@ -1578,11 +1607,11 @@
       if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
         continue;
       }
-      const rect = getVisibleRect(el);
-      if (rect) {
-        drawRect(
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(
           layerAiContent,
-          rect,
+          rects,
           "mc-ai-content",
           el,
           "ai-content",
@@ -1604,9 +1633,9 @@
         precedenceSet: excludedAndPrecedenceSet
       });
       for (const el of defaultTargets) {
-        const rect = getVisibleRect(el);
-        if (rect) {
-          drawRect(layerDefault, rect, "mc-default", el, "default", markedElements);
+        const rects = getVisibleRects(el);
+        if (rects.length > 0) {
+          drawMultiRect(layerDefault, rects, "mc-default", el, "default", markedElements);
         }
       }
     }
