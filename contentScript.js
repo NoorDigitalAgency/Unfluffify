@@ -1211,8 +1211,8 @@
     state.hoverBox.style.height = `${rect.height}px`;
   }
 
-  async function toggleExplicit(target) {
-    if (!state.baseUrl) {
+  function toggleExplicit(target) {
+    if (!state.baseUrl || !state.config) {
       return;
     }
     if (isWithinHardExcluded(target)) {
@@ -1225,8 +1225,11 @@
       return;
     }
 
-    const config = await loadConfig(state.baseUrl);
-    const exclude = new Set(config.explicitXPathDecisions.exclude || []);
+    const config = state.config;
+    const exclude = new Set(
+      (config.explicitXPathDecisions && config.explicitXPathDecisions.exclude) ||
+        []
+    );
     const toggleDisabled = new Set(
       config.defaultToggleExclusionsDisabled || []
     );
