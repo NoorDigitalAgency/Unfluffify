@@ -209,6 +209,47 @@
     await storageSet({ configs });
   }
 
+  function isClippedByOverflow(el) {
+    if (!el || el.nodeType !== 1) {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    let parent = el.parentElement;
+    while (parent && parent.nodeType === 1) {
+      // Stop at body or document element
+      if (parent === document.body || parent === document.documentElement) {
+        break;
+      }
+      const parentStyle = window.getComputedStyle(parent);
+      const overflow = parentStyle.overflow;
+      const overflowX = parentStyle.overflowX;
+      const overflowY = parentStyle.overflowY;
+
+      // Check if parent has overflow clipping
+      if (
+        overflow === "hidden" ||
+        overflow === "clip" ||
+        overflowX === "hidden" ||
+        overflowX === "clip" ||
+        overflowY === "hidden" ||
+        overflowY === "clip"
+      ) {
+        const parentRect = parent.getBoundingClientRect();
+        // Check if element is completely outside parent's visible area
+        if (
+          rect.bottom <= parentRect.top ||
+          rect.top >= parentRect.bottom ||
+          rect.right <= parentRect.left ||
+          rect.left >= parentRect.right
+        ) {
+          return true;
+        }
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
   function isVisible(el) {
     if (!el || el.nodeType !== 1) {
       return false;
@@ -236,6 +277,10 @@
     }
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
+      return false;
+    }
+    // Check if element is clipped by ancestor overflow
+    if (isClippedByOverflow(el)) {
       return false;
     }
     return true;
