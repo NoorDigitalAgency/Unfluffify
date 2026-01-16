@@ -204,12 +204,18 @@ function parseBaseUrl(value) {
 
 async function ensureConfig(baseUrl) {
   const configs = await getConfigs();
+  if (!configs[baseUrl]) {
+    const defaultConfig = createDefaultConfig(baseUrl);
+    configs[baseUrl] = defaultConfig;
+    await saveConfigs(configs);
+    return defaultConfig;
+  }
   const { config, changed } = normalizeConfig(baseUrl, configs[baseUrl]);
-  if (!configs[baseUrl] || changed) {
+  if (changed) {
     configs[baseUrl] = config;
     await saveConfigs(configs);
   }
-  return configs[baseUrl];
+  return config;
 }
 
 async function updateConfig(baseUrl, updater) {
@@ -265,8 +271,12 @@ async function clearFocusedElement() {
 }
 
 async function loadActiveTab() {
-  const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
-  currentTab = tabs[0] || null;
+  try {
+    const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
+    currentTab = tabs[0] || null;
+  } catch (error) {
+    currentTab = null;
+  }
 }
 
 async function ensureEnabledOnOpen() {
@@ -405,6 +415,9 @@ function renderMarkedPages(listEl, items, emptyText, onNavigate) {
 function arraysEqual(left, right) {
   if (left === right) {
     return true;
+  }
+  if (!left || !right) {
+    return false;
   }
   if (!Array.isArray(left) || !Array.isArray(right)) {
     return false;
@@ -725,6 +738,9 @@ async function handleEnableToggle() {
 }
 
 function normalizeImportedConfig(baseUrl, incoming) {
+  if (!incoming) {
+    return createDefaultConfig(baseUrl);
+  }
   const { config } = normalizeConfig(baseUrl, incoming);
   config.baseUrl = baseUrl;
   if (!config.domain) {
@@ -1135,12 +1151,10 @@ async function handleComputeSelectors() {
 
   await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
 
-  const freshConfig = await ensureConfig(currentBaseUrl);
-  currentConfig = freshConfig;
   const immutableTags = await getImmutableDefaultTags();
-  const pageMarkings = freshConfig.pageMarkings || {};
+  const pageMarkings = currentConfig.pageMarkings || {};
   const pageSnapshots =
-    (freshConfig && freshConfig.pageHtmlSnapshots) || {};
+    (currentConfig && currentConfig.pageHtmlSnapshots) || {};
   const payload = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
@@ -1244,14 +1258,12 @@ async function handleSaveExcludes() {
     showToast("Set token first");
     return;
   }
-  const freshConfig = await ensureConfig(currentBaseUrl);
-  currentConfig = freshConfig;
-  const selectors = freshConfig.latestComputedSelectors || [];
+  const selectors = currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     showToast("Compute selectors before saving");
     return;
   }
-  if (arraysEqual(selectors, freshConfig.lastSavedSelectors || [])) {
+  if (arraysEqual(selectors, currentConfig.lastSavedSelectors || [])) {
     showToast("No new selectors to save");
     return;
   }
@@ -1291,12 +1303,11 @@ async function handlePreviewLatest() {
   if (!currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!currentBaseUrl || !currentConfig) {
     showToast("Set Base Page URL first");
     return;
   }
-  const freshConfig = await ensureConfig(currentBaseUrl);
-  const selectors = freshConfig.latestComputedSelectors || [];
+  const selectors = currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     showToast("No stored selectors available");
     return;

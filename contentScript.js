@@ -341,19 +341,22 @@
       return new Set();
     }
     const targets = new Set();
-    document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR).forEach((heading) => {
+    const headings = document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR);
+
+    for (const heading of headings) {
       if (isWithinHardExcluded(heading)) {
-        return;
+        continue;
       }
       if (isTextualContainer(heading)) {
         targets.add(heading);
       }
-      heading.querySelectorAll("*").forEach((child) => {
+      const children = heading.querySelectorAll("*");
+      for (const child of children) {
         if (!isWithinHardExcluded(child) && isTextualContainer(child)) {
           targets.add(child);
         }
-      });
-    });
+      }
+    }
     return targets;
   }
 
@@ -541,31 +544,31 @@
     const immutable = new Set();
 
     if (IMMUTABLE_TAG_SELECTOR) {
-      document.querySelectorAll(IMMUTABLE_TAG_SELECTOR).forEach((el) => {
-        if (!isVisible(el)) {
-          return;
+      const elements = document.querySelectorAll(IMMUTABLE_TAG_SELECTOR);
+      for (const el of elements) {
+        if (isVisible(el)) {
+          immutable.add(el);
         }
-        immutable.add(el);
-      });
+      }
     }
 
     for (const selector of HARD_EXCLUDED_SELECTORS) {
       try {
-        document.querySelectorAll(selector).forEach((el) => {
-          if (!isVisible(el)) {
-            return;
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+          if (isVisible(el)) {
+            immutable.add(el);
           }
-          immutable.add(el);
-        });
+        }
       } catch (error) {
         continue;
       }
     }
 
     if (toggleableTargets) {
-      toggleableTargets.forEach((el) => {
+      for (const el of toggleableTargets) {
         toggleable.add(el);
-      });
+      }
     }
 
     return { toggleable, immutable };
@@ -577,17 +580,17 @@
     }
     const results = new Map();
     const toggleableTargets = collectHeadingToggleableTargets();
-    toggleableTargets.forEach((el) => {
+    for (const el of toggleableTargets) {
       const xpath = getXPath(el);
       if (!xpath || results.has(xpath)) {
-        return;
+        continue;
       }
       const text = (el.innerText || "").trim();
       results.set(xpath, {
         xpath,
         text: text || el.tagName.toLowerCase()
       });
-    });
+    }
 
     const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
     return Array.from(results.values()).map((item) => ({
@@ -603,13 +606,12 @@
     const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
     const targets = collectHeadingToggleableTargets();
     const results = new Set();
-    targets.forEach((el) => {
+    for (const el of targets) {
       const xpath = getXPath(el);
-      if (!xpath || disabled.has(xpath)) {
-        return;
+      if (xpath && !disabled.has(xpath)) {
+        results.add(xpath);
       }
-      results.add(xpath);
-    });
+    }
     return Array.from(results);
   }
 
@@ -917,31 +919,32 @@
   function collectPreviewItems(selectors) {
     const seen = new Set();
     const rows = [];
-    selectors.forEach((selector) => {
+    for (const selector of selectors) {
       try {
-        document.querySelectorAll(selector).forEach((el) => {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
           if (!el || el.nodeType !== 1 || seen.has(el)) {
-            return;
+            continue;
           }
           if (!isVisible(el)) {
-            return;
+            continue;
           }
           seen.add(el);
           const rect = el.getBoundingClientRect();
           const text = (el.innerText || "").replace(/\s+/g, " ").trim();
           if (!text) {
-            return;
+            continue;
           }
           rows.push({
             text,
             top: rect.top + window.scrollY,
             left: rect.left + window.scrollX
           });
-        });
+        }
       } catch (error) {
-        return;
+        continue;
       }
-    });
+    }
     rows.sort((a, b) => {
       if (a.top === b.top) {
         return a.left - b.left;
@@ -995,7 +998,7 @@
     }
     const html = document.documentElement.outerHTML;
     const explicitList = Array.isArray(xpaths)
-      ? xpaths.slice()
+      ? xpaths
       : (config.explicitXPathDecisions &&
           config.explicitXPathDecisions.exclude) ||
         [];
@@ -1099,11 +1102,11 @@
     if (!state.markedElements) {
       return;
     }
-    state.markedElements.forEach((el) => {
+    for (const el of state.markedElements) {
       if (el && el.nodeType === 1) {
         el.removeAttribute("data-mc-mark-id");
       }
-    });
+    }
     state.markedElements = new Set();
   }
 
@@ -1112,19 +1115,19 @@
       return;
     }
     const previous = state.markedElements || new Set();
-    previous.forEach((el) => {
+    for (const el of previous) {
       if (!currentMarked.has(el) && el && el.nodeType === 1) {
         el.removeAttribute("data-mc-mark-id");
       }
-    });
-    currentMarked.forEach((el) => {
+    }
+    for (const el of currentMarked) {
       if (!previous.has(el) && el && el.nodeType === 1) {
         const markId = getMarkId(el);
         if (markId) {
           el.setAttribute("data-mc-mark-id", markId);
         }
       }
-    });
+    }
     state.markedElements = currentMarked;
   }
 
@@ -1485,16 +1488,16 @@
     const hasHigherPrecedence = (el) =>
       allDefaultExcluded.has(el) || explicitExclude.has(el) || aiContent.has(el);
 
-    immutableExcluded.forEach((el) => {
+    for (const el of immutableExcluded) {
       const rect = getVisibleRect(el);
       if (rect) {
         drawRect(layerHard, rect, "mc-hard-locked", el, "immutable", markedElements);
       }
-    });
+    }
 
-    explicitExclude.forEach((el) => {
+    for (const el of explicitExclude) {
       if (immutableExcluded.has(el)) {
-        return;
+        continue;
       }
       const rect = getVisibleRect(el);
       if (rect) {
@@ -1507,11 +1510,11 @@
           markedElements
         );
       }
-    });
+    }
 
-    toggleableExcluded.forEach((el) => {
+    for (const el of toggleableExcluded) {
       if (explicitExclude.has(el)) {
-        return;
+        continue;
       }
       const rect = getVisibleRect(el);
       if (rect) {
@@ -1524,11 +1527,11 @@
           markedElements
         );
       }
-    });
+    }
 
-    aiContent.forEach((el) => {
+    for (const el of aiContent) {
       if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
-        return;
+        continue;
       }
       const rect = getVisibleRect(el);
       if (rect) {
@@ -1541,31 +1544,26 @@
           markedElements
         );
       }
-    });
+    }
 
     if (state.config.showDefaultHighlights) {
-      const precedenceSet = new Set([
-        ...allDefaultExcluded,
-        ...explicitExclude,
-        ...aiContent
-      ]);
-      const excludedSet = new Set([
+      const excludedAndPrecedenceSet = new Set([
         ...allDefaultExcluded,
         ...explicitExclude,
         ...aiContent
       ]);
       const defaultTargets = collectDefaultHighlightTargets(document.body, {
-        excludedSet,
+        excludedSet: excludedAndPrecedenceSet,
         hardExcludedSet: allDefaultExcluded,
         hasHigherPrecedence,
-        precedenceSet
+        precedenceSet: excludedAndPrecedenceSet
       });
-      defaultTargets.forEach((el) => {
+      for (const el of defaultTargets) {
         const rect = getVisibleRect(el);
         if (rect) {
           drawRect(layerDefault, rect, "mc-default", el, "default", markedElements);
         }
-      });
+      }
     }
 
     updateFocusHighlight();
@@ -1577,23 +1575,32 @@
       return;
     }
     state.mutationObserver = new MutationObserver((mutations) => {
-      if (state.overlay) {
-        const hasNonOverlayChange = mutations.some((mutation) => {
-          const target = mutation.target;
-          return !(target === state.overlay || state.overlay.contains(target));
-        });
-        if (!hasNonOverlayChange) {
-          return;
+      try {
+        if (state.overlay) {
+          const hasNonOverlayChange = mutations.some((mutation) => {
+            const target = mutation.target;
+            return !(target === state.overlay || state.overlay.contains(target));
+          });
+          if (!hasNonOverlayChange) {
+            return;
+          }
         }
+        scheduleRender();
+      } catch (error) {
+        // Silently handle errors to prevent observer from stopping
       }
-      scheduleRender();
     });
     if (document.body) {
-      state.mutationObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true
-      });
+      try {
+        state.mutationObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true
+        });
+      } catch (error) {
+        // Silently handle if body is not available
+        state.mutationObserver = null;
+      }
     }
   }
 

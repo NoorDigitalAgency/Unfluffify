@@ -45,6 +45,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     getTabState(tabId).then((state) => {
       sendResponse(state || { enabled: false, baseUrl: "" });
+    }).catch(() => {
+      sendResponse({ enabled: false, baseUrl: "" });
     });
     return true;
   }
@@ -61,6 +63,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     setTabState(message.tabId, state).then(() => {
       updateActionForTab(message.tabId);
       sendResponse({ ok: true });
+    }).catch(() => {
+      sendResponse({ ok: false });
     });
     return true;
   }
@@ -74,6 +78,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     storageRemove(chrome.storage.session, key).then(() => {
       updateActionForTab(message.tabId);
       sendResponse({ ok: true });
+    }).catch(() => {
+      sendResponse({ ok: false });
     });
     return true;
   }
@@ -106,12 +112,5 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onInstalled.addListener(() => {
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  }
-});
-
-
-chrome.action.onClicked.addListener((tab) => {
-  if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.id) {
-    chrome.sidePanel.open({ tabId: tab.id });
   }
 });
