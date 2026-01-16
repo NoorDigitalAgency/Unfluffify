@@ -92,44 +92,53 @@ function createDefaultConfig(baseUrl) {
   };
 }
 
-function normalizeConfig(baseUrl, config) {
-  const normalized = config || createDefaultConfig(baseUrl);
+function normalizeConfig(baseUrl, incoming) {
   let changed = false;
+  const defaultConfig = createDefaultConfig(baseUrl);
+  let normalized = {
+    ...defaultConfig,
+    ...(incoming || {}),
+    explicitXPathDecisions: {
+      ...defaultConfig.explicitXPathDecisions,
+      ...((incoming && incoming.explicitXPathDecisions) || {})
+    },
+    domainAiSelectorSet: {
+      ...defaultConfig.domainAiSelectorSet,
+      ...((incoming && incoming.domainAiSelectorSet) || {})
+    }
+  };
 
-  if (!normalized.explicitXPathDecisions) {
-    normalized.explicitXPathDecisions = { include: [], exclude: [] };
-    changed = true;
-  }
+  // Ensure specific properties are reset or have correct types if they were malformed
   if (!Array.isArray(normalized.explicitXPathDecisions.exclude)) {
     normalized.explicitXPathDecisions.exclude = [];
     changed = true;
   }
-  if (!Array.isArray(normalized.explicitXPathDecisions.include)) {
+  if (normalized.explicitXPathDecisions.include && normalized.explicitXPathDecisions.include.length) {
+    // As per existing logic, include should always be empty
     normalized.explicitXPathDecisions.include = [];
+    changed = true;
+  }
+  if (normalized.showDefaultHighlights !== true) {
+    normalized.showDefaultHighlights = true;
     changed = true;
   }
   if (!Array.isArray(normalized.defaultToggleExclusionsDisabled)) {
     normalized.defaultToggleExclusionsDisabled = [];
     changed = true;
   }
-  if (
-    !normalized.domainAiSelectorSet ||
-    !Array.isArray(normalized.domainAiSelectorSet.exclusionSelectors)
-  ) {
-    normalized.domainAiSelectorSet = {
-      inclusionSelectors: [],
-      exclusionSelectors: []
-    };
+  if (!Array.isArray(normalized.domainAiSelectorSet.inclusionSelectors)) {
+    normalized.domainAiSelectorSet.inclusionSelectors = [];
     changed = true;
   }
-  if (
-    !normalized.pageHtmlSnapshots ||
-    typeof normalized.pageHtmlSnapshots !== "object"
-  ) {
+  if (!Array.isArray(normalized.domainAiSelectorSet.exclusionSelectors)) {
+    normalized.domainAiSelectorSet.exclusionSelectors = [];
+    changed = true;
+  }
+  if (typeof normalized.pageHtmlSnapshots !== "object" || normalized.pageHtmlSnapshots === null) {
     normalized.pageHtmlSnapshots = {};
     changed = true;
   }
-  if (!normalized.pageMarkings || typeof normalized.pageMarkings !== "object") {
+  if (typeof normalized.pageMarkings !== "object" || normalized.pageMarkings === null) {
     normalized.pageMarkings = {};
     changed = true;
   }
@@ -143,10 +152,6 @@ function normalizeConfig(baseUrl, config) {
   }
   if (typeof normalized.pendingAiSave !== "boolean") {
     normalized.pendingAiSave = false;
-    changed = true;
-  }
-  if (normalized.showDefaultHighlights !== true) {
-    normalized.showDefaultHighlights = true;
     changed = true;
   }
 

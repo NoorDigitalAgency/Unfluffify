@@ -124,67 +124,78 @@
     const result = await storageGet("configs");
     const configs = result.configs || {};
     let changed = false;
-    if (!configs[baseUrl]) {
-      configs[baseUrl] = createDefaultConfig(baseUrl);
+    let currentConfig = configs[baseUrl];
+    if (!currentConfig) {
+      currentConfig = createDefaultConfig(baseUrl);
       changed = true;
-    }
-    if (
-      !configs[baseUrl].explicitXPathDecisions ||
-      !Array.isArray(configs[baseUrl].explicitXPathDecisions.exclude)
-    ) {
-      configs[baseUrl].explicitXPathDecisions = { include: [], exclude: [] };
-      changed = true;
-    } else if (
-      configs[baseUrl].explicitXPathDecisions.include &&
-      configs[baseUrl].explicitXPathDecisions.include.length
-    ) {
-      configs[baseUrl].explicitXPathDecisions.include = [];
-      changed = true;
-    }
-    if (configs[baseUrl].showDefaultHighlights !== true) {
-      configs[baseUrl].showDefaultHighlights = true;
-      changed = true;
-    }
-    if (!Array.isArray(configs[baseUrl].defaultToggleExclusionsDisabled)) {
-      configs[baseUrl].defaultToggleExclusionsDisabled = [];
-      changed = true;
-    }
-    if (
-      !configs[baseUrl].domainAiSelectorSet ||
-      !Array.isArray(configs[baseUrl].domainAiSelectorSet.exclusionSelectors)
-    ) {
-      configs[baseUrl].domainAiSelectorSet = {
-        inclusionSelectors: [],
-        exclusionSelectors: []
+    } else {
+      // Merge with default to ensure all new properties are present
+      const defaultConfig = createDefaultConfig(baseUrl);
+      // Specifically handle properties that are objects and arrays to avoid shallow copy issues
+      // and ensure defaults for nested structures.
+      currentConfig = {
+        ...defaultConfig,
+        ...currentConfig,
+        explicitXPathDecisions: {
+          ...defaultConfig.explicitXPathDecisions,
+          ...(currentConfig.explicitXPathDecisions || {})
+        },
+        domainAiSelectorSet: {
+          ...defaultConfig.domainAiSelectorSet,
+          ...(currentConfig.domainAiSelectorSet || {})
+        }
       };
-      changed = true;
+
+      // Ensure specific properties are reset or have correct types if they were malformed
+      if (!Array.isArray(currentConfig.explicitXPathDecisions.exclude)) {
+        currentConfig.explicitXPathDecisions.exclude = [];
+        changed = true;
+      }
+      if (currentConfig.explicitXPathDecisions.include && currentConfig.explicitXPathDecisions.include.length) {
+        // As per existing logic, include should always be empty
+        currentConfig.explicitXPathDecisions.include = [];
+        changed = true;
+      }
+      if (currentConfig.showDefaultHighlights !== true) {
+        currentConfig.showDefaultHighlights = true;
+        changed = true;
+      }
+      if (!Array.isArray(currentConfig.defaultToggleExclusionsDisabled)) {
+        currentConfig.defaultToggleExclusionsDisabled = [];
+        changed = true;
+      }
+      if (!Array.isArray(currentConfig.domainAiSelectorSet.inclusionSelectors)) {
+        currentConfig.domainAiSelectorSet.inclusionSelectors = [];
+        changed = true;
+      }
+      if (!Array.isArray(currentConfig.domainAiSelectorSet.exclusionSelectors)) {
+        currentConfig.domainAiSelectorSet.exclusionSelectors = [];
+        changed = true;
+      }
+      if (typeof currentConfig.pageHtmlSnapshots !== "object" || currentConfig.pageHtmlSnapshots === null) {
+        currentConfig.pageHtmlSnapshots = {};
+        changed = true;
+      }
+      if (typeof currentConfig.pageMarkings !== "object" || currentConfig.pageMarkings === null) {
+        currentConfig.pageMarkings = {};
+        changed = true;
+      }
+      if (!Array.isArray(currentConfig.latestComputedSelectors)) {
+        currentConfig.latestComputedSelectors = [];
+        changed = true;
+      }
+      if (!Array.isArray(currentConfig.lastSavedSelectors)) {
+        currentConfig.lastSavedSelectors = [];
+        changed = true;
+      }
+      if (typeof currentConfig.pendingAiSave !== "boolean") {
+        currentConfig.pendingAiSave = false;
+        changed = true;
+      }
     }
-    if (
-      !configs[baseUrl].pageHtmlSnapshots ||
-      typeof configs[baseUrl].pageHtmlSnapshots !== "object"
-    ) {
-      configs[baseUrl].pageHtmlSnapshots = {};
-      changed = true;
-    }
-    if (
-      !configs[baseUrl].pageMarkings ||
-      typeof configs[baseUrl].pageMarkings !== "object"
-    ) {
-      configs[baseUrl].pageMarkings = {};
-      changed = true;
-    }
-    if (!Array.isArray(configs[baseUrl].latestComputedSelectors)) {
-      configs[baseUrl].latestComputedSelectors = [];
-      changed = true;
-    }
-    if (!Array.isArray(configs[baseUrl].lastSavedSelectors)) {
-      configs[baseUrl].lastSavedSelectors = [];
-      changed = true;
-    }
-    if (typeof configs[baseUrl].pendingAiSave !== "boolean") {
-      configs[baseUrl].pendingAiSave = false;
-      changed = true;
-    }
+    
+    configs[baseUrl] = currentConfig; // Update configs object with the potentially modified config
+
     if (changed) {
       await storageSet({ configs });
     }
@@ -693,17 +704,17 @@
       }
       #markcontit-overlay .mc-toast {
         position: fixed;
-        top: 16px;
-        right: 16px;
-        max-width: 320px;
-        padding: 10px 14px;
-        background: rgba(20, 20, 20, 0.9);
-        color: #f6f4ef;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        padding: 10px 12px;
+        background: rgba(47, 42, 36, 0.9);
+        color: #fdf6ed;
         font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
-        font-size: 13px;
-        border-radius: 8px;
+        font-size: 12px;
+        border-radius: 10px;
         opacity: 0;
-        transform: translateY(-6px);
+        transform: translateY(8px);
         transition: opacity 0.2s ease, transform 0.2s ease;
         pointer-events: none;
       }

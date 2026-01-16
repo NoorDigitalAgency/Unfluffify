@@ -81,7 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
-  chrome.storage.session.remove(key);
+  storageRemove(chrome.storage.session, key);
 });
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
@@ -109,11 +109,6 @@ chrome.runtime.onInstalled.addListener(() => {
   }
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
-    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  }
-});
 
 chrome.action.onClicked.addListener((tab) => {
   if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.id) {
