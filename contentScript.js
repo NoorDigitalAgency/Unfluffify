@@ -389,6 +389,9 @@
     const headings = document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR);
 
     for (const heading of headings) {
+      if (isWithinAiPopover(heading)) {
+        continue;
+      }
       if (isWithinHardExcluded(heading)) {
         continue;
       }
@@ -397,6 +400,9 @@
       }
       const children = heading.querySelectorAll("*");
       for (const child of children) {
+        if (isWithinAiPopover(child)) {
+          continue;
+        }
         if (!isWithinHardExcluded(child) && isTextualContainer(child)) {
           targets.add(child);
         }
@@ -414,6 +420,15 @@
       node = node.parentElement;
     }
     return false;
+  }
+
+  function isWithinAiPopover(el) {
+    return Boolean(
+      state.aiPopover &&
+        el &&
+        el.nodeType === 1 &&
+        state.aiPopover.contains(el)
+    );
   }
 
   function getVisibleRect(el) {
@@ -533,6 +548,9 @@
       if (frame.index < children.length) {
         const child = children[frame.index];
         frame.index += 1;
+        if (isWithinAiPopover(child)) {
+          continue;
+        }
         const childHardExcluded =
           frame.ancestorHardExcluded ||
           hardExcludedSet.has(frame.node) ||
@@ -591,7 +609,7 @@
     if (IMMUTABLE_TAG_SELECTOR) {
       const elements = document.querySelectorAll(IMMUTABLE_TAG_SELECTOR);
       for (const el of elements) {
-        if (isVisible(el)) {
+        if (isVisible(el) && !isWithinAiPopover(el)) {
           immutable.add(el);
         }
       }
@@ -601,7 +619,7 @@
       try {
         const elements = document.querySelectorAll(selector);
         for (const el of elements) {
-          if (isVisible(el)) {
+          if (isVisible(el) && !isWithinAiPopover(el)) {
             immutable.add(el);
           }
         }
@@ -612,7 +630,9 @@
 
     if (toggleableTargets) {
       for (const el of toggleableTargets) {
-        toggleable.add(el);
+        if (!isWithinAiPopover(el)) {
+          toggleable.add(el);
+        }
       }
     }
 
@@ -908,33 +928,71 @@
       .mc-ai-popover {
         position: fixed;
         inset: 0;
-        background: #ffffff;
+        background: rgba(26, 22, 18, 0.45);
         z-index: 2147483648;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
         overflow: auto;
       }
-      .mc-ai-popover-toolbar {
-        position: fixed;
-        top: 12px;
-        right: 12px;
-        z-index: 2147483649;
+      .mc-ai-popover-modal {
+        background: #ffffff;
+        color: #2f2a24;
+        width: min(720px, 100%);
+        max-height: min(80vh, 720px);
+        border-radius: 18px;
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .mc-ai-popover-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid #eadccc;
+      }
+      .mc-ai-popover-title {
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #6c4c2b;
       }
       .mc-ai-popover-close {
         border: 1px solid #8a6f52;
         background: #f8e9d5;
         color: #6c4c2b;
         border-radius: 999px;
-        padding: 6px 12px;
+        width: 32px;
+        height: 32px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 14px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+      }
+      .mc-ai-popover-close:focus-visible {
+        outline: 2px solid #6c4c2b;
+        outline-offset: 2px;
+      }
+      .mc-ai-popover-body {
+        padding: 14px 22px 20px;
+        overflow: auto;
+        min-height: 0;
       }
       .mc-ai-popover-list {
-        max-width: 720px;
-        margin: 60px auto 40px;
-        padding: 0 28px 24px 44px;
+        margin: 0;
+        padding: 0 0 0 22px;
         display: grid;
-        gap: 8px;
+        gap: 10px;
         font-size: 13px;
-        line-height: 1.35;
+        line-height: 1.45;
         color: #2f2a24;
       }
     `;
@@ -991,14 +1049,23 @@
     closeAiPopover();
     const popover = document.createElement("div");
     popover.className = "mc-ai-popover";
-    const toolbar = document.createElement("div");
-    toolbar.className = "mc-ai-popover-toolbar";
+    const modal = document.createElement("div");
+    modal.className = "mc-ai-popover-modal";
+    const header = document.createElement("div");
+    header.className = "mc-ai-popover-header";
+    const title = document.createElement("div");
+    title.className = "mc-ai-popover-title";
+    title.textContent = "Computed Content";
     const close = document.createElement("button");
     close.className = "mc-ai-popover-close";
     close.type = "button";
-    close.textContent = "Close";
+    close.innerHTML = "&#x2715;";
+    close.setAttribute("aria-label", "Close");
     close.addEventListener("click", () => closeAiPopover());
-    toolbar.appendChild(close);
+    header.appendChild(title);
+    header.appendChild(close);
+    const body = document.createElement("div");
+    body.className = "mc-ai-popover-body";
     const list = document.createElement("ul");
     list.className = "mc-ai-popover-list";
     if (!items.length) {
@@ -1012,8 +1079,10 @@
         list.appendChild(li);
       });
     }
-    popover.appendChild(toolbar);
-    popover.appendChild(list);
+    body.appendChild(list);
+    modal.appendChild(header);
+    modal.appendChild(body);
+    popover.appendChild(modal);
     document.documentElement.appendChild(popover);
     state.aiPopover = popover;
   }
@@ -1185,6 +1254,9 @@
       return false;
     }
     if (!isTextualContainer(el)) {
+      return false;
+    }
+    if (isWithinAiPopover(el)) {
       return false;
     }
     if (isWithinHardExcluded(el)) {
