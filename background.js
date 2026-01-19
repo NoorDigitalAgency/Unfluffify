@@ -25,8 +25,8 @@ async function updateActionForTab(tabId) {
   const state = await getTabState(tabId);
   const enabled = state && state.enabled;
   if (enabled) {
-    chrome.action.setBadgeText({ tabId, text: "ON" });
-    chrome.action.setBadgeBackgroundColor({ tabId, color: "#2e7d32" });
+    chrome.action.setBadgeText({ tabId, text: " " });
+    chrome.action.setBadgeBackgroundColor({ tabId, color: "#4CAF50" });
   } else {
     chrome.action.setBadgeText({ tabId, text: "" });
   }
