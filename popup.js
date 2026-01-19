@@ -23,6 +23,11 @@ const ui = {
   configClearCurrent: document.getElementById("config-clear-current"),
   configClearAll: document.getElementById("config-clear-all"),
   configImportFile: document.getElementById("config-import-file"),
+  deviceEmulationEnabled: document.getElementById("device-emulation-enabled"),
+  deviceModeDesktop: document.getElementById("device-mode-desktop"),
+  deviceModeMobile: document.getElementById("device-mode-mobile"),
+  deviceScale: document.getElementById("device-scale"),
+  deviceScaleValue: document.getElementById("device-scale-value"),
   endpointUrl: document.getElementById("endpoint-url"),
   endpointSet: document.getElementById("endpoint-url-set"),
   endpointEdit: document.getElementById("endpoint-url-edit"),
@@ -40,7 +45,16 @@ const ui = {
 };
 
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
-
+const DEVICE_MODE_PREFIX = "deviceEmulation:";
+const DEVICE_SCALE_DEFAULTS = {
+  desktop: 0.7,
+  mobile: 0.85
+};
+const DEVICE_SCALE_LIMITS = {
+  min: 0.25,
+  max: 1,
+  step: 0.05
+};
 let currentTab = null;
 let currentBaseUrl = "";
 let currentConfig = null;
@@ -50,6 +64,9 @@ let baseUrlEditMode = false;
 let endpointEditMode = false;
 let aiRequestInFlight = null;
 let configMenuOpen = false;
+let currentDeviceMode = "desktop";
+let currentDeviceScale = DEVICE_SCALE_DEFAULTS.desktop;
+let currentDeviceEmulationEnabled = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -176,6 +193,88 @@ async function getTabState(tabId) {
 async function setTabState(tabId, state) {
   const key = `tabState:${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });
+}
+
+function normalizeDeviceMode(mode) {
+  return mode === "mobile" ? "mobile" : "desktop";
+}
+
+function normalizeDeviceScale(scale, mode) {
+  if (typeof scale !== "number" || !Number.isFinite(scale)) {
+    return DEVICE_SCALE_DEFAULTS[mode];
+  }
+  if (scale < DEVICE_SCALE_LIMITS.min) {
+    return DEVICE_SCALE_LIMITS.min;
+  }
+  if (scale > DEVICE_SCALE_LIMITS.max) {
+    return DEVICE_SCALE_LIMITS.max;
+  }
+  return scale;
+}
+
+function normalizeDeviceEmulationState(value) {
+  if (!value) {
+    return {
+      enabled: false,
+      mode: "desktop",
+      scale: DEVICE_SCALE_DEFAULTS.desktop
+    };
+  }
+  if (typeof value === "string") {
+    const mode = normalizeDeviceMode(value);
+    return {
+      enabled: true,
+      mode,
+      scale: DEVICE_SCALE_DEFAULTS[mode]
+    };
+  }
+  const mode = normalizeDeviceMode(value.mode);
+  return {
+    enabled: Boolean(value.enabled),
+    mode,
+    scale: normalizeDeviceScale(value.scale, mode)
+  };
+}
+
+async function getDeviceEmulationState(tabId) {
+  const key = `${DEVICE_MODE_PREFIX}${tabId}`;
+  const result = await storageGet(chrome.storage.session, key);
+  return normalizeDeviceEmulationState(result[key]);
+}
+
+function updateDeviceEmulationUi(state) {
+  const normalized = normalizeDeviceEmulationState(state);
+  currentDeviceMode = normalized.mode;
+  currentDeviceScale = normalized.scale;
+  currentDeviceEmulationEnabled = normalized.enabled;
+  if (ui.deviceEmulationEnabled) {
+    ui.deviceEmulationEnabled.checked = normalized.enabled;
+  }
+  if (ui.deviceModeDesktop) {
+    ui.deviceModeDesktop.checked = normalized.mode === "desktop";
+  }
+  if (ui.deviceModeMobile) {
+    ui.deviceModeMobile.checked = normalized.mode === "mobile";
+  }
+  if (ui.deviceScale) {
+    ui.deviceScale.value = normalized.scale.toFixed(2);
+  }
+  if (ui.deviceScaleValue) {
+    ui.deviceScaleValue.textContent = `${Math.round(normalized.scale * 100)}%`;
+  }
+  setDeviceModeInputsDisabled(!normalized.enabled);
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      resolve(response);
+    });
+  });
 }
 
 function findMatchingBaseUrl(pageUrl, configs) {
@@ -499,6 +598,8 @@ async function refreshUi() {
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
+  const storedDeviceState = await getDeviceEmulationState(currentTab.id);
+  updateDeviceEmulationUi(storedDeviceState);
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
   const endpointResult = await storageGet(
@@ -735,6 +836,153 @@ async function handleEnableToggle() {
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
+}
+
+function getSelectedDeviceMode() {
+  if (ui.deviceModeMobile && ui.deviceModeMobile.checked) {
+    return "mobile";
+  }
+  return "desktop";
+}
+
+function setDeviceModeInputsDisabled(disabled) {
+  if (ui.deviceModeDesktop) {
+    ui.deviceModeDesktop.disabled = disabled;
+  }
+  if (ui.deviceModeMobile) {
+    ui.deviceModeMobile.disabled = disabled;
+  }
+  if (ui.deviceScale) {
+    ui.deviceScale.disabled = disabled;
+  }
+}
+
+function getSelectedDeviceScale() {
+  if (!ui.deviceScale) {
+    return currentDeviceScale;
+  }
+  const parsed = Number.parseFloat(ui.deviceScale.value);
+  return normalizeDeviceScale(parsed, getSelectedDeviceMode());
+}
+
+function setDeviceControlsDisabled(disabled) {
+  if (ui.deviceEmulationEnabled) {
+    ui.deviceEmulationEnabled.disabled = disabled;
+  }
+  setDeviceModeInputsDisabled(disabled || !currentDeviceEmulationEnabled);
+}
+
+async function handleDeviceEmulationEnabledToggle() {
+  await loadActiveTab();
+  if (!currentTab || !currentTab.id) {
+    return;
+  }
+  const desiredEnabled = Boolean(ui.deviceEmulationEnabled.checked);
+  if (desiredEnabled === currentDeviceEmulationEnabled) {
+    return;
+  }
+  setDeviceControlsDisabled(true);
+  const response = await sendRuntimeMessage({
+    type: "updateDeviceEmulation",
+    tabId: currentTab.id,
+    enabled: desiredEnabled,
+    mode: currentDeviceMode,
+    scale: currentDeviceScale
+  });
+  setDeviceControlsDisabled(false);
+  if (!response || !response.ok) {
+    showToast((response && response.error) || "Device emulation failed");
+    updateDeviceEmulationUi({
+      enabled: currentDeviceEmulationEnabled,
+      mode: currentDeviceMode,
+      scale: currentDeviceScale
+    });
+    return;
+  }
+  updateDeviceEmulationUi(response.state);
+}
+
+async function handleDeviceModeToggle() {
+  await loadActiveTab();
+  if (!currentTab || !currentTab.id) {
+    return;
+  }
+  if (!currentDeviceEmulationEnabled) {
+    updateDeviceEmulationUi({
+      enabled: currentDeviceEmulationEnabled,
+      mode: currentDeviceMode,
+      scale: currentDeviceScale
+    });
+    return;
+  }
+  const desiredMode = getSelectedDeviceMode();
+  if (desiredMode === currentDeviceMode) {
+    return;
+  }
+  setDeviceControlsDisabled(true);
+  const response = await sendRuntimeMessage({
+    type: "updateDeviceEmulation",
+    tabId: currentTab.id,
+    enabled: true,
+    mode: desiredMode,
+    scale: currentDeviceScale
+  });
+  setDeviceControlsDisabled(false);
+  if (!response || !response.ok) {
+    showToast((response && response.error) || "Device emulation failed");
+    updateDeviceEmulationUi({
+      enabled: currentDeviceEmulationEnabled,
+      mode: currentDeviceMode,
+      scale: currentDeviceScale
+    });
+    return;
+  }
+  updateDeviceEmulationUi(response.state);
+}
+
+function handleDeviceScaleInput() {
+  const scale = getSelectedDeviceScale();
+  if (ui.deviceScaleValue) {
+    ui.deviceScaleValue.textContent = `${Math.round(scale * 100)}%`;
+  }
+}
+
+async function handleDeviceScaleChange() {
+  await loadActiveTab();
+  if (!currentTab || !currentTab.id) {
+    return;
+  }
+  if (!currentDeviceEmulationEnabled) {
+    updateDeviceEmulationUi({
+      enabled: currentDeviceEmulationEnabled,
+      mode: currentDeviceMode,
+      scale: currentDeviceScale
+    });
+    return;
+  }
+  const desiredScale = getSelectedDeviceScale();
+  if (desiredScale === currentDeviceScale) {
+    return;
+  }
+  setDeviceControlsDisabled(true);
+  const response = await sendRuntimeMessage({
+    type: "updateDeviceEmulation",
+    tabId: currentTab.id,
+    enabled: true,
+    mode: currentDeviceMode,
+    scale: desiredScale
+  });
+  setDeviceControlsDisabled(false);
+  if (!response || !response.ok) {
+    showToast((response && response.error) || "Device emulation failed");
+    updateDeviceEmulationUi({
+      enabled: currentDeviceEmulationEnabled,
+      mode: currentDeviceMode,
+      scale: currentDeviceScale
+    });
+    return;
+  }
+  updateDeviceEmulationUi(response.state);
 }
 
 function normalizeImportedConfig(baseUrl, incoming) {
@@ -1333,6 +1581,11 @@ async function init() {
   await loadActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
+  ui.deviceEmulationEnabled.addEventListener("change", handleDeviceEmulationEnabledToggle);
+  ui.deviceModeDesktop.addEventListener("change", handleDeviceModeToggle);
+  ui.deviceModeMobile.addEventListener("change", handleDeviceModeToggle);
+  ui.deviceScale.addEventListener("input", handleDeviceScaleInput);
+  ui.deviceScale.addEventListener("change", handleDeviceScaleChange);
   ui.configToggle.addEventListener("click", (event) => {
     event.stopPropagation();
     setConfigMenuOpen(!configMenuOpen);
@@ -1396,7 +1649,10 @@ async function init() {
     }
     if (
       (areaName === "local" && changes.configs) ||
-      (areaName === "session" && currentTab && changes[`tabState:${currentTab.id}`])
+      (areaName === "session" &&
+        currentTab &&
+        (changes[`tabState:${currentTab.id}`] ||
+          changes[`${DEVICE_MODE_PREFIX}${currentTab.id}`]))
     ) {
       scheduleRefresh();
     }

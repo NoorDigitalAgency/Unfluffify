@@ -41,6 +41,31 @@
       </section>
 
       <section class="card">
+        <div class="section-title">Device emulation</div>
+        <label class="row">
+          <span>Enable simulation</span>
+          <input id="device-emulation-enabled" type="checkbox" />
+        </label>
+        <div class="radio-group" role="radiogroup" aria-label="Device emulation">
+          <label class="row">
+            <span>Desktop 1920x1080</span>
+            <input id="device-mode-desktop" type="radio" name="device-mode" value="desktop" checked />
+          </label>
+          <label class="row">
+            <span>Mobile 412x960</span>
+            <input id="device-mode-mobile" type="radio" name="device-mode" value="mobile" />
+          </label>
+        </div>
+        <div class="scale-control">
+          <div class="row">
+            <span>Scale</span>
+            <span id="device-scale-value" class="scale-value">70%</span>
+          </div>
+          <input id="device-scale" type="range" min="0.25" max="1" step="0.05" value="0.7" />
+        </div>
+      </section>
+
+      <section class="card">
         <label class="field">
           <span>Current Page URL</span>
           <div class="input-row">
