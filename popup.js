@@ -1025,6 +1025,25 @@ function clearBrowsingDataForOrigin(origin) {
   });
 }
 
+function reloadTab(tabId) {
+  return new Promise((resolve) => {
+    if (!tabId) {
+      resolve({ ok: false, error: "Missing tab" });
+      return;
+    }
+    chrome.tabs.reload(tabId, () => {
+      if (chrome.runtime.lastError) {
+        resolve({
+          ok: false,
+          error: chrome.runtime.lastError.message || "Unable to reload tab"
+        });
+        return;
+      }
+      resolve({ ok: true });
+    });
+  });
+}
+
 async function handleClearDomainCache() {
   await loadActiveTab();
   if (!currentTab || !currentTab.url) {
@@ -1060,6 +1079,10 @@ async function handleClearDomainCache() {
     return;
   }
   showToast("Domain cache cleared");
+  const reloadResult = await reloadTab(currentTab.id);
+  if (!reloadResult.ok) {
+    showToast(reloadResult.error || "Unable to reload tab");
+  }
 }
 
 function normalizeImportedConfig(baseUrl, incoming) {

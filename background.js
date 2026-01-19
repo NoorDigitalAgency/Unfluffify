@@ -222,7 +222,11 @@ async function updateDeviceEmulation(tabId, updates) {
     return { ok: true, state: next };
   }
 
-  if (!current.enabled) {
+  if (current.enabled && current.mode !== next.mode) {
+    await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
+  }
+
+  if (!current.enabled || current.mode !== next.mode) {
     next.scale = await getBestDeviceScale(tabId, next.mode);
   }
 
