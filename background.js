@@ -25,10 +25,25 @@ async function updateActionForTab(tabId) {
   const state = await getTabState(tabId);
   const enabled = state && state.enabled;
   if (enabled) {
-    chrome.action.setBadgeText({ tabId, text: " " });
-    chrome.action.setBadgeBackgroundColor({ tabId, color: "#4CAF50" });
+    chrome.action.setIcon({
+      tabId,
+      path: {
+        16: "active/icon16.png",
+        32: "active/icon32.png",
+        48: "active/icon48.png",
+        128: "active/icon128.png"
+      }
+    });
   } else {
-    chrome.action.setBadgeText({ tabId, text: "" });
+    chrome.action.setIcon({
+      tabId,
+      path: {
+        16: "inactive/icon16.png",
+        32: "inactive/icon32.png",
+        48: "inactive/icon48.png",
+        128: "inactive/icon128.png"
+      }
+    });
   }
 }
 
