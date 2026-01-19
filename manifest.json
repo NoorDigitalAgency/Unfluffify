@@ -15,7 +15,8 @@
     "sidePanel",
     "tabs",
     "scripting",
-    "debugger"
+    "debugger",
+    "browsingData"
   ],
   "host_permissions": [
     "<all_urls>"

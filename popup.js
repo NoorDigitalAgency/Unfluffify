@@ -22,6 +22,7 @@ const ui = {
   configImport: document.getElementById("config-import"),
   configClearCurrent: document.getElementById("config-clear-current"),
   configClearAll: document.getElementById("config-clear-all"),
+  clearDomainCache: document.getElementById("clear-domain-cache"),
   configImportFile: document.getElementById("config-import-file"),
   deviceEmulationEnabled: document.getElementById("device-emulation-enabled"),
   deviceModeDesktop: document.getElementById("device-mode-desktop"),
@@ -296,6 +297,21 @@ function parseBaseUrl(value) {
   }
   try {
     return new URL(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function getOriginFromUrl(url) {
+  if (!url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.origin;
   } catch (error) {
     return null;
   }
@@ -985,6 +1001,67 @@ async function handleDeviceScaleChange() {
   updateDeviceEmulationUi(response.state);
 }
 
+function clearBrowsingDataForOrigin(origin) {
+  return new Promise((resolve) => {
+    chrome.browsingData.remove(
+      { origins: [origin] },
+      {
+        cookies: true,
+        cache: true,
+        cacheStorage: true,
+        localStorage: true
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            ok: false,
+            error: chrome.runtime.lastError.message || "Unable to clear cache"
+          });
+          return;
+        }
+        resolve({ ok: true });
+      }
+    );
+  });
+}
+
+async function handleClearDomainCache() {
+  await loadActiveTab();
+  if (!currentTab || !currentTab.url) {
+    showToast("No active tab to clear");
+    return;
+  }
+  const origin = getOriginFromUrl(currentTab.url);
+  if (!origin) {
+    showToast("Unsupported page for cache clearing");
+    return;
+  }
+  let hostname = origin;
+  try {
+    hostname = new URL(currentTab.url).hostname;
+  } catch (error) {
+    hostname = origin;
+  }
+  const confirmed = window.confirm(
+    `Clear cookies, local storage, and cached files for ${hostname}?`
+  );
+  if (!confirmed) {
+    return;
+  }
+  if (ui.clearDomainCache) {
+    ui.clearDomainCache.disabled = true;
+  }
+  const result = await clearBrowsingDataForOrigin(origin);
+  if (ui.clearDomainCache) {
+    ui.clearDomainCache.disabled = false;
+  }
+  if (!result.ok) {
+    showToast(result.error || "Unable to clear cache");
+    return;
+  }
+  showToast("Domain cache cleared");
+}
+
 function normalizeImportedConfig(baseUrl, incoming) {
   if (!incoming) {
     return createDefaultConfig(baseUrl);
@@ -1597,6 +1674,9 @@ async function init() {
   ui.configClearCurrent.addEventListener("click", handleClearCurrent);
   ui.configClearAll.addEventListener("click", handleClearAll);
   ui.configImportFile.addEventListener("change", handleImportFile);
+  if (ui.clearDomainCache) {
+    ui.clearDomainCache.addEventListener("click", handleClearDomainCache);
+  }
   ui.baseUrlInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       if (!ui.baseUrlInput.readOnly) {
