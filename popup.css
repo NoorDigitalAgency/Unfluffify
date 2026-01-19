@@ -78,7 +78,7 @@ body.is-busy {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 200px;
+  min-width: 285px;
   max-width: calc(100vw - 28px);
   background: #fffdf8;
   border: 1px solid var(--line);
@@ -509,8 +509,8 @@ button.loading:disabled {
   padding: 12px 16px;
   border-radius: 10px;
   background: #fffdf8;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  color: var(--muted);
   border: 1px solid var(--line);
 }
