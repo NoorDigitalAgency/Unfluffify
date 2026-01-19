@@ -38,10 +38,10 @@ async function updateActionForTab(tabId) {
     chrome.action.setIcon({
       tabId,
       path: {
-        16: "inactive/icon16.png",
-        32: "inactive/icon32.png",
-        48: "inactive/icon48.png",
-        128: "inactive/icon128.png"
+        16: "icons/icon16.png",
+        32: "icons/icon32.png",
+        48: "icons/icon48.png",
+        128: "icons/icon128.png"
       }
     });
   }
