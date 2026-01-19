@@ -28,6 +28,47 @@ const storageSet = (area, items) =>
 const storageRemove = (area, keys) =>
   new Promise((resolve) => area.remove(keys, resolve));
 
+function getViewportSize(tabId) {
+  return new Promise((resolve) => {
+    if (!chrome.scripting || !tabId) {
+      resolve(null);
+      return;
+    }
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        func: () => ({
+          width: window.innerWidth,
+          height: window.innerHeight
+        })
+      },
+      (results) => {
+        if (chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        if (!results || !results.length || !results[0].result) {
+          resolve(null);
+          return;
+        }
+        resolve(results[0].result);
+      }
+    );
+  });
+}
+
+async function getBestDeviceScale(tabId, mode) {
+  const preset = DEVICE_EMULATION_PRESETS[mode] || DEVICE_EMULATION_PRESETS.desktop;
+  const viewport = await getViewportSize(tabId);
+  if (!viewport || !viewport.width || !viewport.height) {
+    return DEVICE_SCALE_DEFAULTS[mode];
+  }
+  const widthScale = viewport.width / preset.width;
+  const heightScale = viewport.height / preset.height;
+  const bestScale = Math.min(widthScale, heightScale);
+  return normalizeDeviceScale(bestScale, mode);
+}
+
 async function getTabState(tabId) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   const result = await storageGet(chrome.storage.session, key);
@@ -179,6 +220,10 @@ async function updateDeviceEmulation(tabId, updates) {
     next.enabled = false;
     await setDeviceEmulationState(tabId, next);
     return { ok: true, state: next };
+  }
+
+  if (!current.enabled) {
+    next.scale = await getBestDeviceScale(tabId, next.mode);
   }
 
   const applyResult = await applyDeviceEmulation(tabId, next);
