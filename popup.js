@@ -24,6 +24,7 @@ const ui = {
   configClearAll: document.getElementById("config-clear-all"),
   clearDomainCache: document.getElementById("clear-domain-cache"),
   configImportFile: document.getElementById("config-import-file"),
+  uiCurtain: document.getElementById("ui-curtain"),
   deviceEmulationEnabled: document.getElementById("device-emulation-enabled"),
   deviceModeDesktop: document.getElementById("device-mode-desktop"),
   deviceModeMobile: document.getElementById("device-mode-mobile"),
@@ -76,6 +77,13 @@ function showToast(message) {
   toastTimer = setTimeout(() => {
     ui.toast.classList.remove("show");
   }, 1800);
+}
+
+function setUiBusy(isBusy) {
+  if (ui.uiCurtain) {
+    ui.uiCurtain.hidden = !isBusy;
+  }
+  document.body.classList.toggle("is-busy", isBusy);
 }
 
 function setConfigMenuOpen(open) {
@@ -1067,6 +1075,7 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
+  setUiBusy(true);
   if (ui.clearDomainCache) {
     ui.clearDomainCache.disabled = true;
   }
@@ -1075,11 +1084,13 @@ async function handleClearDomainCache() {
     ui.clearDomainCache.disabled = false;
   }
   if (!result.ok) {
+    setUiBusy(false);
     showToast(result.error || "Unable to clear cache");
     return;
   }
   showToast("Domain cache cleared");
   const reloadResult = await reloadTab(currentTab.id);
+  setUiBusy(false);
   if (!reloadResult.ok) {
     showToast(reloadResult.error || "Unable to reload tab");
   }
@@ -1466,6 +1477,12 @@ async function handleContextRefresh() {
   await loadActiveTab();
   baseUrlEditMode = false;
   endpointEditMode = false;
+  if (currentTab && currentTab.id) {
+    const tabState = await getTabState(currentTab.id);
+    if (tabState && tabState.enabled) {
+      await sendTabMessageWithRetry({ type: "forceRefresh" });
+    }
+  }
   await refreshUi();
 }
 

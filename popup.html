@@ -10,7 +10,7 @@
     <div class="app">
       <header class="app-header">
         <div class="header-text">
-          <div class="title">Unfluffify</div>
+          <img src="logo.png" alt="MarkContIt" class="header-logo" />
           <div class="subtitle">Tell AI what's not content</div>
         </div>
         <div class="header-actions">
@@ -146,6 +146,9 @@
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="ui-curtain" class="ui-curtain" role="status" aria-live="polite" hidden>
+      <div class="ui-curtain__content">Please wait...</div>
+    </div>
     <input id="config-import-file" type="file" accept="application/json" hidden />
     <script src="popup.js"></script>
   </body>
