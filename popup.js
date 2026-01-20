@@ -514,7 +514,7 @@ function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
   });
 }
 
-function renderMarkedPages(listEl, items, emptyText, onNavigate) {
+function renderMarkedPages(listEl, items, emptyText, currentPageUrl, onNavigate) {
   listEl.textContent = "";
   if (!items.length) {
     const li = document.createElement("li");
@@ -531,9 +531,11 @@ function renderMarkedPages(listEl, items, emptyText, onNavigate) {
     title.title = item.title;
     const count = document.createElement("span");
     count.className = "count";
-    count.textContent = item.count === 1 ? "1 mark" : `${item.count} marks`;
+    count.textContent = item.count === 0 ? "No marks" : item.count === 1 ? "1 mark" : `${item.count} marks`;
     const button = document.createElement("button");
     button.textContent = "Navigate";
+    const isCurrentPage = item.url === currentPageUrl;
+    button.disabled = isCurrentPage;
     button.addEventListener("click", () => onNavigate(item.url));
     li.appendChild(title);
     li.appendChild(count);
@@ -845,9 +847,6 @@ async function refreshUi() {
         item.xpath &&
         !isHeadingXPath(item.xpath)
     ).length;
-    if (excludedCount === 0) {
-      return;
-    }
     markedPages.push({
       url,
       title: entry.title || url,
@@ -859,6 +858,7 @@ async function refreshUi() {
     ui.markedPages,
     markedPages,
     baseUrlSet ? "None yet" : "Set Base Page URL first",
+    pageUrl,
     async (url) => {
       await loadActiveTab();
       if (!currentTab || !currentTab.id) {
@@ -924,6 +924,11 @@ async function handleEnableToggle() {
       baseUrl: baseUrlValue
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
+    // Capture the initial page snapshot
+    await sendTabMessageWithRetry({
+      type: "capturePageSnapshot",
+      baseUrl: baseUrlValue
+    });
   } else {
     await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
@@ -1481,6 +1486,11 @@ async function handleBaseUrlSet() {
     baseUrl: baseUrlValue
   });
   await sendTabMessageWithRetry({ type: "forceRefresh" });
+  // Capture the initial page snapshot
+  await sendTabMessageWithRetry({
+    type: "capturePageSnapshot",
+    baseUrl: baseUrlValue
+  });
   await refreshUi();
 }
 

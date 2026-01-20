@@ -1784,6 +1784,8 @@
     state.enabled = true;
     state.baseUrl = baseUrl;
     state.config = await loadConfig(baseUrl);
+    const removedElements = removeConsentElements();
+    if(removedElements.length > 0) restorePageScrolling();
     createOverlay();
     startObservers();
     startUrlWatcher();
