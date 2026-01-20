@@ -829,11 +829,13 @@ async function handleEnableToggle() {
     if (!parsed) {
       showToast("Enter a valid Base Page URL");
       ui.toggleEnabled.checked = false;
+      await refreshUi();
       return;
     }
     if (!currentTab.url.startsWith(baseUrlValue)) {
       showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
+      await refreshUi();
       return;
     }
     // Inject content script first
@@ -841,6 +843,7 @@ async function handleEnableToggle() {
     if (!injectResult.ok) {
       showToast(injectResult.error || "Unable to activate on this page");
       ui.toggleEnabled.checked = false;
+      await refreshUi();
       return;
     }
     await ensureConfig(baseUrlValue);
