@@ -106,78 +106,118 @@ function createDefaultConfig(baseUrl) {
   return {
     baseUrl,
     domain,
-    showDefaultHighlights: true,
-    explicitXPathDecisions: { include: [], exclude: [] },
-    pageHtmlSnapshots: {},
     pageMarkings: {},
     latestComputedSelectors: [],
     lastSavedSelectors: [],
-    pendingAiSave: false,
-    defaultToggleExclusionsDisabled: [],
-    domainAiSelectorSet: { inclusionSelectors: [], exclusionSelectors: [] }
+    domainAiSelectorSet: { inclusionSelectors: [] }
   };
+}
+
+function normalizePageMarkings(pageMarkings) {
+  const normalized = {};
+  let changed = false;
+  if (!pageMarkings || typeof pageMarkings !== "object") {
+    return { normalized, changed };
+  }
+  Object.entries(pageMarkings).forEach(([url, entry]) => {
+    if (!url || !entry || typeof entry !== "object") {
+      changed = true;
+      return;
+    }
+    const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+    const xpaths = rawXpaths
+      .map((item) => {
+        if (typeof item === "string") {
+          changed = true;
+          return { xpath: item, excluded: true };
+        }
+        if (item && typeof item.xpath === "string") {
+          return { xpath: item.xpath, excluded: Boolean(item.excluded) };
+        }
+        changed = true;
+        return null;
+      })
+      .filter(Boolean);
+    const fullHTML =
+      typeof entry.fullHTML === "string"
+        ? entry.fullHTML
+        : typeof entry.fullHtml === "string"
+          ? entry.fullHtml
+          : typeof entry.html === "string"
+            ? entry.html
+            : "";
+    if (entry.fullHtml || entry.html) {
+      changed = true;
+    }
+    normalized[url] = {
+      url: entry.url || url,
+      title: entry.title || url,
+      xpaths,
+      fullHTML
+    };
+  });
+  return { normalized, changed };
+}
+
+function normalizeAiSelectorSet(value) {
+  const normalized = { inclusionSelectors: [] };
+  let changed = false;
+  if (!value || typeof value !== "object") {
+    return { normalized, changed };
+  }
+  if (Array.isArray(value.inclusionSelectors)) {
+    normalized.inclusionSelectors = value.inclusionSelectors;
+  } else if (Array.isArray(value.exclusionSelectors)) {
+    normalized.inclusionSelectors = value.exclusionSelectors;
+    changed = true;
+  } else {
+    changed = true;
+  }
+  return { normalized, changed };
 }
 
 function normalizeConfig(baseUrl, incoming) {
   let changed = false;
   const defaultConfig = createDefaultConfig(baseUrl);
-  let normalized = {
-    ...defaultConfig,
-    ...(incoming || {}),
-    explicitXPathDecisions: {
-      ...defaultConfig.explicitXPathDecisions,
-      ...((incoming && incoming.explicitXPathDecisions) || {})
-    },
-    domainAiSelectorSet: {
-      ...defaultConfig.domainAiSelectorSet,
-      ...((incoming && incoming.domainAiSelectorSet) || {})
-    }
-  };
+  let normalized = { ...defaultConfig };
 
-  // Ensure specific properties are reset or have correct types if they were malformed
-  if (!Array.isArray(normalized.explicitXPathDecisions.exclude)) {
-    normalized.explicitXPathDecisions.exclude = [];
+  if (!incoming) {
+    return { config: normalized, changed: true };
+  }
+
+  if (
+    incoming.explicitXPathDecisions ||
+    incoming.defaultToggleExclusionsDisabled ||
+    incoming.pageHtmlSnapshots ||
+    incoming.pendingAiSave !== undefined
+  ) {
     changed = true;
   }
-  if (normalized.explicitXPathDecisions.include && normalized.explicitXPathDecisions.include.length) {
-    // As per existing logic, include should always be empty
-    normalized.explicitXPathDecisions.include = [];
+  if (typeof incoming.domain === "string") {
+    normalized.domain = incoming.domain;
+  }
+  if (typeof incoming.pageMarkings === "object" && incoming.pageMarkings !== null) {
+    const result = normalizePageMarkings(incoming.pageMarkings);
+    normalized.pageMarkings = result.normalized;
+    if (result.changed) {
+      changed = true;
+    }
+  } else if (incoming.pageMarkings !== undefined) {
     changed = true;
   }
-  if (normalized.showDefaultHighlights !== true) {
-    normalized.showDefaultHighlights = true;
+  if (Array.isArray(incoming.latestComputedSelectors)) {
+    normalized.latestComputedSelectors = incoming.latestComputedSelectors;
+  } else if (incoming.latestComputedSelectors !== undefined) {
     changed = true;
   }
-  if (!Array.isArray(normalized.defaultToggleExclusionsDisabled)) {
-    normalized.defaultToggleExclusionsDisabled = [];
+  if (Array.isArray(incoming.lastSavedSelectors)) {
+    normalized.lastSavedSelectors = incoming.lastSavedSelectors;
+  } else if (incoming.lastSavedSelectors !== undefined) {
     changed = true;
   }
-  if (!Array.isArray(normalized.domainAiSelectorSet.inclusionSelectors)) {
-    normalized.domainAiSelectorSet.inclusionSelectors = [];
-    changed = true;
-  }
-  if (!Array.isArray(normalized.domainAiSelectorSet.exclusionSelectors)) {
-    normalized.domainAiSelectorSet.exclusionSelectors = [];
-    changed = true;
-  }
-  if (typeof normalized.pageHtmlSnapshots !== "object" || normalized.pageHtmlSnapshots === null) {
-    normalized.pageHtmlSnapshots = {};
-    changed = true;
-  }
-  if (typeof normalized.pageMarkings !== "object" || normalized.pageMarkings === null) {
-    normalized.pageMarkings = {};
-    changed = true;
-  }
-  if (!Array.isArray(normalized.latestComputedSelectors)) {
-    normalized.latestComputedSelectors = [];
-    changed = true;
-  }
-  if (!Array.isArray(normalized.lastSavedSelectors)) {
-    normalized.lastSavedSelectors = [];
-    changed = true;
-  }
-  if (typeof normalized.pendingAiSave !== "boolean") {
-    normalized.pendingAiSave = false;
+  const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
+  normalized.domainAiSelectorSet = aiSelectors.normalized;
+  if (aiSelectors.changed) {
     changed = true;
   }
 
@@ -377,16 +417,6 @@ async function sendTabMessageWithRetry(message, attempts = 3) {
     await delay(250);
   }
   return null;
-}
-
-async function getImmutableDefaultTags() {
-  const response = await sendTabMessageWithRetry({
-    type: "getDefaultExclusions"
-  });
-  if (response && Array.isArray(response.immutableTags)) {
-    return response.immutableTags;
-  }
-  return [];
 }
 
 async function clearFocusedElement() {
@@ -675,19 +705,22 @@ async function refreshUi() {
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
 
-  const explicitExclude =
-    (currentConfig &&
-      currentConfig.explicitXPathDecisions &&
-      currentConfig.explicitXPathDecisions.exclude) ||
-    [];
-  let pageExplicitExclude = explicitExclude.map((xpath) => ({
+  const pageEntry =
+    currentConfig &&
+    currentConfig.pageMarkings &&
+    currentConfig.pageMarkings[pageUrl];
+  const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
+  const excludedXPaths = explicitExclude
+    .filter((item) => item && item.excluded && item.xpath)
+    .map((item) => item.xpath);
+  let pageExplicitExclude = excludedXPaths.map((xpath) => ({
     xpath,
     text: xpath
   }));
   if (currentBaseUrl) {
     const response = await sendTabMessage({
       type: "describeXPathsOnPage",
-      xpaths: explicitExclude
+      xpaths: excludedXPaths
     });
     if (response && Array.isArray(response.items)) {
       pageExplicitExclude = response.items;
@@ -713,14 +746,24 @@ async function refreshUi() {
       }
       await clearFocusedElement();
       currentConfig = await updateConfig(currentBaseUrl, (config) => {
-        config.explicitXPathDecisions.exclude =
-          config.explicitXPathDecisions.exclude.filter((item) => item !== value);
+        if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+          return;
+        }
+        const entry = config.pageMarkings[pageUrl];
+        if (!entry || !Array.isArray(entry.xpaths)) {
+          return;
+        }
+        entry.xpaths = entry.xpaths.map((item) => {
+          if (!item || item.xpath !== value) {
+            return item;
+          }
+          return { ...item, excluded: false };
+        });
       });
       await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
       await sendTabMessage({
         type: "capturePageSnapshot",
-        baseUrl: currentBaseUrl,
-        xpaths: currentConfig.explicitXPathDecisions.exclude
+        baseUrl: currentBaseUrl
       });
       refreshUi();
     }
@@ -777,13 +820,16 @@ async function refreshUi() {
     if (currentBaseUrl && !url.startsWith(currentBaseUrl)) {
       return;
     }
-    if (entry.xpaths.length === 0) {
+    const excludedCount = entry.xpaths.filter(
+      (item) => item && item.excluded && item.xpath
+    ).length;
+    if (excludedCount === 0) {
       return;
     }
     markedPages.push({
       url,
       title: entry.title || url,
-      count: entry.xpaths.length
+      count: excludedCount
     });
   });
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
@@ -1528,32 +1574,35 @@ async function handleComputeSelectors() {
   }
 
   await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
+  currentConfig = await ensureConfig(currentBaseUrl);
 
-  const immutableTags = await getImmutableDefaultTags();
   const pageMarkings = currentConfig.pageMarkings || {};
-  const pageSnapshots =
-    (currentConfig && currentConfig.pageHtmlSnapshots) || {};
   const payload = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
       }
-      const html = entry.html || pageSnapshots[url];
+      const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
+      const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       return {
-        url,
-        html,
-        xpaths: entry.xpaths || [],
-        defaultExclusionSelectors: immutableTags.slice()
+        baseUrl: currentBaseUrl,
+        pageUrl: url,
+        fullHTML,
+        xpaths
       };
     })
     .filter((entry) => {
-      if (!entry || !entry.url) {
+      if (!entry || !entry.pageUrl) {
         return false;
       }
-      if (currentBaseUrl && !entry.url.startsWith(currentBaseUrl)) {
+      if (currentBaseUrl && !entry.pageUrl.startsWith(currentBaseUrl)) {
         return false;
       }
-      return Array.isArray(entry.xpaths) && entry.xpaths.length > 0 && entry.html;
+      return (
+        Array.isArray(entry.xpaths) &&
+        entry.xpaths.length > 0 &&
+        entry.fullHTML
+      );
     });
 
   if (!payload.length) {
@@ -1589,10 +1638,8 @@ async function handleComputeSelectors() {
     currentConfig = await updateConfig(currentBaseUrl, (config) => {
       config.latestComputedSelectors = selectors;
       config.domainAiSelectorSet = {
-        inclusionSelectors: [],
-        exclusionSelectors: selectors
+        inclusionSelectors: selectors
       };
-      config.pendingAiSave = selectors.length > 0;
     });
 
     await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
@@ -1665,7 +1712,6 @@ async function handleSaveExcludes() {
     }
     currentConfig = await updateConfig(currentBaseUrl, (config) => {
       config.lastSavedSelectors = selectors;
-      config.pendingAiSave = false;
     });
     showToast("Excludes saved");
   } catch (error) {

@@ -1,14 +1,35 @@
 (() => {
-  const DEFAULT_EXCLUDED_TAGS_TOGGLEABLE = [
-    "H1",
-    "H2",
-    "H3",
-    "H4",
-    "H5",
-    "H6"
+  const HEADING_TAG_SELECTOR = ["H1", "H2", "H3", "H4", "H5", "H6"].join(",");
+
+  const REMOVABLE_ELEMENT_SELECTORS = [
+    ":not(body):not(html).backdrop",
+    ":not(body):not(html).overlay",
+    ":not(body):not(html).wcc-overlay",
+    ":not(body):not(html).modal-backdrop",
+    ":not(body):not(html)[role='dialog' i]",
+    ":not(body):not(html)[class*='modal' i]",
+    ":not(body):not(html)[class*='popup' i]",
+    ":not(body):not(html)[id*='cookie' i]",
+    ":not(body):not(html)[class*='cookie' i]",
+    ":not(body):not(html)[id*='consent' i]",
+    ":not(body):not(html)[class*='consent' i]",
+    ":not(body):not(html)[class*='newsletter' i]",
+    ":not(body):not(html)[class*='gdpr' i]",
+    ":not(body):not(html)[id*='gdpr' i]",
+    ":not(body):not(html)[class*='privacy' i]:not([class*='policy' i])",
+    ":not(body):not(html)[id*='privacy' i]:not([id*='policy' i])",
+    "[aria-hidden='true']",
+    "[role='dialog']",
+    ".cookie",
+    ".cookies",
+    ".cookie-banner",
+    ".newsletter",
+    ".subscribe",
+    ".modal",
+    ".popup"
   ];
 
-  const DEFAULT_EXCLUDED_TAGS_IMMUTABLE = [
+  const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = [
     "IMG",
     "FOOTER",
     "FORM",
@@ -22,50 +43,7 @@
     "ASIDE",
     "SELECT",
     "TITLE",
-    "STYLE",
-    `
-      :not(body):not(html).backdrop,
-      :not(body):not(html).overlay,
-      :not(body):not(html).wcc-overlay,
-      :not(body):not(html).modal-backdrop,
-      :not(body):not(html)[role="dialog" i],
-      :not(body):not(html)[class*="modal" i],
-      :not(body):not(html)[class*="popup" i],
-      :not(body):not(html)[id*="cookie" i],
-      :not(body):not(html)[class*="cookie" i],
-      :not(body):not(html)[id*="consent" i],
-      :not(body):not(html)[class*="consent" i],
-      :not(body):not(html)[class*="newsletter" i],
-      :not(body):not(html)[class*="gdpr" i],
-      :not(body):not(html)[id*="gdpr" i],
-      :not(body):not(html)[class*="privacy" i]:not([class*="policy" i]),
-      :not(body):not(html)[id*="privacy" i]:not([id*="policy" i])
-    `
-  ];
-
-  const DEFAULT_EXCLUDED_TAGS = [
-    ...DEFAULT_EXCLUDED_TAGS_TOGGLEABLE,
-    ...DEFAULT_EXCLUDED_TAGS_IMMUTABLE
-  ];
-
-  const TOGGLEABLE_TAG_SELECTOR = DEFAULT_EXCLUDED_TAGS_TOGGLEABLE.map((tag) =>
-    tag.toLowerCase()
-  ).join(",");
-
-  const IMMUTABLE_TAG_SELECTOR = DEFAULT_EXCLUDED_TAGS_IMMUTABLE.map((tag) =>
-    tag.toLowerCase()
-  ).join(",");
-
-  const HARD_EXCLUDED_SELECTORS = [
-    "[aria-hidden='true']",
-    "[role='dialog']",
-    ".cookie",
-    ".cookies",
-    ".cookie-banner",
-    ".newsletter",
-    ".subscribe",
-    ".modal",
-    ".popup"
+    "STYLE"
   ];
 
   const state = {
@@ -81,7 +59,6 @@
     toast: null,
     toastHideTimer: 0,
     altPassThrough: false,
-    headingToggleableTargets: new Set(),
     markIdCounter: 1,
     markIds: new WeakMap(),
     markedElements: new Set(),
@@ -109,6 +86,10 @@
       });
     });
 
+  const isTagSelector = (selector) => /^[a-z]+$/i.test(selector);
+  const toQuerySelector = (selector) =>
+    isTagSelector(selector) ? selector.toLowerCase() : selector;
+
   function createDefaultConfig(baseUrl) {
     let domain = "";
     try {
@@ -120,100 +101,127 @@
     return {
       baseUrl,
       domain,
-      showDefaultHighlights: true,
-      explicitXPathDecisions: {
-        include: [],
-        exclude: []
-      },
-      pageHtmlSnapshots: {},
       pageMarkings: {},
       latestComputedSelectors: [],
       lastSavedSelectors: [],
-      pendingAiSave: false,
-      defaultToggleExclusionsDisabled: [],
       domainAiSelectorSet: {
-        inclusionSelectors: [],
-        exclusionSelectors: []
+        inclusionSelectors: []
       }
     };
+  }
+
+  function normalizePageMarkings(pageMarkings) {
+    const normalized = {};
+    let changed = false;
+    if (!pageMarkings || typeof pageMarkings !== "object") {
+      return { normalized, changed };
+    }
+    Object.entries(pageMarkings).forEach(([url, entry]) => {
+      if (!url || !entry || typeof entry !== "object") {
+        changed = true;
+        return;
+      }
+      const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+      const xpaths = rawXpaths
+        .map((item) => {
+          if (typeof item === "string") {
+            changed = true;
+            return { xpath: item, excluded: true };
+          }
+          if (item && typeof item.xpath === "string") {
+            return { xpath: item.xpath, excluded: Boolean(item.excluded) };
+          }
+          changed = true;
+          return null;
+        })
+        .filter(Boolean);
+      const fullHTML =
+        typeof entry.fullHTML === "string"
+          ? entry.fullHTML
+          : typeof entry.fullHtml === "string"
+            ? entry.fullHtml
+            : typeof entry.html === "string"
+              ? entry.html
+              : "";
+      if (entry.fullHtml || entry.html) {
+        changed = true;
+      }
+      normalized[url] = {
+        url: entry.url || url,
+        title: entry.title || url,
+        xpaths,
+        fullHTML
+      };
+    });
+    return { normalized, changed };
+  }
+
+  function normalizeAiSelectorSet(value) {
+    const normalized = { inclusionSelectors: [] };
+    let changed = false;
+    if (!value || typeof value !== "object") {
+      return { normalized, changed };
+    }
+    if (Array.isArray(value.inclusionSelectors)) {
+      normalized.inclusionSelectors = value.inclusionSelectors;
+    } else if (Array.isArray(value.exclusionSelectors)) {
+      normalized.inclusionSelectors = value.exclusionSelectors;
+      changed = true;
+    } else {
+      changed = true;
+    }
+    return { normalized, changed };
   }
 
   async function loadConfig(baseUrl) {
     const result = await storageGet("configs");
     const configs = result.configs || {};
     let changed = false;
-    let currentConfig = configs[baseUrl];
-    if (!currentConfig) {
-      currentConfig = createDefaultConfig(baseUrl);
+    const existing = configs[baseUrl];
+    const defaultConfig = createDefaultConfig(baseUrl);
+    let currentConfig = { ...defaultConfig };
+
+    if (!existing) {
       changed = true;
     } else {
-      // Merge with default to ensure all new properties are present
-      const defaultConfig = createDefaultConfig(baseUrl);
-      // Specifically handle properties that are objects and arrays to avoid shallow copy issues
-      // and ensure defaults for nested structures.
-      currentConfig = {
-        ...defaultConfig,
-        ...currentConfig,
-        explicitXPathDecisions: {
-          ...defaultConfig.explicitXPathDecisions,
-          ...(currentConfig.explicitXPathDecisions || {})
-        },
-        domainAiSelectorSet: {
-          ...defaultConfig.domainAiSelectorSet,
-          ...(currentConfig.domainAiSelectorSet || {})
+      if (
+        existing.explicitXPathDecisions ||
+        existing.defaultToggleExclusionsDisabled ||
+        existing.pageHtmlSnapshots ||
+        existing.pendingAiSave !== undefined
+      ) {
+        changed = true;
+      }
+      if (typeof existing.domain === "string") {
+        currentConfig.domain = existing.domain;
+      }
+      if (typeof existing.pageMarkings === "object" && existing.pageMarkings !== null) {
+        const normalized = normalizePageMarkings(existing.pageMarkings);
+        currentConfig.pageMarkings = normalized.normalized;
+        if (normalized.changed) {
+          changed = true;
         }
-      };
-
-      // Ensure specific properties are reset or have correct types if they were malformed
-      if (!Array.isArray(currentConfig.explicitXPathDecisions.exclude)) {
-        currentConfig.explicitXPathDecisions.exclude = [];
+      } else if (existing.pageMarkings !== undefined) {
         changed = true;
       }
-      if (currentConfig.explicitXPathDecisions.include && currentConfig.explicitXPathDecisions.include.length) {
-        // As per existing logic, include should always be empty
-        currentConfig.explicitXPathDecisions.include = [];
+      if (Array.isArray(existing.latestComputedSelectors)) {
+        currentConfig.latestComputedSelectors = existing.latestComputedSelectors;
+      } else if (existing.latestComputedSelectors !== undefined) {
         changed = true;
       }
-      if (currentConfig.showDefaultHighlights !== true) {
-        currentConfig.showDefaultHighlights = true;
+      if (Array.isArray(existing.lastSavedSelectors)) {
+        currentConfig.lastSavedSelectors = existing.lastSavedSelectors;
+      } else if (existing.lastSavedSelectors !== undefined) {
         changed = true;
       }
-      if (!Array.isArray(currentConfig.defaultToggleExclusionsDisabled)) {
-        currentConfig.defaultToggleExclusionsDisabled = [];
-        changed = true;
-      }
-      if (!Array.isArray(currentConfig.domainAiSelectorSet.inclusionSelectors)) {
-        currentConfig.domainAiSelectorSet.inclusionSelectors = [];
-        changed = true;
-      }
-      if (!Array.isArray(currentConfig.domainAiSelectorSet.exclusionSelectors)) {
-        currentConfig.domainAiSelectorSet.exclusionSelectors = [];
-        changed = true;
-      }
-      if (typeof currentConfig.pageHtmlSnapshots !== "object" || currentConfig.pageHtmlSnapshots === null) {
-        currentConfig.pageHtmlSnapshots = {};
-        changed = true;
-      }
-      if (typeof currentConfig.pageMarkings !== "object" || currentConfig.pageMarkings === null) {
-        currentConfig.pageMarkings = {};
-        changed = true;
-      }
-      if (!Array.isArray(currentConfig.latestComputedSelectors)) {
-        currentConfig.latestComputedSelectors = [];
-        changed = true;
-      }
-      if (!Array.isArray(currentConfig.lastSavedSelectors)) {
-        currentConfig.lastSavedSelectors = [];
-        changed = true;
-      }
-      if (typeof currentConfig.pendingAiSave !== "boolean") {
-        currentConfig.pendingAiSave = false;
+      const aiSelectors = normalizeAiSelectorSet(existing.domainAiSelectorSet);
+      currentConfig.domainAiSelectorSet = aiSelectors.normalized;
+      if (aiSelectors.changed) {
         changed = true;
       }
     }
-    
-    configs[baseUrl] = currentConfig; // Update configs object with the potentially modified config
 
+    configs[baseUrl] = currentConfig;
     if (changed) {
       await storageSet({ configs });
     }
@@ -369,12 +377,13 @@
     if (!el || el.nodeType !== 1) {
       return false;
     }
-    if (DEFAULT_EXCLUDED_TAGS_IMMUTABLE.includes(el.tagName)) {
-      return true;
-    }
-    for (const selector of HARD_EXCLUDED_SELECTORS) {
+    for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
       try {
-        if (el.matches(selector)) {
+        if (isTagSelector(selector)) {
+          if (el.tagName === selector.toUpperCase()) {
+            return true;
+          }
+        } else if (el.matches(selector)) {
           return true;
         }
       } catch (error) {
@@ -384,33 +393,18 @@
     return false;
   }
 
-  function isToggleableDefaultTarget(el, config, toggleableTargets) {
-    if (!el || el.nodeType !== 1) {
-      return false;
-    }
-    if (!TOGGLEABLE_TAG_SELECTOR || !config) {
-      return false;
-    }
-    let targets = toggleableTargets || state.headingToggleableTargets;
-    if (!targets || targets.size === 0) {
-      targets = collectHeadingToggleableTargets();
-      state.headingToggleableTargets = targets;
-    }
-    return targets.has(el);
-  }
-
-  function collectHeadingToggleableTargets() {
-    if (!TOGGLEABLE_TAG_SELECTOR) {
+  function collectHeadingTargets() {
+    if (!HEADING_TAG_SELECTOR) {
       return new Set();
     }
     const targets = new Set();
-    const headings = document.querySelectorAll(TOGGLEABLE_TAG_SELECTOR);
+    const headings = document.querySelectorAll(HEADING_TAG_SELECTOR);
 
     for (const heading of headings) {
       if (isWithinAiPopover(heading)) {
         continue;
       }
-      if (isWithinHardExcluded(heading)) {
+      if (isWithinImmutableExcluded(heading)) {
         continue;
       }
       if (isTextualContainer(heading)) {
@@ -421,7 +415,7 @@
         if (isWithinAiPopover(child)) {
           continue;
         }
-        if (!isWithinHardExcluded(child) && isTextualContainer(child)) {
+        if (!isWithinImmutableExcluded(child) && isTextualContainer(child)) {
           targets.add(child);
         }
       }
@@ -429,7 +423,7 @@
     return targets;
   }
 
-  function isWithinHardExcluded(el) {
+  function isWithinImmutableExcluded(el) {
     let node = el;
     while (node && node.nodeType === 1) {
       if (matchesImmutableExcluded(node)) {
@@ -524,6 +518,96 @@
     return elements;
   }
 
+  function getPageMarkingEntry(config, pageUrl) {
+    if (!config) {
+      return { url: pageUrl || "", title: pageUrl || "", xpaths: [], fullHTML: "" };
+    }
+    if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+      config.pageMarkings = {};
+    }
+    const existing = config.pageMarkings[pageUrl];
+    if (existing && Array.isArray(existing.xpaths)) {
+      return existing;
+    }
+    const entry = {
+      url: pageUrl || "",
+      title: document.title || pageUrl || "",
+      xpaths: [],
+      fullHTML: ""
+    };
+    config.pageMarkings[pageUrl] = entry;
+    return entry;
+  }
+
+  function collectToggleableTargets(immutableExcluded) {
+    const results = [];
+    if (!document.body) {
+      return results;
+    }
+    const stack = [document.body];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || node.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinAiPopover(node)) {
+        continue;
+      }
+      if (immutableExcluded && immutableExcluded.has(node)) {
+        continue;
+      }
+      if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+        results.push(node);
+      }
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        stack.push(node.children[i]);
+      }
+    }
+    return results;
+  }
+
+  function syncPageMarkings(config, pageUrl, immutableExcluded) {
+    if (!config || !pageUrl) {
+      return false;
+    }
+    const entry = getPageMarkingEntry(config, pageUrl);
+    const excludedLookup = new Map();
+    for (const item of entry.xpaths || []) {
+      if (item && item.xpath) {
+        excludedLookup.set(item.xpath, Boolean(item.excluded));
+      }
+    }
+    const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+    const items = [];
+    const seen = new Set();
+    const candidates = collectToggleableTargets(immutableExcluded);
+    for (const el of candidates) {
+      const xpath = getXPath(el);
+      if (!xpath || seen.has(xpath)) {
+        continue;
+      }
+      seen.add(xpath);
+      items.push({ xpath, excluded: excludedLookup.get(xpath) === true });
+    }
+    const changed =
+      items.length !== previousItems.length ||
+      items.some((item, index) => {
+        const previous = previousItems[index];
+        return (
+          !previous ||
+          previous.xpath !== item.xpath ||
+          Boolean(previous.excluded) !== item.excluded
+        );
+      });
+    entry.xpaths = items;
+    entry.title = document.title || pageUrl;
+    if (!entry.fullHTML) {
+      entry.fullHTML = "";
+    }
+    config.pageMarkings[pageUrl] = entry;
+    return changed;
+  }
+
   function collectDefaultHighlightTargets(root, options) {
     if (!root) {
       return [];
@@ -604,22 +688,14 @@
     return elements;
   }
 
-  function collectDefaultExcludedElements(toggleableTargets) {
-    const toggleable = new Set();
+  function collectImmutableElements() {
     const immutable = new Set();
-
-    if (IMMUTABLE_TAG_SELECTOR) {
-      const elements = document.querySelectorAll(IMMUTABLE_TAG_SELECTOR);
-      for (const el of elements) {
-        if (isVisible(el) && !isWithinAiPopover(el)) {
-          immutable.add(el);
-        }
+    for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
+      if (!selector) {
+        continue;
       }
-    }
-
-    for (const selector of HARD_EXCLUDED_SELECTORS) {
       try {
-        const elements = document.querySelectorAll(selector);
+        const elements = document.querySelectorAll(toQuerySelector(selector));
         for (const el of elements) {
           if (isVisible(el) && !isWithinAiPopover(el)) {
             immutable.add(el);
@@ -629,25 +705,23 @@
         continue;
       }
     }
-
-    if (toggleableTargets) {
-      for (const el of toggleableTargets) {
-        if (!isWithinAiPopover(el)) {
-          toggleable.add(el);
-        }
-      }
-    }
-
-    return { toggleable, immutable };
+    return immutable;
   }
 
   function collectHeadingDefaultStatus(config) {
-    if (!config || !TOGGLEABLE_TAG_SELECTOR) {
+    if (!config) {
       return [];
     }
+    const entry = getPageMarkingEntry(config, location.href);
+    const excludedLookup = new Map();
+    for (const item of entry.xpaths || []) {
+      if (item && item.xpath) {
+        excludedLookup.set(item.xpath, Boolean(item.excluded));
+      }
+    }
     const results = new Map();
-    const toggleableTargets = collectHeadingToggleableTargets();
-    for (const el of toggleableTargets) {
+    const headingTargets = collectHeadingTargets();
+    for (const el of headingTargets) {
       const xpath = getXPath(el);
       if (!xpath || results.has(xpath)) {
         continue;
@@ -658,28 +732,23 @@
         text: text || el.tagName.toLowerCase()
       });
     }
-
-    const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
     return Array.from(results.values()).map((item) => ({
       ...item,
-      excluded: !disabled.has(item.xpath)
+      excluded: excludedLookup.get(item.xpath) === true
     }));
   }
 
-  function collectToggleableExcludedXPaths(config) {
-    if (!config) {
+  function collectExcludedXPaths(items) {
+    if (!Array.isArray(items)) {
       return [];
     }
-    const disabled = new Set(config.defaultToggleExclusionsDisabled || []);
-    const targets = collectHeadingToggleableTargets();
-    const results = new Set();
-    for (const el of targets) {
-      const xpath = getXPath(el);
-      if (xpath && !disabled.has(xpath)) {
-        results.add(xpath);
+    const results = [];
+    for (const item of items) {
+      if (item && item.xpath && item.excluded) {
+        results.push(item.xpath);
       }
     }
-    return Array.from(results);
+    return results;
   }
 
   function createOverlay() {
@@ -1089,39 +1158,16 @@
     state.aiPopover = popover;
   }
 
-  function recordPageSnapshot(config, pageUrl, xpaths) {
+  function recordPageSnapshot(config, pageUrl) {
     if (!config || !pageUrl) {
       return;
     }
-    if (!config.pageHtmlSnapshots || typeof config.pageHtmlSnapshots !== "object") {
-      config.pageHtmlSnapshots = {};
-    }
-    if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
-      config.pageMarkings = {};
-    }
-    const html = document.documentElement.outerHTML;
-    const explicitList = Array.isArray(xpaths)
-      ? xpaths
-      : (config.explicitXPathDecisions &&
-          config.explicitXPathDecisions.exclude) ||
-        [];
-    const toggleableExcluded = collectToggleableExcludedXPaths(config);
-    const combined = new Set([...explicitList, ...toggleableExcluded]);
-    const filtered = Array.from(combined).filter((xpath) => {
-      const el = getElementFromXPath(xpath);
-      return el && isVisible(el);
-    });
-    if (filtered.length === 0) {
-      delete config.pageMarkings[pageUrl];
-    } else {
-      config.pageMarkings[pageUrl] = {
-        url: pageUrl,
-        title: document.title || pageUrl,
-        xpaths: filtered,
-        html
-      };
-    }
-    config.pageHtmlSnapshots[pageUrl] = html;
+    const immutableExcluded = collectImmutableElements();
+    syncPageMarkings(config, pageUrl, immutableExcluded);
+    const entry = getPageMarkingEntry(config, pageUrl);
+    entry.fullHTML = document.documentElement.outerHTML;
+    entry.title = document.title || pageUrl;
+    config.pageMarkings[pageUrl] = entry;
   }
 
   function queueConfigSave() {
@@ -1164,11 +1210,7 @@
       if (!state.baseUrl || !state.config) {
         return;
       }
-      recordPageSnapshot(
-        state.config,
-        location.href,
-        state.config.explicitXPathDecisions.exclude
-      );
+      recordPageSnapshot(state.config, location.href);
       queueConfigSave();
     }, 220);
   }
@@ -1261,7 +1303,7 @@
     if (isWithinAiPopover(el)) {
       return false;
     }
-    if (isWithinHardExcluded(el)) {
+    if (isWithinImmutableExcluded(el)) {
       return false;
     }
     return true;
@@ -1321,7 +1363,7 @@
     if (!state.baseUrl || !state.config) {
       return;
     }
-    if (isWithinHardExcluded(target)) {
+    if (isWithinImmutableExcluded(target)) {
       showToast("Default exclusions cannot be overridden");
       return;
     }
@@ -1332,59 +1374,42 @@
     }
 
     const config = state.config;
-    const exclude = new Set(
-      (config.explicitXPathDecisions && config.explicitXPathDecisions.exclude) ||
-        []
-    );
-    const toggleDisabled = new Set(
-      config.defaultToggleExclusionsDisabled || []
-    );
+    const entry = getPageMarkingEntry(config, location.href);
+    const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const cleanupHierarchy = (currentXPath) => {
-      Array.from(exclude).forEach((existingXPath) => {
-        if (existingXPath === currentXPath) {
+      items.forEach((item) => {
+        if (!item || !item.xpath || item.xpath === currentXPath) {
           return;
         }
-        const existingEl = getElementFromXPath(existingXPath);
+        if (!item.excluded) {
+          return;
+        }
+        const existingEl = getElementFromXPath(item.xpath);
         if (!existingEl) {
           return;
         }
         if (existingEl.contains(target) || target.contains(existingEl)) {
-          exclude.delete(existingXPath);
+          item.excluded = false;
         }
       });
     };
 
     let addedExclude = false;
-    const isToggleable = isToggleableDefaultTarget(target, config);
-    if (isToggleable) {
-      const wasDisabled = toggleDisabled.has(xpath);
-      if (wasDisabled) {
-        toggleDisabled.delete(xpath);
-        addedExclude = true;
-      } else {
-        toggleDisabled.add(xpath);
-      }
-      exclude.delete(xpath);
-      if (addedExclude) {
-        cleanupHierarchy(xpath);
-      }
+    let targetItem = items.find((item) => item && item.xpath === xpath);
+    if (!targetItem) {
+      targetItem = { xpath, excluded: true };
+      items.push(targetItem);
+      addedExclude = true;
     } else {
-      if (exclude.has(xpath)) {
-        exclude.delete(xpath);
-      } else {
-        exclude.add(xpath);
-        addedExclude = true;
-      }
-      if (addedExclude) {
-        cleanupHierarchy(xpath);
-      }
+      targetItem.excluded = !targetItem.excluded;
+      addedExclude = targetItem.excluded;
+    }
+    if (addedExclude) {
+      cleanupHierarchy(xpath);
     }
 
-    config.explicitXPathDecisions = {
-      include: [],
-      exclude: Array.from(exclude)
-    };
-    config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
+    entry.xpaths = items;
+    config.pageMarkings[location.href] = entry;
     state.config = config;
     scheduleRender();
     queueConfigSave();
@@ -1596,29 +1621,20 @@
 
     updateOverlayGutter();
 
-    state.headingToggleableTargets = collectHeadingToggleableTargets();
-    const defaultExcluded = collectDefaultExcludedElements(
-      state.headingToggleableTargets
-    );
-    const immutableExcluded = defaultExcluded.immutable;
-    const disabledToggleable = collectXPathElements(
-      state.config.defaultToggleExclusionsDisabled
-    );
-    const toggleableExcluded = new Set(
-      Array.from(defaultExcluded.toggleable).filter(
-        (el) => !disabledToggleable.has(el)
-      )
-    );
-    const allDefaultExcluded = new Set([
-      ...immutableExcluded,
-      ...toggleableExcluded
-    ]);
+    const immutableExcluded = collectImmutableElements();
+    const pageUrl = location.href;
+    const didSync = syncPageMarkings(state.config, pageUrl, immutableExcluded);
+    if (didSync) {
+      queueConfigSave();
+    }
+    const entry = getPageMarkingEntry(state.config, pageUrl);
     const explicitExclude = collectXPathElements(
-      state.config.explicitXPathDecisions.exclude
+      collectExcludedXPaths(entry.xpaths)
     );
     const aiContent = collectSelectorElements(
-      state.config.domainAiSelectorSet.exclusionSelectors
+      state.config.domainAiSelectorSet.inclusionSelectors
     );
+    const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
 
     const layerHard = state.layers["hard"];
     const layerExplicitExclude = state.layers["explicit-exclude"];
@@ -1633,8 +1649,12 @@
     clearLayer(layerDefault);
     const markedElements = new Set();
 
-    const hasHigherPrecedence = (el) =>
-      allDefaultExcluded.has(el) || explicitExclude.has(el) || aiContent.has(el);
+    const precedenceSet = new Set([
+      ...immutableExcluded,
+      ...explicitExclude,
+      ...aiContent
+    ]);
+    const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
     for (const el of immutableExcluded) {
       const rects = getVisibleRects(el);
@@ -1660,23 +1680,6 @@
       }
     }
 
-    for (const el of toggleableExcluded) {
-      if (explicitExclude.has(el)) {
-        continue;
-      }
-      const rects = getVisibleRects(el);
-      if (rects.length > 0) {
-        drawMultiRect(
-          layerExplicitExclude,
-          rects,
-          "mc-explicit-exclude",
-          el,
-          "toggleable-exclude",
-          markedElements
-        );
-      }
-    }
-
     for (const el of aiContent) {
       if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
         continue;
@@ -1694,23 +1697,16 @@
       }
     }
 
-    if (state.config.showDefaultHighlights) {
-      const excludedAndPrecedenceSet = new Set([
-        ...allDefaultExcluded,
-        ...explicitExclude,
-        ...aiContent
-      ]);
-      const defaultTargets = collectDefaultHighlightTargets(document.body, {
-        excludedSet: excludedAndPrecedenceSet,
-        hardExcludedSet: allDefaultExcluded,
-        hasHigherPrecedence,
-        precedenceSet: excludedAndPrecedenceSet
-      });
-      for (const el of defaultTargets) {
-        const rects = getVisibleRects(el);
-        if (rects.length > 0) {
-          drawMultiRect(layerDefault, rects, "mc-default", el, "default", markedElements);
-        }
+    const defaultTargets = collectDefaultHighlightTargets(document.body, {
+      excludedSet: precedenceSet,
+      hardExcludedSet: immutableExcluded,
+      hasHigherPrecedence,
+      precedenceSet
+    });
+    for (const el of defaultTargets) {
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(layerDefault, rects, "mc-default", el, "default", markedElements);
       }
     }
 
@@ -1833,24 +1829,7 @@
   }
 
   function removeConsentElements() {
-    const selectors = `
-      :not(body):not(html).backdrop,
-      :not(body):not(html).overlay,
-      :not(body):not(html).wcc-overlay,
-      :not(body):not(html).modal-backdrop,
-      :not(body):not(html)[role="dialog" i],
-      :not(body):not(html)[class*="modal" i],
-      :not(body):not(html)[class*="popup" i],
-      :not(body):not(html)[id*="cookie" i],
-      :not(body):not(html)[class*="cookie" i],
-      :not(body):not(html)[id*="consent" i],
-      :not(body):not(html)[class*="consent" i],
-      :not(body):not(html)[class*="newsletter" i],
-      :not(body):not(html)[class*="gdpr" i],
-      :not(body):not(html)[id*="gdpr" i],
-      :not(body):not(html)[class*="privacy" i]:not([class*="policy" i]),
-      :not(body):not(html)[id*="privacy" i]:not([id*="policy" i])
-    `;
+    const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
 
     let removedElements = [];
 
@@ -1874,8 +1853,9 @@
 
           return isVisible && (isOverlay ||
                               element.hasAttribute('role') ||
-                              element.className.includes('modal') ||
-                              element.className.includes('overlay'));
+                              (element.className && element.className.includes &&
+                                (element.className.includes('modal') ||
+                                 element.className.includes('overlay'))));
         })
         .forEach(element => {
           try {
@@ -1985,7 +1965,7 @@
 
     if (message.type === "getDefaultExclusions") {
       sendResponse({
-        immutableTags: DEFAULT_EXCLUDED_TAGS_IMMUTABLE.slice()
+        immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice()
       });
       return;
     }
@@ -1993,16 +1973,13 @@
     if (message.type === "collectPageData") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
+        const entry = getPageMarkingEntry(config, location.href);
         sendResponse({
           baseUrl: targetBaseUrl,
           pageUrl: location.href,
-          fullHtml: document.documentElement.outerHTML,
-          defaultExclusions: {
-            tags: DEFAULT_EXCLUDED_TAGS,
-            selectors: HARD_EXCLUDED_SELECTORS
-          },
-          xpathsInclude: [],
-          xpathsExclude: config.explicitXPathDecisions.exclude
+          fullHTML: document.documentElement.outerHTML,
+          immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
+          xpaths: entry.xpaths || []
         });
       });
       return true;
@@ -2069,24 +2046,22 @@
       }
       loadConfig(targetBaseUrl).then(async (config) => {
         const target = getElementFromXPath(xpath);
-        if (!target || !isToggleableDefaultTarget(target, config)) {
+        if (!target || !isMarkableElement(target, config)) {
           sendResponse({ ok: false });
           return;
         }
-        const toggleDisabled = new Set(
-          config.defaultToggleExclusionsDisabled || []
-        );
-        if (toggleDisabled.has(xpath)) {
-          toggleDisabled.delete(xpath);
+        const entry = getPageMarkingEntry(config, location.href);
+        const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+        let targetItem = items.find((item) => item && item.xpath === xpath);
+        if (!targetItem) {
+          targetItem = { xpath, excluded: true };
+          items.push(targetItem);
         } else {
-          toggleDisabled.add(xpath);
+          targetItem.excluded = !targetItem.excluded;
         }
-        config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-        recordPageSnapshot(
-          config,
-          location.href,
-          config.explicitXPathDecisions.exclude
-        );
+        entry.xpaths = items;
+        config.pageMarkings[location.href] = entry;
+        recordPageSnapshot(config, location.href);
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
@@ -2103,13 +2078,8 @@
         sendResponse({ ok: false });
         return;
       }
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : null;
       loadConfig(targetBaseUrl).then(async (config) => {
-        recordPageSnapshot(
-          config,
-          location.href,
-          xpaths || config.explicitXPathDecisions.exclude
-        );
+        recordPageSnapshot(config, location.href);
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
