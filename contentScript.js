@@ -1767,7 +1767,8 @@
     state.urlCheckTimer = window.setInterval(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
-        refreshFromTabState();
+        // Page-scoped behavior: disable extension on any URL change
+        disable();
       }
     }, 800);
   }
@@ -1937,7 +1938,9 @@
   async function refreshFromTabState() {
     const response = await sendMessage({ type: "getTabState" });
     if (response && response.enabled && response.baseUrl) {
-      if (location.href.startsWith(response.baseUrl)) {
+      // Only enable if we're already enabled (not a fresh page load after navigation)
+      // and the URL still matches the baseUrl
+      if (state.enabled && location.href.startsWith(response.baseUrl)) {
         enableForBaseUrl(response.baseUrl);
         const removedElements = removeConsentElements();
         if(removedElements.length > 0) restorePageScrolling();
@@ -2127,6 +2130,4 @@
 
   window.addEventListener("resize", scheduleRender);
   window.addEventListener("scroll", handleScroll, { passive: true });
-
-  refreshFromTabState();
 })();

@@ -1,5 +1,6 @@
 const TAB_STATE_PREFIX = "tabState:";
 const DEVICE_EMULATION_PREFIX = "deviceEmulation:";
+const SCRIPT_INJECTED_PREFIX = "scriptInjected:";
 
 const DEVICE_SCALE_DEFAULTS = {
   desktop: 0.7,
@@ -78,6 +79,38 @@ async function getTabState(tabId) {
 async function setTabState(tabId, state) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });
+}
+
+async function isScriptInjected(tabId) {
+  const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  const result = await storageGet(chrome.storage.session, key);
+  return Boolean(result[key]);
+}
+
+async function setScriptInjected(tabId, injected) {
+  const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  if (injected) {
+    await storageSet(chrome.storage.session, { [key]: true });
+  } else {
+    await storageRemove(chrome.storage.session, key);
+  }
+}
+
+async function injectContentScript(tabId) {
+  const alreadyInjected = await isScriptInjected(tabId);
+  if (alreadyInjected) {
+    return { ok: true, alreadyInjected: true };
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["contentScript.js"]
+    });
+    await setScriptInjected(tabId, true);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message || "Script injection failed" };
+  }
 }
 
 function normalizeDeviceMode(mode) {
@@ -361,12 +394,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === "injectContentScript") {
+    if (!message.tabId) {
+      sendResponse({ ok: false, error: "Missing tab" });
+      return;
+    }
+    injectContentScript(message.tabId).then((result) => {
+      sendResponse(result);
+    }).catch(() => {
+      sendResponse({ ok: false, error: "Script injection failed" });
+    });
+    return true;
+  }
+
+  if (message.type === "isScriptInjected") {
+    if (!message.tabId) {
+      sendResponse({ injected: false });
+      return;
+    }
+    isScriptInjected(message.tabId).then((injected) => {
+      sendResponse({ injected });
+    }).catch(() => {
+      sendResponse({ injected: false });
+    });
+    return true;
+  }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  storageRemove(chrome.storage.session, [key, deviceKey]);
+  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  storageRemove(chrome.storage.session, [key, deviceKey, scriptKey]);
+});
+
+async function disableExtensionForTab(tabId) {
+  const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
+  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  await updateActionForTab(tabId);
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
+  } catch (error) {
+    // Content script may not be loaded
+  }
+}
+
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  if (details.frameId !== 0) {
+    return;
+  }
+  const tabId = details.tabId;
+  if (!tabId) {
+    return;
+  }
+  const state = await getTabState(tabId);
+  if (!state || !state.enabled) {
+    return;
+  }
+  await disableExtensionForTab(tabId);
 });
 
 chrome.debugger.onDetach.addListener(async (source) => {

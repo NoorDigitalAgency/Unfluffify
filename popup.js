@@ -402,29 +402,6 @@ async function loadActiveTab() {
   }
 }
 
-async function ensureEnabledOnOpen() {
-  if (!currentTab || !currentTab.url) {
-    return;
-  }
-  const configs = await getConfigs();
-  const tabState = await getTabState(currentTab.id);
-  const fallbackBaseUrl = findMatchingBaseUrl(currentTab.url, configs);
-  const baseUrl = tabState.baseUrl || fallbackBaseUrl || "";
-  if (baseUrl && currentTab.url.startsWith(baseUrl)) {
-    await setTabState(currentTab.id, { enabled: true, baseUrl });
-    await sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl
-    });
-    await sendTabMessageWithRetry({ type: "forceRefresh" });
-    return;
-  }
-  if (tabState.enabled) {
-    await setTabState(currentTab.id, { enabled: false, baseUrl: tabState.baseUrl || "" });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
-}
 
 function renderList(listEl, items, emptyText, onRemove) {
   listEl.textContent = "";
@@ -823,6 +800,17 @@ async function refreshUi() {
   );
 }
 
+async function injectContentScriptIfNeeded() {
+  if (!currentTab || !currentTab.id) {
+    return { ok: false, error: "No active tab" };
+  }
+  const response = await sendRuntimeMessage({
+    type: "injectContentScript",
+    tabId: currentTab.id
+  });
+  return response || { ok: false, error: "Injection failed" };
+}
+
 async function handleEnableToggle() {
   await loadActiveTab();
   if (!currentTab) {
@@ -844,6 +832,13 @@ async function handleEnableToggle() {
     }
     if (!currentTab.url.startsWith(baseUrlValue)) {
       showToast("Current page is outside the Base Page URL");
+      ui.toggleEnabled.checked = false;
+      return;
+    }
+    // Inject content script first
+    const injectResult = await injectContentScriptIfNeeded();
+    if (!injectResult.ok) {
+      showToast(injectResult.error || "Unable to activate on this page");
       ui.toggleEnabled.checked = false;
       return;
     }
@@ -1395,6 +1390,12 @@ async function handleBaseUrlSet() {
     showToast("Current page is outside the Base Page URL");
     return;
   }
+  // Inject content script first
+  const injectResult = await injectContentScriptIfNeeded();
+  if (!injectResult.ok) {
+    showToast(injectResult.error || "Unable to activate on this page");
+    return;
+  }
   await ensureConfig(baseUrlValue);
   await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   currentBaseUrl = baseUrlValue;
@@ -1424,6 +1425,14 @@ async function handleBaseUrlEditToggle() {
       await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
   } else if (currentTab && currentTab.url.startsWith(currentBaseUrl)) {
+    // Inject content script first when re-enabling
+    const injectResult = await injectContentScriptIfNeeded();
+    if (!injectResult.ok) {
+      showToast(injectResult.error || "Unable to activate on this page");
+      baseUrlEditMode = true;
+      await refreshUi();
+      return;
+    }
     await setTabState(currentTab.id, {
       enabled: true,
       baseUrl: currentBaseUrl
@@ -1778,7 +1787,6 @@ async function init() {
     }
   });
 
-  await ensureEnabledOnOpen();
   await refreshUi();
 }
 
