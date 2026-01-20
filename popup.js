@@ -1601,7 +1601,7 @@ async function handleComputeSelectors() {
   currentConfig = await ensureConfig(currentBaseUrl);
 
   const pageMarkings = currentConfig.pageMarkings || {};
-  const payload = Object.entries(pageMarkings)
+  const pages = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
@@ -1609,17 +1609,16 @@ async function handleComputeSelectors() {
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       return {
-        baseUrl: currentBaseUrl,
-        pageUrl: url,
+        url,
         fullHTML,
         xpaths
       };
     })
     .filter((entry) => {
-      if (!entry || !entry.pageUrl) {
+      if (!entry || !entry.url) {
         return false;
       }
-      if (currentBaseUrl && !entry.pageUrl.startsWith(currentBaseUrl)) {
+      if (currentBaseUrl && !entry.url.startsWith(currentBaseUrl)) {
         return false;
       }
       return (
@@ -1629,10 +1628,15 @@ async function handleComputeSelectors() {
       );
     });
 
-  if (!payload.length) {
+  if (!pages.length) {
     showToast("Mark pages before computing selectors");
     return;
   }
+
+  const payload = {
+    baseUrl: currentBaseUrl,
+    pages
+  };
 
   let selectors = [];
   aiRequestInFlight = "compute";
