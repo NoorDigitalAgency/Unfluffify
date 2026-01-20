@@ -814,10 +814,10 @@ async function injectContentScriptIfNeeded() {
 
 async function capturePageStateAndStore() {
   if (!currentTab || !currentBaseUrl) {
-    return;
+    return null;
   }
   // Tell content script to capture page snapshot with all markable elements
-  await sendTabMessage({
+  return sendTabMessageWithRetry({
     type: "capturePageSnapshot",
     baseUrl: currentBaseUrl
   });
@@ -1547,10 +1547,14 @@ async function handleComputeSelectors() {
   }
 
   // Capture current page state before computing
-  await sendTabMessage({
+  const captureResult = await sendTabMessageWithRetry({
     type: "capturePageSnapshot",
     baseUrl: currentBaseUrl
   });
+  if (!captureResult || !captureResult.ok) {
+    showToast("Unable to capture page data");
+    return;
+  }
 
   // Reload config to get latest markings
   currentConfig = await ensureConfig(currentBaseUrl);
