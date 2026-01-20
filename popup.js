@@ -858,8 +858,6 @@ async function handleEnableToggle() {
       return;
     }
     await ensureConfig(baseUrlValue);
-    // Capture screenshot and HTML state before freezing/enabling UI
-    await capturePageStateAndStore();
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
@@ -867,6 +865,8 @@ async function handleEnableToggle() {
       baseUrl: baseUrlValue
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
+    // Capture page state after enabling UI
+    await capturePageStateAndStore();
   } else {
     await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
@@ -1416,8 +1416,6 @@ async function handleBaseUrlSet() {
   await ensureConfig(baseUrlValue);
   currentBaseUrl = baseUrlValue;
   currentConfig = await ensureConfig(baseUrlValue);
-  // Capture screenshot and HTML state before enabling UI
-  await capturePageStateAndStore();
   await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   baseUrlEditMode = false;
   await sendTabMessageWithRetry({
@@ -1426,6 +1424,8 @@ async function handleBaseUrlSet() {
     baseUrl: baseUrlValue
   });
   await sendTabMessageWithRetry({ type: "forceRefresh" });
+  // Capture page state after enabling UI
+  await capturePageStateAndStore();
   await refreshUi();
 }
 
@@ -1452,8 +1452,6 @@ async function handleBaseUrlEditToggle() {
       await refreshUi();
       return;
     }
-    // Capture screenshot and HTML state before re-enabling UI
-    await capturePageStateAndStore();
     await setTabState(currentTab.id, {
       enabled: true,
       baseUrl: currentBaseUrl
@@ -1464,6 +1462,8 @@ async function handleBaseUrlEditToggle() {
       baseUrl: currentBaseUrl
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
+    // Capture page state after re-enabling UI
+    await capturePageStateAndStore();
   }
   await refreshUi();
 }
@@ -1583,7 +1583,7 @@ async function handleComputeSelectors() {
     });
 
   if (!payload.length) {
-    showToast("Mark pages before computing selectors");
+    showToast("No page data captured yet");
     return;
   }
 

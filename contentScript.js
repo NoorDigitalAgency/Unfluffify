@@ -1090,84 +1090,89 @@
   }
 
   function collectAllMarkableElements(config) {
-    // Collect all categories of elements similar to renderHighlights
-    const headingToggleableTargets = collectHeadingToggleableTargets();
-    const defaultExcluded = collectDefaultExcludedElements(headingToggleableTargets);
-    const immutableExcluded = defaultExcluded.immutable;
-    const disabledToggleable = collectXPathElements(
-      config.defaultToggleExclusionsDisabled || []
-    );
-    const toggleableExcluded = new Set(
-      Array.from(defaultExcluded.toggleable).filter(
-        (el) => !disabledToggleable.has(el)
-      )
-    );
-    const allDefaultExcluded = new Set([
-      ...immutableExcluded,
-      ...toggleableExcluded
-    ]);
-    const explicitExclude = collectXPathElements(
-      (config.explicitXPathDecisions && config.explicitXPathDecisions.exclude) || []
-    );
-    const aiContent = collectSelectorElements(
-      (config.domainAiSelectorSet && config.domainAiSelectorSet.exclusionSelectors) || []
-    );
+    try {
+      // Collect all categories of elements similar to renderHighlights
+      const headingToggleableTargets = collectHeadingToggleableTargets();
+      const defaultExcluded = collectDefaultExcludedElements(headingToggleableTargets);
+      const immutableExcluded = defaultExcluded.immutable || new Set();
+      const disabledToggleable = collectXPathElements(
+        config.defaultToggleExclusionsDisabled || []
+      );
+      const toggleableExcluded = new Set(
+        Array.from(defaultExcluded.toggleable || []).filter(
+          (el) => !disabledToggleable.has(el)
+        )
+      );
+      const allDefaultExcluded = new Set([
+        ...immutableExcluded,
+        ...toggleableExcluded
+      ]);
+      const explicitExclude = collectXPathElements(
+        (config.explicitXPathDecisions && config.explicitXPathDecisions.exclude) || []
+      );
+      const aiContent = collectSelectorElements(
+        (config.domainAiSelectorSet && config.domainAiSelectorSet.exclusionSelectors) || []
+      );
 
-    // All excluded elements (from any source)
-    const allExcluded = new Set([
-      ...allDefaultExcluded,
-      ...explicitExclude,
-      ...aiContent
-    ]);
+      // All excluded elements (from any source)
+      const allExcluded = new Set([
+        ...allDefaultExcluded,
+        ...explicitExclude,
+        ...aiContent
+      ]);
 
-    // Collect default highlight targets (content elements)
-    const defaultTargets = collectDefaultHighlightTargets(document.body, {
-      excludedSet: allExcluded,
-      hardExcludedSet: allDefaultExcluded,
-      hasHigherPrecedence: (el) => allExcluded.has(el),
-      precedenceSet: allExcluded
-    });
+      // Collect default highlight targets (content elements)
+      const defaultTargets = document.body ? collectDefaultHighlightTargets(document.body, {
+        excludedSet: allExcluded,
+        hardExcludedSet: allDefaultExcluded,
+        hasHigherPrecedence: (el) => allExcluded.has(el),
+        precedenceSet: allExcluded
+      }) : [];
 
-    // Build the elements array with selector and excluded flag
-    const elements = [];
-    const processedElements = new Set();
+      // Build the elements array with selector and excluded flag
+      const elements = [];
+      const processedElements = new Set();
 
-    // Helper to add element if visible and not already processed
-    const addElement = (el, excluded) => {
-      if (processedElements.has(el)) {
-        return;
+      // Helper to add element if visible and not already processed
+      const addElement = (el, excluded) => {
+        if (!el || processedElements.has(el)) {
+          return;
+        }
+        if (!isVisible(el)) {
+          return;
+        }
+        const xpath = getXPathForElement(el);
+        if (!xpath) {
+          return;
+        }
+        processedElements.add(el);
+        elements.push({ selector: xpath, excluded });
+      };
+
+      // Add all excluded elements
+      for (const el of immutableExcluded) {
+        addElement(el, true);
       }
-      if (!isVisible(el)) {
-        return;
+      for (const el of toggleableExcluded) {
+        addElement(el, true);
       }
-      const xpath = getXPathForElement(el);
-      if (!xpath) {
-        return;
+      for (const el of explicitExclude) {
+        addElement(el, true);
       }
-      processedElements.add(el);
-      elements.push({ selector: xpath, excluded });
-    };
+      for (const el of aiContent) {
+        addElement(el, true);
+      }
 
-    // Add all excluded elements
-    for (const el of immutableExcluded) {
-      addElement(el, true);
-    }
-    for (const el of toggleableExcluded) {
-      addElement(el, true);
-    }
-    for (const el of explicitExclude) {
-      addElement(el, true);
-    }
-    for (const el of aiContent) {
-      addElement(el, true);
-    }
+      // Add all content elements (not excluded)
+      for (const el of defaultTargets) {
+        addElement(el, false);
+      }
 
-    // Add all content elements (not excluded)
-    for (const el of defaultTargets) {
-      addElement(el, false);
+      return elements;
+    } catch (error) {
+      // Return empty array on error to prevent blocking
+      return [];
     }
-
-    return elements;
   }
 
   function recordPageSnapshot(config, pageUrl) {
@@ -2132,27 +2137,33 @@
         return;
       }
       loadConfig(targetBaseUrl).then(async (config) => {
-        const target = getElementFromXPath(xpath);
-        if (!target || !isToggleableDefaultTarget(target, config)) {
-          sendResponse({ ok: false });
-          return;
+        try {
+          const target = getElementFromXPath(xpath);
+          if (!target || !isToggleableDefaultTarget(target, config)) {
+            sendResponse({ ok: false });
+            return;
+          }
+          const toggleDisabled = new Set(
+            config.defaultToggleExclusionsDisabled || []
+          );
+          if (toggleDisabled.has(xpath)) {
+            toggleDisabled.delete(xpath);
+          } else {
+            toggleDisabled.add(xpath);
+          }
+          config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
+          recordPageSnapshot(config, location.href);
+          await saveConfig(targetBaseUrl, config);
+          if (state.baseUrl === targetBaseUrl) {
+            state.config = config;
+            scheduleRender();
+          }
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error.message });
         }
-        const toggleDisabled = new Set(
-          config.defaultToggleExclusionsDisabled || []
-        );
-        if (toggleDisabled.has(xpath)) {
-          toggleDisabled.delete(xpath);
-        } else {
-          toggleDisabled.add(xpath);
-        }
-        config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-        recordPageSnapshot(config, location.href);
-        await saveConfig(targetBaseUrl, config);
-        if (state.baseUrl === targetBaseUrl) {
-          state.config = config;
-          scheduleRender();
-        }
-        sendResponse({ ok: true });
+      }).catch((error) => {
+        sendResponse({ ok: false, error: error.message });
       });
       return true;
     }
@@ -2164,12 +2175,18 @@
         return;
       }
       loadConfig(targetBaseUrl).then(async (config) => {
-        recordPageSnapshot(config, location.href);
-        await saveConfig(targetBaseUrl, config);
-        if (state.baseUrl === targetBaseUrl) {
-          state.config = config;
+        try {
+          recordPageSnapshot(config, location.href);
+          await saveConfig(targetBaseUrl, config);
+          if (state.baseUrl === targetBaseUrl) {
+            state.config = config;
+          }
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error.message });
         }
-        sendResponse({ ok: true });
+      }).catch((error) => {
+        sendResponse({ ok: false, error: error.message });
       });
       return true;
     }
