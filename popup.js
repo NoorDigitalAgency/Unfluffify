@@ -642,11 +642,12 @@ async function refreshUi() {
   const aiBusy = Boolean(aiRequestInFlight);
   const hasStoredSelectors = latestComputed.length > 0;
 
+  const isEnabled = ui.toggleEnabled.checked;
   ui.toggleEnabled.disabled = !baseUrlReady;
   ui.computeButton.disabled = aiBusy || !aiReady;
   ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
   ui.previewLatestButton.disabled = aiBusy || !baseUrlReady || !hasStoredSelectors;
-  ui.mainUi.hidden = !baseUrlReady;
+  ui.mainUi.hidden = !isEnabled;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
   ui.aiToken.hidden = !endpointReady;
