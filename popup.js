@@ -864,7 +864,9 @@ async function refreshUi() {
       if (!currentTab || !currentTab.id) {
         return;
       }
-      chrome.tabs.update(currentTab.id, { url });
+      chrome.tabs.update(currentTab.id, { url }, () => {
+        void chrome.runtime.lastError;
+      });
     }
   );
 }

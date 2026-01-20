@@ -278,27 +278,22 @@ async function updateActionForTab(tabId) {
   }
   const state = await getTabState(tabId);
   const enabled = state && state.enabled;
-  if (enabled) {
-    chrome.action.setIcon({
-      tabId,
-      path: {
+  const path = enabled
+    ? {
         16: "active/icon16.png",
         32: "active/icon32.png",
         48: "active/icon48.png",
         128: "active/icon128.png"
       }
-    });
-  } else {
-    chrome.action.setIcon({
-      tabId,
-      path: {
+    : {
         16: "icons/icon16.png",
         32: "icons/icon32.png",
         48: "icons/icon48.png",
         128: "icons/icon128.png"
-      }
-    });
-  }
+      };
+  chrome.action.setIcon({ tabId, path }, () => {
+    void chrome.runtime.lastError;
+  });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
