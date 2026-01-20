@@ -89,6 +89,8 @@
   const isTagSelector = (selector) => /^[a-z]+$/i.test(selector);
   const toQuerySelector = (selector) =>
     isTagSelector(selector) ? selector.toLowerCase() : selector;
+  const isHeadingElement = (el) =>
+    Boolean(el && el.nodeType === 1 && el.matches(HEADING_TAG_SELECTOR));
 
   function createDefaultConfig(baseUrl) {
     let domain = "";
@@ -129,7 +131,10 @@
             return { xpath: item, excluded: true };
           }
           if (item && typeof item.xpath === "string") {
-            return { xpath: item.xpath, excluded: Boolean(item.excluded) };
+            return {
+              xpath: item.xpath,
+              excluded: Boolean(item.excluded)
+            };
           }
           changed = true;
           return null;
@@ -410,15 +415,6 @@
       if (isTextualContainer(heading)) {
         targets.add(heading);
       }
-      const children = heading.querySelectorAll("*");
-      for (const child of children) {
-        if (isWithinAiPopover(child)) {
-          continue;
-        }
-        if (!isWithinImmutableExcluded(child) && isTextualContainer(child)) {
-          targets.add(child);
-        }
-      }
     }
     return targets;
   }
@@ -587,7 +583,11 @@
         continue;
       }
       seen.add(xpath);
-      items.push({ xpath, excluded: excludedLookup.get(xpath) === true });
+      const isHeading = isHeadingElement(el);
+      const excluded = excludedLookup.has(xpath)
+        ? excludedLookup.get(xpath) === true
+        : isHeading;
+      items.push({ xpath, excluded });
     }
     const changed =
       items.length !== previousItems.length ||
@@ -1988,6 +1988,11 @@
     if (message.type === "getHeadingDefaultStatus") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
+        const immutableExcluded = collectImmutableElements();
+        const didSync = syncPageMarkings(config, location.href, immutableExcluded);
+        if (didSync) {
+          saveConfig(targetBaseUrl, config);
+        }
         sendResponse({ items: collectHeadingDefaultStatus(config) });
       });
       return true;
@@ -2046,7 +2051,7 @@
       }
       loadConfig(targetBaseUrl).then(async (config) => {
         const target = getElementFromXPath(xpath);
-        if (!target || !isMarkableElement(target, config)) {
+        if (!target || !isMarkableElement(target, config) || !isHeadingElement(target)) {
           sendResponse({ ok: false });
           return;
         }

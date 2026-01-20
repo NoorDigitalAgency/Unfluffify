@@ -563,6 +563,13 @@ function arraysEqual(left, right) {
   return true;
 }
 
+function isHeadingXPath(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  return /\/h[1-6]\[\d+\]\s*$/i.test(value);
+}
+
 async function refreshUi() {
   if (!currentTab) {
     return;
@@ -705,13 +712,35 @@ async function refreshUi() {
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
 
+  let headingDefaults = [];
+  let headingXPathSet = new Set();
+  if (currentBaseUrl) {
+    const response = await sendTabMessage({
+      type: "getHeadingDefaultStatus",
+      baseUrl: currentBaseUrl
+    });
+    if (response && Array.isArray(response.items)) {
+      headingDefaults = response.items;
+      headingXPathSet = new Set(
+        headingDefaults.map((item) => item.xpath).filter(Boolean)
+      );
+    }
+  }
+
   const pageEntry =
     currentConfig &&
     currentConfig.pageMarkings &&
     currentConfig.pageMarkings[pageUrl];
   const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
   const excludedXPaths = explicitExclude
-    .filter((item) => item && item.excluded && item.xpath)
+    .filter(
+      (item) =>
+        item &&
+        item.excluded &&
+        item.xpath &&
+        !headingXPathSet.has(item.xpath) &&
+        !isHeadingXPath(item.xpath)
+    )
     .map((item) => item.xpath);
   let pageExplicitExclude = excludedXPaths.map((xpath) => ({
     xpath,
@@ -768,17 +797,6 @@ async function refreshUi() {
       refreshUi();
     }
   );
-
-  let headingDefaults = [];
-  if (currentBaseUrl) {
-    const response = await sendTabMessage({
-      type: "getHeadingDefaultStatus",
-      baseUrl: currentBaseUrl
-    });
-    if (response && Array.isArray(response.items)) {
-      headingDefaults = response.items;
-    }
-  }
   renderHeadingDefaults(
     ui.headingDefaults,
     headingDefaults,
@@ -821,7 +839,11 @@ async function refreshUi() {
       return;
     }
     const excludedCount = entry.xpaths.filter(
-      (item) => item && item.excluded && item.xpath
+      (item) =>
+        item &&
+        item.excluded &&
+        item.xpath &&
+        !isHeadingXPath(item.xpath)
     ).length;
     if (excludedCount === 0) {
       return;
