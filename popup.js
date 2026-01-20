@@ -109,7 +109,6 @@ function createDefaultConfig(baseUrl) {
     showDefaultHighlights: true,
     explicitXPathDecisions: { include: [], exclude: [] },
     pageHtmlSnapshots: {},
-    pageScreenshots: {},
     pageMarkings: {},
     latestComputedSelectors: [],
     lastSavedSelectors: [],
@@ -167,10 +166,6 @@ function normalizeConfig(baseUrl, incoming) {
   }
   if (typeof normalized.pageMarkings !== "object" || normalized.pageMarkings === null) {
     normalized.pageMarkings = {};
-    changed = true;
-  }
-  if (typeof normalized.pageScreenshots !== "object" || normalized.pageScreenshots === null) {
-    normalized.pageScreenshots = {};
     changed = true;
   }
   if (!Array.isArray(normalized.latestComputedSelectors)) {
@@ -817,32 +812,14 @@ async function injectContentScriptIfNeeded() {
   return response || { ok: false, error: "Injection failed" };
 }
 
-async function captureScreenshot() {
-  if (!currentTab || !currentTab.id) {
-    return null;
-  }
-  const response = await sendRuntimeMessage({
-    type: "captureScreenshot",
-    tabId: currentTab.id
-  });
-  if (response && response.ok && response.screenshot) {
-    return response.screenshot;
-  }
-  return null;
-}
-
 async function capturePageStateAndStore() {
   if (!currentTab || !currentBaseUrl) {
     return;
   }
-  // Capture screenshot
-  const screenshot = await captureScreenshot();
-
-  // Tell content script to capture page snapshot with screenshot
+  // Tell content script to capture page snapshot with all markable elements
   await sendTabMessage({
     type: "capturePageSnapshot",
-    baseUrl: currentBaseUrl,
-    screenshot
+    baseUrl: currentBaseUrl
   });
 }
 
@@ -1437,9 +1414,11 @@ async function handleBaseUrlSet() {
     return;
   }
   await ensureConfig(baseUrlValue);
-  await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   currentBaseUrl = baseUrlValue;
   currentConfig = await ensureConfig(baseUrlValue);
+  // Capture screenshot and HTML state before enabling UI
+  await capturePageStateAndStore();
+  await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   baseUrlEditMode = false;
   await sendTabMessageWithRetry({
     type: "setEnabled",
@@ -1473,6 +1452,8 @@ async function handleBaseUrlEditToggle() {
       await refreshUi();
       return;
     }
+    // Capture screenshot and HTML state before re-enabling UI
+    await capturePageStateAndStore();
     await setTabState(currentTab.id, {
       enabled: true,
       baseUrl: currentBaseUrl
@@ -1529,7 +1510,7 @@ async function handleContextRefresh() {
   if (currentTab && currentTab.id) {
     const tabState = await getTabState(currentTab.id);
     if (tabState && tabState.enabled) {
-      // Capture screenshot and HTML state on refresh
+      // Capture page state on refresh
       await capturePageStateAndStore();
       await sendTabMessageWithRetry({ type: "forceRefresh" });
     }
@@ -1565,35 +1546,29 @@ async function handleComputeSelectors() {
     return;
   }
 
-  // Capture current screenshot before computing
-  const currentScreenshot = await captureScreenshot();
+  // Capture current page state before computing
   await sendTabMessage({
     type: "capturePageSnapshot",
-    baseUrl: currentBaseUrl,
-    screenshot: currentScreenshot
+    baseUrl: currentBaseUrl
   });
 
-  // Reload config to get latest markings with screenshots
+  // Reload config to get latest markings
   currentConfig = await ensureConfig(currentBaseUrl);
 
   const immutableTags = await getImmutableDefaultTags();
   const pageMarkings = currentConfig.pageMarkings || {};
   const pageSnapshots =
     (currentConfig && currentConfig.pageHtmlSnapshots) || {};
-  const pageScreenshots =
-    (currentConfig && currentConfig.pageScreenshots) || {};
   const payload = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
       }
       const html = entry.html || pageSnapshots[url];
-      const screenshot = entry.screenshot || pageScreenshots[url] || null;
       return {
         url,
         html,
-        screenshot,
-        xpaths: entry.xpaths || [],
+        elements: entry.elements || [],
         defaultExclusionSelectors: immutableTags.slice()
       };
     })
@@ -1604,7 +1579,7 @@ async function handleComputeSelectors() {
       if (currentBaseUrl && !entry.url.startsWith(currentBaseUrl)) {
         return false;
       }
-      return Array.isArray(entry.xpaths) && entry.xpaths.length > 0 && entry.html;
+      return Array.isArray(entry.elements) && entry.elements.length > 0 && entry.html;
     });
 
   if (!payload.length) {

@@ -126,7 +126,6 @@
         exclude: []
       },
       pageHtmlSnapshots: {},
-      pageScreenshots: {},
       pageMarkings: {},
       latestComputedSelectors: [],
       lastSavedSelectors: [],
@@ -197,10 +196,6 @@
       }
       if (typeof currentConfig.pageMarkings !== "object" || currentConfig.pageMarkings === null) {
         currentConfig.pageMarkings = {};
-        changed = true;
-      }
-      if (typeof currentConfig.pageScreenshots !== "object" || currentConfig.pageScreenshots === null) {
-        currentConfig.pageScreenshots = {};
         changed = true;
       }
       if (!Array.isArray(currentConfig.latestComputedSelectors)) {
@@ -1094,7 +1089,88 @@
     state.aiPopover = popover;
   }
 
-  function recordPageSnapshot(config, pageUrl, xpaths, screenshot) {
+  function collectAllMarkableElements(config) {
+    // Collect all categories of elements similar to renderHighlights
+    const headingToggleableTargets = collectHeadingToggleableTargets();
+    const defaultExcluded = collectDefaultExcludedElements(headingToggleableTargets);
+    const immutableExcluded = defaultExcluded.immutable;
+    const disabledToggleable = collectXPathElements(
+      config.defaultToggleExclusionsDisabled || []
+    );
+    const toggleableExcluded = new Set(
+      Array.from(defaultExcluded.toggleable).filter(
+        (el) => !disabledToggleable.has(el)
+      )
+    );
+    const allDefaultExcluded = new Set([
+      ...immutableExcluded,
+      ...toggleableExcluded
+    ]);
+    const explicitExclude = collectXPathElements(
+      (config.explicitXPathDecisions && config.explicitXPathDecisions.exclude) || []
+    );
+    const aiContent = collectSelectorElements(
+      (config.domainAiSelectorSet && config.domainAiSelectorSet.exclusionSelectors) || []
+    );
+
+    // All excluded elements (from any source)
+    const allExcluded = new Set([
+      ...allDefaultExcluded,
+      ...explicitExclude,
+      ...aiContent
+    ]);
+
+    // Collect default highlight targets (content elements)
+    const defaultTargets = collectDefaultHighlightTargets(document.body, {
+      excludedSet: allExcluded,
+      hardExcludedSet: allDefaultExcluded,
+      hasHigherPrecedence: (el) => allExcluded.has(el),
+      precedenceSet: allExcluded
+    });
+
+    // Build the elements array with selector and excluded flag
+    const elements = [];
+    const processedElements = new Set();
+
+    // Helper to add element if visible and not already processed
+    const addElement = (el, excluded) => {
+      if (processedElements.has(el)) {
+        return;
+      }
+      if (!isVisible(el)) {
+        return;
+      }
+      const xpath = getXPathForElement(el);
+      if (!xpath) {
+        return;
+      }
+      processedElements.add(el);
+      elements.push({ selector: xpath, excluded });
+    };
+
+    // Add all excluded elements
+    for (const el of immutableExcluded) {
+      addElement(el, true);
+    }
+    for (const el of toggleableExcluded) {
+      addElement(el, true);
+    }
+    for (const el of explicitExclude) {
+      addElement(el, true);
+    }
+    for (const el of aiContent) {
+      addElement(el, true);
+    }
+
+    // Add all content elements (not excluded)
+    for (const el of defaultTargets) {
+      addElement(el, false);
+    }
+
+    return elements;
+  }
+
+  function recordPageSnapshot(config, pageUrl) {
     if (!config || !pageUrl) {
       return;
     }
@@ -1104,36 +1180,20 @@
     if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
       config.pageMarkings = {};
     }
-    if (!config.pageScreenshots || typeof config.pageScreenshots !== "object") {
-      config.pageScreenshots = {};
-    }
     const html = document.documentElement.outerHTML;
-    const explicitList = Array.isArray(xpaths)
-      ? xpaths
-      : (config.explicitXPathDecisions &&
-          config.explicitXPathDecisions.exclude) ||
-        [];
-    const toggleableExcluded = collectToggleableExcludedXPaths(config);
-    const combined = new Set([...explicitList, ...toggleableExcluded]);
-    const filtered = Array.from(combined).filter((xpath) => {
-      const el = getElementFromXPath(xpath);
-      return el && isVisible(el);
-    });
-    if (filtered.length === 0) {
+    const elements = collectAllMarkableElements(config);
+
+    if (elements.length === 0) {
       delete config.pageMarkings[pageUrl];
     } else {
       config.pageMarkings[pageUrl] = {
         url: pageUrl,
         title: document.title || pageUrl,
-        xpaths: filtered,
-        html,
-        screenshot: screenshot || config.pageScreenshots[pageUrl] || null
+        elements,
+        html
       };
     }
     config.pageHtmlSnapshots[pageUrl] = html;
-    if (screenshot) {
-      config.pageScreenshots[pageUrl] = screenshot;
-    }
   }
 
   function queueConfigSave() {
@@ -1176,13 +1236,7 @@
       if (!state.baseUrl || !state.config) {
         return;
       }
-      // Pass existing screenshot if available (null to preserve existing)
-      recordPageSnapshot(
-        state.config,
-        location.href,
-        state.config.explicitXPathDecisions.exclude,
-        null
-      );
+      recordPageSnapshot(state.config, location.href);
       queueConfigSave();
     }, 220);
   }
@@ -2092,12 +2146,7 @@
           toggleDisabled.add(xpath);
         }
         config.defaultToggleExclusionsDisabled = Array.from(toggleDisabled);
-        recordPageSnapshot(
-          config,
-          location.href,
-          config.explicitXPathDecisions.exclude,
-          null
-        );
+        recordPageSnapshot(config, location.href);
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
@@ -2114,15 +2163,8 @@
         sendResponse({ ok: false });
         return;
       }
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : null;
-      const screenshot = message.screenshot || null;
       loadConfig(targetBaseUrl).then(async (config) => {
-        recordPageSnapshot(
-          config,
-          location.href,
-          xpaths || config.explicitXPathDecisions.exclude,
-          screenshot
-        );
+        recordPageSnapshot(config, location.href);
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
