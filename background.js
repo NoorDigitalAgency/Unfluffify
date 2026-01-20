@@ -420,6 +420,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === "captureScreenshot") {
+    const tabId = message.tabId;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "Missing tab" });
+      return;
+    }
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        sendResponse({ ok: false, error: "Tab not found" });
+        return;
+      }
+      chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, (dataUrl) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message || "Screenshot capture failed" });
+          return;
+        }
+        sendResponse({ ok: true, screenshot: dataUrl });
+      });
+    });
+    return true;
+  }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

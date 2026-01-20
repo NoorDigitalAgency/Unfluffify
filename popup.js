@@ -109,6 +109,7 @@ function createDefaultConfig(baseUrl) {
     showDefaultHighlights: true,
     explicitXPathDecisions: { include: [], exclude: [] },
     pageHtmlSnapshots: {},
+    pageScreenshots: {},
     pageMarkings: {},
     latestComputedSelectors: [],
     lastSavedSelectors: [],
@@ -166,6 +167,10 @@ function normalizeConfig(baseUrl, incoming) {
   }
   if (typeof normalized.pageMarkings !== "object" || normalized.pageMarkings === null) {
     normalized.pageMarkings = {};
+    changed = true;
+  }
+  if (typeof normalized.pageScreenshots !== "object" || normalized.pageScreenshots === null) {
+    normalized.pageScreenshots = {};
     changed = true;
   }
   if (!Array.isArray(normalized.latestComputedSelectors)) {
@@ -812,6 +817,35 @@ async function injectContentScriptIfNeeded() {
   return response || { ok: false, error: "Injection failed" };
 }
 
+async function captureScreenshot() {
+  if (!currentTab || !currentTab.id) {
+    return null;
+  }
+  const response = await sendRuntimeMessage({
+    type: "captureScreenshot",
+    tabId: currentTab.id
+  });
+  if (response && response.ok && response.screenshot) {
+    return response.screenshot;
+  }
+  return null;
+}
+
+async function capturePageStateAndStore() {
+  if (!currentTab || !currentBaseUrl) {
+    return;
+  }
+  // Capture screenshot
+  const screenshot = await captureScreenshot();
+
+  // Tell content script to capture page snapshot with screenshot
+  await sendTabMessage({
+    type: "capturePageSnapshot",
+    baseUrl: currentBaseUrl,
+    screenshot
+  });
+}
+
 async function handleEnableToggle() {
   await loadActiveTab();
   if (!currentTab) {
@@ -847,6 +881,8 @@ async function handleEnableToggle() {
       return;
     }
     await ensureConfig(baseUrlValue);
+    // Capture screenshot and HTML state before freezing/enabling UI
+    await capturePageStateAndStore();
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
@@ -1169,7 +1205,7 @@ async function handleExportAll() {
     globalToken: tokenResult.globalToken || "",
     globalEndpoint: endpointResult.globalEndpoint || ""
   };
-  const filename = `markcontit-all-${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
   downloadJsonFile(filename, payload);
 }
 
@@ -1191,7 +1227,7 @@ async function handleExportCurrent() {
     config
   };
   const safeBase = makeSafeFilename(currentBaseUrl) || "base";
-  const filename = `markcontit-${safeBase}.json`;
+  const filename = `unfluffify-${safeBase}.json`;
   downloadJsonFile(filename, payload);
 }
 
@@ -1493,6 +1529,8 @@ async function handleContextRefresh() {
   if (currentTab && currentTab.id) {
     const tabState = await getTabState(currentTab.id);
     if (tabState && tabState.enabled) {
+      // Capture screenshot and HTML state on refresh
+      await capturePageStateAndStore();
       await sendTabMessageWithRetry({ type: "forceRefresh" });
     }
   }
@@ -1527,21 +1565,34 @@ async function handleComputeSelectors() {
     return;
   }
 
-  await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
+  // Capture current screenshot before computing
+  const currentScreenshot = await captureScreenshot();
+  await sendTabMessage({
+    type: "capturePageSnapshot",
+    baseUrl: currentBaseUrl,
+    screenshot: currentScreenshot
+  });
+
+  // Reload config to get latest markings with screenshots
+  currentConfig = await ensureConfig(currentBaseUrl);
 
   const immutableTags = await getImmutableDefaultTags();
   const pageMarkings = currentConfig.pageMarkings || {};
   const pageSnapshots =
     (currentConfig && currentConfig.pageHtmlSnapshots) || {};
+  const pageScreenshots =
+    (currentConfig && currentConfig.pageScreenshots) || {};
   const payload = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
       }
       const html = entry.html || pageSnapshots[url];
+      const screenshot = entry.screenshot || pageScreenshots[url] || null;
       return {
         url,
         html,
+        screenshot,
         xpaths: entry.xpaths || [],
         defaultExclusionSelectors: immutableTags.slice()
       };

@@ -126,6 +126,7 @@
         exclude: []
       },
       pageHtmlSnapshots: {},
+      pageScreenshots: {},
       pageMarkings: {},
       latestComputedSelectors: [],
       lastSavedSelectors: [],
@@ -196,6 +197,10 @@
       }
       if (typeof currentConfig.pageMarkings !== "object" || currentConfig.pageMarkings === null) {
         currentConfig.pageMarkings = {};
+        changed = true;
+      }
+      if (typeof currentConfig.pageScreenshots !== "object" || currentConfig.pageScreenshots === null) {
+        currentConfig.pageScreenshots = {};
         changed = true;
       }
       if (!Array.isArray(currentConfig.latestComputedSelectors)) {
@@ -688,7 +693,7 @@
     }
 
     const style = document.createElement("style");
-    style.id = "markcontit-freeze-style";
+    style.id = "unfluffify-freeze-style";
     style.textContent = `
       * {
         animation: none !important;
@@ -697,7 +702,7 @@
       html {
         scroll-behavior: auto !important;
       }
-      #markcontit-overlay {
+      #unfluffify-overlay {
         position: fixed;
         top: 0;
         left: 0;
@@ -706,22 +711,22 @@
         z-index: 2147483647;
         pointer-events: auto;
       }
-      #markcontit-overlay .mc-layer {
+      #unfluffify-overlay .mc-layer {
         position: absolute;
         inset: 0;
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
-      #markcontit-overlay.mc-scrolling .mc-layer {
+      #unfluffify-overlay.mc-scrolling .mc-layer {
         opacity: 0;
       }
-      #markcontit-overlay .mc-rect {
+      #unfluffify-overlay .mc-rect {
         position: absolute;
         box-sizing: border-box;
         pointer-events: none;
         border-radius: 4px;
       }
-      #markcontit-overlay .mc-hover {
+      #unfluffify-overlay .mc-hover {
         border: 2px solid #ffb300;
         background: rgba(255, 179, 0, 0.1);
       }
@@ -729,22 +734,22 @@
         0%,100% { opacity: 0 }
         50% { opacity: 1 }
       }
-      #markcontit-overlay .mc-focus {
+      #unfluffify-overlay .mc-focus {
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
         box-shadow: 0px 0px 5px 5px #00acc178;
         opacity: 1;
         animation: blink 1s linear infinite !important;
       }
-      #markcontit-overlay .mc-hard-toggle {
+      #unfluffify-overlay .mc-hard-toggle {
         border: 2px solid #b71c1c;
         background: rgba(183, 28, 28, 0.12);
       }
-      #markcontit-overlay .mc-hard-locked {
+      #unfluffify-overlay .mc-hard-locked {
         border: 2px dashed #9c6b6b;
         background: rgba(183, 28, 28, 0.08);
       }
-      #markcontit-overlay .mc-default {
+      #unfluffify-overlay .mc-default {
         border: 1px solid #2e7d32;
         background: rgba(46, 125, 50, 0.08);
       }
@@ -756,7 +761,7 @@
           background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
         }
       }
-      #markcontit-overlay .mc-ai-content {
+      #unfluffify-overlay .mc-ai-content {
         border: 1px solid transparent;
         background-color: rgba(46, 125, 50, 0.08);
         background-image:
@@ -771,15 +776,15 @@
         background-clip: border-box;
         animation: mc-ai-content-dash 2s linear infinite !important;
       }
-      #markcontit-overlay .mc-explicit-include {
+      #unfluffify-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
       }
-      #markcontit-overlay .mc-explicit-exclude {
+      #unfluffify-overlay .mc-explicit-exclude {
         border: 3px solid #c62828;
         background: rgba(198, 40, 40, 0.2);
       }
-      #markcontit-overlay .mc-toast {
+      #unfluffify-overlay .mc-toast {
         position: fixed;
         left: 14px;
         right: 14px;
@@ -795,7 +800,7 @@
         transition: opacity 0.2s ease, transform 0.2s ease;
         pointer-events: none;
       }
-      #markcontit-overlay .mc-toast.mc-toast-show {
+      #unfluffify-overlay .mc-toast.mc-toast-show {
         opacity: 1;
         transform: translateY(0);
       }
@@ -803,7 +808,7 @@
     document.documentElement.appendChild(style);
 
     const overlay = document.createElement("div");
-    overlay.id = "markcontit-overlay";
+    overlay.id = "unfluffify-overlay";
 
     const layerKeys = [
       "hard",
@@ -863,7 +868,7 @@
     window.removeEventListener("keydown", handleKeydown, true);
     window.removeEventListener("click", handleAltClick, true);
     window.removeEventListener("keyup", handleKeyup, true);
-    const style = document.getElementById("markcontit-freeze-style");
+    const style = document.getElementById("unfluffify-freeze-style");
     if (style) {
       style.remove();
     }
@@ -921,11 +926,11 @@
   }
 
   function ensureAiPopoverStyle() {
-    if (document.getElementById("markcontit-ai-popover-style")) {
+    if (document.getElementById("unfluffify-ai-popover-style")) {
       return;
     }
     const style = document.createElement("style");
-    style.id = "markcontit-ai-popover-style";
+    style.id = "unfluffify-ai-popover-style";
     style.textContent = `
       .mc-ai-popover {
         position: fixed;
@@ -1089,7 +1094,7 @@
     state.aiPopover = popover;
   }
 
-  function recordPageSnapshot(config, pageUrl, xpaths) {
+  function recordPageSnapshot(config, pageUrl, xpaths, screenshot) {
     if (!config || !pageUrl) {
       return;
     }
@@ -1098,6 +1103,9 @@
     }
     if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
       config.pageMarkings = {};
+    }
+    if (!config.pageScreenshots || typeof config.pageScreenshots !== "object") {
+      config.pageScreenshots = {};
     }
     const html = document.documentElement.outerHTML;
     const explicitList = Array.isArray(xpaths)
@@ -1118,10 +1126,14 @@
         url: pageUrl,
         title: document.title || pageUrl,
         xpaths: filtered,
-        html
+        html,
+        screenshot: screenshot || config.pageScreenshots[pageUrl] || null
       };
     }
     config.pageHtmlSnapshots[pageUrl] = html;
+    if (screenshot) {
+      config.pageScreenshots[pageUrl] = screenshot;
+    }
   }
 
   function queueConfigSave() {
@@ -1164,10 +1176,12 @@
       if (!state.baseUrl || !state.config) {
         return;
       }
+      // Pass existing screenshot if available (null to preserve existing)
       recordPageSnapshot(
         state.config,
         location.href,
-        state.config.explicitXPathDecisions.exclude
+        state.config.explicitXPathDecisions.exclude,
+        null
       );
       queueConfigSave();
     }, 220);
@@ -1824,7 +1838,7 @@
     state.isScrolling = false;
     removeOverlay();
     closeAiPopover();
-    const popoverStyle = document.getElementById("markcontit-ai-popover-style");
+    const popoverStyle = document.getElementById("unfluffify-ai-popover-style");
     if (popoverStyle) {
       popoverStyle.remove();
     }
@@ -1886,11 +1900,8 @@
           }
         });
 
-      if (removedElements.length > 0) {
-        console.log(`[IDCAC] Removed ${removedElements.length} consent UI elements from DOM`);
-      }
     } catch (error) {
-      console.log('[IDCAC] Error removing elements:', error);
+      // Silently handle errors
     }
 
     return removedElements;
@@ -1916,14 +1927,13 @@
         if (element.style.overflowX) element.style.overflowX = '';
         if (element.style.position === 'fixed') element.style.position = '';
 
-        console.log('[IDCAC] Restored scrolling on', element.tagName);
       }
     });
 
     // Force-enable scrolling via CSS
-    if (!document.getElementById('idcac-force-scroll')) {
+    if (!document.getElementById('unfluffify-force-scroll')) {
       const style = document.createElement('style');
-      style.id = 'idcac-force-scroll';
+      style.id = 'unfluffify-force-scroll';
       style.textContent = `
         html, body {
           overflow: auto !important;
@@ -2085,7 +2095,8 @@
         recordPageSnapshot(
           config,
           location.href,
-          config.explicitXPathDecisions.exclude
+          config.explicitXPathDecisions.exclude,
+          null
         );
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
@@ -2104,11 +2115,13 @@
         return;
       }
       const xpaths = Array.isArray(message.xpaths) ? message.xpaths : null;
+      const screenshot = message.screenshot || null;
       loadConfig(targetBaseUrl).then(async (config) => {
         recordPageSnapshot(
           config,
           location.href,
-          xpaths || config.explicitXPathDecisions.exclude
+          xpaths || config.explicitXPathDecisions.exclude,
+          screenshot
         );
         await saveConfig(targetBaseUrl, config);
         if (state.baseUrl === targetBaseUrl) {
