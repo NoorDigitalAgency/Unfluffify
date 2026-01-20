@@ -38,6 +38,27 @@
       </header>
 
       <section class="card">
+        <label class="field">
+          <span>Current Page URL</span>
+          <div class="input-row">
+            <div id="current-page-url" class="readout"></div>
+            <button id="refresh-context" type="button">Refresh</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Base Page URL</span>
+          <div class="input-row">
+            <input id="base-url" type="text" placeholder="https://example.com" />
+            <button id="base-url-set" type="button">Set</button>
+            <button id="base-url-edit" type="button">Change</button>
+          </div>
+        </label>
+        <div id="base-url-notice" class="notice" role="status" aria-live="polite">
+          Set Base Page URL before enabling marking
+        </div>
+      </section>
+
+      <section class="card">
         <label class="row">
           <span>Enable on this tab</span>
           <input id="toggle-enabled" type="checkbox" />
@@ -66,27 +87,6 @@
             <span id="device-scale-value" class="scale-value">70%</span>
           </div>
           <input id="device-scale" type="range" min="0.25" max="1" step="0.05" value="0.7" />
-        </div>
-      </section>
-
-      <section class="card">
-        <label class="field">
-          <span>Current Page URL</span>
-          <div class="input-row">
-            <div id="current-page-url" class="readout"></div>
-            <button id="refresh-context" type="button">Refresh</button>
-          </div>
-        </label>
-        <label class="field">
-          <span>Base Page URL</span>
-          <div class="input-row">
-            <input id="base-url" type="text" placeholder="https://example.com" />
-            <button id="base-url-set" type="button">Set</button>
-            <button id="base-url-edit" type="button">Change</button>
-          </div>
-        </label>
-        <div id="base-url-notice" class="notice" role="status" aria-live="polite">
-          Set Base Page URL before enabling marking
         </div>
       </section>
 
