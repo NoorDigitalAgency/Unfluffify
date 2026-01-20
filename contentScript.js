@@ -2085,14 +2085,35 @@
         sendResponse({ ok: false });
         return;
       }
-      loadConfig(targetBaseUrl).then(async (config) => {
-        recordPageSnapshot(config, location.href);
+
+      (async () => {
+        let config;
+        if (state.baseUrl === targetBaseUrl && state.config) {
+          // Use the in-memory config to preserve any unsaved changes
+          config = state.config;
+        } else {
+          // Load from storage if it's a different base URL
+          config = await loadConfig(targetBaseUrl);
+        }
+
+        // Ensure page entry is synced first, then capture HTML
+        const immutableExcluded = collectImmutableElements();
+        syncPageMarkings(config, location.href, immutableExcluded);
+
+        // Now capture the full HTML (after consent elements are removed)
+        const entry = getPageMarkingEntry(config, location.href);
+        entry.fullHTML = document.documentElement.outerHTML;
+        entry.title = document.title || location.href;
+        config.pageMarkings[location.href] = entry;
+
         await saveConfig(targetBaseUrl, config);
+
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
         }
         sendResponse({ ok: true });
-      });
+      })();
+
       return true;
     }
 
