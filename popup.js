@@ -55,7 +55,7 @@ const DEVICE_SCALE_DEFAULTS = {
 const DEVICE_SCALE_LIMITS = {
   min: 0.25,
   max: 1,
-  step: 0.05
+  step: 0.01
 };
 let currentTab = null;
 let currentBaseUrl = "";
