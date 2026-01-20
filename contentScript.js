@@ -22,7 +22,25 @@
     "ASIDE",
     "SELECT",
     "TITLE",
-    "STYLE"
+    "STYLE",
+    `
+      :not(body):not(html).backdrop,
+      :not(body):not(html).overlay,
+      :not(body):not(html).wcc-overlay,
+      :not(body):not(html).modal-backdrop,
+      :not(body):not(html)[role="dialog" i],
+      :not(body):not(html)[class*="modal" i],
+      :not(body):not(html)[class*="popup" i],
+      :not(body):not(html)[id*="cookie" i],
+      :not(body):not(html)[class*="cookie" i],
+      :not(body):not(html)[id*="consent" i],
+      :not(body):not(html)[class*="consent" i],
+      :not(body):not(html)[class*="newsletter" i],
+      :not(body):not(html)[class*="gdpr" i],
+      :not(body):not(html)[id*="gdpr" i],
+      :not(body):not(html)[class*="privacy" i]:not([class*="policy" i]),
+      :not(body):not(html)[id*="privacy" i]:not([id*="policy" i])
+    `
   ];
 
   const DEFAULT_EXCLUDED_TAGS = [
@@ -429,22 +447,6 @@
         el.nodeType === 1 &&
         state.aiPopover.contains(el)
     );
-  }
-
-  function getVisibleRect(el) {
-    if (!isVisible(el)) {
-      return null;
-    }
-    const rect = el.getBoundingClientRect();
-    if (
-      rect.bottom < 0 ||
-      rect.top > window.innerHeight ||
-      rect.right < 0 ||
-      rect.left > window.innerWidth
-    ) {
-      return null;
-    }
-    return rect;
   }
 
   function getXPath(el) {
@@ -1829,11 +1831,116 @@
     stopUrlWatcher();
   }
 
+  function removeConsentElements() {
+    const selectors = `
+      :not(body):not(html).backdrop,
+      :not(body):not(html).overlay,
+      :not(body):not(html).wcc-overlay,
+      :not(body):not(html).modal-backdrop,
+      :not(body):not(html)[role="dialog" i],
+      :not(body):not(html)[class*="modal" i],
+      :not(body):not(html)[class*="popup" i],
+      :not(body):not(html)[id*="cookie" i],
+      :not(body):not(html)[class*="cookie" i],
+      :not(body):not(html)[id*="consent" i],
+      :not(body):not(html)[class*="consent" i],
+      :not(body):not(html)[class*="newsletter" i],
+      :not(body):not(html)[class*="gdpr" i],
+      :not(body):not(html)[id*="gdpr" i],
+      :not(body):not(html)[class*="privacy" i]:not([class*="policy" i]),
+      :not(body):not(html)[id*="privacy" i]:not([id*="policy" i])
+    `;
+
+    let removedElements = [];
+
+    try {
+      const elements = Array.from(document.querySelectorAll(selectors));
+
+      elements
+        .filter(element => {
+          // Don't remove if it's the main content
+          if (!element.parentElement) return false;
+
+          // Check if element is likely a consent banner (not main content)
+          const rect = element.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+
+          // Remove if it's a fixed/absolute positioned overlay-like element
+          const style = window.getComputedStyle(element);
+          const isOverlay = style.position === 'fixed' ||
+                           style.position === 'absolute' ||
+                           style.zIndex > 1000;
+
+          return isVisible && (isOverlay ||
+                              element.hasAttribute('role') ||
+                              element.className.includes('modal') ||
+                              element.className.includes('overlay'));
+        })
+        .forEach(element => {
+          try {
+            element.parentElement.removeChild(element);
+            removedElements.push(element);
+          } catch (e) {
+            // Element might have been already removed
+          }
+        });
+
+      if (removedElements.length > 0) {
+        console.log(`[IDCAC] Removed ${removedElements.length} consent UI elements from DOM`);
+      }
+    } catch (error) {
+      console.log('[IDCAC] Error removing elements:', error);
+    }
+
+    return removedElements;
+  }
+
+  function restorePageScrolling() {
+    const html = document.documentElement;
+    const body = document.body;
+
+    if (!html || !body) return;
+
+    // Remove inline styles that disable scrolling
+    [html, body].forEach(element => {
+      const style = window.getComputedStyle(element);
+
+      if (style.overflow === 'hidden' ||
+          style.overflowY === 'hidden' ||
+          style.position === 'fixed') {
+
+        // Try to restore by removing inline styles
+        if (element.style.overflow) element.style.overflow = '';
+        if (element.style.overflowY) element.style.overflowY = '';
+        if (element.style.overflowX) element.style.overflowX = '';
+        if (element.style.position === 'fixed') element.style.position = '';
+
+        console.log('[IDCAC] Restored scrolling on', element.tagName);
+      }
+    });
+
+    // Force-enable scrolling via CSS
+    if (!document.getElementById('idcac-force-scroll')) {
+      const style = document.createElement('style');
+      style.id = 'idcac-force-scroll';
+      style.textContent = `
+        html, body {
+          overflow: auto !important;
+          position: static !important;
+          height: auto !important;
+        }
+      `;
+      (document.head || document.documentElement).appendChild(style);
+    }
+  }
+
   async function refreshFromTabState() {
     const response = await sendMessage({ type: "getTabState" });
     if (response && response.enabled && response.baseUrl) {
       if (location.href.startsWith(response.baseUrl)) {
         enableForBaseUrl(response.baseUrl);
+        const removedElements = removeConsentElements();
+        if(removedElements.length > 0) restorePageScrolling();
         return;
       }
     }
