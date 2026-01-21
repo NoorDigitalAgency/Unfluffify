@@ -717,6 +717,7 @@ function renderPatternSelect(selectEl, options, selectedValue) {
     const option = document.createElement("option");
     option.value = optionItem.value;
     option.textContent = optionItem.label;
+    option.title = optionItem.label;
     selectEl.appendChild(option);
   });
   selectEl.value = selectedValue || options[0].value;
