@@ -514,7 +514,8 @@
     return elements;
   }
 
-  function getPageMarkingEntry(config, pageUrl) {
+  function getPageMarkingEntry(config, pageUrl, options) {
+    const { create = true, persist = true } = options || {};
     if (!config) {
       return { url: pageUrl || "", title: pageUrl || "", xpaths: [], fullHTML: "" };
     }
@@ -531,8 +532,17 @@
       xpaths: [],
       fullHTML: ""
     };
-    config.pageMarkings[pageUrl] = entry;
+    if (create && persist) {
+      config.pageMarkings[pageUrl] = entry;
+    }
     return entry;
+  }
+
+  function hasPageMarkingEntry(config, pageUrl) {
+    if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+      return false;
+    }
+    return Boolean(config.pageMarkings[pageUrl]);
   }
 
   function collectToggleableTargets(immutableExcluded) {
@@ -562,11 +572,17 @@
     return results;
   }
 
-  function syncPageMarkings(config, pageUrl, immutableExcluded) {
+  function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (!config || !pageUrl) {
-      return false;
+      return { changed: false, entry: null, persisted: false, hadEntry: false };
     }
-    const entry = getPageMarkingEntry(config, pageUrl);
+    const { allowCreate = true, persist = true } = options || {};
+    const hadEntry = hasPageMarkingEntry(config, pageUrl);
+    const shouldPersist = persist && (allowCreate || hadEntry);
+    const entry = getPageMarkingEntry(config, pageUrl, {
+      create: allowCreate || hadEntry,
+      persist: shouldPersist
+    });
     const excludedLookup = new Map();
     for (const item of entry.xpaths || []) {
       if (item && item.xpath) {
@@ -604,8 +620,10 @@
     if (!entry.fullHTML) {
       entry.fullHTML = "";
     }
-    config.pageMarkings[pageUrl] = entry;
-    return changed;
+    if (shouldPersist) {
+      config.pageMarkings[pageUrl] = entry;
+    }
+    return { changed, entry, persisted: shouldPersist, hadEntry };
   }
 
   function collectDefaultHighlightTargets(root, options) {
@@ -708,11 +726,11 @@
     return immutable;
   }
 
-  function collectHeadingDefaultStatus(config) {
+  function collectHeadingDefaultStatus(config, entryOverride) {
     if (!config) {
       return [];
     }
-    const entry = getPageMarkingEntry(config, location.href);
+    const entry = entryOverride || getPageMarkingEntry(config, location.href);
     const excludedLookup = new Map();
     for (const item of entry.xpaths || []) {
       if (item && item.xpath) {
@@ -1623,11 +1641,16 @@
 
     const immutableExcluded = collectImmutableElements();
     const pageUrl = location.href;
-    const didSync = syncPageMarkings(state.config, pageUrl, immutableExcluded);
-    if (didSync) {
+    const hasEntry = hasPageMarkingEntry(state.config, pageUrl);
+    const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+      allowCreate: hasEntry,
+      persist: hasEntry
+    });
+    if (syncResult.changed && syncResult.persisted) {
       queueConfigSave();
     }
-    const entry = getPageMarkingEntry(state.config, pageUrl);
+    const entry =
+      syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
     const explicitExclude = collectXPathElements(
       collectExcludedXPaths(entry.xpaths)
     );
@@ -1975,7 +1998,10 @@
     if (message.type === "collectPageData") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
-        const entry = getPageMarkingEntry(config, location.href);
+        const entry = getPageMarkingEntry(config, location.href, {
+          create: false,
+          persist: false
+        });
         sendResponse({
           baseUrl: targetBaseUrl,
           pageUrl: location.href,
@@ -1991,11 +2017,15 @@
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       loadConfig(targetBaseUrl).then((config) => {
         const immutableExcluded = collectImmutableElements();
-        const didSync = syncPageMarkings(config, location.href, immutableExcluded);
-        if (didSync) {
+        const hasEntry = hasPageMarkingEntry(config, location.href);
+        const syncResult = syncPageMarkings(config, location.href, immutableExcluded, {
+          allowCreate: hasEntry,
+          persist: hasEntry
+        });
+        if (syncResult.changed && syncResult.persisted) {
           saveConfig(targetBaseUrl, config);
         }
-        sendResponse({ items: collectHeadingDefaultStatus(config) });
+        sendResponse({ items: collectHeadingDefaultStatus(config, syncResult.entry) });
       });
       return true;
     }
