@@ -717,10 +717,11 @@ function renderPatternSelect(selectEl, options, selectedValue) {
     const option = document.createElement("option");
     option.value = optionItem.value;
     option.textContent = optionItem.label;
-    option.title = optionItem.label;
+    option.title = optionItem.value;
     selectEl.appendChild(option);
   });
   selectEl.value = selectedValue || options[0].value;
+  selectEl.title = selectedValue || options[0].value;
 }
 
 function arraysEqual(left, right) {
