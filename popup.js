@@ -42,6 +42,7 @@ const ui = {
   endpointEdit: document.getElementById("endpoint-url-edit"),
   endpointNotice: document.getElementById("endpoint-notice"),
   aiControls: document.getElementById("ai-controls"),
+  aiDirtyNotice: document.getElementById("ai-dirty-notice"),
   aiToken: document.getElementById("ai-token"),
   tokenStatus: document.getElementById("token-status"),
   tokenAction: document.getElementById("token-action"),
@@ -944,10 +945,13 @@ async function refreshUi() {
       currentDraftHasEntry = Boolean(currentDraftEntry);
     }
   }
+  const aiBlockedByDraft = currentDraftDirty;
   ui.toggleEnabled.disabled = !baseUrlReady || !pagePatternReady;
-  ui.computeButton.disabled = aiBusy || !aiReady;
-  ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
-  ui.previewLatestButton.disabled = aiBusy || !baseUrlReady || !hasStoredSelectors;
+  ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
+  ui.saveExcludesButton.disabled =
+    aiBusy || !aiReady || !hasNewSelectors || aiBlockedByDraft;
+  ui.previewLatestButton.disabled =
+    aiBusy || !baseUrlReady || !hasStoredSelectors || aiBlockedByDraft;
   ui.mainUi.hidden = !isEnabled;
   ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
   ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
@@ -975,6 +979,9 @@ async function refreshUi() {
     aiRequestInFlight === "save"
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
+  if (ui.aiDirtyNotice) {
+    ui.aiDirtyNotice.style.display = aiBlockedByDraft ? "block" : "none";
+  }
   if (ui.pagePatternSelect && ui.pagePatternSet && ui.pagePatternNotice) {
     const patternUiDisabled =
       !baseUrlReady || !pageUrl || !isPageWithinBase(pageUrl, currentBaseUrl);
@@ -2056,6 +2063,10 @@ async function handleComputeSelectors() {
     showToast("Set Base Page URL first");
     return;
   }
+  if (currentDraftDirty) {
+    showToast("Save the current page before using AI controls");
+    return;
+  }
   const endpointResult = await storageGet(
     chrome.storage.sync,
     "globalEndpoint"
@@ -2170,6 +2181,10 @@ async function handleSaveExcludes() {
   }
   if (!currentBaseUrl) {
     showToast("Set Base Page URL first");
+    return;
+  }
+  if (currentDraftDirty) {
+    showToast("Save the current page before using AI controls");
     return;
   }
   const endpointResult = await storageGet(
