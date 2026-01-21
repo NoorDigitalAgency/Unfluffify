@@ -1,7 +1,11 @@
 import { storageGet } from "./storage.js";
 import { ui } from "./ui.js";
 import { state } from "./state.js";
-import { DEVICE_MODE_PREFIX, DEVICE_SCALE_DEFAULTS, DEVICE_SCALE_LIMITS } from "./constants.js";
+import {
+  DEVICE_MODE_PREFIX,
+  DEVICE_SCALE_DEFAULTS,
+  DEVICE_SCALE_LIMITS
+} from "./state.js";
 
 export function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";

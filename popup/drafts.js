@@ -1,5 +1,5 @@
 import { storageGet, storageSet } from "./storage.js";
-import { PAGE_PATTERN_DRAFT_PREFIX } from "./constants.js";
+import { PAGE_PATTERN_DRAFT_PREFIX } from "./state.js";
 import { normalizePatternValue } from "./patterns.js";
 
 export async function getPagePatternDraft(tabId) {

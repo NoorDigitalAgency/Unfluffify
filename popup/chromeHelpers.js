@@ -1,4 +1,4 @@
-import { showToast } from "./uiHelpers.js";
+import { showToast } from "./ui.js";
 
 export function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {

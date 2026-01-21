@@ -9,7 +9,12 @@ import {
   saveConfigs,
   updateConfig
 } from "./popup/config.js";
-import { DEVICE_MODE_PREFIX, MAX_IMPORT_BYTES, PAGE_PATTERN_DRAFT_PREFIX } from "./popup/constants.js";
+import {
+  DEVICE_MODE_PREFIX,
+  MAX_IMPORT_BYTES,
+  PAGE_PATTERN_DRAFT_PREFIX,
+  state
+} from "./popup/state.js";
 import {
   getDeviceEmulationState,
   getSelectedDeviceMode,
@@ -26,11 +31,8 @@ import {
   normalizePatternValue
 } from "./popup/patterns.js";
 import { renderExcludeList, renderHeadingDefaults, renderMarkedPages, renderPatternSelect } from "./popup/render.js";
-import { state } from "./popup/state.js";
-import { storageGet, storageSet } from "./popup/storage.js";
-import { getTabState, setTabState } from "./popup/tabState.js";
-import { ui } from "./popup/ui.js";
-import { setConfigMenuOpen, setUiBusy, showToast } from "./popup/uiHelpers.js";
+import { getTabState, setTabState, storageGet, storageSet } from "./popup/storage.js";
+import { setConfigMenuOpen, setUiBusy, showToast, ui } from "./popup/ui.js";
 import {
   arraysEqual,
   findMatchingBaseUrl,
