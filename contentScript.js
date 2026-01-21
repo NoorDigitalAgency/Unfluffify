@@ -103,7 +103,6 @@
       baseUrl,
       domain,
       pageMarkings: {},
-      pageUrlPatterns: [],
       latestComputedSelectors: [],
       lastSavedSelectors: [],
       domainAiSelectorSet: {
@@ -140,6 +139,19 @@
           return null;
         })
         .filter(Boolean);
+      const rawPattern =
+        typeof entry.pagePattern === "string"
+          ? entry.pagePattern
+          : typeof entry.pattern === "string"
+            ? entry.pattern
+            : "";
+      const pagePattern = normalizePatternValue(rawPattern);
+      if (entry.pattern) {
+        changed = true;
+      }
+      if (rawPattern && rawPattern !== pagePattern) {
+        changed = true;
+      }
       const fullHTML =
         typeof entry.fullHTML === "string"
           ? entry.fullHTML
@@ -155,6 +167,7 @@
         url: entry.url || url,
         title: entry.title || url,
         xpaths,
+        pagePattern,
         fullHTML
       };
     });
@@ -195,27 +208,6 @@
     }
   }
 
-  function normalizeUrlPatterns(value) {
-    const normalized = [];
-    let changed = false;
-    if (!Array.isArray(value)) {
-      return { normalized, changed: value !== undefined };
-    }
-    value.forEach((item) => {
-      const normalizedValue = normalizePatternValue(item);
-      if (!normalizedValue) {
-        changed = true;
-        return;
-      }
-      if (normalized.includes(normalizedValue)) {
-        changed = true;
-        return;
-      }
-      normalized.push(normalizedValue);
-    });
-    return { normalized, changed };
-  }
-
   function isPageUrlMatchingPattern(pageUrl, pattern) {
     const pageBase = normalizePatternValue(pageUrl);
     const patternBase = normalizePatternValue(pattern);
@@ -228,13 +220,32 @@
     return pageBase.startsWith(`${patternBase}/`);
   }
 
-  function isPageUrlAllowed(config, pageUrl) {
+  function collectPagePatterns(config) {
+    const patterns = [];
+    if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+      return patterns;
+    }
+    Object.values(config.pageMarkings).forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const pattern = normalizePatternValue(entry.pagePattern || "");
+      if (pattern && !patterns.includes(pattern)) {
+        patterns.push(pattern);
+      }
+    });
+    return patterns;
+  }
+
+  function isPageUrlAllowed(config, pageUrl, pendingPattern) {
     if (!config || !pageUrl) {
       return false;
     }
-    const patterns = Array.isArray(config.pageUrlPatterns)
-      ? config.pageUrlPatterns
-      : [];
+    const patterns = collectPagePatterns(config);
+    const normalizedPending = normalizePatternValue(pendingPattern || "");
+    if (normalizedPending && !patterns.includes(normalizedPending)) {
+      patterns.push(normalizedPending);
+    }
     if (!patterns.length) {
       return false;
     }
@@ -259,6 +270,7 @@
       url: entry.url || "",
       title: entry.title || "",
       xpaths,
+      pagePattern: normalizePatternValue(entry.pagePattern || ""),
       fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
     };
   }
@@ -267,9 +279,12 @@
     if (!entry || !Array.isArray(entry.xpaths)) {
       return [];
     }
-    return entry.xpaths
+    const pattern = normalizePatternValue(entry.pagePattern || "");
+    const fingerprint = [`pattern:${pattern}`];
+    const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
       .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`);
+    return fingerprint.concat(xpathFingerprint);
   }
 
   function areEntriesEquivalent(left, right) {
@@ -359,9 +374,7 @@
       } else if (existing.pageMarkings !== undefined) {
         changed = true;
       }
-      const patternResult = normalizeUrlPatterns(existing.pageUrlPatterns);
-      currentConfig.pageUrlPatterns = patternResult.normalized;
-      if (patternResult.changed) {
+      if (existing.pageUrlPatterns !== undefined) {
         changed = true;
       }
       if (Array.isArray(existing.latestComputedSelectors)) {
@@ -699,7 +712,13 @@
   function getPageMarkingEntry(config, pageUrl, options) {
     const { create = true, persist = true } = options || {};
     if (!config) {
-      return { url: pageUrl || "", title: pageUrl || "", xpaths: [], fullHTML: "" };
+      return {
+        url: pageUrl || "",
+        title: pageUrl || "",
+        xpaths: [],
+        pagePattern: "",
+        fullHTML: ""
+      };
     }
     if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
       config.pageMarkings = {};
@@ -712,6 +731,7 @@
       url: pageUrl || "",
       title: document.title || pageUrl || "",
       xpaths: [],
+      pagePattern: "",
       fullHTML: ""
     };
     if (create && persist) {
@@ -1960,7 +1980,7 @@
     }
   }
 
-  async function enableForBaseUrl(baseUrl) {
+  async function enableForBaseUrl(baseUrl, options) {
     if (!baseUrl || !location.href.startsWith(baseUrl)) {
       disable();
       return;
@@ -1968,11 +1988,17 @@
     state.enabled = true;
     state.baseUrl = baseUrl;
     state.config = await loadConfig(baseUrl);
-    if (!isPageUrlAllowed(state.config, location.href)) {
+    const pendingPattern = normalizePatternValue(options && options.pagePattern);
+    const pageUrl = location.href;
+    if (pendingPattern) {
+      const entry = getPageMarkingEntry(state.config, pageUrl);
+      entry.pagePattern = pendingPattern;
+      state.config.pageMarkings[pageUrl] = entry;
+    }
+    if (!isPageUrlAllowed(state.config, pageUrl, pendingPattern)) {
       disable();
       return;
     }
-    const pageUrl = location.href;
     const savedEntry =
       state.config &&
       state.config.pageMarkings &&
@@ -2159,7 +2185,7 @@
 
     if (message.type === "setEnabled") {
       if (message.enabled) {
-        enableForBaseUrl(message.baseUrl);
+        enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern });
       } else {
         disable();
       }
@@ -2368,6 +2394,35 @@
         sendResponse({ ok: true });
       })();
 
+      return true;
+    }
+
+    if (message.type === "setPagePatternDraft") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      const pagePattern = normalizePatternValue(message.pagePattern || "");
+      const basePattern = normalizePatternValue(targetBaseUrl);
+      if (!targetBaseUrl || !pagePattern) {
+        sendResponse({ ok: false });
+        return;
+      }
+      if (!basePattern || !isPageUrlMatchingPattern(pagePattern, basePattern)) {
+        sendResponse({ ok: false });
+        return;
+      }
+      (async () => {
+        let config = state.config;
+        if (!config || state.baseUrl !== targetBaseUrl) {
+          config = await loadConfig(targetBaseUrl);
+        }
+        const pageUrl = location.href;
+        const entry = getPageMarkingEntry(config, pageUrl);
+        entry.pagePattern = pagePattern;
+        config.pageMarkings[pageUrl] = entry;
+        state.baseUrl = targetBaseUrl;
+        state.config = config;
+        notifyDraftStatus(pageUrl);
+        sendResponse({ ok: true });
+      })();
       return true;
     }
 

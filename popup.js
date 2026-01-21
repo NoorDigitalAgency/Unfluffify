@@ -55,6 +55,7 @@ const ui = {
 
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 const DEVICE_MODE_PREFIX = "deviceEmulation:";
+const PAGE_PATTERN_DRAFT_PREFIX = "pagePatternDraft:";
 const DEVICE_SCALE_DEFAULTS = {
   desktop: 0.7,
   mobile: 0.85
@@ -80,6 +81,42 @@ let currentDraftEntry = null;
 let currentDraftDirty = false;
 let currentDraftAvailable = false;
 let currentDraftHasEntry = false;
+
+async function getPagePatternDraft(tabId) {
+  if (!tabId) {
+    return {};
+  }
+  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
+  const result = await storageGet(chrome.storage.session, key);
+  return result[key] || {};
+}
+
+async function setPagePatternDraft(tabId, pageUrl, pattern) {
+  if (!tabId || !pageUrl) {
+    return;
+  }
+  const normalized = normalizePatternValue(pattern);
+  if (!normalized) {
+    return;
+  }
+  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
+  const current = await getPagePatternDraft(tabId);
+  current[pageUrl] = normalized;
+  await storageSet(chrome.storage.session, { [key]: current });
+}
+
+async function clearPagePatternDraft(tabId, pageUrl) {
+  if (!tabId || !pageUrl) {
+    return;
+  }
+  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
+  const current = await getPagePatternDraft(tabId);
+  if (!current[pageUrl]) {
+    return;
+  }
+  delete current[pageUrl];
+  await storageSet(chrome.storage.session, { [key]: current });
+}
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -118,7 +155,6 @@ function createDefaultConfig(baseUrl) {
     baseUrl,
     domain,
     pageMarkings: {},
-    pageUrlPatterns: [],
     latestComputedSelectors: [],
     lastSavedSelectors: [],
     domainAiSelectorSet: { inclusionSelectors: [] }
@@ -150,6 +186,19 @@ function normalizePageMarkings(pageMarkings) {
         return null;
       })
       .filter(Boolean);
+    const rawPattern =
+      typeof entry.pagePattern === "string"
+        ? entry.pagePattern
+        : typeof entry.pattern === "string"
+          ? entry.pattern
+          : "";
+    const pagePattern = normalizePatternValue(rawPattern);
+    if (rawPattern && rawPattern !== pagePattern) {
+      changed = true;
+    }
+    if (entry.pattern) {
+      changed = true;
+    }
     const fullHTML =
       typeof entry.fullHTML === "string"
         ? entry.fullHTML
@@ -165,6 +214,7 @@ function normalizePageMarkings(pageMarkings) {
       url: entry.url || url,
       title: entry.title || url,
       xpaths,
+      pagePattern,
       fullHTML
     };
   });
@@ -203,27 +253,6 @@ function normalizePatternValue(value) {
   } catch (error) {
     return "";
   }
-}
-
-function normalizeUrlPatterns(value) {
-  const normalized = [];
-  let changed = false;
-  if (!Array.isArray(value)) {
-    return { normalized, changed: value !== undefined };
-  }
-  value.forEach((item) => {
-    const normalizedValue = normalizePatternValue(item);
-    if (!normalizedValue) {
-      changed = true;
-      return;
-    }
-    if (normalized.includes(normalizedValue)) {
-      changed = true;
-      return;
-    }
-    normalized.push(normalizedValue);
-  });
-  return { normalized, changed };
 }
 
 function isPageUrlMatchingPattern(pageUrl, pattern) {
@@ -266,6 +295,23 @@ function isPageWithinBase(pageUrl, baseUrl) {
     return true;
   }
   return pageBase.startsWith(`${baseBase}/`);
+}
+
+function collectPagePatterns(pageMarkings) {
+  const patterns = [];
+  if (!pageMarkings || typeof pageMarkings !== "object") {
+    return patterns;
+  }
+  Object.values(pageMarkings).forEach((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    const pattern = normalizePatternValue(entry.pagePattern || "");
+    if (pattern && !patterns.includes(pattern)) {
+      patterns.push(pattern);
+    }
+  });
+  return patterns;
 }
 
 function getPatternOptions(pageUrl, baseUrl) {
@@ -311,22 +357,6 @@ function getPatternOptions(pageUrl, baseUrl) {
   return options;
 }
 
-function addPatternToConfig(config, pattern) {
-  if (!config) {
-    return;
-  }
-  const normalized = normalizePatternValue(pattern);
-  if (!normalized) {
-    return;
-  }
-  if (!Array.isArray(config.pageUrlPatterns)) {
-    config.pageUrlPatterns = [];
-  }
-  if (!config.pageUrlPatterns.includes(normalized)) {
-    config.pageUrlPatterns.push(normalized);
-  }
-}
-
 function normalizeConfig(baseUrl, incoming) {
   let changed = false;
   const defaultConfig = createDefaultConfig(baseUrl);
@@ -356,9 +386,7 @@ function normalizeConfig(baseUrl, incoming) {
   } else if (incoming.pageMarkings !== undefined) {
     changed = true;
   }
-  const patternResult = normalizeUrlPatterns(incoming.pageUrlPatterns);
-  normalized.pageUrlPatterns = patternResult.normalized;
-  if (patternResult.changed) {
+  if (incoming.pageUrlPatterns !== undefined) {
     changed = true;
   }
   if (Array.isArray(incoming.latestComputedSelectors)) {
@@ -812,21 +840,11 @@ async function refreshUi() {
   } else {
     ui.baseUrlNotice.style.display = "none";
   }
-  if (baseUrlReady && currentConfig && pageUrl) {
-    const basePattern = normalizePatternValue(currentBaseUrl);
-    const pagePattern = normalizePatternValue(pageUrl);
-    const matchingPattern = findBestMatchingPattern(
-      pageUrl,
-      currentConfig.pageUrlPatterns || []
-    );
-    if (basePattern && pagePattern && basePattern === pagePattern && !matchingPattern) {
-      currentConfig = await updateConfig(currentBaseUrl, (config) => {
-        addPatternToConfig(config, basePattern);
-      });
-      configs[currentBaseUrl] = currentConfig;
-      await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-    }
-  }
+  const patternDrafts = currentTab ? await getPagePatternDraft(currentTab.id) : {};
+  let draftPattern =
+    normalizePatternValue(
+      (currentDraftEntry && currentDraftEntry.pagePattern) || ""
+    ) || normalizePatternValue(patternDrafts[pageUrl] || "");
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
@@ -836,9 +854,21 @@ async function refreshUi() {
   const pagePatternOptions = baseUrlReady
     ? getPatternOptions(pageUrl, currentBaseUrl)
     : [];
-  const matchingPattern = currentConfig
-    ? findBestMatchingPattern(pageUrl, currentConfig.pageUrlPatterns || [])
-    : "";
+  if (baseUrlReady && pageUrl) {
+    const basePattern = normalizePatternValue(currentBaseUrl);
+    const pagePattern = normalizePatternValue(pageUrl);
+    if (basePattern && pagePattern && basePattern === pagePattern && !draftPattern) {
+      await setPagePatternDraft(currentTab.id, pageUrl, basePattern);
+      draftPattern = basePattern;
+    }
+  }
+  const storedPatterns = collectPagePatterns(
+    currentConfig ? currentConfig.pageMarkings : null
+  );
+  if (draftPattern && !storedPatterns.includes(draftPattern)) {
+    storedPatterns.push(draftPattern);
+  }
+  const matchingPattern = findBestMatchingPattern(pageUrl, storedPatterns);
   const pagePatternReady = Boolean(matchingPattern);
   if (ui.toggleEnabled.checked && !pagePatternReady && currentTab && currentTab.id) {
     ui.toggleEnabled.checked = false;
@@ -942,7 +972,7 @@ async function refreshUi() {
     renderPatternSelect(
       ui.pagePatternSelect,
       pagePatternOptions,
-      matchingPattern || ""
+      draftPattern || matchingPattern || ""
     );
     ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
     ui.pagePatternSet.disabled = patternUiDisabled || !pagePatternOptions.length;
@@ -1174,10 +1204,13 @@ async function handleEnableToggle() {
       return;
     }
     currentConfig = await ensureConfig(baseUrlValue);
-    const matchingPattern = findBestMatchingPattern(
-      currentTab.url,
-      currentConfig.pageUrlPatterns || []
-    );
+    const patternDrafts = await getPagePatternDraft(currentTab.id);
+    const draftPattern = normalizePatternValue(patternDrafts[currentTab.url] || "");
+    const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+    if (draftPattern && !storedPatterns.includes(draftPattern)) {
+      storedPatterns.push(draftPattern);
+    }
+    const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
     if (!matchingPattern) {
       showToast("Choose a URL pattern before enabling");
       ui.toggleEnabled.checked = false;
@@ -1196,7 +1229,8 @@ async function handleEnableToggle() {
     await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
-      baseUrl: baseUrlValue
+      baseUrl: baseUrlValue,
+      pagePattern: matchingPattern
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
@@ -1749,22 +1783,29 @@ async function handleBaseUrlSet() {
   currentConfig = await ensureConfig(baseUrlValue);
   const basePattern = normalizePatternValue(baseUrlValue);
   const pagePattern = normalizePatternValue(currentTab.url);
+  let draftPattern = "";
   if (basePattern && pagePattern && basePattern === pagePattern) {
-    currentConfig = await updateConfig(baseUrlValue, (config) => {
-      addPatternToConfig(config, basePattern);
+    draftPattern = pagePattern;
+    await setPagePatternDraft(currentTab.id, currentTab.url, draftPattern);
+    await sendTabMessage({
+      type: "setPagePatternDraft",
+      baseUrl: baseUrlValue,
+      pagePattern: draftPattern
     });
   }
-  const matchingPattern = findBestMatchingPattern(
-    currentTab.url,
-    currentConfig.pageUrlPatterns || []
-  );
+  const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+  if (draftPattern && !storedPatterns.includes(draftPattern)) {
+    storedPatterns.push(draftPattern);
+  }
+  const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
   baseUrlEditMode = false;
   if (matchingPattern) {
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
-      baseUrl: baseUrlValue
+      baseUrl: baseUrlValue,
+      pagePattern: matchingPattern
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
@@ -1792,11 +1833,22 @@ async function handlePagePatternSet() {
     showToast("Pattern must be within the Base Page URL");
     return;
   }
-  currentConfig = await updateConfig(currentBaseUrl, (config) => {
-    addPatternToConfig(config, selected);
+  await setPagePatternDraft(currentTab.id, currentTab.url, selected);
+  const injectResult = await injectContentScriptIfNeeded();
+  if (!injectResult.ok) {
+    showToast(injectResult.error || "Unable to reach the page");
+    return;
+  }
+  const response = await sendTabMessage({
+    type: "setPagePatternDraft",
+    baseUrl: currentBaseUrl,
+    pagePattern: selected
   });
-  await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-  showToast("Pattern saved");
+  if (!response || !response.ok) {
+    showToast("Unable to set pattern");
+    return;
+  }
+  showToast("Pattern saved in draft");
   await refreshUi();
 }
 
@@ -1824,10 +1876,13 @@ async function handleBaseUrlEditToggle() {
       return;
     }
     currentConfig = await ensureConfig(currentBaseUrl);
-    const matchingPattern = findBestMatchingPattern(
-      currentTab.url,
-      currentConfig.pageUrlPatterns || []
-    );
+    const patternDrafts = await getPagePatternDraft(currentTab.id);
+    const draftPattern = normalizePatternValue(patternDrafts[currentTab.url] || "");
+    const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+    if (draftPattern && !storedPatterns.includes(draftPattern)) {
+      storedPatterns.push(draftPattern);
+    }
+    const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
     if (matchingPattern) {
       await setTabState(currentTab.id, {
         enabled: true,
@@ -1836,7 +1891,8 @@ async function handleBaseUrlEditToggle() {
       await sendTabMessageWithRetry({
         type: "setEnabled",
         enabled: true,
-        baseUrl: currentBaseUrl
+        baseUrl: currentBaseUrl,
+        pagePattern: matchingPattern
       });
       await sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
@@ -1916,6 +1972,9 @@ async function handlePageSave() {
     return;
   }
   showToast(response.saved ? "Page saved" : "No changes to save");
+  if (response.saved) {
+    await clearPagePatternDraft(currentTab.id, currentTab.url || "");
+  }
   await refreshUi();
 }
 
@@ -1943,6 +2002,7 @@ async function handlePageRevert() {
     return;
   }
   showToast("Reverted to last saved");
+  await clearPagePatternDraft(currentTab.id, currentTab.url || "");
   await refreshUi();
 }
 
@@ -1970,6 +2030,7 @@ async function handlePageDelete() {
     return;
   }
   showToast("Page data deleted");
+  await clearPagePatternDraft(currentTab.id, currentTab.url || "");
   await refreshUi();
 }
 
@@ -2011,10 +2072,12 @@ async function handleComputeSelectors() {
       }
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+      const pattern = typeof entry.pagePattern === "string" ? entry.pagePattern : "";
       return {
         url,
         fullHTML,
-        xpaths
+        xpaths,
+        pattern
       };
     })
     .filter((entry) => {
