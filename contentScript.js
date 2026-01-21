@@ -103,6 +103,7 @@
       baseUrl,
       domain,
       pageMarkings: {},
+      pageUrlPatterns: [],
       latestComputedSelectors: [],
       lastSavedSelectors: [],
       domainAiSelectorSet: {
@@ -175,6 +176,69 @@
       changed = true;
     }
     return { normalized, changed };
+  }
+
+  function normalizePatternValue(value) {
+    if (!value || typeof value !== "string") {
+      return "";
+    }
+    try {
+      const parsed = new URL(value);
+      let pathname = parsed.pathname || "/";
+      if (pathname.length > 1 && pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1);
+      }
+      const rootPath = pathname === "/" ? "" : pathname;
+      return `${parsed.origin}${rootPath}`;
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function normalizeUrlPatterns(value) {
+    const normalized = [];
+    let changed = false;
+    if (!Array.isArray(value)) {
+      return { normalized, changed: value !== undefined };
+    }
+    value.forEach((item) => {
+      const normalizedValue = normalizePatternValue(item);
+      if (!normalizedValue) {
+        changed = true;
+        return;
+      }
+      if (normalized.includes(normalizedValue)) {
+        changed = true;
+        return;
+      }
+      normalized.push(normalizedValue);
+    });
+    return { normalized, changed };
+  }
+
+  function isPageUrlMatchingPattern(pageUrl, pattern) {
+    const pageBase = normalizePatternValue(pageUrl);
+    const patternBase = normalizePatternValue(pattern);
+    if (!pageBase || !patternBase) {
+      return false;
+    }
+    if (pageBase === patternBase) {
+      return true;
+    }
+    return pageBase.startsWith(`${patternBase}/`);
+  }
+
+  function isPageUrlAllowed(config, pageUrl) {
+    if (!config || !pageUrl) {
+      return false;
+    }
+    const patterns = Array.isArray(config.pageUrlPatterns)
+      ? config.pageUrlPatterns
+      : [];
+    if (!patterns.length) {
+      return false;
+    }
+    return patterns.some((pattern) => isPageUrlMatchingPattern(pageUrl, pattern));
   }
 
   function clonePageEntry(entry) {
@@ -293,6 +357,11 @@
           changed = true;
         }
       } else if (existing.pageMarkings !== undefined) {
+        changed = true;
+      }
+      const patternResult = normalizeUrlPatterns(existing.pageUrlPatterns);
+      currentConfig.pageUrlPatterns = patternResult.normalized;
+      if (patternResult.changed) {
         changed = true;
       }
       if (Array.isArray(existing.latestComputedSelectors)) {
@@ -1899,6 +1968,10 @@
     state.enabled = true;
     state.baseUrl = baseUrl;
     state.config = await loadConfig(baseUrl);
+    if (!isPageUrlAllowed(state.config, location.href)) {
+      disable();
+      return;
+    }
     const pageUrl = location.href;
     const savedEntry =
       state.config &&
@@ -2056,6 +2129,10 @@
             ? config.pageMarkings[pageUrl]
             : null;
         mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
+        if (!isPageUrlAllowed(config, pageUrl)) {
+          disable();
+          return;
+        }
         state.baseUrl = response.baseUrl;
         state.config = config;
         setSavedPageEntry(pageUrl, storedEntry);

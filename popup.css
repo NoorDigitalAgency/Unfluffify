@@ -221,6 +221,12 @@ button.button-small {
   max-width: 100%;
 }
 
+.input-row select {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .input-row button {
   padding: 6px 10px;
   border-radius: 8px;
@@ -299,6 +305,23 @@ input[type="password"] {
   background: #fffdf9;
   min-width: 0;
   max-width: 100%;
+}
+
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: #fffdf9;
+  min-width: 0;
+  max-width: 100%;
+}
+
+select:disabled {
+  background: #f6efe6;
+  color: var(--muted);
 }
 
 input[readonly] {

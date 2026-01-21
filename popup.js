@@ -13,6 +13,9 @@ const ui = {
   baseUrlSet: document.getElementById("base-url-set"),
   baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
+  pagePatternSelect: document.getElementById("page-pattern"),
+  pagePatternSet: document.getElementById("page-pattern-set"),
+  pagePatternNotice: document.getElementById("page-pattern-notice"),
   mainUi: document.getElementById("main-ui"),
   markedPages: document.getElementById("marked-pages"),
   configToggle: document.getElementById("config-toggle"),
@@ -115,6 +118,7 @@ function createDefaultConfig(baseUrl) {
     baseUrl,
     domain,
     pageMarkings: {},
+    pageUrlPatterns: [],
     latestComputedSelectors: [],
     lastSavedSelectors: [],
     domainAiSelectorSet: { inclusionSelectors: [] }
@@ -184,6 +188,145 @@ function normalizeAiSelectorSet(value) {
   return { normalized, changed };
 }
 
+function normalizePatternValue(value) {
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+  try {
+    const parsed = new URL(value);
+    let pathname = parsed.pathname || "/";
+    if (pathname.length > 1 && pathname.endsWith("/")) {
+      pathname = pathname.slice(0, -1);
+    }
+    const rootPath = pathname === "/" ? "" : pathname;
+    return `${parsed.origin}${rootPath}`;
+  } catch (error) {
+    return "";
+  }
+}
+
+function normalizeUrlPatterns(value) {
+  const normalized = [];
+  let changed = false;
+  if (!Array.isArray(value)) {
+    return { normalized, changed: value !== undefined };
+  }
+  value.forEach((item) => {
+    const normalizedValue = normalizePatternValue(item);
+    if (!normalizedValue) {
+      changed = true;
+      return;
+    }
+    if (normalized.includes(normalizedValue)) {
+      changed = true;
+      return;
+    }
+    normalized.push(normalizedValue);
+  });
+  return { normalized, changed };
+}
+
+function isPageUrlMatchingPattern(pageUrl, pattern) {
+  const pageBase = normalizePatternValue(pageUrl);
+  const patternBase = normalizePatternValue(pattern);
+  if (!pageBase || !patternBase) {
+    return false;
+  }
+  if (pageBase === patternBase) {
+    return true;
+  }
+  return pageBase.startsWith(`${patternBase}/`);
+}
+
+function findBestMatchingPattern(pageUrl, patterns) {
+  if (!pageUrl || !Array.isArray(patterns)) {
+    return "";
+  }
+  const matches = patterns
+    .map((pattern) => normalizePatternValue(pattern))
+    .filter((pattern) => isPageUrlMatchingPattern(pageUrl, pattern))
+    .sort((left, right) => right.length - left.length);
+  return matches[0] || "";
+}
+
+function getPathSegments(pathname) {
+  if (!pathname) {
+    return [];
+  }
+  return pathname.split("/").filter(Boolean);
+}
+
+function isPageWithinBase(pageUrl, baseUrl) {
+  const pageBase = normalizePatternValue(pageUrl);
+  const baseBase = normalizePatternValue(baseUrl);
+  if (!pageBase || !baseBase) {
+    return false;
+  }
+  if (pageBase === baseBase) {
+    return true;
+  }
+  return pageBase.startsWith(`${baseBase}/`);
+}
+
+function getPatternOptions(pageUrl, baseUrl) {
+  if (!pageUrl || !baseUrl) {
+    return [];
+  }
+  let pageParsed = null;
+  let baseParsed = null;
+  try {
+    pageParsed = new URL(pageUrl);
+    baseParsed = new URL(baseUrl);
+  } catch (error) {
+    return [];
+  }
+  if (pageParsed.origin !== baseParsed.origin) {
+    return [];
+  }
+  const pageSegments = getPathSegments(pageParsed.pathname);
+  const baseSegments = getPathSegments(baseParsed.pathname);
+  for (let i = 0; i < baseSegments.length; i += 1) {
+    if (pageSegments[i] !== baseSegments[i]) {
+      return [];
+    }
+  }
+  const options = [];
+  const origin = baseParsed.origin;
+  const baseCount = baseSegments.length;
+  for (let i = baseCount; i <= pageSegments.length; i += 1) {
+    const segments = pageSegments.slice(0, i);
+    const path = segments.length ? `/${segments.join("/")}` : "/";
+    const value = normalizePatternValue(`${origin}${path}`);
+    if (!value || options.some((option) => option.value === value)) {
+      continue;
+    }
+    const label =
+      i === baseCount
+        ? `Base URL (${value})`
+        : i === pageSegments.length
+          ? `Only this page (${value})`
+          : `Section (${value})`;
+    options.push({ value, label });
+  }
+  return options;
+}
+
+function addPatternToConfig(config, pattern) {
+  if (!config) {
+    return;
+  }
+  const normalized = normalizePatternValue(pattern);
+  if (!normalized) {
+    return;
+  }
+  if (!Array.isArray(config.pageUrlPatterns)) {
+    config.pageUrlPatterns = [];
+  }
+  if (!config.pageUrlPatterns.includes(normalized)) {
+    config.pageUrlPatterns.push(normalized);
+  }
+}
+
 function normalizeConfig(baseUrl, incoming) {
   let changed = false;
   const defaultConfig = createDefaultConfig(baseUrl);
@@ -211,6 +354,11 @@ function normalizeConfig(baseUrl, incoming) {
       changed = true;
     }
   } else if (incoming.pageMarkings !== undefined) {
+    changed = true;
+  }
+  const patternResult = normalizeUrlPatterns(incoming.pageUrlPatterns);
+  normalized.pageUrlPatterns = patternResult.normalized;
+  if (patternResult.changed) {
     changed = true;
   }
   if (Array.isArray(incoming.latestComputedSelectors)) {
@@ -552,6 +700,28 @@ function renderMarkedPages(listEl, items, emptyText, currentPageUrl, onNavigate)
   });
 }
 
+function renderPatternSelect(selectEl, options, selectedValue) {
+  if (!selectEl) {
+    return;
+  }
+  selectEl.textContent = "";
+  if (!options.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No patterns available";
+    selectEl.appendChild(option);
+    selectEl.value = "";
+    return;
+  }
+  options.forEach((optionItem) => {
+    const option = document.createElement("option");
+    option.value = optionItem.value;
+    option.textContent = optionItem.label;
+    selectEl.appendChild(option);
+  });
+  selectEl.value = selectedValue || options[0].value;
+}
+
 function arraysEqual(left, right) {
   if (left === right) {
     return true;
@@ -640,12 +810,39 @@ async function refreshUi() {
   } else {
     ui.baseUrlNotice.style.display = "none";
   }
+  if (baseUrlReady && currentConfig && pageUrl) {
+    const basePattern = normalizePatternValue(currentBaseUrl);
+    const pagePattern = normalizePatternValue(pageUrl);
+    const matchingPattern = findBestMatchingPattern(
+      pageUrl,
+      currentConfig.pageUrlPatterns || []
+    );
+    if (basePattern && pagePattern && basePattern === pagePattern && !matchingPattern) {
+      currentConfig = await updateConfig(currentBaseUrl, (config) => {
+        addPatternToConfig(config, basePattern);
+      });
+      configs[currentBaseUrl] = currentConfig;
+      await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+    }
+  }
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
+  const pagePatternOptions = baseUrlReady
+    ? getPatternOptions(pageUrl, currentBaseUrl)
+    : [];
+  const matchingPattern = currentConfig
+    ? findBestMatchingPattern(pageUrl, currentConfig.pageUrlPatterns || [])
+    : "";
+  const pagePatternReady = Boolean(matchingPattern);
+  if (ui.toggleEnabled.checked && !pagePatternReady && currentTab && currentTab.id) {
+    ui.toggleEnabled.checked = false;
+    await setTabState(currentTab.id, { enabled: false, baseUrl: currentBaseUrl });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  }
   const storedDeviceState = await getDeviceEmulationState(currentTab.id);
   updateDeviceEmulationUi(storedDeviceState);
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
@@ -706,7 +903,7 @@ async function refreshUi() {
       currentDraftHasEntry = Boolean(currentDraftEntry);
     }
   }
-  ui.toggleEnabled.disabled = !baseUrlReady;
+  ui.toggleEnabled.disabled = !baseUrlReady || !pagePatternReady;
   ui.computeButton.disabled = aiBusy || !aiReady;
   ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
   ui.previewLatestButton.disabled = aiBusy || !baseUrlReady || !hasStoredSelectors;
@@ -737,6 +934,30 @@ async function refreshUi() {
     aiRequestInFlight === "save"
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
+  if (ui.pagePatternSelect && ui.pagePatternSet && ui.pagePatternNotice) {
+    const patternUiDisabled =
+      !baseUrlReady || !pageUrl || !isPageWithinBase(pageUrl, currentBaseUrl);
+    renderPatternSelect(
+      ui.pagePatternSelect,
+      pagePatternOptions,
+      matchingPattern || ""
+    );
+    ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
+    ui.pagePatternSet.disabled = patternUiDisabled || !pagePatternOptions.length;
+    if (!baseUrlReady) {
+      ui.pagePatternNotice.textContent = "Set Base Page URL first";
+      ui.pagePatternNotice.style.display = "block";
+    } else if (!pageUrl || !isPageWithinBase(pageUrl, currentBaseUrl)) {
+      ui.pagePatternNotice.textContent = "Current page is outside the Base Page URL";
+      ui.pagePatternNotice.style.display = "block";
+    } else if (!pagePatternReady) {
+      ui.pagePatternNotice.textContent =
+        "Choose a URL pattern before enabling";
+      ui.pagePatternNotice.style.display = "block";
+    } else {
+      ui.pagePatternNotice.style.display = "none";
+    }
+  }
   if (ui.pageSave && ui.pageRevert) {
     const draftButtonsDisabled =
       !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftDirty;
@@ -950,6 +1171,17 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
+    currentConfig = await ensureConfig(baseUrlValue);
+    const matchingPattern = findBestMatchingPattern(
+      currentTab.url,
+      currentConfig.pageUrlPatterns || []
+    );
+    if (!matchingPattern) {
+      showToast("Choose a URL pattern before enabling");
+      ui.toggleEnabled.checked = false;
+      await refreshUi();
+      return;
+    }
     // Inject content script first
     const injectResult = await injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -958,7 +1190,6 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
-    await ensureConfig(baseUrlValue);
     await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
@@ -1512,17 +1743,58 @@ async function handleBaseUrlSet() {
     showToast(injectResult.error || "Unable to activate on this page");
     return;
   }
-  await ensureConfig(baseUrlValue);
-  await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
   currentBaseUrl = baseUrlValue;
   currentConfig = await ensureConfig(baseUrlValue);
+  const basePattern = normalizePatternValue(baseUrlValue);
+  const pagePattern = normalizePatternValue(currentTab.url);
+  if (basePattern && pagePattern && basePattern === pagePattern) {
+    currentConfig = await updateConfig(baseUrlValue, (config) => {
+      addPatternToConfig(config, basePattern);
+    });
+  }
+  const matchingPattern = findBestMatchingPattern(
+    currentTab.url,
+    currentConfig.pageUrlPatterns || []
+  );
   baseUrlEditMode = false;
-  await sendTabMessageWithRetry({
-    type: "setEnabled",
-    enabled: true,
-    baseUrl: baseUrlValue
+  if (matchingPattern) {
+    await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await sendTabMessageWithRetry({
+      type: "setEnabled",
+      enabled: true,
+      baseUrl: baseUrlValue
+    });
+    await sendTabMessageWithRetry({ type: "forceRefresh" });
+  } else {
+    await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  }
+  await refreshUi();
+}
+
+async function handlePagePatternSet() {
+  await loadActiveTab();
+  if (!currentTab || !currentTab.url) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const selected = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+  if (!selected) {
+    showToast("Choose a URL pattern");
+    return;
+  }
+  if (!isPageWithinBase(selected, currentBaseUrl)) {
+    showToast("Pattern must be within the Base Page URL");
+    return;
+  }
+  currentConfig = await updateConfig(currentBaseUrl, (config) => {
+    addPatternToConfig(config, selected);
   });
-  await sendTabMessageWithRetry({ type: "forceRefresh" });
+  await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+  showToast("Pattern saved");
   await refreshUi();
 }
 
@@ -1549,16 +1821,29 @@ async function handleBaseUrlEditToggle() {
       await refreshUi();
       return;
     }
-    await setTabState(currentTab.id, {
-      enabled: true,
-      baseUrl: currentBaseUrl
-    });
-    await sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl: currentBaseUrl
-    });
-    await sendTabMessageWithRetry({ type: "forceRefresh" });
+    currentConfig = await ensureConfig(currentBaseUrl);
+    const matchingPattern = findBestMatchingPattern(
+      currentTab.url,
+      currentConfig.pageUrlPatterns || []
+    );
+    if (matchingPattern) {
+      await setTabState(currentTab.id, {
+        enabled: true,
+        baseUrl: currentBaseUrl
+      });
+      await sendTabMessageWithRetry({
+        type: "setEnabled",
+        enabled: true,
+        baseUrl: currentBaseUrl
+      });
+      await sendTabMessageWithRetry({ type: "forceRefresh" });
+    } else {
+      await setTabState(currentTab.id, {
+        enabled: false,
+        baseUrl: currentBaseUrl
+      });
+      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    }
   }
   await refreshUi();
 }
@@ -1937,6 +2222,9 @@ async function init() {
   ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
   ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
+  if (ui.pagePatternSet) {
+    ui.pagePatternSet.addEventListener("click", handlePagePatternSet);
+  }
   if (ui.pageSave) {
     ui.pageSave.addEventListener("click", handlePageSave);
   }
