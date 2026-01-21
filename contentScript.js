@@ -66,9 +66,6 @@
     renderTimer: 0,
     scrollHideTimer: 0,
     isScrolling: false,
-    saveTimer: 0,
-    saveInFlight: false,
-    saveAgain: false,
     snapshotTimer: 0,
     urlCheckTimer: 0,
     mutationObserver: null,
@@ -255,6 +252,18 @@
     return !areEntriesEquivalent(draft, saved);
   }
 
+  function notifyDraftStatus(pageUrl) {
+    if (!state.enabled || !state.baseUrl || !state.config) {
+      return;
+    }
+    chrome.runtime.sendMessage({
+      type: "pageDraftChanged",
+      baseUrl: state.baseUrl,
+      pageUrl: pageUrl || location.href,
+      dirty: isPageDraftDirty(pageUrl || location.href)
+    });
+  }
+
   async function loadConfig(baseUrl) {
     const result = await storageGet("configs");
     const configs = result.configs || {};
@@ -328,6 +337,20 @@
       config.pageMarkings = {};
     }
     config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
+  }
+
+  function removePageEntry(config, pageUrl) {
+    if (!config || !pageUrl) {
+      return false;
+    }
+    if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+      return false;
+    }
+    if (!config.pageMarkings[pageUrl]) {
+      return false;
+    }
+    delete config.pageMarkings[pageUrl];
+    return true;
   }
 
   function isClippedByOverflow(el) {
@@ -1278,34 +1301,6 @@
     config.pageMarkings[pageUrl] = entry;
   }
 
-  function queueConfigSave() {
-    if (!state.baseUrl || !state.config) {
-      return;
-    }
-    if (state.saveTimer) {
-      return;
-    }
-    state.saveTimer = window.setTimeout(async () => {
-      state.saveTimer = 0;
-      if (state.saveInFlight) {
-        state.saveAgain = true;
-        return;
-      }
-      state.saveInFlight = true;
-      state.saveAgain = false;
-      try {
-        if (state.baseUrl && state.config) {
-          await saveConfig(state.baseUrl, state.config);
-        }
-      } finally {
-        state.saveInFlight = false;
-      }
-      if (state.saveAgain) {
-        queueConfigSave();
-      }
-    }, 120);
-  }
-
   function scheduleSnapshotSave() {
     if (!state.baseUrl || !state.config) {
       return;
@@ -1520,6 +1515,7 @@
     state.config = config;
     scheduleRender();
     scheduleSnapshotSave();
+    notifyDraftStatus(location.href);
   }
 
   function handleToggleEvent(event) {
@@ -1565,6 +1561,17 @@
     if (event.key === "Alt") {
       setAltPassThrough(false);
     }
+  }
+
+  function handleBeforeUnload(event) {
+    if (!state.enabled) {
+      return;
+    }
+    if (!isPageDraftDirty(location.href)) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
   }
 
   function handleScroll() {
@@ -1930,16 +1937,10 @@
       window.clearTimeout(state.scrollHideTimer);
       state.scrollHideTimer = 0;
     }
-    if (state.saveTimer) {
-      window.clearTimeout(state.saveTimer);
-      state.saveTimer = 0;
-    }
     if (state.snapshotTimer) {
       window.clearTimeout(state.snapshotTimer);
       state.snapshotTimer = 0;
     }
-    state.saveInFlight = false;
-    state.saveAgain = false;
     state.isScrolling = false;
     state.savedPageEntry = null;
     state.savedPageUrl = "";
@@ -2232,6 +2233,7 @@
           state.config = config;
           scheduleRender();
           scheduleSnapshotSave();
+          notifyDraftStatus(location.href);
         }
         sendResponse({ ok: true });
       });
@@ -2341,6 +2343,7 @@
       state.config.pageMarkings[location.href] = entry;
       scheduleRender();
       scheduleSnapshotSave();
+      notifyDraftStatus(location.href);
       sendResponse({ ok: true, dirty: isPageDraftDirty(location.href) });
       return;
     }
@@ -2369,6 +2372,7 @@
         await saveConfig(targetBaseUrl, state.config);
         setSavedPageEntry(pageUrl, entry);
         scheduleRender();
+        notifyDraftStatus(pageUrl);
         sendResponse({ ok: true, saved: true, dirty: false });
       })();
       return true;
@@ -2398,11 +2402,32 @@
         state.baseUrl = targetBaseUrl;
         state.config = config;
         scheduleRender();
+        notifyDraftStatus(pageUrl);
         sendResponse({
           ok: true,
           dirty: isPageDraftDirty(pageUrl),
           entry: storedEntry ? clonePageEntry(storedEntry) : null
         });
+      })();
+      return true;
+    }
+
+    if (message.type === "deletePageEntry") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      (async () => {
+        const pageUrl = location.href;
+        removePageEntry(state.config, pageUrl);
+        const storedConfig = await loadConfig(targetBaseUrl);
+        removePageEntry(storedConfig, pageUrl);
+        await saveConfig(targetBaseUrl, storedConfig);
+        setSavedPageEntry(pageUrl, null);
+        scheduleRender();
+        notifyDraftStatus(pageUrl);
+        sendResponse({ ok: true, dirty: isPageDraftDirty(pageUrl) });
       })();
       return true;
     }
@@ -2418,4 +2443,5 @@
 
   window.addEventListener("resize", scheduleRender);
   window.addEventListener("scroll", handleScroll, { passive: true });
+  window.addEventListener("beforeunload", handleBeforeUnload);
 })();

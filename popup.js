@@ -32,6 +32,7 @@ const ui = {
   deviceScaleValue: document.getElementById("device-scale-value"),
   pageSave: document.getElementById("page-save"),
   pageRevert: document.getElementById("page-revert"),
+  pageDelete: document.getElementById("page-delete"),
   pageDraftStatus: document.getElementById("page-draft-status"),
   endpointUrl: document.getElementById("endpoint-url"),
   endpointSet: document.getElementById("endpoint-url-set"),
@@ -75,6 +76,7 @@ let currentDeviceEmulationEnabled = false;
 let currentDraftEntry = null;
 let currentDraftDirty = false;
 let currentDraftAvailable = false;
+let currentDraftHasEntry = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -691,6 +693,7 @@ async function refreshUi() {
   currentDraftEntry = null;
   currentDraftDirty = false;
   currentDraftAvailable = false;
+  currentDraftHasEntry = false;
   if (currentBaseUrl && isEnabled) {
     const draftStatus = await sendTabMessage({
       type: "getPageDraftStatus",
@@ -700,6 +703,7 @@ async function refreshUi() {
       currentDraftEntry = draftStatus.entry || null;
       currentDraftDirty = Boolean(draftStatus.dirty);
       currentDraftAvailable = true;
+      currentDraftHasEntry = Boolean(currentDraftEntry);
     }
   }
   ui.toggleEnabled.disabled = !baseUrlReady;
@@ -738,6 +742,10 @@ async function refreshUi() {
       !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftDirty;
     ui.pageSave.disabled = draftButtonsDisabled;
     ui.pageRevert.disabled = draftButtonsDisabled;
+  }
+  if (ui.pageDelete) {
+    ui.pageDelete.disabled =
+      !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftHasEntry;
   }
   if (ui.pageDraftStatus) {
     if (!baseUrlReady) {
@@ -1651,6 +1659,33 @@ async function handlePageRevert() {
   await refreshUi();
 }
 
+async function handlePageDelete() {
+  await loadActiveTab();
+  if (!currentTab) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const confirmed = window.confirm(
+    "Delete saved data for this page? This cannot be undone."
+  );
+  if (!confirmed) {
+    return;
+  }
+  const response = await sendTabMessage({
+    type: "deletePageEntry",
+    baseUrl: currentBaseUrl
+  });
+  if (!response || !response.ok) {
+    showToast("Unable to delete page data");
+    return;
+  }
+  showToast("Page data deleted");
+  await refreshUi();
+}
+
 async function handleComputeSelectors() {
   if (aiRequestInFlight) {
     return;
@@ -1908,6 +1943,9 @@ async function init() {
   if (ui.pageRevert) {
     ui.pageRevert.addEventListener("click", handlePageRevert);
   }
+  if (ui.pageDelete) {
+    ui.pageDelete.addEventListener("click", handlePageDelete);
+  }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);
   ui.tokenAction.addEventListener("click", handleTokenBlur);
@@ -1948,6 +1986,15 @@ async function init() {
         (changes[`tabState:${currentTab.id}`] ||
           changes[`${DEVICE_MODE_PREFIX}${currentTab.id}`]))
     ) {
+      scheduleRefresh();
+    }
+  });
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== "pageDraftChanged") {
+      return;
+    }
+    if (currentBaseUrl && message.baseUrl === currentBaseUrl) {
       scheduleRefresh();
     }
   });

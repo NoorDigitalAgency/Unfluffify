@@ -179,6 +179,16 @@ button.button-secondary:hover {
   background: #efe3d4;
 }
 
+button.button-danger {
+  border-color: rgba(177, 48, 48, 0.6);
+  background: #ffe9e9;
+  color: #8d1d1d;
+}
+
+button.button-danger:hover {
+  background: #ffd4d4;
+}
+
 .row {
   display: flex;
   align-items: center;
