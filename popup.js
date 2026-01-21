@@ -30,6 +30,9 @@ const ui = {
   deviceModeMobile: document.getElementById("device-mode-mobile"),
   deviceScale: document.getElementById("device-scale"),
   deviceScaleValue: document.getElementById("device-scale-value"),
+  pageSave: document.getElementById("page-save"),
+  pageRevert: document.getElementById("page-revert"),
+  pageDraftStatus: document.getElementById("page-draft-status"),
   endpointUrl: document.getElementById("endpoint-url"),
   endpointSet: document.getElementById("endpoint-url-set"),
   endpointEdit: document.getElementById("endpoint-url-edit"),
@@ -69,6 +72,9 @@ let configMenuOpen = false;
 let currentDeviceMode = "desktop";
 let currentDeviceScale = DEVICE_SCALE_DEFAULTS.desktop;
 let currentDeviceEmulationEnabled = false;
+let currentDraftEntry = null;
+let currentDraftDirty = false;
+let currentDraftAvailable = false;
 
 function showToast(message) {
   ui.toast.textContent = message;
@@ -682,6 +688,20 @@ async function refreshUi() {
   const hasStoredSelectors = latestComputed.length > 0;
 
   const isEnabled = ui.toggleEnabled.checked;
+  currentDraftEntry = null;
+  currentDraftDirty = false;
+  currentDraftAvailable = false;
+  if (currentBaseUrl && isEnabled) {
+    const draftStatus = await sendTabMessage({
+      type: "getPageDraftStatus",
+      baseUrl: currentBaseUrl
+    });
+    if (draftStatus && draftStatus.ok) {
+      currentDraftEntry = draftStatus.entry || null;
+      currentDraftDirty = Boolean(draftStatus.dirty);
+      currentDraftAvailable = true;
+    }
+  }
   ui.toggleEnabled.disabled = !baseUrlReady;
   ui.computeButton.disabled = aiBusy || !aiReady;
   ui.saveExcludesButton.disabled = aiBusy || !aiReady || !hasNewSelectors;
@@ -713,6 +733,25 @@ async function refreshUi() {
     aiRequestInFlight === "save"
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
+  if (ui.pageSave && ui.pageRevert) {
+    const draftButtonsDisabled =
+      !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftDirty;
+    ui.pageSave.disabled = draftButtonsDisabled;
+    ui.pageRevert.disabled = draftButtonsDisabled;
+  }
+  if (ui.pageDraftStatus) {
+    if (!baseUrlReady) {
+      ui.pageDraftStatus.textContent = "Set Base Page URL first";
+    } else if (!isEnabled) {
+      ui.pageDraftStatus.textContent = "Enable marking to edit this page";
+    } else if (!currentDraftAvailable) {
+      ui.pageDraftStatus.textContent = "Draft unavailable";
+    } else if (currentDraftDirty) {
+      ui.pageDraftStatus.textContent = "Unsaved changes";
+    } else {
+      ui.pageDraftStatus.textContent = "All changes saved";
+    }
+  }
 
   let headingDefaults = [];
   let headingXPathSet = new Set();
@@ -730,9 +769,10 @@ async function refreshUi() {
   }
 
   const pageEntry =
-    currentConfig &&
-    currentConfig.pageMarkings &&
-    currentConfig.pageMarkings[pageUrl];
+    currentDraftEntry ||
+    (currentConfig &&
+      currentConfig.pageMarkings &&
+      currentConfig.pageMarkings[pageUrl]);
   const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
   const excludedXPaths = explicitExclude
     .filter(
@@ -776,26 +816,16 @@ async function refreshUi() {
         return;
       }
       await clearFocusedElement();
-      currentConfig = await updateConfig(currentBaseUrl, (config) => {
-        if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
-          return;
-        }
-        const entry = config.pageMarkings[pageUrl];
-        if (!entry || !Array.isArray(entry.xpaths)) {
-          return;
-        }
-        entry.xpaths = entry.xpaths.map((item) => {
-          if (!item || item.xpath !== value) {
-            return item;
-          }
-          return { ...item, excluded: false };
-        });
+      const response = await sendTabMessage({
+        type: "setExplicitExclude",
+        baseUrl: currentBaseUrl,
+        xpath: value,
+        excluded: false
       });
-      await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
-      await sendTabMessage({
-        type: "capturePageSnapshot",
-        baseUrl: currentBaseUrl
-      });
+      if (!response || !response.ok) {
+        showToast("Unable to update exclude");
+        return;
+      }
       refreshUi();
     }
   );
@@ -833,7 +863,11 @@ async function refreshUi() {
 
   const markedPages = [];
   const pageMarkings = (currentConfig && currentConfig.pageMarkings) || {};
-  Object.entries(pageMarkings).forEach(([url, entry]) => {
+  const mergedPageMarkings = { ...pageMarkings };
+  if (currentDraftEntry && pageUrl) {
+    mergedPageMarkings[pageUrl] = currentDraftEntry;
+  }
+  Object.entries(mergedPageMarkings).forEach(([url, entry]) => {
     if (!url || !entry || !Array.isArray(entry.xpaths)) {
       return;
     }
@@ -924,11 +958,6 @@ async function handleEnableToggle() {
       baseUrl: baseUrlValue
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
-    // Capture the initial page snapshot
-    await sendTabMessageWithRetry({
-      type: "capturePageSnapshot",
-      baseUrl: baseUrlValue
-    });
   } else {
     await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
@@ -1486,11 +1515,6 @@ async function handleBaseUrlSet() {
     baseUrl: baseUrlValue
   });
   await sendTabMessageWithRetry({ type: "forceRefresh" });
-  // Capture the initial page snapshot
-  await sendTabMessageWithRetry({
-    type: "capturePageSnapshot",
-    baseUrl: baseUrlValue
-  });
   await refreshUi();
 }
 
@@ -1579,6 +1603,54 @@ async function handleContextRefresh() {
   await refreshUi();
 }
 
+async function handlePageSave() {
+  await loadActiveTab();
+  if (!currentTab) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const response = await sendTabMessage({
+    type: "savePageDraft",
+    baseUrl: currentBaseUrl
+  });
+  if (!response || !response.ok) {
+    showToast("Unable to save page");
+    return;
+  }
+  showToast(response.saved ? "Page saved" : "No changes to save");
+  await refreshUi();
+}
+
+async function handlePageRevert() {
+  await loadActiveTab();
+  if (!currentTab) {
+    return;
+  }
+  if (!currentBaseUrl) {
+    showToast("Set Base Page URL first");
+    return;
+  }
+  const confirmed = window.confirm(
+    "Revert to the last saved version? Unsaved changes will be lost."
+  );
+  if (!confirmed) {
+    return;
+  }
+  const response = await sendTabMessage({
+    type: "revertPageDraft",
+    baseUrl: currentBaseUrl
+  });
+  if (!response || !response.ok) {
+    showToast("Unable to revert page");
+    return;
+  }
+  showToast("Reverted to last saved");
+  await refreshUi();
+}
+
 async function handleComputeSelectors() {
   if (aiRequestInFlight) {
     return;
@@ -1607,7 +1679,6 @@ async function handleComputeSelectors() {
     return;
   }
 
-  await sendTabMessage({ type: "capturePageSnapshot", baseUrl: currentBaseUrl });
   currentConfig = await ensureConfig(currentBaseUrl);
 
   const pageMarkings = currentConfig.pageMarkings || {};
@@ -1831,6 +1902,12 @@ async function init() {
   ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
   ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
+  if (ui.pageSave) {
+    ui.pageSave.addEventListener("click", handlePageSave);
+  }
+  if (ui.pageRevert) {
+    ui.pageRevert.addEventListener("click", handlePageRevert);
+  }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);
   ui.tokenAction.addEventListener("click", handleTokenBlur);

@@ -71,7 +71,9 @@
     saveAgain: false,
     snapshotTimer: 0,
     urlCheckTimer: 0,
-    mutationObserver: null
+    mutationObserver: null,
+    savedPageEntry: null,
+    savedPageUrl: ""
   };
 
   const storageGet = (keys) =>
@@ -178,6 +180,81 @@
     return { normalized, changed };
   }
 
+  function clonePageEntry(entry) {
+    if (!entry || typeof entry !== "object") {
+      return null;
+    }
+    const xpaths = Array.isArray(entry.xpaths)
+      ? entry.xpaths
+          .map((item) => {
+            if (!item || typeof item.xpath !== "string") {
+              return null;
+            }
+            return { xpath: item.xpath, excluded: Boolean(item.excluded) };
+          })
+          .filter(Boolean)
+      : [];
+    return {
+      url: entry.url || "",
+      title: entry.title || "",
+      xpaths,
+      fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
+    };
+  }
+
+  function getEntryFingerprint(entry) {
+    if (!entry || !Array.isArray(entry.xpaths)) {
+      return [];
+    }
+    return entry.xpaths
+      .filter((item) => item && typeof item.xpath === "string")
+      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`);
+  }
+
+  function areEntriesEquivalent(left, right) {
+    const leftFingerprint = getEntryFingerprint(left);
+    const rightFingerprint = getEntryFingerprint(right);
+    if (leftFingerprint.length !== rightFingerprint.length) {
+      return false;
+    }
+    for (let i = 0; i < leftFingerprint.length; i += 1) {
+      if (leftFingerprint[i] !== rightFingerprint[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function setSavedPageEntry(pageUrl, entry) {
+    state.savedPageUrl = pageUrl || "";
+    state.savedPageEntry = clonePageEntry(entry);
+  }
+
+  function getSavedPageEntry(pageUrl) {
+    if (!pageUrl || state.savedPageUrl !== pageUrl) {
+      return null;
+    }
+    return state.savedPageEntry ? clonePageEntry(state.savedPageEntry) : null;
+  }
+
+  function getDraftPageEntry(pageUrl) {
+    if (
+      !pageUrl ||
+      !state.config ||
+      !state.config.pageMarkings ||
+      typeof state.config.pageMarkings !== "object"
+    ) {
+      return null;
+    }
+    return state.config.pageMarkings[pageUrl] || null;
+  }
+
+  function isPageDraftDirty(pageUrl) {
+    const draft = getDraftPageEntry(pageUrl);
+    const saved = getSavedPageEntry(pageUrl);
+    return !areEntriesEquivalent(draft, saved);
+  }
+
   async function loadConfig(baseUrl) {
     const result = await storageGet("configs");
     const configs = result.configs || {};
@@ -238,6 +315,19 @@
     const configs = result.configs || {};
     configs[baseUrl] = config;
     await storageSet({ configs });
+  }
+
+  function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
+    if (!config || !pageUrl || !draftEntry) {
+      return;
+    }
+    if (areEntriesEquivalent(draftEntry, savedEntry)) {
+      return;
+    }
+    if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+      config.pageMarkings = {};
+    }
+    config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
   }
 
   function isClippedByOverflow(el) {
@@ -1229,7 +1319,6 @@
         return;
       }
       recordPageSnapshot(state.config, location.href);
-      queueConfigSave();
     }, 220);
   }
 
@@ -1430,7 +1519,6 @@
     config.pageMarkings[location.href] = entry;
     state.config = config;
     scheduleRender();
-    queueConfigSave();
     scheduleSnapshotSave();
   }
 
@@ -1646,9 +1734,6 @@
       allowCreate: hasEntry,
       persist: hasEntry
     });
-    if (syncResult.changed && syncResult.persisted) {
-      queueConfigSave();
-    }
     const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
     const explicitExclude = collectXPathElements(
@@ -1807,6 +1892,19 @@
     state.enabled = true;
     state.baseUrl = baseUrl;
     state.config = await loadConfig(baseUrl);
+    const pageUrl = location.href;
+    const savedEntry =
+      state.config &&
+      state.config.pageMarkings &&
+      state.config.pageMarkings[pageUrl];
+    setSavedPageEntry(pageUrl, savedEntry || null);
+    if (savedEntry) {
+      const immutableExcluded = collectImmutableElements();
+      syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+        allowCreate: true,
+        persist: true
+      });
+    }
     const removedElements = removeConsentElements();
     if(removedElements.length > 0) restorePageScrolling();
     createOverlay();
@@ -1843,6 +1941,8 @@
     state.saveInFlight = false;
     state.saveAgain = false;
     state.isScrolling = false;
+    state.savedPageEntry = null;
+    state.savedPageUrl = "";
     removeOverlay();
     closeAiPopover();
     const popoverStyle = document.getElementById("markcontit-ai-popover-style");
@@ -1946,7 +2046,26 @@
       // Only enable if we're already enabled (not a fresh page load after navigation)
       // and the URL still matches the baseUrl
       if (state.enabled && location.href.startsWith(response.baseUrl)) {
-        enableForBaseUrl(response.baseUrl);
+        const pageUrl = location.href;
+        const draftEntry = getDraftPageEntry(pageUrl);
+        const savedEntry = getSavedPageEntry(pageUrl);
+        const config = await loadConfig(response.baseUrl);
+        const storedEntry =
+          config.pageMarkings && config.pageMarkings[pageUrl]
+            ? config.pageMarkings[pageUrl]
+            : null;
+        mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
+        state.baseUrl = response.baseUrl;
+        state.config = config;
+        setSavedPageEntry(pageUrl, storedEntry);
+        if (storedEntry) {
+          const immutableExcluded = collectImmutableElements();
+          syncPageMarkings(config, pageUrl, immutableExcluded, {
+            allowCreate: true,
+            persist: true
+          });
+        }
+        scheduleRender();
         const removedElements = removeConsentElements();
         if(removedElements.length > 0) restorePageScrolling();
         return;
@@ -1972,7 +2091,11 @@
 
     if (message.type === "configUpdated") {
       if (state.enabled && message.baseUrl === state.baseUrl) {
+        const pageUrl = location.href;
+        const draftEntry = getDraftPageEntry(pageUrl);
+        const savedEntry = getSavedPageEntry(pageUrl);
         loadConfig(state.baseUrl).then((config) => {
+          mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
           state.config = config;
           scheduleRender();
         });
@@ -2015,16 +2138,18 @@
 
     if (message.type === "getHeadingDefaultStatus") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      loadConfig(targetBaseUrl).then((config) => {
+      const useStateConfig =
+        state.baseUrl === targetBaseUrl && state.config;
+      const loadPromise = useStateConfig
+        ? Promise.resolve(state.config)
+        : loadConfig(targetBaseUrl);
+      loadPromise.then((config) => {
         const immutableExcluded = collectImmutableElements();
         const hasEntry = hasPageMarkingEntry(config, location.href);
         const syncResult = syncPageMarkings(config, location.href, immutableExcluded, {
           allowCreate: hasEntry,
-          persist: hasEntry
+          persist: useStateConfig && hasEntry
         });
-        if (syncResult.changed && syncResult.persisted) {
-          saveConfig(targetBaseUrl, config);
-        }
         sendResponse({ items: collectHeadingDefaultStatus(config, syncResult.entry) });
       });
       return true;
@@ -2081,7 +2206,12 @@
         sendResponse({ ok: false });
         return;
       }
-      loadConfig(targetBaseUrl).then(async (config) => {
+      const useStateConfig =
+        state.baseUrl === targetBaseUrl && state.config;
+      const loadPromise = useStateConfig
+        ? Promise.resolve(state.config)
+        : loadConfig(targetBaseUrl);
+      loadPromise.then((config) => {
         const target = getElementFromXPath(xpath);
         if (!target || !isMarkableElement(target, config) || !isHeadingElement(target)) {
           sendResponse({ ok: false });
@@ -2098,11 +2228,10 @@
         }
         entry.xpaths = items;
         config.pageMarkings[location.href] = entry;
-        recordPageSnapshot(config, location.href);
-        await saveConfig(targetBaseUrl, config);
-        if (state.baseUrl === targetBaseUrl) {
+        if (useStateConfig) {
           state.config = config;
           scheduleRender();
+          scheduleSnapshotSave();
         }
         sendResponse({ ok: true });
       });
@@ -2115,6 +2244,7 @@
         sendResponse({ ok: false });
         return;
       }
+      const shouldPersist = Boolean(message.persist);
 
       (async () => {
         let config;
@@ -2126,24 +2256,154 @@
           config = await loadConfig(targetBaseUrl);
         }
 
+        const allowCreate = shouldPersist;
+        const hasEntry = hasPageMarkingEntry(config, location.href);
+        if (!allowCreate && !hasEntry) {
+          sendResponse({ ok: false });
+          return;
+        }
+
         // Ensure page entry is synced first, then capture HTML
         const immutableExcluded = collectImmutableElements();
-        syncPageMarkings(config, location.href, immutableExcluded);
+        const syncResult = syncPageMarkings(config, location.href, immutableExcluded, {
+          allowCreate,
+          persist: allowCreate || hasEntry
+        });
 
         // Now capture the full HTML (after consent elements are removed)
-        const entry = getPageMarkingEntry(config, location.href);
+        const entry = syncResult.entry || getPageMarkingEntry(config, location.href);
         entry.fullHTML = document.documentElement.outerHTML;
         entry.title = document.title || location.href;
         config.pageMarkings[location.href] = entry;
 
-        await saveConfig(targetBaseUrl, config);
+        if (shouldPersist) {
+          await saveConfig(targetBaseUrl, config);
+        }
 
         if (state.baseUrl === targetBaseUrl) {
           state.config = config;
+          if (shouldPersist) {
+            setSavedPageEntry(location.href, entry);
+          }
         }
         sendResponse({ ok: true });
       })();
 
+      return true;
+    }
+
+    if (message.type === "getPageDraftStatus") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const pageUrl = location.href;
+      const hasEntry = hasPageMarkingEntry(state.config, pageUrl);
+      const immutableExcluded = collectImmutableElements();
+      const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+        allowCreate: hasEntry,
+        persist: hasEntry
+      });
+      const entry = hasEntry ? syncResult.entry : null;
+      const savedEntry = getSavedPageEntry(pageUrl);
+      sendResponse({
+        ok: true,
+        entry: entry ? clonePageEntry(entry) : null,
+        savedEntry,
+        dirty: !areEntriesEquivalent(entry, savedEntry)
+      });
+      return;
+    }
+
+    if (message.type === "setExplicitExclude") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const xpath = message.xpath || "";
+      if (!xpath) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const excluded = Boolean(message.excluded);
+      const entry = getPageMarkingEntry(state.config, location.href);
+      const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+      let targetItem = items.find((item) => item && item.xpath === xpath);
+      if (!targetItem) {
+        targetItem = { xpath, excluded };
+        items.push(targetItem);
+      } else {
+        targetItem.excluded = excluded;
+      }
+      entry.xpaths = items;
+      state.config.pageMarkings[location.href] = entry;
+      scheduleRender();
+      scheduleSnapshotSave();
+      sendResponse({ ok: true, dirty: isPageDraftDirty(location.href) });
+      return;
+    }
+
+    if (message.type === "savePageDraft") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      (async () => {
+        const pageUrl = location.href;
+        if (!isPageDraftDirty(pageUrl)) {
+          sendResponse({ ok: true, saved: false, dirty: false });
+          return;
+        }
+        const immutableExcluded = collectImmutableElements();
+        syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+          allowCreate: true,
+          persist: true
+        });
+        const entry = getPageMarkingEntry(state.config, pageUrl);
+        entry.fullHTML = document.documentElement.outerHTML;
+        entry.title = document.title || pageUrl;
+        state.config.pageMarkings[pageUrl] = entry;
+        await saveConfig(targetBaseUrl, state.config);
+        setSavedPageEntry(pageUrl, entry);
+        scheduleRender();
+        sendResponse({ ok: true, saved: true, dirty: false });
+      })();
+      return true;
+    }
+
+    if (message.type === "revertPageDraft") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      (async () => {
+        const pageUrl = location.href;
+        const config = await loadConfig(targetBaseUrl);
+        const storedEntry =
+          config.pageMarkings && config.pageMarkings[pageUrl]
+            ? config.pageMarkings[pageUrl]
+            : null;
+        setSavedPageEntry(pageUrl, storedEntry);
+        if (storedEntry) {
+          const immutableExcluded = collectImmutableElements();
+          syncPageMarkings(config, pageUrl, immutableExcluded, {
+            allowCreate: true,
+            persist: true
+          });
+        }
+        state.baseUrl = targetBaseUrl;
+        state.config = config;
+        scheduleRender();
+        sendResponse({
+          ok: true,
+          dirty: isPageDraftDirty(pageUrl),
+          entry: storedEntry ? clonePageEntry(storedEntry) : null
+        });
+      })();
       return true;
     }
 

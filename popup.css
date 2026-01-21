@@ -163,6 +163,22 @@ body.is-busy {
   grid-auto-columns: 1fr;
 }
 
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+button.button-secondary {
+  border-color: var(--line);
+  background: #f6efe6;
+  color: var(--ink);
+}
+
+button.button-secondary:hover {
+  background: #efe3d4;
+}
+
 .row {
   display: flex;
   align-items: center;
