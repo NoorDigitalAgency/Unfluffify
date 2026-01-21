@@ -146,6 +146,15 @@
             ? entry.pattern
             : "";
       const pagePattern = normalizePatternValue(rawPattern);
+      let resolvedPattern = pagePattern;
+      if (!resolvedPattern) {
+        const fallbackUrl = typeof entry.url === "string" ? entry.url : url;
+        const fallbackPattern = normalizePatternValue(fallbackUrl);
+        if (fallbackPattern) {
+          resolvedPattern = fallbackPattern;
+          changed = true;
+        }
+      }
       if (entry.pattern) {
         changed = true;
       }
@@ -167,7 +176,7 @@
         url: entry.url || url,
         title: entry.title || url,
         xpaths,
-        pagePattern,
+        pagePattern: resolvedPattern,
         fullHTML
       };
     });

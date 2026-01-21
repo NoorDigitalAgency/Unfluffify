@@ -193,6 +193,15 @@ function normalizePageMarkings(pageMarkings) {
           ? entry.pattern
           : "";
     const pagePattern = normalizePatternValue(rawPattern);
+    let resolvedPattern = pagePattern;
+    if (!resolvedPattern) {
+      const fallbackUrl = typeof entry.url === "string" ? entry.url : url;
+      const fallbackPattern = normalizePatternValue(fallbackUrl);
+      if (fallbackPattern) {
+        resolvedPattern = fallbackPattern;
+        changed = true;
+      }
+    }
     if (rawPattern && rawPattern !== pagePattern) {
       changed = true;
     }
@@ -214,7 +223,7 @@ function normalizePageMarkings(pageMarkings) {
       url: entry.url || url,
       title: entry.title || url,
       xpaths,
-      pagePattern,
+      pagePattern: resolvedPattern,
       fullHTML
     };
   });
@@ -1839,13 +1848,14 @@ async function handlePagePatternSet() {
     showToast(injectResult.error || "Unable to reach the page");
     return;
   }
-  const response = await sendTabMessage({
+  const response = await sendTabMessageWithRetry({
     type: "setPagePatternDraft",
     baseUrl: currentBaseUrl,
     pagePattern: selected
   });
   if (!response || !response.ok) {
     showToast("Unable to set pattern");
+    await refreshUi();
     return;
   }
   showToast("Pattern saved in draft");
@@ -2337,7 +2347,8 @@ async function init() {
       (areaName === "session" &&
         currentTab &&
         (changes[`tabState:${currentTab.id}`] ||
-          changes[`${DEVICE_MODE_PREFIX}${currentTab.id}`]))
+          changes[`${DEVICE_MODE_PREFIX}${currentTab.id}`] ||
+          changes[`${PAGE_PATTERN_DRAFT_PREFIX}${currentTab.id}`]))
     ) {
       scheduleRefresh();
     }
