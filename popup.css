@@ -189,6 +189,10 @@ button.button-danger:hover {
   background: #ffd4d4;
 }
 
+button.button-small {
+  padding: 5px 6px;
+}
+
 .row {
   display: flex;
   align-items: center;
