@@ -1,821 +1,77 @@
-const storageGet = (area, keys) =>
-  new Promise((resolve) => area.get(keys, resolve));
-const storageSet = (area, items) =>
-  new Promise((resolve) => area.set(items, resolve));
-const tabsQuery = (query) =>
-  new Promise((resolve) => chrome.tabs.query(query, resolve));
-
-const ui = {
-  toggleEnabled: document.getElementById("toggle-enabled"),
-  currentPageUrl: document.getElementById("current-page-url"),
-  baseUrlInput: document.getElementById("base-url"),
-  refreshContext: document.getElementById("refresh-context"),
-  baseUrlSet: document.getElementById("base-url-set"),
-  baseUrlEdit: document.getElementById("base-url-edit"),
-  baseUrlNotice: document.getElementById("base-url-notice"),
-  pagePatternSelect: document.getElementById("page-pattern"),
-  pagePatternSet: document.getElementById("page-pattern-set"),
-  pagePatternNotice: document.getElementById("page-pattern-notice"),
-  mainUi: document.getElementById("main-ui"),
-  markedPages: document.getElementById("marked-pages"),
-  configToggle: document.getElementById("config-toggle"),
-  configMenu: document.getElementById("config-menu"),
-  configExportAll: document.getElementById("config-export-all"),
-  configExportCurrent: document.getElementById("config-export-current"),
-  configImport: document.getElementById("config-import"),
-  configClearCurrent: document.getElementById("config-clear-current"),
-  configClearAll: document.getElementById("config-clear-all"),
-  clearDomainCache: document.getElementById("clear-domain-cache"),
-  configImportFile: document.getElementById("config-import-file"),
-  uiCurtain: document.getElementById("ui-curtain"),
-  deviceEmulationEnabled: document.getElementById("device-emulation-enabled"),
-  deviceModeDesktop: document.getElementById("device-mode-desktop"),
-  deviceModeMobile: document.getElementById("device-mode-mobile"),
-  deviceScale: document.getElementById("device-scale"),
-  deviceScaleValue: document.getElementById("device-scale-value"),
-  pageSave: document.getElementById("page-save"),
-  pageRevert: document.getElementById("page-revert"),
-  pageDelete: document.getElementById("page-delete"),
-  pageDraftStatus: document.getElementById("page-draft-status"),
-  endpointUrl: document.getElementById("endpoint-url"),
-  endpointSet: document.getElementById("endpoint-url-set"),
-  endpointEdit: document.getElementById("endpoint-url-edit"),
-  endpointNotice: document.getElementById("endpoint-notice"),
-  aiControls: document.getElementById("ai-controls"),
-  aiDirtyNotice: document.getElementById("ai-dirty-notice"),
-  aiToken: document.getElementById("ai-token"),
-  tokenStatus: document.getElementById("token-status"),
-  tokenAction: document.getElementById("token-action"),
-  computeButton: document.getElementById("compute"),
-  saveExcludesButton: document.getElementById("save-excludes"),
-  previewLatestButton: document.getElementById("preview-latest"),
-  explicitExcludes: document.getElementById("explicit-excludes"),
-  headingDefaults: document.getElementById("heading-defaults"),
-  toast: document.getElementById("toast")
-};
-
-const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
-const DEVICE_MODE_PREFIX = "deviceEmulation:";
-const PAGE_PATTERN_DRAFT_PREFIX = "pagePatternDraft:";
-const DEVICE_SCALE_DEFAULTS = {
-  desktop: 0.7,
-  mobile: 0.85
-};
-const DEVICE_SCALE_LIMITS = {
-  min: 0.25,
-  max: 1,
-  step: 0.01
-};
-let currentTab = null;
-let currentBaseUrl = "";
-let currentConfig = null;
-let toastTimer = 0;
-let refreshTimer = 0;
-let baseUrlEditMode = false;
-let endpointEditMode = false;
-let aiRequestInFlight = null;
-let configMenuOpen = false;
-let currentDeviceMode = "desktop";
-let currentDeviceScale = DEVICE_SCALE_DEFAULTS.desktop;
-let currentDeviceEmulationEnabled = false;
-let currentDraftEntry = null;
-let currentDraftDirty = false;
-let currentDraftAvailable = false;
-let currentDraftHasEntry = false;
-
-async function getPagePatternDraft(tabId) {
-  if (!tabId) {
-    return {};
-  }
-  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
-  return result[key] || {};
-}
-
-async function setPagePatternDraft(tabId, pageUrl, pattern) {
-  if (!tabId || !pageUrl) {
-    return;
-  }
-  const normalized = normalizePatternValue(pattern);
-  if (!normalized) {
-    return;
-  }
-  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
-  const current = await getPagePatternDraft(tabId);
-  current[pageUrl] = normalized;
-  await storageSet(chrome.storage.session, { [key]: current });
-}
-
-async function clearPagePatternDraft(tabId, pageUrl) {
-  if (!tabId || !pageUrl) {
-    return;
-  }
-  const key = `${PAGE_PATTERN_DRAFT_PREFIX}${tabId}`;
-  const current = await getPagePatternDraft(tabId);
-  if (!current[pageUrl]) {
-    return;
-  }
-  delete current[pageUrl];
-  await storageSet(chrome.storage.session, { [key]: current });
-}
-
-function showToast(message) {
-  ui.toast.textContent = message;
-  ui.toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    ui.toast.classList.remove("show");
-  }, 1800);
-}
-
-function setUiBusy(isBusy) {
-  if (ui.uiCurtain) {
-    ui.uiCurtain.hidden = !isBusy;
-  }
-  document.body.classList.toggle("is-busy", isBusy);
-}
-
-function setConfigMenuOpen(open) {
-  configMenuOpen = open;
-  if (ui.configMenu) {
-    ui.configMenu.hidden = !open;
-  }
-  if (ui.configToggle) {
-    ui.configToggle.setAttribute("aria-expanded", open ? "true" : "false");
-  }
-}
-
-function createDefaultConfig(baseUrl) {
-  let domain = "";
-  try {
-    domain = new URL(baseUrl).hostname;
-  } catch (error) {
-    domain = "";
-  }
-  return {
-    baseUrl,
-    domain,
-    pageMarkings: {},
-    latestComputedSelectors: [],
-    lastSavedSelectors: [],
-    domainAiSelectorSet: { inclusionSelectors: [] }
-  };
-}
-
-function normalizePageMarkings(pageMarkings) {
-  const normalized = {};
-  let changed = false;
-  if (!pageMarkings || typeof pageMarkings !== "object") {
-    return { normalized, changed };
-  }
-  Object.entries(pageMarkings).forEach(([url, entry]) => {
-    if (!url || !entry || typeof entry !== "object") {
-      changed = true;
-      return;
-    }
-    const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-    const xpaths = rawXpaths
-      .map((item) => {
-        if (typeof item === "string") {
-          changed = true;
-          return { xpath: item, excluded: true };
-        }
-        if (item && typeof item.xpath === "string") {
-          return { xpath: item.xpath, excluded: Boolean(item.excluded) };
-        }
-        changed = true;
-        return null;
-      })
-      .filter(Boolean);
-    const rawPattern =
-      typeof entry.pagePattern === "string"
-        ? entry.pagePattern
-        : typeof entry.pattern === "string"
-          ? entry.pattern
-          : "";
-    const pagePattern = normalizePatternValue(rawPattern);
-    let resolvedPattern = pagePattern;
-    if (!resolvedPattern) {
-      const fallbackUrl = typeof entry.url === "string" ? entry.url : url;
-      const fallbackPattern = normalizePatternValue(fallbackUrl);
-      if (fallbackPattern) {
-        resolvedPattern = fallbackPattern;
-        changed = true;
-      }
-    }
-    if (rawPattern && rawPattern !== pagePattern) {
-      changed = true;
-    }
-    if (entry.pattern) {
-      changed = true;
-    }
-    const fullHTML =
-      typeof entry.fullHTML === "string"
-        ? entry.fullHTML
-        : typeof entry.fullHtml === "string"
-          ? entry.fullHtml
-          : typeof entry.html === "string"
-            ? entry.html
-            : "";
-    if (entry.fullHtml || entry.html) {
-      changed = true;
-    }
-    normalized[url] = {
-      url: entry.url || url,
-      title: entry.title || url,
-      xpaths,
-      pagePattern: resolvedPattern,
-      fullHTML
-    };
-  });
-  return { normalized, changed };
-}
-
-function normalizeAiSelectorSet(value) {
-  const normalized = { inclusionSelectors: [] };
-  let changed = false;
-  if (!value || typeof value !== "object") {
-    return { normalized, changed };
-  }
-  if (Array.isArray(value.inclusionSelectors)) {
-    normalized.inclusionSelectors = value.inclusionSelectors;
-  } else if (Array.isArray(value.exclusionSelectors)) {
-    normalized.inclusionSelectors = value.exclusionSelectors;
-    changed = true;
-  } else {
-    changed = true;
-  }
-  return { normalized, changed };
-}
-
-function normalizePatternValue(value) {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
-  try {
-    const parsed = new URL(value);
-    let pathname = parsed.pathname || "/";
-    if (pathname.length > 1 && pathname.endsWith("/")) {
-      pathname = pathname.slice(0, -1);
-    }
-    const rootPath = pathname === "/" ? "" : pathname;
-    return `${parsed.origin}${rootPath}`;
-  } catch (error) {
-    return "";
-  }
-}
-
-function isPageUrlMatchingPattern(pageUrl, pattern) {
-  const pageBase = normalizePatternValue(pageUrl);
-  const patternBase = normalizePatternValue(pattern);
-  if (!pageBase || !patternBase) {
-    return false;
-  }
-  if (pageBase === patternBase) {
-    return true;
-  }
-  return pageBase.startsWith(`${patternBase}/`);
-}
-
-function findBestMatchingPattern(pageUrl, patterns) {
-  if (!pageUrl || !Array.isArray(patterns)) {
-    return "";
-  }
-  const matches = patterns
-    .map((pattern) => normalizePatternValue(pattern))
-    .filter((pattern) => isPageUrlMatchingPattern(pageUrl, pattern))
-    .sort((left, right) => right.length - left.length);
-  return matches[0] || "";
-}
-
-function getPathSegments(pathname) {
-  if (!pathname) {
-    return [];
-  }
-  return pathname.split("/").filter(Boolean);
-}
-
-function isPageWithinBase(pageUrl, baseUrl) {
-  const pageBase = normalizePatternValue(pageUrl);
-  const baseBase = normalizePatternValue(baseUrl);
-  if (!pageBase || !baseBase) {
-    return false;
-  }
-  if (pageBase === baseBase) {
-    return true;
-  }
-  return pageBase.startsWith(`${baseBase}/`);
-}
-
-function collectPagePatterns(pageMarkings) {
-  const patterns = [];
-  if (!pageMarkings || typeof pageMarkings !== "object") {
-    return patterns;
-  }
-  Object.values(pageMarkings).forEach((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return;
-    }
-    const pattern = normalizePatternValue(entry.pagePattern || "");
-    if (pattern && !patterns.includes(pattern)) {
-      patterns.push(pattern);
-    }
-  });
-  return patterns;
-}
-
-function getPatternOptions(pageUrl, baseUrl) {
-  if (!pageUrl || !baseUrl) {
-    return [];
-  }
-  let pageParsed = null;
-  let baseParsed = null;
-  try {
-    pageParsed = new URL(pageUrl);
-    baseParsed = new URL(baseUrl);
-  } catch (error) {
-    return [];
-  }
-  if (pageParsed.origin !== baseParsed.origin) {
-    return [];
-  }
-  const pageSegments = getPathSegments(pageParsed.pathname);
-  const baseSegments = getPathSegments(baseParsed.pathname);
-  for (let i = 0; i < baseSegments.length; i += 1) {
-    if (pageSegments[i] !== baseSegments[i]) {
-      return [];
-    }
-  }
-  const options = [];
-  const origin = baseParsed.origin;
-  const baseCount = baseSegments.length;
-  for (let i = baseCount; i <= pageSegments.length; i += 1) {
-    const segments = pageSegments.slice(0, i);
-    const path = segments.length ? `/${segments.join("/")}` : "/";
-    const value = normalizePatternValue(`${origin}${path}`);
-    if (!value || options.some((option) => option.value === value)) {
-      continue;
-    }
-    const label =
-      i === baseCount
-        ? `Base URL (${value})`
-        : i === pageSegments.length
-          ? `Only this page (${value})`
-          : `Section (${value})`;
-    options.push({ value, label });
-  }
-  return options;
-}
-
-function normalizeConfig(baseUrl, incoming) {
-  let changed = false;
-  const defaultConfig = createDefaultConfig(baseUrl);
-  let normalized = { ...defaultConfig };
-
-  if (!incoming) {
-    return { config: normalized, changed: true };
-  }
-
-  if (
-    incoming.explicitXPathDecisions ||
-    incoming.defaultToggleExclusionsDisabled ||
-    incoming.pageHtmlSnapshots ||
-    incoming.pendingAiSave !== undefined
-  ) {
-    changed = true;
-  }
-  if (typeof incoming.domain === "string") {
-    normalized.domain = incoming.domain;
-  }
-  if (typeof incoming.pageMarkings === "object" && incoming.pageMarkings !== null) {
-    const result = normalizePageMarkings(incoming.pageMarkings);
-    normalized.pageMarkings = result.normalized;
-    if (result.changed) {
-      changed = true;
-    }
-  } else if (incoming.pageMarkings !== undefined) {
-    changed = true;
-  }
-  if (incoming.pageUrlPatterns !== undefined) {
-    changed = true;
-  }
-  if (Array.isArray(incoming.latestComputedSelectors)) {
-    normalized.latestComputedSelectors = incoming.latestComputedSelectors;
-  } else if (incoming.latestComputedSelectors !== undefined) {
-    changed = true;
-  }
-  if (Array.isArray(incoming.lastSavedSelectors)) {
-    normalized.lastSavedSelectors = incoming.lastSavedSelectors;
-  } else if (incoming.lastSavedSelectors !== undefined) {
-    changed = true;
-  }
-  const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
-  normalized.domainAiSelectorSet = aiSelectors.normalized;
-  if (aiSelectors.changed) {
-    changed = true;
-  }
-
-  return { config: normalized, changed };
-}
-
-async function getConfigs() {
-  const result = await storageGet(chrome.storage.local, "configs");
-  return result.configs || {};
-}
-
-async function saveConfigs(configs) {
-  await storageSet(chrome.storage.local, { configs });
-}
-
-async function getTabState(tabId) {
-  const key = `tabState:${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
-  return result[key] || { enabled: false, baseUrl: "" };
-}
-
-async function setTabState(tabId, state) {
-  const key = `tabState:${tabId}`;
-  await storageSet(chrome.storage.session, { [key]: state });
-}
-
-function normalizeDeviceMode(mode) {
-  return mode === "mobile" ? "mobile" : "desktop";
-}
-
-function normalizeDeviceScale(scale, mode) {
-  if (typeof scale !== "number" || !Number.isFinite(scale)) {
-    return DEVICE_SCALE_DEFAULTS[mode];
-  }
-  if (scale < DEVICE_SCALE_LIMITS.min) {
-    return DEVICE_SCALE_LIMITS.min;
-  }
-  if (scale > DEVICE_SCALE_LIMITS.max) {
-    return DEVICE_SCALE_LIMITS.max;
-  }
-  return scale;
-}
-
-function normalizeDeviceEmulationState(value) {
-  if (!value) {
-    return {
-      enabled: false,
-      mode: "desktop",
-      scale: DEVICE_SCALE_DEFAULTS.desktop
-    };
-  }
-  if (typeof value === "string") {
-    const mode = normalizeDeviceMode(value);
-    return {
-      enabled: true,
-      mode,
-      scale: DEVICE_SCALE_DEFAULTS[mode]
-    };
-  }
-  const mode = normalizeDeviceMode(value.mode);
-  return {
-    enabled: Boolean(value.enabled),
-    mode,
-    scale: normalizeDeviceScale(value.scale, mode)
-  };
-}
-
-async function getDeviceEmulationState(tabId) {
-  const key = `${DEVICE_MODE_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
-  return normalizeDeviceEmulationState(result[key]);
-}
-
-function updateDeviceEmulationUi(state) {
-  const normalized = normalizeDeviceEmulationState(state);
-  currentDeviceMode = normalized.mode;
-  currentDeviceScale = normalized.scale;
-  currentDeviceEmulationEnabled = normalized.enabled;
-  if (ui.deviceEmulationEnabled) {
-    ui.deviceEmulationEnabled.checked = normalized.enabled;
-  }
-  if (ui.deviceModeDesktop) {
-    ui.deviceModeDesktop.checked = normalized.mode === "desktop";
-  }
-  if (ui.deviceModeMobile) {
-    ui.deviceModeMobile.checked = normalized.mode === "mobile";
-  }
-  if (ui.deviceScale) {
-    ui.deviceScale.value = normalized.scale.toFixed(2);
-  }
-  if (ui.deviceScaleValue) {
-    ui.deviceScaleValue.textContent = `${Math.round(normalized.scale * 100)}%`;
-  }
-  setDeviceModeInputsDisabled(!normalized.enabled);
-}
-
-function sendRuntimeMessage(message) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
-function findMatchingBaseUrl(pageUrl, configs) {
-  if (!pageUrl) {
-    return "";
-  }
-  let match = "";
-  Object.keys(configs).forEach((baseUrl) => {
-    if (pageUrl.startsWith(baseUrl) && baseUrl.length > match.length) {
-      match = baseUrl;
-    }
-  });
-  return match;
-}
-
-function parseBaseUrl(value) {
-  if (!value) {
-    return null;
-  }
-  try {
-    return new URL(value);
-  } catch (error) {
-    return null;
-  }
-}
-
-function getOriginFromUrl(url) {
-  if (!url) {
-    return null;
-  }
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed.origin;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function ensureConfig(baseUrl) {
-  const configs = await getConfigs();
-  if (!configs[baseUrl]) {
-    const defaultConfig = createDefaultConfig(baseUrl);
-    configs[baseUrl] = defaultConfig;
-    await saveConfigs(configs);
-    return defaultConfig;
-  }
-  const { config, changed } = normalizeConfig(baseUrl, configs[baseUrl]);
-  if (changed) {
-    configs[baseUrl] = config;
-    await saveConfigs(configs);
-  }
-  return config;
-}
-
-async function updateConfig(baseUrl, updater) {
-  const configs = await getConfigs();
-  const { config } = normalizeConfig(baseUrl, configs[baseUrl]);
-  updater(config);
-  configs[baseUrl] = config;
-  await saveConfigs(configs);
-  return config;
-}
-
-async function sendTabMessage(message) {
-  return new Promise((resolve) => {
-    if (!currentTab || !currentTab.id) {
-      resolve(null);
-      return;
-    }
-    chrome.tabs.sendMessage(currentTab.id, message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve(null);
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function sendTabMessageWithRetry(message, attempts = 3) {
-  for (let i = 0; i < attempts; i += 1) {
-    const response = await sendTabMessage(message);
-    if (response) {
-      return response;
-    }
-    await delay(250);
-  }
-  return null;
-}
+import { clearBrowsingDataForOrigin, downloadJsonFile, reloadTab } from "./popup/chromeHelpers.js";
+import {
+  createDefaultConfig,
+  ensureConfig,
+  extractIncomingConfigs,
+  getConfigs,
+  normalizeConfig,
+  normalizeImportedConfig,
+  saveConfigs,
+  updateConfig
+} from "./popup/config.js";
+import { DEVICE_MODE_PREFIX, MAX_IMPORT_BYTES, PAGE_PATTERN_DRAFT_PREFIX } from "./popup/constants.js";
+import {
+  getDeviceEmulationState,
+  getSelectedDeviceMode,
+  getSelectedDeviceScale,
+  setDeviceControlsDisabled,
+  updateDeviceEmulationUi
+} from "./popup/deviceEmulation.js";
+import { clearPagePatternDraft, getPagePatternDraft, setPagePatternDraft } from "./popup/drafts.js";
+import {
+  collectPagePatterns,
+  findBestMatchingPattern,
+  getPatternOptions,
+  isPageWithinBase,
+  normalizePatternValue
+} from "./popup/patterns.js";
+import { renderExcludeList, renderHeadingDefaults, renderMarkedPages, renderPatternSelect } from "./popup/render.js";
+import { state } from "./popup/state.js";
+import { storageGet, storageSet } from "./popup/storage.js";
+import { getTabState, setTabState } from "./popup/tabState.js";
+import { ui } from "./popup/ui.js";
+import { setConfigMenuOpen, setUiBusy, showToast } from "./popup/uiHelpers.js";
+import {
+  arraysEqual,
+  findMatchingBaseUrl,
+  formatBytes,
+  getOriginFromUrl,
+  isHeadingXPath,
+  makeSafeFilename,
+  parseBaseUrl
+} from "./popup/utils.js";
+import { loadActiveTab, sendRuntimeMessage, sendTabMessage, sendTabMessageWithRetry } from "./popup/messages.js";
 
 async function clearFocusedElement() {
   await sendTabMessage({ type: "clearFocus" });
 }
 
-async function loadActiveTab() {
-  try {
-    const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
-    currentTab = tabs[0] || null;
-  } catch (error) {
-    currentTab = null;
-  }
-}
-
-
-function renderList(listEl, items, emptyText, onRemove) {
-  listEl.textContent = "";
-  if (!items.length) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = emptyText;
-    listEl.appendChild(li);
-    return;
-  }
-  items.forEach((item) => {
-    const li = document.createElement("li");
-    const text = document.createElement("span");
-    text.textContent = item;
-    const button = document.createElement("button");
-    button.textContent = "Remove";
-    button.addEventListener("click", () => onRemove(item));
-    li.appendChild(text);
-    li.appendChild(button);
-    listEl.appendChild(li);
-  });
-}
-
-function renderExcludeList(listEl, items, emptyText, onView, onRemove) {
-  listEl.textContent = "";
-  if (!items.length) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = emptyText;
-    listEl.appendChild(li);
-    return;
-  }
-  items.forEach((item) => {
-    const li = document.createElement("li");
-    const text = document.createElement("span");
-    const label = item.text || item.xpath || "";
-    text.textContent = label;
-    text.title = label;
-    const viewButton = document.createElement("button");
-    viewButton.textContent = "View";
-    viewButton.addEventListener("click", () => onView(item.xpath));
-    const removeButton = document.createElement("button");
-    removeButton.textContent = "Remove";
-    removeButton.addEventListener("click", () => onRemove(item.xpath));
-    li.appendChild(text);
-    li.appendChild(viewButton);
-    li.appendChild(removeButton);
-    listEl.appendChild(li);
-  });
-}
-
-function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
-  listEl.textContent = "";
-  if (!items.length) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = emptyText;
-    listEl.appendChild(li);
-    return;
-  }
-  items.forEach((item) => {
-    const li = document.createElement("li");
-    const text = document.createElement("span");
-    text.textContent = item.text;
-    text.title = item.text;
-    const status = document.createElement("span");
-    status.className = "status";
-    status.textContent = item.excluded ? "Excluded" : "Included";
-    const viewButton = document.createElement("button");
-    viewButton.textContent = "View";
-    viewButton.addEventListener("click", () => onToggle(item, "view"));
-    const button = document.createElement("button");
-    button.textContent = item.excluded ? "Include" : "Exclude";
-    button.addEventListener("click", () => onToggle(item, "toggle"));
-    li.appendChild(text);
-    li.appendChild(status);
-    li.appendChild(viewButton);
-    li.appendChild(button);
-    listEl.appendChild(li);
-  });
-}
-
-function renderMarkedPages(listEl, items, emptyText, currentPageUrl, onNavigate) {
-  listEl.textContent = "";
-  if (!items.length) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = emptyText;
-    listEl.appendChild(li);
-    return;
-  }
-  items.forEach((item) => {
-    const li = document.createElement("li");
-    const title = document.createElement("span");
-    title.className = "page-title";
-    title.textContent = item.title;
-    title.title = item.title;
-    const count = document.createElement("span");
-    count.className = "count";
-    count.textContent = item.count === 0 ? "No marks" : item.count === 1 ? "1 mark" : `${item.count} marks`;
-    const button = document.createElement("button");
-    button.textContent = "Navigate";
-    const isCurrentPage = item.url === currentPageUrl;
-    button.disabled = isCurrentPage;
-    button.addEventListener("click", () => onNavigate(item.url));
-    li.appendChild(title);
-    li.appendChild(count);
-    li.appendChild(button);
-    listEl.appendChild(li);
-  });
-}
-
-function renderPatternSelect(selectEl, options, selectedValue) {
-  if (!selectEl) {
-    return;
-  }
-  selectEl.textContent = "";
-  if (!options.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No patterns available";
-    selectEl.appendChild(option);
-    selectEl.value = "";
-    return;
-  }
-  options.forEach((optionItem) => {
-    const option = document.createElement("option");
-    option.value = optionItem.value;
-    option.textContent = optionItem.label;
-    option.title = optionItem.value;
-    selectEl.appendChild(option);
-  });
-  selectEl.value = selectedValue || options[0].value;
-  selectEl.title = selectedValue || options[0].value;
-}
-
-function arraysEqual(left, right) {
-  if (left === right) {
-    return true;
-  }
-  if (!left || !right) {
-    return false;
-  }
-  if (!Array.isArray(left) || !Array.isArray(right)) {
-    return false;
-  }
-  if (left.length !== right.length) {
-    return false;
-  }
-  for (let i = 0; i < left.length; i += 1) {
-    if (left[i] !== right[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isHeadingXPath(value) {
-  if (typeof value !== "string") {
-    return false;
-  }
-  return /\/h[1-6]\[\d+\]\s*$/i.test(value);
-}
-
 async function refreshUi() {
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
   const configs = await getConfigs();
-  const tabState = await getTabState(currentTab.id);
-  const pageUrl = currentTab.url || "";
+  const tabState = await getTabState(state.currentTab.id);
+  const pageUrl = state.currentTab.url || "";
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !pageUrl.startsWith(tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
-    await setTabState(currentTab.id, effectiveTabState);
+    await setTabState(state.currentTab.id, effectiveTabState);
   }
   const fallbackBaseUrl = findMatchingBaseUrl(pageUrl, configs);
-  currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
-  if (currentBaseUrl) {
-    const normalized = normalizeConfig(currentBaseUrl, configs[currentBaseUrl]);
-    if (!configs[currentBaseUrl] || normalized.changed) {
-      configs[currentBaseUrl] = normalized.config;
+  state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
+  if (state.currentBaseUrl) {
+    const normalized = normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
+    if (!configs[state.currentBaseUrl] || normalized.changed) {
+      configs[state.currentBaseUrl] = normalized.config;
       await saveConfigs(configs);
     }
-    currentConfig = configs[currentBaseUrl];
+    state.currentConfig = configs[state.currentBaseUrl];
   } else {
-    currentConfig = null;
+    state.currentConfig = null;
   }
-  if (!currentBaseUrl) {
-    baseUrlEditMode = false;
+  if (!state.currentBaseUrl) {
+    state.baseUrlEditMode = false;
   }
 
   ui.currentPageUrl.textContent = pageUrl || "Unavailable";
@@ -828,32 +84,32 @@ async function refreshUi() {
       suggestedBaseUrl = "";
     }
   }
-  const baseUrlSet = Boolean(currentBaseUrl);
-  const baseUrlReady = baseUrlSet && !baseUrlEditMode;
-  const isEditing = !baseUrlSet || baseUrlEditMode;
+  const baseUrlSet = Boolean(state.currentBaseUrl);
+  const baseUrlReady = baseUrlSet && !state.baseUrlEditMode;
+  const isEditing = !baseUrlSet || state.baseUrlEditMode;
   if (!isEditing) {
-    ui.baseUrlInput.value = currentBaseUrl;
+    ui.baseUrlInput.value = state.currentBaseUrl;
   } else if (document.activeElement !== ui.baseUrlInput) {
-    ui.baseUrlInput.value = baseUrlSet ? currentBaseUrl : suggestedBaseUrl;
+    ui.baseUrlInput.value = baseUrlSet ? state.currentBaseUrl : suggestedBaseUrl;
   }
   ui.baseUrlInput.readOnly = !isEditing;
   ui.baseUrlSet.style.display = isEditing ? "inline-flex" : "none";
   ui.baseUrlEdit.style.display = baseUrlSet ? "inline-flex" : "none";
-  ui.baseUrlEdit.textContent = baseUrlEditMode ? "Cancel" : "Change";
+  ui.baseUrlEdit.textContent = state.baseUrlEditMode ? "Cancel" : "Change";
   if (!baseUrlSet) {
     ui.baseUrlNotice.textContent =
       "Set Base Page URL before enabling marking";
     ui.baseUrlNotice.style.display = "block";
-  } else if (baseUrlEditMode) {
+  } else if (state.baseUrlEditMode) {
     ui.baseUrlNotice.textContent = "Set Base Page URL to continue";
     ui.baseUrlNotice.style.display = "block";
   } else {
     ui.baseUrlNotice.style.display = "none";
   }
-  const patternDrafts = currentTab ? await getPagePatternDraft(currentTab.id) : {};
+  const patternDrafts = state.currentTab ? await getPagePatternDraft(state.currentTab.id) : {};
   let draftPattern =
     normalizePatternValue(
-      (currentDraftEntry && currentDraftEntry.pagePattern) || ""
+      (state.currentDraftEntry && state.currentDraftEntry.pagePattern) || ""
     ) || normalizePatternValue(patternDrafts[pageUrl] || "");
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
@@ -862,30 +118,30 @@ async function refreshUi() {
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
   const pagePatternOptions = baseUrlReady
-    ? getPatternOptions(pageUrl, currentBaseUrl)
+    ? getPatternOptions(pageUrl, state.currentBaseUrl)
     : [];
   if (baseUrlReady && pageUrl) {
-    const basePattern = normalizePatternValue(currentBaseUrl);
+    const basePattern = normalizePatternValue(state.currentBaseUrl);
     const pagePattern = normalizePatternValue(pageUrl);
     if (basePattern && pagePattern && basePattern === pagePattern && !draftPattern) {
-      await setPagePatternDraft(currentTab.id, pageUrl, basePattern);
+      await setPagePatternDraft(state.currentTab.id, pageUrl, basePattern);
       draftPattern = basePattern;
     }
   }
   const storedPatterns = collectPagePatterns(
-    currentConfig ? currentConfig.pageMarkings : null
+    state.currentConfig ? state.currentConfig.pageMarkings : null
   );
   if (draftPattern && !storedPatterns.includes(draftPattern)) {
     storedPatterns.push(draftPattern);
   }
   const matchingPattern = findBestMatchingPattern(pageUrl, storedPatterns);
   const pagePatternReady = Boolean(matchingPattern);
-  if (ui.toggleEnabled.checked && !pagePatternReady && currentTab && currentTab.id) {
+  if (ui.toggleEnabled.checked && !pagePatternReady && state.currentTab && state.currentTab.id) {
     ui.toggleEnabled.checked = false;
-    await setTabState(currentTab.id, { enabled: false, baseUrl: currentBaseUrl });
+    await setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  const storedDeviceState = await getDeviceEmulationState(currentTab.id);
+  const storedDeviceState = await getDeviceEmulationState(state.currentTab.id);
   updateDeviceEmulationUi(storedDeviceState);
   const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
@@ -895,11 +151,11 @@ async function refreshUi() {
   );
   const endpointValue = endpointResult.globalEndpoint || "";
   if (!endpointValue) {
-    endpointEditMode = false;
+    state.endpointEditMode = false;
   }
   const endpointSet = Boolean(endpointValue);
-  const endpointReady = endpointSet && !endpointEditMode;
-  const endpointEditing = !endpointSet || endpointEditMode;
+  const endpointReady = endpointSet && !state.endpointEditMode;
+  const endpointEditing = !endpointSet || state.endpointEditMode;
   if (!endpointEditing) {
     ui.endpointUrl.value = endpointValue;
   } else if (document.activeElement !== ui.endpointUrl) {
@@ -908,11 +164,11 @@ async function refreshUi() {
   ui.endpointUrl.readOnly = !endpointEditing;
   ui.endpointSet.style.display = endpointEditing ? "inline-flex" : "none";
   ui.endpointEdit.style.display = endpointSet ? "inline-flex" : "none";
-  ui.endpointEdit.textContent = endpointEditMode ? "Cancel" : "Change";
+  ui.endpointEdit.textContent = state.endpointEditMode ? "Cancel" : "Change";
   if (!endpointSet) {
     ui.endpointNotice.textContent = "Set Endpoint URL before using AI";
     ui.endpointNotice.style.display = "block";
-  } else if (endpointEditMode) {
+  } else if (state.endpointEditMode) {
     ui.endpointNotice.textContent = "Set Endpoint URL to continue";
     ui.endpointNotice.style.display = "block";
   } else {
@@ -921,31 +177,31 @@ async function refreshUi() {
 
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
-    (currentConfig && currentConfig.latestComputedSelectors) || [];
-  const lastSaved = (currentConfig && currentConfig.lastSavedSelectors) || [];
+    (state.currentConfig && state.currentConfig.latestComputedSelectors) || [];
+  const lastSaved = (state.currentConfig && state.currentConfig.lastSavedSelectors) || [];
   const hasNewSelectors =
     latestComputed.length > 0 && !arraysEqual(latestComputed, lastSaved);
-  const aiBusy = Boolean(aiRequestInFlight);
+  const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = latestComputed.length > 0;
 
   const isEnabled = ui.toggleEnabled.checked;
-  currentDraftEntry = null;
-  currentDraftDirty = false;
-  currentDraftAvailable = false;
-  currentDraftHasEntry = false;
-  if (currentBaseUrl && isEnabled) {
+  state.currentDraftEntry = null;
+  state.currentDraftDirty = false;
+  state.currentDraftAvailable = false;
+  state.currentDraftHasEntry = false;
+  if (state.currentBaseUrl && isEnabled) {
     const draftStatus = await sendTabMessage({
       type: "getPageDraftStatus",
-      baseUrl: currentBaseUrl
+      baseUrl: state.currentBaseUrl
     });
     if (draftStatus && draftStatus.ok) {
-      currentDraftEntry = draftStatus.entry || null;
-      currentDraftDirty = Boolean(draftStatus.dirty);
-      currentDraftAvailable = true;
-      currentDraftHasEntry = Boolean(currentDraftEntry);
+      state.currentDraftEntry = draftStatus.entry || null;
+      state.currentDraftDirty = Boolean(draftStatus.dirty);
+      state.currentDraftAvailable = true;
+      state.currentDraftHasEntry = Boolean(state.currentDraftEntry);
     }
   }
-  const aiBlockedByDraft = currentDraftDirty;
+  const aiBlockedByDraft = state.currentDraftDirty;
   ui.toggleEnabled.disabled = !baseUrlReady || !pagePatternReady;
   ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
   ui.saveExcludesButton.disabled =
@@ -964,19 +220,19 @@ async function refreshUi() {
   ui.configExportAll.disabled = aiBusy;
   ui.configExportCurrent.disabled = aiBusy || !baseUrlReady;
   ui.configImport.disabled = aiBusy;
-  ui.configClearCurrent.disabled = aiBusy || !currentBaseUrl;
+  ui.configClearCurrent.disabled = aiBusy || !state.currentBaseUrl;
   ui.configClearAll.disabled = aiBusy;
   ui.computeButton.textContent =
-    aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
+    state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
   ui.saveExcludesButton.textContent =
-    aiRequestInFlight === "save" ? "Saving..." : "Save Excludes";
+    state.aiRequestInFlight === "save" ? "Saving..." : "Save Excludes";
   ui.computeButton.classList.toggle(
     "loading",
-    aiRequestInFlight === "compute"
+    state.aiRequestInFlight === "compute"
   );
   ui.saveExcludesButton.classList.toggle(
     "loading",
-    aiRequestInFlight === "save"
+    state.aiRequestInFlight === "save"
   );
   ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
   if (ui.aiDirtyNotice) {
@@ -984,7 +240,7 @@ async function refreshUi() {
   }
   if (ui.pagePatternSelect && ui.pagePatternSet && ui.pagePatternNotice) {
     const patternUiDisabled =
-      !baseUrlReady || !pageUrl || !isPageWithinBase(pageUrl, currentBaseUrl);
+      !baseUrlReady || !pageUrl || !isPageWithinBase(pageUrl, state.currentBaseUrl);
     renderPatternSelect(
       ui.pagePatternSelect,
       pagePatternOptions,
@@ -995,7 +251,7 @@ async function refreshUi() {
     if (!baseUrlReady) {
       ui.pagePatternNotice.textContent = "Set Base Page URL first";
       ui.pagePatternNotice.style.display = "block";
-    } else if (!pageUrl || !isPageWithinBase(pageUrl, currentBaseUrl)) {
+    } else if (!pageUrl || !isPageWithinBase(pageUrl, state.currentBaseUrl)) {
       ui.pagePatternNotice.textContent = "Current page is outside the Base Page URL";
       ui.pagePatternNotice.style.display = "block";
     } else if (!pagePatternReady) {
@@ -1008,22 +264,22 @@ async function refreshUi() {
   }
   if (ui.pageSave && ui.pageRevert) {
     const draftButtonsDisabled =
-      !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftDirty;
+      !baseUrlReady || !isEnabled || !state.currentDraftAvailable || !state.currentDraftDirty;
     ui.pageSave.disabled = draftButtonsDisabled;
     ui.pageRevert.disabled = draftButtonsDisabled;
   }
   if (ui.pageDelete) {
     ui.pageDelete.disabled =
-      !baseUrlReady || !isEnabled || !currentDraftAvailable || !currentDraftHasEntry;
+      !baseUrlReady || !isEnabled || !state.currentDraftAvailable || !state.currentDraftHasEntry;
   }
   if (ui.pageDraftStatus) {
     if (!baseUrlReady) {
       ui.pageDraftStatus.textContent = "Set Base Page URL first";
     } else if (!isEnabled) {
       ui.pageDraftStatus.textContent = "Enable marking to edit this page";
-    } else if (!currentDraftAvailable) {
+    } else if (!state.currentDraftAvailable) {
       ui.pageDraftStatus.textContent = "Draft unavailable";
-    } else if (currentDraftDirty) {
+    } else if (state.currentDraftDirty) {
       ui.pageDraftStatus.textContent = "Unsaved changes";
     } else {
       ui.pageDraftStatus.textContent = "All changes saved";
@@ -1032,10 +288,10 @@ async function refreshUi() {
 
   let headingDefaults = [];
   let headingXPathSet = new Set();
-  if (currentBaseUrl) {
+  if (state.currentBaseUrl) {
     const response = await sendTabMessage({
       type: "getHeadingDefaultStatus",
-      baseUrl: currentBaseUrl
+      baseUrl: state.currentBaseUrl
     });
     if (response && Array.isArray(response.items)) {
       headingDefaults = response.items;
@@ -1046,10 +302,10 @@ async function refreshUi() {
   }
 
   const pageEntry =
-    currentDraftEntry ||
-    (currentConfig &&
-      currentConfig.pageMarkings &&
-      currentConfig.pageMarkings[pageUrl]);
+    state.currentDraftEntry ||
+    (state.currentConfig &&
+      state.currentConfig.pageMarkings &&
+      state.currentConfig.pageMarkings[pageUrl]);
   const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
   const excludedXPaths = explicitExclude
     .filter(
@@ -1065,7 +321,7 @@ async function refreshUi() {
     xpath,
     text: xpath
   }));
-  if (currentBaseUrl) {
+  if (state.currentBaseUrl) {
     const response = await sendTabMessage({
       type: "describeXPathsOnPage",
       xpaths: excludedXPaths
@@ -1089,13 +345,13 @@ async function refreshUi() {
       }
     },
     async (value) => {
-      if (!currentBaseUrl) {
+      if (!state.currentBaseUrl) {
         return;
       }
       await clearFocusedElement();
       const response = await sendTabMessage({
         type: "setExplicitExclude",
-        baseUrl: currentBaseUrl,
+        baseUrl: state.currentBaseUrl,
         xpath: value,
         excluded: false
       });
@@ -1121,13 +377,13 @@ async function refreshUi() {
         }
         return;
       }
-      if (!currentBaseUrl) {
+      if (!state.currentBaseUrl) {
         return;
       }
       await clearFocusedElement();
       const response = await sendTabMessage({
         type: "toggleHeadingDefault",
-        baseUrl: currentBaseUrl,
+        baseUrl: state.currentBaseUrl,
         xpath: item.xpath
       });
       if (!response || !response.ok) {
@@ -1139,16 +395,16 @@ async function refreshUi() {
   );
 
   const markedPages = [];
-  const pageMarkings = (currentConfig && currentConfig.pageMarkings) || {};
+  const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
   const mergedPageMarkings = { ...pageMarkings };
-  if (currentDraftEntry && pageUrl) {
-    mergedPageMarkings[pageUrl] = currentDraftEntry;
+  if (state.currentDraftEntry && pageUrl) {
+    mergedPageMarkings[pageUrl] = state.currentDraftEntry;
   }
   Object.entries(mergedPageMarkings).forEach(([url, entry]) => {
     if (!url || !entry || !Array.isArray(entry.xpaths)) {
       return;
     }
-    if (currentBaseUrl && !url.startsWith(currentBaseUrl)) {
+    if (state.currentBaseUrl && !url.startsWith(state.currentBaseUrl)) {
       return;
     }
     const excludedCount = entry.xpaths.filter(
@@ -1172,10 +428,10 @@ async function refreshUi() {
     pageUrl,
     async (url) => {
       await loadActiveTab();
-      if (!currentTab || !currentTab.id) {
+      if (!state.currentTab || !state.currentTab.id) {
         return;
       }
-      chrome.tabs.update(currentTab.id, { url }, () => {
+      chrome.tabs.update(state.currentTab.id, { url }, () => {
         void chrome.runtime.lastError;
       });
     }
@@ -1183,28 +439,28 @@ async function refreshUi() {
 }
 
 async function injectContentScriptIfNeeded() {
-  if (!currentTab || !currentTab.id) {
+  if (!state.currentTab || !state.currentTab.id) {
     return { ok: false, error: "No active tab" };
   }
   const response = await sendRuntimeMessage({
     type: "injectContentScript",
-    tabId: currentTab.id
+    tabId: state.currentTab.id
   });
   return response || { ok: false, error: "Injection failed" };
 }
 
 async function handleEnableToggle() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL before enabling marking");
     ui.toggleEnabled.checked = false;
     return;
   }
   const enabled = ui.toggleEnabled.checked;
-  const baseUrlValue = currentBaseUrl;
+  const baseUrlValue = state.currentBaseUrl;
   if (enabled) {
     const parsed = parseBaseUrl(baseUrlValue);
     if (!parsed) {
@@ -1213,20 +469,20 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
-    if (!currentTab.url.startsWith(baseUrlValue)) {
+    if (!state.currentTab.url.startsWith(baseUrlValue)) {
       showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
-    currentConfig = await ensureConfig(baseUrlValue);
-    const patternDrafts = await getPagePatternDraft(currentTab.id);
-    const draftPattern = normalizePatternValue(patternDrafts[currentTab.url] || "");
-    const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+    state.currentConfig = await ensureConfig(baseUrlValue);
+    const patternDrafts = await getPagePatternDraft(state.currentTab.id);
+    const draftPattern = normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
+    const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
     if (!matchingPattern) {
       showToast("Choose a URL pattern before enabling");
       ui.toggleEnabled.checked = false;
@@ -1241,7 +497,7 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
-    await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -1250,70 +506,36 @@ async function handleEnableToggle() {
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
 
-function getSelectedDeviceMode() {
-  if (ui.deviceModeMobile && ui.deviceModeMobile.checked) {
-    return "mobile";
-  }
-  return "desktop";
-}
-
-function setDeviceModeInputsDisabled(disabled) {
-  if (ui.deviceModeDesktop) {
-    ui.deviceModeDesktop.disabled = disabled;
-  }
-  if (ui.deviceModeMobile) {
-    ui.deviceModeMobile.disabled = disabled;
-  }
-  if (ui.deviceScale) {
-    ui.deviceScale.disabled = disabled;
-  }
-}
-
-function getSelectedDeviceScale() {
-  if (!ui.deviceScale) {
-    return currentDeviceScale;
-  }
-  const parsed = Number.parseFloat(ui.deviceScale.value);
-  return normalizeDeviceScale(parsed, getSelectedDeviceMode());
-}
-
-function setDeviceControlsDisabled(disabled) {
-  if (ui.deviceEmulationEnabled) {
-    ui.deviceEmulationEnabled.disabled = disabled;
-  }
-  setDeviceModeInputsDisabled(disabled || !currentDeviceEmulationEnabled);
-}
-
 async function handleDeviceEmulationEnabledToggle() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.id) {
+  if (!state.currentTab || !state.currentTab.id) {
     return;
   }
   const desiredEnabled = Boolean(ui.deviceEmulationEnabled.checked);
-  if (desiredEnabled === currentDeviceEmulationEnabled) {
+  if (desiredEnabled === state.currentDeviceEmulationEnabled) {
     return;
   }
   setDeviceControlsDisabled(true);
   const response = await sendRuntimeMessage({
     type: "updateDeviceEmulation",
-    tabId: currentTab.id,
+    tabId: state.currentTab.id,
     enabled: desiredEnabled,
-    mode: currentDeviceMode,
-    scale: currentDeviceScale
+    mode: state.currentDeviceMode,
+    scale: state.currentDeviceScale
   });
   setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
     showToast((response && response.error) || "Device emulation failed");
     updateDeviceEmulationUi({
-      enabled: currentDeviceEmulationEnabled,
-      mode: currentDeviceMode,
-      scale: currentDeviceScale
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
     });
     return;
   }
@@ -1322,36 +544,36 @@ async function handleDeviceEmulationEnabledToggle() {
 
 async function handleDeviceModeToggle() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.id) {
+  if (!state.currentTab || !state.currentTab.id) {
     return;
   }
-  if (!currentDeviceEmulationEnabled) {
+  if (!state.currentDeviceEmulationEnabled) {
     updateDeviceEmulationUi({
-      enabled: currentDeviceEmulationEnabled,
-      mode: currentDeviceMode,
-      scale: currentDeviceScale
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
     });
     return;
   }
   const desiredMode = getSelectedDeviceMode();
-  if (desiredMode === currentDeviceMode) {
+  if (desiredMode === state.currentDeviceMode) {
     return;
   }
   setDeviceControlsDisabled(true);
   const response = await sendRuntimeMessage({
     type: "updateDeviceEmulation",
-    tabId: currentTab.id,
+    tabId: state.currentTab.id,
     enabled: true,
     mode: desiredMode,
-    scale: currentDeviceScale
+    scale: state.currentDeviceScale
   });
   setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
     showToast((response && response.error) || "Device emulation failed");
     updateDeviceEmulationUi({
-      enabled: currentDeviceEmulationEnabled,
-      mode: currentDeviceMode,
-      scale: currentDeviceScale
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
     });
     return;
   }
@@ -1367,36 +589,36 @@ function handleDeviceScaleInput() {
 
 async function handleDeviceScaleChange() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.id) {
+  if (!state.currentTab || !state.currentTab.id) {
     return;
   }
-  if (!currentDeviceEmulationEnabled) {
+  if (!state.currentDeviceEmulationEnabled) {
     updateDeviceEmulationUi({
-      enabled: currentDeviceEmulationEnabled,
-      mode: currentDeviceMode,
-      scale: currentDeviceScale
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
     });
     return;
   }
   const desiredScale = getSelectedDeviceScale();
-  if (desiredScale === currentDeviceScale) {
+  if (desiredScale === state.currentDeviceScale) {
     return;
   }
   setDeviceControlsDisabled(true);
   const response = await sendRuntimeMessage({
     type: "updateDeviceEmulation",
-    tabId: currentTab.id,
+    tabId: state.currentTab.id,
     enabled: true,
-    mode: currentDeviceMode,
+    mode: state.currentDeviceMode,
     scale: desiredScale
   });
   setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
     showToast((response && response.error) || "Device emulation failed");
     updateDeviceEmulationUi({
-      enabled: currentDeviceEmulationEnabled,
-      mode: currentDeviceMode,
-      scale: currentDeviceScale
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
     });
     return;
   }
@@ -1448,18 +670,18 @@ function reloadTab(tabId) {
 
 async function handleClearDomainCache() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.url) {
+  if (!state.currentTab || !state.currentTab.url) {
     showToast("No active tab to clear");
     return;
   }
-  const origin = getOriginFromUrl(currentTab.url);
+  const origin = getOriginFromUrl(state.currentTab.url);
   if (!origin) {
     showToast("Unsupported page for cache clearing");
     return;
   }
   let hostname = origin;
   try {
-    hostname = new URL(currentTab.url).hostname;
+    hostname = new URL(state.currentTab.url).hostname;
   } catch (error) {
     hostname = origin;
   }
@@ -1483,7 +705,7 @@ async function handleClearDomainCache() {
     return;
   }
   showToast("Domain cache cleared");
-  const reloadResult = await reloadTab(currentTab.id);
+  const reloadResult = await reloadTab(state.currentTab.id);
   setUiBusy(false);
   if (!reloadResult.ok) {
     showToast(reloadResult.error || "Unable to reload tab");
@@ -1570,22 +792,22 @@ async function handleExportAll() {
 
 async function handleExportCurrent() {
   setConfigMenuOpen(false);
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
   const configs = await getConfigs();
   const config = normalizeImportedConfig(
-    currentBaseUrl,
-    configs[currentBaseUrl] || createDefaultConfig(currentBaseUrl)
+    state.currentBaseUrl,
+    configs[state.currentBaseUrl] || createDefaultConfig(state.currentBaseUrl)
   );
   const payload = {
     version: 1,
     scope: "baseUrl",
-    baseUrl: currentBaseUrl,
+    baseUrl: state.currentBaseUrl,
     config
   };
-  const safeBase = makeSafeFilename(currentBaseUrl) || "base";
+  const safeBase = makeSafeFilename(state.currentBaseUrl) || "base";
   const filename = `markcontit-${safeBase}.json`;
   downloadJsonFile(filename, payload);
 }
@@ -1640,7 +862,7 @@ async function handleImport() {
 
 async function handleClearCurrent() {
   setConfigMenuOpen(false);
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
@@ -1651,16 +873,16 @@ async function handleClearCurrent() {
     return;
   }
   const configs = await getConfigs();
-  delete configs[currentBaseUrl];
+  delete configs[state.currentBaseUrl];
   await saveConfigs(configs);
   await loadActiveTab();
-  if (currentTab && currentTab.id) {
-    await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
+  if (state.currentTab && state.currentTab.id) {
+    await setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  currentBaseUrl = "";
-  currentConfig = null;
-  baseUrlEditMode = false;
+  state.currentBaseUrl = "";
+  state.currentConfig = null;
+  state.baseUrlEditMode = false;
   showToast("Base Page URL cleared");
   await refreshUi();
 }
@@ -1679,14 +901,14 @@ async function handleClearAll() {
     globalEndpoint: ""
   });
   await loadActiveTab();
-  if (currentTab && currentTab.id) {
-    await setTabState(currentTab.id, { enabled: false, baseUrl: "" });
+  if (state.currentTab && state.currentTab.id) {
+    await setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  currentBaseUrl = "";
-  currentConfig = null;
-  baseUrlEditMode = false;
-  endpointEditMode = false;
+  state.currentBaseUrl = "";
+  state.currentConfig = null;
+  state.baseUrlEditMode = false;
+  state.endpointEditMode = false;
   showToast("All configuration cleared");
   await refreshUi();
 }
@@ -1758,12 +980,12 @@ async function handleImportFile(event) {
   }
 
   if (
-    currentBaseUrl &&
-    baseUrls.includes(currentBaseUrl) &&
-    currentTab &&
-    currentTab.id
+    state.currentBaseUrl &&
+    baseUrls.includes(state.currentBaseUrl) &&
+    state.currentTab &&
+    state.currentTab.id
   ) {
-    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+    await sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
   }
 
   showToast("Configuration imported");
@@ -1772,7 +994,7 @@ async function handleImportFile(event) {
 
 async function handleBaseUrlSet() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.url) {
+  if (!state.currentTab || !state.currentTab.url) {
     return;
   }
   const baseUrlValue = ui.baseUrlInput.value.trim();
@@ -1785,7 +1007,7 @@ async function handleBaseUrlSet() {
     showToast("Enter a valid Base Page URL");
     return;
   }
-  if (!currentTab.url.startsWith(baseUrlValue)) {
+  if (!state.currentTab.url.startsWith(baseUrlValue)) {
     showToast("Current page is outside the Base Page URL");
     return;
   }
@@ -1795,28 +1017,28 @@ async function handleBaseUrlSet() {
     showToast(injectResult.error || "Unable to activate on this page");
     return;
   }
-  currentBaseUrl = baseUrlValue;
-  currentConfig = await ensureConfig(baseUrlValue);
+  state.currentBaseUrl = baseUrlValue;
+  state.currentConfig = await ensureConfig(baseUrlValue);
   const basePattern = normalizePatternValue(baseUrlValue);
-  const pagePattern = normalizePatternValue(currentTab.url);
+  const pagePattern = normalizePatternValue(state.currentTab.url);
   let draftPattern = "";
   if (basePattern && pagePattern && basePattern === pagePattern) {
     draftPattern = pagePattern;
-    await setPagePatternDraft(currentTab.id, currentTab.url, draftPattern);
+    await setPagePatternDraft(state.currentTab.id, state.currentTab.url, draftPattern);
     await sendTabMessage({
       type: "setPagePatternDraft",
       baseUrl: baseUrlValue,
       pagePattern: draftPattern
     });
   }
-  const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+  const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
   if (draftPattern && !storedPatterns.includes(draftPattern)) {
     storedPatterns.push(draftPattern);
   }
-  const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
-  baseUrlEditMode = false;
+  const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
+  state.baseUrlEditMode = false;
   if (matchingPattern) {
-    await setTabState(currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -1825,7 +1047,7 @@ async function handleBaseUrlSet() {
     });
     await sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await setTabState(currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
@@ -1833,10 +1055,10 @@ async function handleBaseUrlSet() {
 
 async function handlePagePatternSet() {
   await loadActiveTab();
-  if (!currentTab || !currentTab.url) {
+  if (!state.currentTab || !state.currentTab.url) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
@@ -1845,11 +1067,11 @@ async function handlePagePatternSet() {
     showToast("Choose a URL pattern");
     return;
   }
-  if (!isPageWithinBase(selected, currentBaseUrl)) {
+  if (!isPageWithinBase(selected, state.currentBaseUrl)) {
     showToast("Pattern must be within the Base Page URL");
     return;
   }
-  await setPagePatternDraft(currentTab.id, currentTab.url, selected);
+  await setPagePatternDraft(state.currentTab.id, state.currentTab.url, selected);
   const injectResult = await injectContentScriptIfNeeded();
   if (!injectResult.ok) {
     showToast(injectResult.error || "Unable to reach the page");
@@ -1857,7 +1079,7 @@ async function handlePagePatternSet() {
   }
   const response = await sendTabMessageWithRetry({
     type: "setPagePatternDraft",
-    baseUrl: currentBaseUrl,
+    baseUrl: state.currentBaseUrl,
     pagePattern: selected
   });
   if (!response || !response.ok) {
@@ -1870,52 +1092,52 @@ async function handlePagePatternSet() {
 }
 
 async function handleBaseUrlEditToggle() {
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     return;
   }
-  baseUrlEditMode = !baseUrlEditMode;
-  if (baseUrlEditMode) {
+  state.baseUrlEditMode = !state.baseUrlEditMode;
+  if (state.baseUrlEditMode) {
     await loadActiveTab();
-    if (currentTab && currentTab.id) {
-      await setTabState(currentTab.id, {
+    if (state.currentTab && state.currentTab.id) {
+      await setTabState(state.currentTab.id, {
         enabled: false,
-        baseUrl: currentBaseUrl
+        baseUrl: state.currentBaseUrl
       });
       await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
-  } else if (currentTab && currentTab.url.startsWith(currentBaseUrl)) {
+  } else if (state.currentTab && state.currentTab.url.startsWith(state.currentBaseUrl)) {
     // Inject content script first when re-enabling
     const injectResult = await injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       showToast(injectResult.error || "Unable to activate on this page");
-      baseUrlEditMode = true;
+      state.baseUrlEditMode = true;
       await refreshUi();
       return;
     }
-    currentConfig = await ensureConfig(currentBaseUrl);
-    const patternDrafts = await getPagePatternDraft(currentTab.id);
-    const draftPattern = normalizePatternValue(patternDrafts[currentTab.url] || "");
-    const storedPatterns = collectPagePatterns(currentConfig.pageMarkings || {});
+    state.currentConfig = await ensureConfig(state.currentBaseUrl);
+    const patternDrafts = await getPagePatternDraft(state.currentTab.id);
+    const draftPattern = normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = findBestMatchingPattern(currentTab.url, storedPatterns);
+    const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
     if (matchingPattern) {
-      await setTabState(currentTab.id, {
+      await setTabState(state.currentTab.id, {
         enabled: true,
-        baseUrl: currentBaseUrl
+        baseUrl: state.currentBaseUrl
       });
       await sendTabMessageWithRetry({
         type: "setEnabled",
         enabled: true,
-        baseUrl: currentBaseUrl,
+        baseUrl: state.currentBaseUrl,
         pagePattern: matchingPattern
       });
       await sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
-      await setTabState(currentTab.id, {
+      await setTabState(state.currentTab.id, {
         enabled: false,
-        baseUrl: currentBaseUrl
+        baseUrl: state.currentBaseUrl
       });
       await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
@@ -1936,12 +1158,12 @@ async function handleEndpointSet() {
     return;
   }
   await storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
-  endpointEditMode = false;
+  state.endpointEditMode = false;
   await refreshUi();
 }
 
 async function handleEndpointEditToggle() {
-  endpointEditMode = !endpointEditMode;
+  state.endpointEditMode = !state.endpointEditMode;
   await refreshUi();
 }
 
@@ -1960,10 +1182,10 @@ async function handleTokenBlur() {
 
 async function handleContextRefresh() {
   await loadActiveTab();
-  baseUrlEditMode = false;
-  endpointEditMode = false;
-  if (currentTab && currentTab.id) {
-    const tabState = await getTabState(currentTab.id);
+  state.baseUrlEditMode = false;
+  state.endpointEditMode = false;
+  if (state.currentTab && state.currentTab.id) {
+    const tabState = await getTabState(state.currentTab.id);
     if (tabState && tabState.enabled) {
       await sendTabMessageWithRetry({ type: "forceRefresh" });
     }
@@ -1973,16 +1195,16 @@ async function handleContextRefresh() {
 
 async function handlePageSave() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
   const response = await sendTabMessage({
     type: "savePageDraft",
-    baseUrl: currentBaseUrl
+    baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
     showToast("Unable to save page");
@@ -1990,17 +1212,17 @@ async function handlePageSave() {
   }
   showToast(response.saved ? "Page saved" : "No changes to save");
   if (response.saved) {
-    await clearPagePatternDraft(currentTab.id, currentTab.url || "");
+    await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   }
   await refreshUi();
 }
 
 async function handlePageRevert() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
@@ -2012,23 +1234,23 @@ async function handlePageRevert() {
   }
   const response = await sendTabMessage({
     type: "revertPageDraft",
-    baseUrl: currentBaseUrl
+    baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
     showToast("Unable to revert page");
     return;
   }
   showToast("Reverted to last saved");
-  await clearPagePatternDraft(currentTab.id, currentTab.url || "");
+  await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   await refreshUi();
 }
 
 async function handlePageDelete() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
@@ -2040,30 +1262,30 @@ async function handlePageDelete() {
   }
   const response = await sendTabMessage({
     type: "deletePageEntry",
-    baseUrl: currentBaseUrl
+    baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
     showToast("Unable to delete page data");
     return;
   }
   showToast("Page data deleted");
-  await clearPagePatternDraft(currentTab.id, currentTab.url || "");
+  await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   await refreshUi();
 }
 
 async function handleComputeSelectors() {
-  if (aiRequestInFlight) {
+  if (state.aiRequestInFlight) {
     return;
   }
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
-  if (currentDraftDirty) {
+  if (state.currentDraftDirty) {
     showToast("Save the current page before using AI controls");
     return;
   }
@@ -2083,9 +1305,9 @@ async function handleComputeSelectors() {
     return;
   }
 
-  currentConfig = await ensureConfig(currentBaseUrl);
+  state.currentConfig = await ensureConfig(state.currentBaseUrl);
 
-  const pageMarkings = currentConfig.pageMarkings || {};
+  const pageMarkings = state.currentConfig.pageMarkings || {};
   const pages = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
@@ -2105,7 +1327,7 @@ async function handleComputeSelectors() {
       if (!entry || !entry.url) {
         return false;
       }
-      if (currentBaseUrl && !entry.url.startsWith(currentBaseUrl)) {
+      if (state.currentBaseUrl && !entry.url.startsWith(state.currentBaseUrl)) {
         return false;
       }
       return (
@@ -2121,12 +1343,12 @@ async function handleComputeSelectors() {
   }
 
   const payload = {
-    baseUrl: currentBaseUrl,
+    baseUrl: state.currentBaseUrl,
     pages
   };
 
   let selectors = [];
-  aiRequestInFlight = "compute";
+  state.aiRequestInFlight = "compute";
   await refreshUi();
   try {
     const response = await fetch(endpointValue, {
@@ -2150,14 +1372,14 @@ async function handleComputeSelectors() {
       .filter((item) => typeof item === "string")
       .map((item) => item.trim())
       .filter(Boolean);
-    currentConfig = await updateConfig(currentBaseUrl, (config) => {
+    state.currentConfig = await updateConfig(state.currentBaseUrl, (config) => {
       config.latestComputedSelectors = selectors;
       config.domainAiSelectorSet = {
         inclusionSelectors: selectors
       };
     });
 
-    await sendTabMessage({ type: "configUpdated", baseUrl: currentBaseUrl });
+    await sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
     await sendTabMessage({
       type: "showAiPreview",
       selectors
@@ -2166,24 +1388,24 @@ async function handleComputeSelectors() {
   } catch (error) {
     showToast("Endpoint request failed");
   } finally {
-    aiRequestInFlight = null;
+    state.aiRequestInFlight = null;
     await refreshUi();
   }
 }
 
 async function handleSaveExcludes() {
-  if (aiRequestInFlight) {
+  if (state.aiRequestInFlight) {
     return;
   }
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl) {
+  if (!state.currentBaseUrl) {
     showToast("Set Base Page URL first");
     return;
   }
-  if (currentDraftDirty) {
+  if (state.currentDraftDirty) {
     showToast("Save the current page before using AI controls");
     return;
   }
@@ -2202,16 +1424,16 @@ async function handleSaveExcludes() {
     showToast("Set token first");
     return;
   }
-  const selectors = currentConfig.latestComputedSelectors || [];
+  const selectors = state.currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     showToast("Compute selectors before saving");
     return;
   }
-  if (arraysEqual(selectors, currentConfig.lastSavedSelectors || [])) {
+  if (arraysEqual(selectors, state.currentConfig.lastSavedSelectors || [])) {
     showToast("No new selectors to save");
     return;
   }
-  aiRequestInFlight = "save";
+  state.aiRequestInFlight = "save";
   await refreshUi();
   try {
     const response = await fetch(endpointValue, {
@@ -2221,7 +1443,7 @@ async function handleSaveExcludes() {
         Authorization: `Bearer ${tokenValue}`
       },
       body: JSON.stringify({
-        baseUrl: currentBaseUrl,
+        baseUrl: state.currentBaseUrl,
         selectors
       })
     });
@@ -2229,28 +1451,28 @@ async function handleSaveExcludes() {
       showToast("Save response error");
       return;
     }
-    currentConfig = await updateConfig(currentBaseUrl, (config) => {
+    state.currentConfig = await updateConfig(state.currentBaseUrl, (config) => {
       config.lastSavedSelectors = selectors;
     });
     showToast("Excludes saved");
   } catch (error) {
     showToast("Save request failed");
   } finally {
-    aiRequestInFlight = null;
+    state.aiRequestInFlight = null;
     await refreshUi();
   }
 }
 
 async function handlePreviewLatest() {
   await loadActiveTab();
-  if (!currentTab) {
+  if (!state.currentTab) {
     return;
   }
-  if (!currentBaseUrl || !currentConfig) {
+  if (!state.currentBaseUrl || !state.currentConfig) {
     showToast("Set Base Page URL first");
     return;
   }
-  const selectors = currentConfig.latestComputedSelectors || [];
+  const selectors = state.currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     showToast("No stored selectors available");
     return;
@@ -2262,11 +1484,11 @@ async function handlePreviewLatest() {
 }
 
 function scheduleRefresh() {
-  if (refreshTimer) {
+  if (state.refreshTimer) {
     return;
   }
-  refreshTimer = window.setTimeout(async () => {
-    refreshTimer = 0;
+  state.refreshTimer = window.setTimeout(async () => {
+    state.refreshTimer = 0;
     await loadActiveTab();
     await refreshUi();
   }, 120);
@@ -2283,7 +1505,7 @@ async function init() {
   ui.deviceScale.addEventListener("change", handleDeviceScaleChange);
   ui.configToggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    setConfigMenuOpen(!configMenuOpen);
+    setConfigMenuOpen(!state.configMenuOpen);
   });
   ui.configMenu.addEventListener("click", (event) => event.stopPropagation());
   ui.configExportAll.addEventListener("click", handleExportAll);
@@ -2344,11 +1566,11 @@ async function init() {
   });
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (!currentTab || tabId !== currentTab.id) {
+    if (!state.currentTab || tabId !== state.currentTab.id) {
       return;
     }
     if (changeInfo.url || changeInfo.status === "complete") {
-      currentTab = tab;
+      state.currentTab = tab;
       await refreshUi();
     }
   });
@@ -2360,10 +1582,10 @@ async function init() {
     if (
       (areaName === "local" && changes.configs) ||
       (areaName === "session" &&
-        currentTab &&
-        (changes[`tabState:${currentTab.id}`] ||
-          changes[`${DEVICE_MODE_PREFIX}${currentTab.id}`] ||
-          changes[`${PAGE_PATTERN_DRAFT_PREFIX}${currentTab.id}`]))
+        state.currentTab &&
+        (changes[`tabState:${state.currentTab.id}`] ||
+          changes[`${DEVICE_MODE_PREFIX}${state.currentTab.id}`] ||
+          changes[`${PAGE_PATTERN_DRAFT_PREFIX}${state.currentTab.id}`]))
     ) {
       scheduleRefresh();
     }
@@ -2373,7 +1595,7 @@ async function init() {
     if (!message || message.type !== "pageDraftChanged") {
       return;
     }
-    if (currentBaseUrl && message.baseUrl === currentBaseUrl) {
+    if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {
       scheduleRefresh();
     }
   });
