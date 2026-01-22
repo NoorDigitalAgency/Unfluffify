@@ -34,6 +34,17 @@ export async function injectContentScript(tabId) {
 }
 
 // Browser utilities
+export async function disableExtensionForTab(tabId) {
+  const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
+  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  await updateActionForTab(tabId);
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
+  } catch (error) {
+    // Content script may not be loaded
+  }
+}
 export const tabsQuery = (query) =>
     new Promise((resolve) => chrome.tabs.query(query, resolve));
 

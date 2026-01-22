@@ -1,6 +1,6 @@
 import * as utils from "./common/utilities.js";
-import * as constants from "./common/constants.js";
-import * as emulation from "./common/emulation.js";
+import {getDeviceEmulationState, updateDeviceEmulation} from "./common/emulation.js";
+import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
@@ -49,7 +49,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const mode = message.mode === "mobile" ? "mobile" : "desktop";
-    emulation.updateDeviceEmulation(message.tabId, {
+    updateDeviceEmulation(message.tabId, {
       enabled: true,
       mode
     })
@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "Missing tab" });
       return;
     }
-    emulation.updateDeviceEmulation(message.tabId, {
+    updateDeviceEmulation(message.tabId, {
       enabled: typeof message.enabled === "boolean" ? message.enabled : undefined,
       mode: message.mode,
       scale: message.scale
@@ -137,23 +137,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  const key = `${constants.TAB_STATE_PREFIX}${tabId}`;
-  const deviceKey = `${constants.DEVICE_EMULATION_PREFIX}${tabId}`;
-  const scriptKey = `${constants.SCRIPT_INJECTED_PREFIX}${tabId}`;
+  const key = `${TAB_STATE_PREFIX}${tabId}`;
+  const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
+  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
   utils.storageRemove(chrome.storage.session, [key, deviceKey, scriptKey]).then();
 });
-
-async function disableExtensionForTab(tabId) {
-  const tabKey = `${constants.TAB_STATE_PREFIX}${tabId}`;
-  const scriptKey = `${constants.SCRIPT_INJECTED_PREFIX}${tabId}`;
-  await utils.storageRemove(chrome.storage.session, [tabKey, scriptKey]);
-  await utils.updateActionForTab(tabId);
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
-  } catch (error) {
-    // Content script may not be loaded
-  }
-}
 
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId !== 0) {
@@ -167,19 +155,19 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (!state || !state.enabled) {
     return;
   }
-  await disableExtensionForTab(tabId);
+  await utils.disableExtensionForTab(tabId);
 });
 
 chrome.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
     return;
   }
-  const state = await emulation.getDeviceEmulationState(source.tabId);
+  const state = await getDeviceEmulationState(source.tabId);
   if (!state.enabled) {
     return;
   }
   await chrome.storage.session.set({
-    [`${constants.DEVICE_EMULATION_PREFIX}${source.tabId}`]: { ...state, enabled: false }
+    [`${DEVICE_EMULATION_PREFIX}${source.tabId}`]: { ...state, enabled: false }
   });
 });
 
@@ -192,10 +180,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
   Object.keys(changes).forEach((key) => {
-    if (!key.startsWith(constants.TAB_STATE_PREFIX)) {
+    if (!key.startsWith(TAB_STATE_PREFIX)) {
       return;
     }
-    const tabId = Number(key.slice(constants.TAB_STATE_PREFIX.length));
+    const tabId = Number(key.slice(TAB_STATE_PREFIX.length));
     if (!Number.isNaN(tabId)) {
       utils.updateActionForTab(tabId).then();
     }

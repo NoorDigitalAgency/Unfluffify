@@ -1,4 +1,4 @@
-import * as chromeHelpers from "./popup/chromeHelpers.js";
+import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
