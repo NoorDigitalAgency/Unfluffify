@@ -711,6 +711,23 @@ export function main() {
     return results;
   }
 
+  function getExcludedXPathSet(config, pageUrl) {
+    if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+      return new Set();
+    }
+    const entry = config.pageMarkings[pageUrl];
+    const items = entry && Array.isArray(entry.xpaths) ? entry.xpaths : [];
+    return new Set(collectExcludedXPaths(items));
+  }
+
+  function isExplicitlyExcludedElement(el, excludedSet) {
+    if (!el || !excludedSet || excludedSet.size === 0) {
+      return false;
+    }
+    const xpath = getXPath(el);
+    return Boolean(xpath && excludedSet.has(xpath));
+  }
+
   function createOverlay() {
     if (state.overlay) {
       return;
@@ -1234,6 +1251,9 @@ export function main() {
     if (isWithinImmutableExcluded(el)) {
       return false;
     }
+    if (options && options.explicitlyExcluded) {
+      return true;
+    }
     if (isTextualContainer(el)) {
       return true;
     }
@@ -1281,7 +1301,29 @@ export function main() {
   }
 
   function getMarkableTarget(x, y, options) {
+    const allowParent = options && options.allowParent;
+    const allowExcludedParent = options && options.allowExcludedParent;
+    const excludedSet = options && options.excludedSet;
     const elements = document.elementsFromPoint(x, y);
+    if (allowExcludedParent && excludedSet && excludedSet.size > 0) {
+      for (const el of elements) {
+        if (!el || el.nodeType !== 1) {
+          continue;
+        }
+        if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+          continue;
+        }
+        if (el === document.documentElement || el === document.body) {
+          continue;
+        }
+        if (isWithinAiPopover(el)) {
+          continue;
+        }
+        if (isExplicitlyExcludedElement(el, excludedSet)) {
+          return el;
+        }
+      }
+    }
     for (const el of elements) {
       if (!el || el.nodeType !== 1) {
         continue;
@@ -1292,7 +1334,12 @@ export function main() {
       if (el === document.documentElement || el === document.body) {
         continue;
       }
-      const resolved = resolveMarkableElement(el, state.config, options);
+      const explicitlyExcluded =
+        allowExcludedParent && isExplicitlyExcludedElement(el, excludedSet);
+      const resolved = resolveMarkableElement(el, state.config, {
+        allowParent,
+        explicitlyExcluded
+      });
       if (resolved) {
         return resolved;
       }
@@ -1394,8 +1441,14 @@ export function main() {
         clearFocusHighlight();
       }
     }
+    const allowParent = event.shiftKey;
+    const excludedSet = allowParent
+      ? null
+      : getExcludedXPathSet(state.config, location.href);
     const target = getMarkableTarget(event.clientX, event.clientY, {
-      allowParent: event.shiftKey
+      allowParent,
+      allowExcludedParent: true,
+      excludedSet
     });
     if (target) {
       toggleExplicit(target);
