@@ -1,6 +1,6 @@
 import * as utils from "./common/utilities.js";
 import * as constants from "./common/constants.js";
-import * as emulation from "./background/emulation.js";
+import * as emulation from "./common/emulation.js";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {

@@ -2,8 +2,8 @@ import {
   DEVICE_EMULATION_PREFIX,
   DEVICE_EMULATION_PRESETS,
   DEVICE_SCALE_DEFAULTS
-} from "../common/constants.js";
-import { storageGet, storageSet } from "../common/utilities.js";
+} from "./constants.js";
+import { storageGet, storageSet } from "./utilities.js";
 
 function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";
