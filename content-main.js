@@ -1356,8 +1356,14 @@ export function main() {
     if (!layerHover) {
       return;
     }
+    const allowParent = event.shiftKey;
+    const excludedSet = allowParent
+      ? null
+      : getExcludedXPathSet(state.config, location.href);
     const target = getMarkableTarget(event.clientX, event.clientY, {
-      allowParent: event.shiftKey
+      allowParent,
+      allowExcludedParent: true,
+      excludedSet
     });
     if (!target) {
       clearLayer(layerHover);
