@@ -41,7 +41,8 @@
     {
       "resources": [
         "content-main.js",
-        "content/*.js"
+        "content/*.js",
+        "common/*.js"
       ],
       "matches": [
         "<all_urls>"
