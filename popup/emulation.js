@@ -1,60 +1,14 @@
-import * as constants from "../common/constants.js";
-import * as utils from "../common/utilities.js";
+import * as commonEmulation from "../common/emulation.js";
 import * as uiModule from "./ui.js";
 import * as stateModule from "./state.js";
 
 const { ui } = uiModule;
-const { state, DEVICE_SCALE_LIMITS } = stateModule;
+const { state } = stateModule;
 
-export function normalizeDeviceMode(mode) {
-  return mode === "mobile" ? "mobile" : "desktop";
-}
-
-export function normalizeDeviceScale(scale, mode) {
-  if (typeof scale !== "number" || !Number.isFinite(scale)) {
-    return constants.DEVICE_SCALE_DEFAULTS[mode];
-  }
-  if (scale < DEVICE_SCALE_LIMITS.min) {
-    return DEVICE_SCALE_LIMITS.min;
-  }
-  if (scale > DEVICE_SCALE_LIMITS.max) {
-    return DEVICE_SCALE_LIMITS.max;
-  }
-  return scale;
-}
-
-export function normalizeDeviceEmulationState(value) {
-  if (!value) {
-    return {
-      enabled: false,
-      mode: "desktop",
-      scale: constants.DEVICE_SCALE_DEFAULTS.desktop
-    };
-  }
-  if (typeof value === "string") {
-    const mode = normalizeDeviceMode(value);
-    return {
-      enabled: true,
-      mode,
-      scale: constants.DEVICE_SCALE_DEFAULTS[mode]
-    };
-  }
-  const mode = normalizeDeviceMode(value.mode);
-  return {
-    enabled: Boolean(value.enabled),
-    mode,
-    scale: normalizeDeviceScale(value.scale, mode)
-  };
-}
-
-export async function getDeviceEmulationState(tabId) {
-  const key = `${constants.DEVICE_EMULATION_PREFIX}${tabId}`;
-  const result = await utils.storageGet(chrome.storage.session, key);
-  return normalizeDeviceEmulationState(result[key]);
-}
+export const getDeviceEmulationState = commonEmulation.getDeviceEmulationState;
 
 export function updateDeviceEmulationUi(stateValue) {
-  const normalized = normalizeDeviceEmulationState(stateValue);
+  const normalized = commonEmulation.normalizeDeviceEmulationStateForUi(stateValue);
   state.currentDeviceMode = normalized.mode;
   state.currentDeviceScale = normalized.scale;
   state.currentDeviceEmulationEnabled = normalized.enabled;
@@ -100,7 +54,11 @@ export function getSelectedDeviceScale() {
     return state.currentDeviceScale;
   }
   const parsed = Number.parseFloat(ui.deviceScale.value);
-  return normalizeDeviceScale(parsed, getSelectedDeviceMode());
+  return commonEmulation.normalizeDeviceEmulationStateForUi({
+    enabled: true,
+    mode: getSelectedDeviceMode(),
+    scale: parsed
+  }).scale;
 }
 
 export function setDeviceControlsDisabled(disabled) {
