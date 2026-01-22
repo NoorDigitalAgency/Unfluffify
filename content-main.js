@@ -1407,7 +1407,7 @@ export function main() {
         if (!existingEl) {
           return;
         }
-        if (existingEl.contains(target) || target.contains(existingEl)) {
+        if (existingEl.contains(target)) {
           item.excluded = false;
         }
       });
