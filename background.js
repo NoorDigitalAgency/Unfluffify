@@ -190,8 +190,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   });
 });
 
-chrome.runtime.onInstalled.addListener(() => {
-  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
-    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).then();
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id) {
+    chrome.sidePanel.setOptions({
+      tabId: tab.id,
+      path: "popup.html",
+      enabled: true
+    }).then();
+    chrome.sidePanel.open({tabId: tab.id}).then();
   }
 });

@@ -6,9 +6,6 @@
   "action": {
     "default_title": "Unfluffify"
   },
-  "side_panel": {
-    "default_path": "popup.html"
-  },
   "permissions": [
     "downloads",
     "storage",
