@@ -1,18 +1,15 @@
-import {
+import * as config from "./common/config.js";
+import * as patterns from "./common/patterns.js";
+import * as utils from "./common/utilities.js";
+import * as constants from "./content/constants.js";
+import * as stateModule from "./content/state.js";
+
+const {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   HEADING_TAG_SELECTOR,
   REMOVABLE_ELEMENT_SELECTORS
-} from "./content/constants.js";
-import { createDefaultConfig, normalizeAiSelectorSet, normalizePageMarkings } from "./content/config.js";
-import { sendMessage } from "./content/messages.js";
-import {
-  collectPagePatterns,
-  isPageUrlAllowed,
-  isPageUrlMatchingPattern,
-  normalizePatternValue
-} from "./content/patterns.js";
-import { state } from "./content/state.js";
-import { storageGet, storageSet } from "./content/storage.js";
+} = constants;
+const { state } = stateModule;
 
 export function main() {
   if (state.initialized) {
@@ -43,7 +40,7 @@ export function main() {
       url: entry.url || "",
       title: entry.title || "",
       xpaths,
-      pagePattern: normalizePatternValue(entry.pagePattern || ""),
+      pagePattern: patterns.normalizePatternValue(entry.pagePattern || ""),
       fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
     };
   }
@@ -52,7 +49,7 @@ export function main() {
     if (!entry || !Array.isArray(entry.xpaths)) {
       return [];
     }
-    const pattern = normalizePatternValue(entry.pagePattern || "");
+    const pattern = patterns.normalizePatternValue(entry.pagePattern || "");
     const fingerprint = [`pattern:${pattern}`];
     const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
@@ -117,68 +114,21 @@ export function main() {
   }
 
   async function loadConfig(baseUrl) {
-    const result = await storageGet("configs");
+    const result = await utils.storageGet(chrome.storage.local, "configs");
     const configs = result.configs || {};
-    let changed = false;
-    const existing = configs[baseUrl];
-    const defaultConfig = createDefaultConfig(baseUrl);
-    let currentConfig = { ...defaultConfig };
-
-    if (!existing) {
-      changed = true;
-    } else {
-      if (
-        existing.explicitXPathDecisions ||
-        existing.defaultToggleExclusionsDisabled ||
-        existing.pageHtmlSnapshots ||
-        existing.pendingAiSave !== undefined
-      ) {
-        changed = true;
-      }
-      if (typeof existing.domain === "string") {
-        currentConfig.domain = existing.domain;
-      }
-      if (typeof existing.pageMarkings === "object" && existing.pageMarkings !== null) {
-        const normalized = normalizePageMarkings(existing.pageMarkings);
-        currentConfig.pageMarkings = normalized.normalized;
-        if (normalized.changed) {
-          changed = true;
-        }
-      } else if (existing.pageMarkings !== undefined) {
-        changed = true;
-      }
-      if (existing.pageUrlPatterns !== undefined) {
-        changed = true;
-      }
-      if (Array.isArray(existing.latestComputedSelectors)) {
-        currentConfig.latestComputedSelectors = existing.latestComputedSelectors;
-      } else if (existing.latestComputedSelectors !== undefined) {
-        changed = true;
-      }
-      if (Array.isArray(existing.lastSavedSelectors)) {
-        currentConfig.lastSavedSelectors = existing.lastSavedSelectors;
-      } else if (existing.lastSavedSelectors !== undefined) {
-        changed = true;
-      }
-      const aiSelectors = normalizeAiSelectorSet(existing.domainAiSelectorSet);
-      currentConfig.domainAiSelectorSet = aiSelectors.normalized;
-      if (aiSelectors.changed) {
-        changed = true;
-      }
-    }
-
-    configs[baseUrl] = currentConfig;
-    if (changed) {
-      await storageSet({ configs });
+    const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
+    configs[baseUrl] = normalized.config;
+    if (normalized.changed) {
+      await utils.storageSet(chrome.storage.local, { configs });
     }
     return configs[baseUrl];
   }
 
   async function saveConfig(baseUrl, config) {
-    const result = await storageGet("configs");
+    const result = await utils.storageGet(chrome.storage.local, "configs");
     const configs = result.configs || {};
     configs[baseUrl] = config;
-    await storageSet({ configs });
+    await utils.storageSet(chrome.storage.local, { configs });
   }
 
   function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
@@ -1761,14 +1711,14 @@ export function main() {
     state.enabled = true;
     state.baseUrl = baseUrl;
     state.config = await loadConfig(baseUrl);
-    const pendingPattern = normalizePatternValue(options && options.pagePattern);
+    const pendingPattern = patterns.normalizePatternValue(options && options.pagePattern);
     const pageUrl = location.href;
     if (pendingPattern) {
       const entry = getPageMarkingEntry(state.config, pageUrl);
       entry.pagePattern = pendingPattern;
       state.config.pageMarkings[pageUrl] = entry;
     }
-    if (!isPageUrlAllowed(state.config, pageUrl, pendingPattern)) {
+    if (!patterns.isPageUrlAllowed(state.config, pageUrl, pendingPattern)) {
       disable();
       return;
     }
@@ -1914,7 +1864,7 @@ export function main() {
   }
 
   async function refreshFromTabState() {
-    const response = await sendMessage({ type: "getTabState" });
+    const response = await utils.sendRuntimeMessage({ type: "getTabState" });
     if (response && response.enabled && response.baseUrl) {
       // Only enable if we're already enabled (not a fresh page load after navigation)
       // and the URL still matches the baseUrl
@@ -1928,7 +1878,7 @@ export function main() {
             ? config.pageMarkings[pageUrl]
             : null;
         mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
-        if (!isPageUrlAllowed(config, pageUrl)) {
+        if (!patterns.isPageUrlAllowed(config, pageUrl)) {
           disable();
           return;
         }
@@ -2172,13 +2122,13 @@ export function main() {
 
     if (message.type === "setPagePatternDraft") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const pagePattern = normalizePatternValue(message.pagePattern || "");
-      const basePattern = normalizePatternValue(targetBaseUrl);
+      const pagePattern = patterns.normalizePatternValue(message.pagePattern || "");
+      const basePattern = patterns.normalizePatternValue(targetBaseUrl);
       if (!targetBaseUrl || !pagePattern) {
         sendResponse({ ok: false });
         return;
       }
-      if (!basePattern || !isPageUrlMatchingPattern(pagePattern, basePattern)) {
+      if (!basePattern || !patterns.isPageUrlMatchingPattern(pagePattern, basePattern)) {
         sendResponse({ ok: false });
         return;
       }

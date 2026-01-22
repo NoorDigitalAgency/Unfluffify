@@ -1,4 +1,6 @@
-import { state } from "./state.js";
+import * as stateModule from "./state.js";
+
+const { state } = stateModule;
 
 export const ui = {
   toggleEnabled: document.getElementById("toggle-enabled"),

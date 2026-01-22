@@ -1,6 +1,5 @@
-import { storageGet, storageSet } from "./storage.js";
-import { looksLikeBaseUrl } from "./utils.js";
 import { normalizePatternValue } from "./patterns.js";
+import { looksLikeBaseUrl, storageGet, storageSet } from "./utilities.js";
 
 export function createDefaultConfig(baseUrl) {
   let domain = "";
@@ -19,7 +18,7 @@ export function createDefaultConfig(baseUrl) {
   };
 }
 
-function normalizePageMarkings(pageMarkings) {
+export function normalizePageMarkings(pageMarkings) {
   const normalized = {};
   let changed = false;
   if (!pageMarkings || typeof pageMarkings !== "object") {
@@ -88,7 +87,7 @@ function normalizePageMarkings(pageMarkings) {
   return { normalized, changed };
 }
 
-function normalizeAiSelectorSet(value) {
+export function normalizeAiSelectorSet(value) {
   const normalized = { inclusionSelectors: [] };
   let changed = false;
   if (!value || typeof value !== "object") {

@@ -1,14 +1,14 @@
 import * as chromeHelpers from "./popup/chromeHelpers.js";
-import * as config from "./popup/config.js";
-import * as stateModule from "./popup/state.js";
-import * as emulation from "./popup/deviceEmulation.js";
+import * as config from "./common/config.js";
+import * as constants from "./common/constants.js";
+import * as emulation from "./popup/emulation.js";
 import * as drafts from "./popup/drafts.js";
-import * as patterns from "./popup/patterns.js";
+import * as patterns from "./common/patterns.js";
 import * as render from "./popup/render.js";
-import * as storage from "./popup/storage.js";
 import * as uiModule from "./popup/ui.js";
-import * as utils from "./popup/utils.js";
+import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
+import * as stateModule from "./popup/state.js";
 
 const { state } = stateModule;
 const { ui } = uiModule;
@@ -22,12 +22,13 @@ async function refreshUi() {
     return;
   }
   const configs = await config.getConfigs();
-  const tabState = await storage.getTabState(state.currentTab.id);
+  const tabState =
+    (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
   const pageUrl = state.currentTab.url || "";
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !pageUrl.startsWith(tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
-    await storage.setTabState(state.currentTab.id, effectiveTabState);
+    await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
   const fallbackBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
@@ -109,14 +110,14 @@ async function refreshUi() {
   const pagePatternReady = Boolean(matchingPattern);
   if (ui.toggleEnabled.checked && !pagePatternReady && state.currentTab && state.currentTab.id) {
     ui.toggleEnabled.checked = false;
-    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
+    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   emulation.updateDeviceEmulationUi(storedDeviceState);
-  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
-  const endpointResult = await storage.storageGet(
+  const endpointResult = await utils.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -468,7 +469,7 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
-    await storage.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await utils.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -477,7 +478,7 @@ async function handleEnableToggle() {
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
@@ -643,8 +644,8 @@ async function handleClearDomainCache() {
 async function handleExportAll() {
   uiModule.setConfigMenuOpen(false);
   const configs = await config.getConfigs();
-  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
-  const endpointResult = await storage.storageGet(
+  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
+  const endpointResult = await utils.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -705,7 +706,7 @@ async function handleClearCurrent() {
   await config.saveConfigs(configs);
   await messages.loadActiveTab();
   if (state.currentTab && state.currentTab.id) {
-    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
@@ -724,13 +725,13 @@ async function handleClearAll() {
     return;
   }
   await config.saveConfigs({});
-  await storage.storageSet(chrome.storage.sync, {
+  await utils.storageSet(chrome.storage.sync, {
     globalToken: "",
     globalEndpoint: ""
   });
   await messages.loadActiveTab();
   if (state.currentTab && state.currentTab.id) {
-    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
@@ -801,7 +802,7 @@ async function handleImportFile(event) {
   await config.saveConfigs(existing);
 
   if (includeGlobals) {
-    await storage.storageSet(chrome.storage.sync, {
+    await utils.storageSet(chrome.storage.sync, {
       globalToken: globalToken || "",
       globalEndpoint: globalEndpoint || ""
     });
@@ -866,7 +867,7 @@ async function handleBaseUrlSet() {
   const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
   state.baseUrlEditMode = false;
   if (matchingPattern) {
-    await storage.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await utils.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -875,7 +876,7 @@ async function handleBaseUrlSet() {
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
@@ -927,7 +928,7 @@ async function handleBaseUrlEditToggle() {
   if (state.baseUrlEditMode) {
     await messages.loadActiveTab();
     if (state.currentTab && state.currentTab.id) {
-      await storage.setTabState(state.currentTab.id, {
+      await utils.setTabState(state.currentTab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
@@ -951,7 +952,7 @@ async function handleBaseUrlEditToggle() {
     }
     const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
     if (matchingPattern) {
-      await storage.setTabState(state.currentTab.id, {
+      await utils.setTabState(state.currentTab.id, {
         enabled: true,
         baseUrl: state.currentBaseUrl
       });
@@ -963,7 +964,7 @@ async function handleBaseUrlEditToggle() {
       });
       await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
-      await storage.setTabState(state.currentTab.id, {
+      await utils.setTabState(state.currentTab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
@@ -985,7 +986,7 @@ async function handleEndpointSet() {
     uiModule.showToast("Enter a valid Endpoint URL");
     return;
   }
-  await storage.storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
+  await utils.storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
   state.endpointEditMode = false;
   await refreshUi();
 }
@@ -996,14 +997,14 @@ async function handleEndpointEditToggle() {
 }
 
 async function handleTokenBlur() {
-  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
   const existing = tokenResult.globalToken || "";
   const entered = window.prompt("Enter token", existing);
   if (entered === null) {
     return;
   }
   const token = entered.trim();
-  await storage.storageSet(chrome.storage.sync, { globalToken: token });
+  await utils.storageSet(chrome.storage.sync, { globalToken: token });
   uiModule.showToast(token ? "Token saved" : "Token cleared");
   await refreshUi();
 }
@@ -1013,7 +1014,7 @@ async function handleContextRefresh() {
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
   if (state.currentTab && state.currentTab.id) {
-    const tabState = await storage.getTabState(state.currentTab.id);
+    const tabState = await utils.getTabState(state.currentTab.id);
     if (tabState && tabState.enabled) {
       await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     }
@@ -1117,7 +1118,7 @@ async function handleComputeSelectors() {
     uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await storage.storageGet(
+  const endpointResult = await utils.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -1126,7 +1127,7 @@ async function handleComputeSelectors() {
     uiModule.showToast("Set Endpoint URL first");
     return;
   }
-  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
   if (!tokenValue) {
     uiModule.showToast("Set token first");
@@ -1237,7 +1238,7 @@ async function handleSaveExcludes() {
     uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await storage.storageGet(
+  const endpointResult = await utils.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -1246,7 +1247,7 @@ async function handleSaveExcludes() {
     uiModule.showToast("Set Endpoint URL first");
     return;
   }
-  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
   if (!tokenValue) {
     uiModule.showToast("Set token first");
@@ -1411,8 +1412,8 @@ async function init() {
       (areaName === "local" && changes.configs) ||
       (areaName === "session" &&
         state.currentTab &&
-        (changes[`tabState:${state.currentTab.id}`] ||
-          changes[`${stateModule.DEVICE_MODE_PREFIX}${state.currentTab.id}`] ||
+        (changes[`${constants.TAB_STATE_PREFIX}${state.currentTab.id}`] ||
+          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`] ||
           changes[`${stateModule.PAGE_PATTERN_DRAFT_PREFIX}${state.currentTab.id}`]))
     ) {
       scheduleRefresh();

@@ -1,3 +1,10 @@
+function getPathSegments(pathname) {
+  if (!pathname) {
+    return [];
+  }
+  return pathname.split("/").filter(Boolean);
+}
+
 export function normalizePatternValue(value) {
   if (!value || typeof value !== "string") {
     return "";
@@ -36,13 +43,6 @@ export function findBestMatchingPattern(pageUrl, patterns) {
     .filter((pattern) => isPageUrlMatchingPattern(pageUrl, pattern))
     .sort((left, right) => right.length - left.length);
   return matches[0] || "";
-}
-
-function getPathSegments(pathname) {
-  if (!pathname) {
-    return [];
-  }
-  return pathname.split("/").filter(Boolean);
 }
 
 export function isPageWithinBase(pageUrl, baseUrl) {
@@ -115,4 +115,20 @@ export function getPatternOptions(pageUrl, baseUrl) {
     options.push({ value, label });
   }
   return options;
+}
+
+export function isPageUrlAllowed(config, pageUrl, pendingPattern) {
+  if (!config || !pageUrl) {
+    return false;
+  }
+  const pageMarkings = config.pageMarkings || config;
+  const patterns = collectPagePatterns(pageMarkings);
+  const normalizedPending = normalizePatternValue(pendingPattern || "");
+  if (normalizedPending && !patterns.includes(normalizedPending)) {
+    patterns.push(normalizedPending);
+  }
+  if (!patterns.length) {
+    return false;
+  }
+  return patterns.some((pattern) => isPageUrlMatchingPattern(pageUrl, pattern));
 }

@@ -1,18 +1,12 @@
-import { tabsQuery } from "./storage.js";
-import { state } from "./state.js";
+import * as utils from "../common/utilities.js";
+import * as stateModule from "./state.js";
+
+const { state } = stateModule;
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function sendRuntimeMessage(message) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      resolve(response);
-    });
-  });
+  return utils.sendRuntimeMessage(message);
 }
 
 export function sendTabMessage(message) {
@@ -44,7 +38,7 @@ export async function sendTabMessageWithRetry(message, attempts = 3) {
 
 export async function loadActiveTab() {
   try {
-    const tabs = await tabsQuery({ active: true, lastFocusedWindow: true });
+    const tabs = await utils.tabsQuery({ active: true, lastFocusedWindow: true });
     state.currentTab = tabs[0] || null;
   } catch (error) {
     state.currentTab = null;

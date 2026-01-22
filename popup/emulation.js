@@ -1,11 +1,10 @@
-import { storageGet } from "./storage.js";
-import { ui } from "./ui.js";
-import { state } from "./state.js";
-import {
-  DEVICE_MODE_PREFIX,
-  DEVICE_SCALE_DEFAULTS,
-  DEVICE_SCALE_LIMITS
-} from "./state.js";
+import * as constants from "../common/constants.js";
+import * as utils from "../common/utilities.js";
+import * as uiModule from "./ui.js";
+import * as stateModule from "./state.js";
+
+const { ui } = uiModule;
+const { state, DEVICE_SCALE_LIMITS } = stateModule;
 
 export function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";
@@ -13,7 +12,7 @@ export function normalizeDeviceMode(mode) {
 
 export function normalizeDeviceScale(scale, mode) {
   if (typeof scale !== "number" || !Number.isFinite(scale)) {
-    return DEVICE_SCALE_DEFAULTS[mode];
+    return constants.DEVICE_SCALE_DEFAULTS[mode];
   }
   if (scale < DEVICE_SCALE_LIMITS.min) {
     return DEVICE_SCALE_LIMITS.min;
@@ -29,7 +28,7 @@ export function normalizeDeviceEmulationState(value) {
     return {
       enabled: false,
       mode: "desktop",
-      scale: DEVICE_SCALE_DEFAULTS.desktop
+      scale: constants.DEVICE_SCALE_DEFAULTS.desktop
     };
   }
   if (typeof value === "string") {
@@ -37,7 +36,7 @@ export function normalizeDeviceEmulationState(value) {
     return {
       enabled: true,
       mode,
-      scale: DEVICE_SCALE_DEFAULTS[mode]
+      scale: constants.DEVICE_SCALE_DEFAULTS[mode]
     };
   }
   const mode = normalizeDeviceMode(value.mode);
@@ -49,8 +48,8 @@ export function normalizeDeviceEmulationState(value) {
 }
 
 export async function getDeviceEmulationState(tabId) {
-  const key = `${DEVICE_MODE_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
+  const key = `${constants.DEVICE_EMULATION_PREFIX}${tabId}`;
+  const result = await utils.storageGet(chrome.storage.session, key);
   return normalizeDeviceEmulationState(result[key]);
 }
 
