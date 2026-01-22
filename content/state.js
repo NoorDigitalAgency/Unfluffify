@@ -11,6 +11,7 @@ export const state = {
   toast: null,
   toastHideTimer: 0,
   altPassThrough: false,
+  lastPointer: null,
   markIdCounter: 1,
   markIds: new WeakMap(),
   markedElements: new Set(),

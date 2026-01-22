@@ -956,6 +956,7 @@ export function main() {
       state.focusElement = null;
       state.toast = null;
     }
+    state.lastPointer = null;
     window.removeEventListener("keydown", handleKeydown, true);
     window.removeEventListener("click", handleAltClick, true);
     window.removeEventListener("keyup", handleKeyup, true);
@@ -1397,20 +1398,18 @@ export function main() {
     return null;
   }
 
-  function handleMouseMove(event) {
-    if (!state.enabled) {
+  function updateHoverHighlight(x, y, allowParent) {
+    if (!state.enabled || state.altPassThrough) {
       return;
     }
-    event.stopPropagation();
     const layerHover = state.layers["hover"];
     if (!layerHover) {
       return;
     }
-    const allowParent = event.shiftKey;
     const excludedSet = allowParent
       ? null
       : getExcludedXPathSet(state.config, location.href);
-    const target = getMarkableTarget(event.clientX, event.clientY, {
+    const target = getMarkableTarget(x, y, {
       allowParent,
       allowExcludedParent: true,
       excludedSet
@@ -1426,6 +1425,38 @@ export function main() {
     }
     clearLayer(layerHover);
     drawMultiRect(layerHover, rects, "mc-hover", target, null, null);
+  }
+
+  function refreshHoverHighlight() {
+    if (!state.enabled || state.altPassThrough) {
+      return;
+    }
+    const layerHover = state.layers["hover"];
+    if (!layerHover) {
+      return;
+    }
+    if (!state.lastPointer) {
+      clearLayer(layerHover);
+      return;
+    }
+    updateHoverHighlight(
+      state.lastPointer.x,
+      state.lastPointer.y,
+      state.lastPointer.shiftKey
+    );
+  }
+
+  function handleMouseMove(event) {
+    if (!state.enabled) {
+      return;
+    }
+    event.stopPropagation();
+    state.lastPointer = {
+      x: event.clientX,
+      y: event.clientY,
+      shiftKey: event.shiftKey
+    };
+    updateHoverHighlight(event.clientX, event.clientY, event.shiftKey);
   }
 
   function toggleExplicit(target) {
@@ -1569,6 +1600,7 @@ export function main() {
       window.requestAnimationFrame(() => {
         state.isScrolling = false;
         renderHighlights();
+        refreshHoverHighlight();
         if (state.overlay) {
           state.overlay.classList.remove("mc-scrolling");
         }
