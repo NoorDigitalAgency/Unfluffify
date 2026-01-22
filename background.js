@@ -1,13 +1,6 @@
-import {
-  DEVICE_EMULATION_PREFIX,
-  SCRIPT_INJECTED_PREFIX,
-  TAB_STATE_PREFIX
-} from "./background/constants.js";
-import { storageRemove } from "./background/storage.js";
-import { getTabState, setTabState, clearTabState } from "./background/tabState.js";
-import { isScriptInjected, injectContentScript } from "./background/scripting.js";
-import { getDeviceEmulationState, updateDeviceEmulation } from "./background/deviceEmulation.js";
-import { updateActionForTab } from "./background/action.js";
+import * as utils from "./common/utilities.js";
+import * as constants from "./common/constants.js";
+import * as emulation from "./background/emulation.js";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
@@ -20,7 +13,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ enabled: false, baseUrl: "" });
       return;
     }
-    getTabState(tabId)
+    utils.getTabState(tabId)
       .then((state) => {
         sendResponse(state || { enabled: false, baseUrl: "" });
       })
@@ -39,9 +32,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       enabled: Boolean(message.enabled),
       baseUrl: message.baseUrl || ""
     };
-    setTabState(message.tabId, state)
+    utils.setTabState(message.tabId, state)
       .then(() => {
-        updateActionForTab(message.tabId);
+        utils.updateActionForTab(message.tabId).then();
         sendResponse({ ok: true });
       })
       .catch(() => {
@@ -56,7 +49,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const mode = message.mode === "mobile" ? "mobile" : "desktop";
-    updateDeviceEmulation(message.tabId, {
+    emulation.updateDeviceEmulation(message.tabId, {
       enabled: true,
       mode
     })
@@ -78,7 +71,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "Missing tab" });
       return;
     }
-    updateDeviceEmulation(message.tabId, {
+    emulation.updateDeviceEmulation(message.tabId, {
       enabled: typeof message.enabled === "boolean" ? message.enabled : undefined,
       mode: message.mode,
       scale: message.scale
@@ -101,9 +94,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false });
       return;
     }
-    clearTabState(message.tabId)
+    utils.clearTabState(message.tabId)
       .then(() => {
-        updateActionForTab(message.tabId);
+        utils.updateActionForTab(message.tabId).then();
         sendResponse({ ok: true });
       })
       .catch(() => {
@@ -117,7 +110,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "Missing tab" });
       return;
     }
-    injectContentScript(message.tabId)
+    utils.injectContentScript(message.tabId)
       .then((result) => {
         sendResponse(result);
       })
@@ -132,7 +125,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ injected: false });
       return;
     }
-    isScriptInjected(message.tabId)
+    utils.isScriptInjected(message.tabId)
       .then((injected) => {
         sendResponse({ injected });
       })
@@ -144,17 +137,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  const key = `${TAB_STATE_PREFIX}${tabId}`;
-  const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  storageRemove(chrome.storage.session, [key, deviceKey, scriptKey]);
+  const key = `${constants.TAB_STATE_PREFIX}${tabId}`;
+  const deviceKey = `${constants.DEVICE_EMULATION_PREFIX}${tabId}`;
+  const scriptKey = `${constants.SCRIPT_INJECTED_PREFIX}${tabId}`;
+  utils.storageRemove(chrome.storage.session, [key, deviceKey, scriptKey]).then();
 });
 
 async function disableExtensionForTab(tabId) {
-  const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
-  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
-  await updateActionForTab(tabId);
+  const tabKey = `${constants.TAB_STATE_PREFIX}${tabId}`;
+  const scriptKey = `${constants.SCRIPT_INJECTED_PREFIX}${tabId}`;
+  await utils.storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  await utils.updateActionForTab(tabId);
   try {
     await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
   } catch (error) {
@@ -170,7 +163,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (!tabId) {
     return;
   }
-  const state = await getTabState(tabId);
+  const state = await utils.getTabState(tabId);
   if (!state || !state.enabled) {
     return;
   }
@@ -181,17 +174,17 @@ chrome.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
     return;
   }
-  const state = await getDeviceEmulationState(source.tabId);
+  const state = await emulation.getDeviceEmulationState(source.tabId);
   if (!state.enabled) {
     return;
   }
   await chrome.storage.session.set({
-    [`${DEVICE_EMULATION_PREFIX}${source.tabId}`]: { ...state, enabled: false }
+    [`${constants.DEVICE_EMULATION_PREFIX}${source.tabId}`]: { ...state, enabled: false }
   });
 });
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  await updateActionForTab(tabId);
+  await utils.updateActionForTab(tabId);
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -199,18 +192,18 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
   Object.keys(changes).forEach((key) => {
-    if (!key.startsWith(TAB_STATE_PREFIX)) {
+    if (!key.startsWith(constants.TAB_STATE_PREFIX)) {
       return;
     }
-    const tabId = Number(key.slice(TAB_STATE_PREFIX.length));
+    const tabId = Number(key.slice(constants.TAB_STATE_PREFIX.length));
     if (!Number.isNaN(tabId)) {
-      updateActionForTab(tabId);
+      utils.updateActionForTab(tabId).then();
     }
   });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
-    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).then();
   }
 });
