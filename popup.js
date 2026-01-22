@@ -1,72 +1,41 @@
-import { clearBrowsingDataForOrigin, downloadJsonFile, reloadTab } from "./popup/chromeHelpers.js";
-import {
-  createDefaultConfig,
-  ensureConfig,
-  extractIncomingConfigs,
-  getConfigs,
-  normalizeConfig,
-  normalizeImportedConfig,
-  saveConfigs,
-  updateConfig
-} from "./popup/config.js";
-import {
-  DEVICE_MODE_PREFIX,
-  MAX_IMPORT_BYTES,
-  PAGE_PATTERN_DRAFT_PREFIX,
-  state
-} from "./popup/state.js";
-import {
-  getDeviceEmulationState,
-  getSelectedDeviceMode,
-  getSelectedDeviceScale,
-  setDeviceControlsDisabled,
-  updateDeviceEmulationUi
-} from "./popup/deviceEmulation.js";
-import { clearPagePatternDraft, getPagePatternDraft, setPagePatternDraft } from "./popup/drafts.js";
-import {
-  collectPagePatterns,
-  findBestMatchingPattern,
-  getPatternOptions,
-  isPageWithinBase,
-  normalizePatternValue
-} from "./popup/patterns.js";
-import { renderExcludeList, renderHeadingDefaults, renderMarkedPages, renderPatternSelect } from "./popup/render.js";
-import { getTabState, setTabState, storageGet, storageSet } from "./popup/storage.js";
-import { setConfigMenuOpen, setUiBusy, showToast, ui } from "./popup/ui.js";
-import {
-  arraysEqual,
-  findMatchingBaseUrl,
-  formatBytes,
-  getOriginFromUrl,
-  isHeadingXPath,
-  makeSafeFilename,
-  parseBaseUrl
-} from "./popup/utils.js";
-import { loadActiveTab, sendRuntimeMessage, sendTabMessage, sendTabMessageWithRetry } from "./popup/messages.js";
+import * as chromeHelpers from "./popup/chromeHelpers.js";
+import * as config from "./popup/config.js";
+import * as stateModule from "./popup/state.js";
+import * as emulation from "./popup/deviceEmulation.js";
+import * as drafts from "./popup/drafts.js";
+import * as patterns from "./popup/patterns.js";
+import * as render from "./popup/render.js";
+import * as storage from "./popup/storage.js";
+import * as uiModule from "./popup/ui.js";
+import * as utils from "./popup/utils.js";
+import * as messages from "./popup/messages.js";
+
+const { state } = stateModule;
+const { ui } = uiModule;
 
 async function clearFocusedElement() {
-  await sendTabMessage({ type: "clearFocus" });
+  await messages.sendTabMessage({ type: "clearFocus" });
 }
 
 async function refreshUi() {
   if (!state.currentTab) {
     return;
   }
-  const configs = await getConfigs();
-  const tabState = await getTabState(state.currentTab.id);
+  const configs = await config.getConfigs();
+  const tabState = await storage.getTabState(state.currentTab.id);
   const pageUrl = state.currentTab.url || "";
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !pageUrl.startsWith(tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
-    await setTabState(state.currentTab.id, effectiveTabState);
+    await storage.setTabState(state.currentTab.id, effectiveTabState);
   }
-  const fallbackBaseUrl = findMatchingBaseUrl(pageUrl, configs);
+  const fallbackBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (state.currentBaseUrl) {
-    const normalized = normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
+    const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
     if (!configs[state.currentBaseUrl] || normalized.changed) {
       configs[state.currentBaseUrl] = normalized.config;
-      await saveConfigs(configs);
+      await config.saveConfigs(configs);
     }
     state.currentConfig = configs[state.currentBaseUrl];
   } else {
@@ -108,11 +77,11 @@ async function refreshUi() {
   } else {
     ui.baseUrlNotice.style.display = "none";
   }
-  const patternDrafts = state.currentTab ? await getPagePatternDraft(state.currentTab.id) : {};
+  const patternDrafts = state.currentTab ? await drafts.getPagePatternDraft(state.currentTab.id) : {};
   let draftPattern =
-    normalizePatternValue(
+    patterns.normalizePatternValue(
       (state.currentDraftEntry && state.currentDraftEntry.pagePattern) || ""
-    ) || normalizePatternValue(patternDrafts[pageUrl] || "");
+    ) || patterns.normalizePatternValue(patternDrafts[pageUrl] || "");
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
@@ -120,34 +89,34 @@ async function refreshUi() {
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
   const pagePatternOptions = baseUrlReady
-    ? getPatternOptions(pageUrl, state.currentBaseUrl)
+    ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
     : [];
   if (baseUrlReady && pageUrl) {
-    const basePattern = normalizePatternValue(state.currentBaseUrl);
-    const pagePattern = normalizePatternValue(pageUrl);
+    const basePattern = patterns.normalizePatternValue(state.currentBaseUrl);
+    const pagePattern = patterns.normalizePatternValue(pageUrl);
     if (basePattern && pagePattern && basePattern === pagePattern && !draftPattern) {
-      await setPagePatternDraft(state.currentTab.id, pageUrl, basePattern);
+      await drafts.setPagePatternDraft(state.currentTab.id, pageUrl, basePattern);
       draftPattern = basePattern;
     }
   }
-  const storedPatterns = collectPagePatterns(
+  const storedPatterns = patterns.collectPagePatterns(
     state.currentConfig ? state.currentConfig.pageMarkings : null
   );
   if (draftPattern && !storedPatterns.includes(draftPattern)) {
     storedPatterns.push(draftPattern);
   }
-  const matchingPattern = findBestMatchingPattern(pageUrl, storedPatterns);
+  const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const pagePatternReady = Boolean(matchingPattern);
   if (ui.toggleEnabled.checked && !pagePatternReady && state.currentTab && state.currentTab.id) {
     ui.toggleEnabled.checked = false;
-    await setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  const storedDeviceState = await getDeviceEmulationState(state.currentTab.id);
-  updateDeviceEmulationUi(storedDeviceState);
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
+  emulation.updateDeviceEmulationUi(storedDeviceState);
+  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
-  const endpointResult = await storageGet(
+  const endpointResult = await storage.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -182,7 +151,7 @@ async function refreshUi() {
     (state.currentConfig && state.currentConfig.latestComputedSelectors) || [];
   const lastSaved = (state.currentConfig && state.currentConfig.lastSavedSelectors) || [];
   const hasNewSelectors =
-    latestComputed.length > 0 && !arraysEqual(latestComputed, lastSaved);
+    latestComputed.length > 0 && !utils.arraysEqual(latestComputed, lastSaved);
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = latestComputed.length > 0;
 
@@ -192,7 +161,7 @@ async function refreshUi() {
   state.currentDraftAvailable = false;
   state.currentDraftHasEntry = false;
   if (state.currentBaseUrl && isEnabled) {
-    const draftStatus = await sendTabMessage({
+    const draftStatus = await messages.sendTabMessage({
       type: "getPageDraftStatus",
       baseUrl: state.currentBaseUrl
     });
@@ -242,8 +211,8 @@ async function refreshUi() {
   }
   if (ui.pagePatternSelect && ui.pagePatternSet && ui.pagePatternNotice) {
     const patternUiDisabled =
-      !baseUrlReady || !pageUrl || !isPageWithinBase(pageUrl, state.currentBaseUrl);
-    renderPatternSelect(
+      !baseUrlReady || !pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl);
+    render.renderPatternSelect(
       ui.pagePatternSelect,
       pagePatternOptions,
       draftPattern || matchingPattern || ""
@@ -253,7 +222,7 @@ async function refreshUi() {
     if (!baseUrlReady) {
       ui.pagePatternNotice.textContent = "Set Base Page URL first";
       ui.pagePatternNotice.style.display = "block";
-    } else if (!pageUrl || !isPageWithinBase(pageUrl, state.currentBaseUrl)) {
+    } else if (!pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl)) {
       ui.pagePatternNotice.textContent = "Current page is outside the Base Page URL";
       ui.pagePatternNotice.style.display = "block";
     } else if (!pagePatternReady) {
@@ -291,7 +260,7 @@ async function refreshUi() {
   let headingDefaults = [];
   let headingXPathSet = new Set();
   if (state.currentBaseUrl) {
-    const response = await sendTabMessage({
+    const response = await messages.sendTabMessage({
       type: "getHeadingDefaultStatus",
       baseUrl: state.currentBaseUrl
     });
@@ -316,7 +285,7 @@ async function refreshUi() {
         item.excluded &&
         item.xpath &&
         !headingXPathSet.has(item.xpath) &&
-        !isHeadingXPath(item.xpath)
+        !utils.isHeadingXPath(item.xpath)
     )
     .map((item) => item.xpath);
   let pageExplicitExclude = excludedXPaths.map((xpath) => ({
@@ -324,7 +293,7 @@ async function refreshUi() {
     text: xpath
   }));
   if (state.currentBaseUrl) {
-    const response = await sendTabMessage({
+    const response = await messages.sendTabMessage({
       type: "describeXPathsOnPage",
       xpaths: excludedXPaths
     });
@@ -333,17 +302,17 @@ async function refreshUi() {
     }
   }
 
-  renderExcludeList(
+  render.renderExcludeList(
     ui.explicitExcludes,
     pageExplicitExclude,
     baseUrlSet ? "None yet" : "Set Base Page URL first",
     async (value) => {
-      const response = await sendTabMessage({
+      const response = await messages.sendTabMessage({
         type: "focusElement",
         xpath: value
       });
       if (!response || !response.ok) {
-        showToast("Unable to focus element");
+        uiModule.showToast("Unable to focus element");
       }
     },
     async (value) => {
@@ -351,31 +320,31 @@ async function refreshUi() {
         return;
       }
       await clearFocusedElement();
-      const response = await sendTabMessage({
+      const response = await messages.sendTabMessage({
         type: "setExplicitExclude",
         baseUrl: state.currentBaseUrl,
         xpath: value,
         excluded: false
       });
       if (!response || !response.ok) {
-        showToast("Unable to update exclude");
+        uiModule.showToast("Unable to update exclude");
         return;
       }
       refreshUi();
     }
   );
-  renderHeadingDefaults(
+  render.renderHeadingDefaults(
     ui.headingDefaults,
     headingDefaults,
     baseUrlSet ? "None yet" : "Set Base Page URL first",
     async (item, action) => {
       if (action === "view") {
-        const response = await sendTabMessage({
+        const response = await messages.sendTabMessage({
           type: "focusElement",
           xpath: item.xpath
         });
         if (!response || !response.ok) {
-          showToast("Unable to focus element");
+          uiModule.showToast("Unable to focus element");
         }
         return;
       }
@@ -383,13 +352,13 @@ async function refreshUi() {
         return;
       }
       await clearFocusedElement();
-      const response = await sendTabMessage({
+      const response = await messages.sendTabMessage({
         type: "toggleHeadingDefault",
         baseUrl: state.currentBaseUrl,
         xpath: item.xpath
       });
       if (!response || !response.ok) {
-        showToast("Unable to update heading");
+        uiModule.showToast("Unable to update heading");
         return;
       }
       await refreshUi();
@@ -414,7 +383,7 @@ async function refreshUi() {
         item &&
         item.excluded &&
         item.xpath &&
-        !isHeadingXPath(item.xpath)
+        !utils.isHeadingXPath(item.xpath)
     ).length;
     markedPages.push({
       url,
@@ -423,13 +392,13 @@ async function refreshUi() {
     });
   });
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
-  renderMarkedPages(
+  render.renderMarkedPages(
     ui.markedPages,
     markedPages,
     baseUrlSet ? "None yet" : "Set Base Page URL first",
     pageUrl,
     async (url) => {
-      await loadActiveTab();
+      await messages.loadActiveTab();
       if (!state.currentTab || !state.currentTab.id) {
         return;
       }
@@ -444,7 +413,7 @@ async function injectContentScriptIfNeeded() {
   if (!state.currentTab || !state.currentTab.id) {
     return { ok: false, error: "No active tab" };
   }
-  const response = await sendRuntimeMessage({
+  const response = await messages.sendRuntimeMessage({
     type: "injectContentScript",
     tabId: state.currentTab.id
   });
@@ -452,41 +421,41 @@ async function injectContentScriptIfNeeded() {
 }
 
 async function handleEnableToggle() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL before enabling marking");
+    uiModule.showToast("Set Base Page URL before enabling marking");
     ui.toggleEnabled.checked = false;
     return;
   }
   const enabled = ui.toggleEnabled.checked;
   const baseUrlValue = state.currentBaseUrl;
   if (enabled) {
-    const parsed = parseBaseUrl(baseUrlValue);
+    const parsed = utils.parseBaseUrl(baseUrlValue);
     if (!parsed) {
-      showToast("Enter a valid Base Page URL");
+      uiModule.showToast("Enter a valid Base Page URL");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
     if (!state.currentTab.url.startsWith(baseUrlValue)) {
-      showToast("Current page is outside the Base Page URL");
+      uiModule.showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
-    state.currentConfig = await ensureConfig(baseUrlValue);
-    const patternDrafts = await getPagePatternDraft(state.currentTab.id);
-    const draftPattern = normalizePatternValue(patternDrafts[state.currentTab.url] || "");
-    const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
+    state.currentConfig = await config.ensureConfig(baseUrlValue);
+    const patternDrafts = await drafts.getPagePatternDraft(state.currentTab.id);
+    const draftPattern = patterns.normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
+    const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
     if (!matchingPattern) {
-      showToast("Choose a URL pattern before enabling");
+      uiModule.showToast("Choose a URL pattern before enabling");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
@@ -494,28 +463,28 @@ async function handleEnableToggle() {
     // Inject content script first
     const injectResult = await injectContentScriptIfNeeded();
     if (!injectResult.ok) {
-      showToast(injectResult.error || "Unable to activate on this page");
+      uiModule.showToast(injectResult.error || "Unable to activate on this page");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
-    await setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
-    await sendTabMessageWithRetry({
+    await storage.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue,
       pagePattern: matchingPattern
     });
-    await sendTabMessageWithRetry({ type: "forceRefresh" });
+    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
 
 async function handleDeviceEmulationEnabledToggle() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.id) {
     return;
   }
@@ -523,162 +492,119 @@ async function handleDeviceEmulationEnabledToggle() {
   if (desiredEnabled === state.currentDeviceEmulationEnabled) {
     return;
   }
-  setDeviceControlsDisabled(true);
-  const response = await sendRuntimeMessage({
+  emulation.setDeviceControlsDisabled(true);
+  const response = await messages.sendRuntimeMessage({
     type: "updateDeviceEmulation",
     tabId: state.currentTab.id,
     enabled: desiredEnabled,
     mode: state.currentDeviceMode,
     scale: state.currentDeviceScale
   });
-  setDeviceControlsDisabled(false);
+  emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
-    showToast((response && response.error) || "Device emulation failed");
-    updateDeviceEmulationUi({
+    uiModule.showToast((response && response.error) || "Device emulation failed");
+    emulation.updateDeviceEmulationUi({
       enabled: state.currentDeviceEmulationEnabled,
       mode: state.currentDeviceMode,
       scale: state.currentDeviceScale
     });
     return;
   }
-  updateDeviceEmulationUi(response.state);
+  emulation.updateDeviceEmulationUi(response.state);
 }
 
 async function handleDeviceModeToggle() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.id) {
     return;
   }
   if (!state.currentDeviceEmulationEnabled) {
-    updateDeviceEmulationUi({
+    emulation.updateDeviceEmulationUi({
       enabled: state.currentDeviceEmulationEnabled,
       mode: state.currentDeviceMode,
       scale: state.currentDeviceScale
     });
     return;
   }
-  const desiredMode = getSelectedDeviceMode();
+  const desiredMode = emulation.getSelectedDeviceMode();
   if (desiredMode === state.currentDeviceMode) {
     return;
   }
-  setDeviceControlsDisabled(true);
-  const response = await sendRuntimeMessage({
+  emulation.setDeviceControlsDisabled(true);
+  const response = await messages.sendRuntimeMessage({
     type: "updateDeviceEmulation",
     tabId: state.currentTab.id,
     enabled: true,
     mode: desiredMode,
     scale: state.currentDeviceScale
   });
-  setDeviceControlsDisabled(false);
+  emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
-    showToast((response && response.error) || "Device emulation failed");
-    updateDeviceEmulationUi({
+    uiModule.showToast((response && response.error) || "Device emulation failed");
+    emulation.updateDeviceEmulationUi({
       enabled: state.currentDeviceEmulationEnabled,
       mode: state.currentDeviceMode,
       scale: state.currentDeviceScale
     });
     return;
   }
-  updateDeviceEmulationUi(response.state);
+  emulation.updateDeviceEmulationUi(response.state);
 }
 
 function handleDeviceScaleInput() {
-  const scale = getSelectedDeviceScale();
+  const scale = emulation.getSelectedDeviceScale();
   if (ui.deviceScaleValue) {
     ui.deviceScaleValue.textContent = `${Math.round(scale * 100)}%`;
   }
 }
 
 async function handleDeviceScaleChange() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.id) {
     return;
   }
   if (!state.currentDeviceEmulationEnabled) {
-    updateDeviceEmulationUi({
+    emulation.updateDeviceEmulationUi({
       enabled: state.currentDeviceEmulationEnabled,
       mode: state.currentDeviceMode,
       scale: state.currentDeviceScale
     });
     return;
   }
-  const desiredScale = getSelectedDeviceScale();
+  const desiredScale = emulation.getSelectedDeviceScale();
   if (desiredScale === state.currentDeviceScale) {
     return;
   }
-  setDeviceControlsDisabled(true);
-  const response = await sendRuntimeMessage({
+  emulation.setDeviceControlsDisabled(true);
+  const response = await messages.sendRuntimeMessage({
     type: "updateDeviceEmulation",
     tabId: state.currentTab.id,
     enabled: true,
     mode: state.currentDeviceMode,
     scale: desiredScale
   });
-  setDeviceControlsDisabled(false);
+  emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
-    showToast((response && response.error) || "Device emulation failed");
-    updateDeviceEmulationUi({
+    uiModule.showToast((response && response.error) || "Device emulation failed");
+    emulation.updateDeviceEmulationUi({
       enabled: state.currentDeviceEmulationEnabled,
       mode: state.currentDeviceMode,
       scale: state.currentDeviceScale
     });
     return;
   }
-  updateDeviceEmulationUi(response.state);
-}
-
-function clearBrowsingDataForOrigin(origin) {
-  return new Promise((resolve) => {
-    chrome.browsingData.remove(
-      { origins: [origin] },
-      {
-        cookies: true,
-        cache: true,
-        cacheStorage: true,
-        localStorage: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          resolve({
-            ok: false,
-            error: chrome.runtime.lastError.message || "Unable to clear cache"
-          });
-          return;
-        }
-        resolve({ ok: true });
-      }
-    );
-  });
-}
-
-function reloadTab(tabId) {
-  return new Promise((resolve) => {
-    if (!tabId) {
-      resolve({ ok: false, error: "Missing tab" });
-      return;
-    }
-    chrome.tabs.reload(tabId, () => {
-      if (chrome.runtime.lastError) {
-        resolve({
-          ok: false,
-          error: chrome.runtime.lastError.message || "Unable to reload tab"
-        });
-        return;
-      }
-      resolve({ ok: true });
-    });
-  });
+  emulation.updateDeviceEmulationUi(response.state);
 }
 
 async function handleClearDomainCache() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.url) {
-    showToast("No active tab to clear");
+    uiModule.showToast("No active tab to clear");
     return;
   }
-  const origin = getOriginFromUrl(state.currentTab.url);
+  const origin = utils.getOriginFromUrl(state.currentTab.url);
   if (!origin) {
-    showToast("Unsupported page for cache clearing");
+    uiModule.showToast("Unsupported page for cache clearing");
     return;
   }
   let hostname = origin;
@@ -693,91 +619,32 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
-  setUiBusy(true);
+  uiModule.setUiBusy(true);
   if (ui.clearDomainCache) {
     ui.clearDomainCache.disabled = true;
   }
-  const result = await clearBrowsingDataForOrigin(origin);
+  const result = await chromeHelpers.clearBrowsingDataForOrigin(origin);
   if (ui.clearDomainCache) {
     ui.clearDomainCache.disabled = false;
   }
   if (!result.ok) {
-    setUiBusy(false);
-    showToast(result.error || "Unable to clear cache");
+    uiModule.setUiBusy(false);
+    uiModule.showToast(result.error || "Unable to clear cache");
     return;
   }
-  showToast("Domain cache cleared");
-  const reloadResult = await reloadTab(state.currentTab.id);
-  setUiBusy(false);
+  uiModule.showToast("Domain cache cleared");
+  const reloadResult = await chromeHelpers.reloadTab(state.currentTab.id);
+  uiModule.setUiBusy(false);
   if (!reloadResult.ok) {
-    showToast(reloadResult.error || "Unable to reload tab");
+    uiModule.showToast(reloadResult.error || "Unable to reload tab");
   }
-}
-
-function normalizeImportedConfig(baseUrl, incoming) {
-  if (!incoming) {
-    return createDefaultConfig(baseUrl);
-  }
-  const { config } = normalizeConfig(baseUrl, incoming);
-  config.baseUrl = baseUrl;
-  if (!config.domain) {
-    try {
-      config.domain = new URL(baseUrl).hostname;
-    } catch (error) {
-      config.domain = "";
-    }
-  }
-  return config;
-}
-
-function looksLikeBaseUrl(value) {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
-function formatBytes(bytes) {
-  if (!bytes) {
-    return "0 B";
-  }
-  const units = ["B", "KB", "MB"];
-  let size = bytes;
-  let index = 0;
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024;
-    index += 1;
-  }
-  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
-function makeSafeFilename(value) {
-  return value.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
-}
-
-function downloadJsonFile(filename, payload) {
-  const blob = new Blob([JSON.stringify(payload)], {
-    type: "application/json"
-  });
-  const url = URL.createObjectURL(blob);
-  chrome.downloads.download(
-    {
-      url,
-      filename,
-      saveAs: true
-    },
-    () => {
-      const error = chrome.runtime.lastError;
-      window.setTimeout(() => URL.revokeObjectURL(url), 1200);
-      if (error) {
-        showToast("Unable to save configuration");
-      }
-    }
-  );
 }
 
 async function handleExportAll() {
-  setConfigMenuOpen(false);
-  const configs = await getConfigs();
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
-  const endpointResult = await storageGet(
+  uiModule.setConfigMenuOpen(false);
+  const configs = await config.getConfigs();
+  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
+  const endpointResult = await storage.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
@@ -789,83 +656,42 @@ async function handleExportAll() {
     globalEndpoint: endpointResult.globalEndpoint || ""
   };
   const filename = `markcontit-all-${new Date().toISOString().slice(0, 10)}.json`;
-  downloadJsonFile(filename, payload);
+  chromeHelpers.downloadJsonFile(filename, payload);
 }
 
 async function handleExportCurrent() {
-  setConfigMenuOpen(false);
+  uiModule.setConfigMenuOpen(false);
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
-  const configs = await getConfigs();
-  const config = normalizeImportedConfig(
+  const configs = await config.getConfigs();
+  const normalizedConfig = config.normalizeImportedConfig(
     state.currentBaseUrl,
-    configs[state.currentBaseUrl] || createDefaultConfig(state.currentBaseUrl)
+    configs[state.currentBaseUrl] || config.createDefaultConfig(state.currentBaseUrl)
   );
   const payload = {
     version: 1,
     scope: "baseUrl",
     baseUrl: state.currentBaseUrl,
-    config
+    config: normalizedConfig
   };
-  const safeBase = makeSafeFilename(state.currentBaseUrl) || "base";
+  const safeBase = utils.makeSafeFilename(state.currentBaseUrl) || "base";
   const filename = `markcontit-${safeBase}.json`;
-  downloadJsonFile(filename, payload);
-}
-
-function extractIncomingConfigs(parsed) {
-  const incomingConfigs = {};
-  let includeGlobals = false;
-  let globalToken = "";
-  let globalEndpoint = "";
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
-  }
-
-  if (parsed.configs && typeof parsed.configs === "object") {
-    Object.assign(incomingConfigs, parsed.configs);
-    includeGlobals = parsed.scope === "all";
-    globalToken = parsed.globalToken || "";
-    globalEndpoint = parsed.globalEndpoint || "";
-    if (!includeGlobals && ("globalToken" in parsed || "globalEndpoint" in parsed)) {
-      includeGlobals = true;
-    }
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
-  }
-
-  if (parsed.baseUrl && looksLikeBaseUrl(parsed.baseUrl)) {
-    const config =
-      parsed.config && typeof parsed.config === "object" ? parsed.config : parsed;
-    incomingConfigs[parsed.baseUrl] = config;
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
-  }
-
-  Object.entries(parsed).forEach(([key, value]) => {
-    if (!looksLikeBaseUrl(key)) {
-      return;
-    }
-    if (!value || typeof value !== "object") {
-      return;
-    }
-    incomingConfigs[key] = value;
-  });
-
-  return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+  chromeHelpers.downloadJsonFile(filename, payload);
 }
 
 async function handleImport() {
-  setConfigMenuOpen(false);
+  uiModule.setConfigMenuOpen(false);
   if (ui.configImportFile) {
     ui.configImportFile.click();
   }
 }
 
 async function handleClearCurrent() {
-  setConfigMenuOpen(false);
+  uiModule.setConfigMenuOpen(false);
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   const confirmed = window.confirm(
@@ -874,44 +700,44 @@ async function handleClearCurrent() {
   if (!confirmed) {
     return;
   }
-  const configs = await getConfigs();
+  const configs = await config.getConfigs();
   delete configs[state.currentBaseUrl];
-  await saveConfigs(configs);
-  await loadActiveTab();
+  await config.saveConfigs(configs);
+  await messages.loadActiveTab();
   if (state.currentTab && state.currentTab.id) {
-    await setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
   state.currentConfig = null;
   state.baseUrlEditMode = false;
-  showToast("Base Page URL cleared");
+  uiModule.showToast("Base Page URL cleared");
   await refreshUi();
 }
 
 async function handleClearAll() {
-  setConfigMenuOpen(false);
+  uiModule.setConfigMenuOpen(false);
   const confirmed = window.confirm(
     "Clear all configuration and tokens? This cannot be undone."
   );
   if (!confirmed) {
     return;
   }
-  await saveConfigs({});
-  await storageSet(chrome.storage.sync, {
+  await config.saveConfigs({});
+  await storage.storageSet(chrome.storage.sync, {
     globalToken: "",
     globalEndpoint: ""
   });
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (state.currentTab && state.currentTab.id) {
-    await setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
   state.currentConfig = null;
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
-  showToast("All configuration cleared");
+  uiModule.showToast("All configuration cleared");
   await refreshUi();
 }
 
@@ -921,9 +747,9 @@ async function handleImportFile(event) {
   if (!file) {
     return;
   }
-  if (file.size > MAX_IMPORT_BYTES) {
+  if (file.size > stateModule.MAX_IMPORT_BYTES) {
     const confirmLarge = window.confirm(
-      `File is ${formatBytes(file.size)}. Importing may take a moment. Continue?`
+      `File is ${utils.formatBytes(file.size)}. Importing may take a moment. Continue?`
     );
     if (!confirmLarge) {
       return;
@@ -934,7 +760,7 @@ async function handleImportFile(event) {
   try {
     text = await file.text();
   } catch (error) {
-    showToast("Unable to read file");
+    uiModule.showToast("Unable to read file");
     return;
   }
 
@@ -942,7 +768,7 @@ async function handleImportFile(event) {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    showToast("Import file is not valid JSON");
+    uiModule.showToast("Import file is not valid JSON");
     return;
   } finally {
     text = "";
@@ -953,10 +779,10 @@ async function handleImportFile(event) {
     includeGlobals,
     globalToken,
     globalEndpoint
-  } = extractIncomingConfigs(parsed);
+  } = config.extractIncomingConfigs(parsed);
   const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
   if (!baseUrls.length) {
-    showToast("No configuration found in file");
+    uiModule.showToast("No configuration found in file");
     return;
   }
 
@@ -967,15 +793,15 @@ async function handleImportFile(event) {
     return;
   }
 
-  const existing = await getConfigs();
+  const existing = await config.getConfigs();
   baseUrls.forEach((baseUrl) => {
-    const normalized = normalizeImportedConfig(baseUrl, incomingConfigs[baseUrl]);
+    const normalized = config.normalizeImportedConfig(baseUrl, incomingConfigs[baseUrl]);
     existing[baseUrl] = normalized;
   });
-  await saveConfigs(existing);
+  await config.saveConfigs(existing);
 
   if (includeGlobals) {
-    await storageSet(chrome.storage.sync, {
+    await storage.storageSet(chrome.storage.sync, {
       globalToken: globalToken || "",
       globalEndpoint: globalEndpoint || ""
     });
@@ -987,109 +813,109 @@ async function handleImportFile(event) {
     state.currentTab &&
     state.currentTab.id
   ) {
-    await sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
+    await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
   }
 
-  showToast("Configuration imported");
+  uiModule.showToast("Configuration imported");
   await refreshUi();
 }
 
 async function handleBaseUrlSet() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.url) {
     return;
   }
   const baseUrlValue = ui.baseUrlInput.value.trim();
   if (!baseUrlValue) {
-    showToast("Enter a Base Page URL");
+    uiModule.showToast("Enter a Base Page URL");
     return;
   }
-  const parsed = parseBaseUrl(baseUrlValue);
+  const parsed = utils.parseBaseUrl(baseUrlValue);
   if (!parsed) {
-    showToast("Enter a valid Base Page URL");
+    uiModule.showToast("Enter a valid Base Page URL");
     return;
   }
   if (!state.currentTab.url.startsWith(baseUrlValue)) {
-    showToast("Current page is outside the Base Page URL");
+    uiModule.showToast("Current page is outside the Base Page URL");
     return;
   }
   // Inject content script first
   const injectResult = await injectContentScriptIfNeeded();
   if (!injectResult.ok) {
-    showToast(injectResult.error || "Unable to activate on this page");
+    uiModule.showToast(injectResult.error || "Unable to activate on this page");
     return;
   }
   state.currentBaseUrl = baseUrlValue;
-  state.currentConfig = await ensureConfig(baseUrlValue);
-  const basePattern = normalizePatternValue(baseUrlValue);
-  const pagePattern = normalizePatternValue(state.currentTab.url);
+  state.currentConfig = await config.ensureConfig(baseUrlValue);
+  const basePattern = patterns.normalizePatternValue(baseUrlValue);
+  const pagePattern = patterns.normalizePatternValue(state.currentTab.url);
   let draftPattern = "";
   if (basePattern && pagePattern && basePattern === pagePattern) {
     draftPattern = pagePattern;
-    await setPagePatternDraft(state.currentTab.id, state.currentTab.url, draftPattern);
-    await sendTabMessage({
+    await drafts.setPagePatternDraft(state.currentTab.id, state.currentTab.url, draftPattern);
+    await messages.sendTabMessage({
       type: "setPagePatternDraft",
       baseUrl: baseUrlValue,
       pagePattern: draftPattern
     });
   }
-  const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
+  const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
   if (draftPattern && !storedPatterns.includes(draftPattern)) {
     storedPatterns.push(draftPattern);
   }
-  const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
+  const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
   state.baseUrlEditMode = false;
   if (matchingPattern) {
-    await setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
-    await sendTabMessageWithRetry({
+    await storage.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue,
       pagePattern: matchingPattern
     });
-    await sendTabMessageWithRetry({ type: "forceRefresh" });
+    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
-    await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    await storage.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
 
 async function handlePagePatternSet() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab || !state.currentTab.url) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   const selected = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
   if (!selected) {
-    showToast("Choose a URL pattern");
+    uiModule.showToast("Choose a URL pattern");
     return;
   }
-  if (!isPageWithinBase(selected, state.currentBaseUrl)) {
-    showToast("Pattern must be within the Base Page URL");
+  if (!patterns.isPageWithinBase(selected, state.currentBaseUrl)) {
+    uiModule.showToast("Pattern must be within the Base Page URL");
     return;
   }
-  await setPagePatternDraft(state.currentTab.id, state.currentTab.url, selected);
+  await drafts.setPagePatternDraft(state.currentTab.id, state.currentTab.url, selected);
   const injectResult = await injectContentScriptIfNeeded();
   if (!injectResult.ok) {
-    showToast(injectResult.error || "Unable to reach the page");
+    uiModule.showToast(injectResult.error || "Unable to reach the page");
     return;
   }
-  const response = await sendTabMessageWithRetry({
+  const response = await messages.sendTabMessageWithRetry({
     type: "setPagePatternDraft",
     baseUrl: state.currentBaseUrl,
     pagePattern: selected
   });
   if (!response || !response.ok) {
-    showToast("Unable to set pattern");
+    uiModule.showToast("Unable to set pattern");
     await refreshUi();
     return;
   }
-  showToast("Pattern saved in draft");
+  uiModule.showToast("Pattern saved in draft");
   await refreshUi();
 }
 
@@ -1099,49 +925,49 @@ async function handleBaseUrlEditToggle() {
   }
   state.baseUrlEditMode = !state.baseUrlEditMode;
   if (state.baseUrlEditMode) {
-    await loadActiveTab();
+    await messages.loadActiveTab();
     if (state.currentTab && state.currentTab.id) {
-      await setTabState(state.currentTab.id, {
+      await storage.setTabState(state.currentTab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
-      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
   } else if (state.currentTab && state.currentTab.url.startsWith(state.currentBaseUrl)) {
     // Inject content script first when re-enabling
     const injectResult = await injectContentScriptIfNeeded();
     if (!injectResult.ok) {
-      showToast(injectResult.error || "Unable to activate on this page");
+      uiModule.showToast(injectResult.error || "Unable to activate on this page");
       state.baseUrlEditMode = true;
       await refreshUi();
       return;
     }
-    state.currentConfig = await ensureConfig(state.currentBaseUrl);
-    const patternDrafts = await getPagePatternDraft(state.currentTab.id);
-    const draftPattern = normalizePatternValue(patternDrafts[state.currentTab.url] || "");
-    const storedPatterns = collectPagePatterns(state.currentConfig.pageMarkings || {});
+    state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+    const patternDrafts = await drafts.getPagePatternDraft(state.currentTab.id);
+    const draftPattern = patterns.normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = findBestMatchingPattern(state.currentTab.url, storedPatterns);
+    const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
     if (matchingPattern) {
-      await setTabState(state.currentTab.id, {
+      await storage.setTabState(state.currentTab.id, {
         enabled: true,
         baseUrl: state.currentBaseUrl
       });
-      await sendTabMessageWithRetry({
+      await messages.sendTabMessageWithRetry({
         type: "setEnabled",
         enabled: true,
         baseUrl: state.currentBaseUrl,
         pagePattern: matchingPattern
       });
-      await sendTabMessageWithRetry({ type: "forceRefresh" });
+      await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
-      await setTabState(state.currentTab.id, {
+      await storage.setTabState(state.currentTab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
-      await sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
   }
   await refreshUi();
@@ -1150,16 +976,16 @@ async function handleBaseUrlEditToggle() {
 async function handleEndpointSet() {
   const endpointValue = ui.endpointUrl.value.trim();
   if (!endpointValue) {
-    showToast("Enter an Endpoint URL");
+    uiModule.showToast("Enter an Endpoint URL");
     return;
   }
   try {
     new URL(endpointValue);
   } catch (error) {
-    showToast("Enter a valid Endpoint URL");
+    uiModule.showToast("Enter a valid Endpoint URL");
     return;
   }
-  await storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
+  await storage.storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
   state.endpointEditMode = false;
   await refreshUi();
 }
@@ -1170,62 +996,62 @@ async function handleEndpointEditToggle() {
 }
 
 async function handleTokenBlur() {
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
   const existing = tokenResult.globalToken || "";
   const entered = window.prompt("Enter token", existing);
   if (entered === null) {
     return;
   }
   const token = entered.trim();
-  await storageSet(chrome.storage.sync, { globalToken: token });
-  showToast(token ? "Token saved" : "Token cleared");
+  await storage.storageSet(chrome.storage.sync, { globalToken: token });
+  uiModule.showToast(token ? "Token saved" : "Token cleared");
   await refreshUi();
 }
 
 async function handleContextRefresh() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
   if (state.currentTab && state.currentTab.id) {
-    const tabState = await getTabState(state.currentTab.id);
+    const tabState = await storage.getTabState(state.currentTab.id);
     if (tabState && tabState.enabled) {
-      await sendTabMessageWithRetry({ type: "forceRefresh" });
+      await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     }
   }
   await refreshUi();
 }
 
 async function handlePageSave() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
-  const response = await sendTabMessage({
+  const response = await messages.sendTabMessage({
     type: "savePageDraft",
     baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
-    showToast("Unable to save page");
+    uiModule.showToast("Unable to save page");
     return;
   }
-  showToast(response.saved ? "Page saved" : "No changes to save");
+  uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
   if (response.saved) {
-    await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+    await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   }
   await refreshUi();
 }
 
 async function handlePageRevert() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   const confirmed = window.confirm(
@@ -1234,26 +1060,26 @@ async function handlePageRevert() {
   if (!confirmed) {
     return;
   }
-  const response = await sendTabMessage({
+  const response = await messages.sendTabMessage({
     type: "revertPageDraft",
     baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
-    showToast("Unable to revert page");
+    uiModule.showToast("Unable to revert page");
     return;
   }
-  showToast("Reverted to last saved");
-  await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+  uiModule.showToast("Reverted to last saved");
+  await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   await refreshUi();
 }
 
 async function handlePageDelete() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   const confirmed = window.confirm(
@@ -1262,16 +1088,16 @@ async function handlePageDelete() {
   if (!confirmed) {
     return;
   }
-  const response = await sendTabMessage({
+  const response = await messages.sendTabMessage({
     type: "deletePageEntry",
     baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
-    showToast("Unable to delete page data");
+    uiModule.showToast("Unable to delete page data");
     return;
   }
-  showToast("Page data deleted");
-  await clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+  uiModule.showToast("Page data deleted");
+  await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
   await refreshUi();
 }
 
@@ -1279,35 +1105,35 @@ async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
   }
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   if (state.currentDraftDirty) {
-    showToast("Save the current page before using AI controls");
+    uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await storageGet(
+  const endpointResult = await storage.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
   const endpointValue = endpointResult.globalEndpoint || "";
   if (!endpointValue) {
-    showToast("Set Endpoint URL first");
+    uiModule.showToast("Set Endpoint URL first");
     return;
   }
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
   if (!tokenValue) {
-    showToast("Set token first");
+    uiModule.showToast("Set token first");
     return;
   }
 
-  state.currentConfig = await ensureConfig(state.currentBaseUrl);
+  state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
 
   const pageMarkings = state.currentConfig.pageMarkings || {};
   const pages = Object.entries(pageMarkings)
@@ -1340,7 +1166,7 @@ async function handleComputeSelectors() {
     });
 
   if (!pages.length) {
-    showToast("Mark pages before computing selectors");
+    uiModule.showToast("Mark pages before computing selectors");
     return;
   }
 
@@ -1362,33 +1188,33 @@ async function handleComputeSelectors() {
       body: JSON.stringify(payload)
     });
     if (!response.ok) {
-      showToast("Endpoint response error");
+      uiModule.showToast("Endpoint response error");
       return;
     }
     const data = await response.json();
     if (!Array.isArray(data)) {
-      showToast("Endpoint response format error");
+      uiModule.showToast("Endpoint response format error");
       return;
     }
     selectors = data
       .filter((item) => typeof item === "string")
       .map((item) => item.trim())
       .filter(Boolean);
-    state.currentConfig = await updateConfig(state.currentBaseUrl, (config) => {
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.latestComputedSelectors = selectors;
       config.domainAiSelectorSet = {
         inclusionSelectors: selectors
       };
     });
 
-    await sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
-    await sendTabMessage({
+    await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
+    await messages.sendTabMessage({
       type: "showAiPreview",
       selectors
     });
-    showToast("Selectors computed");
+    uiModule.showToast("Selectors computed");
   } catch (error) {
-    showToast("Endpoint request failed");
+    uiModule.showToast("Endpoint request failed");
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
@@ -1399,40 +1225,40 @@ async function handleSaveExcludes() {
   if (state.aiRequestInFlight) {
     return;
   }
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   if (state.currentDraftDirty) {
-    showToast("Save the current page before using AI controls");
+    uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await storageGet(
+  const endpointResult = await storage.storageGet(
     chrome.storage.sync,
     "globalEndpoint"
   );
   const endpointValue = endpointResult.globalEndpoint || "";
   if (!endpointValue) {
-    showToast("Set Endpoint URL first");
+    uiModule.showToast("Set Endpoint URL first");
     return;
   }
-  const tokenResult = await storageGet(chrome.storage.sync, "globalToken");
+  const tokenResult = await storage.storageGet(chrome.storage.sync, "globalToken");
   const tokenValue = tokenResult.globalToken || "";
   if (!tokenValue) {
-    showToast("Set token first");
+    uiModule.showToast("Set token first");
     return;
   }
   const selectors = state.currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
-    showToast("Compute selectors before saving");
+    uiModule.showToast("Compute selectors before saving");
     return;
   }
-  if (arraysEqual(selectors, state.currentConfig.lastSavedSelectors || [])) {
-    showToast("No new selectors to save");
+  if (utils.arraysEqual(selectors, state.currentConfig.lastSavedSelectors || [])) {
+    uiModule.showToast("No new selectors to save");
     return;
   }
   state.aiRequestInFlight = "save";
@@ -1450,15 +1276,15 @@ async function handleSaveExcludes() {
       })
     });
     if (!response.ok) {
-      showToast("Save response error");
+      uiModule.showToast("Save response error");
       return;
     }
-    state.currentConfig = await updateConfig(state.currentBaseUrl, (config) => {
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.lastSavedSelectors = selectors;
     });
-    showToast("Excludes saved");
+    uiModule.showToast("Excludes saved");
   } catch (error) {
-    showToast("Save request failed");
+    uiModule.showToast("Save request failed");
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
@@ -1466,20 +1292,20 @@ async function handleSaveExcludes() {
 }
 
 async function handlePreviewLatest() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
   if (!state.currentTab) {
     return;
   }
   if (!state.currentBaseUrl || !state.currentConfig) {
-    showToast("Set Base Page URL first");
+    uiModule.showToast("Set Base Page URL first");
     return;
   }
   const selectors = state.currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
-    showToast("No stored selectors available");
+    uiModule.showToast("No stored selectors available");
     return;
   }
-  await sendTabMessage({
+  await messages.sendTabMessage({
     type: "showAiPreview",
     selectors
   });
@@ -1491,13 +1317,13 @@ function scheduleRefresh() {
   }
   state.refreshTimer = window.setTimeout(async () => {
     state.refreshTimer = 0;
-    await loadActiveTab();
+    await messages.loadActiveTab();
     await refreshUi();
   }, 120);
 }
 
 async function init() {
-  await loadActiveTab();
+  await messages.loadActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
   ui.deviceEmulationEnabled.addEventListener("change", handleDeviceEmulationEnabledToggle);
@@ -1507,7 +1333,7 @@ async function init() {
   ui.deviceScale.addEventListener("change", handleDeviceScaleChange);
   ui.configToggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    setConfigMenuOpen(!state.configMenuOpen);
+    uiModule.setConfigMenuOpen(!state.configMenuOpen);
   });
   ui.configMenu.addEventListener("click", (event) => event.stopPropagation());
   ui.configExportAll.addEventListener("click", handleExportAll);
@@ -1555,15 +1381,15 @@ async function init() {
   ui.saveExcludesButton.addEventListener("click", handleSaveExcludes);
   ui.previewLatestButton.addEventListener("click", handlePreviewLatest);
 
-  document.addEventListener("click", () => setConfigMenuOpen(false));
+  document.addEventListener("click", () => uiModule.setConfigMenuOpen(false));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      setConfigMenuOpen(false);
+      uiModule.setConfigMenuOpen(false);
     }
   });
 
   chrome.tabs.onActivated.addListener(async () => {
-    await loadActiveTab();
+    await messages.loadActiveTab();
     await refreshUi();
   });
 
@@ -1586,8 +1412,8 @@ async function init() {
       (areaName === "session" &&
         state.currentTab &&
         (changes[`tabState:${state.currentTab.id}`] ||
-          changes[`${DEVICE_MODE_PREFIX}${state.currentTab.id}`] ||
-          changes[`${PAGE_PATTERN_DRAFT_PREFIX}${state.currentTab.id}`]))
+          changes[`${stateModule.DEVICE_MODE_PREFIX}${state.currentTab.id}`] ||
+          changes[`${stateModule.PAGE_PATTERN_DRAFT_PREFIX}${state.currentTab.id}`]))
     ) {
       scheduleRefresh();
     }
