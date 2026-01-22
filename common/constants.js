@@ -21,3 +21,19 @@ export const DEVICE_EMULATION_PRESETS = {
     mobile: true
   }
 };
+export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = [
+    "IMG",
+    "FOOTER",
+    "FORM",
+    "BUTTON",
+    "INPUT",
+    "LABEL",
+    "NAV",
+    "HEADER",
+    "NOSCRIPT",
+    "DIALOG",
+    "ASIDE",
+    "SELECT",
+    "TITLE",
+    "STYLE"
+];

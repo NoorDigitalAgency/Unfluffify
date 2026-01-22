@@ -27,20 +27,3 @@ export const REMOVABLE_ELEMENT_SELECTORS = [
   ".modal",
   ".popup"
 ];
-
-export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = [
-  "IMG",
-  "FOOTER",
-  "FORM",
-  "BUTTON",
-  "INPUT",
-  "LABEL",
-  "NAV",
-  "HEADER",
-  "NOSCRIPT",
-  "DIALOG",
-  "ASIDE",
-  "SELECT",
-  "TITLE",
-  "STYLE"
-];

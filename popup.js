@@ -1173,6 +1173,7 @@ async function handleComputeSelectors() {
 
   const payload = {
     baseUrl: state.currentBaseUrl,
+    defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
     pages
   };
 

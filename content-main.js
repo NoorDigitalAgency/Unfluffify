@@ -3,9 +3,9 @@ import * as patterns from "./common/patterns.js";
 import * as utils from "./common/utilities.js";
 import * as constants from "./content/constants.js";
 import * as stateModule from "./content/state.js";
+import {DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS} from "./common/constants.js";
 
 const {
-  DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   HEADING_TAG_SELECTOR,
   REMOVABLE_ELEMENT_SELECTORS
 } = constants;
