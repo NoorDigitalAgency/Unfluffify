@@ -470,18 +470,64 @@ export function main() {
     return Boolean(config.pageMarkings[pageUrl]);
   }
 
-  function collectToggleableTargets(immutableExcluded) {
+  function isWithinExcludedParents(el, excludedParents) {
+    if (!el || !excludedParents || excludedParents.size === 0) {
+      return false;
+    }
+    for (const parent of excludedParents) {
+      if (parent && parent !== el && parent.contains(el)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function collectExcludedParentElements(items) {
+    const parents = new Set();
+    if (!Array.isArray(items)) {
+      return parents;
+    }
+    for (const item of items) {
+      if (!item || !item.xpath || !item.excluded) {
+        continue;
+      }
+      const el = getElementFromXPath(item.xpath);
+      if (!el) {
+        continue;
+      }
+      if (isWithinImmutableExcluded(el)) {
+        continue;
+      }
+      if (!hasMultipleMarkableDescendants(el)) {
+        continue;
+      }
+      parents.add(el);
+    }
+    return parents;
+  }
+
+  function collectToggleableTargets(immutableExcluded, excludedParents) {
     const results = [];
     if (!document.body) {
       return results;
     }
     const stack = [document.body];
+    const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
     while (stack.length) {
       const node = stack.pop();
       if (!node || node.nodeType !== 1) {
         continue;
       }
       if (isWithinAiPopover(node)) {
+        continue;
+      }
+      if (hasExcludedParents && excludedParents.has(node)) {
+        if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+          results.push(node);
+        }
+        continue;
+      }
+      if (hasExcludedParents && isWithinExcludedParents(node, excludedParents)) {
         continue;
       }
       if (immutableExcluded && immutableExcluded.has(node)) {
@@ -515,9 +561,10 @@ export function main() {
       }
     }
     const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+    const excludedParents = collectExcludedParentElements(previousItems);
     const items = [];
     const seen = new Set();
-    const candidates = collectToggleableTargets(immutableExcluded);
+    const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
     for (const el of candidates) {
       const xpath = getXPath(el);
       if (!xpath || seen.has(xpath)) {
@@ -539,6 +586,9 @@ export function main() {
       }
       const explicitEl = getElementFromXPath(item.xpath);
       if (!explicitEl) {
+        continue;
+      }
+      if (isWithinExcludedParents(explicitEl, excludedParents)) {
         continue;
       }
       if (!isMarkableElement(explicitEl, config, { allowParent: true })) {
