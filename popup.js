@@ -8,6 +8,7 @@ import * as render from "./popup/render.js";
 import * as uiModule from "./popup/ui.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
+import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
 
 const { state } = stateModule;
@@ -57,27 +58,18 @@ async function refreshUi() {
     }
   }
   const baseUrlSet = Boolean(state.currentBaseUrl);
-  const baseUrlReady = baseUrlSet && !state.baseUrlEditMode;
-  const isEditing = !baseUrlSet || state.baseUrlEditMode;
-  if (!isEditing) {
-    ui.baseUrlInput.value = state.currentBaseUrl;
-  } else if (document.activeElement !== ui.baseUrlInput) {
-    ui.baseUrlInput.value = baseUrlSet ? state.currentBaseUrl : suggestedBaseUrl;
-  }
-  ui.baseUrlInput.readOnly = !isEditing;
-  ui.baseUrlSet.style.display = isEditing ? "inline-flex" : "none";
-  ui.baseUrlEdit.style.display = baseUrlSet ? "inline-flex" : "none";
-  ui.baseUrlEdit.textContent = state.baseUrlEditMode ? "Cancel" : "Change";
-  if (!baseUrlSet) {
-    ui.baseUrlNotice.textContent =
-      "Set Base Page URL before enabling marking";
-    ui.baseUrlNotice.style.display = "block";
-  } else if (state.baseUrlEditMode) {
-    ui.baseUrlNotice.textContent = "Set Base Page URL to continue";
-    ui.baseUrlNotice.style.display = "block";
-  } else {
-    ui.baseUrlNotice.style.display = "none";
-  }
+  const { isReady: baseUrlReady } = helpers.syncEditableField({
+    input: ui.baseUrlInput,
+    setButton: ui.baseUrlSet,
+    editButton: ui.baseUrlEdit,
+    notice: ui.baseUrlNotice,
+    value: state.currentBaseUrl,
+    isSet: baseUrlSet,
+    editMode: state.baseUrlEditMode,
+    suggestedValue: suggestedBaseUrl,
+    noticeUnset: "Set Base Page URL before enabling marking",
+    noticeEdit: "Set Base Page URL to continue"
+  });
   const patternDrafts = state.currentTab ? await drafts.getPagePatternDraft(state.currentTab.id) : {};
   let draftPattern =
     patterns.normalizePatternValue(
@@ -115,37 +107,23 @@ async function refreshUi() {
   }
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   emulation.updateDeviceEmulationUi(storedDeviceState);
-  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const tokenValue = tokenResult.globalToken || "";
-  const endpointResult = await utils.storageGet(
-    chrome.storage.sync,
-    "globalEndpoint"
-  );
-  const endpointValue = endpointResult.globalEndpoint || "";
+  const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
   if (!endpointValue) {
     state.endpointEditMode = false;
   }
   const endpointSet = Boolean(endpointValue);
-  const endpointReady = endpointSet && !state.endpointEditMode;
-  const endpointEditing = !endpointSet || state.endpointEditMode;
-  if (!endpointEditing) {
-    ui.endpointUrl.value = endpointValue;
-  } else if (document.activeElement !== ui.endpointUrl) {
-    ui.endpointUrl.value = endpointValue;
-  }
-  ui.endpointUrl.readOnly = !endpointEditing;
-  ui.endpointSet.style.display = endpointEditing ? "inline-flex" : "none";
-  ui.endpointEdit.style.display = endpointSet ? "inline-flex" : "none";
-  ui.endpointEdit.textContent = state.endpointEditMode ? "Cancel" : "Change";
-  if (!endpointSet) {
-    ui.endpointNotice.textContent = "Set Endpoint URL before using AI";
-    ui.endpointNotice.style.display = "block";
-  } else if (state.endpointEditMode) {
-    ui.endpointNotice.textContent = "Set Endpoint URL to continue";
-    ui.endpointNotice.style.display = "block";
-  } else {
-    ui.endpointNotice.style.display = "none";
-  }
+  const { isReady: endpointReady } = helpers.syncEditableField({
+    input: ui.endpointUrl,
+    setButton: ui.endpointSet,
+    editButton: ui.endpointEdit,
+    notice: ui.endpointNotice,
+    value: endpointValue,
+    isSet: endpointSet,
+    editMode: state.endpointEditMode,
+    suggestedValue: endpointValue,
+    noticeUnset: "Set Endpoint URL before using AI",
+    noticeEdit: "Set Endpoint URL to continue"
+  });
 
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
@@ -399,35 +377,23 @@ async function refreshUi() {
     baseUrlSet ? "None yet" : "Set Base Page URL first",
     pageUrl,
     async (url) => {
-      await messages.loadActiveTab();
-      if (!state.currentTab || !state.currentTab.id) {
+      const tab = await helpers.ensureActiveTab({ requireId: true });
+      if (!tab) {
         return;
       }
-      chrome.tabs.update(state.currentTab.id, { url }, () => {
+      chrome.tabs.update(tab.id, { url }, () => {
         void chrome.runtime.lastError;
       });
     }
   );
 }
 
-async function injectContentScriptIfNeeded() {
-  if (!state.currentTab || !state.currentTab.id) {
-    return { ok: false, error: "No active tab" };
-  }
-  const response = await messages.sendRuntimeMessage({
-    type: "injectContentScript",
-    tabId: state.currentTab.id
-  });
-  return response || { ok: false, error: "Injection failed" };
-}
-
 async function handleEnableToggle() {
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  if (!tab) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL before enabling marking");
+  if (!helpers.ensureBaseUrl("Set Base Page URL before enabling marking")) {
     ui.toggleEnabled.checked = false;
     return;
   }
@@ -441,20 +407,20 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
-    if (!state.currentTab.url.startsWith(baseUrlValue)) {
+    if (!tab.url.startsWith(baseUrlValue)) {
       uiModule.showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
     state.currentConfig = await config.ensureConfig(baseUrlValue);
-    const patternDrafts = await drafts.getPagePatternDraft(state.currentTab.id);
-    const draftPattern = patterns.normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const patternDrafts = await drafts.getPagePatternDraft(tab.id);
+    const draftPattern = patterns.normalizePatternValue(patternDrafts[tab.url] || "");
     const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
+    const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
     if (!matchingPattern) {
       uiModule.showToast("Choose a URL pattern before enabling");
       ui.toggleEnabled.checked = false;
@@ -462,14 +428,14 @@ async function handleEnableToggle() {
       return;
     }
     // Inject content script first
-    const injectResult = await injectContentScriptIfNeeded();
+    const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
       ui.toggleEnabled.checked = false;
       await refreshUi();
       return;
     }
-    await utils.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -478,45 +444,29 @@ async function handleEnableToggle() {
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, { enabled: false, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
 
 async function handleDeviceEmulationEnabledToggle() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.id) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   const desiredEnabled = Boolean(ui.deviceEmulationEnabled.checked);
   if (desiredEnabled === state.currentDeviceEmulationEnabled) {
     return;
   }
-  emulation.setDeviceControlsDisabled(true);
-  const response = await messages.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    tabId: state.currentTab.id,
+  await helpers.updateDeviceEmulation({
     enabled: desiredEnabled,
     mode: state.currentDeviceMode,
     scale: state.currentDeviceScale
   });
-  emulation.setDeviceControlsDisabled(false);
-  if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Device emulation failed");
-    emulation.updateDeviceEmulationUi({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
-    });
-    return;
-  }
-  emulation.updateDeviceEmulationUi(response.state);
 }
 
 async function handleDeviceModeToggle() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.id) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   if (!state.currentDeviceEmulationEnabled) {
@@ -531,25 +481,11 @@ async function handleDeviceModeToggle() {
   if (desiredMode === state.currentDeviceMode) {
     return;
   }
-  emulation.setDeviceControlsDisabled(true);
-  const response = await messages.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    tabId: state.currentTab.id,
+  await helpers.updateDeviceEmulation({
     enabled: true,
     mode: desiredMode,
     scale: state.currentDeviceScale
   });
-  emulation.setDeviceControlsDisabled(false);
-  if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Device emulation failed");
-    emulation.updateDeviceEmulationUi({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
-    });
-    return;
-  }
-  emulation.updateDeviceEmulationUi(response.state);
 }
 
 function handleDeviceScaleInput() {
@@ -560,8 +496,7 @@ function handleDeviceScaleInput() {
 }
 
 async function handleDeviceScaleChange() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.id) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   if (!state.currentDeviceEmulationEnabled) {
@@ -576,41 +511,29 @@ async function handleDeviceScaleChange() {
   if (desiredScale === state.currentDeviceScale) {
     return;
   }
-  emulation.setDeviceControlsDisabled(true);
-  const response = await messages.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    tabId: state.currentTab.id,
+  await helpers.updateDeviceEmulation({
     enabled: true,
     mode: state.currentDeviceMode,
     scale: desiredScale
   });
-  emulation.setDeviceControlsDisabled(false);
-  if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Device emulation failed");
-    emulation.updateDeviceEmulationUi({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
-    });
-    return;
-  }
-  emulation.updateDeviceEmulationUi(response.state);
 }
 
 async function handleClearDomainCache() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.url) {
-    uiModule.showToast("No active tab to clear");
+  const tab = await helpers.ensureActiveTab({
+    requireUrl: true,
+    toastOnMissing: "No active tab to clear"
+  });
+  if (!tab) {
     return;
   }
-  const origin = utils.getOriginFromUrl(state.currentTab.url);
+  const origin = utils.getOriginFromUrl(tab.url);
   if (!origin) {
     uiModule.showToast("Unsupported page for cache clearing");
     return;
   }
   let hostname = origin;
   try {
-    hostname = new URL(state.currentTab.url).hostname;
+    hostname = new URL(tab.url).hostname;
   } catch (error) {
     hostname = origin;
   }
@@ -634,7 +557,7 @@ async function handleClearDomainCache() {
     return;
   }
   uiModule.showToast("Domain cache cleared");
-  const reloadResult = await chromeHelpers.reloadTab(state.currentTab.id);
+  const reloadResult = await chromeHelpers.reloadTab(tab.id);
   uiModule.setUiBusy(false);
   if (!reloadResult.ok) {
     uiModule.showToast(reloadResult.error || "Unable to reload tab");
@@ -644,17 +567,13 @@ async function handleClearDomainCache() {
 async function handleExportAll() {
   uiModule.setConfigMenuOpen(false);
   const configs = await config.getConfigs();
-  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const endpointResult = await utils.storageGet(
-    chrome.storage.sync,
-    "globalEndpoint"
-  );
+  const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
   const payload = {
     version: 1,
     scope: "all",
     configs,
-    globalToken: tokenResult.globalToken || "",
-    globalEndpoint: endpointResult.globalEndpoint || ""
+    globalToken: tokenValue,
+    globalEndpoint: endpointValue
   };
   const filename = `markcontit-all-${new Date().toISOString().slice(0, 10)}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
@@ -662,8 +581,7 @@ async function handleExportAll() {
 
 async function handleExportCurrent() {
   uiModule.setConfigMenuOpen(false);
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const configs = await config.getConfigs();
@@ -691,8 +609,7 @@ async function handleImport() {
 
 async function handleClearCurrent() {
   uiModule.setConfigMenuOpen(false);
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const confirmed = window.confirm(
@@ -704,9 +621,9 @@ async function handleClearCurrent() {
   const configs = await config.getConfigs();
   delete configs[state.currentBaseUrl];
   await config.saveConfigs(configs);
-  await messages.loadActiveTab();
-  if (state.currentTab && state.currentTab.id) {
-    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (tab) {
+    await utils.setTabState(tab.id, { enabled: false, baseUrl: "" });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
@@ -729,9 +646,9 @@ async function handleClearAll() {
     globalToken: "",
     globalEndpoint: ""
   });
-  await messages.loadActiveTab();
-  if (state.currentTab && state.currentTab.id) {
-    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: "" });
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (tab) {
+    await utils.setTabState(tab.id, { enabled: false, baseUrl: "" });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   state.currentBaseUrl = "";
@@ -822,8 +739,8 @@ async function handleImportFile(event) {
 }
 
 async function handleBaseUrlSet() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.url) {
+  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  if (!tab) {
     return;
   }
   const baseUrlValue = ui.baseUrlInput.value.trim();
@@ -836,12 +753,12 @@ async function handleBaseUrlSet() {
     uiModule.showToast("Enter a valid Base Page URL");
     return;
   }
-  if (!state.currentTab.url.startsWith(baseUrlValue)) {
+  if (!tab.url.startsWith(baseUrlValue)) {
     uiModule.showToast("Current page is outside the Base Page URL");
     return;
   }
   // Inject content script first
-  const injectResult = await injectContentScriptIfNeeded();
+  const injectResult = await helpers.injectContentScriptIfNeeded();
   if (!injectResult.ok) {
     uiModule.showToast(injectResult.error || "Unable to activate on this page");
     return;
@@ -849,11 +766,11 @@ async function handleBaseUrlSet() {
   state.currentBaseUrl = baseUrlValue;
   state.currentConfig = await config.ensureConfig(baseUrlValue);
   const basePattern = patterns.normalizePatternValue(baseUrlValue);
-  const pagePattern = patterns.normalizePatternValue(state.currentTab.url);
+  const pagePattern = patterns.normalizePatternValue(tab.url);
   let draftPattern = "";
   if (basePattern && pagePattern && basePattern === pagePattern) {
     draftPattern = pagePattern;
-    await drafts.setPagePatternDraft(state.currentTab.id, state.currentTab.url, draftPattern);
+    await drafts.setPagePatternDraft(tab.id, tab.url, draftPattern);
     await messages.sendTabMessage({
       type: "setPagePatternDraft",
       baseUrl: baseUrlValue,
@@ -864,10 +781,10 @@ async function handleBaseUrlSet() {
   if (draftPattern && !storedPatterns.includes(draftPattern)) {
     storedPatterns.push(draftPattern);
   }
-  const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
+  const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
   state.baseUrlEditMode = false;
   if (matchingPattern) {
-    await utils.setTabState(state.currentTab.id, { enabled: true, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -876,19 +793,18 @@ async function handleBaseUrlSet() {
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, { enabled: false, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
 }
 
 async function handlePagePatternSet() {
-  await messages.loadActiveTab();
-  if (!state.currentTab || !state.currentTab.url) {
+  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  if (!tab) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const selected = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
@@ -900,8 +816,8 @@ async function handlePagePatternSet() {
     uiModule.showToast("Pattern must be within the Base Page URL");
     return;
   }
-  await drafts.setPagePatternDraft(state.currentTab.id, state.currentTab.url, selected);
-  const injectResult = await injectContentScriptIfNeeded();
+  await drafts.setPagePatternDraft(tab.id, tab.url, selected);
+  const injectResult = await helpers.injectContentScriptIfNeeded();
   if (!injectResult.ok) {
     uiModule.showToast(injectResult.error || "Unable to reach the page");
     return;
@@ -925,18 +841,18 @@ async function handleBaseUrlEditToggle() {
     return;
   }
   state.baseUrlEditMode = !state.baseUrlEditMode;
+  const tab = await helpers.ensureActiveTab();
   if (state.baseUrlEditMode) {
-    await messages.loadActiveTab();
-    if (state.currentTab && state.currentTab.id) {
-      await utils.setTabState(state.currentTab.id, {
+    if (tab && tab.id) {
+      await utils.setTabState(tab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
-  } else if (state.currentTab && state.currentTab.url.startsWith(state.currentBaseUrl)) {
+  } else if (tab && tab.url.startsWith(state.currentBaseUrl)) {
     // Inject content script first when re-enabling
-    const injectResult = await injectContentScriptIfNeeded();
+    const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
       state.baseUrlEditMode = true;
@@ -944,15 +860,15 @@ async function handleBaseUrlEditToggle() {
       return;
     }
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-    const patternDrafts = await drafts.getPagePatternDraft(state.currentTab.id);
-    const draftPattern = patterns.normalizePatternValue(patternDrafts[state.currentTab.url] || "");
+    const patternDrafts = await drafts.getPagePatternDraft(tab.id);
+    const draftPattern = patterns.normalizePatternValue(patternDrafts[tab.url] || "");
     const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
     if (draftPattern && !storedPatterns.includes(draftPattern)) {
       storedPatterns.push(draftPattern);
     }
-    const matchingPattern = patterns.findBestMatchingPattern(state.currentTab.url, storedPatterns);
+    const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
     if (matchingPattern) {
-      await utils.setTabState(state.currentTab.id, {
+      await utils.setTabState(tab.id, {
         enabled: true,
         baseUrl: state.currentBaseUrl
       });
@@ -964,7 +880,7 @@ async function handleBaseUrlEditToggle() {
       });
       await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
-      await utils.setTabState(state.currentTab.id, {
+      await utils.setTabState(tab.id, {
         enabled: false,
         baseUrl: state.currentBaseUrl
       });
@@ -1010,11 +926,11 @@ async function handleTokenBlur() {
 }
 
 async function handleContextRefresh() {
-  await messages.loadActiveTab();
+  const tab = await helpers.ensureActiveTab();
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
-  if (state.currentTab && state.currentTab.id) {
-    const tabState = await utils.getTabState(state.currentTab.id);
+  if (tab && tab.id) {
+    const tabState = await utils.getTabState(tab.id);
     if (tabState && tabState.enabled) {
       await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     }
@@ -1023,12 +939,11 @@ async function handleContextRefresh() {
 }
 
 async function handlePageSave() {
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (!tab) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const response = await messages.sendTabMessage({
@@ -1041,18 +956,17 @@ async function handlePageSave() {
   }
   uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
   if (response.saved) {
-    await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+    await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   }
   await refreshUi();
 }
 
 async function handlePageRevert() {
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (!tab) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const confirmed = window.confirm(
@@ -1070,17 +984,16 @@ async function handlePageRevert() {
     return;
   }
   uiModule.showToast("Reverted to last saved");
-  await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+  await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   await refreshUi();
 }
 
 async function handlePageDelete() {
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (!tab) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   const confirmed = window.confirm(
@@ -1098,7 +1011,7 @@ async function handlePageDelete() {
     return;
   }
   uiModule.showToast("Page data deleted");
-  await drafts.clearPagePatternDraft(state.currentTab.id, state.currentTab.url || "");
+  await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   await refreshUi();
 }
 
@@ -1106,33 +1019,21 @@ async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
   }
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   if (state.currentDraftDirty) {
     uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await utils.storageGet(
-    chrome.storage.sync,
-    "globalEndpoint"
-  );
-  const endpointValue = endpointResult.globalEndpoint || "";
-  if (!endpointValue) {
-    uiModule.showToast("Set Endpoint URL first");
+  const credentials = await helpers.requireAiCredentials();
+  if (!credentials) {
     return;
   }
-  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const tokenValue = tokenResult.globalToken || "";
-  if (!tokenValue) {
-    uiModule.showToast("Set token first");
-    return;
-  }
+  const { endpointValue, tokenValue } = credentials;
 
   state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
 
@@ -1227,33 +1128,21 @@ async function handleSaveExcludes() {
   if (state.aiRequestInFlight) {
     return;
   }
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Set Base Page URL first");
+  if (!helpers.ensureBaseUrl()) {
     return;
   }
   if (state.currentDraftDirty) {
     uiModule.showToast("Save the current page before using AI controls");
     return;
   }
-  const endpointResult = await utils.storageGet(
-    chrome.storage.sync,
-    "globalEndpoint"
-  );
-  const endpointValue = endpointResult.globalEndpoint || "";
-  if (!endpointValue) {
-    uiModule.showToast("Set Endpoint URL first");
+  const credentials = await helpers.requireAiCredentials();
+  if (!credentials) {
     return;
   }
-  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const tokenValue = tokenResult.globalToken || "";
-  if (!tokenValue) {
-    uiModule.showToast("Set token first");
-    return;
-  }
+  const { endpointValue, tokenValue } = credentials;
   const selectors = state.currentConfig.latestComputedSelectors || [];
   if (!selectors.length) {
     uiModule.showToast("Compute selectors before saving");
@@ -1294,11 +1183,13 @@ async function handleSaveExcludes() {
 }
 
 async function handlePreviewLatest() {
-  await messages.loadActiveTab();
-  if (!state.currentTab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  if (!state.currentBaseUrl || !state.currentConfig) {
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!state.currentConfig) {
     uiModule.showToast("Set Base Page URL first");
     return;
   }
@@ -1319,13 +1210,13 @@ function scheduleRefresh() {
   }
   state.refreshTimer = window.setTimeout(async () => {
     state.refreshTimer = 0;
-    await messages.loadActiveTab();
+    await helpers.ensureActiveTab();
     await refreshUi();
   }, 120);
 }
 
 async function init() {
-  await messages.loadActiveTab();
+  await helpers.ensureActiveTab();
 
   ui.toggleEnabled.addEventListener("change", handleEnableToggle);
   ui.deviceEmulationEnabled.addEventListener("change", handleDeviceEmulationEnabledToggle);
@@ -1391,7 +1282,7 @@ async function init() {
   });
 
   chrome.tabs.onActivated.addListener(async () => {
-    await messages.loadActiveTab();
+    await helpers.ensureActiveTab();
     await refreshUi();
   });
 
