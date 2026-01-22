@@ -530,6 +530,23 @@ export function main() {
         : isHeading;
       items.push({ xpath, excluded });
     }
+    for (const item of previousItems) {
+      if (!item || !item.xpath || !item.excluded) {
+        continue;
+      }
+      if (seen.has(item.xpath)) {
+        continue;
+      }
+      const explicitEl = getElementFromXPath(item.xpath);
+      if (!explicitEl) {
+        continue;
+      }
+      if (!isMarkableElement(explicitEl, config, { allowParent: true })) {
+        continue;
+      }
+      items.push({ xpath: item.xpath, excluded: true });
+      seen.add(item.xpath);
+    }
     const changed =
       items.length !== previousItems.length ||
       items.some((item, index) => {
@@ -1207,11 +1224,8 @@ export function main() {
     return null;
   }
 
-  function isMarkableElement(el, config) {
+  function isMarkableElement(el, config, options) {
     if (!config) {
-      return false;
-    }
-    if (!isTextualContainer(el)) {
       return false;
     }
     if (isWithinAiPopover(el)) {
@@ -1220,17 +1234,53 @@ export function main() {
     if (isWithinImmutableExcluded(el)) {
       return false;
     }
-    return true;
+    if (isTextualContainer(el)) {
+      return true;
+    }
+    if (!options || !options.allowParent) {
+      return false;
+    }
+    return hasMultipleMarkableDescendants(el);
   }
 
-  function resolveMarkableElement(el, config) {
-    if (!isMarkableElement(el, config)) {
+  function hasMultipleMarkableDescendants(el) {
+    if (!el || el.nodeType !== 1) {
+      return false;
+    }
+    const stack = Array.from(el.children);
+    let markableCount = 0;
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || node.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinAiPopover(node)) {
+        continue;
+      }
+      if (isWithinImmutableExcluded(node)) {
+        continue;
+      }
+      if (isTextualContainer(node)) {
+        markableCount += 1;
+        if (markableCount >= 2) {
+          return true;
+        }
+      }
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        stack.push(node.children[i]);
+      }
+    }
+    return false;
+  }
+
+  function resolveMarkableElement(el, config, options) {
+    if (!isMarkableElement(el, config, options)) {
       return null;
     }
     return el;
   }
 
-  function getMarkableTarget(x, y) {
+  function getMarkableTarget(x, y, options) {
     const elements = document.elementsFromPoint(x, y);
     for (const el of elements) {
       if (!el || el.nodeType !== 1) {
@@ -1242,7 +1292,7 @@ export function main() {
       if (el === document.documentElement || el === document.body) {
         continue;
       }
-      const resolved = resolveMarkableElement(el, state.config);
+      const resolved = resolveMarkableElement(el, state.config, options);
       if (resolved) {
         return resolved;
       }
@@ -1259,7 +1309,9 @@ export function main() {
     if (!layerHover) {
       return;
     }
-    const target = getMarkableTarget(event.clientX, event.clientY);
+    const target = getMarkableTarget(event.clientX, event.clientY, {
+      allowParent: event.shiftKey
+    });
     if (!target) {
       clearLayer(layerHover);
       return;
@@ -1342,7 +1394,9 @@ export function main() {
         clearFocusHighlight();
       }
     }
-    const target = getMarkableTarget(event.clientX, event.clientY);
+    const target = getMarkableTarget(event.clientX, event.clientY, {
+      allowParent: event.shiftKey
+    });
     if (target) {
       toggleExplicit(target);
     }
