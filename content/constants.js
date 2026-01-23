@@ -17,6 +17,7 @@ export const REMOVABLE_ELEMENT_SELECTORS = [
   ":not(body):not(html)[id*='gdpr' i]",
   ":not(body):not(html)[class*='privacy' i]:not([class*='policy' i])",
   ":not(body):not(html)[id*='privacy' i]:not([id*='policy' i])",
+  "[aria-label='Cookie banner']",
   "[aria-hidden='true']",
   "[role='dialog']",
   ".cookie",
@@ -26,4 +27,8 @@ export const REMOVABLE_ELEMENT_SELECTORS = [
   ".subscribe",
   ".modal",
   ".popup"
+];
+
+export const EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS = [
+  "#onetrust-consent-sdk"
 ];

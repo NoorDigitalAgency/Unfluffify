@@ -2,7 +2,11 @@ import * as config from "../common/config.js";
 import * as patterns from "../common/patterns.js";
 import * as utils from "../common/utilities.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../common/constants.js";
-import { HEADING_TAG_SELECTOR, REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
+import {
+  EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS,
+  HEADING_TAG_SELECTOR,
+  REMOVABLE_ELEMENT_SELECTORS
+} from "./constants.js";
 
 export const state = {
   enabled: false,
@@ -1356,6 +1360,7 @@ function stopUrlWatcher() {
 
 function removeConsentElements() {
   const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
+  const explicitSelectors = EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS.join(",");
 
   let removedElements = [];
 
@@ -1364,9 +1369,6 @@ function removeConsentElements() {
 
     elements
         .filter(element => {
-          // Don't remove if it's the main content
-          if (!element.parentElement) return false;
-
           // Check if element is likely a consent banner (not main content)
           const rect = element.getBoundingClientRect();
           const isVisible = rect.width > 0 && rect.height > 0;
@@ -1376,6 +1378,10 @@ function removeConsentElements() {
           const isOverlay = style.position === 'fixed' ||
               style.position === 'absolute' ||
               style.zIndex > 1000;
+          const hasParent = element.parentElement;
+
+          // Skip elements at the root level and are not overlays
+          if (!hasParent && !isOverlay) return false;
 
           return isVisible && (isOverlay ||
               element.hasAttribute('role') ||
@@ -1383,6 +1389,7 @@ function removeConsentElements() {
                   (element.className.includes('modal') ||
                       element.className.includes('overlay'))));
         })
+        .concat(Array.from(document.querySelectorAll(explicitSelectors)))
         .forEach(element => {
           try {
             element.parentElement.removeChild(element);
