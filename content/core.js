@@ -1421,6 +1421,7 @@ function restorePageScrolling() {
 
     if (style.overflow === 'hidden' ||
         style.overflowY === 'hidden' ||
+        style.overflowX === 'hidden' ||
         style.position === 'fixed') {
 
       // Try to restore by removing inline styles
