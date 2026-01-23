@@ -1,0 +1,2124 @@
+import * as config from "../common/config.js";
+import * as patterns from "../common/patterns.js";
+import * as utils from "../common/utilities.js";
+import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../common/constants.js";
+import {
+  EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS,
+  HEADING_TAG_SELECTOR,
+  REMOVABLE_ELEMENT_SELECTORS
+} from "./constants.js";
+
+export const state = {
+  enabled: false,
+  baseUrl: "",
+  config: null,
+  overlay: null,
+  layers: {},
+  hoverBox: null,
+  focusBox: null,
+  focusElement: null,
+  aiPopover: null,
+  toast: null,
+  toastHideTimer: 0,
+  altPassThrough: false,
+  lastPointer: null,
+  markIdCounter: 1,
+  markIds: new WeakMap(),
+  markedElements: new Set(),
+  renderRaf: 0,
+  renderTimer: 0,
+  scrollHideTimer: 0,
+  isScrolling: false,
+  snapshotTimer: 0,
+  urlCheckTimer: 0,
+  mutationObserver: null,
+  savedPageEntry: null,
+  savedPageUrl: "",
+  initialized: false
+};
+
+function isTagSelector (selector){
+  return /^[a-z]+$/i.test(selector);
+}
+
+function toQuerySelector (selector){
+  return isTagSelector(selector) ? selector.toLowerCase() : selector;
+}
+
+function getEntryFingerprint(entry) {
+  if (!entry || !Array.isArray(entry.xpaths)) {
+    return [];
+  }
+  const pattern = patterns.normalizePatternValue(entry.pagePattern || "");
+  const fingerprint = [`pattern:${pattern}`];
+  const xpathFingerprint = entry.xpaths
+      .filter((item) => item && typeof item.xpath === "string")
+      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`);
+  return fingerprint.concat(xpathFingerprint);
+}
+
+function isClippedByOverflow(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const rect = el.getBoundingClientRect();
+  let parent = el.parentElement;
+  while (parent && parent.nodeType === 1) {
+    // Stop at body or document element
+    if (parent === document.body || parent === document.documentElement) {
+      break;
+    }
+    const parentStyle = window.getComputedStyle(parent);
+    const overflow = parentStyle.overflow;
+    const overflowX = parentStyle.overflowX;
+    const overflowY = parentStyle.overflowY;
+
+    // Check if parent has overflow clipping
+    if (
+        overflow === "hidden" ||
+        overflow === "clip" ||
+        overflowX === "hidden" ||
+        overflowX === "clip" ||
+        overflowY === "hidden" ||
+        overflowY === "clip"
+    ) {
+      const parentRect = parent.getBoundingClientRect();
+      // Check if element is completely outside parent's visible area
+      if (
+          rect.bottom <= parentRect.top ||
+          rect.top >= parentRect.bottom ||
+          rect.right <= parentRect.left ||
+          rect.left >= parentRect.right
+      ) {
+        return true;
+      }
+    }
+    parent = parent.parentElement;
+  }
+  return false;
+}
+
+function isVisuallyHiddenByStyle(style) {
+  if (!style) {
+    return false;
+  }
+  const clip = (style.clip || "").replace(/\s+/g, "").toLowerCase();
+  if (clip && clip !== "auto" && clip.includes("rect(")) {
+    const numbers = clip.match(/-?\d*\.?\d+/g);
+    if (numbers && numbers.length >= 4) {
+      const allZero = numbers.every((value) => Number(value) === 0);
+      if (allZero) {
+        return true;
+      }
+    }
+  }
+  const clipPath = (style.clipPath || "").replace(/\s+/g, "").toLowerCase();
+  if (
+      clipPath &&
+      clipPath !== "none" &&
+      (clipPath.includes("inset(50%") ||
+          clipPath.includes("inset(100%") ||
+          clipPath.includes("circle(0") ||
+          clipPath.includes("ellipse(0"))
+  ) {
+    return true;
+  }
+  const width = parseFloat(style.width);
+  const height = parseFloat(style.height);
+  const position = style.position;
+  if (
+      (Number.isFinite(width) && width <= 1) ||
+      (Number.isFinite(height) && height <= 1)
+  ) {
+    if (
+        style.overflow === "hidden" &&
+        (position === "absolute" || position === "fixed" || position === "sticky")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasDirectText(el) {
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isTextualContainer(el) {
+  if (!isVisible(el)) {
+    return false;
+  }
+  return hasDirectText(el);
+}
+
+function matchesImmutableExcluded(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
+    try {
+      if (isTagSelector(selector)) {
+        if (el.tagName === selector.toUpperCase()) {
+          return true;
+        }
+      } else if (el.matches(selector)) {
+        return true;
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return false;
+}
+
+function collectHeadingTargets() {
+  if (!HEADING_TAG_SELECTOR) {
+    return new Set();
+  }
+  const targets = new Set();
+  const headings = document.querySelectorAll(HEADING_TAG_SELECTOR);
+
+  for (const heading of headings) {
+    if (isWithinAiPopover(heading)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(heading)) {
+      continue;
+    }
+    if (isTextualContainer(heading)) {
+      targets.add(heading);
+    }
+  }
+  return targets;
+}
+
+function isWithinImmutableExcluded(el) {
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (matchesImmutableExcluded(node)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isWithinAiPopover(el) {
+  return Boolean(
+      state.aiPopover &&
+      el &&
+      el.nodeType === 1 &&
+      state.aiPopover.contains(el)
+  );
+}
+
+function getXPath(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  const parts = [];
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const tag = node.tagName.toLowerCase();
+    let index = 1;
+    let sibling = node.previousElementSibling;
+    while (sibling) {
+      if (sibling.tagName === node.tagName) {
+        index += 1;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    parts.unshift(`${tag}[${index}]`);
+    if (node === document.documentElement) {
+      break;
+    }
+    node = node.parentElement;
+  }
+  return `/${parts.join("/")}`;
+}
+
+function collectXPathElements(xpaths) {
+  const elements = new Set();
+  for (const xpath of xpaths || []) {
+    const el = getElementFromXPath(xpath);
+    if (el) {
+      elements.add(el);
+    }
+  }
+  return elements;
+}
+
+function isWithinExcludedParents(el, excludedParents) {
+  if (!el || !excludedParents || excludedParents.size === 0) {
+    return false;
+  }
+  for (const parent of excludedParents) {
+    if (parent && parent !== el && parent.contains(el)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function collectExcludedParentElements(items) {
+  const parents = new Set();
+  if (!Array.isArray(items)) {
+    return parents;
+  }
+  for (const item of items) {
+    if (!item || !item.xpath || !item.excluded) {
+      continue;
+    }
+    const el = getElementFromXPath(item.xpath);
+    if (!el) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(el)) {
+      continue;
+    }
+    if (!hasMultipleMarkableDescendants(el)) {
+      continue;
+    }
+    parents.add(el);
+  }
+  return parents;
+}
+
+function collectToggleableTargets(immutableExcluded, excludedParents) {
+  const results = [];
+  if (!document.body) {
+    return results;
+  }
+  const stack = [document.body];
+  const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (hasExcludedParents && excludedParents.has(node)) {
+      if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+        results.push(node);
+      }
+      continue;
+    }
+    if (hasExcludedParents && isWithinExcludedParents(node, excludedParents)) {
+      continue;
+    }
+    if (immutableExcluded && immutableExcluded.has(node)) {
+      continue;
+    }
+    if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+      results.push(node);
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return results;
+}
+
+function collectDefaultHighlightTargets(root, options) {
+  if (!root) {
+    return [];
+  }
+  const {
+    excludedSet = new Set(),
+    hardExcludedSet = new Set(),
+    hasHigherPrecedence = () => false,
+    precedenceSet = new Set()
+  } = options || {};
+  const results = [];
+  const stack = [
+    {
+      node: root,
+      index: 0,
+      ancestorHardExcluded: false,
+      ancestorHasPrecedence: false
+    }
+  ];
+
+  while (stack.length) {
+    const frame = stack[stack.length - 1];
+    const children = frame.node.children;
+    if (frame.index < children.length) {
+      const child = children[frame.index];
+      frame.index += 1;
+      if (isWithinAiPopover(child)) {
+        continue;
+      }
+      const childHardExcluded =
+          frame.ancestorHardExcluded ||
+          hardExcludedSet.has(frame.node) ||
+          hardExcludedSet.has(child);
+      const childHasPrecedence =
+          frame.ancestorHasPrecedence ||
+          precedenceSet.has(frame.node) ||
+          precedenceSet.has(child);
+      stack.push({
+        node: child,
+        index: 0,
+        ancestorHardExcluded: childHardExcluded,
+        ancestorHasPrecedence: childHasPrecedence
+      });
+      continue;
+    }
+
+    const node = frame.node;
+    const excludedSelf = excludedSet.has(node);
+    const isRoot = node === document.body || node === document.documentElement;
+    const candidate =
+        !excludedSelf &&
+        !isRoot &&
+        !frame.ancestorHardExcluded &&
+        !frame.ancestorHasPrecedence &&
+        isTextualContainer(node) &&
+        !hasHigherPrecedence(node);
+
+    if (candidate) {
+      results.push(node);
+    }
+    stack.pop();
+  }
+
+  return results;
+}
+
+function collectSelectorElements(selectors) {
+  const elements = new Set();
+  for (const selector of selectors || []) {
+    try {
+      document.querySelectorAll(selector).forEach((el) => {
+        elements.add(el);
+      });
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return elements;
+}
+
+function collectExcludedXPaths(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const results = [];
+  for (const item of items) {
+    if (item && item.xpath && item.excluded) {
+      results.push(item.xpath);
+    }
+  }
+  return results;
+}
+
+function getExcludedXPathSet(config, pageUrl) {
+  if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+    return new Set();
+  }
+  const entry = config.pageMarkings[pageUrl];
+  const items = entry && Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  return new Set(collectExcludedXPaths(items));
+}
+
+function isExplicitlyExcludedElement(el, excludedSet) {
+  if (!el || !excludedSet || excludedSet.size === 0) {
+    return false;
+  }
+  const xpath = getXPath(el);
+  return Boolean(xpath && excludedSet.has(xpath));
+}
+
+function createOverlay() {
+  if (state.overlay) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = "markcontit-freeze-style";
+  style.textContent = `
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
+      html {
+        scroll-behavior: auto !important;
+      }
+      #markcontit-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2147483647;
+        pointer-events: auto;
+      }
+      #markcontit-overlay .mc-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+      }
+      #markcontit-overlay.mc-scrolling .mc-layer {
+        opacity: 0;
+      }
+      #markcontit-overlay .mc-rect {
+        position: absolute;
+        box-sizing: border-box;
+        pointer-events: none;
+        border-radius: 4px;
+      }
+      #markcontit-overlay .mc-hover {
+        border: 2px solid #ffb300;
+        background: rgba(255, 179, 0, 0.1);
+      }
+      @keyframes blink {
+        0%,100% { opacity: 0 }
+        50% { opacity: 1 }
+      }
+      #markcontit-overlay .mc-focus {
+        border: 3px solid #00acc1;
+        background: rgba(0, 172, 193, 0.12);
+        box-shadow: 0px 0px 5px 5px #00acc178;
+        opacity: 1;
+        animation: blink 1s linear infinite !important;
+      }
+      #markcontit-overlay .mc-hard-toggle {
+        border: 2px solid #b71c1c;
+        background: rgba(183, 28, 28, 0.12);
+      }
+      #markcontit-overlay .mc-hard-locked {
+        border: 2px dashed #9c6b6b;
+        background: rgba(183, 28, 28, 0.08);
+      }
+      #markcontit-overlay .mc-default {
+        border: 1px solid #2e7d32;
+        background: rgba(46, 125, 50, 0.08);
+      }
+      @keyframes mc-ai-content-dash {
+        0% {
+          background-position: 0 0, 0 100%, 0 0, 100% 0;
+        }
+        100% {
+          background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
+        }
+      }
+      #markcontit-overlay .mc-ai-content {
+        border: 1px solid transparent;
+        background-color: rgba(46, 125, 50, 0.08);
+        background-image:
+          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px);
+        background-size: 24px 1px, 24px 1px, 1px 24px, 1px 24px;
+        background-position: 0 0, 0 100%, 0 0, 100% 0;
+        background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+        background-origin: border-box;
+        background-clip: border-box;
+        animation: mc-ai-content-dash 2s linear infinite !important;
+      }
+      #markcontit-overlay .mc-explicit-include {
+        border: 3px solid #1b5e20;
+        background: rgba(27, 94, 32, 0.2);
+      }
+      #markcontit-overlay .mc-explicit-exclude {
+        border: 3px solid #c62828;
+        background: rgba(198, 40, 40, 0.2);
+      }
+      #markcontit-overlay .mc-toast {
+        position: fixed;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        padding: 10px 12px;
+        background: rgba(47, 42, 36, 0.9);
+        color: #fdf6ed;
+        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        font-size: 12px;
+        border-radius: 10px;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        pointer-events: none;
+      }
+      #markcontit-overlay .mc-toast.mc-toast-show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    `;
+  document.documentElement.appendChild(style);
+
+  const overlay = document.createElement("div");
+  overlay.id = "markcontit-overlay";
+
+  const layerKeys = [
+    "hard",
+    "explicit-exclude",
+    "explicit-include",
+    "ai-content",
+    "default",
+    "focus",
+    "hover"
+  ];
+
+  layerKeys.forEach((key) => {
+    const layer = document.createElement("div");
+    layer.className = "mc-layer";
+    layer.dataset.layer = key;
+    overlay.appendChild(layer);
+    state.layers[key] = layer;
+  });
+
+  // Hover and focus boxes are now managed dynamically via layers
+  state.hoverBox = null;
+  state.focusBox = null;
+
+  const toast = document.createElement("div");
+  toast.className = "mc-toast";
+  overlay.appendChild(toast);
+  state.toast = toast;
+
+  overlay.addEventListener("mousemove", handleMouseMove, true);
+  overlay.addEventListener("click", handleClick, true);
+  overlay.addEventListener("contextmenu", handleContextMenu, true);
+  document.documentElement.appendChild(overlay);
+  state.overlay = overlay;
+  if (state.altPassThrough) {
+    setAltPassThrough(true);
+  }
+
+  window.addEventListener("keydown", handleKeydown, true);
+  window.addEventListener("click", handleAltClick, true);
+  window.addEventListener("keyup", handleKeyup, true);
+  updateOverlayGutter();
+}
+
+function removeOverlay() {
+  if (state.overlay) {
+    state.overlay.removeEventListener("mousemove", handleMouseMove, true);
+    state.overlay.removeEventListener("click", handleClick, true);
+    state.overlay.removeEventListener("contextmenu", handleContextMenu, true);
+    state.overlay.remove();
+    state.overlay = null;
+    state.layers = {};
+    state.hoverBox = null;
+    state.focusBox = null;
+    state.focusElement = null;
+    state.toast = null;
+  }
+  state.lastPointer = null;
+  window.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("click", handleAltClick, true);
+  window.removeEventListener("keyup", handleKeyup, true);
+  const style = document.getElementById("markcontit-freeze-style");
+  if (style) {
+    style.remove();
+  }
+  clearMarkedElements();
+  state.altPassThrough = false;
+}
+
+function updateOverlayGutter() {
+  if (!state.overlay) {
+    return;
+  }
+  const verticalGutter = window.innerWidth - document.documentElement.clientWidth;
+  const horizontalGutter =
+      window.innerHeight - document.documentElement.clientHeight;
+  state.overlay.style.right = verticalGutter > 0 ? `${verticalGutter}px` : "0px";
+  state.overlay.style.bottom =
+      horizontalGutter > 0 ? `${horizontalGutter}px` : "0px";
+}
+
+function showToast(message) {
+  if (!state.toast) {
+    return;
+  }
+  state.toast.textContent = message;
+  state.toast.classList.add("mc-toast-show");
+  clearTimeout(state.toastHideTimer);
+  state.toastHideTimer = setTimeout(() => {
+    if (state.toast) {
+      state.toast.classList.remove("mc-toast-show");
+    }
+  }, 1800);
+}
+
+function updateFocusHighlight() {
+  const layerFocus = state.layers["focus"];
+  if (!layerFocus) {
+    return;
+  }
+  clearLayer(layerFocus);
+  if (!state.focusElement) {
+    return;
+  }
+  const rects = getVisibleRects(state.focusElement);
+  if (rects.length > 0) {
+    drawMultiRect(layerFocus, rects, "mc-focus", state.focusElement, null, null);
+  }
+}
+
+function ensureAiPopoverStyle() {
+  if (document.getElementById("markcontit-ai-popover-style")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "markcontit-ai-popover-style";
+  style.textContent = `
+      .mc-ai-popover {
+        position: fixed;
+        inset: 0;
+        background: rgba(26, 22, 18, 0.45);
+        z-index: 2147483648;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+        overflow: auto;
+      }
+      .mc-ai-popover-modal {
+        background: #ffffff;
+        color: #2f2a24;
+        width: min(720px, 100%);
+        max-height: min(80vh, 720px);
+        border-radius: 18px;
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .mc-ai-popover-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid #eadccc;
+      }
+      .mc-ai-popover-title {
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #6c4c2b;
+      }
+      .mc-ai-popover-close {
+        border: 1px solid #8a6f52;
+        background: #f8e9d5;
+        color: #6c4c2b;
+        border-radius: 999px;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+      }
+      .mc-ai-popover-close:focus-visible {
+        outline: 2px solid #6c4c2b;
+        outline-offset: 2px;
+      }
+      .mc-ai-popover-body {
+        padding: 14px 22px 20px;
+        overflow: auto;
+        min-height: 0;
+      }
+      .mc-ai-popover-list {
+        margin: 0;
+        padding: 0 0 0 22px;
+        display: grid;
+        gap: 10px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: #2f2a24;
+      }
+    `;
+  document.documentElement.appendChild(style);
+}
+
+function closeAiPopover() {
+  if (state.aiPopover) {
+    state.aiPopover.remove();
+    state.aiPopover = null;
+  }
+}
+
+function recordPageSnapshot(config, pageUrl) {
+  if (!config || !pageUrl) {
+    return;
+  }
+  const immutableExcluded = collectImmutableElements();
+  syncPageMarkings(config, pageUrl, immutableExcluded);
+  const entry = getPageMarkingEntry(config, pageUrl);
+  entry.fullHTML = document.documentElement.outerHTML;
+  entry.title = document.title || pageUrl;
+  config.pageMarkings[pageUrl] = entry;
+}
+
+function getMarkId(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  let id = state.markIds.get(el);
+  if (!id) {
+    id = `mc-${state.markIdCounter}`;
+    state.markIdCounter += 1;
+    state.markIds.set(el, id);
+  }
+  return id;
+}
+
+function clearMarkedElements() {
+  if (!state.markedElements) {
+    return;
+  }
+  for (const el of state.markedElements) {
+    if (el && el.nodeType === 1) {
+      el.removeAttribute("data-mc-mark-id");
+    }
+  }
+  state.markedElements = new Set();
+}
+
+function updateMarkedElements(currentMarked) {
+  if (!currentMarked) {
+    return;
+  }
+  const previous = state.markedElements || new Set();
+  for (const el of previous) {
+    if (!currentMarked.has(el) && el && el.nodeType === 1) {
+      el.removeAttribute("data-mc-mark-id");
+    }
+  }
+  for (const el of currentMarked) {
+    if (!previous.has(el) && el && el.nodeType === 1) {
+      const markId = getMarkId(el);
+      if (markId) {
+        el.setAttribute("data-mc-mark-id", markId);
+      }
+    }
+  }
+  state.markedElements = currentMarked;
+}
+
+function getTargetElement(x, y) {
+  const elements = document.elementsFromPoint(x, y);
+  for (const el of elements) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+      continue;
+    }
+    if (el === document.documentElement || el === document.body) {
+      continue;
+    }
+    return el;
+  }
+  return null;
+}
+
+function hasMultipleMarkableDescendants(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children);
+  let markableCount = 0;
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    if (isTextualContainer(node)) {
+      markableCount += 1;
+      if (markableCount >= 2) {
+        return true;
+      }
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function resolveMarkableElement(el, config, options) {
+  if (!isMarkableElement(el, config, options)) {
+    return null;
+  }
+  return el;
+}
+
+function getMarkableTarget(x, y, options) {
+  const allowParent = options && options.allowParent;
+  const allowExcludedParent = options && options.allowExcludedParent;
+  const excludedSet = options && options.excludedSet;
+  const elements = document.elementsFromPoint(x, y);
+  if (allowExcludedParent && excludedSet && excludedSet.size > 0) {
+    for (const el of elements) {
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+        continue;
+      }
+      if (el === document.documentElement || el === document.body) {
+        continue;
+      }
+      if (isWithinAiPopover(el)) {
+        continue;
+      }
+      if (isExplicitlyExcludedElement(el, excludedSet)) {
+        return el;
+      }
+    }
+  }
+  for (const el of elements) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+      continue;
+    }
+    if (el === document.documentElement || el === document.body) {
+      continue;
+    }
+    const explicitlyExcluded =
+        allowExcludedParent && isExplicitlyExcludedElement(el, excludedSet);
+    const resolved = resolveMarkableElement(el, state.config, {
+      allowParent,
+      explicitlyExcluded
+    });
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+function updateHoverHighlight(x, y, allowParent) {
+  if (!state.enabled || state.altPassThrough) {
+    return;
+  }
+  const layerHover = state.layers["hover"];
+  if (!layerHover) {
+    return;
+  }
+  const excludedSet = allowParent
+      ? null
+      : getExcludedXPathSet(state.config, location.href);
+  const target = getMarkableTarget(x, y, {
+    allowParent,
+    allowExcludedParent: true,
+    excludedSet
+  });
+  if (!target) {
+    clearLayer(layerHover);
+    return;
+  }
+  const rects = getVisibleRects(target);
+  if (rects.length === 0) {
+    clearLayer(layerHover);
+    return;
+  }
+  clearLayer(layerHover);
+  drawMultiRect(layerHover, rects, "mc-hover", target, null, null);
+}
+
+function refreshHoverHighlight() {
+  if (!state.enabled || state.altPassThrough) {
+    return;
+  }
+  const layerHover = state.layers["hover"];
+  if (!layerHover) {
+    return;
+  }
+  if (!state.lastPointer) {
+    clearLayer(layerHover);
+    return;
+  }
+  updateHoverHighlight(
+      state.lastPointer.x,
+      state.lastPointer.y,
+      state.lastPointer.shiftKey
+  );
+}
+
+function handleMouseMove(event) {
+  if (!state.enabled) {
+    return;
+  }
+  event.stopPropagation();
+  state.lastPointer = {
+    x: event.clientX,
+    y: event.clientY,
+    shiftKey: event.shiftKey
+  };
+  updateHoverHighlight(event.clientX, event.clientY, event.shiftKey);
+}
+
+function toggleExplicit(target) {
+  if (!state.baseUrl || !state.config) {
+    return;
+  }
+  if (isWithinImmutableExcluded(target)) {
+    showToast("Default exclusions cannot be overridden");
+    return;
+  }
+
+  const xpath = getXPath(target);
+  if (!xpath) {
+    return;
+  }
+
+  const config = state.config;
+  const entry = getPageMarkingEntry(config, location.href);
+  const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const cleanupHierarchy = (currentXPath) => {
+    items.forEach((item) => {
+      if (!item || !item.xpath || item.xpath === currentXPath) {
+        return;
+      }
+      if (!item.excluded) {
+        return;
+      }
+      const existingEl = getElementFromXPath(item.xpath);
+      if (!existingEl) {
+        return;
+      }
+      if (existingEl.contains(target)) {
+        item.excluded = false;
+      }
+    });
+  };
+
+  let addedExclude;
+  let targetItem = items.find((item) => item && item.xpath === xpath);
+  if (!targetItem) {
+    targetItem = { xpath, excluded: true };
+    items.push(targetItem);
+    addedExclude = true;
+  } else {
+    targetItem.excluded = !targetItem.excluded;
+    addedExclude = targetItem.excluded;
+  }
+  if (addedExclude) {
+    cleanupHierarchy(xpath);
+  }
+
+  entry.xpaths = items;
+  config.pageMarkings[location.href] = entry;
+  state.config = config;
+  scheduleRender();
+  scheduleSnapshotSave();
+  notifyDraftStatus(location.href);
+}
+
+function handleToggleEvent(event) {
+  if (!state.enabled) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (state.focusElement) {
+    const rawTarget = getTargetElement(event.clientX, event.clientY);
+    if (!rawTarget || !state.focusElement.contains(rawTarget)) {
+      clearFocusHighlight();
+    }
+  }
+  const allowParent = event.shiftKey;
+  const excludedSet = allowParent
+      ? null
+      : getExcludedXPathSet(state.config, location.href);
+  const target = getMarkableTarget(event.clientX, event.clientY, {
+    allowParent,
+    allowExcludedParent: true,
+    excludedSet
+  });
+  if (target) {
+    toggleExplicit(target);
+  }
+}
+
+function handleClick(event) {
+  handleToggleEvent(event);
+}
+
+function handleContextMenu(event) {
+  handleToggleEvent(event);
+}
+
+function handleKeydown(event) {
+  if (!state.enabled) {
+    return;
+  }
+  if (event.key === "Alt") {
+    setAltPassThrough(true);
+  }
+}
+
+function handleKeyup(event) {
+  if (!state.enabled) {
+    return;
+  }
+  if (event.key === "Alt") {
+    setAltPassThrough(false);
+  }
+}
+
+function handleAltClick(event) {
+  if (!state.enabled || !state.altPassThrough) {
+    return;
+  }
+  if (state.aiPopover) {
+    return;
+  }
+  if (!event.altKey) {
+    return;
+  }
+  const target = event.target;
+  if (!target || !target.closest) {
+    return;
+  }
+  const link = target.closest("a[href]");
+  if (!link) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  const href = link.href;
+  if (!href) {
+    return;
+  }
+  const openInNewTab =
+      link.target === "_blank" || event.metaKey || event.ctrlKey || event.shiftKey;
+  if (openInNewTab) {
+    window.open(href, link.target || "_blank");
+  } else {
+    window.location.assign(href);
+  }
+}
+
+function clearLayer(layer) {
+  if (!layer) {
+    return;
+  }
+  while (layer.firstChild) {
+    layer.removeChild(layer.firstChild);
+  }
+}
+
+function drawRect(layer, rect, className, el, kind, markedSet) {
+  const box = document.createElement("div");
+  box.className = `mc-rect ${className}`;
+  box.style.top = `${rect.top}px`;
+  box.style.left = `${rect.left}px`;
+  box.style.width = `${rect.width}px`;
+  box.style.height = `${rect.height}px`;
+  if (el) {
+    const markId = getMarkId(el);
+    if (markId) {
+      box.dataset.mcMarkId = markId;
+      if (kind) {
+        box.dataset.mcMarkKind = kind;
+      }
+      if (markedSet) {
+        markedSet.add(el);
+      }
+    }
+  }
+  layer.appendChild(box);
+}
+
+function drawMultiRect(layer, rects, className, el, kind, markedSet) {
+  if (rects.length === 0) {
+    return;
+  }
+  // Add element to marked set once (not per rectangle)
+  if (el && markedSet) {
+    markedSet.add(el);
+  }
+  for (const rect of rects) {
+    // Pass null for markedSet since we already added it above
+    drawRect(layer, rect, className, el, kind, null);
+  }
+}
+
+function getVisibleRects(el) {
+  if (!isVisible(el)) {
+    return [];
+  }
+  const clientRects = el.getClientRects();
+  const visibleRects = [];
+  for (let i = 0; i < clientRects.length; i++) {
+    const rect = clientRects[i];
+    if (rect.width === 0 || rect.height === 0) {
+      continue;
+    }
+    if (
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight ||
+        rect.right < 0 ||
+        rect.left > window.innerWidth
+    ) {
+      continue;
+    }
+    visibleRects.push({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      right: rect.right,
+      bottom: rect.bottom
+    });
+  }
+  return visibleRects;
+}
+
+function renderHighlights() {
+  if (!state.enabled || !state.overlay) {
+    return;
+  }
+
+  updateOverlayGutter();
+
+  const immutableExcluded = collectImmutableElements();
+  const pageUrl = location.href;
+  const hasEntry = hasPageMarkingEntry(state.config, pageUrl);
+  const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+    allowCreate: hasEntry,
+    persist: hasEntry
+  });
+  const entry =
+      syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  const explicitExclude = collectXPathElements(
+      collectExcludedXPaths(entry.xpaths)
+  );
+  const aiContent = collectSelectorElements(
+      state.config.domainAiSelectorSet.inclusionSelectors
+  );
+  const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
+
+  const layerHard = state.layers["hard"];
+  const layerExplicitExclude = state.layers["explicit-exclude"];
+  const layerExplicitInclude = state.layers["explicit-include"];
+  const layerAiContent = state.layers["ai-content"];
+  const layerDefault = state.layers["default"];
+
+  clearLayer(layerHard);
+  clearLayer(layerExplicitExclude);
+  clearLayer(layerExplicitInclude);
+  clearLayer(layerAiContent);
+  clearLayer(layerDefault);
+  const markedElements = new Set();
+
+  const precedenceSet = new Set([
+    ...immutableExcluded,
+    ...explicitExclude,
+    ...aiContent
+  ]);
+  const hasHigherPrecedence = (el) => precedenceSet.has(el);
+
+  for (const el of immutableExcluded) {
+    const rects = getVisibleRects(el);
+    if (rects.length > 0) {
+      drawMultiRect(layerHard, rects, "mc-hard-locked", el, "immutable", markedElements);
+    }
+  }
+
+  for (const el of explicitExclude) {
+    if (immutableExcluded.has(el)) {
+      continue;
+    }
+    const rects = getVisibleRects(el);
+    if (rects.length > 0) {
+      drawMultiRect(
+          layerExplicitExclude,
+          rects,
+          "mc-explicit-exclude",
+          el,
+          "explicit-exclude",
+          markedElements
+      );
+    }
+  }
+
+  for (const el of aiContent) {
+    if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
+      continue;
+    }
+    const rects = getVisibleRects(el);
+    if (rects.length > 0) {
+      drawMultiRect(
+          layerAiContent,
+          rects,
+          "mc-ai-content",
+          el,
+          "ai-content",
+          markedElements
+      );
+    }
+  }
+
+  const defaultTargets = collectDefaultHighlightTargets(document.body, {
+    excludedSet: precedenceSet,
+    hardExcludedSet: immutableExcluded,
+    hasHigherPrecedence,
+    precedenceSet
+  });
+  for (const el of defaultTargets) {
+    const rects = getVisibleRects(el);
+    if (rects.length > 0) {
+      drawMultiRect(layerDefault, rects, "mc-default", el, "default", markedElements);
+    }
+  }
+
+  updateFocusHighlight();
+  updateMarkedElements(markedElements);
+}
+
+function startObservers() {
+  if (state.mutationObserver) {
+    return;
+  }
+  state.mutationObserver = new MutationObserver((mutations) => {
+    try {
+      if (state.overlay) {
+        const hasNonOverlayChange = mutations.some((mutation) => {
+          const target = mutation.target;
+          return !(target === state.overlay || state.overlay.contains(target));
+        });
+        if (!hasNonOverlayChange) {
+          return;
+        }
+      }
+      scheduleRender();
+    } catch (error) {
+      // Silently handle errors to prevent observer from stopping
+    }
+  });
+  if (document.body) {
+    try {
+      state.mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true
+      });
+    } catch (error) {
+      // Silently handle if body is not available
+      state.mutationObserver = null;
+    }
+  }
+}
+
+function stopObservers() {
+  if (state.mutationObserver) {
+    state.mutationObserver.disconnect();
+    state.mutationObserver = null;
+  }
+}
+
+function startUrlWatcher() {
+  if (state.urlCheckTimer) {
+    return;
+  }
+  let lastUrl = location.href;
+  state.urlCheckTimer = window.setInterval(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      // Page-scoped behavior: disable extension on any URL change
+      disable();
+    }
+  }, 800);
+}
+
+function stopUrlWatcher() {
+  if (state.urlCheckTimer) {
+    window.clearInterval(state.urlCheckTimer);
+    state.urlCheckTimer = 0;
+  }
+}
+
+function removeConsentElements() {
+  const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
+  const explicitSelectors = EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS.join(",");
+
+  let removedElements = [];
+
+  try {
+    const elements = Array.from(document.querySelectorAll(selectors));
+
+    elements
+        .filter(element => {
+          // Check if element is likely a consent banner (not main content)
+          const rect = element.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+
+          // Remove if it's a fixed/absolute positioned overlay-like element
+          const style = window.getComputedStyle(element);
+          const isOverlay = style.position === 'fixed' ||
+              style.position === 'absolute' ||
+              style.zIndex > 1000;
+          const hasParent = element.parentElement;
+
+          // Skip elements at the root level and are not overlays
+          if (!hasParent && !isOverlay) return false;
+
+          return isVisible && (isOverlay ||
+              element.hasAttribute('role') ||
+              (element.className && element.className.includes &&
+                  (element.className.includes('modal') ||
+                      element.className.includes('overlay'))));
+        })
+        .concat(Array.from(document.querySelectorAll(explicitSelectors)))
+        .forEach(element => {
+          try {
+            element.parentElement.removeChild(element);
+            removedElements.push(element);
+          } catch (e) {
+            // Element might have been already removed
+          }
+        });
+
+    if (removedElements.length > 0) {
+      console.log(`[IDCAC] Removed ${removedElements.length} consent UI elements from DOM`);
+    }
+  } catch (error) {
+    console.log('[IDCAC] Error removing elements:', error);
+  }
+
+  return removedElements;
+}
+
+function restorePageScrolling() {
+  const html = document.documentElement;
+  const body = document.body;
+
+  if (!html || !body) return;
+
+  // Remove inline styles that disable scrolling
+  [html, body].forEach(element => {
+    const style = window.getComputedStyle(element);
+
+    if (style.overflow === 'hidden' ||
+        style.overflowY === 'hidden' ||
+        style.position === 'fixed') {
+
+      // Try to restore by removing inline styles
+      if (element.style.overflow) element.style.overflow = '';
+      if (element.style.overflowY) element.style.overflowY = '';
+      if (element.style.overflowX) element.style.overflowX = '';
+      if (element.style.position === 'fixed') element.style.position = '';
+
+      console.log('[IDCAC] Restored scrolling on', element.tagName);
+    }
+  });
+
+  // Force-enable scrolling via CSS
+  if (!document.getElementById('idcac-force-scroll')) {
+    const style = document.createElement('style');
+    style.id = 'idcac-force-scroll';
+    style.textContent = `
+        html, body {
+          overflow: auto !important;
+          position: static !important;
+          height: auto !important;
+        }
+      `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+}
+
+// ====================================================================
+// Public API
+// ====================================================================
+
+export function isHeadingElement (el) {
+  return Boolean(el && el.nodeType === 1 && el.matches(HEADING_TAG_SELECTOR));
+}
+
+export function isPageDraftDirty(pageUrl) {
+  const draft = getDraftPageEntry(pageUrl);
+  const saved = getSavedPageEntry(pageUrl);
+  return !areEntriesEquivalent(draft, saved);
+}
+
+export function areEntriesEquivalent(left, right) {
+  const leftFingerprint = getEntryFingerprint(left);
+  const rightFingerprint = getEntryFingerprint(right);
+  if (leftFingerprint.length !== rightFingerprint.length) {
+    return false;
+  }
+  for (let i = 0; i < leftFingerprint.length; i += 1) {
+    if (leftFingerprint[i] !== rightFingerprint[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function clonePageEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const xpaths = Array.isArray(entry.xpaths)
+      ? entry.xpaths
+          .map((item) => {
+            if (!item || typeof item.xpath !== "string") {
+              return null;
+            }
+            return { xpath: item.xpath, excluded: Boolean(item.excluded) };
+          })
+          .filter(Boolean)
+      : [];
+  return {
+    url: entry.url || "",
+    title: entry.title || "",
+    xpaths,
+    pagePattern: patterns.normalizePatternValue(entry.pagePattern || ""),
+    fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
+  };
+}
+
+export function setSavedPageEntry(pageUrl, entry) {
+  state.savedPageUrl = pageUrl || "";
+  state.savedPageEntry = clonePageEntry(entry);
+}
+
+export function notifyDraftStatus(pageUrl) {
+  if (!state.enabled || !state.baseUrl || !state.config) {
+    return;
+  }
+  chrome.runtime.sendMessage({
+    type: "pageDraftChanged",
+    baseUrl: state.baseUrl,
+    pageUrl: pageUrl || location.href,
+    dirty: isPageDraftDirty(pageUrl || location.href)
+  }).then();
+}
+
+export function scheduleSnapshotSave() {
+  if (!state.baseUrl || !state.config) {
+    return;
+  }
+  if (state.snapshotTimer) {
+    window.clearTimeout(state.snapshotTimer);
+  }
+  state.snapshotTimer = window.setTimeout(() => {
+    state.snapshotTimer = 0;
+    if (!state.baseUrl || !state.config) {
+      return;
+    }
+    recordPageSnapshot(state.config, location.href);
+  }, 220);
+}
+
+function setAltPassThrough(enabled) {
+  state.altPassThrough = enabled;
+  if (!state.overlay) {
+    return;
+  }
+  state.overlay.style.pointerEvents = enabled ? "none" : "auto";
+  state.overlay.style.opacity = enabled ? "0.5" : "1";
+  if (enabled && state.layers["hover"]) {
+    clearLayer(state.layers["hover"]);
+  }
+  if (!enabled) {
+    scheduleRender();
+  }
+}
+
+export function isMarkableElement(el, config, options) {
+  if (!config) {
+    return false;
+  }
+  if (isWithinAiPopover(el)) {
+    return false;
+  }
+  if (isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (options && options.explicitlyExcluded) {
+    return true;
+  }
+  if (isTextualContainer(el)) {
+    return true;
+  }
+  if (!options || !options.allowParent) {
+    return false;
+  }
+  return hasMultipleMarkableDescendants(el);
+}
+
+export function clearFocusHighlight() {
+  if (!state.focusElement) {
+    return;
+  }
+  state.focusElement = null;
+  updateFocusHighlight();
+}
+
+export function isVisible(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (
+        node.classList &&
+        (node.classList.contains("sr-only") ||
+            node.classList.contains("visually-hidden"))
+    ) {
+      return false;
+    }
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") {
+      return false;
+    }
+    if (parseFloat(style.opacity) === 0) {
+      return false;
+    }
+    if (isVisuallyHiddenByStyle(style)) {
+      return false;
+    }
+    node = node.parentElement;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return false;
+  }
+  // Check if element is clipped by ancestor overflow
+  return !isClippedByOverflow(el);
+}
+
+export function getElementFromXPath(xpath) {
+  try {
+    const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+    );
+    const node = result.singleNodeValue;
+    if (node && node.nodeType === 1) {
+      return node;
+    }
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+export function hasPageMarkingEntry(config, pageUrl) {
+  if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
+    return false;
+  }
+  return Boolean(config.pageMarkings[pageUrl]);
+}
+
+export function collectImmutableElements() {
+  const immutable = new Set();
+  for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
+    if (!selector) {
+      continue;
+    }
+    try {
+      const elements = document.querySelectorAll(toQuerySelector(selector));
+      for (const el of elements) {
+        if (isVisible(el) && !isWithinAiPopover(el)) {
+          immutable.add(el);
+        }
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return immutable;
+}
+
+export function scheduleRender() {
+  if (state.renderTimer) {
+    return;
+  }
+  state.renderTimer = window.setTimeout(() => {
+    state.renderTimer = 0;
+    if (state.renderRaf) {
+      return;
+    }
+    state.renderRaf = window.requestAnimationFrame(() => {
+      state.renderRaf = 0;
+      renderHighlights();
+    });
+  }, 50);
+}
+
+export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
+  if (!config || !pageUrl || !draftEntry) {
+    return;
+  }
+  if (areEntriesEquivalent(draftEntry, savedEntry)) {
+    return;
+  }
+  if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+    config.pageMarkings = {};
+  }
+  config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
+}
+
+export function getPageMarkingEntry(config, pageUrl, options) {
+  const { create = true, persist = true } = options || {};
+  if (!config) {
+    return {
+      url: pageUrl || "",
+      title: pageUrl || "",
+      xpaths: [],
+      pagePattern: "",
+      fullHTML: ""
+    };
+  }
+  if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+    config.pageMarkings = {};
+  }
+  const existing = config.pageMarkings[pageUrl];
+  if (existing && Array.isArray(existing.xpaths)) {
+    return existing;
+  }
+  const entry = {
+    url: pageUrl || "",
+    title: document.title || pageUrl || "",
+    xpaths: [],
+    pagePattern: "",
+    fullHTML: ""
+  };
+  if (create && persist) {
+    config.pageMarkings[pageUrl] = entry;
+  }
+  return entry;
+}
+
+export async function loadConfig(baseUrl) {
+  const result = await utils.storageGet(chrome.storage.local, "configs");
+  const configs = result.configs || {};
+  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
+  configs[baseUrl] = normalized.config;
+  if (normalized.changed) {
+    await utils.storageSet(chrome.storage.local, { configs });
+  }
+  return configs[baseUrl];
+}
+
+export function disable() {
+  state.enabled = false;
+  state.baseUrl = "";
+  state.config = null;
+  state.altPassThrough = false;
+  if (state.renderTimer) {
+    window.clearTimeout(state.renderTimer);
+    state.renderTimer = 0;
+  }
+  if (state.renderRaf) {
+    window.cancelAnimationFrame(state.renderRaf);
+    state.renderRaf = 0;
+  }
+  if (state.scrollHideTimer) {
+    window.clearTimeout(state.scrollHideTimer);
+    state.scrollHideTimer = 0;
+  }
+  if (state.snapshotTimer) {
+    window.clearTimeout(state.snapshotTimer);
+    state.snapshotTimer = 0;
+  }
+  state.isScrolling = false;
+  state.savedPageEntry = null;
+  state.savedPageUrl = "";
+  removeOverlay();
+  closeAiPopover();
+  const popoverStyle = document.getElementById("markcontit-ai-popover-style");
+  if (popoverStyle) {
+    popoverStyle.remove();
+  }
+  stopObservers();
+  stopUrlWatcher();
+}
+
+export async function enableForBaseUrl(baseUrl, options) {
+  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+    disable();
+    return;
+  }
+  state.enabled = true;
+  state.baseUrl = baseUrl;
+  state.config = await loadConfig(baseUrl);
+  const pendingPattern = patterns.normalizePatternValue(options && options.pagePattern);
+  const pageUrl = location.href;
+  if (pendingPattern) {
+    const entry = getPageMarkingEntry(state.config, pageUrl);
+    entry.pagePattern = pendingPattern;
+    state.config.pageMarkings[pageUrl] = entry;
+  }
+  if (!patterns.isPageUrlAllowed(state.config, pageUrl, pendingPattern)) {
+    disable();
+    return;
+  }
+  const savedEntry =
+      state.config &&
+      state.config.pageMarkings &&
+      state.config.pageMarkings[pageUrl];
+  setSavedPageEntry(pageUrl, savedEntry || null);
+  if (savedEntry) {
+    const immutableExcluded = collectImmutableElements();
+    syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+      allowCreate: true,
+      persist: true
+    });
+  }
+  const removedElements = removeConsentElements();
+  if(removedElements.length > 0) restorePageScrolling();
+  createOverlay();
+  startObservers();
+  startUrlWatcher();
+  scheduleRender();
+}
+
+export function handleBeforeUnload(event) {
+  if (!state.enabled) {
+    return;
+  }
+  if (!isPageDraftDirty(location.href)) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+export function handleScroll() {
+  if (!state.enabled || state.aiPopover || !state.overlay) {
+    return;
+  }
+  if (!state.isScrolling) {
+    state.isScrolling = true;
+    state.overlay.classList.add("mc-scrolling");
+  }
+  if (state.scrollHideTimer) {
+    window.clearTimeout(state.scrollHideTimer);
+  }
+  state.scrollHideTimer = window.setTimeout(() => {
+    state.scrollHideTimer = 0;
+    if (!state.overlay) {
+      state.isScrolling = false;
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      state.isScrolling = false;
+      renderHighlights();
+      refreshHoverHighlight();
+      if (state.overlay) {
+        state.overlay.classList.remove("mc-scrolling");
+      }
+    });
+  }, 50);
+}
+
+export function collectPreviewItems(selectors) {
+  const seen = new Set();
+  const rows = [];
+  for (const selector of selectors) {
+    try {
+      const elements = document.querySelectorAll(selector);
+      for (const el of elements) {
+        if (!el || el.nodeType !== 1 || seen.has(el)) {
+          continue;
+        }
+        if (!isVisible(el)) {
+          continue;
+        }
+        seen.add(el);
+        const rect = el.getBoundingClientRect();
+        const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+        if (!text) {
+          continue;
+        }
+        rows.push({
+          text,
+          top: rect.top + window.scrollY,
+          left: rect.left + window.scrollX
+        });
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.top === b.top) {
+      return a.left - b.left;
+    }
+    return a.top - b.top;
+  });
+  return rows.map((row) => row.text);
+}
+
+export function collectHeadingDefaultStatus(config, entryOverride) {
+  if (!config) {
+    return [];
+  }
+  const entry = entryOverride || getPageMarkingEntry(config, location.href);
+  const excludedLookup = new Map();
+  for (const item of entry.xpaths || []) {
+    if (item && item.xpath) {
+      excludedLookup.set(item.xpath, Boolean(item.excluded));
+    }
+  }
+  const results = new Map();
+  const headingTargets = collectHeadingTargets();
+  for (const el of headingTargets) {
+    const xpath = getXPath(el);
+    if (!xpath || results.has(xpath)) {
+      continue;
+    }
+    const text = (el.innerText || "").trim();
+    results.set(xpath, {
+      xpath,
+      text: text || el.tagName.toLowerCase()
+    });
+  }
+  return Array.from(results.values()).map((item) => ({
+    ...item,
+    excluded: excludedLookup.get(item.xpath) === true
+  }));
+}
+
+export function getElementLabel(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  let text = (el.innerText || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    text = (el.getAttribute("aria-label") || "").trim();
+  }
+  if (!text) {
+    text = (el.getAttribute("title") || "").trim();
+  }
+  if (!text) {
+    text = el.tagName.toLowerCase();
+  }
+  if (text.length > 80) {
+    text = `${text.slice(0, 77)}...`;
+  }
+  return text;
+}
+
+export async function saveConfig(baseUrl, config) {
+  const result = await utils.storageGet(chrome.storage.local, "configs");
+  const configs = result.configs || {};
+  configs[baseUrl] = config;
+  await utils.storageSet(chrome.storage.local, { configs });
+}
+
+export function removePageEntry(config, pageUrl) {
+  if (!config || !pageUrl) {
+    return false;
+  }
+  if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
+    return false;
+  }
+  if (!config.pageMarkings[pageUrl]) {
+    return false;
+  }
+  delete config.pageMarkings[pageUrl];
+  return true;
+}
+
+export function showAiPopover(items) {
+  ensureAiPopoverStyle();
+  closeAiPopover();
+  const popover = document.createElement("div");
+  popover.className = "mc-ai-popover";
+  const modal = document.createElement("div");
+  modal.className = "mc-ai-popover-modal";
+  const header = document.createElement("div");
+  header.className = "mc-ai-popover-header";
+  const title = document.createElement("div");
+  title.className = "mc-ai-popover-title";
+  title.textContent = "Computed Content";
+  const close = document.createElement("button");
+  close.className = "mc-ai-popover-close";
+  close.type = "button";
+  close.innerHTML = "&#x2715;";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", () => closeAiPopover());
+  header.appendChild(title);
+  header.appendChild(close);
+  const body = document.createElement("div");
+  body.className = "mc-ai-popover-body";
+  const list = document.createElement("ul");
+  list.className = "mc-ai-popover-list";
+  if (!items.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "No content found";
+    list.appendChild(empty);
+  } else {
+    items.forEach((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      list.appendChild(li);
+    });
+  }
+  body.appendChild(list);
+  modal.appendChild(header);
+  modal.appendChild(body);
+  popover.appendChild(modal);
+  document.documentElement.appendChild(popover);
+  state.aiPopover = popover;
+}
+
+export function getDraftPageEntry(pageUrl) {
+  if (
+      !pageUrl ||
+      !state.config ||
+      !state.config.pageMarkings ||
+      typeof state.config.pageMarkings !== "object"
+  ) {
+    return null;
+  }
+  return state.config.pageMarkings[pageUrl] || null;
+}
+
+export function getSavedPageEntry(pageUrl) {
+  if (!pageUrl || state.savedPageUrl !== pageUrl) {
+    return null;
+  }
+  return state.savedPageEntry ? clonePageEntry(state.savedPageEntry) : null;
+}
+
+export async function refreshFromTabState() {
+  const response = await utils.sendRuntimeMessage({ type: "getTabState" });
+  if (response && response.enabled && response.baseUrl) {
+    // Only enable if we're already enabled (not a fresh page load after navigation)
+    // and the URL still matches the baseUrl
+    if (state.enabled && location.href.startsWith(response.baseUrl)) {
+      const pageUrl = location.href;
+      const draftEntry = getDraftPageEntry(pageUrl);
+      const savedEntry = getSavedPageEntry(pageUrl);
+      const config = await loadConfig(response.baseUrl);
+      const storedEntry =
+          config.pageMarkings && config.pageMarkings[pageUrl]
+              ? config.pageMarkings[pageUrl]
+              : null;
+      mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
+      if (!patterns.isPageUrlAllowed(config, pageUrl)) {
+        disable();
+        return;
+      }
+      state.baseUrl = response.baseUrl;
+      state.config = config;
+      setSavedPageEntry(pageUrl, storedEntry);
+      if (storedEntry) {
+        const immutableExcluded = collectImmutableElements();
+        syncPageMarkings(config, pageUrl, immutableExcluded, {
+          allowCreate: true,
+          persist: true
+        });
+      }
+      scheduleRender();
+      const removedElements = removeConsentElements();
+      if(removedElements.length > 0) restorePageScrolling();
+      return;
+    }
+  }
+  disable();
+}
+
+export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
+  if (!config || !pageUrl) {
+    return { changed: false, entry: null, persisted: false, hadEntry: false };
+  }
+  const { allowCreate = true, persist = true } = options || {};
+  const hadEntry = hasPageMarkingEntry(config, pageUrl);
+  const shouldPersist = persist && (allowCreate || hadEntry);
+  const entry = getPageMarkingEntry(config, pageUrl, {
+    create: allowCreate || hadEntry,
+    persist: shouldPersist
+  });
+  const excludedLookup = new Map();
+  for (const item of entry.xpaths || []) {
+    if (item && item.xpath) {
+      excludedLookup.set(item.xpath, Boolean(item.excluded));
+    }
+  }
+  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const excludedParents = collectExcludedParentElements(previousItems);
+  const items = [];
+  const seen = new Set();
+  const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
+  for (const el of candidates) {
+    const xpath = getXPath(el);
+    if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    const isHeading = isHeadingElement(el);
+    const excluded = excludedLookup.has(xpath)
+        ? excludedLookup.get(xpath) === true
+        : isHeading;
+    items.push({ xpath, excluded });
+  }
+  for (const item of previousItems) {
+    if (!item || !item.xpath || !item.excluded) {
+      continue;
+    }
+    if (seen.has(item.xpath)) {
+      continue;
+    }
+    const explicitEl = getElementFromXPath(item.xpath);
+    if (!explicitEl) {
+      continue;
+    }
+    if (isWithinExcludedParents(explicitEl, excludedParents)) {
+      continue;
+    }
+    if (!isMarkableElement(explicitEl, config, { allowParent: true })) {
+      continue;
+    }
+    items.push({ xpath: item.xpath, excluded: true });
+    seen.add(item.xpath);
+  }
+  const changed =
+      items.length !== previousItems.length ||
+      items.some((item, index) => {
+        const previous = previousItems[index];
+        return (
+            !previous ||
+            previous.xpath !== item.xpath ||
+            Boolean(previous.excluded) !== item.excluded
+        );
+      });
+  entry.xpaths = items;
+  entry.title = document.title || pageUrl;
+  if (!entry.fullHTML) {
+    entry.fullHTML = "";
+  }
+  if (shouldPersist) {
+    config.pageMarkings[pageUrl] = entry;
+  }
+  return { changed, entry, persisted: shouldPersist, hadEntry };
+}

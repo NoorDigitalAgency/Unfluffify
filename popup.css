@@ -163,6 +163,36 @@ body.is-busy {
   grid-auto-columns: 1fr;
 }
 
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+button.button-secondary {
+  border-color: var(--line);
+  background: #f6efe6;
+  color: var(--ink);
+}
+
+button.button-secondary:hover {
+  background: #efe3d4;
+}
+
+button.button-danger {
+  border-color: rgba(177, 48, 48, 0.6);
+  background: #ffe9e9;
+  color: #8d1d1d;
+}
+
+button.button-danger:hover {
+  background: #ffd4d4;
+}
+
+button.button-small {
+  padding: 5px 6px;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -186,6 +216,12 @@ body.is-busy {
 }
 
 .input-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.input-row select {
   flex: 1;
   min-width: 0;
   max-width: 100%;
@@ -269,6 +305,23 @@ input[type="password"] {
   background: #fffdf9;
   min-width: 0;
   max-width: 100%;
+}
+
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: #fffdf9;
+  min-width: 0;
+  max-width: 100%;
+}
+
+select:disabled {
+  background: #f6efe6;
+  color: var(--muted);
 }
 
 input[readonly] {
