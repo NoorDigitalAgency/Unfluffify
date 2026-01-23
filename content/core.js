@@ -1400,10 +1400,10 @@ function removeConsentElements() {
         });
 
     if (removedElements.length > 0) {
-      console.log(`[IDCAC] Removed ${removedElements.length} consent UI elements from DOM`);
+      console.log(`Removed ${removedElements.length} consent UI elements from DOM`);
     }
   } catch (error) {
-    console.log('[IDCAC] Error removing elements:', error);
+    console.log('Error removing elements:', error);
   }
 
   return removedElements;
