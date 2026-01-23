@@ -30,5 +30,6 @@ export const REMOVABLE_ELEMENT_SELECTORS = [
 ];
 
 export const EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS = [
-  "#onetrust-consent-sdk"
+  "#onetrust-consent-sdk",
+  "#cookie-information-template-wrapper"
 ];

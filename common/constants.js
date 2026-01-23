@@ -35,5 +35,6 @@ export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = [
     "ASIDE",
     "SELECT",
     "TITLE",
-    "STYLE"
+    "STYLE",
+    "VIDEO"
 ];

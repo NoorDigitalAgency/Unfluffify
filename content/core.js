@@ -1424,28 +1424,15 @@ function restorePageScrolling() {
         style.position === 'fixed') {
 
       // Try to restore by removing inline styles
-      if (element.style.overflow) element.style.overflow = '';
-      if (element.style.overflowY) element.style.overflowY = '';
-      if (element.style.overflowX) element.style.overflowX = '';
-      if (element.style.position === 'fixed') element.style.position = '';
+      if (element.style.overflow) element.style.overflow = 'auto !important';
+      if (element.style.overflowY) element.style.overflowY = 'auto !important';
+      if (element.style.overflowX) element.style.overflowX = 'auto !important';
+      if (element.style.height) element.style.height = 'auto !important';
+      if (element.style.position === 'fixed') element.style.position = 'static !important;';
 
-      console.log('[IDCAC] Restored scrolling on', element.tagName);
+      console.log('Restored scrolling on', element.tagName);
     }
   });
-
-  // Force-enable scrolling via CSS
-  if (!document.getElementById('idcac-force-scroll')) {
-    const style = document.createElement('style');
-    style.id = 'idcac-force-scroll';
-    style.textContent = `
-        html, body {
-          overflow: auto !important;
-          position: static !important;
-          height: auto !important;
-        }
-      `;
-    (document.head || document.documentElement).appendChild(style);
-  }
 }
 
 // ====================================================================
