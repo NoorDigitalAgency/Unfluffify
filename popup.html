@@ -102,7 +102,7 @@
         </section>
 
         <section class="card">
-          <div class="section-title">Page draft</div>
+          <div class="section-title">Page data</div>
           <div class="button-row">
             <button id="page-save" type="button">Save</button>
             <button id="page-revert" type="button" class="button-secondary">
@@ -113,6 +113,20 @@
             Delete current page
           </button>
           <div id="page-draft-status" class="hint"></div>
+          <details class="collapsible">
+            <summary>Copy from saved page</summary>
+            <div class="collapsible-body">
+              <label class="field">
+                <span>Base Page URL</span>
+                <select id="copy-source-base-url"></select>
+              </label>
+              <label class="field">
+                <span>Page URL</span>
+                <select id="copy-source-page-url" disabled></select>
+              </label>
+              <button id="copy-from-page" type="button">Copy from</button>
+            </div>
+          </details>
         </section>
 
         <section class="card">

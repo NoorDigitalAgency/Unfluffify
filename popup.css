@@ -447,6 +447,48 @@ button.loading:disabled {
   color: var(--muted);
 }
 
+.collapsible {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fffdf8;
+}
+
+.collapsible summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible summary::before {
+  content: "▸";
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.collapsible[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.collapsible[open] summary {
+  margin-bottom: 8px;
+}
+
+.collapsible-body {
+  display: grid;
+  gap: 8px;
+}
+
 .list {
   list-style: none;
   padding: 0;

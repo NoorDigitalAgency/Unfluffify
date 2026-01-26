@@ -258,6 +258,37 @@ export function main() {
       return true;
     }
 
+    if (message.type === "copyPageDataFromStored") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      const sourceBaseUrl = message.sourceBaseUrl || "";
+      const sourcePageUrl = message.sourcePageUrl || "";
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false, error: "Page data unavailable" });
+        return;
+      }
+      if (!sourceBaseUrl || !sourcePageUrl) {
+        sendResponse({ ok: false, error: "Missing source page" });
+        return;
+      }
+      (async () => {
+        const sourceConfig = await core.loadConfig(sourceBaseUrl);
+        const sourceEntry =
+          sourceConfig.pageMarkings && sourceConfig.pageMarkings[sourcePageUrl]
+            ? sourceConfig.pageMarkings[sourcePageUrl]
+            : null;
+        if (!sourceEntry || !Array.isArray(sourceEntry.xpaths)) {
+          sendResponse({ ok: false, error: "No stored page data found" });
+          return;
+        }
+        const result = core.copyEntryXpathsToPage(state.config, location.href, sourceEntry);
+        core.scheduleRender();
+        core.scheduleSnapshotSave();
+        core.notifyDraftStatus(location.href);
+        sendResponse({ ok: true, copied: result.copied, total: result.total });
+      })();
+      return true;
+    }
+
     if (message.type === "getPageDraftStatus") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {

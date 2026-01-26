@@ -236,6 +236,67 @@ async function refreshUi() {
     }
   }
 
+  if (ui.copySourceBaseUrl && ui.copySourcePageUrl && ui.copyFromPage) {
+    const baseOptions = Object.keys(configs)
+      .filter((baseUrl) => {
+        const entries = configs[baseUrl] && configs[baseUrl].pageMarkings;
+        return entries && Object.keys(entries).length > 0;
+      })
+      .sort()
+      .map((baseUrl) => ({ value: baseUrl, label: baseUrl }));
+
+    if (!baseOptions.some((option) => option.value === state.copySourceBaseUrl)) {
+      state.copySourceBaseUrl = "";
+      state.copySourcePageUrl = "";
+    }
+
+    render.renderSelectOptions(
+      ui.copySourceBaseUrl,
+      baseOptions,
+      state.copySourceBaseUrl,
+      baseOptions.length ? "Select a Base Page URL" : "No base URLs saved"
+    );
+
+    let pageOptions = [];
+    if (state.copySourceBaseUrl && configs[state.copySourceBaseUrl]) {
+      const pageMarkings = configs[state.copySourceBaseUrl].pageMarkings || {};
+      pageOptions = Object.entries(pageMarkings)
+        .filter(([url, entry]) => {
+          return (
+            url &&
+            entry &&
+            Array.isArray(entry.xpaths) &&
+            entry.xpaths.length > 0
+          );
+        })
+        .map(([url, entry]) => ({
+          value: url,
+          label: url,
+          title: entry.title || url
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    if (!pageOptions.some((option) => option.value === state.copySourcePageUrl)) {
+      state.copySourcePageUrl = "";
+    }
+
+    const pagePlaceholder = state.copySourceBaseUrl
+      ? pageOptions.length
+        ? "Select a Page URL"
+        : "No saved pages under this Base Page URL"
+      : "Select a Base Page URL first";
+
+    render.renderSelectOptions(
+      ui.copySourcePageUrl,
+      pageOptions,
+      state.copySourcePageUrl,
+      pagePlaceholder
+    );
+    ui.copySourcePageUrl.disabled = !state.copySourceBaseUrl || !pageOptions.length;
+    ui.copyFromPage.disabled = !state.copySourceBaseUrl || !state.copySourcePageUrl;
+  }
+
   let headingDefaults = [];
   let headingXPathSet = new Set();
   if (state.currentBaseUrl) {
@@ -1015,6 +1076,63 @@ async function handlePageDelete() {
   await refreshUi();
 }
 
+async function handleCopySourceBaseChange() {
+  state.copySourceBaseUrl = ui.copySourceBaseUrl ? ui.copySourceBaseUrl.value : "";
+  state.copySourcePageUrl = "";
+  await refreshUi();
+}
+
+async function handleCopySourcePageChange() {
+  state.copySourcePageUrl = ui.copySourcePageUrl ? ui.copySourcePageUrl.value : "";
+  await refreshUi();
+}
+
+async function handleCopyFromPage() {
+  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
+  if (!tab) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!ui.toggleEnabled.checked) {
+    uiModule.showToast("Enable marking to copy page data");
+    return;
+  }
+  const sourceBaseUrl = state.copySourceBaseUrl;
+  const sourcePageUrl = state.copySourcePageUrl;
+  if (!sourceBaseUrl || !sourcePageUrl) {
+    uiModule.showToast("Choose a Base Page URL and Page URL first");
+    return;
+  }
+  const confirmed = window.confirm(
+    `Copy stored page data from ${sourcePageUrl} into the current page draft? This will overwrite existing draft marks.`
+  );
+  if (!confirmed) {
+    return;
+  }
+  const response = await messages.sendTabMessage({
+    type: "copyPageDataFromStored",
+    baseUrl: state.currentBaseUrl,
+    sourceBaseUrl,
+    sourcePageUrl
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast(response && response.error ? response.error : "Unable to copy page data");
+    return;
+  }
+  const copied = Number.isFinite(response.copied) ? response.copied : 0;
+  const total = Number.isFinite(response.total) ? response.total : 0;
+  uiModule.showToast(
+    total
+      ? `Copied ${copied} of ${total} matched elements`
+      : copied
+        ? `Copied ${copied} matched elements`
+        : "No matching elements found"
+  );
+  await refreshUi();
+}
+
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -1266,6 +1384,15 @@ async function init() {
   }
   if (ui.pageDelete) {
     ui.pageDelete.addEventListener("click", handlePageDelete);
+  }
+  if (ui.copySourceBaseUrl) {
+    ui.copySourceBaseUrl.addEventListener("change", handleCopySourceBaseChange);
+  }
+  if (ui.copySourcePageUrl) {
+    ui.copySourcePageUrl.addEventListener("change", handleCopySourcePageChange);
+  }
+  if (ui.copyFromPage) {
+    ui.copyFromPage.addEventListener("click", handleCopyFromPage);
   }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);

@@ -1464,6 +1464,40 @@ export function clonePageEntry(entry) {
   };
 }
 
+export function copyEntryXpathsToPage(config, pageUrl, sourceEntry) {
+  if (!config || !pageUrl || !sourceEntry || !Array.isArray(sourceEntry.xpaths)) {
+    return { copied: 0, total: 0 };
+  }
+  const sourceItems = sourceEntry.xpaths;
+  const matchedItems = [];
+  const seen = new Set();
+  for (const item of sourceItems) {
+    if (!item || typeof item.xpath !== "string") {
+      continue;
+    }
+    if (seen.has(item.xpath)) {
+      continue;
+    }
+    const el = getElementFromXPath(item.xpath);
+    if (!el) {
+      continue;
+    }
+    if (!isMarkableElement(el, config, {
+      allowParent: true,
+      explicitlyExcluded: Boolean(item.excluded)
+    })) {
+      continue;
+    }
+    matchedItems.push({ xpath: item.xpath, excluded: Boolean(item.excluded) });
+    seen.add(item.xpath);
+  }
+  const entry = getPageMarkingEntry(config, pageUrl);
+  entry.xpaths = matchedItems;
+  entry.title = document.title || pageUrl;
+  config.pageMarkings[pageUrl] = entry;
+  return { copied: matchedItems.length, total: sourceItems.length };
+}
+
 export function setSavedPageEntry(pageUrl, entry) {
   state.savedPageUrl = pageUrl || "";
   state.savedPageEntry = clonePageEntry(entry);

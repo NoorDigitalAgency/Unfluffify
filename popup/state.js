@@ -24,5 +24,7 @@ export const state = {
   currentDraftEntry: null,
   currentDraftDirty: false,
   currentDraftAvailable: false,
-  currentDraftHasEntry: false
+  currentDraftHasEntry: false,
+  copySourceBaseUrl: "",
+  copySourcePageUrl: ""
 };

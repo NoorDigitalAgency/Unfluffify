@@ -133,3 +133,39 @@ export function renderPatternSelect(selectEl, options, selectedValue) {
   selectEl.value = selectedValue || options[0].value;
   selectEl.title = selectedValue || options[0].value;
 }
+
+export function renderSelectOptions(selectEl, options, selectedValue, placeholder) {
+  if (!selectEl) {
+    return;
+  }
+  selectEl.textContent = "";
+  if (!options.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = placeholder || "No options available";
+    selectEl.appendChild(option);
+    selectEl.value = "";
+    selectEl.title = option.textContent;
+    return;
+  }
+  if (placeholder) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = placeholder;
+    selectEl.appendChild(option);
+  }
+  options.forEach((optionItem) => {
+    const option = document.createElement("option");
+    option.value = optionItem.value;
+    option.textContent = optionItem.label || optionItem.value;
+    option.title = optionItem.title || optionItem.value;
+    selectEl.appendChild(option);
+  });
+  if (selectedValue && options.some((item) => item.value === selectedValue)) {
+    selectEl.value = selectedValue;
+    selectEl.title = selectedValue;
+  } else {
+    selectEl.value = "";
+    selectEl.title = placeholder || "";
+  }
+}
