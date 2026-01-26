@@ -1416,7 +1416,14 @@ async function init() {
     }
   });
 
-  chrome.tabs.onActivated.addListener(async () => {
+  chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+    if (!tabId) {
+      return;
+    }
+    const tab = await chrome.tabs.get(tabId);
+    if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
+      return;
+    }
     await helpers.ensureActiveTab();
     await refreshUi();
   });

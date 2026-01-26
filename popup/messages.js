@@ -38,7 +38,10 @@ export async function sendTabMessageWithRetry(message, attempts = 3) {
 
 export async function loadActiveTab() {
   try {
-    const tabs = await utils.tabsQuery({ active: true, lastFocusedWindow: true });
+    let tabs = await utils.tabsQuery({ active: true, currentWindow: true });
+    if (!tabs.length) {
+      tabs = await utils.tabsQuery({ active: true, lastFocusedWindow: true });
+    }
     state.currentTab = tabs[0] || null;
   } catch (error) {
     state.currentTab = null;
