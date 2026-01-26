@@ -22,6 +22,14 @@ async function refreshUi() {
   if (!state.currentTab) {
     return;
   }
+  const currentTabId = state.currentTab.id || null;
+  if (currentTabId && state.lastTabId !== currentTabId) {
+    state.baseUrlEditMode = false;
+    state.endpointEditMode = false;
+    state.copySourceBaseUrl = "";
+    state.copySourcePageUrl = "";
+  }
+  state.lastTabId = currentTabId;
   const configs = await config.getConfigs();
   const tabState =
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };

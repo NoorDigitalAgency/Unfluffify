@@ -14,6 +14,7 @@ export const state = {
   currentConfig: null,
   toastTimer: 0,
   refreshTimer: 0,
+  lastTabId: null,
   baseUrlEditMode: false,
   endpointEditMode: false,
   aiRequestInFlight: null,
