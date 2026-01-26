@@ -6,30 +6,19 @@ export const REMOVABLE_ELEMENT_SELECTORS = [
   ":not(body):not(html).wcc-overlay",
   ":not(body):not(html).modal-backdrop",
   ":not(body):not(html)[role='dialog' i]",
+  ":not(body):not(html)[role='modal' i]",
+  ":not(body):not(html)[role='popup' i]",
   ":not(body):not(html)[class*='modal' i]",
   ":not(body):not(html)[class*='popup' i]",
   ":not(body):not(html)[id*='cookie' i]",
   ":not(body):not(html)[class*='cookie' i]",
   ":not(body):not(html)[id*='consent' i]",
   ":not(body):not(html)[class*='consent' i]",
-  ":not(body):not(html)[class*='newsletter' i]",
-  ":not(body):not(html)[class*='gdpr' i]",
-  ":not(body):not(html)[id*='gdpr' i]",
-  ":not(body):not(html)[class*='privacy' i]:not([class*='policy' i])",
-  ":not(body):not(html)[id*='privacy' i]:not([id*='policy' i])",
-  "[aria-label='Cookie banner']",
-  "[aria-hidden='true']",
-  "[role='dialog']",
-  ".cookie",
-  ".cookies",
-  ".cookie-banner",
-  ".newsletter",
-  ".subscribe",
-  ".modal",
-  ".popup"
-];
-
-export const EXPLICITLY_REMOVABLE_ELEMENT_SELECTORS = [
-  "#onetrust-consent-sdk",
-  "#cookie-information-template-wrapper"
+  ":not(body):not(html)[aria-label*='cookie' i]",
+  ":not(body):not(html)[aria-label*='consent' i]",
+  ":not(body):not(html)[aria-label*='modal' i]",
+  ":not(body):not(html)[aria-label*='popup' i]",
+  ":not(body):not(html)[aria-label*='dialog' i]",
+  ":not(body):not(html)[aria-label*='newsletter' i]",
+  ":not(body):not(html)[aria-label*='subscribe' i]"
 ];
