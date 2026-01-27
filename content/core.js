@@ -254,6 +254,22 @@ function escapeCssIdentifier(value) {
   return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
 }
 
+function getClassSelector(node) {
+  if (!node || !node.classList) {
+    return "";
+  }
+  const classes = Array.from(node.classList)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0 && !value.startsWith("mc-"));
+  if (!classes.length) {
+    return "";
+  }
+  return {
+    classes,
+    selector: `.${classes.map((value) => escapeCssIdentifier(value)).join(".")}`
+  };
+}
+
 function getNthOfTypeIndex(el) {
   let index = 1;
   let sibling = el.previousElementSibling;
@@ -280,8 +296,24 @@ export function buildCssSelectorPath(el) {
       break;
     }
     const tag = node.tagName.toLowerCase();
-    const index = getNthOfTypeIndex(node);
-    const segment = `${tag}:nth-of-type(${index})`;
+    const classInfo = getClassSelector(node);
+    const classSelector = classInfo ? classInfo.selector : "";
+    let segment = `${tag}${classSelector}`;
+    if (!classSelector) {
+      const index = getNthOfTypeIndex(node);
+      segment = `${tag}:nth-of-type(${index})`;
+    } else if (node.parentElement) {
+      const siblings = Array.from(node.parentElement.children).filter((sibling) => {
+        if (sibling.tagName !== node.tagName) {
+          return false;
+        }
+        return classInfo.classes.every((cls) => sibling.classList.contains(cls));
+      });
+      if (siblings.length > 1) {
+        const index = getNthOfTypeIndex(node);
+        segment = `${segment}:nth-of-type(${index})`;
+      }
+    }
     parts.unshift(segment);
     if (node === document.documentElement) {
       break;

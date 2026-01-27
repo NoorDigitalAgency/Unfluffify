@@ -18,6 +18,152 @@ async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
 }
 
+function parseSnapshotDocument(html) {
+  if (!html) {
+    return null;
+  }
+  try {
+    return new DOMParser().parseFromString(html, "text/html");
+  } catch (error) {
+    return null;
+  }
+}
+
+function getElementFromXPathInDocument(doc, xpath) {
+  try {
+    const result = doc.evaluate(
+      xpath,
+      doc,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    );
+    const node = result.singleNodeValue;
+    if (node && node.nodeType === 1) {
+      return node;
+    }
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getNthOfTypeIndex(node) {
+  let index = 1;
+  let sibling = node.previousElementSibling;
+  while (sibling) {
+    if (sibling.tagName === node.tagName) {
+      index += 1;
+    }
+    sibling = sibling.previousElementSibling;
+  }
+  return index;
+}
+
+function escapeCssIdentifier(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+}
+
+function getClassSelector(node) {
+  if (!node || !node.classList) {
+    return null;
+  }
+  const classes = Array.from(node.classList)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0 && !value.startsWith("mc-"));
+  if (!classes.length) {
+    return null;
+  }
+  return {
+    classes,
+    selector: `.${classes.map((value) => escapeCssIdentifier(value)).join(".")}`
+  };
+}
+
+function buildCssSelectorPathForDocument(node, doc) {
+  if (!node || node.nodeType !== 1 || !doc) {
+    return "";
+  }
+  if (node === doc.documentElement || node === doc.body) {
+    return "";
+  }
+  const parts = [];
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (current === doc.documentElement || current === doc.body) {
+      break;
+    }
+    const tag = current.tagName.toLowerCase();
+    const classInfo = getClassSelector(current);
+    const classSelector = classInfo ? classInfo.selector : "";
+    let segment = `${tag}${classSelector}`;
+    if (!classSelector) {
+      const index = getNthOfTypeIndex(current);
+      segment = `${tag}:nth-of-type(${index})`;
+    } else if (current.parentElement) {
+      const siblings = Array.from(current.parentElement.children).filter((sibling) => {
+        if (sibling.tagName !== current.tagName) {
+          return false;
+        }
+        return classInfo.classes.every((cls) => sibling.classList.contains(cls));
+      });
+      if (siblings.length > 1) {
+        const index = getNthOfTypeIndex(current);
+        segment = `${segment}:nth-of-type(${index})`;
+      }
+    }
+    parts.unshift(segment);
+    current = current.parentElement;
+  }
+  return parts.join(" > ");
+}
+
+function computeSelectorsFromSnapshot(fullHTML, includedXPaths, excludedXPaths) {
+  if (!fullHTML || !fullHTML.trim()) {
+    return null;
+  }
+  const doc = parseSnapshotDocument(fullHTML);
+  if (!doc) {
+    return null;
+  }
+  const includedElements = new Set();
+  const excludedElements = new Set();
+  includedXPaths.forEach((xpath) => {
+    const el = getElementFromXPathInDocument(doc, xpath);
+    if (el) {
+      includedElements.add(el);
+    }
+  });
+  excludedXPaths.forEach((xpath) => {
+    const el = getElementFromXPathInDocument(doc, xpath);
+    if (el) {
+      excludedElements.add(el);
+    }
+  });
+  const selectors = [];
+  includedXPaths.forEach((xpath) => {
+    const el = getElementFromXPathInDocument(doc, xpath);
+    if (!el) {
+      return;
+    }
+    let ancestor = el.parentElement;
+    while (ancestor) {
+      if (excludedElements.has(ancestor) && !includedElements.has(ancestor)) {
+        return;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    const selector = buildCssSelectorPathForDocument(el, doc);
+    if (selector) {
+      selectors.push(selector);
+    }
+  });
+  return selectors;
+}
+
 async function refreshUi() {
   if (!state.currentTab) {
     return;
@@ -1220,11 +1366,21 @@ async function handleXpathCssGenerate() {
     xpaths: includedXPaths,
     excludedXPaths
   });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to compute CSS selectors");
-    return;
+  let selectors = [];
+  const snapshotSelectors = computeSelectorsFromSnapshot(
+    state.currentSavedEntry.fullHTML || "",
+    includedXPaths,
+    excludedXPaths
+  );
+  if (Array.isArray(snapshotSelectors)) {
+    selectors = snapshotSelectors;
+  } else {
+    if (!response || !response.ok) {
+      uiModule.showToast("Unable to compute CSS selectors");
+      return;
+    }
+    selectors = Array.isArray(response.selectors) ? response.selectors : [];
   }
-  const selectors = Array.isArray(response.selectors) ? response.selectors : [];
   const output = selectors
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean)
