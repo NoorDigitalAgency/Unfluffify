@@ -280,14 +280,8 @@ export function buildCssSelectorPath(el) {
       break;
     }
     const tag = node.tagName.toLowerCase();
-    const id = node.id ? node.id.trim() : "";
-    let segment = "";
-    if (id && document.getElementById(id) === node) {
-      segment = `${tag}#${escapeCssIdentifier(id)}`;
-    } else {
-      const index = getNthOfTypeIndex(node);
-      segment = `${tag}:nth-of-type(${index})`;
-    }
+    const index = getNthOfTypeIndex(node);
+    const segment = `${tag}:nth-of-type(${index})`;
     parts.unshift(segment);
     if (node === document.documentElement) {
       break;
