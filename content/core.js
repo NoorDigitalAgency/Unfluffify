@@ -268,9 +268,15 @@ export function buildCssSelectorPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
   }
+  if (el === document.documentElement || el === document.body) {
+    return "";
+  }
   const parts = [];
   let node = el;
   while (node && node.nodeType === 1) {
+    if (node === document.documentElement || node === document.body) {
+      break;
+    }
     const tag = node.tagName.toLowerCase();
     const id = node.id ? node.id.trim() : "";
     let segment = "";
@@ -2170,12 +2176,6 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     }
     const explicitEl = getElementFromXPath(item.xpath);
     if (!explicitEl) {
-      continue;
-    }
-    if (isWithinExcludedParents(explicitEl, excludedParents)) {
-      continue;
-    }
-    if (!isMarkableElement(explicitEl, config, { allowParent: true })) {
       continue;
     }
     items.push({ xpath: item.xpath, excluded: true });
