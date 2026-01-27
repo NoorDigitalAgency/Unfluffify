@@ -126,6 +126,9 @@ export function main() {
         if (!el) {
           return;
         }
+        if (core.shouldSkipExcludedSelector(el)) {
+          return;
+        }
         const selector = core.buildCssSelectorPath(el);
         if (selector) {
           selectors.push(selector);

@@ -76,10 +76,22 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.fullHtml || entry.html) {
       changed = true;
     }
+    const rawConsent =
+      Array.isArray(entry.consentXpaths)
+        ? entry.consentXpaths
+        : Array.isArray(entry.consentXPaths)
+          ? entry.consentXPaths
+          : [];
+    if (entry.consentXPaths) {
+      changed = true;
+    }
+    const consentXpaths = rawConsent
+      .filter((xpath) => typeof xpath === "string" && xpath.length > 0);
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,
       xpaths,
+      consentXpaths,
       pagePattern: resolvedPattern,
       fullHTML
     };

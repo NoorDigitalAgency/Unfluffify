@@ -1173,7 +1173,11 @@ async function handleXpathCssGenerate() {
     uiModule.showToast("Save the current page before generating CSS selectors");
     return;
   }
-  if (!state.currentSavedEntry || !Array.isArray(state.currentSavedEntry.xpaths)) {
+  if (
+    !state.currentSavedEntry ||
+    (!Array.isArray(state.currentSavedEntry.xpaths) &&
+      !Array.isArray(state.currentSavedEntry.consentXpaths))
+  ) {
     uiModule.showToast("No saved page markings found");
     return;
   }
@@ -1185,6 +1189,18 @@ async function handleXpathCssGenerate() {
         excludedSet.add(item.xpath);
         excludedXPaths.push(item.xpath);
       }
+    }
+  });
+  const consentXpaths = Array.isArray(state.currentSavedEntry.consentXpaths)
+    ? state.currentSavedEntry.consentXpaths
+    : [];
+  consentXpaths.forEach((xpath) => {
+    if (typeof xpath !== "string" || !xpath) {
+      return;
+    }
+    if (!excludedSet.has(xpath)) {
+      excludedSet.add(xpath);
+      excludedXPaths.push(xpath);
     }
   });
   const useReverse = Boolean(ui.xpathCssReverse && ui.xpathCssReverse.checked);
@@ -1254,11 +1270,33 @@ async function handleComputeSelectors() {
       }
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+      const consentXpaths = Array.isArray(entry.consentXpaths)
+        ? entry.consentXpaths
+        : [];
+      const combined = new Map();
+      xpaths.forEach((item) => {
+        if (!item || typeof item.xpath !== "string" || !item.xpath) {
+          return;
+        }
+        combined.set(item.xpath, { xpath: item.xpath, excluded: Boolean(item.excluded) });
+      });
+      consentXpaths.forEach((xpath) => {
+        if (!xpath || typeof xpath !== "string") {
+          return;
+        }
+        const existing = combined.get(xpath);
+        if (existing) {
+          existing.excluded = true;
+        } else {
+          combined.set(xpath, { xpath, excluded: true });
+        }
+      });
+      const combinedXpaths = Array.from(combined.values());
       const pattern = typeof entry.pagePattern === "string" ? entry.pagePattern : "";
       return {
         url,
         fullHTML,
-        xpaths,
+        xpaths: combinedXpaths,
         pattern
       };
     })
@@ -1550,6 +1588,12 @@ async function init() {
 
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || message.type !== "pageDraftChanged") {
+      if (message && message.type === "consentXpathsChanged") {
+        if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {
+          window.alert("Consent elements changed on this page. Save to keep the updates.");
+          scheduleRefresh();
+        }
+      }
       return;
     }
     if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {

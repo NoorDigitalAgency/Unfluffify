@@ -33,6 +33,7 @@ export const state = {
   mutationObserver: null,
   savedPageEntry: null,
   savedPageUrl: "",
+  consentSyncedPageUrl: "",
   initialized: false
 };
 
@@ -53,7 +54,12 @@ function getEntryFingerprint(entry) {
   const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
       .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`);
-  return fingerprint.concat(xpathFingerprint);
+  const consentFingerprint = Array.isArray(entry.consentXpaths)
+      ? entry.consentXpaths
+          .filter((xpath) => typeof xpath === "string" && xpath)
+          .map((xpath) => `consent:${xpath}`)
+      : [];
+  return fingerprint.concat(xpathFingerprint, consentFingerprint);
 }
 
 function isClippedByOverflow(el) {
@@ -945,6 +951,13 @@ function hasMultipleMarkableDescendants(el) {
   return false;
 }
 
+export function shouldSkipExcludedSelector(el) {
+  if (!el || el.nodeType !== 1) {
+    return true;
+  }
+  return hasMultipleMarkableDescendants(el);
+}
+
 function resolveMarkableElement(el, config, options) {
   if (!isMarkableElement(el, config, options)) {
     return null;
@@ -1446,7 +1459,7 @@ function stopUrlWatcher() {
 function removeConsentElements() {
   const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
 
-  let removedElements = [];
+  let removedXpaths = [];
 
   try {
     const elements = Array.from(document.querySelectorAll(selectors));
@@ -1454,22 +1467,25 @@ function removeConsentElements() {
     elements
         .filter(element => typeof(element.parentElement) !== 'undefined')
         .forEach(element => {
+          const xpath = getXPath(element);
           try {
             element.parentElement.removeChild(element);
-            removedElements.push(element);
+            if (xpath) {
+              removedXpaths.push(xpath);
+            }
           } catch (e) {
             // Element might have been already removed
           }
         });
 
-    if (removedElements.length > 0) {
-      console.log(`Removed ${removedElements.length} consent UI elements from DOM`);
+    if (removedXpaths.length > 0) {
+      console.log(`Removed ${removedXpaths.length} consent UI elements from DOM`);
     }
   } catch (error) {
     console.log('Error removing elements:', error);
   }
 
-  return removedElements;
+  return removedXpaths;
 }
 
 function restorePageScrolling() {
@@ -1497,6 +1513,73 @@ function restorePageScrolling() {
       console.log('Restored scrolling on', element.tagName);
     }
   });
+}
+
+function normalizeConsentXpaths(list) {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  const seen = new Set();
+  const result = [];
+  for (const xpath of list) {
+    if (typeof xpath !== "string" || !xpath) {
+      continue;
+    }
+    if (seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    result.push(xpath);
+  }
+  return result;
+}
+
+function syncConsentOnEnable(pageUrl, hasSavedEntry) {
+  if (!pageUrl || state.consentSyncedPageUrl === pageUrl) {
+    return;
+  }
+  state.consentSyncedPageUrl = pageUrl;
+  const removedConsentXpaths = removeConsentElements();
+  if (removedConsentXpaths.length > 0) {
+    restorePageScrolling();
+  }
+  syncConsentXpaths(pageUrl, removedConsentXpaths, {
+    notifyOnChange: hasSavedEntry
+  });
+}
+
+function syncConsentXpaths(pageUrl, consentXpaths, options) {
+  if (!state.enabled || !state.config || !pageUrl) {
+    return false;
+  }
+  const { notifyOnChange = true } = options || {};
+  const normalized = normalizeConsentXpaths(consentXpaths);
+  const hadEntry = hasPageMarkingEntry(state.config, pageUrl);
+  if (!hadEntry && normalized.length === 0) {
+    return false;
+  }
+  const entry = getPageMarkingEntry(state.config, pageUrl, {
+    create: hadEntry || normalized.length > 0,
+    persist: hadEntry || normalized.length > 0
+  });
+  const previous = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
+  const changed =
+    previous.length !== normalized.length ||
+    previous.some((xpath, index) => xpath !== normalized[index]);
+  if (!changed) {
+    return false;
+  }
+  entry.consentXpaths = normalized;
+  state.config.pageMarkings[pageUrl] = entry;
+  if (notifyOnChange) {
+    notifyDraftStatus(pageUrl);
+    chrome.runtime.sendMessage({
+      type: "consentXpathsChanged",
+      baseUrl: state.baseUrl,
+      pageUrl
+    }).then();
+  }
+  return true;
 }
 
 // ====================================================================
@@ -1541,10 +1624,14 @@ export function clonePageEntry(entry) {
           })
           .filter(Boolean)
       : [];
+  const consentXpaths = Array.isArray(entry.consentXpaths)
+      ? entry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+      : [];
   return {
     url: entry.url || "",
     title: entry.title || "",
     xpaths,
+    consentXpaths,
     pagePattern: patterns.normalizePatternValue(entry.pagePattern || ""),
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
   };
@@ -1777,6 +1864,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
       url: pageUrl || "",
       title: pageUrl || "",
       xpaths: [],
+      consentXpaths: [],
       pagePattern: "",
       fullHTML: ""
     };
@@ -1792,6 +1880,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
     url: pageUrl || "",
     title: document.title || pageUrl || "",
     xpaths: [],
+    consentXpaths: [],
     pagePattern: "",
     fullHTML: ""
   };
@@ -1817,6 +1906,7 @@ export function disable() {
   state.baseUrl = "";
   state.config = null;
   state.altPassThrough = false;
+  state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
     window.clearTimeout(state.renderTimer);
     state.renderTimer = 0;
@@ -1870,6 +1960,12 @@ export async function enableForBaseUrl(baseUrl, options) {
       state.config.pageMarkings &&
       state.config.pageMarkings[pageUrl];
   setSavedPageEntry(pageUrl, savedEntry || null);
+  const hasSavedData = Boolean(
+    savedEntry &&
+      ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
+        (Array.isArray(savedEntry.consentXpaths) && savedEntry.consentXpaths.length > 0) ||
+        (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
+  );
   if (savedEntry) {
     const immutableExcluded = collectImmutableElements();
     syncPageMarkings(state.config, pageUrl, immutableExcluded, {
@@ -1877,8 +1973,7 @@ export async function enableForBaseUrl(baseUrl, options) {
       persist: true
     });
   }
-  const removedElements = removeConsentElements();
-  if(removedElements.length > 0) restorePageScrolling();
+  syncConsentOnEnable(pageUrl, hasSavedData);
   createOverlay();
   startObservers();
   startUrlWatcher();
@@ -2125,8 +2220,13 @@ export async function refreshFromTabState() {
         });
       }
       scheduleRender();
-      const removedElements = removeConsentElements();
-      if(removedElements.length > 0) restorePageScrolling();
+      const hasSavedData = Boolean(
+        storedEntry &&
+          ((Array.isArray(storedEntry.xpaths) && storedEntry.xpaths.length > 0) ||
+            (Array.isArray(storedEntry.consentXpaths) && storedEntry.consentXpaths.length > 0) ||
+            (typeof storedEntry.fullHTML === "string" && storedEntry.fullHTML.length > 0))
+      );
+      syncConsentOnEnable(pageUrl, hasSavedData);
       return;
     }
   }
