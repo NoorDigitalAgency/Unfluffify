@@ -117,7 +117,30 @@ export function main() {
 
     if (message.type === "computeCssSelectorsFromXPaths") {
       const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
+      const excludedXPaths = Array.isArray(message.excludedXPaths)
+        ? message.excludedXPaths
+        : [];
       const selectors = [];
+      const includedElements = new Set();
+      xpaths.forEach((xpath) => {
+        if (!xpath) {
+          return;
+        }
+        const el = core.getElementFromXPath(xpath);
+        if (el) {
+          includedElements.add(el);
+        }
+      });
+      const excludedElements = new Set();
+      excludedXPaths.forEach((xpath) => {
+        if (!xpath) {
+          return;
+        }
+        const el = core.getElementFromXPath(xpath);
+        if (el) {
+          excludedElements.add(el);
+        }
+      });
       xpaths.forEach((xpath) => {
         if (!xpath) {
           return;
@@ -128,7 +151,7 @@ export function main() {
         }
         let ancestor = el.parentElement;
         while (ancestor) {
-          if (core.isHeadingElement(ancestor)) {
+          if (excludedElements.has(ancestor) && !includedElements.has(ancestor)) {
             return;
           }
           ancestor = ancestor.parentElement;

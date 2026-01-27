@@ -1192,15 +1192,21 @@ async function handleXpathCssGenerate() {
     return;
   }
   const includedXPaths = [];
+  const excludedXPaths = [];
   const includedSet = new Set();
+  const excludedSet = new Set();
   state.currentSavedEntry.xpaths.forEach((item) => {
-    if (
-      item &&
-      !item.excluded &&
-      typeof item.xpath === "string" &&
-      item.xpath &&
-      !includedSet.has(item.xpath)
-    ) {
+    if (!item || typeof item.xpath !== "string" || !item.xpath) {
+      return;
+    }
+    if (item.excluded) {
+      if (!excludedSet.has(item.xpath)) {
+        excludedSet.add(item.xpath);
+        excludedXPaths.push(item.xpath);
+      }
+      return;
+    }
+    if (!includedSet.has(item.xpath)) {
       includedSet.add(item.xpath);
       includedXPaths.push(item.xpath);
     }
@@ -1211,7 +1217,8 @@ async function handleXpathCssGenerate() {
   }
   const response = await messages.sendTabMessage({
     type: "computeCssSelectorsFromXPaths",
-    xpaths: includedXPaths
+    xpaths: includedXPaths,
+    excludedXPaths
   });
   if (!response || !response.ok) {
     uiModule.showToast("Unable to compute CSS selectors");
