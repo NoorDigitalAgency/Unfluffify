@@ -1187,43 +1187,31 @@ async function handleXpathCssGenerate() {
     uiModule.showToast("Save the current page before generating CSS selectors");
     return;
   }
-  if (
-    !state.currentSavedEntry ||
-    (!Array.isArray(state.currentSavedEntry.xpaths) &&
-      !Array.isArray(state.currentSavedEntry.consentXpaths))
-  ) {
+  if (!state.currentSavedEntry || !Array.isArray(state.currentSavedEntry.xpaths)) {
     uiModule.showToast("No saved page markings found");
     return;
   }
-  const excludedXPaths = [];
-  const excludedSet = new Set();
+  const includedXPaths = [];
+  const includedSet = new Set();
   state.currentSavedEntry.xpaths.forEach((item) => {
-    if (item && item.excluded && typeof item.xpath === "string" && item.xpath) {
-      if (!excludedSet.has(item.xpath)) {
-        excludedSet.add(item.xpath);
-        excludedXPaths.push(item.xpath);
-      }
+    if (
+      item &&
+      !item.excluded &&
+      typeof item.xpath === "string" &&
+      item.xpath &&
+      !includedSet.has(item.xpath)
+    ) {
+      includedSet.add(item.xpath);
+      includedXPaths.push(item.xpath);
     }
   });
-  const consentXpaths = Array.isArray(state.currentSavedEntry.consentXpaths)
-    ? state.currentSavedEntry.consentXpaths
-    : [];
-  consentXpaths.forEach((xpath) => {
-    if (typeof xpath !== "string" || !xpath) {
-      return;
-    }
-    if (!excludedSet.has(xpath)) {
-      excludedSet.add(xpath);
-      excludedXPaths.push(xpath);
-    }
-  });
-  if (!excludedXPaths.length) {
-    uiModule.showToast("No excluded elements to convert");
+  if (!includedXPaths.length) {
+    uiModule.showToast("No included elements to convert");
     return;
   }
   const response = await messages.sendTabMessage({
     type: "computeCssSelectorsFromXPaths",
-    xpaths: excludedXPaths
+    xpaths: includedXPaths
   });
   if (!response || !response.ok) {
     uiModule.showToast("Unable to compute CSS selectors");
