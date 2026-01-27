@@ -1475,23 +1475,38 @@ function restorePageScrolling() {
 
   if (!html || !body) return;
 
-  // Remove inline styles that disable scrolling
-  [html, body].forEach(element => {
+  const setStyle = (el, prop, value) => {
+    el.style.setProperty(prop, value, "important");
+  };
+
+  [html, body].forEach((element) => {
     const style = window.getComputedStyle(element);
+    const overflowBlocked =
+      style.overflow === "hidden" || style.overflow === "clip";
+    const overflowXBlocked =
+      style.overflowX === "hidden" || style.overflowX === "clip";
+    const overflowYBlocked =
+      style.overflowY === "hidden" || style.overflowY === "clip";
+    const positionBlocked = style.position === "fixed";
 
-    if (style.overflow === 'hidden' ||
-        style.overflowY === 'hidden' ||
-        style.overflowX === 'hidden' ||
-        style.position === 'fixed') {
+    if (overflowBlocked) {
+      setStyle(element, "overflow", "auto");
+    }
+    if (overflowXBlocked) {
+      setStyle(element, "overflow-x", "auto");
+    }
+    if (overflowYBlocked) {
+      setStyle(element, "overflow-y", "auto");
+    }
+    if (positionBlocked) {
+      setStyle(element, "position", "static");
+    }
+    if ((overflowBlocked || positionBlocked) && style.height !== "auto") {
+      setStyle(element, "height", "auto");
+    }
 
-      // Try to restore by removing inline styles
-      if (element.style.overflow) element.style.overflow = 'auto !important';
-      if (element.style.overflowY) element.style.overflowY = 'auto !important';
-      if (element.style.overflowX) element.style.overflowX = 'auto !important';
-      if (element.style.height) element.style.height = 'auto !important';
-      if (element.style.position === 'fixed') element.style.position = 'static !important;';
-
-      console.log('Restored scrolling on', element.tagName);
+    if (overflowBlocked || overflowXBlocked || overflowYBlocked || positionBlocked) {
+      console.log("Restored scrolling on", element.tagName);
     }
   });
 }
