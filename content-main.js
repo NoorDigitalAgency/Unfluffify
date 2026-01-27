@@ -126,6 +126,13 @@ export function main() {
         if (!el) {
           return;
         }
+        let ancestor = el.parentElement;
+        while (ancestor) {
+          if (core.isHeadingElement(ancestor)) {
+            return;
+          }
+          ancestor = ancestor.parentElement;
+        }
         const selector = core.buildCssSelectorPath(el);
         if (selector) {
           selectors.push(selector);
