@@ -1590,7 +1590,18 @@ async function init() {
     if (!message || message.type !== "pageDraftChanged") {
       if (message && message.type === "consentXpathsChanged") {
         if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {
-          window.alert("Consent elements changed on this page. Save to keep the updates.");
+          const hasSavedData = Boolean(
+            state.currentSavedEntry &&
+              ((Array.isArray(state.currentSavedEntry.xpaths) &&
+                state.currentSavedEntry.xpaths.length > 0) ||
+                (Array.isArray(state.currentSavedEntry.consentXpaths) &&
+                  state.currentSavedEntry.consentXpaths.length > 0) ||
+                (typeof state.currentSavedEntry.fullHTML === "string" &&
+                  state.currentSavedEntry.fullHTML.length > 0))
+          );
+          if (hasSavedData) {
+            window.alert("Consent elements changed on this page. Save to keep the updates.");
+          }
           scheduleRefresh();
         }
       }

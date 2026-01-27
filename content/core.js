@@ -1091,21 +1091,19 @@ function toggleExplicit(target) {
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const cleanupHierarchy = (currentXPath) => {
-    items.forEach((item) => {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
       if (!item || !item.xpath || item.xpath === currentXPath) {
-        return;
-      }
-      if (!item.excluded) {
-        return;
+        continue;
       }
       const existingEl = getElementFromXPath(item.xpath);
       if (!existingEl) {
-        return;
+        continue;
       }
-      if (existingEl.contains(target)) {
-        item.excluded = false;
+      if (target.contains(existingEl)) {
+        items.splice(i, 1);
       }
-    });
+    }
   };
 
   let addedExclude;
