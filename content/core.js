@@ -158,7 +158,14 @@ function isTextualContainer(el) {
   if (!isVisible(el)) {
     return false;
   }
-  return hasDirectText(el);
+  if (hasDirectText(el)) {
+    return true;
+  }
+  if (!isHeadingElement(el)) {
+    return false;
+  }
+  const headingText = (el.innerText || "").replace(/\s+/g, " ").trim();
+  return Boolean(headingText);
 }
 
 function matchesImmutableExcluded(el) {
