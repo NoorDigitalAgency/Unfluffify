@@ -41,7 +41,6 @@ export const ui = {
   xpathCssNotice: document.getElementById("xpath-css-notice"),
   xpathCssOutput: document.getElementById("xpath-css-output"),
   xpathCssClear: document.getElementById("xpath-css-clear"),
-  xpathCssReverse: document.getElementById("xpath-css-reverse"),
   endpointUrl: document.getElementById("endpoint-url"),
   endpointSet: document.getElementById("endpoint-url-set"),
   endpointEdit: document.getElementById("endpoint-url-edit"),

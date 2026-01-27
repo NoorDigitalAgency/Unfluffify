@@ -151,19 +151,6 @@ export function main() {
       return;
     }
 
-    if (message.type === "computeCssSelectorsFromImplicit") {
-      const excludedXPaths = Array.isArray(message.excludedXPaths)
-        ? message.excludedXPaths
-        : [];
-      const excludedItems = excludedXPaths.map((xpath) => ({
-        xpath,
-        excluded: true
-      }));
-      const selectors = core.collectImplicitIncludedSelectors(excludedItems);
-      sendResponse({ ok: true, selectors });
-      return;
-    }
-
     if (message.type === "focusElement") {
       const xpath = message.xpath || "";
       const target = xpath ? core.getElementFromXPath(xpath) : null;

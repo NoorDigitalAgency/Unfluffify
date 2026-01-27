@@ -1217,16 +1217,14 @@ async function handleXpathCssGenerate() {
       excludedXPaths.push(xpath);
     }
   });
-  const useReverse = Boolean(ui.xpathCssReverse && ui.xpathCssReverse.checked);
-  if (!useReverse && !excludedXPaths.length) {
+  if (!excludedXPaths.length) {
     uiModule.showToast("No excluded elements to convert");
     return;
   }
-  const response = await messages.sendTabMessage(
-    useReverse
-      ? { type: "computeCssSelectorsFromImplicit", excludedXPaths }
-      : { type: "computeCssSelectorsFromXPaths", xpaths: excludedXPaths }
-  );
+  const response = await messages.sendTabMessage({
+    type: "computeCssSelectorsFromXPaths",
+    xpaths: excludedXPaths
+  });
   if (!response || !response.ok) {
     uiModule.showToast("Unable to compute CSS selectors");
     return;

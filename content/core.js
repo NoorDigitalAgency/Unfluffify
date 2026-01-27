@@ -247,10 +247,6 @@ function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
-export function getXPathForElement(el) {
-  return getXPath(el);
-}
-
 function escapeCssIdentifier(value) {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
@@ -299,38 +295,6 @@ export function buildCssSelectorPath(el) {
     node = node.parentElement;
   }
   return parts.join(" > ");
-}
-
-export function collectImplicitIncludedSelectors(excludedItems) {
-  const excludedLookup = new Map();
-  for (const item of excludedItems || []) {
-    if (item && item.xpath) {
-      excludedLookup.set(item.xpath, Boolean(item.excluded));
-    }
-  }
-  const immutableExcluded = collectImmutableElements();
-  const excludedParents = collectExcludedParentElements(excludedItems);
-  const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
-  const selectors = [];
-  const seen = new Set();
-  for (const el of candidates) {
-    const xpath = getXPath(el);
-    if (!xpath || seen.has(xpath)) {
-      continue;
-    }
-    seen.add(xpath);
-    const excluded = excludedLookup.has(xpath)
-      ? excludedLookup.get(xpath) === true
-      : isHeadingElement(el);
-    if (excluded) {
-      continue;
-    }
-    const selector = buildCssSelectorPath(el);
-    if (selector) {
-      selectors.push(selector);
-    }
-  }
-  return selectors;
 }
 
 function collectXPathElements(xpaths) {
@@ -949,13 +913,6 @@ function hasMultipleMarkableDescendants(el) {
     }
   }
   return false;
-}
-
-export function shouldSkipExcludedSelector(el) {
-  if (!el || el.nodeType !== 1) {
-    return true;
-  }
-  return hasMultipleMarkableDescendants(el);
 }
 
 function resolveMarkableElement(el, config, options) {
