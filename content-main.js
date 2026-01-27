@@ -115,6 +115,39 @@ export function main() {
       return;
     }
 
+    if (message.type === "computeCssSelectorsFromXPaths") {
+      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
+      const selectors = [];
+      xpaths.forEach((xpath) => {
+        if (!xpath) {
+          return;
+        }
+        const el = core.getElementFromXPath(xpath);
+        if (!el) {
+          return;
+        }
+        const selector = core.buildCssSelectorPath(el);
+        if (selector) {
+          selectors.push(selector);
+        }
+      });
+      sendResponse({ ok: true, selectors });
+      return;
+    }
+
+    if (message.type === "computeCssSelectorsFromImplicit") {
+      const excludedXPaths = Array.isArray(message.excludedXPaths)
+        ? message.excludedXPaths
+        : [];
+      const excludedItems = excludedXPaths.map((xpath) => ({
+        xpath,
+        excluded: true
+      }));
+      const selectors = core.collectImplicitIncludedSelectors(excludedItems);
+      sendResponse({ ok: true, selectors });
+      return;
+    }
+
     if (message.type === "focusElement") {
       const xpath = message.xpath || "";
       const target = xpath ? core.getElementFromXPath(xpath) : null;

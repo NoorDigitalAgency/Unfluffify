@@ -144,6 +144,7 @@ async function refreshUi() {
 
   const isEnabled = ui.toggleEnabled.checked;
   state.currentDraftEntry = null;
+  state.currentSavedEntry = null;
   state.currentDraftDirty = false;
   state.currentDraftAvailable = false;
   state.currentDraftHasEntry = false;
@@ -154,6 +155,7 @@ async function refreshUi() {
     });
     if (draftStatus && draftStatus.ok) {
       state.currentDraftEntry = draftStatus.entry || null;
+      state.currentSavedEntry = draftStatus.savedEntry || null;
       state.currentDraftDirty = Boolean(draftStatus.dirty);
       state.currentDraftAvailable = true;
       state.currentDraftHasEntry = Boolean(state.currentDraftEntry);
@@ -242,6 +244,25 @@ async function refreshUi() {
     } else {
       ui.pageDraftStatus.textContent = "All changes saved";
     }
+  }
+
+  if (ui.xpathCssGenerate && ui.xpathCssNotice) {
+    const hasSavedMarkings =
+      state.currentSavedEntry &&
+      Array.isArray(state.currentSavedEntry.xpaths) &&
+      state.currentSavedEntry.xpaths.length > 0;
+    const xpathCssBlockedByDraft = state.currentDraftDirty;
+    const xpathCssEnabled =
+      baseUrlReady &&
+      isEnabled &&
+      state.currentDraftAvailable &&
+      hasSavedMarkings &&
+      !xpathCssBlockedByDraft;
+    ui.xpathCssGenerate.disabled = !xpathCssEnabled;
+    ui.xpathCssNotice.hidden = !xpathCssBlockedByDraft;
+  }
+  if (ui.xpathCssOutput && ui.xpathCssClear) {
+    ui.xpathCssClear.disabled = !ui.xpathCssOutput.value.trim();
   }
 
   if (ui.copySourceBaseUrl && ui.copySourcePageUrl && ui.copyFromPage) {
@@ -1141,6 +1162,68 @@ async function handleCopyFromPage() {
   await refreshUi();
 }
 
+async function handleXpathCssGenerate() {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (state.currentDraftDirty) {
+    uiModule.showToast("Save the current page before generating CSS selectors");
+    return;
+  }
+  if (!state.currentSavedEntry || !Array.isArray(state.currentSavedEntry.xpaths)) {
+    uiModule.showToast("No saved page markings found");
+    return;
+  }
+  const excludedXPaths = [];
+  const excludedSet = new Set();
+  state.currentSavedEntry.xpaths.forEach((item) => {
+    if (item && item.excluded && typeof item.xpath === "string" && item.xpath) {
+      if (!excludedSet.has(item.xpath)) {
+        excludedSet.add(item.xpath);
+        excludedXPaths.push(item.xpath);
+      }
+    }
+  });
+  const useReverse = Boolean(ui.xpathCssReverse && ui.xpathCssReverse.checked);
+  if (!useReverse && !excludedXPaths.length) {
+    uiModule.showToast("No excluded elements to convert");
+    return;
+  }
+  const response = await messages.sendTabMessage(
+    useReverse
+      ? { type: "computeCssSelectorsFromImplicit", excludedXPaths }
+      : { type: "computeCssSelectorsFromXPaths", xpaths: excludedXPaths }
+  );
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to compute CSS selectors");
+    return;
+  }
+  const selectors = Array.isArray(response.selectors) ? response.selectors : [];
+  const output = selectors
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean)
+    .join(", ");
+  if (ui.xpathCssOutput) {
+    ui.xpathCssOutput.value = output;
+  }
+  if (ui.xpathCssClear) {
+    ui.xpathCssClear.disabled = !output;
+  }
+  uiModule.showToast(output ? "CSS selectors generated" : "No selectors generated");
+}
+
+function handleXpathCssClear() {
+  if (ui.xpathCssOutput) {
+    ui.xpathCssOutput.value = "";
+  }
+  if (ui.xpathCssClear) {
+    ui.xpathCssClear.disabled = true;
+  }
+}
+
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -1401,6 +1484,17 @@ async function init() {
   }
   if (ui.copyFromPage) {
     ui.copyFromPage.addEventListener("click", handleCopyFromPage);
+  }
+  if (ui.xpathCssGenerate) {
+    ui.xpathCssGenerate.addEventListener("click", handleXpathCssGenerate);
+  }
+  if (ui.xpathCssClear) {
+    ui.xpathCssClear.addEventListener("click", handleXpathCssClear);
+  }
+  if (ui.xpathCssOutput) {
+    ui.xpathCssOutput.addEventListener("focus", (event) => {
+      event.target.select();
+    });
   }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);

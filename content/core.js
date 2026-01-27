@@ -241,6 +241,86 @@ function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
+export function getXPathForElement(el) {
+  return getXPath(el);
+}
+
+function escapeCssIdentifier(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+}
+
+function getNthOfTypeIndex(el) {
+  let index = 1;
+  let sibling = el.previousElementSibling;
+  while (sibling) {
+    if (sibling.tagName === el.tagName) {
+      index += 1;
+    }
+    sibling = sibling.previousElementSibling;
+  }
+  return index;
+}
+
+export function buildCssSelectorPath(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  const parts = [];
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const tag = node.tagName.toLowerCase();
+    const id = node.id ? node.id.trim() : "";
+    let segment = "";
+    if (id && document.getElementById(id) === node) {
+      segment = `${tag}#${escapeCssIdentifier(id)}`;
+    } else {
+      const index = getNthOfTypeIndex(node);
+      segment = `${tag}:nth-of-type(${index})`;
+    }
+    parts.unshift(segment);
+    if (node === document.documentElement) {
+      break;
+    }
+    node = node.parentElement;
+  }
+  return parts.join(" > ");
+}
+
+export function collectImplicitIncludedSelectors(excludedItems) {
+  const excludedLookup = new Map();
+  for (const item of excludedItems || []) {
+    if (item && item.xpath) {
+      excludedLookup.set(item.xpath, Boolean(item.excluded));
+    }
+  }
+  const immutableExcluded = collectImmutableElements();
+  const excludedParents = collectExcludedParentElements(excludedItems);
+  const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
+  const selectors = [];
+  const seen = new Set();
+  for (const el of candidates) {
+    const xpath = getXPath(el);
+    if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    const excluded = excludedLookup.has(xpath)
+      ? excludedLookup.get(xpath) === true
+      : isHeadingElement(el);
+    if (excluded) {
+      continue;
+    }
+    const selector = buildCssSelectorPath(el);
+    if (selector) {
+      selectors.push(selector);
+    }
+  }
+  return selectors;
+}
+
 function collectXPathElements(xpaths) {
   const elements = new Set();
   for (const xpath of xpaths || []) {

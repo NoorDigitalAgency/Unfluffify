@@ -23,6 +23,7 @@ export const state = {
   currentDeviceScale: DEVICE_SCALE_DEFAULTS.desktop,
   currentDeviceEmulationEnabled: false,
   currentDraftEntry: null,
+  currentSavedEntry: null,
   currentDraftDirty: false,
   currentDraftAvailable: false,
   currentDraftHasEntry: false,
