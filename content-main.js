@@ -118,6 +118,7 @@ export function main() {
     if (message.type === "computeCssSelectorsFromXPaths") {
       const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
       const selectors = [];
+      const elementsByXpath = new Map();
       xpaths.forEach((xpath) => {
         if (!xpath) {
           return;
@@ -126,8 +127,20 @@ export function main() {
         if (!el) {
           return;
         }
-        if (core.shouldSkipExcludedSelector(el)) {
+        elementsByXpath.set(xpath, el);
+      });
+      const excludedElements = new Set(elementsByXpath.values());
+      xpaths.forEach((xpath) => {
+        const el = elementsByXpath.get(xpath);
+        if (!el) {
           return;
+        }
+        let parent = el.parentElement;
+        while (parent) {
+          if (excludedElements.has(parent)) {
+            return;
+          }
+          parent = parent.parentElement;
         }
         const selector = core.buildCssSelectorPath(el);
         if (selector) {

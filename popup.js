@@ -89,6 +89,7 @@ async function refreshUi() {
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
+  const isEnabled = ui.toggleEnabled.checked;
   const pagePatternOptions = baseUrlReady
     ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
     : [];
@@ -142,7 +143,6 @@ async function refreshUi() {
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = latestComputed.length > 0;
 
-  const isEnabled = ui.toggleEnabled.checked;
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
@@ -263,6 +263,19 @@ async function refreshUi() {
   }
   if (ui.xpathCssOutput && ui.xpathCssClear) {
     ui.xpathCssClear.disabled = !ui.xpathCssOutput.value.trim();
+  }
+
+  if (ui.xpathCssOutput) {
+    const pageChanged =
+      state.lastPopupPageUrl && state.lastPopupPageUrl !== pageUrl;
+    const enabledChanged =
+      typeof state.lastPopupEnabled === "boolean" &&
+      state.lastPopupEnabled !== isEnabled;
+    if (pageChanged || enabledChanged) {
+      handleXpathCssClear();
+    }
+    state.lastPopupPageUrl = pageUrl;
+    state.lastPopupEnabled = isEnabled;
   }
 
   if (ui.copySourceBaseUrl && ui.copySourcePageUrl && ui.copyFromPage) {
@@ -1047,6 +1060,7 @@ async function handlePageSave() {
   uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
   if (response.saved) {
     await drafts.clearPagePatternDraft(tab.id, tab.url || "");
+    handleXpathCssClear();
   }
   await refreshUi();
 }

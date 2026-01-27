@@ -28,5 +28,7 @@ export const state = {
   currentDraftAvailable: false,
   currentDraftHasEntry: false,
   copySourceBaseUrl: "",
-  copySourcePageUrl: ""
+  copySourcePageUrl: "",
+  lastPopupPageUrl: "",
+  lastPopupEnabled: null
 };
