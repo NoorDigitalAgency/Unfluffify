@@ -28,6 +28,7 @@ export const state = {
   markedElements: new Set(),
   renderRaf: 0,
   renderTimer: 0,
+  lastRenderAt: 0,
   scrollHideTimer: 0,
   isScrolling: false,
   snapshotTimer: 0,
@@ -741,6 +742,8 @@ function createOverlay() {
   window.addEventListener("keydown", handleKeydown, true);
   window.addEventListener("click", handleAltClick, true);
   window.addEventListener("keyup", handleKeyup, true);
+  window.addEventListener("blur", handleWindowBlur, true);
+  document.addEventListener("visibilitychange", handleVisibilityChange, true);
   updateOverlayGutter();
 }
 
@@ -761,6 +764,8 @@ function removeOverlay() {
   window.removeEventListener("keydown", handleKeydown, true);
   window.removeEventListener("click", handleAltClick, true);
   window.removeEventListener("keyup", handleKeyup, true);
+  window.removeEventListener("blur", handleWindowBlur, true);
+  document.removeEventListener("visibilitychange", handleVisibilityChange, true);
   const style = document.getElementById("markcontit-freeze-style");
   if (style) {
     style.remove();
@@ -864,8 +869,14 @@ function syncModifierState(event) {
   if (!event) {
     return;
   }
-  const altHeld = Boolean(event.altKey);
-  const shiftHeld = Boolean(event.shiftKey);
+  const altHeld =
+    typeof event.getModifierState === "function"
+      ? event.getModifierState("Alt")
+      : Boolean(event.altKey);
+  const shiftHeld =
+    typeof event.getModifierState === "function"
+      ? event.getModifierState("Shift")
+      : Boolean(event.shiftKey);
   const changed =
     altHeld !== state.altHeld || shiftHeld !== state.shiftHeld;
   state.altHeld = altHeld;
@@ -875,6 +886,33 @@ function syncModifierState(event) {
     updateCursorMode();
     refreshHoverHighlight();
   }
+}
+
+function resetModifierState() {
+  const hadModifiers = state.altHeld || state.shiftHeld || state.altPassThrough;
+  state.altHeld = false;
+  state.shiftHeld = false;
+  if (state.altPassThrough) {
+    setAltPassThrough(false);
+  }
+  if (hadModifiers) {
+    updateCursorMode();
+    refreshHoverHighlight();
+  }
+}
+
+function handleWindowBlur() {
+  if (!state.enabled) {
+    return;
+  }
+  resetModifierState();
+}
+
+function handleVisibilityChange() {
+  if (!state.enabled || !document.hidden) {
+    return;
+  }
+  resetModifierState();
 }
 
 function updateFocusHighlight() {
@@ -1675,7 +1713,7 @@ function startObservers() {
           return;
         }
       }
-      scheduleRender();
+      scheduleRender({ delay: 120, minInterval: 250 });
     } catch (error) {
       // Silently handle errors to prevent observer from stopping
     }
@@ -2148,10 +2186,16 @@ export function collectImmutableElements() {
   return immutable;
 }
 
-export function scheduleRender() {
+export function scheduleRender(options) {
   if (state.renderTimer) {
     return;
   }
+  const { delay = 50, minInterval = 0 } = options || {};
+  const now = Date.now();
+  const sinceLast = now - (state.lastRenderAt || 0);
+  const waitForInterval =
+    minInterval > 0 && sinceLast < minInterval ? minInterval - sinceLast : 0;
+  const effectiveDelay = Math.max(delay, waitForInterval);
   state.renderTimer = window.setTimeout(() => {
     state.renderTimer = 0;
     if (state.renderRaf) {
@@ -2159,9 +2203,10 @@ export function scheduleRender() {
     }
     state.renderRaf = window.requestAnimationFrame(() => {
       state.renderRaf = 0;
+      state.lastRenderAt = Date.now();
       renderHighlights();
     });
-  }, 50);
+  }, effectiveDelay);
 }
 
 export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
