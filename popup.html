@@ -103,6 +103,9 @@
 
         <section class="card">
           <div class="section-title">Page data</div>
+          <div id="page-data-new-notice" class="notice" role="status" aria-live="polite" hidden>
+            No saved data for this page yet. Save to store it.
+          </div>
           <div class="button-row">
             <button id="page-save" type="button">Save</button>
             <button id="page-revert" type="button" class="button-secondary">
@@ -130,22 +133,6 @@
           <details class="collapsible">
             <summary>XPaths to CSS</summary>
             <div class="collapsible-body">
-              <button id="xpath-css-generate" type="button">Generate selectors</button>
-              <div id="xpath-css-notice" class="notice" role="status" aria-live="polite" hidden>
-                Save the current page before generating CSS selectors
-              </div>
-              <div class="selector-output">
-                <div class="selector-output__header">
-                  <span>CSS selectors</span>
-                </div>
-                <textarea
-                  id="xpath-css-output"
-                  class="selector-output__box"
-                  rows="4"
-                  readonly
-                  placeholder="No selectors generated yet"
-                ></textarea>
-              </div>
               <div class="toggle-row">
                 <label for="xpath-css-highlight">
                   <input id="xpath-css-highlight" type="checkbox" />

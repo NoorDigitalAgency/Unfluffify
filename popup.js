@@ -307,6 +307,17 @@ async function refreshUi() {
       state.currentDraftHasEntry = Boolean(state.currentDraftEntry);
     }
   }
+  const hasSavedPageData = Boolean(
+    state.currentSavedEntry &&
+      ((Array.isArray(state.currentSavedEntry.xpaths) &&
+        state.currentSavedEntry.xpaths.length > 0) ||
+        (Array.isArray(state.currentSavedEntry.includeXpaths) &&
+          state.currentSavedEntry.includeXpaths.length > 0) ||
+        (Array.isArray(state.currentSavedEntry.consentXpaths) &&
+          state.currentSavedEntry.consentXpaths.length > 0) ||
+        (typeof state.currentSavedEntry.fullHTML === "string" &&
+          state.currentSavedEntry.fullHTML.length > 0))
+  );
   const aiBlockedByDraft = state.currentDraftDirty;
   ui.toggleEnabled.disabled = !baseUrlReady || !pagePatternReady;
   ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
@@ -391,33 +402,14 @@ async function refreshUi() {
       ui.pageDraftStatus.textContent = "All changes saved";
     }
   }
+  if (ui.pageDataNewNotice) {
+    ui.pageDataNewNotice.hidden =
+      !baseUrlReady ||
+      !isEnabled ||
+      !state.currentDraftAvailable ||
+      hasSavedPageData;
+  }
 
-  if (ui.xpathCssGenerate && ui.xpathCssNotice) {
-    const hasSavedMarkings =
-      state.currentSavedEntry &&
-      ((Array.isArray(state.currentSavedEntry.xpaths) &&
-        state.currentSavedEntry.xpaths.length > 0) ||
-        (Array.isArray(state.currentSavedEntry.includeXpaths) &&
-          state.currentSavedEntry.includeXpaths.length > 0));
-    const xpathCssBlockedByDraft = state.currentDraftDirty;
-    const xpathCssEnabled =
-      baseUrlReady &&
-      isEnabled &&
-      state.currentDraftAvailable &&
-      hasSavedMarkings &&
-      !xpathCssBlockedByDraft;
-    ui.xpathCssGenerate.disabled = !xpathCssEnabled;
-    ui.xpathCssNotice.hidden = !xpathCssBlockedByDraft;
-  }
-  if (ui.xpathCssOutput) {
-    const storedCss =
-      state.currentConfig &&
-      state.currentConfig.pageCssSelectors &&
-      state.currentConfig.pageCssSelectors[pageUrl];
-    ui.xpathCssOutput.value = storedCss || "";
-    state.lastPopupPageUrl = pageUrl;
-    state.lastPopupEnabled = isEnabled;
-  }
   if (ui.xpathCssHighlight) {
     const allCss = getAllPagesCss();
     const hasAnyCss = Boolean(allCss);
@@ -1271,6 +1263,9 @@ async function handlePageSave() {
     await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   }
   await refreshUi();
+  if (response.saved) {
+    await updateCssSelectorsForSavedEntry({ quiet: true });
+  }
 }
 
 async function handlePageRevert() {
@@ -1384,32 +1379,12 @@ async function handleCopyFromPage() {
   await refreshUi();
 }
 
-async function handleXpathCssGenerate() {
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (state.currentDraftDirty) {
-    uiModule.showToast("Save the current page before generating CSS selectors");
-    return;
-  }
-  if (
-    !state.currentSavedEntry ||
-    (!Array.isArray(state.currentSavedEntry.xpaths) &&
-      !Array.isArray(state.currentSavedEntry.includeXpaths))
-  ) {
-    uiModule.showToast("No saved page markings found");
-    return;
-  }
+function getXpathCssInputs(entry) {
   const includedXPaths = [];
   const excludedXPaths = [];
   const includedSet = new Set();
   const excludedSet = new Set();
-  const xpathItems = Array.isArray(state.currentSavedEntry.xpaths)
-    ? state.currentSavedEntry.xpaths
-    : [];
+  const xpathItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   xpathItems.forEach((item) => {
     if (!item || typeof item.xpath !== "string" || !item.xpath) {
       return;
@@ -1426,8 +1401,8 @@ async function handleXpathCssGenerate() {
       includedXPaths.push(item.xpath);
     }
   });
-  const explicitIncludes = Array.isArray(state.currentSavedEntry.includeXpaths)
-    ? state.currentSavedEntry.includeXpaths
+  const explicitIncludes = Array.isArray(entry.includeXpaths)
+    ? entry.includeXpaths
     : [];
   explicitIncludes.forEach((xpath) => {
     if (typeof xpath !== "string" || !xpath) {
@@ -1439,8 +1414,38 @@ async function handleXpathCssGenerate() {
     }
   });
   const filteredExcludedXPaths = excludedXPaths.filter((xpath) => !includedSet.has(xpath));
+  return { includedXPaths, filteredExcludedXPaths };
+}
+
+async function updateCssSelectorsForSavedEntry(options) {
+  const { quiet = false } = options || {};
+  if (
+    !state.currentSavedEntry ||
+    (!Array.isArray(state.currentSavedEntry.xpaths) &&
+      !Array.isArray(state.currentSavedEntry.includeXpaths))
+  ) {
+    return;
+  }
+  if (!state.currentBaseUrl) {
+    return;
+  }
+  const pageUrl = state.currentTab ? state.currentTab.url : "";
+  if (!pageUrl) {
+    return;
+  }
+  const { includedXPaths, filteredExcludedXPaths } = getXpathCssInputs(
+    state.currentSavedEntry
+  );
   if (!includedXPaths.length) {
-    uiModule.showToast("No included elements to convert");
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
+      if (!cfg.pageCssSelectors) {
+        cfg.pageCssSelectors = {};
+      }
+      delete cfg.pageCssSelectors[pageUrl];
+    });
+    if (ui.xpathCssHighlight && ui.xpathCssHighlight.checked) {
+      await handleXpathCssHighlightToggle();
+    }
     return;
   }
   const response = await messages.sendTabMessage({
@@ -1456,32 +1461,29 @@ async function handleXpathCssGenerate() {
   );
   if (Array.isArray(snapshotSelectors)) {
     selectors = snapshotSelectors;
-  } else {
-    if (!response || !response.ok) {
-      uiModule.showToast("Unable to compute CSS selectors");
-      return;
-    }
+  } else if (response && response.ok) {
     selectors = Array.isArray(response.selectors) ? response.selectors : [];
   }
   const output = selectors
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean)
     .join(", ");
-  if (output && state.currentBaseUrl) {
-    const pageUrl = state.currentTab ? state.currentTab.url : "";
-    if (pageUrl) {
-      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
-        if (!cfg.pageCssSelectors) {
-          cfg.pageCssSelectors = {};
-        }
-        cfg.pageCssSelectors[pageUrl] = output;
-      });
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
+    if (!cfg.pageCssSelectors) {
+      cfg.pageCssSelectors = {};
     }
+    if (output) {
+      cfg.pageCssSelectors[pageUrl] = output;
+    } else {
+      delete cfg.pageCssSelectors[pageUrl];
+    }
+  });
+  if (ui.xpathCssHighlight && ui.xpathCssHighlight.checked) {
+    await handleXpathCssHighlightToggle();
   }
-  if (ui.xpathCssOutput) {
-    ui.xpathCssOutput.value = output;
+  if (!quiet) {
+    uiModule.showToast(output ? "CSS selectors updated" : "No selectors generated");
   }
-  uiModule.showToast(output ? "CSS selectors generated" : "No selectors generated");
 }
 
 function getAllPagesCss() {
@@ -1801,14 +1803,6 @@ async function init() {
   }
   if (ui.copyFromPage) {
     ui.copyFromPage.addEventListener("click", handleCopyFromPage);
-  }
-  if (ui.xpathCssGenerate) {
-    ui.xpathCssGenerate.addEventListener("click", handleXpathCssGenerate);
-  }
-  if (ui.xpathCssOutput) {
-    ui.xpathCssOutput.addEventListener("focus", (event) => {
-      event.target.select();
-    });
   }
   if (ui.xpathCssCopyAll) {
     ui.xpathCssCopyAll.addEventListener("click", handleXpathCssCopyAll);

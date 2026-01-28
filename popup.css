@@ -489,34 +489,6 @@ button.loading:disabled {
   gap: 8px;
 }
 
-.selector-output {
-  display: grid;
-  gap: 6px;
-}
-
-.selector-output__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
-}
-
-.selector-output__box {
-  width: 100%;
-  min-height: 90px;
-  resize: vertical;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  font-family: "Courier New", Courier, monospace;
-  font-size: 12px;
-  color: var(--ink);
-  background: #fffdf9;
-}
-
 .list {
   list-style: none;
   padding: 0;
