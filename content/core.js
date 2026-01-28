@@ -39,7 +39,8 @@ export const state = {
   consentSyncedPageUrl: "",
   initialized: false,
   cssHighlightEnabled: false,
-  cssHighlightSelectors: ""
+  cssHighlightSelectors: "",
+  layerBoxes: new WeakMap()
 };
 
 function isTagSelector (selector){
@@ -545,6 +546,43 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
+function shouldScheduleRenderForMutations(mutations) {
+  for (const mutation of mutations) {
+    if (mutation.type === "attributes") {
+      const name = mutation.attributeName || "";
+      if (
+        name === "class" ||
+        name === "style" ||
+        name === "hidden" ||
+        name === "aria-hidden"
+      ) {
+        return true;
+      }
+      continue;
+    }
+    if (mutation.type === "characterData") {
+      const parent = mutation.target && mutation.target.parentElement;
+      if (parent && (isHeadingElement(parent) || hasDirectText(parent))) {
+        return true;
+      }
+      continue;
+    }
+    if (mutation.type === "childList") {
+      for (const node of mutation.addedNodes || []) {
+        if (node && node.nodeType === 1) {
+          return true;
+        }
+      }
+      for (const node of mutation.removedNodes || []) {
+        if (node && node.nodeType === 1) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function isExplicitlyIncludedElement(el, includeSet) {
   if (!el || !includeSet || includeSet.size === 0) {
     return false;
@@ -774,6 +812,7 @@ function removeOverlay() {
   state.altPassThrough = false;
   state.altHeld = false;
   state.shiftHeld = false;
+  state.layerBoxes = new WeakMap();
   clearCursorMode();
 }
 
@@ -920,14 +959,23 @@ function updateFocusHighlight() {
   if (!layerFocus) {
     return;
   }
-  clearLayer(layerFocus);
+  const layerState = beginLayerRender(layerFocus);
   if (!state.focusElement) {
+    finalizeLayerRender(layerState);
     return;
   }
   const rects = getVisibleRects(state.focusElement);
   if (rects.length > 0) {
-    drawMultiRect(layerFocus, rects, "mc-focus", state.focusElement, null, null);
+    drawMultiRectReuse(
+      layerState,
+      rects,
+      "mc-focus",
+      state.focusElement,
+      null,
+      null
+    );
   }
+  finalizeLayerRender(layerState);
 }
 
 function ensureAiPopoverStyle() {
@@ -1197,6 +1245,7 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
   if (!layerHover) {
     return;
   }
+  const layerState = beginLayerRender(layerHover);
   const excludedSet = allowParent
       ? null
       : getExcludedXPathSet(state.config, location.href);
@@ -1209,16 +1258,16 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
     allowImmutableChildren
   });
   if (!target) {
-    clearLayer(layerHover);
+    finalizeLayerRender(layerState);
     return;
   }
   const rects = getVisibleRects(target);
   if (rects.length === 0) {
-    clearLayer(layerHover);
+    finalizeLayerRender(layerState);
     return;
   }
-  clearLayer(layerHover);
-  drawMultiRect(layerHover, rects, "mc-hover", target, null, null);
+  drawMultiRectReuse(layerState, rects, "mc-hover", target, null, null);
+  finalizeLayerRender(layerState);
 }
 
 function refreshHoverHighlight() {
@@ -1491,17 +1540,58 @@ function clearLayer(layer) {
   while (layer.firstChild) {
     layer.removeChild(layer.firstChild);
   }
+  if (state.layerBoxes) {
+    const boxMap = state.layerBoxes.get(layer);
+    if (boxMap) {
+      boxMap.clear();
+    }
+  }
 }
 
-function drawRect(layer, rect, className, el, kind, markedSet) {
-  const box = document.createElement("div");
-  box.className = `mc-rect ${className}`;
+function getLayerBoxMap(layer) {
+  if (!state.layerBoxes) {
+    state.layerBoxes = new WeakMap();
+  }
+  let map = state.layerBoxes.get(layer);
+  if (!map) {
+    map = new Map();
+    state.layerBoxes.set(layer, map);
+  }
+  return map;
+}
+
+function beginLayerRender(layer) {
+  return { layer, map: getLayerBoxMap(layer), used: new Set() };
+}
+
+function finalizeLayerRender(layerState) {
+  const { map, used } = layerState;
+  for (const [key, box] of map) {
+    if (!used.has(key)) {
+      box.remove();
+      map.delete(key);
+    }
+  }
+}
+
+function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) {
+  const { layer, map, used } = layerState;
+  const markId = el ? getMarkId(el) : "";
+  const key = `${markId || "anon"}|${className}|${kind || ""}|${index}`;
+  let box = map.get(key);
+  if (!box) {
+    box = document.createElement("div");
+    box.className = `mc-rect ${className}`;
+    map.set(key, box);
+    layer.appendChild(box);
+  } else if (box.className !== `mc-rect ${className}`) {
+    box.className = `mc-rect ${className}`;
+  }
   box.style.top = `${rect.top}px`;
   box.style.left = `${rect.left}px`;
   box.style.width = `${rect.width}px`;
   box.style.height = `${rect.height}px`;
   if (el) {
-    const markId = getMarkId(el);
     if (markId) {
       box.dataset.mcMarkId = markId;
       if (kind) {
@@ -1512,10 +1602,10 @@ function drawRect(layer, rect, className, el, kind, markedSet) {
       }
     }
   }
-  layer.appendChild(box);
+  used.add(key);
 }
 
-function drawMultiRect(layer, rects, className, el, kind, markedSet) {
+function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   if (rects.length === 0) {
     return;
   }
@@ -1523,9 +1613,8 @@ function drawMultiRect(layer, rects, className, el, kind, markedSet) {
   if (el && markedSet) {
     markedSet.add(el);
   }
-  for (const rect of rects) {
-    // Pass null for markedSet since we already added it above
-    drawRect(layer, rect, className, el, kind, null);
+  for (let i = 0; i < rects.length; i += 1) {
+    drawRectReuse(layerState, rects[i], className, el, kind, null, i);
   }
 }
 
@@ -1591,11 +1680,11 @@ function renderHighlights() {
   const layerAiContent = state.layers["ai-content"];
   const layerDefault = state.layers["default"];
 
-  clearLayer(layerHard);
-  clearLayer(layerExplicitExclude);
-  clearLayer(layerExplicitInclude);
-  clearLayer(layerAiContent);
-  clearLayer(layerDefault);
+  const layerHardState = beginLayerRender(layerHard);
+  const layerExplicitExcludeState = beginLayerRender(layerExplicitExclude);
+  const layerExplicitIncludeState = beginLayerRender(layerExplicitInclude);
+  const layerAiContentState = beginLayerRender(layerAiContent);
+  const layerDefaultState = beginLayerRender(layerDefault);
   const markedElements = new Set();
 
   const precedenceSet = new Set([
@@ -1609,7 +1698,14 @@ function renderHighlights() {
   for (const el of immutableExcluded) {
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
-      drawMultiRect(layerHard, rects, "mc-hard-locked", el, "immutable", markedElements);
+      drawMultiRectReuse(
+        layerHardState,
+        rects,
+        "mc-hard-locked",
+        el,
+        "immutable",
+        markedElements
+      );
     }
   }
 
@@ -1619,13 +1715,13 @@ function renderHighlights() {
     }
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
-      drawMultiRect(
-          layerExplicitExclude,
-          rects,
-          "mc-explicit-exclude",
-          el,
-          "explicit-exclude",
-          markedElements
+      drawMultiRectReuse(
+        layerExplicitExcludeState,
+        rects,
+        "mc-explicit-exclude",
+        el,
+        "explicit-exclude",
+        markedElements
       );
     }
   }
@@ -1636,13 +1732,13 @@ function renderHighlights() {
     }
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
-      drawMultiRect(
-          layerExplicitInclude,
-          rects,
-          "mc-explicit-include",
-          el,
-          "explicit-include",
-          markedElements
+      drawMultiRectReuse(
+        layerExplicitIncludeState,
+        rects,
+        "mc-explicit-include",
+        el,
+        "explicit-include",
+        markedElements
       );
     }
   }
@@ -1653,13 +1749,13 @@ function renderHighlights() {
     }
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
-      drawMultiRect(
-          layerAiContent,
-          rects,
-          "mc-ai-content",
-          el,
-          "ai-content",
-          markedElements
+      drawMultiRectReuse(
+        layerAiContentState,
+        rects,
+        "mc-ai-content",
+        el,
+        "ai-content",
+        markedElements
       );
     }
   }
@@ -1673,12 +1769,19 @@ function renderHighlights() {
   for (const el of defaultTargets) {
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
-      drawMultiRect(layerDefault, rects, "mc-default", el, "default", markedElements);
+      drawMultiRectReuse(
+        layerDefaultState,
+        rects,
+        "mc-default",
+        el,
+        "default",
+        markedElements
+      );
     }
   }
 
   const layerCssHighlight = state.layers["css-highlight"];
-  clearLayer(layerCssHighlight);
+  const layerCssState = beginLayerRender(layerCssHighlight);
   if (state.cssHighlightEnabled && state.cssHighlightSelectors) {
     let cssElements;
     try {
@@ -1689,10 +1792,23 @@ function renderHighlights() {
     for (const el of cssElements) {
       const rects = getVisibleRects(el);
       if (rects.length > 0) {
-        drawMultiRect(layerCssHighlight, rects, "mc-css-highlight", el, null, null);
+        drawMultiRectReuse(
+          layerCssState,
+          rects,
+          "mc-css-highlight",
+          el,
+          null,
+          null
+        );
       }
     }
   }
+  finalizeLayerRender(layerHardState);
+  finalizeLayerRender(layerExplicitExcludeState);
+  finalizeLayerRender(layerExplicitIncludeState);
+  finalizeLayerRender(layerAiContentState);
+  finalizeLayerRender(layerDefaultState);
+  finalizeLayerRender(layerCssState);
 
   updateFocusHighlight();
   updateMarkedElements(markedElements);
@@ -1712,6 +1828,9 @@ function startObservers() {
         if (!hasNonOverlayChange) {
           return;
         }
+      }
+      if (!shouldScheduleRenderForMutations(mutations)) {
+        return;
       }
       scheduleRender({ delay: 120, minInterval: 250 });
     } catch (error) {
