@@ -617,17 +617,17 @@ function createOverlay() {
       }
       @keyframes mc-css-highlight-dash {
         0% {
-          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
         }
         50% {
-          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.25);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.25);
         }
         100% {
-          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
         }
       }
       #markcontit-overlay .mc-css-highlight {
-        box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+        box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
         animation: mc-css-highlight-dash 2s linear infinite !important;
       }
       #markcontit-overlay .mc-explicit-include {
