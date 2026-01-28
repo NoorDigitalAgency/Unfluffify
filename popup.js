@@ -1688,6 +1688,7 @@ async function handleSaveExcludes() {
       },
       body: JSON.stringify({
         baseUrl: state.currentBaseUrl,
+        defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
         selectors
       })
     });
