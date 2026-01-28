@@ -646,7 +646,7 @@ function createOverlay() {
         transform: translateY(0);
       }
     `;
-  document.documentElement.appendChild(style);
+  (document.body || document.documentElement).appendChild(style);
 
   const overlay = document.createElement("div");
   overlay.id = "markcontit-overlay";
@@ -682,7 +682,7 @@ function createOverlay() {
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
-  document.documentElement.appendChild(overlay);
+  (document.body || document.documentElement).appendChild(overlay);
   state.overlay = overlay;
   if (state.altPassThrough) {
     setAltPassThrough(true);
@@ -1998,24 +1998,13 @@ export async function enableForBaseUrl(baseUrl, options) {
       state.config.pageMarkings &&
       state.config.pageMarkings[pageUrl];
   setSavedPageEntry(pageUrl, savedEntry || null);
-  const hasSavedData = Boolean(
-    savedEntry &&
-      ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
-        (Array.isArray(savedEntry.consentXpaths) && savedEntry.consentXpaths.length > 0) ||
-        (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
-  );
-  if (savedEntry) {
-    const immutableExcluded = collectImmutableElements();
-    syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-      allowCreate: true,
-      persist: true
-    });
-  }
-  syncConsentOnEnable(pageUrl, hasSavedData);
+
+  const hasSavedEntry = Boolean(savedEntry);
+  syncConsentOnEnable(pageUrl, hasSavedEntry);
   createOverlay();
+  scheduleRender();
   startObservers();
   startUrlWatcher();
-  scheduleRender();
 }
 
 export function handleBeforeUnload(event) {

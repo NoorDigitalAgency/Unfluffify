@@ -128,7 +128,7 @@ export function isPageUrlAllowed(config, pageUrl, pendingPattern) {
     patterns.push(normalizedPending);
   }
   if (!patterns.length) {
-    return false;
+    return true;
   }
   return patterns.some((pattern) => isPageUrlMatchingPattern(pageUrl, pattern));
 }
