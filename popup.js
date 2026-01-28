@@ -416,6 +416,20 @@ async function refreshUi() {
     state.lastPopupPageUrl = pageUrl;
     state.lastPopupEnabled = isEnabled;
   }
+  if (ui.xpathCssHighlight) {
+    const allCss = getAllPagesCss();
+    const hasAnyCss = Boolean(allCss);
+    if (!hasAnyCss) {
+      ui.xpathCssHighlight.checked = false;
+    }
+    ui.xpathCssHighlight.disabled = !hasAnyCss;
+    const highlighted = ui.xpathCssHighlight.checked;
+    await messages.sendTabMessage({
+      type: "setCssHighlight",
+      enabled: highlighted,
+      css: highlighted ? allCss : ""
+    });
+  }
 
   if (ui.copySourceBaseUrl && ui.copySourcePageUrl && ui.copyFromPage) {
     const baseOptions = Object.keys(configs)
@@ -1418,23 +1432,14 @@ async function handleXpathCssCopyAll() {
   }
 }
 
-async function handleXpathCssDetailsToggle() {
-  if (!ui.xpathCssDetails) {
-    return;
-  }
-  if (ui.xpathCssDetails.open) {
-    const allCss = getAllPagesCss();
-    if (allCss) {
-      await messages.sendTabMessage({
-        type: "highlightCssSelectors",
-        css: allCss
-      });
-    }
-  } else {
-    await messages.sendTabMessage({
-      type: "clearCssHighlights"
-    });
-  }
+async function handleXpathCssHighlightToggle() {
+  const enabled = ui.xpathCssHighlight ? ui.xpathCssHighlight.checked : false;
+  const allCss = enabled ? getAllPagesCss() : "";
+  await messages.sendTabMessage({
+    type: "setCssHighlight",
+    enabled,
+    css: allCss
+  });
 }
 
 async function handleComputeSelectors() {
@@ -1731,8 +1736,8 @@ async function init() {
   if (ui.xpathCssCopyAll) {
     ui.xpathCssCopyAll.addEventListener("click", handleXpathCssCopyAll);
   }
-  if (ui.xpathCssDetails) {
-    ui.xpathCssDetails.addEventListener("toggle", handleXpathCssDetailsToggle);
+  if (ui.xpathCssHighlight) {
+    ui.xpathCssHighlight.addEventListener("change", handleXpathCssHighlightToggle);
   }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);

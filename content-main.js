@@ -484,14 +484,8 @@ export function main() {
       sendResponse({ ok: true, count: items.length });
     }
 
-    if (message.type === "highlightCssSelectors") {
-      const css = typeof message.css === "string" ? message.css : "";
-      core.highlightCssSelectors(css);
-      sendResponse({ ok: true });
-    }
-
-    if (message.type === "clearCssHighlights") {
-      core.clearCssHighlights();
+    if (message.type === "setCssHighlight") {
+      core.setCssHighlight(message.enabled, message.css || "");
       sendResponse({ ok: true });
     }
   });

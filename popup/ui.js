@@ -37,7 +37,7 @@ export const ui = {
   copySourceBaseUrl: document.getElementById("copy-source-base-url"),
   copySourcePageUrl: document.getElementById("copy-source-page-url"),
   copyFromPage: document.getElementById("copy-from-page"),
-  xpathCssDetails: document.getElementById("xpath-css-details"),
+  xpathCssHighlight: document.getElementById("xpath-css-highlight"),
   xpathCssGenerate: document.getElementById("xpath-css-generate"),
   xpathCssNotice: document.getElementById("xpath-css-notice"),
   xpathCssOutput: document.getElementById("xpath-css-output"),

@@ -34,7 +34,9 @@ export const state = {
   savedPageEntry: null,
   savedPageUrl: "",
   consentSyncedPageUrl: "",
-  initialized: false
+  initialized: false,
+  cssHighlightEnabled: false,
+  cssHighlightSelectors: ""
 };
 
 function isTagSelector (selector){
@@ -1383,6 +1385,23 @@ function renderHighlights() {
     }
   }
 
+  const layerCssHighlight = state.layers["css-highlight"];
+  clearLayer(layerCssHighlight);
+  if (state.cssHighlightEnabled && state.cssHighlightSelectors) {
+    let cssElements;
+    try {
+      cssElements = document.querySelectorAll(state.cssHighlightSelectors);
+    } catch (error) {
+      cssElements = [];
+    }
+    for (const el of cssElements) {
+      const rects = getVisibleRects(el);
+      if (rects.length > 0) {
+        drawMultiRect(layerCssHighlight, rects, "mc-css-highlight", el, null, null);
+      }
+    }
+  }
+
   updateFocusHighlight();
   updateMarkedElements(markedElements);
 }
@@ -1757,34 +1776,10 @@ export function clearFocusHighlight() {
   updateFocusHighlight();
 }
 
-export function highlightCssSelectors(css) {
-  const layer = state.layers["css-highlight"];
-  if (!layer) {
-    return;
-  }
-  clearLayer(layer);
-  if (!css) {
-    return;
-  }
-  let elements;
-  try {
-    elements = document.querySelectorAll(css);
-  } catch (error) {
-    return;
-  }
-  for (const el of elements) {
-    const rects = getVisibleRects(el);
-    if (rects.length > 0) {
-      drawMultiRect(layer, rects, "mc-css-highlight", el, null, null);
-    }
-  }
-}
-
-export function clearCssHighlights() {
-  const layer = state.layers["css-highlight"];
-  if (layer) {
-    clearLayer(layer);
-  }
+export function setCssHighlight(enabled, css) {
+  state.cssHighlightEnabled = Boolean(enabled);
+  state.cssHighlightSelectors = typeof css === "string" ? css : "";
+  scheduleRender();
 }
 
 export function isVisible(el) {
