@@ -616,7 +616,7 @@ function createOverlay() {
       }
       html.mc-cursor-passthrough,
       html.mc-cursor-passthrough * {
-        cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M4%203%20L4%2022%20L9%2018%20L12%2028%20L15%2027%20L12%2017%20L20%2017%20Z' fill='%23000'/><rect x='18' y='3' width='11' height='11' rx='2' fill='%23196aa6'/><path d='M21%206%20L26%208.5%20L21%2011%20Z' fill='%23fff'/></svg>") 4 3, alias !important;
+        cursor: unset !important;
       }
       #markcontit-overlay {
         position: fixed;
