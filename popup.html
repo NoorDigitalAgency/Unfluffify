@@ -127,7 +127,7 @@
               <button id="copy-from-page" type="button">Copy from</button>
             </div>
           </details>
-          <details class="collapsible">
+          <details id="xpath-css-details" class="collapsible">
             <summary>XPaths to CSS</summary>
             <div class="collapsible-body">
               <button id="xpath-css-generate" type="button">Generate selectors</button>
@@ -137,9 +137,6 @@
               <div class="selector-output">
                 <div class="selector-output__header">
                   <span>CSS selectors</span>
-                  <button id="xpath-css-clear" type="button" class="button-secondary button-small" disabled>
-                    Clear
-                  </button>
                 </div>
                 <textarea
                   id="xpath-css-output"
@@ -149,6 +146,9 @@
                   placeholder="No selectors generated yet"
                 ></textarea>
               </div>
+              <button id="xpath-css-copy-all" type="button" class="button-secondary full-width margin-above">
+                Copy All Pages
+              </button>
             </div>
           </details>
         </section>

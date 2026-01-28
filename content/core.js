@@ -613,6 +613,10 @@ function createOverlay() {
         background-clip: border-box;
         animation: mc-ai-content-dash 2s linear infinite !important;
       }
+      #markcontit-overlay .mc-css-highlight {
+        border: 2px solid #1565c0;
+        background: rgba(21, 101, 192, 0.12);
+      }
       #markcontit-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
@@ -652,6 +656,7 @@ function createOverlay() {
     "explicit-exclude",
     "explicit-include",
     "ai-content",
+    "css-highlight",
     "default",
     "focus",
     "hover"
@@ -1750,6 +1755,36 @@ export function clearFocusHighlight() {
   }
   state.focusElement = null;
   updateFocusHighlight();
+}
+
+export function highlightCssSelectors(css) {
+  const layer = state.layers["css-highlight"];
+  if (!layer) {
+    return;
+  }
+  clearLayer(layer);
+  if (!css) {
+    return;
+  }
+  let elements;
+  try {
+    elements = document.querySelectorAll(css);
+  } catch (error) {
+    return;
+  }
+  for (const el of elements) {
+    const rects = getVisibleRects(el);
+    if (rects.length > 0) {
+      drawMultiRect(layer, rects, "mc-css-highlight", el, null, null);
+    }
+  }
+}
+
+export function clearCssHighlights() {
+  const layer = state.layers["css-highlight"];
+  if (layer) {
+    clearLayer(layer);
+  }
 }
 
 export function isVisible(el) {

@@ -483,6 +483,17 @@ export function main() {
       core.showAiPopover(items);
       sendResponse({ ok: true, count: items.length });
     }
+
+    if (message.type === "highlightCssSelectors") {
+      const css = typeof message.css === "string" ? message.css : "";
+      core.highlightCssSelectors(css);
+      sendResponse({ ok: true });
+    }
+
+    if (message.type === "clearCssHighlights") {
+      core.clearCssHighlights();
+      sendResponse({ ok: true });
+    }
   });
 
   window.addEventListener("resize", core.scheduleRender);

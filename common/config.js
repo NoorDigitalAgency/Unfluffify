@@ -14,7 +14,8 @@ export function createDefaultConfig(baseUrl) {
     pageMarkings: {},
     latestComputedSelectors: [],
     lastSavedSelectors: [],
-    domainAiSelectorSet: { inclusionSelectors: [] }
+    domainAiSelectorSet: { inclusionSelectors: [] },
+    pageCssSelectors: {}
   };
 }
 
@@ -161,6 +162,11 @@ export function normalizeConfig(baseUrl, incoming) {
   const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
   normalized.domainAiSelectorSet = aiSelectors.normalized;
   if (aiSelectors.changed) {
+    changed = true;
+  }
+  if (incoming.pageCssSelectors && typeof incoming.pageCssSelectors === "object") {
+    normalized.pageCssSelectors = incoming.pageCssSelectors;
+  } else if (incoming.pageCssSelectors !== undefined) {
     changed = true;
   }
 

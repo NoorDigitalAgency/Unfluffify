@@ -407,19 +407,12 @@ async function refreshUi() {
     ui.xpathCssGenerate.disabled = !xpathCssEnabled;
     ui.xpathCssNotice.hidden = !xpathCssBlockedByDraft;
   }
-  if (ui.xpathCssOutput && ui.xpathCssClear) {
-    ui.xpathCssClear.disabled = !ui.xpathCssOutput.value.trim();
-  }
-
   if (ui.xpathCssOutput) {
-    const pageChanged =
-      state.lastPopupPageUrl && state.lastPopupPageUrl !== pageUrl;
-    const enabledChanged =
-      typeof state.lastPopupEnabled === "boolean" &&
-      state.lastPopupEnabled !== isEnabled;
-    if (pageChanged || enabledChanged) {
-      handleXpathCssClear();
-    }
+    const storedCss =
+      state.currentConfig &&
+      state.currentConfig.pageCssSelectors &&
+      state.currentConfig.pageCssSelectors[pageUrl];
+    ui.xpathCssOutput.value = storedCss || "";
     state.lastPopupPageUrl = pageUrl;
     state.lastPopupEnabled = isEnabled;
   }
@@ -1206,7 +1199,6 @@ async function handlePageSave() {
   uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
   if (response.saved) {
     await drafts.clearPagePatternDraft(tab.id, tab.url || "");
-    handleXpathCssClear();
   }
   await refreshUi();
 }
@@ -1385,21 +1377,63 @@ async function handleXpathCssGenerate() {
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean)
     .join(", ");
+  if (output && state.currentBaseUrl) {
+    const pageUrl = state.currentTab ? state.currentTab.url : "";
+    if (pageUrl) {
+      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
+        if (!cfg.pageCssSelectors) {
+          cfg.pageCssSelectors = {};
+        }
+        cfg.pageCssSelectors[pageUrl] = output;
+      });
+    }
+  }
   if (ui.xpathCssOutput) {
     ui.xpathCssOutput.value = output;
-  }
-  if (ui.xpathCssClear) {
-    ui.xpathCssClear.disabled = !output;
   }
   uiModule.showToast(output ? "CSS selectors generated" : "No selectors generated");
 }
 
-function handleXpathCssClear() {
-  if (ui.xpathCssOutput) {
-    ui.xpathCssOutput.value = "";
+function getAllPagesCss() {
+  if (!state.currentConfig || !state.currentConfig.pageCssSelectors) {
+    return "";
   }
-  if (ui.xpathCssClear) {
-    ui.xpathCssClear.disabled = true;
+  const allSelectors = Object.values(state.currentConfig.pageCssSelectors)
+    .filter((css) => typeof css === "string" && css.trim())
+    .join(", ");
+  return allSelectors;
+}
+
+async function handleXpathCssCopyAll() {
+  const allCss = getAllPagesCss();
+  if (!allCss) {
+    uiModule.showToast("No CSS selectors stored for any page");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(allCss);
+    uiModule.showToast("All pages CSS copied to clipboard");
+  } catch (error) {
+    uiModule.showToast("Unable to copy to clipboard");
+  }
+}
+
+async function handleXpathCssDetailsToggle() {
+  if (!ui.xpathCssDetails) {
+    return;
+  }
+  if (ui.xpathCssDetails.open) {
+    const allCss = getAllPagesCss();
+    if (allCss) {
+      await messages.sendTabMessage({
+        type: "highlightCssSelectors",
+        css: allCss
+      });
+    }
+  } else {
+    await messages.sendTabMessage({
+      type: "clearCssHighlights"
+    });
   }
 }
 
@@ -1689,13 +1723,16 @@ async function init() {
   if (ui.xpathCssGenerate) {
     ui.xpathCssGenerate.addEventListener("click", handleXpathCssGenerate);
   }
-  if (ui.xpathCssClear) {
-    ui.xpathCssClear.addEventListener("click", handleXpathCssClear);
-  }
   if (ui.xpathCssOutput) {
     ui.xpathCssOutput.addEventListener("focus", (event) => {
       event.target.select();
     });
+  }
+  if (ui.xpathCssCopyAll) {
+    ui.xpathCssCopyAll.addEventListener("click", handleXpathCssCopyAll);
+  }
+  if (ui.xpathCssDetails) {
+    ui.xpathCssDetails.addEventListener("toggle", handleXpathCssDetailsToggle);
   }
   ui.endpointSet.addEventListener("click", handleEndpointSet);
   ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);
