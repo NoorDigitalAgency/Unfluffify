@@ -615,9 +615,20 @@ function createOverlay() {
         background-clip: border-box;
         animation: mc-ai-content-dash 2s linear infinite !important;
       }
+      @keyframes mc-css-highlight-dash {
+        0% {
+          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+        }
+        50% {
+          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.25);
+        }
+        100% {
+          box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+        }
+      }
       #markcontit-overlay .mc-css-highlight {
-        border: 2px solid #1565c0;
-        background: rgba(21, 101, 192, 0.12);
+        box-shadow: 0px 0px 5px 5px rgba(27, 94, 32, 0.75);
+        animation: mc-css-highlight-dash 2s linear infinite !important;
       }
       #markcontit-overlay .mc-explicit-include {
         border: 3px solid #1b5e20;
