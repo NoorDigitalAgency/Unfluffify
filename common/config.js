@@ -88,11 +88,23 @@ export function normalizePageMarkings(pageMarkings) {
     }
     const consentXpaths = rawConsent
       .filter((xpath) => typeof xpath === "string" && xpath.length > 0);
+    const rawInclude =
+      Array.isArray(entry.includeXpaths)
+        ? entry.includeXpaths
+        : Array.isArray(entry.explicitIncludeXpaths)
+          ? entry.explicitIncludeXpaths
+          : [];
+    if (entry.explicitIncludeXpaths) {
+      changed = true;
+    }
+    const includeXpaths = rawInclude
+      .filter((xpath) => typeof xpath === "string" && xpath.length > 0);
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,
       xpaths,
       consentXpaths,
+      includeXpaths,
       pagePattern: resolvedPattern,
       fullHTML
     };

@@ -48,6 +48,10 @@ export function renderExcludeList(listEl, items, emptyText, onView, onRemove) {
   });
 }
 
+export function renderIncludeList(listEl, items, emptyText, onView, onRemove) {
+  renderExcludeList(listEl, items, emptyText, onView, onRemove);
+}
+
 export function renderHeadingDefaults(listEl, items, emptyText, onToggle) {
   listEl.textContent = "";
   if (!items.length) {

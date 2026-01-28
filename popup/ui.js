@@ -55,6 +55,7 @@ export const ui = {
   saveExcludesButton: document.getElementById("save-excludes"),
   previewLatestButton: document.getElementById("preview-latest"),
   explicitExcludes: document.getElementById("explicit-excludes"),
+  explicitIncludes: document.getElementById("explicit-includes"),
   headingDefaults: document.getElementById("heading-defaults"),
   toast: document.getElementById("toast")
 };

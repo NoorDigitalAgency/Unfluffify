@@ -384,7 +384,72 @@ export function main() {
       } else {
         targetItem.excluded = excluded;
       }
+      if (excluded && Array.isArray(entry.includeXpaths)) {
+        entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
+      }
       entry.xpaths = items;
+      state.config.pageMarkings[location.href] = entry;
+      core.scheduleRender();
+      core.scheduleSnapshotSave();
+      core.notifyDraftStatus(location.href);
+      sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
+      return;
+    }
+
+    if (message.type === "setExplicitInclude") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const xpath = message.xpath || "";
+      if (!xpath) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const included = Boolean(message.included);
+      const entry = core.getPageMarkingEntry(state.config, location.href);
+      const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+      const existingIndex = includeXpaths.indexOf(xpath);
+      if (included) {
+        if (existingIndex === -1) {
+          includeXpaths.push(xpath);
+        }
+        const target = core.getElementFromXPath(xpath);
+        if (target) {
+          const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+          for (let i = items.length - 1; i >= 0; i -= 1) {
+            const item = items[i];
+            if (!item || !item.xpath || item.xpath === xpath) {
+              continue;
+            }
+            const existingEl = core.getElementFromXPath(item.xpath);
+            if (!existingEl) {
+              continue;
+            }
+            if (target.contains(existingEl)) {
+              items.splice(i, 1);
+            }
+          }
+          entry.xpaths = items;
+          for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+            const childXpath = includeXpaths[i];
+            if (!childXpath || childXpath === xpath) {
+              continue;
+            }
+            const existingEl = core.getElementFromXPath(childXpath);
+            if (!existingEl) {
+              continue;
+            }
+            if (target.contains(existingEl)) {
+              includeXpaths.splice(i, 1);
+            }
+          }
+        }
+      } else if (existingIndex >= 0) {
+        includeXpaths.splice(existingIndex, 1);
+      }
+      entry.includeXpaths = includeXpaths;
       state.config.pageMarkings[location.href] = entry;
       core.scheduleRender();
       core.scheduleSnapshotSave();

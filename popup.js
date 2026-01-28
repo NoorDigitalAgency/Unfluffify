@@ -395,8 +395,10 @@ async function refreshUi() {
   if (ui.xpathCssGenerate && ui.xpathCssNotice) {
     const hasSavedMarkings =
       state.currentSavedEntry &&
-      Array.isArray(state.currentSavedEntry.xpaths) &&
-      state.currentSavedEntry.xpaths.length > 0;
+      ((Array.isArray(state.currentSavedEntry.xpaths) &&
+        state.currentSavedEntry.xpaths.length > 0) ||
+        (Array.isArray(state.currentSavedEntry.includeXpaths) &&
+          state.currentSavedEntry.includeXpaths.length > 0));
     const xpathCssBlockedByDraft = state.currentDraftDirty;
     const xpathCssEnabled =
       baseUrlReady &&
@@ -513,6 +515,8 @@ async function refreshUi() {
       state.currentConfig.pageMarkings &&
       state.currentConfig.pageMarkings[pageUrl]);
   const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
+  const explicitIncludeXPaths =
+    pageEntry && Array.isArray(pageEntry.includeXpaths) ? pageEntry.includeXpaths : [];
   const excludedXPaths = explicitExclude
     .filter(
       (item) =>
@@ -563,6 +567,58 @@ async function refreshUi() {
       });
       if (!response || !response.ok) {
         uiModule.showToast("Unable to update exclude");
+        return;
+      }
+      refreshUi();
+    }
+  );
+
+  let pageExplicitInclude = explicitIncludeXPaths.map((xpath) => ({
+    xpath,
+    text: xpath
+  }));
+  if (state.currentBaseUrl && explicitIncludeXPaths.length) {
+    const response = await messages.sendTabMessage({
+      type: "describeXPathsOnPage",
+      xpaths: explicitIncludeXPaths
+    });
+    if (response && Array.isArray(response.items)) {
+      const labelMap = new Map(
+        response.items.map((item) => [item.xpath, item.text || item.xpath])
+      );
+      pageExplicitInclude = explicitIncludeXPaths.map((xpath) => ({
+        xpath,
+        text: labelMap.get(xpath) || xpath
+      }));
+    }
+  }
+
+  render.renderIncludeList(
+    ui.explicitIncludes,
+    pageExplicitInclude,
+    baseUrlSet ? "None yet" : "Set Base Page URL first",
+    async (value) => {
+      const response = await messages.sendTabMessage({
+        type: "focusElement",
+        xpath: value
+      });
+      if (!response || !response.ok) {
+        uiModule.showToast("Unable to focus element");
+      }
+    },
+    async (value) => {
+      if (!state.currentBaseUrl) {
+        return;
+      }
+      await clearFocusedElement();
+      const response = await messages.sendTabMessage({
+        type: "setExplicitInclude",
+        baseUrl: state.currentBaseUrl,
+        xpath: value,
+        included: false
+      });
+      if (!response || !response.ok) {
+        uiModule.showToast("Unable to update include");
         return;
       }
       refreshUi();
@@ -1339,7 +1395,11 @@ async function handleXpathCssGenerate() {
     uiModule.showToast("Save the current page before generating CSS selectors");
     return;
   }
-  if (!state.currentSavedEntry || !Array.isArray(state.currentSavedEntry.xpaths)) {
+  if (
+    !state.currentSavedEntry ||
+    (!Array.isArray(state.currentSavedEntry.xpaths) &&
+      !Array.isArray(state.currentSavedEntry.includeXpaths))
+  ) {
     uiModule.showToast("No saved page markings found");
     return;
   }
@@ -1347,7 +1407,10 @@ async function handleXpathCssGenerate() {
   const excludedXPaths = [];
   const includedSet = new Set();
   const excludedSet = new Set();
-  state.currentSavedEntry.xpaths.forEach((item) => {
+  const xpathItems = Array.isArray(state.currentSavedEntry.xpaths)
+    ? state.currentSavedEntry.xpaths
+    : [];
+  xpathItems.forEach((item) => {
     if (!item || typeof item.xpath !== "string" || !item.xpath) {
       return;
     }
@@ -1363,6 +1426,19 @@ async function handleXpathCssGenerate() {
       includedXPaths.push(item.xpath);
     }
   });
+  const explicitIncludes = Array.isArray(state.currentSavedEntry.includeXpaths)
+    ? state.currentSavedEntry.includeXpaths
+    : [];
+  explicitIncludes.forEach((xpath) => {
+    if (typeof xpath !== "string" || !xpath) {
+      return;
+    }
+    if (!includedSet.has(xpath)) {
+      includedSet.add(xpath);
+      includedXPaths.push(xpath);
+    }
+  });
+  const filteredExcludedXPaths = excludedXPaths.filter((xpath) => !includedSet.has(xpath));
   if (!includedXPaths.length) {
     uiModule.showToast("No included elements to convert");
     return;
@@ -1370,13 +1446,13 @@ async function handleXpathCssGenerate() {
   const response = await messages.sendTabMessage({
     type: "computeCssSelectorsFromXPaths",
     xpaths: includedXPaths,
-    excludedXPaths
+    excludedXPaths: filteredExcludedXPaths
   });
   let selectors = [];
   const snapshotSelectors = computeSelectorsFromSnapshot(
     state.currentSavedEntry.fullHTML || "",
     includedXPaths,
-    excludedXPaths
+    filteredExcludedXPaths
   );
   if (Array.isArray(snapshotSelectors)) {
     selectors = snapshotSelectors;
@@ -1799,6 +1875,8 @@ async function init() {
             state.currentSavedEntry &&
               ((Array.isArray(state.currentSavedEntry.xpaths) &&
                 state.currentSavedEntry.xpaths.length > 0) ||
+                (Array.isArray(state.currentSavedEntry.includeXpaths) &&
+                  state.currentSavedEntry.includeXpaths.length > 0) ||
                 (Array.isArray(state.currentSavedEntry.consentXpaths) &&
                   state.currentSavedEntry.consentXpaths.length > 0) ||
                 (typeof state.currentSavedEntry.fullHTML === "string" &&
