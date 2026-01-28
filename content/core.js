@@ -265,6 +265,14 @@ function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
+function isXPathDescendant(parentXpath, childXpath) {
+  if (!parentXpath || !childXpath) {
+    return false;
+  }
+  const prefix = `${parentXpath}/`;
+  return childXpath.startsWith(prefix);
+}
+
 function escapeCssIdentifier(value) {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
@@ -598,6 +606,8 @@ function createOverlay() {
 
   const style = document.createElement("style");
   style.id = "markcontit-freeze-style";
+  const excludeCursorUrl = chrome.runtime.getURL("cursors/exclude.svg");
+  const includeCursorUrl = chrome.runtime.getURL("cursors/include.svg");
   style.textContent = `
       * {
         animation: none !important;
@@ -608,11 +618,11 @@ function createOverlay() {
       }
       html.mc-cursor-exclude,
       html.mc-cursor-exclude * {
-        cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M4%203%20L4%2022%20L9%2018%20L12%2028%20L15%2027%20L12%2017%20L20%2017%20Z' fill='%23000'/><rect x='18' y='3' width='11' height='11' rx='2' fill='%23c62828'/><rect x='20' y='8' width='7' height='2' fill='%23fff'/></svg>") 4 3, not-allowed !important;
+        cursor: url("${excludeCursorUrl}") 4 3, not-allowed !important;
       }
       html.mc-cursor-include,
       html.mc-cursor-include * {
-        cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M4%203%20L4%2022%20L9%2018%20L12%2028%20L15%2027%20L12%2017%20L20%2017%20Z' fill='%23000'/><rect x='18' y='3' width='11' height='11' rx='2' fill='%232e7d32'/><rect x='20' y='8' width='7' height='2' fill='%23fff'/><rect x='22' y='6' width='2' height='7' fill='%23fff'/></svg>") 4 3, copy !important;
+        cursor: url("${includeCursorUrl}") 4 3, copy !important;
       }
       html.mc-cursor-passthrough,
       html.mc-cursor-passthrough * {
@@ -1394,10 +1404,7 @@ function toggleExplicitInclude(target) {
         continue;
       }
       const existingEl = getElementFromXPath(item.xpath);
-      if (!existingEl) {
-        continue;
-      }
-      if (target.contains(existingEl)) {
+      if (existingEl ? target.contains(existingEl) : isXPathDescendant(xpath, item.xpath)) {
         items.splice(i, 1);
       }
     }
@@ -1407,10 +1414,7 @@ function toggleExplicitInclude(target) {
         continue;
       }
       const existingEl = getElementFromXPath(childXpath);
-      if (!existingEl) {
-        continue;
-      }
-      if (target.contains(existingEl)) {
+      if (existingEl ? target.contains(existingEl) : isXPathDescendant(xpath, childXpath)) {
         includeXpaths.splice(i, 1);
       }
     }
@@ -1669,6 +1673,17 @@ function renderHighlights() {
       collectExcludedXPaths(entry.xpaths)
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
+  const isWithinExplicitInclude = (el) => {
+    if (!el || explicitInclude.size === 0) {
+      return false;
+    }
+    for (const includeEl of explicitInclude) {
+      if (includeEl && includeEl !== el && includeEl.contains(el)) {
+        return true;
+      }
+    }
+    return false;
+  };
   const aiContent = collectSelectorElements(
       state.config.domainAiSelectorSet.inclusionSelectors
   );
@@ -1710,7 +1725,7 @@ function renderHighlights() {
   }
 
   for (const el of explicitExclude) {
-    if (immutableExcluded.has(el)) {
+    if (immutableExcluded.has(el) || isWithinExplicitInclude(el)) {
       continue;
     }
     const rects = getVisibleRects(el);
@@ -2550,12 +2565,26 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
       ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
       : []
   );
+  const includeElements = [];
+  for (const xpath of includeSet) {
+    const el = getElementFromXPath(xpath);
+    if (el) {
+      includeElements.push(el);
+    }
+  }
+  const withinExplicitInclude = new Set();
   const results = new Map();
   const headingTargets = collectHeadingTargets();
   for (const el of headingTargets) {
     const xpath = getXPath(el);
     if (!xpath || results.has(xpath)) {
       continue;
+    }
+    for (const includeEl of includeElements) {
+      if (includeEl && includeEl !== el && includeEl.contains(el)) {
+        withinExplicitInclude.add(xpath);
+        break;
+      }
     }
     const text = (el.innerText || "").trim();
     results.set(xpath, {
@@ -2565,7 +2594,7 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
   }
   return Array.from(results.values()).map((item) => ({
     ...item,
-    excluded: includeSet.has(item.xpath)
+    excluded: includeSet.has(item.xpath) || withinExplicitInclude.has(item.xpath)
       ? false
       : excludedLookup.get(item.xpath) === true
   }));
@@ -2744,6 +2773,35 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   const explicitIncludeSet = new Set(
     entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
   );
+  const explicitIncludeElements = [];
+  for (const xpath of explicitIncludeSet) {
+    const el = getElementFromXPath(xpath);
+    if (el) {
+      explicitIncludeElements.push(el);
+    }
+  }
+  const isWithinExplicitIncludeXpath = (xpath) => {
+    if (!xpath || explicitIncludeSet.size === 0) {
+      return false;
+    }
+    for (const includeXpath of explicitIncludeSet) {
+      if (includeXpath && includeXpath !== xpath && isXPathDescendant(includeXpath, xpath)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const isWithinExplicitInclude = (el) => {
+    if (!el || explicitIncludeElements.length === 0) {
+      return false;
+    }
+    for (const includeEl of explicitIncludeElements) {
+      if (includeEl && includeEl !== el && includeEl.contains(el)) {
+        return true;
+      }
+    }
+    return false;
+  };
   const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const excludedParents = collectExcludedParentElements(previousItems);
   const items = [];
@@ -2752,6 +2810,12 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   for (const el of candidates) {
     const xpath = getXPath(el);
     if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    if (
+      (isWithinExplicitInclude(el) || isWithinExplicitIncludeXpath(xpath)) &&
+      !explicitIncludeSet.has(xpath)
+    ) {
       continue;
     }
     seen.add(xpath);
@@ -2775,6 +2839,12 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     }
     const explicitEl = getElementFromXPath(item.xpath);
     if (!explicitEl) {
+      if (isWithinExplicitIncludeXpath(item.xpath)) {
+        continue;
+      }
+      continue;
+    }
+    if (isWithinExplicitInclude(explicitEl)) {
       continue;
     }
     items.push({ xpath: item.xpath, excluded: true });

@@ -39,7 +39,8 @@
       "resources": [
         "content-main.js",
         "content/*.js",
-        "common/*.js"
+        "common/*.js",
+        "cursors/*.svg"
       ],
       "matches": [
         "<all_urls>"
