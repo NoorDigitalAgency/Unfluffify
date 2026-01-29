@@ -11,7 +11,6 @@ export const ui = {
   baseUrlEdit: document.getElementById("base-url-edit"),
   baseUrlNotice: document.getElementById("base-url-notice"),
   pagePatternSelect: document.getElementById("page-pattern"),
-  pagePatternSet: document.getElementById("page-pattern-set"),
   pagePatternNotice: document.getElementById("page-pattern-notice"),
   mainUi: document.getElementById("main-ui"),
   markedPages: document.getElementById("marked-pages"),

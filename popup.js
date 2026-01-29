@@ -355,7 +355,7 @@ async function refreshUi() {
   if (ui.aiDirtyNotice) {
     ui.aiDirtyNotice.style.display = aiBlockedByDraft ? "block" : "none";
   }
-  if (ui.pagePatternSelect && ui.pagePatternSet && ui.pagePatternNotice) {
+  if (ui.pagePatternSelect && ui.pagePatternNotice) {
     const patternUiDisabled =
       !baseUrlReady || !pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl);
     render.renderPatternSelect(
@@ -364,7 +364,6 @@ async function refreshUi() {
       draftPattern || matchingPattern || ""
     );
     ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
-    ui.pagePatternSet.disabled = patternUiDisabled || !pagePatternOptions.length;
     if (!baseUrlReady) {
       ui.pagePatternNotice.textContent = "Set Base Page URL first";
       ui.pagePatternNotice.style.display = "block";
@@ -1123,7 +1122,7 @@ async function handleBaseUrlSet() {
   await refreshUi();
 }
 
-async function handlePagePatternSet() {
+async function handlePagePatternChange() {
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
@@ -1156,7 +1155,6 @@ async function handlePagePatternSet() {
     await refreshUi();
     return;
   }
-  uiModule.showToast("Pattern saved in draft");
   await refreshUi();
 }
 
@@ -1816,8 +1814,8 @@ async function init() {
   ui.refreshContext.addEventListener("click", handleContextRefresh);
   ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
   ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
-  if (ui.pagePatternSet) {
-    ui.pagePatternSet.addEventListener("click", handlePagePatternSet);
+  if (ui.pagePatternSelect) {
+    ui.pagePatternSelect.addEventListener("change", handlePagePatternChange);
   }
   if (ui.pageSave) {
     ui.pageSave.addEventListener("click", handlePageSave);
