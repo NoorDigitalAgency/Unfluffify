@@ -114,6 +114,32 @@ export function renderMarkedPages(listEl, items, emptyText, currentPageUrl, onNa
   });
 }
 
+export function renderBasePageUrls(listEl, items, emptyText, currentBaseUrl, onNavigate) {
+  listEl.textContent = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = emptyText;
+    listEl.appendChild(li);
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    const title = document.createElement("span");
+    title.className = "page-title";
+    title.textContent = item.url;
+    title.title = item.url;
+    const button = document.createElement("button");
+    button.textContent = "Navigate";
+    const isCurrent = item.url === currentBaseUrl;
+    button.disabled = isCurrent;
+    button.addEventListener("click", () => onNavigate(item.url));
+    li.appendChild(title);
+    li.appendChild(button);
+    listEl.appendChild(li);
+  });
+}
+
 export function renderPatternSelect(selectEl, options, selectedValue) {
   if (!selectEl) {
     return;

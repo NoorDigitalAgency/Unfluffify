@@ -38,6 +38,7 @@ export const ui = {
   copySourceBaseUrl: document.getElementById("copy-source-base-url"),
   copySourcePageUrl: document.getElementById("copy-source-page-url"),
   copyFromPage: document.getElementById("copy-from-page"),
+  basePageUrls: document.getElementById("base-page-urls"),
   xpathCssHighlight: document.getElementById("xpath-css-highlight"),
   xpathCssCopyAll: document.getElementById("xpath-css-copy-all"),
   endpointUrl: document.getElementById("endpoint-url"),

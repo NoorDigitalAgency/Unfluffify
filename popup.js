@@ -690,6 +690,26 @@ async function refreshUi() {
       });
     }
   );
+
+  const basePageUrls = Object.keys(configs)
+    .filter((url) => typeof url === "string" && url)
+    .sort((left, right) => left.localeCompare(right))
+    .map((url) => ({ url }));
+  render.renderBasePageUrls(
+    ui.basePageUrls,
+    basePageUrls,
+    "No base URLs saved",
+    state.currentBaseUrl,
+    async (url) => {
+      const tab = await helpers.ensureActiveTab({ requireId: true });
+      if (!tab) {
+        return;
+      }
+      chrome.tabs.update(tab.id, { url }, () => {
+        void chrome.runtime.lastError;
+      });
+    }
+  );
 }
 
 async function handleEnableToggle() {
