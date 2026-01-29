@@ -1285,6 +1285,7 @@ async function handlePageSave() {
   await refreshUi();
   if (response.saved) {
     await updateCssSelectorsForSavedEntry({ quiet: true });
+    await refreshUi();
   }
 }
 
