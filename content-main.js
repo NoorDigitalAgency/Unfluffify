@@ -1,8 +1,101 @@
 import * as patterns from "./common/patterns.js";
 import * as core from "./content/core.js";
+import * as config from "./common/config.js";
+import * as utils from "./common/utilities.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
 
 const { state } = core;
+
+const SAVED_LINK_ATTR = "data-uf-saved-link";
+const SAVED_LINKS_ACTIVE_ATTR = "data-uf-saved-links";
+
+function ensureSavedLinkStyles() {
+  if (document.getElementById("unfluffify-saved-links-style")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "unfluffify-saved-links-style";
+  style.textContent = `
+      html[${SAVED_LINKS_ACTIVE_ATTR}] a[${SAVED_LINK_ATTR}] {
+        border: 2px dashed #2e7d32 !important;
+        outline: 2px dashed #c62828 !important;
+        outline-offset: 2px !important;
+        border-radius: 6px !important;
+        box-sizing: border-box !important;
+      }
+    `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+function setSavedLinksActive(active) {
+  if (active) {
+    document.documentElement.setAttribute(SAVED_LINKS_ACTIVE_ATTR, "on");
+  } else {
+    document.documentElement.removeAttribute(SAVED_LINKS_ACTIVE_ATTR);
+  }
+}
+
+function clearSavedLinkMarks() {
+  const marked = document.querySelectorAll(`a[${SAVED_LINK_ATTR}]`);
+  marked.forEach((anchor) => anchor.removeAttribute(SAVED_LINK_ATTR));
+}
+
+async function refreshSavedHighlights() {
+  if (state.enabled) {
+    clearSavedLinkMarks();
+    setSavedLinksActive(false);
+    return;
+  }
+  const pageUrl = location.href;
+  const configs = await config.getConfigs();
+  const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+  if (!baseUrl) {
+    clearSavedLinkMarks();
+    setSavedLinksActive(false);
+    return;
+  }
+  const pageMarkings =
+    configs[baseUrl] && configs[baseUrl].pageMarkings
+      ? configs[baseUrl].pageMarkings
+      : null;
+  if (!pageMarkings) {
+    clearSavedLinkMarks();
+    setSavedLinksActive(false);
+    return;
+  }
+  const savedUrls = new Set(
+    Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
+  );
+  if (!savedUrls.size) {
+    clearSavedLinkMarks();
+    setSavedLinksActive(false);
+    return;
+  }
+  ensureSavedLinkStyles();
+  clearSavedLinkMarks();
+  const anchors = [];
+  const anchorNodes = document.querySelectorAll("a[href]");
+  anchorNodes.forEach((anchor) => {
+    if (!anchor || !anchor.getAttribute) {
+      return;
+    }
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("javascript:") || href.startsWith("#")) {
+      return;
+    }
+    let resolved = "";
+    try {
+      resolved = new URL(href, pageUrl).href;
+    } catch (error) {
+      return;
+    }
+    if (savedUrls.has(resolved)) {
+      anchors.push(anchor);
+    }
+  });
+  anchors.forEach((anchor) => anchor.setAttribute(SAVED_LINK_ATTR, "1"));
+  setSavedLinksActive(anchors.length > 0);
+}
 
 export function main() {
   if (state.initialized) {
@@ -20,6 +113,7 @@ export function main() {
         core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern }).then();
       } else {
         core.disable();
+        refreshSavedHighlights().then();
       }
       sendResponse({ ok: true });
       return;
@@ -35,6 +129,8 @@ export function main() {
           state.config = config;
           core.scheduleRender();
         });
+      } else {
+        refreshSavedHighlights().then();
       }
       sendResponse({ ok: true });
       return;
@@ -42,7 +138,9 @@ export function main() {
 
     if (message.type === "forceRefresh") {
       core.refreshFromTabState().then(() => {
-        sendResponse({ ok: true });
+        refreshSavedHighlights().then(() => {
+          sendResponse({ ok: true });
+        });
       });
       return true;
     }
@@ -555,6 +653,7 @@ export function main() {
     }
   });
 
+  refreshSavedHighlights().then();
   window.addEventListener("resize", core.scheduleRender);
   window.addEventListener("scroll", core.handleScroll, { passive: true });
   window.addEventListener("beforeunload", core.handleBeforeUnload);

@@ -798,6 +798,7 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
+
 function removeOverlay() {
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
@@ -1831,6 +1832,7 @@ function renderHighlights() {
   updateFocusHighlight();
   updateMarkedElements(markedElements);
 }
+
 
 function startObservers() {
   if (state.mutationObserver) {
