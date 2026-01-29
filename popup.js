@@ -1265,6 +1265,7 @@ async function handlePageSave() {
   if (!tab) {
     return;
   }
+  const wasHighlightEnabled = Boolean(ui.xpathCssHighlight && ui.xpathCssHighlight.checked);
   if (!helpers.ensureBaseUrl()) {
     return;
   }
@@ -1284,6 +1285,10 @@ async function handlePageSave() {
   if (response.saved) {
     await updateCssSelectorsForSavedEntry({ quiet: true });
     await refreshUi();
+    if (wasHighlightEnabled && ui.xpathCssHighlight) {
+      ui.xpathCssHighlight.checked = true;
+      await handleXpathCssHighlightToggle();
+    }
   }
 }
 
