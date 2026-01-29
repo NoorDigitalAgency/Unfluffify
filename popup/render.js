@@ -140,16 +140,24 @@ export function renderBasePageUrls(listEl, items, emptyText, currentBaseUrl, onN
   });
 }
 
-export function renderPatternSelect(selectEl, options, selectedValue) {
+export function renderPatternSelect(selectEl, options, selectedValue, placeholder) {
   if (!selectEl) {
     return;
   }
   selectEl.textContent = "";
+  if (placeholder) {
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = placeholder;
+    selectEl.appendChild(emptyOption);
+  }
   if (!options.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No patterns available";
-    selectEl.appendChild(option);
+    if (!placeholder) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No patterns available";
+      selectEl.appendChild(option);
+    }
     selectEl.value = "";
     return;
   }
@@ -160,8 +168,13 @@ export function renderPatternSelect(selectEl, options, selectedValue) {
     option.title = optionItem.value;
     selectEl.appendChild(option);
   });
-  selectEl.value = selectedValue || options[0].value;
-  selectEl.title = selectedValue || options[0].value;
+  if (selectedValue && options.some((item) => item.value === selectedValue)) {
+    selectEl.value = selectedValue;
+    selectEl.title = selectedValue;
+  } else {
+    selectEl.value = "";
+    selectEl.title = placeholder || "";
+  }
 }
 
 export function renderSelectOptions(selectEl, options, selectedValue, placeholder) {

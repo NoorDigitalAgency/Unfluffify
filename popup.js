@@ -255,11 +255,6 @@ async function refreshUi() {
   }
   const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const pagePatternReady = Boolean(matchingPattern);
-  if (ui.toggleEnabled.checked && !pagePatternReady && state.currentTab && state.currentTab.id) {
-    ui.toggleEnabled.checked = false;
-    await utils.setTabState(state.currentTab.id, { enabled: false, baseUrl: state.currentBaseUrl });
-    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   emulation.updateDeviceEmulationUi(storedDeviceState);
   const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
@@ -318,8 +313,12 @@ async function refreshUi() {
         (typeof state.currentSavedEntry.fullHTML === "string" &&
           state.currentSavedEntry.fullHTML.length > 0))
   );
+  if (!hasSavedPageData && state.currentTab && pageUrl) {
+    await drafts.clearPagePatternDraft(state.currentTab.id, pageUrl);
+    draftPattern = "";
+  }
   const aiBlockedByDraft = state.currentDraftDirty;
-  ui.toggleEnabled.disabled = !baseUrlReady || !pagePatternReady;
+  ui.toggleEnabled.disabled = !baseUrlReady;
   ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
   ui.saveExcludesButton.disabled =
     aiBusy || !aiReady || !hasNewSelectors || aiBlockedByDraft;
@@ -361,7 +360,8 @@ async function refreshUi() {
     render.renderPatternSelect(
       ui.pagePatternSelect,
       pagePatternOptions,
-      draftPattern || matchingPattern || ""
+      draftPattern || matchingPattern || "",
+      pagePatternOptions.length ? "Select a URL pattern" : "No patterns available"
     );
     ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
     if (!baseUrlReady) {
@@ -378,15 +378,25 @@ async function refreshUi() {
       ui.pagePatternNotice.style.display = "none";
     }
   }
+  const selectedPatternValue = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
   if (ui.pageSave && ui.pageRevert) {
     const draftButtonsDisabled =
-      !baseUrlReady || !isEnabled || !state.currentDraftAvailable || !state.currentDraftDirty;
+      !baseUrlReady ||
+      !isEnabled ||
+      !state.currentDraftAvailable ||
+      !state.currentDraftDirty ||
+      !selectedPatternValue;
     ui.pageSave.disabled = draftButtonsDisabled;
-    ui.pageRevert.disabled = draftButtonsDisabled;
+    ui.pageRevert.disabled =
+      !baseUrlReady ||
+      !isEnabled ||
+      !state.currentDraftAvailable ||
+      !hasSavedPageData ||
+      !state.currentDraftDirty;
   }
   if (ui.pageDelete) {
     ui.pageDelete.disabled =
-      !baseUrlReady || !isEnabled || !state.currentDraftAvailable || !state.currentDraftHasEntry;
+      !baseUrlReady || !isEnabled || !hasSavedPageData;
   }
   if (ui.pageDraftStatus) {
     if (!baseUrlReady) {
@@ -744,12 +754,6 @@ async function handleEnableToggle() {
       storedPatterns.push(draftPattern);
     }
     const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
-    if (!matchingPattern) {
-      uiModule.showToast("Choose a URL pattern before enabling");
-      ui.toggleEnabled.checked = false;
-      await refreshUi();
-      return;
-    }
     // Inject content script first
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -1267,6 +1271,11 @@ async function handlePageSave() {
   }
   const wasHighlightEnabled = Boolean(ui.xpathCssHighlight && ui.xpathCssHighlight.checked);
   if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+  if (!selectedPattern) {
+    uiModule.showToast("Choose a URL pattern before saving");
     return;
   }
   const response = await messages.sendTabMessage({
