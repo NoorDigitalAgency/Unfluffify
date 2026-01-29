@@ -1474,21 +1474,33 @@ async function updateCssSelectorsForSavedEntry(options) {
     xpaths: includedXPaths,
     excludedXPaths: filteredExcludedXPaths
   });
-  let selectors = [];
   const snapshotSelectors = computeSelectorsFromSnapshot(
     state.currentSavedEntry.fullHTML || "",
     includedXPaths,
     filteredExcludedXPaths
   );
-  if (Array.isArray(snapshotSelectors)) {
-    selectors = snapshotSelectors;
-  } else if (response && response.ok) {
-    selectors = Array.isArray(response.selectors) ? response.selectors : [];
+  const selectorSet = new Set();
+  if (response && response.ok && Array.isArray(response.selectors)) {
+    response.selectors.forEach((item) => {
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        if (trimmed) {
+          selectorSet.add(trimmed);
+        }
+      }
+    });
   }
-  const output = selectors
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean)
-    .join(", ");
+  if (Array.isArray(snapshotSelectors)) {
+    snapshotSelectors.forEach((item) => {
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        if (trimmed) {
+          selectorSet.add(trimmed);
+        }
+      }
+    });
+  }
+  const output = Array.from(selectorSet).join(", ");
   state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
     if (!cfg.pageCssSelectors) {
       cfg.pageCssSelectors = {};
