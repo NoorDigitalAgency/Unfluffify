@@ -59,16 +59,19 @@ function getEntryFingerprint(entry) {
   const fingerprint = [`pattern:${pattern}`];
   const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
-      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`);
+      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`)
+      .sort();
   const includeFingerprint = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths
           .filter((xpath) => typeof xpath === "string" && xpath)
           .map((xpath) => `include:${xpath}`)
+          .sort()
       : [];
   const consentFingerprint = Array.isArray(entry.consentXpaths)
       ? entry.consentXpaths
           .filter((xpath) => typeof xpath === "string" && xpath)
           .map((xpath) => `consent:${xpath}`)
+          .sort()
       : [];
   return fingerprint.concat(xpathFingerprint, includeFingerprint, consentFingerprint);
 }
