@@ -135,6 +135,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "idbGet") {
+    utils.idbGet(message.keys)
+      .then((result) => {
+        sendResponse({ ok: true, result });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB get failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "idbSet") {
+    utils.idbSet(message.items)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB set failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "idbRemove") {
+    utils.idbRemove(message.keys)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB remove failed" });
+      });
+    return true;
+  }
+
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

@@ -158,6 +158,173 @@ export const storageSet = (area, items) =>
 export const storageRemove = (area, keys) =>
     new Promise((resolve) => area.remove(keys, resolve));
 
+const IDB_NAME = "unfluffify";
+const IDB_VERSION = 1;
+const IDB_STORE = "kv";
+let idbPromise = null;
+
+function getExtensionOrigin() {
+  try {
+    if (chrome && chrome.runtime && chrome.runtime.getURL) {
+      return new URL(chrome.runtime.getURL("")).origin;
+    }
+  } catch (error) {
+    // Ignore origin detection errors
+  }
+  return "";
+}
+
+function isExtensionContext() {
+  const extensionOrigin = getExtensionOrigin();
+  if (!extensionOrigin) {
+    return true;
+  }
+  if (typeof location === "undefined" || !location.origin) {
+    return true;
+  }
+  return location.origin === extensionOrigin;
+}
+
+function openIdb() {
+  if (idbPromise) {
+    return idbPromise;
+  }
+  idbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(IDB_NAME, IDB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+  });
+  return idbPromise;
+}
+
+function normalizeIdbKeys(keys) {
+  if (keys === null || keys === undefined) {
+    return { keys: null, defaults: null };
+  }
+  if (Array.isArray(keys)) {
+    return { keys, defaults: null };
+  }
+  if (typeof keys === "string") {
+    return { keys: [keys], defaults: null };
+  }
+  if (typeof keys === "object") {
+    return { keys: Object.keys(keys), defaults: { ...keys } };
+  }
+  return { keys: null, defaults: null };
+}
+
+async function idbGetAll() {
+  const db = await openIdb();
+  return new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const store = tx.objectStore(IDB_STORE);
+    const result = {};
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(result);
+        return;
+      }
+      result[cursor.key] = cursor.value;
+      cursor.continue();
+    };
+    request.onerror = () => resolve(result);
+    tx.onabort = () => resolve(result);
+  });
+}
+
+export async function idbGet(keys) {
+  if (!isExtensionContext()) {
+    const response = await sendRuntimeMessage({ type: "idbGet", keys });
+    return response && response.ok ? response.result || {} : {};
+  }
+  const normalized = normalizeIdbKeys(keys);
+  if (!normalized.keys) {
+    return idbGetAll();
+  }
+  const db = await openIdb();
+  return new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const store = tx.objectStore(IDB_STORE);
+    const result = normalized.defaults ? { ...normalized.defaults } : {};
+    let pending = normalized.keys.length;
+    if (!pending) {
+      resolve(result);
+      return;
+    }
+    const finish = () => {
+      pending -= 1;
+      if (pending <= 0) {
+        resolve(result);
+      }
+    };
+    normalized.keys.forEach((key) => {
+      const request = store.get(key);
+      request.onsuccess = () => {
+        if (request.result !== undefined) {
+          result[key] = request.result;
+        }
+        finish();
+      };
+      request.onerror = () => finish();
+    });
+    tx.onabort = () => resolve(result);
+  });
+}
+
+export async function idbSet(items) {
+  if (!items || typeof items !== "object") {
+    return;
+  }
+  if (!isExtensionContext()) {
+    await sendRuntimeMessage({ type: "idbSet", items });
+    return;
+  }
+  const db = await openIdb();
+  await new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    const store = tx.objectStore(IDB_STORE);
+    Object.entries(items).forEach(([key, value]) => {
+      store.put(value, key);
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+    tx.onabort = () => resolve();
+  });
+}
+
+export async function idbRemove(keys) {
+  if (keys === null || keys === undefined) {
+    return;
+  }
+  if (!isExtensionContext()) {
+    await sendRuntimeMessage({ type: "idbRemove", keys });
+    return;
+  }
+  const normalized = normalizeIdbKeys(keys);
+  if (!normalized.keys || !normalized.keys.length) {
+    return;
+  }
+  const db = await openIdb();
+  await new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    const store = tx.objectStore(IDB_STORE);
+    normalized.keys.forEach((key) => {
+      store.delete(key);
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+    tx.onabort = () => resolve();
+  });
+}
+
 // Tab state utilities
 export async function getTabState(tabId) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;

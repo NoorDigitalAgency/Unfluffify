@@ -286,7 +286,7 @@ function getClassSelector(node) {
   }
   const classes = Array.from(node.classList)
     .map((value) => value.trim())
-    .filter((value) => value.length > 0 && !value.startsWith("mc-"));
+    .filter((value) => value.length > 0 && !value.startsWith("uf-"));
   if (!classes.length) {
     return "";
   }
@@ -605,7 +605,7 @@ function createOverlay() {
   }
 
   const style = document.createElement("style");
-  style.id = "markcontit-freeze-style";
+  style.id = "unfluffify-freeze-style";
   const excludeCursorUrl = chrome.runtime.getURL("cursors/exclude.svg");
   const includeCursorUrl = chrome.runtime.getURL("cursors/include.svg");
   style.textContent = `
@@ -616,19 +616,19 @@ function createOverlay() {
       html {
         scroll-behavior: auto !important;
       }
-      html.mc-cursor-exclude,
-      html.mc-cursor-exclude * {
+      html.uf-cursor-exclude,
+      html.uf-cursor-exclude * {
         cursor: url("${excludeCursorUrl}") 4 3, not-allowed !important;
       }
-      html.mc-cursor-include,
-      html.mc-cursor-include * {
+      html.uf-cursor-include,
+      html.uf-cursor-include * {
         cursor: url("${includeCursorUrl}") 4 3, copy !important;
       }
-      html.mc-cursor-passthrough,
-      html.mc-cursor-passthrough * {
+      html.uf-cursor-passthrough,
+      html.uf-cursor-passthrough * {
         cursor: unset !important;
       }
-      #markcontit-overlay {
+      #unfluffify-overlay {
         position: fixed;
         top: 0;
         left: 0;
@@ -637,22 +637,22 @@ function createOverlay() {
         z-index: 2147483647;
         pointer-events: auto;
       }
-      #markcontit-overlay .mc-layer {
+      #unfluffify-overlay .uf-layer {
         position: absolute;
         inset: 0;
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
-      #markcontit-overlay.mc-scrolling .mc-layer {
+      #unfluffify-overlay.uf-scrolling .uf-layer {
         opacity: 0;
       }
-      #markcontit-overlay .mc-rect {
+      #unfluffify-overlay .uf-rect {
         position: absolute;
         box-sizing: border-box;
         pointer-events: none;
         border-radius: 4px;
       }
-      #markcontit-overlay .mc-hover {
+      #unfluffify-overlay .uf-hover {
         border: 2px solid #ffb300;
         background: rgba(255, 179, 0, 0.1);
       }
@@ -660,26 +660,26 @@ function createOverlay() {
         0%,100% { opacity: 0 }
         50% { opacity: 1 }
       }
-      #markcontit-overlay .mc-focus {
+      #unfluffify-overlay .uf-focus {
         border: 3px solid #00acc1;
         background: rgba(0, 172, 193, 0.12);
         box-shadow: 0px 0px 5px 5px #00acc178;
         opacity: 1;
         animation: blink 1s linear infinite !important;
       }
-      #markcontit-overlay .mc-hard-toggle {
+      #unfluffify-overlay .uf-hard-toggle {
         border: 2px solid #b71c1c;
         background: rgba(183, 28, 28, 0.12);
       }
-      #markcontit-overlay .mc-hard-locked {
+      #unfluffify-overlay .uf-hard-locked {
         border: 2px dashed #9c6b6b;
         background: rgba(183, 28, 28, 0.08);
       }
-      #markcontit-overlay .mc-default {
+      #unfluffify-overlay .uf-default {
         border: 1px solid #2e7d32;
         background: rgba(46, 125, 50, 0.08);
       }
-      @keyframes mc-ai-content-dash {
+      @keyframes uf-ai-content-dash {
         0% {
           background-position: 0 0, 0 100%, 0 0, 100% 0;
         }
@@ -687,7 +687,7 @@ function createOverlay() {
           background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
         }
       }
-      #markcontit-overlay .mc-ai-content {
+      #unfluffify-overlay .uf-ai-content {
         border: 1px solid transparent;
         background-color: rgba(46, 125, 50, 0.08);
         background-image:
@@ -700,9 +700,9 @@ function createOverlay() {
         background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
         background-origin: border-box;
         background-clip: border-box;
-        animation: mc-ai-content-dash 2s linear infinite !important;
+        animation: uf-ai-content-dash 2s linear infinite !important;
       }
-      @keyframes mc-css-highlight-dash {
+      @keyframes uf-css-highlight-dash {
         0% {
           box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
         }
@@ -713,19 +713,19 @@ function createOverlay() {
           box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
         }
       }
-      #markcontit-overlay .mc-css-highlight {
+      #unfluffify-overlay .uf-css-highlight {
         box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
-        animation: mc-css-highlight-dash 2s linear infinite !important;
+        animation: uf-css-highlight-dash 2s linear infinite !important;
       }
-      #markcontit-overlay .mc-explicit-include {
+      #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
       }
-      #markcontit-overlay .mc-explicit-exclude {
+      #unfluffify-overlay .uf-explicit-exclude {
         border: 3px solid #c62828;
         background: rgba(198, 40, 40, 0.2);
       }
-      #markcontit-overlay .mc-toast {
+      #unfluffify-overlay .uf-toast {
         position: fixed;
         left: 14px;
         right: 14px;
@@ -741,7 +741,7 @@ function createOverlay() {
         transition: opacity 0.2s ease, transform 0.2s ease;
         pointer-events: none;
       }
-      #markcontit-overlay .mc-toast.mc-toast-show {
+      #unfluffify-overlay .uf-toast.uf-toast-show {
         opacity: 1;
         transform: translateY(0);
       }
@@ -749,7 +749,7 @@ function createOverlay() {
   (document.body || document.documentElement).appendChild(style);
 
   const overlay = document.createElement("div");
-  overlay.id = "markcontit-overlay";
+  overlay.id = "unfluffify-overlay";
 
   const layerKeys = [
     "hard",
@@ -764,7 +764,7 @@ function createOverlay() {
 
   layerKeys.forEach((key) => {
     const layer = document.createElement("div");
-    layer.className = "mc-layer";
+    layer.className = "uf-layer";
     layer.dataset.layer = key;
     overlay.appendChild(layer);
     state.layers[key] = layer;
@@ -775,7 +775,7 @@ function createOverlay() {
   state.focusBox = null;
 
   const toast = document.createElement("div");
-  toast.className = "mc-toast";
+  toast.className = "uf-toast";
   overlay.appendChild(toast);
   state.toast = toast;
 
@@ -814,7 +814,7 @@ function removeOverlay() {
   window.removeEventListener("keyup", handleKeyup, true);
   window.removeEventListener("blur", handleWindowBlur, true);
   document.removeEventListener("visibilitychange", handleVisibilityChange, true);
-  const style = document.getElementById("markcontit-freeze-style");
+  const style = document.getElementById("unfluffify-freeze-style");
   if (style) {
     style.remove();
   }
@@ -843,11 +843,11 @@ function showToast(message) {
     return;
   }
   state.toast.textContent = message;
-  state.toast.classList.add("mc-toast-show");
+  state.toast.classList.add("uf-toast-show");
   clearTimeout(state.toastHideTimer);
   state.toastHideTimer = setTimeout(() => {
     if (state.toast) {
-      state.toast.classList.remove("mc-toast-show");
+      state.toast.classList.remove("uf-toast-show");
     }
   }, 1800);
 }
@@ -884,9 +884,9 @@ function clearCursorMode() {
     return;
   }
   root.classList.remove(
-    "mc-cursor-exclude",
-    "mc-cursor-include",
-    "mc-cursor-passthrough"
+    "uf-cursor-exclude",
+    "uf-cursor-include",
+    "uf-cursor-passthrough"
   );
 }
 
@@ -898,11 +898,11 @@ function updateCursorMode() {
   }
   const mode = getMarkMode();
   if (mode === "exclude") {
-    root.classList.add("mc-cursor-exclude");
+    root.classList.add("uf-cursor-exclude");
   } else if (mode === "include") {
-    root.classList.add("mc-cursor-include");
+    root.classList.add("uf-cursor-include");
   } else if (mode === "passthrough") {
-    root.classList.add("mc-cursor-passthrough");
+    root.classList.add("uf-cursor-passthrough");
   }
 }
 
@@ -979,7 +979,7 @@ function updateFocusHighlight() {
     drawMultiRectReuse(
       layerState,
       rects,
-      "mc-focus",
+      "uf-focus",
       state.focusElement,
       null,
       null
@@ -989,13 +989,13 @@ function updateFocusHighlight() {
 }
 
 function ensureAiPopoverStyle() {
-  if (document.getElementById("markcontit-ai-popover-style")) {
+  if (document.getElementById("unfluffify-ai-popover-style")) {
     return;
   }
   const style = document.createElement("style");
-  style.id = "markcontit-ai-popover-style";
+  style.id = "unfluffify-ai-popover-style";
   style.textContent = `
-      .mc-ai-popover {
+      .uf-ai-popover {
         position: fixed;
         inset: 0;
         background: rgba(26, 22, 18, 0.45);
@@ -1006,7 +1006,7 @@ function ensureAiPopoverStyle() {
         padding: 28px;
         overflow: auto;
       }
-      .mc-ai-popover-modal {
+      .uf-ai-popover-modal {
         background: #ffffff;
         color: #2f2a24;
         width: min(720px, 100%);
@@ -1017,7 +1017,7 @@ function ensureAiPopoverStyle() {
         flex-direction: column;
         overflow: hidden;
       }
-      .mc-ai-popover-header {
+      .uf-ai-popover-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -1025,14 +1025,14 @@ function ensureAiPopoverStyle() {
         padding: 16px 20px 12px;
         border-bottom: 1px solid #eadccc;
       }
-      .mc-ai-popover-title {
+      .uf-ai-popover-title {
         font-size: 13px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #6c4c2b;
       }
-      .mc-ai-popover-close {
+      .uf-ai-popover-close {
         border: 1px solid #8a6f52;
         background: #f8e9d5;
         color: #6c4c2b;
@@ -1047,16 +1047,16 @@ function ensureAiPopoverStyle() {
         justify-content: center;
         line-height: 1;
       }
-      .mc-ai-popover-close:focus-visible {
+      .uf-ai-popover-close:focus-visible {
         outline: 2px solid #6c4c2b;
         outline-offset: 2px;
       }
-      .mc-ai-popover-body {
+      .uf-ai-popover-body {
         padding: 14px 22px 20px;
         overflow: auto;
         min-height: 0;
       }
-      .mc-ai-popover-list {
+      .uf-ai-popover-list {
         margin: 0;
         padding: 0 0 0 22px;
         display: grid;
@@ -1094,7 +1094,7 @@ function getMarkId(el) {
   }
   let id = state.markIds.get(el);
   if (!id) {
-    id = `mc-${state.markIdCounter}`;
+    id = `uf-${state.markIdCounter}`;
     state.markIdCounter += 1;
     state.markIds.set(el, id);
   }
@@ -1107,7 +1107,7 @@ function clearMarkedElements() {
   }
   for (const el of state.markedElements) {
     if (el && el.nodeType === 1) {
-      el.removeAttribute("data-mc-mark-id");
+      el.removeAttribute("data-uf-mark-id");
     }
   }
   state.markedElements = new Set();
@@ -1120,14 +1120,14 @@ function updateMarkedElements(currentMarked) {
   const previous = state.markedElements || new Set();
   for (const el of previous) {
     if (!currentMarked.has(el) && el && el.nodeType === 1) {
-      el.removeAttribute("data-mc-mark-id");
+      el.removeAttribute("data-uf-mark-id");
     }
   }
   for (const el of currentMarked) {
     if (!previous.has(el) && el && el.nodeType === 1) {
       const markId = getMarkId(el);
       if (markId) {
-        el.setAttribute("data-mc-mark-id", markId);
+        el.setAttribute("data-uf-mark-id", markId);
       }
     }
   }
@@ -1276,7 +1276,7 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
     finalizeLayerRender(layerState);
     return;
   }
-  drawMultiRectReuse(layerState, rects, "mc-hover", target, null, null);
+  drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
   finalizeLayerRender(layerState);
 }
 
@@ -1585,11 +1585,11 @@ function drawRectReuse(layerState, rect, className, el, kind, markedSet, index) 
   let box = map.get(key);
   if (!box) {
     box = document.createElement("div");
-    box.className = `mc-rect ${className}`;
+    box.className = `uf-rect ${className}`;
     map.set(key, box);
     layer.appendChild(box);
-  } else if (box.className !== `mc-rect ${className}`) {
-    box.className = `mc-rect ${className}`;
+  } else if (box.className !== `uf-rect ${className}`) {
+    box.className = `uf-rect ${className}`;
   }
   box.style.top = `${rect.top}px`;
   box.style.left = `${rect.left}px`;
@@ -1716,7 +1716,7 @@ function renderHighlights() {
       drawMultiRectReuse(
         layerHardState,
         rects,
-        "mc-hard-locked",
+        "uf-hard-locked",
         el,
         "immutable",
         markedElements
@@ -1733,7 +1733,7 @@ function renderHighlights() {
       drawMultiRectReuse(
         layerExplicitExcludeState,
         rects,
-        "mc-explicit-exclude",
+        "uf-explicit-exclude",
         el,
         "explicit-exclude",
         markedElements
@@ -1750,7 +1750,7 @@ function renderHighlights() {
       drawMultiRectReuse(
         layerExplicitIncludeState,
         rects,
-        "mc-explicit-include",
+        "uf-explicit-include",
         el,
         "explicit-include",
         markedElements
@@ -1767,7 +1767,7 @@ function renderHighlights() {
       drawMultiRectReuse(
         layerAiContentState,
         rects,
-        "mc-ai-content",
+        "uf-ai-content",
         el,
         "ai-content",
         markedElements
@@ -1787,7 +1787,7 @@ function renderHighlights() {
       drawMultiRectReuse(
         layerDefaultState,
         rects,
-        "mc-default",
+        "uf-default",
         el,
         "default",
         markedElements
@@ -1810,7 +1810,7 @@ function renderHighlights() {
         drawMultiRectReuse(
           layerCssState,
           rects,
-          "mc-css-highlight",
+          "uf-css-highlight",
           el,
           null,
           null
@@ -2394,12 +2394,12 @@ export function getPageMarkingEntry(config, pageUrl, options) {
 }
 
 export async function loadConfig(baseUrl) {
-  const result = await utils.storageGet(chrome.storage.local, "configs");
+  const result = await utils.idbGet("configs");
   const configs = result.configs || {};
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   configs[baseUrl] = normalized.config;
   if (normalized.changed) {
-    await utils.storageSet(chrome.storage.local, { configs });
+    await utils.idbSet({ configs });
   }
   return configs[baseUrl];
 }
@@ -2431,7 +2431,7 @@ export function disable() {
   state.savedPageUrl = "";
   removeOverlay();
   closeAiPopover();
-  const popoverStyle = document.getElementById("markcontit-ai-popover-style");
+  const popoverStyle = document.getElementById("unfluffify-ai-popover-style");
   if (popoverStyle) {
     popoverStyle.remove();
   }
@@ -2489,7 +2489,7 @@ export function handleScroll() {
   }
   if (!state.isScrolling) {
     state.isScrolling = true;
-    state.overlay.classList.add("mc-scrolling");
+    state.overlay.classList.add("uf-scrolling");
   }
   if (state.scrollHideTimer) {
     window.clearTimeout(state.scrollHideTimer);
@@ -2505,7 +2505,7 @@ export function handleScroll() {
       renderHighlights();
       refreshHoverHighlight();
       if (state.overlay) {
-        state.overlay.classList.remove("mc-scrolling");
+        state.overlay.classList.remove("uf-scrolling");
       }
     });
   }, 50);
@@ -2621,10 +2621,10 @@ export function getElementLabel(el) {
 }
 
 export async function saveConfig(baseUrl, config) {
-  const result = await utils.storageGet(chrome.storage.local, "configs");
+  const result = await utils.idbGet("configs");
   const configs = result.configs || {};
   configs[baseUrl] = config;
-  await utils.storageSet(chrome.storage.local, { configs });
+  await utils.idbSet({ configs });
 }
 
 export function removePageEntry(config, pageUrl) {
@@ -2645,16 +2645,16 @@ export function showAiPopover(items) {
   ensureAiPopoverStyle();
   closeAiPopover();
   const popover = document.createElement("div");
-  popover.className = "mc-ai-popover";
+  popover.className = "uf-ai-popover";
   const modal = document.createElement("div");
-  modal.className = "mc-ai-popover-modal";
+  modal.className = "uf-ai-popover-modal";
   const header = document.createElement("div");
-  header.className = "mc-ai-popover-header";
+  header.className = "uf-ai-popover-header";
   const title = document.createElement("div");
-  title.className = "mc-ai-popover-title";
+  title.className = "uf-ai-popover-title";
   title.textContent = "Computed Content";
   const close = document.createElement("button");
-  close.className = "mc-ai-popover-close";
+  close.className = "uf-ai-popover-close";
   close.type = "button";
   close.innerHTML = "&#x2715;";
   close.setAttribute("aria-label", "Close");
@@ -2662,9 +2662,9 @@ export function showAiPopover(items) {
   header.appendChild(title);
   header.appendChild(close);
   const body = document.createElement("div");
-  body.className = "mc-ai-popover-body";
+  body.className = "uf-ai-popover-body";
   const list = document.createElement("ul");
-  list.className = "mc-ai-popover-list";
+  list.className = "uf-ai-popover-list";
   if (!items.length) {
     const empty = document.createElement("li");
     empty.textContent = "No content found";

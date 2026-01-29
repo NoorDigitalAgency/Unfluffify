@@ -73,7 +73,7 @@ function getClassSelector(node) {
   }
   const classes = Array.from(node.classList)
     .map((value) => value.trim())
-    .filter((value) => value.length > 0 && !value.startsWith("mc-"));
+    .filter((value) => value.length > 0 && !value.startsWith("uf-"));
   if (!classes.length) {
     return null;
   }
@@ -879,7 +879,7 @@ async function handleExportAll() {
     globalToken: tokenValue,
     globalEndpoint: endpointValue
   };
-  const filename = `markcontit-all-${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
 }
 
@@ -900,7 +900,7 @@ async function handleExportCurrent() {
     config: normalizedConfig
   };
   const safeBase = utils.makeSafeFilename(state.currentBaseUrl) || "base";
-  const filename = `markcontit-${safeBase}.json`;
+  const filename = `unfluffify-${safeBase}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
 }
 

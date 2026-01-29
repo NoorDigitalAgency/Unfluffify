@@ -1,5 +1,5 @@
 import { normalizePatternValue } from "./patterns.js";
-import { looksLikeBaseUrl, storageGet, storageSet } from "./utilities.js";
+import { looksLikeBaseUrl, idbGet, idbSet } from "./utilities.js";
 
 export function createDefaultConfig(baseUrl) {
   let domain = "";
@@ -186,12 +186,12 @@ export function normalizeConfig(baseUrl, incoming) {
 }
 
 export async function getConfigs() {
-  const result = await storageGet(chrome.storage.local, "configs");
+  const result = await idbGet("configs");
   return result.configs || {};
 }
 
 export async function saveConfigs(configs) {
-  await storageSet(chrome.storage.local, { configs });
+  await idbSet({ configs });
 }
 
 export async function ensureConfig(baseUrl) {
