@@ -210,6 +210,35 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await utils.updateActionForTab(tabId);
 });
 
+function requestContentActivation(tabId, attempt = 0) {
+  if (!tabId) {
+    return;
+  }
+  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, () => {
+    if (chrome.runtime.lastError && attempt < 3) {
+      setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
+      return;
+    }
+    void chrome.runtime.lastError;
+  });
+}
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!tabId || !tab) {
+    return;
+  }
+  if (changeInfo.status !== "complete") {
+    return;
+  }
+  const state = await utils.getTabState(tabId);
+  if (!state || !state.enabled || !state.baseUrl) {
+    return;
+  }
+  if (tab.url && tab.url.startsWith(state.baseUrl)) {
+    requestContentActivation(tabId);
+  }
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "session") {
     return;
@@ -233,5 +262,19 @@ chrome.action.onClicked.addListener((tab) => {
       enabled: true
     }).then();
     chrome.sidePanel.open({tabId: tab.id}).then();
+    requestContentActivation(tab.id);
   }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== "activateContentForTab") {
+    return;
+  }
+  const tabId = message.tabId || (sender.tab && sender.tab.id);
+  if (!tabId) {
+    sendResponse({ ok: false });
+    return;
+  }
+  requestContentActivation(tabId);
+  sendResponse({ ok: true });
 });

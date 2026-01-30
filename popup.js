@@ -774,6 +774,7 @@ async function handleEnableToggle() {
       await refreshUi();
       return;
     }
+    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
     await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",

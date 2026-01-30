@@ -2704,9 +2704,8 @@ export function getSavedPageEntry(pageUrl) {
 export async function refreshFromTabState() {
   const response = await utils.sendRuntimeMessage({ type: "getTabState" });
   if (response && response.enabled && response.baseUrl) {
-    // Only enable if we're already enabled (not a fresh page load after navigation)
-    // and the URL still matches the baseUrl
-    if (state.enabled && location.href.startsWith(response.baseUrl)) {
+    // Enable if the URL still matches the baseUrl.
+    if (location.href.startsWith(response.baseUrl)) {
       const pageUrl = location.href;
       const draftEntry = getDraftPageEntry(pageUrl);
       const savedEntry = getSavedPageEntry(pageUrl);
