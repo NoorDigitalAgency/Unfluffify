@@ -685,14 +685,14 @@ function createOverlay() {
       @keyframes uf-ai-content-dash {
         0% {
           background-position: 0 0, 0 100%, 0 0, 100% 0;
-          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         }
         50% {
-          box-shadow: 0px 0px 0 7.5px rgba(27, 94, 32, 0);
+          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
         }
         100% {
           background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
-          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         }
       }
       #unfluffify-overlay .uf-ai-content {
@@ -708,22 +708,22 @@ function createOverlay() {
         background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
         background-origin: border-box;
         background-clip: border-box;
-        box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
+        box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
       @keyframes uf-css-highlight-dash {
         0% {
-          box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
+          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
         }
         50% {
-          box-shadow: 0px 0px 7.5px 7.5px rgba(141, 10, 202, 0.85);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         }
         100% {
-          box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
+          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
         }
       }
       #unfluffify-overlay .uf-css-highlight {
-        box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
+        box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
         animation: uf-css-highlight-dash 2s linear infinite !important;
       }
       #unfluffify-overlay .uf-explicit-include {

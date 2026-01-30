@@ -683,10 +683,11 @@ async function refreshUi() {
         item.xpath &&
         !utils.isHeadingXPath(item.xpath)
     ).length;
+    const includedCount = entry.includeXpaths.length;
     markedPages.push({
       url,
       title: entry.title || url,
-      count: excludedCount
+      count: excludedCount + includedCount
     });
   });
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
