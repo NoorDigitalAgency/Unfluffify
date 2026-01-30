@@ -860,11 +860,8 @@ function getMarkMode() {
   if (!state.enabled || !state.overlay) {
     return "disabled";
   }
-  if (state.altHeld && state.shiftHeld) {
+  if (state.altHeld) {
     return "include";
-  }
-  if (state.altPassThrough || state.altHeld) {
-    return "passthrough";
   }
   return "exclude";
 }
@@ -873,11 +870,8 @@ function getMarkModeFromEvent(event) {
   if (!event) {
     return getMarkMode();
   }
-  if (event.altKey && event.shiftKey) {
-    return "include";
-  }
   if (event.altKey) {
-    return "passthrough";
+    return "include";
   }
   return "exclude";
 }
@@ -905,17 +899,13 @@ function updateCursorMode() {
     root.classList.add("uf-cursor-exclude");
   } else if (mode === "include") {
     root.classList.add("uf-cursor-include");
-  } else if (mode === "passthrough") {
-    root.classList.add("uf-cursor-passthrough");
   }
 }
 
 function updateAltPassThroughFromModifiers() {
-  const shouldPassThrough = Boolean(state.altHeld && !state.shiftHeld);
-  if (shouldPassThrough === state.altPassThrough) {
-    return;
+  if (state.altPassThrough) {
+    setAltPassThrough(false);
   }
-  setAltPassThrough(shouldPassThrough);
 }
 
 function syncModifierState(event) {
@@ -1446,9 +1436,6 @@ function handleToggleEvent(event) {
   }
   syncModifierState(event);
   const mode = getMarkModeFromEvent(event);
-  if (mode === "passthrough") {
-    return;
-  }
   event.preventDefault();
   event.stopPropagation();
   if (state.focusElement) {

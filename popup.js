@@ -1867,6 +1867,20 @@ async function init() {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
     }
+    if (
+      event.key === "Control" &&
+      !event.repeat &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (ui.toggleEnabled && !ui.toggleEnabled.disabled) {
+        ui.toggleEnabled.click();
+      }
+    }
   });
 
   chrome.tabs.onActivated.addListener(async ({ tabId }) => {
