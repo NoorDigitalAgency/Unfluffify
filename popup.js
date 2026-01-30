@@ -1609,6 +1609,9 @@ async function handleComputeSelectors() {
       const consentXpaths = Array.isArray(entry.consentXpaths)
         ? entry.consentXpaths
         : [];
+      const inclusionXpaths = Array.isArray(entry.includeXpaths)
+        ? entry.includeXpaths
+        : [];
       const combined = new Map();
       xpaths.forEach((item) => {
         if (!item || typeof item.xpath !== "string" || !item.xpath) {
@@ -1625,6 +1628,17 @@ async function handleComputeSelectors() {
           existing.excluded = true;
         } else {
           combined.set(xpath, { xpath, excluded: true });
+        }
+      });
+      inclusionXpaths.forEach((xpath) => {
+        if (!xpath || typeof xpath !== "string") {
+          return;
+        }
+        const existing = combined.get(xpath);
+        if (existing) {
+          existing.excluded = false;
+        } else {
+          combined.set(xpath, { xpath, excluded: false });
         }
       });
       const combinedXpaths = Array.from(combined.values());
