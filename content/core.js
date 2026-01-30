@@ -685,9 +685,14 @@ function createOverlay() {
       @keyframes uf-ai-content-dash {
         0% {
           background-position: 0 0, 0 100%, 0 0, 100% 0;
+          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
+        }
+        50% {
+          box-shadow: 0px 0px 0 7.5px rgba(27, 94, 32, 0);
         }
         100% {
           background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
+          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
         }
       }
       #unfluffify-overlay .uf-ai-content {
@@ -698,26 +703,27 @@ function createOverlay() {
           repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
           repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px),
           repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px);
-        background-size: 24px 1px, 24px 1px, 1px 24px, 1px 24px;
+        background-size: 24px 2px, 24px 2px, 2px 24px, 2px 24px;
         background-position: 0 0, 0 100%, 0 0, 100% 0;
         background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
         background-origin: border-box;
         background-clip: border-box;
+        box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.85);
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
       @keyframes uf-css-highlight-dash {
         0% {
-          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
+          box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
         }
         50% {
-          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.25);
+          box-shadow: 0px 0px 7.5px 7.5px rgba(141, 10, 202, 0.85);
         }
         100% {
-          box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
+          box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
         }
       }
       #unfluffify-overlay .uf-css-highlight {
-        box-shadow: 0px 0px 7.5px 7.5px rgba(27, 94, 32, 0.75);
+        box-shadow: 0px 0px 0 7.5px rgba(141, 10, 202, 0);
         animation: uf-css-highlight-dash 2s linear infinite !important;
       }
       #unfluffify-overlay .uf-explicit-include {
