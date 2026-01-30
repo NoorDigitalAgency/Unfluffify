@@ -235,6 +235,12 @@ async function refreshUi() {
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
+  if (state.lastPopupEnabled !== null) {
+    ui.toggleEnabled.checked = state.lastPopupEnabled;
+    if (ui.toggleEnabled.checked === Boolean(effectiveTabState.enabled)) {
+      state.lastPopupEnabled = null;
+    }
+  }
   const isEnabled = ui.toggleEnabled.checked;
   const pagePatternOptions = baseUrlReady
     ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
@@ -728,21 +734,25 @@ async function handleEnableToggle() {
   }
   if (!helpers.ensureBaseUrl("Set Base Page URL before enabling marking")) {
     ui.toggleEnabled.checked = false;
+    state.lastPopupEnabled = null;
     return;
   }
   const enabled = ui.toggleEnabled.checked;
+  state.lastPopupEnabled = enabled;
   const baseUrlValue = state.currentBaseUrl;
   if (enabled) {
     const parsed = utils.parseBaseUrl(baseUrlValue);
     if (!parsed) {
       uiModule.showToast("Enter a valid Base Page URL");
       ui.toggleEnabled.checked = false;
+      state.lastPopupEnabled = null;
       await refreshUi();
       return;
     }
     if (!tab.url.startsWith(baseUrlValue)) {
       uiModule.showToast("Current page is outside the Base Page URL");
       ui.toggleEnabled.checked = false;
+      state.lastPopupEnabled = null;
       await refreshUi();
       return;
     }
@@ -759,6 +769,7 @@ async function handleEnableToggle() {
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
       ui.toggleEnabled.checked = false;
+      state.lastPopupEnabled = null;
       await refreshUi();
       return;
     }
