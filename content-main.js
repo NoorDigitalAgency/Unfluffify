@@ -197,6 +197,10 @@ export function main() {
   }
   state.initialized = true;
 
+  core.refreshFromTabState().then(() => {
+    refreshSavedHighlights().then();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (
       (event.key === "e" || event.key === "E") &&
