@@ -24,7 +24,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "setTabState") {
-    if (!message.tabId) {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
       sendResponse({ ok: false });
       return;
     }
@@ -32,9 +33,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       enabled: Boolean(message.enabled),
       baseUrl: message.baseUrl || ""
     };
-    utils.setTabState(message.tabId, state)
+    utils.setTabState(tabId, state)
       .then(() => {
-        utils.updateActionForTab(message.tabId).then();
+        utils.updateActionForTab(tabId).then();
         sendResponse({ ok: true });
       })
       .catch(() => {

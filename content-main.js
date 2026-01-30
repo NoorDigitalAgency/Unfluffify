@@ -8,6 +8,100 @@ const { state } = core;
 
 const SAVED_LINK_ATTR = "data-uf-saved-link";
 const SAVED_LINKS_ACTIVE_ATTR = "data-uf-saved-links";
+const PAGE_TOAST_ID = "unfluffify-page-toast";
+const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
+
+function ensurePageToastStyle() {
+  if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = PAGE_TOAST_STYLE_ID;
+  style.textContent = `
+      #${PAGE_TOAST_ID} {
+        position: fixed;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        padding: 10px 12px;
+        background: rgba(47, 42, 36, 0.9);
+        color: #fdf6ed;
+        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        font-size: 12px;
+        border-radius: 10px;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        pointer-events: none;
+        z-index: 2147483647;
+      }
+      #${PAGE_TOAST_ID}.uf-toast-show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+function showPageToast(message) {
+  ensurePageToastStyle();
+  let toast = document.getElementById(PAGE_TOAST_ID);
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = PAGE_TOAST_ID;
+    (document.body || document.documentElement).appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add("uf-toast-show");
+  window.clearTimeout(showPageToast._timer);
+  showPageToast._timer = window.setTimeout(() => {
+    if (toast) {
+      toast.classList.remove("uf-toast-show");
+    }
+  }, 1800);
+}
+
+function isEditableTarget(target) {
+  if (!target) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tagName = target.tagName;
+  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+}
+
+async function toggleEnabledFromPage() {
+  const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
+  const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
+  let baseUrl = state.baseUrl || (tabState && tabState.baseUrl ? tabState.baseUrl : "");
+  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+    const configs = await config.getConfigs();
+    baseUrl = utils.findMatchingBaseUrl(location.href, configs);
+  }
+  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+    showPageToast("Set Base Page URL in the Unfluffify popup first.");
+    return;
+  }
+  if (currentlyEnabled) {
+    core.disable();
+    await utils.sendRuntimeMessage({
+      type: "setTabState",
+      enabled: false,
+      baseUrl
+    });
+    refreshSavedHighlights().then();
+    return;
+  }
+  await utils.sendRuntimeMessage({
+    type: "setTabState",
+    enabled: true,
+    baseUrl
+  });
+  core.enableForBaseUrl(baseUrl, {}).then();
+  refreshSavedHighlights().then();
+}
 
 function ensureSavedLinkStyles() {
   if (document.getElementById("unfluffify-saved-links-style")) {
@@ -102,6 +196,24 @@ export function main() {
     return;
   }
   state.initialized = true;
+
+  document.addEventListener("keydown", (event) => {
+    if (
+      (event.key === "e" || event.key === "E") &&
+      event.altKey &&
+      event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.repeat
+    ) {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      toggleEnabledFromPage().then();
+    }
+  }, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
