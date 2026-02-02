@@ -1601,11 +1601,13 @@ async function handleComputeSelectors() {
   state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
 
   const pageMarkings = state.currentConfig.pageMarkings || {};
+  const pageCssSelectors = state.currentConfig.pageCssSelectors || {};
   const pages = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
       }
+      const cssSelectors = (pageCssSelectors[url] || "").split(",").map((item) => item.trim());
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       const consentXpaths = Array.isArray(entry.consentXpaths)
@@ -1649,7 +1651,8 @@ async function handleComputeSelectors() {
         url,
         fullHTML,
         xpaths: combinedXpaths,
-        pattern
+        pattern,
+        cssSelectors
       };
     })
     .filter((entry) => {
