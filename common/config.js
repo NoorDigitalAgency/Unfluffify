@@ -129,6 +129,85 @@ export function normalizeAiSelectorSet(value) {
   return { normalized, changed };
 }
 
+function normalizePageCssSelectors(value, pageMarkings) {
+  const normalized = {};
+  let changed = false;
+
+  const toCssString = (raw) => {
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      return trimmed ? trimmed : "";
+    }
+    if (Array.isArray(raw)) {
+      const items = raw
+        .filter((item) => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (items.length) {
+        changed = true;
+        return items.join(", ");
+      }
+    }
+    return "";
+  };
+
+  const addCss = (url, rawCss, allowOverwrite = false) => {
+    if (typeof url !== "string" || !url) {
+      return;
+    }
+    const css = toCssString(rawCss);
+    if (!css) {
+      return;
+    }
+    if (!allowOverwrite && normalized[url]) {
+      return;
+    }
+    normalized[url] = css;
+  };
+
+  if (value instanceof Map) {
+    value.forEach((css, url) => addCss(url, css, true));
+    changed = true;
+  } else if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      if (Array.isArray(entry)) {
+        addCss(entry[0], entry[1], true);
+        changed = true;
+        return;
+      }
+      if (entry && typeof entry === "object") {
+        addCss(entry.url, entry.cssSelectors ?? entry.pageCssSelectors, true);
+        if ("cssSelectors" in entry || "pageCssSelectors" in entry) {
+          changed = true;
+        }
+      }
+    });
+  } else if (value && typeof value === "object") {
+    Object.entries(value).forEach(([url, css]) => addCss(url, css, true));
+  } else if (value !== undefined) {
+    changed = true;
+  }
+
+  if (pageMarkings && typeof pageMarkings === "object") {
+    Object.entries(pageMarkings).forEach(([url, entry]) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      if (entry.cssSelectors !== undefined) {
+        addCss(url, entry.cssSelectors);
+        changed = true;
+        return;
+      }
+      if (entry.pageCssSelectors !== undefined) {
+        addCss(url, entry.pageCssSelectors);
+        changed = true;
+      }
+    });
+  }
+
+  return { normalized, changed };
+}
+
 export function normalizeConfig(baseUrl, incoming) {
   let changed = false;
   const defaultConfig = createDefaultConfig(baseUrl);
@@ -176,9 +255,12 @@ export function normalizeConfig(baseUrl, incoming) {
   if (aiSelectors.changed) {
     changed = true;
   }
-  if (incoming.pageCssSelectors && typeof incoming.pageCssSelectors === "object") {
-    normalized.pageCssSelectors = incoming.pageCssSelectors;
-  } else if (incoming.pageCssSelectors !== undefined) {
+  const pageCssSelectors = normalizePageCssSelectors(
+    incoming.pageCssSelectors,
+    normalized.pageMarkings
+  );
+  normalized.pageCssSelectors = pageCssSelectors.normalized;
+  if (pageCssSelectors.changed) {
     changed = true;
   }
 

@@ -907,11 +907,21 @@ async function handleClearDomainCache() {
 async function handleExportAll() {
   uiModule.setConfigMenuOpen(false);
   const configs = await config.getConfigs();
+  const normalizedConfigs = {};
+  Object.entries(configs).forEach(([baseUrl, entry]) => {
+    normalizedConfigs[baseUrl] = config.normalizeImportedConfig(baseUrl, entry);
+  });
+  if (state.currentBaseUrl && state.currentConfig) {
+    normalizedConfigs[state.currentBaseUrl] = config.normalizeImportedConfig(
+      state.currentBaseUrl,
+      state.currentConfig
+    );
+  }
   const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
   const payload = {
     version: 1,
     scope: "all",
-    configs,
+    configs: normalizedConfigs,
     globalToken: tokenValue,
     globalEndpoint: endpointValue
   };
@@ -925,9 +935,13 @@ async function handleExportCurrent() {
     return;
   }
   const configs = await config.getConfigs();
+  const sourceConfig =
+    state.currentConfig ||
+    configs[state.currentBaseUrl] ||
+    config.createDefaultConfig(state.currentBaseUrl);
   const normalizedConfig = config.normalizeImportedConfig(
     state.currentBaseUrl,
-    configs[state.currentBaseUrl] || config.createDefaultConfig(state.currentBaseUrl)
+    sourceConfig
   );
   const payload = {
     version: 1,
