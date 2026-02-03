@@ -6,8 +6,8 @@ import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
 
 const { state } = core;
 
-const SAVED_LINK_ATTR = "data-uf-saved-link";
-const SAVED_LINKS_ACTIVE_ATTR = "data-uf-saved-links";
+const SILENT_HIGHLIGHTING_ATTR = "data-uf-silent-highlighting";
+const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 
@@ -91,7 +91,7 @@ async function toggleEnabledFromPage() {
       enabled: false,
       baseUrl
     });
-    refreshSavedHighlights().then();
+    refreshSilentHighlightings().then();
     return;
   }
   await utils.sendRuntimeMessage({
@@ -100,17 +100,17 @@ async function toggleEnabledFromPage() {
     baseUrl
   });
   core.enableForBaseUrl(baseUrl, {}).then();
-  refreshSavedHighlights().then();
+  refreshSilentHighlightings().then();
 }
 
-function ensureSavedLinkStyles() {
-  if (document.getElementById("unfluffify-saved-links-style")) {
+function ensureSilentHighlightingStyles() {
+  if (document.getElementById("unfluffify-silent-highlightings-style")) {
     return;
   }
   const style = document.createElement("style");
-  style.id = "unfluffify-saved-links-style";
+  style.id = "unfluffify-silent-highlightings-style";
   style.textContent = `
-      html[${SAVED_LINKS_ACTIVE_ATTR}] a[${SAVED_LINK_ATTR}] {
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_HIGHLIGHTING_ATTR}] {
         border: 2px dashed #2e7d32 !important;
         outline: 2px dashed #c62828 !important;
         outline-offset: 2px !important;
@@ -121,31 +121,31 @@ function ensureSavedLinkStyles() {
   (document.head || document.documentElement).appendChild(style);
 }
 
-function setSavedLinksActive(active) {
+function setSilentHighlightingsActive(active) {
   if (active) {
-    document.documentElement.setAttribute(SAVED_LINKS_ACTIVE_ATTR, "on");
+    document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
   } else {
-    document.documentElement.removeAttribute(SAVED_LINKS_ACTIVE_ATTR);
+    document.documentElement.removeAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR);
   }
 }
 
-function clearSavedLinkMarks() {
-  const marked = document.querySelectorAll(`a[${SAVED_LINK_ATTR}]`);
-  marked.forEach((anchor) => anchor.removeAttribute(SAVED_LINK_ATTR));
+function clearSilentHighlightingMarks() {
+  const marked = document.querySelectorAll(`a[${SILENT_HIGHLIGHTING_ATTR}]`);
+  marked.forEach((anchor) => anchor.removeAttribute(SILENT_HIGHLIGHTING_ATTR));
 }
 
-async function refreshSavedHighlights() {
+async function refreshSilentHighlightings() {
   if (state.enabled) {
-    clearSavedLinkMarks();
-    setSavedLinksActive(false);
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
     return;
   }
   const pageUrl = location.href;
   const configs = await config.getConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
-    clearSavedLinkMarks();
-    setSavedLinksActive(false);
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
     return;
   }
   const pageMarkings =
@@ -153,20 +153,20 @@ async function refreshSavedHighlights() {
       ? configs[baseUrl].pageMarkings
       : null;
   if (!pageMarkings) {
-    clearSavedLinkMarks();
-    setSavedLinksActive(false);
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
     return;
   }
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
   if (!savedUrls.size) {
-    clearSavedLinkMarks();
-    setSavedLinksActive(false);
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
     return;
   }
-  ensureSavedLinkStyles();
-  clearSavedLinkMarks();
+  ensureSilentHighlightingStyles();
+  clearSilentHighlightingMarks();
   const anchors = [];
   const anchorNodes = document.querySelectorAll("a[href]");
   anchorNodes.forEach((anchor) => {
@@ -187,8 +187,8 @@ async function refreshSavedHighlights() {
       anchors.push(anchor);
     }
   });
-  anchors.forEach((anchor) => anchor.setAttribute(SAVED_LINK_ATTR, "1"));
-  setSavedLinksActive(anchors.length > 0);
+  anchors.forEach((anchor) => anchor.setAttribute(SILENT_HIGHLIGHTING_ATTR, "1"));
+  setSilentHighlightingsActive(anchors.length > 0);
 }
 
 export function main() {
@@ -198,7 +198,7 @@ export function main() {
   state.initialized = true;
 
   core.refreshFromTabState().then(() => {
-    refreshSavedHighlights().then();
+    refreshSilentHighlightings().then();
   });
 
   document.addEventListener("keydown", (event) => {
@@ -229,7 +229,7 @@ export function main() {
         core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern }).then();
       } else {
         core.disable();
-        refreshSavedHighlights().then();
+        refreshSilentHighlightings().then();
       }
       sendResponse({ ok: true });
       return;
@@ -246,7 +246,7 @@ export function main() {
           core.scheduleRender();
         });
       } else {
-        refreshSavedHighlights().then();
+        refreshSilentHighlightings().then();
       }
       sendResponse({ ok: true });
       return;
@@ -254,7 +254,7 @@ export function main() {
 
     if (message.type === "forceRefresh") {
       core.refreshFromTabState().then(() => {
-        refreshSavedHighlights().then(() => {
+        refreshSilentHighlightings().then(() => {
           sendResponse({ ok: true });
         });
       });
@@ -769,7 +769,7 @@ export function main() {
     }
   });
 
-  refreshSavedHighlights().then();
+  refreshSilentHighlightings().then();
   window.addEventListener("resize", core.scheduleRender);
   window.addEventListener("scroll", core.handleScroll, { passive: true });
   window.addEventListener("beforeunload", core.handleBeforeUnload);
