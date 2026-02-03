@@ -6,7 +6,8 @@ import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
 
 const { state } = core;
 
-const SILENT_HIGHLIGHTING_ATTR = "data-uf-silent-highlighting";
+const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
+const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
@@ -110,12 +111,13 @@ function ensureSilentHighlightingStyles() {
   const style = document.createElement("style");
   style.id = "unfluffify-silent-highlightings-style";
   style.textContent = `
-      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_HIGHLIGHTING_ATTR}] {
-        border: 2px dashed #2e7d32 !important;
-        outline: 2px dashed #c62828 !important;
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_LINK_HIGHLIGHTING_ATTR}] {
+        outline: 2px dashed #56acce !important;
         outline-offset: 2px !important;
-        border-radius: 6px !important;
-        box-sizing: border-box !important;
+      }
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}] {
+        outline: 2px dashed #44b532 !important;
+        outline-offset: 2px !important;
       }
     `;
   (document.head || document.documentElement).appendChild(style);
@@ -130,8 +132,11 @@ function setSilentHighlightingsActive(active) {
 }
 
 function clearSilentHighlightingMarks() {
-  const marked = document.querySelectorAll(`a[${SILENT_HIGHLIGHTING_ATTR}]`);
-  marked.forEach((anchor) => anchor.removeAttribute(SILENT_HIGHLIGHTING_ATTR));
+  const marked = document.querySelectorAll(`a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}]`);
+  marked.forEach((anchor) => {
+    anchor.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
+    anchor.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
+  });
 }
 
 async function refreshSilentHighlightings() {
@@ -152,7 +157,11 @@ async function refreshSilentHighlightings() {
     configs[baseUrl] && configs[baseUrl].pageMarkings
       ? configs[baseUrl].pageMarkings
       : null;
-  if (!pageMarkings) {
+  const latestComputedSelectors =
+    configs[baseUrl] && configs[baseUrl].latestComputedSelectors
+      ? configs[baseUrl].latestComputedSelectors
+      : null;
+  if (!pageMarkings && !latestComputedSelectors) {
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
@@ -160,7 +169,7 @@ async function refreshSilentHighlightings() {
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
-  if (!savedUrls.size) {
+  if (!savedUrls.size && !latestComputedSelectors.size) {
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
@@ -187,7 +196,10 @@ async function refreshSilentHighlightings() {
       anchors.push(anchor);
     }
   });
-  anchors.forEach((anchor) => anchor.setAttribute(SILENT_HIGHLIGHTING_ATTR, "1"));
+  anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "1"));
+  const contentNodes = Array.from(document.querySelectorAll(latestComputedSelectors.join(", ")));
+  contentNodes.forEach((node) => node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "1"));
+  console.log(latestComputedSelectors, contentNodes);
   setSilentHighlightingsActive(anchors.length > 0);
 }
 
