@@ -326,14 +326,14 @@ export async function idbRemove(keys) {
 }
 
 // Tab state utilities
-export async function getTabState(tabId) {
-  const key = `${TAB_STATE_PREFIX}${tabId}`;
+export async function getTabState(tabId, scope = null) {
+  const key = `${(scope ? `${scope}_` : '')}${TAB_STATE_PREFIX}${tabId}`;
   const result = await storageGet(chrome.storage.session, key);
   return result[key] || null;
 }
 
-export async function setTabState(tabId, state) {
-  const key = `${TAB_STATE_PREFIX}${tabId}`;
+export async function setTabState(tabId, state, scope = null) {
+  const key = `${(scope ? `${scope}_` : '')}${TAB_STATE_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, {[key]: state});
 }
 

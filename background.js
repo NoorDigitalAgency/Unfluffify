@@ -230,13 +230,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete") {
     return;
   }
-  const state = await utils.getTabState(tabId);
-  if (!state || !state.enabled || !state.baseUrl) {
+  if (!((await utils.getTabState(tabId, 'INITIALIZATION')) || {active: false}).active)
+  {
     return;
   }
-  if (tab.url && tab.url.startsWith(state.baseUrl)) {
-    requestContentActivation(tabId);
-  }
+  requestContentActivation(tabId);
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -263,6 +261,7 @@ chrome.action.onClicked.addListener((tab) => {
     }).then();
     chrome.sidePanel.open({tabId: tab.id}).then();
     requestContentActivation(tab.id);
+    utils.setTabState(tab.id, { active: true }, 'INITIALIZATION').then();
   }
 });
 

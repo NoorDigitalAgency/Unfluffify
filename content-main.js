@@ -8,6 +8,8 @@ const { state } = core;
 
 const SAVED_LINK_ATTR = "data-uf-saved-link";
 const SAVED_LINKS_ACTIVE_ATTR = "data-uf-saved-links";
+const DETECTED_CONTENT_ATTR = "data-uf-detected-content";
+const DETECTED_CONTENT_ACTIVE_ATTR = "data-uf-detected-content-active";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 
@@ -111,11 +113,8 @@ function ensureSavedLinkStyles() {
   style.id = "unfluffify-saved-links-style";
   style.textContent = `
       html[${SAVED_LINKS_ACTIVE_ATTR}] a[${SAVED_LINK_ATTR}] {
-        border: 2px dashed #2e7d32 !important;
-        outline: 2px dashed #c62828 !important;
+        outline: 2px dashed #1874dc !important;
         outline-offset: 2px !important;
-        border-radius: 6px !important;
-        box-sizing: border-box !important;
       }
     `;
   (document.head || document.documentElement).appendChild(style);
@@ -134,10 +133,40 @@ function clearSavedLinkMarks() {
   marked.forEach((anchor) => anchor.removeAttribute(SAVED_LINK_ATTR));
 }
 
+function ensureDetectedContentStyles() {
+  if (document.getElementById("unfluffify-detected-content-style")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "unfluffify-detected-content-style";
+  style.textContent = `
+      html[${DETECTED_CONTENT_ACTIVE_ATTR}] a[${DETECTED_CONTENT_ATTR}] {
+        outline: 2px dashed #15ae32 !important;
+        outline-offset: 2px !important;
+      }
+    `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+function setDetectedContentActive(active) {
+  if (active) {
+    document.documentElement.setAttribute(DETECTED_CONTENT_ACTIVE_ATTR, "on");
+  } else {
+    document.documentElement.removeAttribute(DETECTED_CONTENT_ACTIVE_ATTR);
+  }
+}
+
+function clearDetectedContentMarks() {
+  const marked = document.querySelectorAll(`a[${DETECTED_CONTENT_ATTR}]`);
+  marked.forEach((anchor) => anchor.removeAttribute(DETECTED_CONTENT_ATTR));
+}
+
 async function refreshSavedHighlights() {
   if (state.enabled) {
     clearSavedLinkMarks();
     setSavedLinksActive(false);
+    clearDetectedContentMarks();
+    setDetectedContentActive(false);
     return;
   }
   const pageUrl = location.href;
@@ -146,6 +175,8 @@ async function refreshSavedHighlights() {
   if (!baseUrl) {
     clearSavedLinkMarks();
     setSavedLinksActive(false);
+    clearDetectedContentMarks();
+    setDetectedContentActive(false);
     return;
   }
   const pageMarkings =
@@ -155,6 +186,8 @@ async function refreshSavedHighlights() {
   if (!pageMarkings) {
     clearSavedLinkMarks();
     setSavedLinksActive(false);
+    clearDetectedContentMarks();
+    setDetectedContentActive(false);
     return;
   }
   const savedUrls = new Set(
@@ -163,10 +196,14 @@ async function refreshSavedHighlights() {
   if (!savedUrls.size) {
     clearSavedLinkMarks();
     setSavedLinksActive(false);
+    clearDetectedContentMarks();
+    setDetectedContentActive(false);
     return;
   }
   ensureSavedLinkStyles();
   clearSavedLinkMarks();
+  ensureDetectedContentStyles();
+  clearDetectedContentMarks();
   const anchors = [];
   const anchorNodes = document.querySelectorAll("a[href]");
   anchorNodes.forEach((anchor) => {
