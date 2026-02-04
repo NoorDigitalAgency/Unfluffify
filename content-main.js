@@ -176,6 +176,7 @@ async function refreshSilentHighlightings() {
   }
   ensureSilentHighlightingStyles();
   clearSilentHighlightingMarks();
+  core.removeConsentElementsForSilentHighlightings();
   const anchors = [];
   const anchorNodes = document.querySelectorAll("a[href]");
   anchorNodes.forEach((anchor) => {

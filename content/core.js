@@ -1960,6 +1960,14 @@ function restorePageScrolling() {
   });
 }
 
+export function removeConsentElementsForSilentHighlightings() {
+  const removedXpaths = removeConsentElements();
+  if (removedXpaths.length > 0) {
+    restorePageScrolling();
+  }
+  return removedXpaths;
+}
+
 function normalizeConsentXpaths(list) {
   if (!Array.isArray(list)) {
     return [];
