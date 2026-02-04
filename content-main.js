@@ -112,12 +112,12 @@ function ensureSilentHighlightingStyles() {
   style.id = "unfluffify-silent-highlightings-style";
   style.textContent = `
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_LINK_HIGHLIGHTING_ATTR}] {
-        outline: 2px dashed #56acce !important;
-        outline-offset: 2px !important;
+        outline: 1px dashed #56acce !important;
+        outline-offset: -3px !important;
       }
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}] {
         outline: 2px dashed #44b532 !important;
-        outline-offset: 2px !important;
+        outline-offset: -2px !important;
       }
     `;
   (document.head || document.documentElement).appendChild(style);
@@ -198,7 +198,14 @@ async function refreshSilentHighlightings() {
     }
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "1"));
-  const contentNodes = Array.from(document.querySelectorAll(latestComputedSelectors.join(", ")));
+  const contentNodes = latestComputedSelectors
+      .map(selector => {
+        try {
+          return Array.from(document.querySelectorAll(selector));
+        } catch {
+          return [];
+        }
+      }).flat();
   contentNodes.forEach((node) => node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "1"));
   console.log(latestComputedSelectors, contentNodes);
   setSilentHighlightingsActive(anchors.length > 0);
