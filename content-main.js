@@ -9,6 +9,7 @@ const { state } = core;
 const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
+const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 
@@ -113,11 +114,26 @@ function ensureSilentHighlightingStyles() {
   style.textContent = `
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_LINK_HIGHLIGHTING_ATTR}] {
         outline: 1px dashed #56acce !important;
-        outline-offset: -3px !important;
+        outline-offset: -1px !important;
       }
-      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}] {
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"] {
+        position: relative;
+      }
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::after {
+        content: "" !important;
+        position: absolute !important;
         outline: 2px dashed #44b532 !important;
         outline-offset: -2px !important;
+        pointer-events: none !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        z-index: 1 !important;
+      }
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}] {
+        outline: none !important;
+        background: #56acce7f !important;
       }
     `;
   (document.head || document.documentElement).appendChild(style);
@@ -136,6 +152,7 @@ function clearSilentHighlightingMarks() {
   marked.forEach((anchor) => {
     anchor.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
     anchor.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
+    anchor.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
   });
 }
 
@@ -197,7 +214,7 @@ async function refreshSilentHighlightings() {
       anchors.push(anchor);
     }
   });
-  anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "1"));
+  anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
   const contentNodes = latestComputedSelectors
       .map(selector => {
         try {
@@ -206,7 +223,13 @@ async function refreshSilentHighlightings() {
           return [];
         }
       }).flat();
-  contentNodes.forEach((node) => node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "1"));
+  contentNodes.forEach((node) => {
+    node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
+    const computed = window.getComputedStyle(node);
+    const position = computed ? computed.position : "";
+    const positionValue = position && position !== "static" ? "existing" : "relative";
+    node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+  });
   console.log(latestComputedSelectors, contentNodes);
   setSilentHighlightingsActive(anchors.length > 0);
 }
