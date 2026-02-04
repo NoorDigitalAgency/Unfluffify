@@ -685,30 +685,24 @@ function createOverlay() {
       @keyframes uf-ai-content-dash {
         0% {
           background-position: 0 0, 0 100%, 0 0, 100% 0;
-          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
-        }
-        50% {
-          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
         }
         100% {
           background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px;
-          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         }
       }
       #unfluffify-overlay .uf-ai-content {
         border: 1px solid transparent;
         background-color: rgba(46, 125, 50, 0.08);
         background-image:
-          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
-          repeating-linear-gradient(90deg, #2e7d32 0 6px, transparent 6px 12px),
-          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px),
-          repeating-linear-gradient(0deg, #2e7d32 0 6px, transparent 6px 12px);
+          repeating-linear-gradient(90deg, #35943a 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(90deg, #35943a 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #35943a 0 6px, transparent 6px 12px),
+          repeating-linear-gradient(0deg, #35943a 0 6px, transparent 6px 12px);
         background-size: 24px 2px, 24px 2px, 2px 24px, 2px 24px;
         background-position: 0 0, 0 100%, 0 0, 100% 0;
         background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
         background-origin: border-box;
         background-clip: border-box;
-        box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
       @keyframes uf-css-highlight-dash {
