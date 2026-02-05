@@ -12,6 +12,7 @@ const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
+const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
 
 function ensurePageToastStyle() {
   if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
@@ -144,13 +145,75 @@ function ensureSilentHighlightingStyles() {
         opacity: 1 !important;
         visibility: visible !important;
       }
+      #${VISIBLE_CONSENT_TOGGLE_ID} {
+        position: fixed;
+        bottom: 14px;
+        left: 14px;
+        z-index: 2147483646;
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(47, 42, 36, 0.9);
+        color: #fdf6ed;
+        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        font-size: 13px;
+        border-radius: 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] #${VISIBLE_CONSENT_TOGGLE_ID} {
+        display: flex;
+      }
+      #${VISIBLE_CONSENT_TOGGLE_ID} input[type="checkbox"] {
+        cursor: pointer;
+        margin: 0;
+      }
     `;
   (document.head || document.documentElement).appendChild(style);
+}
+
+function ensureVisibleConsentToggle() {
+  if (document.getElementById(VISIBLE_CONSENT_TOGGLE_ID)) {
+    return;
+  }
+  const container = document.createElement("label");
+  container.id = VISIBLE_CONSENT_TOGGLE_ID;
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = document.documentElement.classList.contains("uf-visible-consent");
+
+  const label = document.createElement("span");
+  label.textContent = "Visible Consent";
+
+  container.appendChild(checkbox);
+  container.appendChild(label);
+
+  container.addEventListener("click", (event) => {
+    if (event.target === checkbox) {
+      return;
+    }
+    event.preventDefault();
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event("change"));
+  });
+
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) {
+      document.documentElement.classList.add("uf-visible-consent");
+    } else {
+      document.documentElement.classList.remove("uf-visible-consent");
+    }
+  });
+
+  (document.body || document.documentElement).appendChild(container);
 }
 
 function setSilentHighlightingsActive(active) {
   if (active) {
     document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
+    ensureVisibleConsentToggle();
   } else {
     document.documentElement.removeAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR);
   }
