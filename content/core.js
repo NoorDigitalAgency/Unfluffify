@@ -1896,16 +1896,11 @@ function removeConsentElements() {
 
     elements
         .filter(element => typeof(element.parentElement) !== 'undefined')
-        .forEach(element => {
-          const xpath = getXPath(element);
-          try {
-            element.parentElement.removeChild(element);
-            if (xpath) {
-              removedXpaths.push(xpath);
-            }
-          } catch (e) {
-            // Element might have been already removed
-          }
+        .map(element => ({element, xpath: getXPath(element)}))
+        .filter(({element, xpath}) => element && xpath)
+        .forEach(({element, xpath}) => {
+          element.style.setProperty('display', 'none', 'important');
+          removedXpaths.push(xpath);
         });
 
     if (removedXpaths.length > 0) {
