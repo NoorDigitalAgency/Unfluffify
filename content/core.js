@@ -1981,6 +1981,19 @@ function stopUrlWatcher() {
   }
 }
 
+export function hideConsentElements() {
+  const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR))
+      .filter((element) => typeof element.parentElement !== "undefined");
+
+  elements
+      .forEach((element) =>  element.style.setProperty('opacity', '0', 'important') &&
+        element.style.setProperty('pointer-events', 'none', 'important'));
+
+  if (elements.length > 0) {
+    restorePageScrolling();
+  }
+}
+
 function removeConsentElements(storedXpaths) {
   const removedSet = new Set();
   const removedXpaths = [];
@@ -2068,14 +2081,6 @@ function restorePageScrolling() {
       console.log("Restored scrolling on", element.tagName);
     }
   });
-}
-
-export function removeConsentElementsForSilentHighlightings(storedXpaths) {
-  const removedXpaths = removeConsentElements(storedXpaths);
-  if (removedXpaths.length > 0) {
-    restorePageScrolling();
-  }
-  return removedXpaths;
 }
 
 function normalizeConsentXpaths(list) {
