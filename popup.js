@@ -1625,7 +1625,7 @@ async function handleComputeSelectors() {
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       const consentXpaths = Array.isArray(entry.consentXpaths)
-        ? entry.consentXpaths
+        ? entry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
         : [];
       const inclusionXpaths = Array.isArray(entry.includeXpaths)
         ? entry.includeXpaths

@@ -1922,7 +1922,6 @@ function startObservers() {
   }
   state.mutationObserver = new MutationObserver((mutations) => {
     try {
-      handleConsentMutations(mutations);
       if (state.overlay) {
         const hasNonOverlayChange = mutations.some((mutation) => {
           const target = mutation.target;
@@ -2028,63 +2027,6 @@ function removeConsentElements(storedXpaths) {
   return removedXpaths;
 }
 
-function collectConsentElementsFromNode(node, collected) {
-  if (!node || node.nodeType !== 1) {
-    return;
-  }
-  if (node.matches && node.matches(CONSENT_SELECTOR)) {
-    collected.add(node);
-  }
-  if (node.querySelectorAll) {
-    node.querySelectorAll(CONSENT_SELECTOR).forEach((el) => collected.add(el));
-  }
-}
-
-function handleConsentMutations(mutations) {
-  if (!state.enabled || !state.config) {
-    return;
-  }
-  let found = null;
-  for (const mutation of mutations) {
-    if (mutation.type !== "childList") {
-      continue;
-    }
-    for (const node of mutation.addedNodes || []) {
-      if (!node || node.nodeType !== 1) {
-        continue;
-      }
-      if (isWithinConsentElement(node)) {
-        continue;
-      }
-      if (!found) {
-        found = new Set();
-      }
-      collectConsentElementsFromNode(node, found);
-    }
-  }
-  if (!found || found.size === 0) {
-    return;
-  }
-  const newXpaths = [];
-  found.forEach((element) => {
-    if (!element || element.hasAttribute(CONSENT_HIDDEN_ATTR)) {
-      return;
-    }
-    if (hideConsentElement(element)) {
-      const xpath = getXPath(element);
-      if (xpath) {
-        newXpaths.push(xpath);
-      }
-    }
-  });
-  if (!newXpaths.length) {
-    return;
-  }
-  const pageUrl = location.href;
-  const entry = getPageMarkingEntry(state.config, pageUrl, { create: true, persist: true });
-  const existing = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
-  syncConsentXpaths(pageUrl, existing.concat(newXpaths), { notifyOnChange: false });
-}
 
 function restorePageScrolling() {
   const html = document.documentElement;
