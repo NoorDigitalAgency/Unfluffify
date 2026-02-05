@@ -29,6 +29,17 @@ function parseSnapshotDocument(html) {
   }
 }
 
+function isEditableTarget(target) {
+  if (!target) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tagName = target.tagName;
+  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+}
+
 function getElementFromXPathInDocument(doc, xpath) {
   try {
     const result = doc.evaluate(
@@ -1910,6 +1921,32 @@ async function init() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
+    }
+    if (
+      event.altKey &&
+      event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.repeat
+    ) {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+      if (event.key === "e" || event.key === "E") {
+        event.preventDefault();
+        event.stopPropagation();
+        ui.toggleEnabled.checked = !ui.toggleEnabled.checked;
+        handleEnableToggle().then();
+        return;
+      }
+      if (event.key === "s" || event.key === "S") {
+        if (!ui.toggleEnabled.checked) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        handlePageSave().then();
+      }
     }
   });
 
