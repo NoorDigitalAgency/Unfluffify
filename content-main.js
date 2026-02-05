@@ -75,6 +75,48 @@ function isEditableTarget(target) {
   return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
 }
 
+async function saveCurrentPageDraft(options) {
+  const { baseUrl, showToast = false } = options || {};
+  const targetBaseUrl = baseUrl || state.baseUrl || "";
+  if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+    if (showToast) {
+      showPageToast("Enable marking to save this page.");
+    }
+    return { ok: false };
+  }
+  const pageUrl = location.href;
+  if (!core.isPageDraftDirty(pageUrl)) {
+    if (showToast) {
+      showPageToast("No changes to save");
+    }
+    return { ok: true, saved: false, dirty: false };
+  }
+  const immutableExcluded = core.collectImmutableElements();
+  core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+    allowCreate: true,
+    persist: true
+  });
+  const entry = core.getPageMarkingEntry(state.config, pageUrl);
+  entry.fullHTML = document.documentElement.outerHTML;
+  entry.title = document.title || pageUrl;
+  state.config.pageMarkings[pageUrl] = entry;
+  try {
+    await core.saveConfig(targetBaseUrl, state.config);
+  } catch (error) {
+    if (showToast) {
+      showPageToast("Unable to save page");
+    }
+    return { ok: false };
+  }
+  core.setSavedPageEntry(pageUrl, entry);
+  core.scheduleRender();
+  core.notifyDraftStatus(pageUrl);
+  if (showToast) {
+    showPageToast("Page saved");
+  }
+  return { ok: true, saved: true, dirty: false };
+}
+
 async function toggleEnabledFromPage() {
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
@@ -318,7 +360,6 @@ export function main() {
 
   document.addEventListener("keydown", (event) => {
     if (
-      (event.key === "e" || event.key === "E") &&
       event.altKey &&
       event.shiftKey &&
       !event.ctrlKey &&
@@ -328,9 +369,17 @@ export function main() {
       if (isEditableTarget(event.target)) {
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      toggleEnabledFromPage().then();
+      if (event.key === "e" || event.key === "E") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleEnabledFromPage().then();
+        return;
+      }
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        event.stopPropagation();
+        saveCurrentPageDraft({ showToast: true }).then();
+      }
     }
   }, true);
 
@@ -676,12 +725,19 @@ export function main() {
       }
       const pageUrl = location.href;
       const hasEntry = core.hasPageMarkingEntry(state.config, pageUrl);
+      const savedEntryBeforeSync = core.getSavedPageEntry(pageUrl);
+      const draftEntryBeforeSync = core.getDraftPageEntry(pageUrl);
+      const wasClean =
+        hasEntry && core.areEntriesEquivalent(draftEntryBeforeSync, savedEntryBeforeSync);
       const immutableExcluded = core.collectImmutableElements();
       const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
         allowCreate: hasEntry,
         persist: hasEntry
       });
       const entry = hasEntry ? syncResult.entry : null;
+      if (hasEntry && wasClean && syncResult.changed && entry) {
+        core.setSavedPageEntry(pageUrl, entry);
+      }
       const savedEntry = core.getSavedPageEntry(pageUrl);
       sendResponse({
         ok: true,
@@ -793,27 +849,9 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      (async () => {
-        const pageUrl = location.href;
-        if (!core.isPageDraftDirty(pageUrl)) {
-          sendResponse({ ok: true, saved: false, dirty: false });
-          return;
-        }
-        const immutableExcluded = core.collectImmutableElements();
-        core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-          allowCreate: true,
-          persist: true
-        });
-        const entry = core.getPageMarkingEntry(state.config, pageUrl);
-        entry.fullHTML = document.documentElement.outerHTML;
-        entry.title = document.title || pageUrl;
-        state.config.pageMarkings[pageUrl] = entry;
-        await core.saveConfig(targetBaseUrl, state.config);
-        core.setSavedPageEntry(pageUrl, entry);
-        core.scheduleRender();
-        core.notifyDraftStatus(pageUrl);
-        sendResponse({ ok: true, saved: true, dirty: false });
-      })();
+      saveCurrentPageDraft({ baseUrl: targetBaseUrl }).then((result) => {
+        sendResponse(result);
+      });
       return true;
     }
 

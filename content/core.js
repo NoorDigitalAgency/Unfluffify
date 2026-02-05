@@ -2835,6 +2835,7 @@ export async function refreshFromTabState() {
       const pageUrl = location.href;
       const draftEntry = getDraftPageEntry(pageUrl);
       const savedEntry = getSavedPageEntry(pageUrl);
+      const wasClean = areEntriesEquivalent(draftEntry, savedEntry);
       const config = await loadConfig(response.baseUrl);
       const storedEntry =
           config.pageMarkings && config.pageMarkings[pageUrl]
@@ -2850,10 +2851,13 @@ export async function refreshFromTabState() {
       setSavedPageEntry(pageUrl, storedEntry);
       if (storedEntry) {
         const immutableExcluded = collectImmutableElements();
-        syncPageMarkings(config, pageUrl, immutableExcluded, {
+        const syncResult = syncPageMarkings(config, pageUrl, immutableExcluded, {
           allowCreate: true,
           persist: true
         });
+        if (wasClean && syncResult.changed && syncResult.entry) {
+          setSavedPageEntry(pageUrl, syncResult.entry);
+        }
       }
       scheduleRender();
       const hasSavedData = Boolean(
