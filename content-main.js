@@ -135,6 +135,13 @@ function ensureSilentHighlightingStyles() {
         outline: none !important;
         background: #56acce7f !important;
       }
+      html [${core.CONSENT_HIDDEN_ATTR}] {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+      html.uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
+        opacity: 1 !important;
+      }
     `;
   (document.head || document.documentElement).appendChild(style);
 }

@@ -44,7 +44,7 @@ export const state = {
   layerBoxes: new WeakMap()
 };
 
-const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
+export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 
 function isTagSelector (selector){
@@ -272,14 +272,10 @@ function registerConsentRoot(element) {
 }
 
 function hideConsentElement(element) {
-  if (!element || !element.style) {
-    return false;
-  }
   if (isWithinConsentElement(element)) {
     return false;
   }
-  element.style.setProperty("display", "none", "important");
-  element.setAttribute(CONSENT_HIDDEN_ATTR, "1");
+  element.setAttribute(CONSENT_HIDDEN_ATTR, "on");
   return registerConsentRoot(element);
 }
 
@@ -1985,11 +1981,7 @@ export function hideConsentElements() {
   const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR))
       .filter((element) => typeof element.parentElement !== "undefined");
 
-  elements
-      .forEach((element) => {
-        element.style.setProperty('opacity', '0.35', 'important');
-        element.style.setProperty('pointer-events', 'none', 'important');
-      });
+  elements.forEach(element => hideConsentElement(element));
 
   if (elements.length > 0) {
     restorePageScrolling();
