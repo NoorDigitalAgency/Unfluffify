@@ -140,7 +140,7 @@ function ensureSilentHighlightingStyles() {
         pointer-events: none !important;
         visibility: hidden !important;
       }
-      html.uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}].uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
         opacity: 1 !important;
         visibility: visible !important;
       }
