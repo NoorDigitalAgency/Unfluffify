@@ -1148,6 +1148,11 @@ function ensureAiPopoverStyle() {
         line-height: 1.45;
         color: #2f2a24;
       }
+      .uf-ai-popover-list li {
+        font-size: 13px;
+        line-height: 1.45;
+        color: #2f2a24;
+      }
     `;
   document.documentElement.appendChild(style);
 }
