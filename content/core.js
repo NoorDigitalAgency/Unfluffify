@@ -37,11 +37,15 @@ export const state = {
   savedPageEntry: null,
   savedPageUrl: "",
   consentSyncedPageUrl: "",
+  consentRootElements: new Set(),
   initialized: false,
   cssHighlightEnabled: false,
   cssHighlightSelectors: "",
   layerBoxes: new WeakMap()
 };
+
+const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
+const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
@@ -243,6 +247,61 @@ function isWithinAiPopover(el) {
   );
 }
 
+function registerConsentRoot(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+  if (!state.consentRootElements) {
+    state.consentRootElements = new Set();
+  }
+  const roots = state.consentRootElements;
+  for (const root of roots) {
+    if (!root || root.isConnected === false) {
+      roots.delete(root);
+      continue;
+    }
+    if (root === element || root.contains(element)) {
+      return false;
+    }
+    if (element.contains(root)) {
+      roots.delete(root);
+    }
+  }
+  roots.add(element);
+  return true;
+}
+
+function hideConsentElement(element) {
+  if (!element || !element.style) {
+    return false;
+  }
+  if (isWithinConsentElement(element)) {
+    return false;
+  }
+  element.style.setProperty("display", "none", "important");
+  element.setAttribute(CONSENT_HIDDEN_ATTR, "1");
+  return registerConsentRoot(element);
+}
+
+function isWithinConsentElement(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const roots = state.consentRootElements;
+  if (roots && roots.size) {
+    for (const root of roots) {
+      if (!root || (root.isConnected === false)) {
+        roots.delete(root);
+        continue;
+      }
+      if (root === el || root.contains(el)) {
+        return true;
+      }
+    }
+  }
+  return el.hasAttribute(CONSENT_HIDDEN_ATTR);
+}
+
 function getXPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -388,6 +447,9 @@ function collectExcludedParentElements(items) {
     if (!el) {
       continue;
     }
+    if (isWithinConsentElement(el)) {
+      continue;
+    }
     if (isWithinImmutableExcluded(el)) {
       continue;
     }
@@ -412,6 +474,9 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
       continue;
     }
     if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinConsentElement(node)) {
       continue;
     }
     if (hasExcludedParents && excludedParents.has(node)) {
@@ -463,6 +528,9 @@ function collectDefaultHighlightTargets(root, options) {
       const child = children[frame.index];
       frame.index += 1;
       if (isWithinAiPopover(child)) {
+        continue;
+      }
+      if (isWithinConsentElement(child)) {
         continue;
       }
       const childHardExcluded =
@@ -559,6 +627,13 @@ function isExplicitlyExcludedElement(el, excludedSet) {
 
 function shouldScheduleRenderForMutations(mutations) {
   for (const mutation of mutations) {
+    const targetNode =
+      mutation.target && mutation.target.nodeType === 1
+        ? mutation.target
+        : mutation.target && mutation.target.parentElement;
+    if (targetNode && isWithinConsentElement(targetNode)) {
+      continue;
+    }
     if (mutation.type === "attributes") {
       const name = mutation.attributeName || "";
       if (
@@ -573,21 +648,32 @@ function shouldScheduleRenderForMutations(mutations) {
     }
     if (mutation.type === "characterData") {
       const parent = mutation.target && mutation.target.parentElement;
+      if (parent && isWithinConsentElement(parent)) {
+        continue;
+      }
       if (parent && (isHeadingElement(parent) || hasDirectText(parent))) {
         return true;
       }
       continue;
     }
     if (mutation.type === "childList") {
+      let hasRelevantChange = false;
       for (const node of mutation.addedNodes || []) {
-        if (node && node.nodeType === 1) {
-          return true;
+        if (node && node.nodeType === 1 && !isWithinConsentElement(node)) {
+          hasRelevantChange = true;
+          break;
         }
       }
-      for (const node of mutation.removedNodes || []) {
-        if (node && node.nodeType === 1) {
-          return true;
+      if (!hasRelevantChange) {
+        for (const node of mutation.removedNodes || []) {
+          if (node && node.nodeType === 1 && !isWithinConsentElement(node)) {
+            hasRelevantChange = true;
+            break;
+          }
         }
+      }
+      if (hasRelevantChange) {
+        return true;
       }
     }
   }
@@ -1159,6 +1245,9 @@ function hasMultipleMarkableDescendants(el) {
     if (isWithinAiPopover(node)) {
       continue;
     }
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
@@ -1206,6 +1295,9 @@ function getMarkableTarget(x, y, options) {
       if (isWithinAiPopover(el)) {
         continue;
       }
+      if (isWithinConsentElement(el)) {
+        continue;
+      }
       if (
         isExplicitlyExcludedElement(el, excludedSet) ||
         isExplicitlyIncludedElement(el, includeSet)
@@ -1222,6 +1314,9 @@ function getMarkableTarget(x, y, options) {
       continue;
     }
     if (el === document.documentElement || el === document.body) {
+      continue;
+    }
+    if (isWithinConsentElement(el)) {
       continue;
     }
     const explicitlyExcluded =
@@ -1827,6 +1922,7 @@ function startObservers() {
   }
   state.mutationObserver = new MutationObserver((mutations) => {
     try {
+      handleConsentMutations(mutations);
       if (state.overlay) {
         const hasNonOverlayChange = mutations.some((mutation) => {
           const target = mutation.target;
@@ -1887,7 +1983,6 @@ function stopUrlWatcher() {
 }
 
 function removeConsentElements(storedXpaths) {
-  const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
   const removedSet = new Set();
   const removedXpaths = [];
   const recordRemoved = (xpath) => {
@@ -1897,13 +1992,6 @@ function removeConsentElements(storedXpaths) {
     removedSet.add(xpath);
     removedXpaths.push(xpath);
   };
-  const hideElement = (element) => {
-    if (!element || !element.style) {
-      return;
-    }
-    element.style.setProperty("display", "none", "important");
-  };
-
   try {
     if (Array.isArray(storedXpaths)) {
       storedXpaths.forEach((xpath) => {
@@ -1912,30 +2000,90 @@ function removeConsentElements(storedXpaths) {
         }
         const element = getElementFromXPath(xpath);
         if (element) {
-          hideElement(element);
-          recordRemoved(xpath);
+          if (hideConsentElement(element)) {
+            recordRemoved(xpath);
+          }
         }
       });
     }
 
-    const elements = Array.from(document.querySelectorAll(selectors));
+    const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR));
     elements
       .filter((element) => typeof element.parentElement !== "undefined")
       .map((element) => ({ element, xpath: getXPath(element) }))
       .filter(({ element, xpath }) => element && xpath)
       .forEach(({ element, xpath }) => {
-        hideElement(element);
-        recordRemoved(xpath);
+        if (hideConsentElement(element)) {
+          recordRemoved(xpath);
+        }
       });
 
     if (removedXpaths.length > 0) {
-      console.log(`Removed ${removedXpaths.length} consent UI elements from DOM`);
+      console.log(`Hidden ${removedXpaths.length} consent UI elements from DOM`);
     }
   } catch (error) {
     console.log("Error removing elements:", error);
   }
 
   return removedXpaths;
+}
+
+function collectConsentElementsFromNode(node, collected) {
+  if (!node || node.nodeType !== 1) {
+    return;
+  }
+  if (node.matches && node.matches(CONSENT_SELECTOR)) {
+    collected.add(node);
+  }
+  if (node.querySelectorAll) {
+    node.querySelectorAll(CONSENT_SELECTOR).forEach((el) => collected.add(el));
+  }
+}
+
+function handleConsentMutations(mutations) {
+  if (!state.enabled || !state.config) {
+    return;
+  }
+  let found = null;
+  for (const mutation of mutations) {
+    if (mutation.type !== "childList") {
+      continue;
+    }
+    for (const node of mutation.addedNodes || []) {
+      if (!node || node.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinConsentElement(node)) {
+        continue;
+      }
+      if (!found) {
+        found = new Set();
+      }
+      collectConsentElementsFromNode(node, found);
+    }
+  }
+  if (!found || found.size === 0) {
+    return;
+  }
+  const newXpaths = [];
+  found.forEach((element) => {
+    if (!element || element.hasAttribute(CONSENT_HIDDEN_ATTR)) {
+      return;
+    }
+    if (hideConsentElement(element)) {
+      const xpath = getXPath(element);
+      if (xpath) {
+        newXpaths.push(xpath);
+      }
+    }
+  });
+  if (!newXpaths.length) {
+    return;
+  }
+  const pageUrl = location.href;
+  const entry = getPageMarkingEntry(state.config, pageUrl, { create: true, persist: true });
+  const existing = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
+  syncConsentXpaths(pageUrl, existing.concat(newXpaths), { notifyOnChange: false });
 }
 
 function restorePageScrolling() {
@@ -2236,6 +2384,9 @@ export function isMarkableElement(el, config, options) {
   if (isWithinAiPopover(el)) {
     return false;
   }
+  if (isWithinConsentElement(el)) {
+    return false;
+  }
   if (options && options.allowImmutableChildren) {
     if (matchesImmutableExcluded(el)) {
       return false;
@@ -2463,6 +2614,9 @@ export function disable() {
   if (popoverStyle) {
     popoverStyle.remove();
   }
+  if (state.consentRootElements) {
+    state.consentRootElements.clear();
+  }
   stopObservers();
   stopUrlWatcher();
 }
@@ -2475,6 +2629,7 @@ export async function enableForBaseUrl(baseUrl, options) {
   state.enabled = true;
   state.baseUrl = baseUrl;
   state.config = await loadConfig(baseUrl);
+  state.consentRootElements = new Set();
   const pendingPattern = patterns.normalizePatternValue(options && options.pagePattern);
   const pageUrl = location.href;
   if (pendingPattern) {
