@@ -1990,7 +1990,14 @@ function stopUrlWatcher() {
   }
 }
 
-export function hideConsentElements() {
+export function hideConsentElements(storedXpaths = null) {
+  if (Array.isArray(storedXpaths) && storedXpaths.length) {
+    const removedXpaths = removeConsentElements(storedXpaths);
+    if (removedXpaths.length > 0) {
+      restorePageScrolling();
+    }
+    return;
+  }
   const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR))
       .filter((element) => typeof element.parentElement !== "undefined");
 

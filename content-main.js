@@ -16,6 +16,8 @@ const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 
 let silentHighlightingUrlTimer = 0;
+let silentHighlightingObserver = null;
+let silentHighlightingRefreshTimer = 0;
 
 function ensurePageToastStyle() {
   if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
@@ -274,6 +276,41 @@ function clearSilentHighlightingMarks() {
   });
 }
 
+function stopSilentHighlightingObserver() {
+  if (silentHighlightingObserver) {
+    silentHighlightingObserver.disconnect();
+    silentHighlightingObserver = null;
+  }
+  if (silentHighlightingRefreshTimer) {
+    window.clearTimeout(silentHighlightingRefreshTimer);
+    silentHighlightingRefreshTimer = 0;
+  }
+}
+
+function scheduleSilentHighlightingsRefresh() {
+  if (silentHighlightingRefreshTimer) {
+    return;
+  }
+  silentHighlightingRefreshTimer = window.setTimeout(() => {
+    silentHighlightingRefreshTimer = 0;
+    refreshSilentHighlightings().then();
+  }, 200);
+}
+
+function startSilentHighlightingObserver() {
+  if (silentHighlightingObserver) {
+    return;
+  }
+  const root = document.documentElement || document.body;
+  if (!root) {
+    return;
+  }
+  silentHighlightingObserver = new MutationObserver(() => {
+    scheduleSilentHighlightingsRefresh();
+  });
+  silentHighlightingObserver.observe(root, { childList: true, subtree: true });
+}
+
 function startSilentHighlightingUrlWatcher() {
   if (silentHighlightingUrlTimer) {
     return;
@@ -293,6 +330,7 @@ function startSilentHighlightingUrlWatcher() {
 
 async function refreshSilentHighlightings() {
   if (state.enabled) {
+    stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
@@ -301,34 +339,42 @@ async function refreshSilentHighlightings() {
   const configs = await config.getConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
+    stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
-  const pageMarkings =
-    configs[baseUrl] && configs[baseUrl].pageMarkings
-      ? configs[baseUrl].pageMarkings
-      : null;
-  const latestComputedSelectors =
-    configs[baseUrl] && configs[baseUrl].latestComputedSelectors
-      ? configs[baseUrl].latestComputedSelectors
-      : null;
-  if (!pageMarkings && !latestComputedSelectors) {
-    clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(false);
-    return;
+  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
+  const baseConfig = normalized.config || {};
+  if (normalized.changed) {
+    configs[baseUrl] = baseConfig;
+    await config.saveConfigs(configs);
   }
+  const pageMarkings = baseConfig.pageMarkings || {};
+  const latestComputedSelectors = Array.isArray(baseConfig.latestComputedSelectors)
+    ? baseConfig.latestComputedSelectors
+    : [];
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
-  if (!savedUrls.size && !latestComputedSelectors.size) {
+  const storedEntry = pageMarkings[pageUrl] || null;
+  const storedConsentXpaths =
+    storedEntry && Array.isArray(storedEntry.consentXpaths)
+      ? storedEntry.consentXpaths
+      : null;
+  const shouldObserve =
+    savedUrls.size > 0 ||
+    latestComputedSelectors.length > 0 ||
+    (storedConsentXpaths && storedConsentXpaths.length > 0);
+  if (!shouldObserve) {
+    stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
   ensureSilentHighlightingStyles();
   clearSilentHighlightingMarks();
-  core.hideConsentElements();
+  core.hideConsentElements(storedConsentXpaths);
   const anchors = [];
   const anchorNodes = document.querySelectorAll("a[href]");
   anchorNodes.forEach((anchor) => {
@@ -366,7 +412,8 @@ async function refreshSilentHighlightings() {
     node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
   });
   console.log(latestComputedSelectors, contentNodes);
-  setSilentHighlightingsActive(anchors.length > 0);
+  setSilentHighlightingsActive(anchors.length > 0 || contentNodes.length > 0);
+  startSilentHighlightingObserver();
 }
 
 export function main() {
@@ -414,6 +461,9 @@ export function main() {
 
     if (message.type === "setEnabled") {
       if (message.enabled) {
+        stopSilentHighlightingObserver();
+        clearSilentHighlightingMarks();
+        setSilentHighlightingsActive(false);
         core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern }).then();
       } else {
         core.disable();
