@@ -230,7 +230,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete") {
     return;
   }
-  if (!((await utils.getTabState(tabId, 'INITIALIZATION')) || {active: false}).active)
+  if (!((await utils.getTabState(tabId, 'initial')) || {active: false}).active)
   {
     return;
   }
@@ -261,7 +261,7 @@ chrome.action.onClicked.addListener((tab) => {
     }).then();
     chrome.sidePanel.open({tabId: tab.id}).then();
     requestContentActivation(tab.id);
-    utils.setTabState(tab.id, { active: true }, 'INITIALIZATION').then();
+    utils.setTabState(tab.id, { active: true }, 'initial').then();
   }
 });
 
