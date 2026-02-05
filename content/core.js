@@ -1986,8 +1986,10 @@ export function hideConsentElements() {
       .filter((element) => typeof element.parentElement !== "undefined");
 
   elements
-      .forEach((element) =>  element.style.setProperty('opacity', '0', 'important') &&
-        element.style.setProperty('pointer-events', 'none', 'important'));
+      .forEach((element) => {
+        element.style.setProperty('opacity', '0.35', 'important');
+        element.style.setProperty('pointer-events', 'none', 'important');
+      });
 
   if (elements.length > 0) {
     restorePageScrolling();
