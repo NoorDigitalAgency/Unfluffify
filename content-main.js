@@ -193,7 +193,13 @@ async function refreshSilentHighlightings() {
   }
   ensureSilentHighlightingStyles();
   clearSilentHighlightingMarks();
-  core.removeConsentElementsForSilentHighlightings();
+  const storedEntry =
+    pageMarkings && pageMarkings[pageUrl] ? pageMarkings[pageUrl] : null;
+  const storedConsentXpaths =
+    storedEntry && Array.isArray(storedEntry.consentXpaths)
+      ? storedEntry.consentXpaths
+      : [];
+  core.removeConsentElementsForSilentHighlightings(storedConsentXpaths);
   const anchors = [];
   const anchorNodes = document.querySelectorAll("a[href]");
   anchorNodes.forEach((anchor) => {

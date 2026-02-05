@@ -1886,28 +1886,53 @@ function stopUrlWatcher() {
   }
 }
 
-function removeConsentElements() {
+function removeConsentElements(storedXpaths) {
   const selectors = REMOVABLE_ELEMENT_SELECTORS.join(",");
-
-  let removedXpaths = [];
+  const removedSet = new Set();
+  const removedXpaths = [];
+  const recordRemoved = (xpath) => {
+    if (typeof xpath !== "string" || !xpath || removedSet.has(xpath)) {
+      return;
+    }
+    removedSet.add(xpath);
+    removedXpaths.push(xpath);
+  };
+  const hideElement = (element) => {
+    if (!element || !element.style) {
+      return;
+    }
+    element.style.setProperty("display", "none", "important");
+  };
 
   try {
-    const elements = Array.from(document.querySelectorAll(selectors));
+    if (Array.isArray(storedXpaths)) {
+      storedXpaths.forEach((xpath) => {
+        if (typeof xpath !== "string" || !xpath) {
+          return;
+        }
+        const element = getElementFromXPath(xpath);
+        if (element) {
+          hideElement(element);
+          recordRemoved(xpath);
+        }
+      });
+    }
 
+    const elements = Array.from(document.querySelectorAll(selectors));
     elements
-        .filter(element => typeof(element.parentElement) !== 'undefined')
-        .map(element => ({element, xpath: getXPath(element)}))
-        .filter(({element, xpath}) => element && xpath)
-        .forEach(({element, xpath}) => {
-          element.style.setProperty('display', 'none', 'important');
-          removedXpaths.push(xpath);
-        });
+      .filter((element) => typeof element.parentElement !== "undefined")
+      .map((element) => ({ element, xpath: getXPath(element) }))
+      .filter(({ element, xpath }) => element && xpath)
+      .forEach(({ element, xpath }) => {
+        hideElement(element);
+        recordRemoved(xpath);
+      });
 
     if (removedXpaths.length > 0) {
       console.log(`Removed ${removedXpaths.length} consent UI elements from DOM`);
     }
   } catch (error) {
-    console.log('Error removing elements:', error);
+    console.log("Error removing elements:", error);
   }
 
   return removedXpaths;
@@ -1955,8 +1980,8 @@ function restorePageScrolling() {
   });
 }
 
-export function removeConsentElementsForSilentHighlightings() {
-  const removedXpaths = removeConsentElements();
+export function removeConsentElementsForSilentHighlightings(storedXpaths) {
+  const removedXpaths = removeConsentElements(storedXpaths);
   if (removedXpaths.length > 0) {
     restorePageScrolling();
   }
@@ -1987,7 +2012,15 @@ function syncConsentOnEnable(pageUrl, hasSavedEntry) {
     return;
   }
   state.consentSyncedPageUrl = pageUrl;
-  const removedConsentXpaths = removeConsentElements();
+  const storedEntry =
+    state.config &&
+    state.config.pageMarkings &&
+    state.config.pageMarkings[pageUrl];
+  const storedConsentXpaths =
+    storedEntry && Array.isArray(storedEntry.consentXpaths)
+      ? storedEntry.consentXpaths
+      : [];
+  const removedConsentXpaths = removeConsentElements(storedConsentXpaths);
   if (removedConsentXpaths.length > 0) {
     restorePageScrolling();
   }
