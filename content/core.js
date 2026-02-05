@@ -247,6 +247,13 @@ function isWithinAiPopover(el) {
   );
 }
 
+function isWithinExtensionUi(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  return Boolean(el.closest("[data-uf-extension-ui=\"true\"]"));
+}
+
 function registerConsentRoot(element) {
   if (!element || element.nodeType !== 1) {
     return false;
@@ -2363,6 +2370,9 @@ export function setCssHighlight(enabled, css) {
 
 export function isVisible(el) {
   if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinExtensionUi(el)) {
     return false;
   }
   let node = el;

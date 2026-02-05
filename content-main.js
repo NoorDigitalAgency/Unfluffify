@@ -52,6 +52,7 @@ function showPageToast(message) {
   if (!toast) {
     toast = document.createElement("div");
     toast.id = PAGE_TOAST_ID;
+    toast.setAttribute("data-uf-extension-ui", "true");
     (document.body || document.documentElement).appendChild(toast);
   }
   toast.textContent = message;
@@ -376,6 +377,9 @@ export function main() {
         return;
       }
       if (event.key === "s" || event.key === "S") {
+        if (!state.enabled) {
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         saveCurrentPageDraft({ showToast: true }).then();
