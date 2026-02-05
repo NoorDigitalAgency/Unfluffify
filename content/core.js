@@ -1978,6 +1978,7 @@ function startUrlWatcher() {
       lastUrl = location.href;
       // Page-scoped behavior: disable extension on any URL change
       disable();
+      window.dispatchEvent(new Event("unfluffify:url-changed"));
     }
   }, 800);
 }

@@ -13,6 +13,9 @@ const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
+const URL_CHANGED_EVENT = "unfluffify:url-changed";
+
+let silentHighlightingUrlTimer = 0;
 
 function ensurePageToastStyle() {
   if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
@@ -269,6 +272,23 @@ function clearSilentHighlightingMarks() {
     anchor.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
     anchor.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
   });
+}
+
+function startSilentHighlightingUrlWatcher() {
+  if (silentHighlightingUrlTimer) {
+    return;
+  }
+  let lastUrl = location.href;
+  silentHighlightingUrlTimer = window.setInterval(() => {
+    if (state.enabled) {
+      lastUrl = location.href;
+      return;
+    }
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      refreshSilentHighlightings().then();
+    }
+  }, 800);
 }
 
 async function refreshSilentHighlightings() {
@@ -926,7 +946,12 @@ export function main() {
     }
   });
 
+  window.addEventListener(URL_CHANGED_EVENT, () => {
+    refreshSilentHighlightings().then();
+  });
+
   refreshSilentHighlightings().then();
+  startSilentHighlightingUrlWatcher();
   window.addEventListener("resize", core.scheduleRender);
   window.addEventListener("scroll", core.handleScroll, { passive: true });
   window.addEventListener("beforeunload", core.handleBeforeUnload);
