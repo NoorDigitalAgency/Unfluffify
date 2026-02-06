@@ -30,7 +30,7 @@ function ensurePageToastStyle() {
         position: fixed;
         left: 14px;
         right: 14px;
-        bottom: 14px;
+        top: 14px;
         padding: 10px 12px;
         background: rgba(47, 42, 36, 0.9);
         color: #fdf6ed;
@@ -42,6 +42,8 @@ function ensurePageToastStyle() {
         transition: opacity 0.2s ease, transform 0.2s ease;
         pointer-events: none;
         z-index: 2147483647;
+        text-align: center;
+        box-shadow: 0 8px 10px rgba(0, 0, 0, 0.35);
       }
       #${PAGE_TOAST_ID}.uf-toast-show {
         opacity: 1;
@@ -67,7 +69,7 @@ function showPageToast(message) {
     if (toast) {
       toast.classList.remove("uf-toast-show");
     }
-  }, 1800);
+  }, 3000);
 }
 
 function isEditableTarget(target) {
