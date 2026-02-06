@@ -1853,9 +1853,6 @@ function renderHighlights() {
   }
 
   for (const el of aiContent) {
-    if (allDefaultExcluded.has(el) || explicitExclude.has(el)) {
-      continue;
-    }
     const rects = getVisibleRects(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
