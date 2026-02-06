@@ -236,9 +236,10 @@ async function refreshUi() {
     noticeEdit: "Set Base Page URL to continue"
   });
   const patternDrafts = state.currentTab ? await drafts.getPagePatternDraft(state.currentTab.id) : {};
+  const draftEntry = state.currentDraftEntry;
   let draftPattern =
     patterns.normalizePatternValue(
-      (state.currentDraftEntry && state.currentDraftEntry.pagePattern) || ""
+      draftEntry && draftEntry.url === pageUrl ? draftEntry.pagePattern : ""
     ) || patterns.normalizePatternValue(patternDrafts[pageUrl] || "");
   ui.toggleEnabled.checked = Boolean(
     effectiveTabState.enabled &&
@@ -256,14 +257,6 @@ async function refreshUi() {
   const pagePatternOptions = baseUrlReady
     ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
     : [];
-  if (baseUrlReady && pageUrl) {
-    const basePattern = patterns.normalizePatternValue(state.currentBaseUrl);
-    const pagePattern = patterns.normalizePatternValue(pageUrl);
-    if (basePattern && pagePattern && basePattern === pagePattern && !draftPattern) {
-      await drafts.setPagePatternDraft(state.currentTab.id, pageUrl, basePattern);
-      draftPattern = basePattern;
-    }
-  }
   const storedPatterns = patterns.collectPagePatterns(
     state.currentConfig ? state.currentConfig.pageMarkings : null
   );
@@ -271,7 +264,6 @@ async function refreshUi() {
     storedPatterns.push(draftPattern);
   }
   const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
-  const pagePatternReady = Boolean(matchingPattern);
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   emulation.updateDeviceEmulationUi(storedDeviceState);
   const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
@@ -319,21 +311,25 @@ async function refreshUi() {
       state.currentDraftHasEntry = Boolean(state.currentDraftEntry);
     }
   }
+  const savedEntry =
+    state.currentSavedEntry ||
+    (state.currentConfig &&
+      state.currentConfig.pageMarkings &&
+      state.currentConfig.pageMarkings[pageUrl]);
   const hasSavedPageData = Boolean(
-    state.currentSavedEntry &&
-      ((Array.isArray(state.currentSavedEntry.xpaths) &&
-        state.currentSavedEntry.xpaths.length > 0) ||
-        (Array.isArray(state.currentSavedEntry.includeXpaths) &&
-          state.currentSavedEntry.includeXpaths.length > 0) ||
-        (Array.isArray(state.currentSavedEntry.consentXpaths) &&
-          state.currentSavedEntry.consentXpaths.length > 0) ||
-        (typeof state.currentSavedEntry.fullHTML === "string" &&
-          state.currentSavedEntry.fullHTML.length > 0))
+    savedEntry &&
+      ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
+        (Array.isArray(savedEntry.includeXpaths) &&
+          savedEntry.includeXpaths.length > 0) ||
+        (Array.isArray(savedEntry.consentXpaths) &&
+          savedEntry.consentXpaths.length > 0) ||
+        (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
   );
-  if (!hasSavedPageData && state.currentTab && pageUrl) {
+  if (!hasSavedPageData && state.currentTab && pageUrl && !draftPattern) {
     await drafts.clearPagePatternDraft(state.currentTab.id, pageUrl);
-    draftPattern = "";
   }
+  const patternSelection = draftPattern || (hasSavedPageData ? matchingPattern : "");
+  const pagePatternReady = Boolean(patternSelection);
   const aiBlockedByDraft = state.currentDraftDirty;
   ui.toggleEnabled.disabled = !baseUrlReady;
   ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
@@ -377,7 +373,7 @@ async function refreshUi() {
     render.renderPatternSelect(
       ui.pagePatternSelect,
       pagePatternOptions,
-      draftPattern || matchingPattern || "",
+      patternSelection,
       pagePatternOptions.length ? "Select a URL pattern" : "No patterns available"
     );
     ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
@@ -769,13 +765,7 @@ async function handleEnableToggle() {
       return;
     }
     state.currentConfig = await config.ensureConfig(baseUrlValue);
-    const patternDrafts = await drafts.getPagePatternDraft(tab.id);
-    const draftPattern = patterns.normalizePatternValue(patternDrafts[tab.url] || "");
-    const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
-    if (draftPattern && !storedPatterns.includes(draftPattern)) {
-      storedPatterns.push(draftPattern);
-    }
-    const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
+    const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
     // Inject content script first
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -791,7 +781,7 @@ async function handleEnableToggle() {
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue,
-      pagePattern: matchingPattern
+      pagePattern: selectedPattern
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
@@ -1130,31 +1120,17 @@ async function handleBaseUrlSet() {
   }
   state.currentBaseUrl = baseUrlValue;
   state.currentConfig = await config.ensureConfig(baseUrlValue);
-  const basePattern = patterns.normalizePatternValue(baseUrlValue);
-  const pagePattern = patterns.normalizePatternValue(tab.url);
-  let draftPattern = "";
-  if (basePattern && pagePattern && basePattern === pagePattern) {
-    draftPattern = pagePattern;
-    await drafts.setPagePatternDraft(tab.id, tab.url, draftPattern);
-    await messages.sendTabMessage({
-      type: "setPagePatternDraft",
-      baseUrl: baseUrlValue,
-      pagePattern: draftPattern
-    });
-  }
   const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
-  if (draftPattern && !storedPatterns.includes(draftPattern)) {
-    storedPatterns.push(draftPattern);
-  }
   const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
+  const shouldEnable = Boolean(matchingPattern) || storedPatterns.length === 0;
   state.baseUrlEditMode = false;
-  if (matchingPattern) {
+  if (shouldEnable) {
     await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
       baseUrl: baseUrlValue,
-      pagePattern: matchingPattern
+      pagePattern: ""
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
@@ -1224,14 +1200,12 @@ async function handleBaseUrlEditToggle() {
       return;
     }
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-    const patternDrafts = await drafts.getPagePatternDraft(tab.id);
-    const draftPattern = patterns.normalizePatternValue(patternDrafts[tab.url] || "");
     const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
-    if (draftPattern && !storedPatterns.includes(draftPattern)) {
-      storedPatterns.push(draftPattern);
-    }
     const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
-    if (matchingPattern) {
+    const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+    const shouldEnable =
+      Boolean(selectedPattern) || Boolean(matchingPattern) || storedPatterns.length === 0;
+    if (shouldEnable) {
       await utils.setTabState(tab.id, {
         enabled: true,
         baseUrl: state.currentBaseUrl
@@ -1240,7 +1214,7 @@ async function handleBaseUrlEditToggle() {
         type: "setEnabled",
         enabled: true,
         baseUrl: state.currentBaseUrl,
-        pagePattern: matchingPattern
+        pagePattern: selectedPattern
       });
       await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
     } else {
@@ -1940,7 +1914,7 @@ async function init() {
         return;
       }
       if (event.key === "s" || event.key === "S") {
-        if (!ui.toggleEnabled.checked) {
+        if (!ui.toggleEnabled.checked || !ui.pageSave || ui.pageSave.disabled) {
           return;
         }
         event.preventDefault();

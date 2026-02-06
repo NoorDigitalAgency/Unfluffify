@@ -447,6 +447,14 @@ export function main() {
         if (!state.enabled) {
           return;
         }
+        const entry = core.getDraftPageEntry(location.href);
+        const pagePattern = patterns.normalizePatternValue(
+          entry && entry.pagePattern ? entry.pagePattern : ""
+        );
+        if (!pagePattern) {
+          showPageToast("Choose a URL pattern in the popup first.");
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         saveCurrentPageDraft({ showToast: true }).then();
