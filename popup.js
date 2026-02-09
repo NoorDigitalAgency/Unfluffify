@@ -4,7 +4,6 @@ import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as drafts from "./popup/drafts.js";
 import * as patterns from "./common/patterns.js";
-import * as render from "./popup/render.js";
 import * as uiModule from "./popup/ui.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
@@ -12,7 +11,6 @@ import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
 
 const { state } = stateModule;
-const { ui } = uiModule;
 
 async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
@@ -175,6 +173,40 @@ function computeSelectorsFromSnapshot(fullHTML, includedXPaths, excludedXPaths) 
   return selectors;
 }
 
+function getEditableFieldState(options) {
+  const {
+    inputRef,
+    currentValue,
+    value,
+    isSet,
+    editMode,
+    suggestedValue,
+    noticeUnset,
+    noticeEdit
+  } = options;
+  const isEditing = !isSet || editMode;
+  const isFocused = inputRef && document.activeElement === inputRef;
+  let nextValue = typeof currentValue === "string" ? currentValue : "";
+
+  if (!isEditing) {
+    nextValue = value || "";
+  } else if (!isFocused) {
+    nextValue = isSet ? value || "" : suggestedValue || "";
+  }
+
+  let noticeText = "";
+  let noticeVisible = false;
+  if (!isSet) {
+    noticeText = noticeUnset;
+    noticeVisible = true;
+  } else if (editMode) {
+    noticeText = noticeEdit;
+    noticeVisible = true;
+  }
+
+  return { isEditing, isReady: isSet && !editMode, value: nextValue, noticeText, noticeVisible };
+}
+
 async function refreshUi() {
   if (!state.currentTab) {
     return;
@@ -212,8 +244,14 @@ async function refreshUi() {
     state.baseUrlEditMode = false;
   }
 
-  ui.currentPageUrl.textContent = pageUrl || "Unavailable";
-  ui.currentPageUrl.title = pageUrl || "Unavailable";
+  const view = uiModule.getViewState();
+  const refs = uiModule.getRefs();
+  const nextViewState = {
+    currentPageUrl: pageUrl || "Unavailable",
+    currentPageUrlTitle: pageUrl || "Unavailable",
+    currentBaseUrl: state.currentBaseUrl,
+    configMenuOpen: state.configMenuOpen
+  };
   let suggestedBaseUrl = "";
   if (pageUrl) {
     try {
@@ -223,11 +261,9 @@ async function refreshUi() {
     }
   }
   const baseUrlSet = Boolean(state.currentBaseUrl);
-  const { isReady: baseUrlReady } = helpers.syncEditableField({
-    input: ui.baseUrlInput,
-    setButton: ui.baseUrlSet,
-    editButton: ui.baseUrlEdit,
-    notice: ui.baseUrlNotice,
+  const baseField = getEditableFieldState({
+    inputRef: refs.baseUrlInput,
+    currentValue: view.baseUrlInputValue,
     value: state.currentBaseUrl,
     isSet: baseUrlSet,
     editMode: state.baseUrlEditMode,
@@ -235,25 +271,26 @@ async function refreshUi() {
     noticeUnset: "Set Base Page URL before enabling marking",
     noticeEdit: "Set Base Page URL to continue"
   });
+  const baseUrlReady = baseField.isReady;
   const patternDrafts = state.currentTab ? await drafts.getPagePatternDraft(state.currentTab.id) : {};
   const draftEntry = state.currentDraftEntry;
   let draftPattern =
     patterns.normalizePatternValue(
       draftEntry && draftEntry.url === pageUrl ? draftEntry.pagePattern : ""
     ) || patterns.normalizePatternValue(patternDrafts[pageUrl] || "");
-  ui.toggleEnabled.checked = Boolean(
+  let toggleEnabled = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
       pageUrl.startsWith(effectiveTabState.baseUrl)
   );
   if (state.lastPopupEnabled !== null) {
-    ui.toggleEnabled.checked = state.lastPopupEnabled;
-    if (ui.toggleEnabled.checked === Boolean(effectiveTabState.enabled)) {
+    toggleEnabled = state.lastPopupEnabled;
+    if (toggleEnabled === Boolean(effectiveTabState.enabled)) {
       state.lastPopupEnabled = null;
     }
   }
-  const isEnabled = ui.toggleEnabled.checked;
+  const isEnabled = toggleEnabled;
   const pagePatternOptions = baseUrlReady
     ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
     : [];
@@ -265,17 +302,15 @@ async function refreshUi() {
   }
   const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
-  emulation.updateDeviceEmulationUi(storedDeviceState);
+  const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
   const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
   if (!endpointValue) {
     state.endpointEditMode = false;
   }
   const endpointSet = Boolean(endpointValue);
-  const { isReady: endpointReady } = helpers.syncEditableField({
-    input: ui.endpointUrl,
-    setButton: ui.endpointSet,
-    editButton: ui.endpointEdit,
-    notice: ui.endpointNotice,
+  const endpointField = getEditableFieldState({
+    inputRef: refs.endpointUrlInput,
+    currentValue: view.endpointUrlValue,
     value: endpointValue,
     isSet: endpointSet,
     editMode: state.endpointEditMode,
@@ -283,6 +318,7 @@ async function refreshUi() {
     noticeUnset: "Set Endpoint URL before using AI",
     noticeEdit: "Set Endpoint URL to continue"
   });
+  const endpointReady = endpointField.isReady;
 
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
@@ -331,182 +367,169 @@ async function refreshUi() {
   const patternSelection = draftPattern || (hasSavedPageData ? matchingPattern : "");
   const pagePatternReady = Boolean(patternSelection);
   const aiBlockedByDraft = state.currentDraftDirty;
-  ui.toggleEnabled.disabled = !baseUrlReady;
-  ui.computeButton.disabled = aiBusy || !aiReady || aiBlockedByDraft;
-  ui.saveExcludesButton.disabled =
+
+  nextViewState.toggleEnabled = toggleEnabled;
+  nextViewState.toggleEnabledDisabled = !baseUrlReady;
+  nextViewState.mainUiHidden = !isEnabled;
+  nextViewState.computeButtonDisabled = aiBusy || !aiReady || aiBlockedByDraft;
+  nextViewState.saveExcludesButtonDisabled =
     aiBusy || !aiReady || !hasNewSelectors || aiBlockedByDraft;
-  ui.previewLatestButton.disabled =
+  nextViewState.previewLatestButtonDisabled =
     aiBusy || !baseUrlReady || !hasStoredSelectors || aiBlockedByDraft;
-  ui.mainUi.hidden = !isEnabled;
-  ui.tokenStatus.textContent = tokenValue ? "Token saved" : "Token required";
-  ui.tokenAction.textContent = tokenValue ? "Change token" : "Set token";
-  ui.aiToken.hidden = !endpointReady;
-  ui.aiControls.hidden = !endpointReady || !tokenValue;
-  ui.tokenAction.disabled = aiBusy;
-  ui.endpointUrl.disabled = aiBusy;
-  ui.endpointSet.disabled = aiBusy;
-  ui.endpointEdit.disabled = aiBusy;
-  ui.configExportAll.disabled = aiBusy;
-  ui.configExportCurrent.disabled = aiBusy || !baseUrlReady;
-  ui.configImport.disabled = aiBusy;
-  ui.configClearCurrent.disabled = aiBusy || !state.currentBaseUrl;
-  ui.configClearAll.disabled = aiBusy;
-  ui.computeButton.textContent =
+  nextViewState.tokenStatusText = tokenValue ? "Token saved" : "Token required";
+  nextViewState.tokenActionText = tokenValue ? "Change token" : "Set token";
+  nextViewState.aiTokenHidden = !endpointReady;
+  nextViewState.aiControlsHidden = !endpointReady || !tokenValue;
+  nextViewState.tokenActionDisabled = aiBusy;
+  nextViewState.endpointUrlValue = endpointField.value;
+  nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
+  nextViewState.endpointSetVisible = endpointField.isEditing;
+  nextViewState.endpointEditVisible = endpointSet;
+  nextViewState.endpointEditText = state.endpointEditMode ? "Cancel" : "Change";
+  nextViewState.endpointNoticeText = endpointField.noticeText;
+  nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
+  nextViewState.endpointInputDisabled = aiBusy;
+  nextViewState.endpointSetDisabled = aiBusy;
+  nextViewState.endpointEditDisabled = aiBusy;
+  nextViewState.configExportAllDisabled = aiBusy;
+  nextViewState.configExportCurrentDisabled = aiBusy || !baseUrlReady;
+  nextViewState.configImportDisabled = aiBusy;
+  nextViewState.configClearCurrentDisabled = aiBusy || !state.currentBaseUrl;
+  nextViewState.configClearAllDisabled = aiBusy;
+  nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
+  nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
-  ui.saveExcludesButton.textContent =
+  nextViewState.saveExcludesButtonText =
     state.aiRequestInFlight === "save" ? "Saving..." : "Save Excludes";
-  ui.computeButton.classList.toggle(
-    "loading",
-    state.aiRequestInFlight === "compute"
+  nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
+  nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
+  nextViewState.aiControlsBusy = aiBusy;
+  nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
+  nextViewState.baseUrlInputValue = baseField.value;
+  nextViewState.baseUrlInputReadOnly = !baseField.isEditing;
+  nextViewState.baseUrlSetVisible = baseField.isEditing;
+  nextViewState.baseUrlEditVisible = baseUrlSet;
+  nextViewState.baseUrlEditText = state.baseUrlEditMode ? "Cancel" : "Change";
+  nextViewState.baseUrlNoticeText = baseField.noticeText;
+  nextViewState.baseUrlNoticeVisible = baseField.noticeVisible;
+  const patternUiDisabled =
+    !baseUrlReady || !pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl);
+  nextViewState.pagePatternOptions = pagePatternOptions;
+  nextViewState.pagePatternPlaceholder = pagePatternOptions.length
+    ? "Select a URL pattern"
+    : "No patterns available";
+  const hasPatternSelection = pagePatternOptions.some(
+    (option) => option.value === patternSelection
   );
-  ui.saveExcludesButton.classList.toggle(
-    "loading",
-    state.aiRequestInFlight === "save"
-  );
-  ui.aiControls.setAttribute("aria-busy", aiBusy ? "true" : "false");
-  if (ui.aiDirtyNotice) {
-    ui.aiDirtyNotice.style.display = aiBlockedByDraft ? "block" : "none";
+  nextViewState.pagePatternValue = hasPatternSelection ? patternSelection : "";
+  nextViewState.pagePatternDisabled = patternUiDisabled || !pagePatternOptions.length;
+  if (!baseUrlReady) {
+    nextViewState.pagePatternNoticeText = "Set Base Page URL first";
+    nextViewState.pagePatternNoticeVisible = true;
+  } else if (!pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl)) {
+    nextViewState.pagePatternNoticeText = "Current page is outside the Base Page URL";
+    nextViewState.pagePatternNoticeVisible = true;
+  } else if (!pagePatternReady) {
+    nextViewState.pagePatternNoticeText = "Choose a URL pattern before enabling";
+    nextViewState.pagePatternNoticeVisible = true;
+  } else {
+    nextViewState.pagePatternNoticeText = "";
+    nextViewState.pagePatternNoticeVisible = false;
   }
-  if (ui.pagePatternSelect && ui.pagePatternNotice) {
-    const patternUiDisabled =
-      !baseUrlReady || !pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl);
-    render.renderPatternSelect(
-      ui.pagePatternSelect,
-      pagePatternOptions,
-      patternSelection,
-      pagePatternOptions.length ? "Select a URL pattern" : "No patterns available"
-    );
-    ui.pagePatternSelect.disabled = patternUiDisabled || !pagePatternOptions.length;
-    if (!baseUrlReady) {
-      ui.pagePatternNotice.textContent = "Set Base Page URL first";
-      ui.pagePatternNotice.style.display = "block";
-    } else if (!pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl)) {
-      ui.pagePatternNotice.textContent = "Current page is outside the Base Page URL";
-      ui.pagePatternNotice.style.display = "block";
-    } else if (!pagePatternReady) {
-      ui.pagePatternNotice.textContent =
-        "Choose a URL pattern before enabling";
-      ui.pagePatternNotice.style.display = "block";
-    } else {
-      ui.pagePatternNotice.style.display = "none";
-    }
+  const selectedPatternValue = patternSelection;
+  const draftButtonsDisabled =
+    !baseUrlReady ||
+    !isEnabled ||
+    !state.currentDraftAvailable ||
+    !state.currentDraftDirty ||
+    !selectedPatternValue;
+  nextViewState.pageSaveDisabled = draftButtonsDisabled;
+  nextViewState.pageRevertDisabled =
+    !baseUrlReady ||
+    !isEnabled ||
+    !state.currentDraftAvailable ||
+    !hasSavedPageData ||
+    !state.currentDraftDirty;
+  nextViewState.pageDeleteDisabled = !baseUrlReady || !isEnabled || !hasSavedPageData;
+  if (!baseUrlReady) {
+    nextViewState.pageDraftStatusText = "Set Base Page URL first";
+  } else if (!isEnabled) {
+    nextViewState.pageDraftStatusText = "Enable marking to edit this page";
+  } else if (!state.currentDraftAvailable) {
+    nextViewState.pageDraftStatusText = "Draft unavailable";
+  } else if (state.currentDraftDirty) {
+    nextViewState.pageDraftStatusText = "Unsaved changes";
+  } else {
+    nextViewState.pageDraftStatusText = "All changes saved";
   }
-  const selectedPatternValue = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
-  if (ui.pageSave && ui.pageRevert) {
-    const draftButtonsDisabled =
-      !baseUrlReady ||
-      !isEnabled ||
-      !state.currentDraftAvailable ||
-      !state.currentDraftDirty ||
-      !selectedPatternValue;
-    ui.pageSave.disabled = draftButtonsDisabled;
-    ui.pageRevert.disabled =
-      !baseUrlReady ||
-      !isEnabled ||
-      !state.currentDraftAvailable ||
-      !hasSavedPageData ||
-      !state.currentDraftDirty;
+  nextViewState.pageDataNewNoticeHidden =
+    !baseUrlReady ||
+    !isEnabled ||
+    !state.currentDraftAvailable ||
+    hasSavedPageData;
+  nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
+  nextViewState.deviceMode = normalizedDeviceState.mode;
+  nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
+  nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
+  nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
+  const allCss = getAllPagesCss();
+  const hasAnyCss = Boolean(allCss);
+  const highlightEnabled = hasAnyCss ? Boolean(view.xpathCssHighlightChecked) : false;
+  nextViewState.xpathCssHighlightChecked = highlightEnabled;
+  nextViewState.xpathCssHighlightDisabled = !hasAnyCss;
+  await messages.sendTabMessage({
+    type: "setCssHighlight",
+    enabled: highlightEnabled,
+    css: highlightEnabled ? allCss : ""
+  });
+  const baseOptions = Object.keys(configs)
+    .filter((baseUrl) => {
+      const entries = configs[baseUrl] && configs[baseUrl].pageMarkings;
+      return entries && Object.keys(entries).length > 0;
+    })
+    .sort()
+    .map((baseUrl) => ({ value: baseUrl, label: baseUrl }));
+  if (!baseOptions.some((option) => option.value === state.copySourceBaseUrl)) {
+    state.copySourceBaseUrl = "";
+    state.copySourcePageUrl = "";
   }
-  if (ui.pageDelete) {
-    ui.pageDelete.disabled =
-      !baseUrlReady || !isEnabled || !hasSavedPageData;
-  }
-  if (ui.pageDraftStatus) {
-    if (!baseUrlReady) {
-      ui.pageDraftStatus.textContent = "Set Base Page URL first";
-    } else if (!isEnabled) {
-      ui.pageDraftStatus.textContent = "Enable marking to edit this page";
-    } else if (!state.currentDraftAvailable) {
-      ui.pageDraftStatus.textContent = "Draft unavailable";
-    } else if (state.currentDraftDirty) {
-      ui.pageDraftStatus.textContent = "Unsaved changes";
-    } else {
-      ui.pageDraftStatus.textContent = "All changes saved";
-    }
-  }
-  if (ui.pageDataNewNotice) {
-    ui.pageDataNewNotice.hidden =
-      !baseUrlReady ||
-      !isEnabled ||
-      !state.currentDraftAvailable ||
-      hasSavedPageData;
-  }
-
-  if (ui.xpathCssHighlight) {
-    const allCss = getAllPagesCss();
-    const hasAnyCss = Boolean(allCss);
-    if (!hasAnyCss) {
-      ui.xpathCssHighlight.checked = false;
-    }
-    ui.xpathCssHighlight.disabled = !hasAnyCss;
-    const highlighted = ui.xpathCssHighlight.checked;
-    await messages.sendTabMessage({
-      type: "setCssHighlight",
-      enabled: highlighted,
-      css: highlighted ? allCss : ""
-    });
-  }
-
-  if (ui.copySourceBaseUrl && ui.copySourcePageUrl && ui.copyFromPage) {
-    const baseOptions = Object.keys(configs)
-      .filter((baseUrl) => {
-        const entries = configs[baseUrl] && configs[baseUrl].pageMarkings;
-        return entries && Object.keys(entries).length > 0;
+  let pageOptions = [];
+  if (state.copySourceBaseUrl && configs[state.copySourceBaseUrl]) {
+    const pageMarkings = configs[state.copySourceBaseUrl].pageMarkings || {};
+    pageOptions = Object.entries(pageMarkings)
+      .filter(([url, entry]) => {
+        return (
+          url &&
+          entry &&
+          Array.isArray(entry.xpaths) &&
+          entry.xpaths.length > 0
+        );
       })
-      .sort()
-      .map((baseUrl) => ({ value: baseUrl, label: baseUrl }));
-
-    if (!baseOptions.some((option) => option.value === state.copySourceBaseUrl)) {
-      state.copySourceBaseUrl = "";
-      state.copySourcePageUrl = "";
-    }
-
-    render.renderSelectOptions(
-      ui.copySourceBaseUrl,
-      baseOptions,
-      state.copySourceBaseUrl,
-      baseOptions.length ? "Select a Base Page URL" : "No base URLs saved"
-    );
-
-    let pageOptions = [];
-    if (state.copySourceBaseUrl && configs[state.copySourceBaseUrl]) {
-      const pageMarkings = configs[state.copySourceBaseUrl].pageMarkings || {};
-      pageOptions = Object.entries(pageMarkings)
-        .filter(([url, entry]) => {
-          return (
-            url &&
-            entry &&
-            Array.isArray(entry.xpaths) &&
-            entry.xpaths.length > 0
-          );
-        })
-        .map(([url, entry]) => ({
-          value: url,
-          label: url,
-          title: entry.title || url
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label));
-    }
-
-    if (!pageOptions.some((option) => option.value === state.copySourcePageUrl)) {
-      state.copySourcePageUrl = "";
-    }
-
-    const pagePlaceholder = state.copySourceBaseUrl
-      ? pageOptions.length
-        ? "Select a Page URL"
-        : "No saved pages under this Base Page URL"
-      : "Select a Base Page URL first";
-
-    render.renderSelectOptions(
-      ui.copySourcePageUrl,
-      pageOptions,
-      state.copySourcePageUrl,
-      pagePlaceholder
-    );
-    ui.copySourcePageUrl.disabled = !state.copySourceBaseUrl || !pageOptions.length;
-    ui.copyFromPage.disabled = !state.copySourceBaseUrl || !state.copySourcePageUrl;
+      .map(([url, entry]) => ({
+        value: url,
+        label: url,
+        title: entry.title || url
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }
+  if (!pageOptions.some((option) => option.value === state.copySourcePageUrl)) {
+    state.copySourcePageUrl = "";
+  }
+  const pagePlaceholder = state.copySourceBaseUrl
+    ? pageOptions.length
+      ? "Select a Page URL"
+      : "No saved pages under this Base Page URL"
+    : "Select a Base Page URL first";
+  nextViewState.copySourceBaseOptions = baseOptions;
+  nextViewState.copySourceBaseValue = state.copySourceBaseUrl;
+  nextViewState.copySourceBasePlaceholder = baseOptions.length
+    ? "Select a Base Page URL"
+    : "No base URLs saved";
+  nextViewState.copySourcePageOptions = pageOptions;
+  nextViewState.copySourcePageValue = state.copySourcePageUrl;
+  nextViewState.copySourcePagePlaceholder = pagePlaceholder;
+  nextViewState.copySourcePageDisabled = !state.copySourceBaseUrl || !pageOptions.length;
+  nextViewState.copyFromPageDisabled = !state.copySourceBaseUrl || !state.copySourcePageUrl;
 
   let headingDefaults = [];
   let headingXPathSet = new Set();
@@ -555,38 +578,6 @@ async function refreshUi() {
     }
   }
 
-  render.renderExcludeList(
-    ui.explicitExcludes,
-    pageExplicitExclude,
-    baseUrlSet ? "None yet" : "Set Base Page URL first",
-    async (value) => {
-      const response = await messages.sendTabMessage({
-        type: "focusElement",
-        xpath: value
-      });
-      if (!response || !response.ok) {
-        uiModule.showToast("Unable to focus element");
-      }
-    },
-    async (value) => {
-      if (!state.currentBaseUrl) {
-        return;
-      }
-      await clearFocusedElement();
-      const response = await messages.sendTabMessage({
-        type: "setExplicitExclude",
-        baseUrl: state.currentBaseUrl,
-        xpath: value,
-        excluded: false
-      });
-      if (!response || !response.ok) {
-        uiModule.showToast("Unable to update exclude");
-        return;
-      }
-      refreshUi();
-    }
-  );
-
   let pageExplicitInclude = explicitIncludeXPaths.map((xpath) => ({
     xpath,
     text: xpath
@@ -607,68 +598,18 @@ async function refreshUi() {
     }
   }
 
-  render.renderIncludeList(
-    ui.explicitIncludes,
-    pageExplicitInclude,
-    baseUrlSet ? "None yet" : "Set Base Page URL first",
-    async (value) => {
-      const response = await messages.sendTabMessage({
-        type: "focusElement",
-        xpath: value
-      });
-      if (!response || !response.ok) {
-        uiModule.showToast("Unable to focus element");
-      }
-    },
-    async (value) => {
-      if (!state.currentBaseUrl) {
-        return;
-      }
-      await clearFocusedElement();
-      const response = await messages.sendTabMessage({
-        type: "setExplicitInclude",
-        baseUrl: state.currentBaseUrl,
-        xpath: value,
-        included: false
-      });
-      if (!response || !response.ok) {
-        uiModule.showToast("Unable to update include");
-        return;
-      }
-      refreshUi();
-    }
-  );
-  render.renderHeadingDefaults(
-    ui.headingDefaults,
-    headingDefaults,
-    baseUrlSet ? "None yet" : "Set Base Page URL first",
-    async (item, action) => {
-      if (action === "view") {
-        const response = await messages.sendTabMessage({
-          type: "focusElement",
-          xpath: item.xpath
-        });
-        if (!response || !response.ok) {
-          uiModule.showToast("Unable to focus element");
-        }
-        return;
-      }
-      if (!state.currentBaseUrl) {
-        return;
-      }
-      await clearFocusedElement();
-      const response = await messages.sendTabMessage({
-        type: "toggleHeadingDefault",
-        baseUrl: state.currentBaseUrl,
-        xpath: item.xpath
-      });
-      if (!response || !response.ok) {
-        uiModule.showToast("Unable to update heading");
-        return;
-      }
-      await refreshUi();
-    }
-  );
+  nextViewState.explicitExcludes = pageExplicitExclude;
+  nextViewState.explicitExcludesEmptyText = baseUrlSet
+    ? "None yet"
+    : "Set Base Page URL first";
+  nextViewState.explicitIncludes = pageExplicitInclude;
+  nextViewState.explicitIncludesEmptyText = baseUrlSet
+    ? "None yet"
+    : "Set Base Page URL first";
+  nextViewState.headingDefaults = headingDefaults;
+  nextViewState.headingDefaultsEmptyText = baseUrlSet
+    ? "None yet"
+    : "Set Base Page URL first";
 
   const markedPages = [];
   const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -698,79 +639,197 @@ async function refreshUi() {
     });
   });
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
-  render.renderMarkedPages(
-    ui.markedPages,
-    markedPages,
-    baseUrlSet ? "None yet" : "Set Base Page URL first",
-    pageUrl,
-    async (url) => {
-      const tab = await helpers.ensureActiveTab({ requireId: true });
-      if (!tab) {
-        return;
-      }
-      chrome.tabs.update(tab.id, { url }, () => {
-        void chrome.runtime.lastError;
-      });
-    }
-  );
+  nextViewState.markedPages = markedPages;
+  nextViewState.markedPagesEmptyText = baseUrlSet
+    ? "None yet"
+    : "Set Base Page URL first";
 
   const basePageUrls = Object.keys(configs)
     .filter((url) => typeof url === "string" && url)
     .sort((left, right) => left.localeCompare(right))
     .map((url) => ({ url }));
-  render.renderBasePageUrls(
-    ui.basePageUrls,
-    basePageUrls,
-    "No base URLs saved",
-    state.currentBaseUrl,
-    async (url) => {
-      const tab = await helpers.ensureActiveTab({ requireId: true });
-      if (!tab) {
-        return;
-      }
-      chrome.tabs.update(tab.id, { url }, () => {
-        void chrome.runtime.lastError;
-      });
-    }
-  );
+  nextViewState.basePageUrls = basePageUrls;
+  nextViewState.basePageUrlsEmptyText = "No base URLs saved";
+
+  uiModule.setViewState(nextViewState);
 }
 
-async function handleEnableToggle() {
+function handleBaseUrlInput(event) {
+  uiModule.setViewState({ baseUrlInputValue: event.target.value });
+}
+
+function handleEndpointInput(event) {
+  uiModule.setViewState({ endpointUrlValue: event.target.value });
+}
+
+function handleBaseUrlKeyDown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  if (!uiModule.getViewState().baseUrlInputReadOnly) {
+    handleBaseUrlSet();
+  }
+}
+
+function handleEndpointKeyDown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  if (!uiModule.getViewState().endpointUrlReadOnly) {
+    handleEndpointSet();
+  }
+}
+
+function handleConfigToggle(event) {
+  event.stopPropagation();
+  uiModule.setConfigMenuOpen(!state.configMenuOpen);
+}
+
+function handleConfigMenuClick(event) {
+  event.stopPropagation();
+}
+
+async function handleExplicitExcludeView(xpath) {
+  const response = await messages.sendTabMessage({
+    type: "focusElement",
+    xpath
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to focus element");
+  }
+}
+
+async function handleExplicitExcludeRemove(xpath) {
+  if (!state.currentBaseUrl) {
+    return;
+  }
+  await clearFocusedElement();
+  const response = await messages.sendTabMessage({
+    type: "setExplicitExclude",
+    baseUrl: state.currentBaseUrl,
+    xpath,
+    excluded: false
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to update exclude");
+    return;
+  }
+  refreshUi();
+}
+
+async function handleExplicitIncludeView(xpath) {
+  const response = await messages.sendTabMessage({
+    type: "focusElement",
+    xpath
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to focus element");
+  }
+}
+
+async function handleExplicitIncludeRemove(xpath) {
+  if (!state.currentBaseUrl) {
+    return;
+  }
+  await clearFocusedElement();
+  const response = await messages.sendTabMessage({
+    type: "setExplicitInclude",
+    baseUrl: state.currentBaseUrl,
+    xpath,
+    included: false
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to update include");
+    return;
+  }
+  refreshUi();
+}
+
+async function handleHeadingDefaultView(item) {
+  const response = await messages.sendTabMessage({
+    type: "focusElement",
+    xpath: item.xpath
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to focus element");
+  }
+}
+
+async function handleHeadingDefaultToggle(item) {
+  if (!state.currentBaseUrl) {
+    return;
+  }
+  await clearFocusedElement();
+  const response = await messages.sendTabMessage({
+    type: "toggleHeadingDefault",
+    baseUrl: state.currentBaseUrl,
+    xpath: item.xpath
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to update heading");
+    return;
+  }
+  await refreshUi();
+}
+
+async function handleMarkedPageNavigate(url) {
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (!tab) {
+    return;
+  }
+  chrome.tabs.update(tab.id, { url }, () => {
+    void chrome.runtime.lastError;
+  });
+}
+
+async function handleBasePageNavigate(url) {
+  const tab = await helpers.ensureActiveTab({ requireId: true });
+  if (!tab) {
+    return;
+  }
+  chrome.tabs.update(tab.id, { url }, () => {
+    void chrome.runtime.lastError;
+  });
+}
+async function handleEnableToggle(event) {
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
   }
+  const desiredEnabled = event
+    ? Boolean(event.target.checked)
+    : uiModule.getViewState().toggleEnabled;
+  uiModule.setViewState({ toggleEnabled: desiredEnabled });
   if (!helpers.ensureBaseUrl("Set Base Page URL before enabling marking")) {
-    ui.toggleEnabled.checked = false;
+    uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
     return;
   }
-  const enabled = ui.toggleEnabled.checked;
-  state.lastPopupEnabled = enabled;
+  state.lastPopupEnabled = desiredEnabled;
   const baseUrlValue = state.currentBaseUrl;
-  if (enabled) {
+  if (desiredEnabled) {
     const parsed = utils.parseBaseUrl(baseUrlValue);
     if (!parsed) {
       uiModule.showToast("Enter a valid Base Page URL");
-      ui.toggleEnabled.checked = false;
+      uiModule.setViewState({ toggleEnabled: false });
       state.lastPopupEnabled = null;
       await refreshUi();
       return;
     }
     if (!tab.url.startsWith(baseUrlValue)) {
       uiModule.showToast("Current page is outside the Base Page URL");
-      ui.toggleEnabled.checked = false;
+      uiModule.setViewState({ toggleEnabled: false });
       state.lastPopupEnabled = null;
       await refreshUi();
       return;
     }
     state.currentConfig = await config.ensureConfig(baseUrlValue);
-    const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+    const selectedPattern = uiModule.getViewState().pagePatternValue || "";
     // Inject content script first
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
-      ui.toggleEnabled.checked = false;
+      uiModule.setViewState({ toggleEnabled: false });
       state.lastPopupEnabled = null;
       await refreshUi();
       return;
@@ -791,11 +850,14 @@ async function handleEnableToggle() {
   await refreshUi();
 }
 
-async function handleDeviceEmulationEnabledToggle() {
+async function handleDeviceEmulationEnabledToggle(event) {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const desiredEnabled = Boolean(ui.deviceEmulationEnabled.checked);
+  const desiredEnabled = event
+    ? Boolean(event.target.checked)
+    : uiModule.getViewState().deviceEmulationEnabled;
+  uiModule.setViewState({ deviceEmulationEnabled: desiredEnabled });
   if (desiredEnabled === state.currentDeviceEmulationEnabled) {
     return;
   }
@@ -806,19 +868,21 @@ async function handleDeviceEmulationEnabledToggle() {
   });
 }
 
-async function handleDeviceModeToggle() {
+async function handleDeviceModeToggle(event) {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
+  const desiredMode = event && event.target ? event.target.value : uiModule.getViewState().deviceMode;
   if (!state.currentDeviceEmulationEnabled) {
-    emulation.updateDeviceEmulationUi({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
+    uiModule.setViewState({
+      deviceEmulationEnabled: state.currentDeviceEmulationEnabled,
+      deviceMode: state.currentDeviceMode,
+      deviceScale: state.currentDeviceScale.toFixed(2),
+      deviceScaleValue: `${Math.round(state.currentDeviceScale * 100)}%`
     });
     return;
   }
-  const desiredMode = emulation.getSelectedDeviceMode();
+  uiModule.setViewState({ deviceMode: desiredMode });
   if (desiredMode === state.currentDeviceMode) {
     return;
   }
@@ -829,33 +893,47 @@ async function handleDeviceModeToggle() {
   });
 }
 
-function handleDeviceScaleInput() {
-  const scale = emulation.getSelectedDeviceScale();
-  if (ui.deviceScaleValue) {
-    ui.deviceScaleValue.textContent = `${Math.round(scale * 100)}%`;
+function handleDeviceScaleInput(event) {
+  const value = event && event.target ? event.target.value : uiModule.getViewState().deviceScale;
+  const scale = Number.parseFloat(value);
+  if (!Number.isFinite(scale)) {
+    return;
   }
+  uiModule.setViewState({
+    deviceScale: value,
+    deviceScaleValue: `${Math.round(scale * 100)}%`
+  });
 }
 
-async function handleDeviceScaleChange() {
+async function handleDeviceScaleChange(event) {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
+  const value = event && event.target ? event.target.value : uiModule.getViewState().deviceScale;
+  const scale = Number.parseFloat(value);
+  if (!Number.isFinite(scale)) {
+    return;
+  }
   if (!state.currentDeviceEmulationEnabled) {
-    emulation.updateDeviceEmulationUi({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
+    uiModule.setViewState({
+      deviceEmulationEnabled: state.currentDeviceEmulationEnabled,
+      deviceMode: state.currentDeviceMode,
+      deviceScale: state.currentDeviceScale.toFixed(2),
+      deviceScaleValue: `${Math.round(state.currentDeviceScale * 100)}%`
     });
     return;
   }
-  const desiredScale = emulation.getSelectedDeviceScale();
-  if (desiredScale === state.currentDeviceScale) {
+  uiModule.setViewState({
+    deviceScale: value,
+    deviceScaleValue: `${Math.round(scale * 100)}%`
+  });
+  if (scale === state.currentDeviceScale) {
     return;
   }
   await helpers.updateDeviceEmulation({
     enabled: true,
     mode: state.currentDeviceMode,
-    scale: desiredScale
+    scale
   });
 }
 
@@ -885,13 +963,11 @@ async function handleClearDomainCache() {
     return;
   }
   uiModule.setUiBusy(true);
-  if (ui.clearDomainCache) {
-    ui.clearDomainCache.disabled = true;
-  }
+  state.clearDomainCacheDisabled = true;
+  uiModule.setViewState({ clearDomainCacheDisabled: true });
   const result = await chromeHelpers.clearBrowsingDataForOrigin(origin);
-  if (ui.clearDomainCache) {
-    ui.clearDomainCache.disabled = false;
-  }
+  state.clearDomainCacheDisabled = false;
+  uiModule.setViewState({ clearDomainCacheDisabled: false });
   if (!result.ok) {
     uiModule.setUiBusy(false);
     uiModule.showToast(result.error || "Unable to clear cache");
@@ -957,8 +1033,9 @@ async function handleExportCurrent() {
 
 async function handleImport() {
   uiModule.setConfigMenuOpen(false);
-  if (ui.configImportFile) {
-    ui.configImportFile.click();
+  const { configImportFile } = uiModule.getRefs();
+  if (configImportFile) {
+    configImportFile.click();
   }
 }
 
@@ -1098,7 +1175,7 @@ async function handleBaseUrlSet() {
   if (!tab) {
     return;
   }
-  const baseUrlValue = ui.baseUrlInput.value.trim();
+  const baseUrlValue = uiModule.getViewState().baseUrlInputValue.trim();
   if (!baseUrlValue) {
     uiModule.showToast("Enter a Base Page URL");
     return;
@@ -1140,7 +1217,7 @@ async function handleBaseUrlSet() {
   await refreshUi();
 }
 
-async function handlePagePatternChange() {
+async function handlePagePatternChange(event) {
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
@@ -1148,7 +1225,8 @@ async function handlePagePatternChange() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  const selected = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+  const selected = event && event.target ? event.target.value : uiModule.getViewState().pagePatternValue;
+  uiModule.setViewState({ pagePatternValue: selected });
   if (!selected) {
     uiModule.showToast("Choose a URL pattern");
     return;
@@ -1202,7 +1280,7 @@ async function handleBaseUrlEditToggle() {
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
     const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
     const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
-    const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+    const selectedPattern = uiModule.getViewState().pagePatternValue || "";
     const shouldEnable =
       Boolean(selectedPattern) || Boolean(matchingPattern) || storedPatterns.length === 0;
     if (shouldEnable) {
@@ -1229,7 +1307,7 @@ async function handleBaseUrlEditToggle() {
 }
 
 async function handleEndpointSet() {
-  const endpointValue = ui.endpointUrl.value.trim();
+  const endpointValue = uiModule.getViewState().endpointUrlValue.trim();
   if (!endpointValue) {
     uiModule.showToast("Enter an Endpoint URL");
     return;
@@ -1281,11 +1359,12 @@ async function handlePageSave() {
   if (!tab) {
     return;
   }
-  const wasHighlightEnabled = Boolean(ui.xpathCssHighlight && ui.xpathCssHighlight.checked);
+  const view = uiModule.getViewState();
+  const wasHighlightEnabled = Boolean(view.xpathCssHighlightChecked);
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  const selectedPattern = ui.pagePatternSelect ? ui.pagePatternSelect.value : "";
+  const selectedPattern = view.pagePatternValue || "";
   if (!selectedPattern) {
     uiModule.showToast("Choose a URL pattern before saving");
     return;
@@ -1306,9 +1385,8 @@ async function handlePageSave() {
   if (response.saved) {
     await updateCssSelectorsForSavedEntry({ quiet: true });
     await refreshUi();
-    if (wasHighlightEnabled && ui.xpathCssHighlight) {
-      ui.xpathCssHighlight.checked = true;
-      await handleXpathCssHighlightToggle();
+    if (wasHighlightEnabled) {
+      await setXpathCssHighlight(true);
     }
   }
 }
@@ -1367,14 +1445,21 @@ async function handlePageDelete() {
   await refreshUi();
 }
 
-async function handleCopySourceBaseChange() {
-  state.copySourceBaseUrl = ui.copySourceBaseUrl ? ui.copySourceBaseUrl.value : "";
+async function handleCopySourceBaseChange(event) {
+  const value = event && event.target ? event.target.value : "";
+  state.copySourceBaseUrl = value;
   state.copySourcePageUrl = "";
+  uiModule.setViewState({
+    copySourceBaseValue: value,
+    copySourcePageValue: ""
+  });
   await refreshUi();
 }
 
-async function handleCopySourcePageChange() {
-  state.copySourcePageUrl = ui.copySourcePageUrl ? ui.copySourcePageUrl.value : "";
+async function handleCopySourcePageChange(event) {
+  const value = event && event.target ? event.target.value : "";
+  state.copySourcePageUrl = value;
+  uiModule.setViewState({ copySourcePageValue: value });
   await refreshUi();
 }
 
@@ -1386,7 +1471,7 @@ async function handleCopyFromPage() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  if (!ui.toggleEnabled.checked) {
+  if (!uiModule.getViewState().toggleEnabled) {
     uiModule.showToast("Enable marking to copy page data");
     return;
   }
@@ -1488,8 +1573,8 @@ async function updateCssSelectorsForSavedEntry(options) {
       }
       delete cfg.pageCssSelectors[pageUrl];
     });
-    if (ui.xpathCssHighlight && ui.xpathCssHighlight.checked) {
-      await handleXpathCssHighlightToggle();
+    if (uiModule.getViewState().xpathCssHighlightChecked) {
+      await setXpathCssHighlight(true);
     }
     return;
   }
@@ -1535,8 +1620,8 @@ async function updateCssSelectorsForSavedEntry(options) {
       delete cfg.pageCssSelectors[pageUrl];
     }
   });
-  if (ui.xpathCssHighlight && ui.xpathCssHighlight.checked) {
-    await handleXpathCssHighlightToggle();
+  if (uiModule.getViewState().xpathCssHighlightChecked) {
+    await setXpathCssHighlight(true);
   }
   if (!quiet) {
     uiModule.showToast(output ? "CSS selectors updated" : "No selectors generated");
@@ -1553,6 +1638,16 @@ function getAllPagesCss() {
   return allSelectors;
 }
 
+async function setXpathCssHighlight(enabled) {
+  uiModule.setViewState({ xpathCssHighlightChecked: enabled });
+  const allCss = enabled ? getAllPagesCss() : "";
+  await messages.sendTabMessage({
+    type: "setCssHighlight",
+    enabled,
+    css: allCss
+  });
+}
+
 async function handleXpathCssCopyAll() {
   const allCss = getAllPagesCss();
   if (!allCss) {
@@ -1567,14 +1662,11 @@ async function handleXpathCssCopyAll() {
   }
 }
 
-async function handleXpathCssHighlightToggle() {
-  const enabled = ui.xpathCssHighlight ? ui.xpathCssHighlight.checked : false;
-  const allCss = enabled ? getAllPagesCss() : "";
-  await messages.sendTabMessage({
-    type: "setCssHighlight",
-    enabled,
-    css: allCss
-  });
+async function handleXpathCssHighlightToggle(event) {
+  const enabled = event
+    ? Boolean(event.target.checked)
+    : uiModule.getViewState().xpathCssHighlightChecked;
+  await setXpathCssHighlight(enabled);
 }
 
 async function handleComputeSelectors() {
@@ -1820,76 +1912,52 @@ function scheduleRefresh() {
 async function init() {
   await helpers.ensureActiveTab();
 
-  ui.toggleEnabled.addEventListener("change", handleEnableToggle);
-  ui.deviceEmulationEnabled.addEventListener("change", handleDeviceEmulationEnabledToggle);
-  ui.deviceModeDesktop.addEventListener("change", handleDeviceModeToggle);
-  ui.deviceModeMobile.addEventListener("change", handleDeviceModeToggle);
-  ui.deviceScale.addEventListener("input", handleDeviceScaleInput);
-  ui.deviceScale.addEventListener("change", handleDeviceScaleChange);
-  ui.configToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    uiModule.setConfigMenuOpen(!state.configMenuOpen);
+  uiModule.initUi({
+    onToggleEnabled: handleEnableToggle,
+    onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
+    onDeviceModeChange: handleDeviceModeToggle,
+    onDeviceScaleInput: handleDeviceScaleInput,
+    onDeviceScaleChange: handleDeviceScaleChange,
+    onConfigToggle: handleConfigToggle,
+    onConfigMenuClick: handleConfigMenuClick,
+    onExportAll: handleExportAll,
+    onExportCurrent: handleExportCurrent,
+    onImport: handleImport,
+    onClearDomainCache: handleClearDomainCache,
+    onClearCurrent: handleClearCurrent,
+    onClearAll: handleClearAll,
+    onImportFile: handleImportFile,
+    onBaseUrlInput: handleBaseUrlInput,
+    onBaseUrlKeyDown: handleBaseUrlKeyDown,
+    onRefreshContext: handleContextRefresh,
+    onBaseUrlSet: handleBaseUrlSet,
+    onBaseUrlEditToggle: handleBaseUrlEditToggle,
+    onPagePatternChange: handlePagePatternChange,
+    onPageSave: handlePageSave,
+    onPageRevert: handlePageRevert,
+    onPageDelete: handlePageDelete,
+    onCopySourceBaseChange: handleCopySourceBaseChange,
+    onCopySourcePageChange: handleCopySourcePageChange,
+    onCopyFromPage: handleCopyFromPage,
+    onXpathCssCopyAll: handleXpathCssCopyAll,
+    onXpathCssHighlightChange: handleXpathCssHighlightToggle,
+    onEndpointInput: handleEndpointInput,
+    onEndpointKeyDown: handleEndpointKeyDown,
+    onEndpointSet: handleEndpointSet,
+    onEndpointEditToggle: handleEndpointEditToggle,
+    onTokenAction: handleTokenBlur,
+    onCompute: handleComputeSelectors,
+    onSaveExcludes: handleSaveExcludes,
+    onPreviewLatest: handlePreviewLatest,
+    onExplicitExcludeView: handleExplicitExcludeView,
+    onExplicitExcludeRemove: handleExplicitExcludeRemove,
+    onExplicitIncludeView: handleExplicitIncludeView,
+    onExplicitIncludeRemove: handleExplicitIncludeRemove,
+    onHeadingDefaultView: handleHeadingDefaultView,
+    onHeadingDefaultToggle: handleHeadingDefaultToggle,
+    onMarkedPageNavigate: handleMarkedPageNavigate,
+    onBasePageNavigate: handleBasePageNavigate
   });
-  ui.configMenu.addEventListener("click", (event) => event.stopPropagation());
-  ui.configExportAll.addEventListener("click", handleExportAll);
-  ui.configExportCurrent.addEventListener("click", handleExportCurrent);
-  ui.configImport.addEventListener("click", handleImport);
-  ui.configClearCurrent.addEventListener("click", handleClearCurrent);
-  ui.configClearAll.addEventListener("click", handleClearAll);
-  ui.configImportFile.addEventListener("change", handleImportFile);
-  if (ui.clearDomainCache) {
-    ui.clearDomainCache.addEventListener("click", handleClearDomainCache);
-  }
-  ui.baseUrlInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      if (!ui.baseUrlInput.readOnly) {
-        handleBaseUrlSet();
-      }
-    }
-  });
-  ui.endpointUrl.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      if (!ui.endpointUrl.readOnly) {
-        handleEndpointSet();
-      }
-    }
-  });
-  ui.refreshContext.addEventListener("click", handleContextRefresh);
-  ui.baseUrlSet.addEventListener("click", handleBaseUrlSet);
-  ui.baseUrlEdit.addEventListener("click", handleBaseUrlEditToggle);
-  if (ui.pagePatternSelect) {
-    ui.pagePatternSelect.addEventListener("change", handlePagePatternChange);
-  }
-  if (ui.pageSave) {
-    ui.pageSave.addEventListener("click", handlePageSave);
-  }
-  if (ui.pageRevert) {
-    ui.pageRevert.addEventListener("click", handlePageRevert);
-  }
-  if (ui.pageDelete) {
-    ui.pageDelete.addEventListener("click", handlePageDelete);
-  }
-  if (ui.copySourceBaseUrl) {
-    ui.copySourceBaseUrl.addEventListener("change", handleCopySourceBaseChange);
-  }
-  if (ui.copySourcePageUrl) {
-    ui.copySourcePageUrl.addEventListener("change", handleCopySourcePageChange);
-  }
-  if (ui.copyFromPage) {
-    ui.copyFromPage.addEventListener("click", handleCopyFromPage);
-  }
-  if (ui.xpathCssCopyAll) {
-    ui.xpathCssCopyAll.addEventListener("click", handleXpathCssCopyAll);
-  }
-  if (ui.xpathCssHighlight) {
-    ui.xpathCssHighlight.addEventListener("change", handleXpathCssHighlightToggle);
-  }
-  ui.endpointSet.addEventListener("click", handleEndpointSet);
-  ui.endpointEdit.addEventListener("click", handleEndpointEditToggle);
-  ui.tokenAction.addEventListener("click", handleTokenBlur);
-  ui.computeButton.addEventListener("click", handleComputeSelectors);
-  ui.saveExcludesButton.addEventListener("click", handleSaveExcludes);
-  ui.previewLatestButton.addEventListener("click", handlePreviewLatest);
 
   document.addEventListener("click", () => uiModule.setConfigMenuOpen(false));
   document.addEventListener("keydown", (event) => {
@@ -1906,15 +1974,15 @@ async function init() {
       if (isEditableTarget(event.target)) {
         return;
       }
+      const view = uiModule.getViewState();
       if (event.key === "e" || event.key === "E") {
         event.preventDefault();
         event.stopPropagation();
-        ui.toggleEnabled.checked = !ui.toggleEnabled.checked;
-        handleEnableToggle().then();
+        handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
         return;
       }
       if (event.key === "s" || event.key === "S") {
-        if (!ui.toggleEnabled.checked || !ui.pageSave || ui.pageSave.disabled) {
+        if (!view.toggleEnabled || view.pageSaveDisabled) {
           return;
         }
         event.preventDefault();

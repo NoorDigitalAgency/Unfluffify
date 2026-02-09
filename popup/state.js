@@ -22,6 +22,7 @@ export const state = {
   currentDeviceMode: "desktop",
   currentDeviceScale: DEVICE_SCALE_DEFAULTS.desktop,
   currentDeviceEmulationEnabled: false,
+  deviceControlsDisabled: false,
   currentDraftEntry: null,
   currentSavedEntry: null,
   currentDraftDirty: false,
@@ -29,6 +30,7 @@ export const state = {
   currentDraftHasEntry: false,
   copySourceBaseUrl: "",
   copySourcePageUrl: "",
+  clearDomainCacheDisabled: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null
 };
