@@ -338,6 +338,21 @@ function isXPathDescendant(parentXpath, childXpath) {
   return childXpath.startsWith(prefix);
 }
 
+function isWithinExplicitExcludedXpath(xpath, excludedSet) {
+  if (!xpath || !excludedSet || excludedSet.size === 0) {
+    return false;
+  }
+  for (const excludedXpath of excludedSet) {
+    if (!excludedXpath || excludedXpath === xpath) {
+      continue;
+    }
+    if (isXPathDescendant(excludedXpath, xpath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function escapeCssIdentifier(value) {
   if (window.CSS && typeof window.CSS.escape === "function") {
     return window.CSS.escape(value);
@@ -454,9 +469,6 @@ function collectExcludedParentElements(items) {
       continue;
     }
     if (isWithinImmutableExcluded(el)) {
-      continue;
-    }
-    if (!hasMultipleMarkableDescendants(el)) {
       continue;
     }
     parents.add(el);
@@ -1284,6 +1296,7 @@ function getMarkableTarget(x, y, options) {
   const allowExplicitTarget = options && options.allowExplicitTarget;
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
+  const explicitParentSet = options && options.explicitParentSet;
   const allowImmutableChildren = options && options.allowImmutableChildren;
   const elements = document.elementsFromPoint(x, y);
   if (
@@ -1306,9 +1319,23 @@ function getMarkableTarget(x, y, options) {
       if (isWithinConsentElement(el)) {
         continue;
       }
+      const xpath = (explicitParentSet || excludedSet || includeSet) ? getXPath(el) : "";
+      const explicitlyExcluded =
+        xpath && excludedSet && excludedSet.size > 0 && excludedSet.has(xpath);
+      const explicitlyIncluded =
+        xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
+      const withinExplicitExcludedParent =
+        !allowImmutableChildren &&
+        xpath &&
+        explicitParentSet &&
+        explicitParentSet.size > 0 &&
+        isWithinExplicitExcludedXpath(xpath, explicitParentSet);
+      if (withinExplicitExcludedParent && !explicitlyIncluded) {
+        continue;
+      }
       if (
-        isExplicitlyExcludedElement(el, excludedSet) ||
-        isExplicitlyIncludedElement(el, includeSet)
+        explicitlyExcluded ||
+        explicitlyIncluded
       ) {
         return el;
       }
@@ -1326,6 +1353,12 @@ function getMarkableTarget(x, y, options) {
     }
     if (isWithinConsentElement(el)) {
       continue;
+    }
+    if (!allowImmutableChildren && explicitParentSet && explicitParentSet.size > 0) {
+      const xpath = getXPath(el);
+      if (xpath && isWithinExplicitExcludedXpath(xpath, explicitParentSet)) {
+        continue;
+      }
     }
     const explicitlyExcluded =
         allowExplicitTarget && isExplicitlyExcludedElement(el, excludedSet);
@@ -1353,15 +1386,15 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
     return;
   }
   const layerState = beginLayerRender(layerHover);
-  const excludedSet = allowParent
-      ? null
-      : getExcludedXPathSet(state.config, location.href);
+  const explicitParentSet = getExcludedXPathSet(state.config, location.href);
+  const excludedSet = allowParent ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(x, y, {
     allowParent,
     allowExplicitTarget: true,
     excludedSet,
     includeSet,
+    explicitParentSet,
     allowImmutableChildren
   });
   if (!target) {
@@ -1435,6 +1468,11 @@ function toggleExplicitExclude(target) {
   const config = state.config;
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const explicitExcludeSet = new Set(collectExcludedXPaths(items));
+  if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
+    showToast("Use include to override an excluded parent");
+    return;
+  }
   const cleanupHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -1549,15 +1587,15 @@ function handleToggleEvent(event) {
   }
   const allowParent = event.shiftKey;
   const allowImmutableChildren = mode === "include";
-  const excludedSet = allowParent
-      ? null
-      : getExcludedXPathSet(state.config, location.href);
+  const explicitParentSet = getExcludedXPathSet(state.config, location.href);
+  const excludedSet = allowParent ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
     allowExplicitTarget: true,
     excludedSet,
     includeSet,
+    explicitParentSet,
     allowImmutableChildren
   });
   if (target) {
@@ -2704,6 +2742,12 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
       excludedLookup.set(item.xpath, Boolean(item.excluded));
     }
   }
+  const explicitExcludeSet = new Set();
+  for (const [xpath, excluded] of excludedLookup) {
+    if (excluded && typeof xpath === "string" && xpath) {
+      explicitExcludeSet.add(xpath);
+    }
+  }
   const includeSet = new Set(
     Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
@@ -2718,17 +2762,35 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
   }
   const withinExplicitInclude = new Set();
   const results = new Map();
-  const headingTargets = collectHeadingTargets();
+  const headingTargets = HEADING_TAG_SELECTOR
+    ? Array.from(document.querySelectorAll(HEADING_TAG_SELECTOR))
+    : [];
   for (const el of headingTargets) {
+    if (isWithinAiPopover(el)) {
+      continue;
+    }
+    if (!isTextualContainer(el)) {
+      continue;
+    }
     const xpath = getXPath(el);
     if (!xpath || results.has(xpath)) {
       continue;
     }
+    let isWithinInclude = false;
     for (const includeEl of includeElements) {
       if (includeEl && includeEl !== el && includeEl.contains(el)) {
         withinExplicitInclude.add(xpath);
+        isWithinInclude = true;
         break;
       }
+    }
+    const explicitlyIncluded = includeSet.has(xpath) || isWithinInclude;
+    if (
+      !explicitlyIncluded &&
+      (isWithinImmutableExcluded(el) ||
+        isWithinExplicitExcludedXpath(xpath, explicitExcludeSet))
+    ) {
+      continue;
     }
     const text = (el.innerText || "").trim();
     results.set(xpath, {
@@ -2914,6 +2976,12 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       excludedLookup.set(item.xpath, Boolean(item.excluded));
     }
   }
+  const explicitExcludeSet = new Set();
+  for (const [xpath, excluded] of excludedLookup) {
+    if (excluded && typeof xpath === "string" && xpath) {
+      explicitExcludeSet.add(xpath);
+    }
+  }
   if (!Array.isArray(entry.includeXpaths)) {
     entry.includeXpaths = [];
   }
@@ -2960,6 +3028,14 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     if (
+      isWithinExplicitExcludedXpath(xpath, explicitExcludeSet) &&
+      !explicitIncludeSet.has(xpath) &&
+      !isWithinExplicitInclude(el) &&
+      !isWithinExplicitIncludeXpath(xpath)
+    ) {
+      continue;
+    }
+    if (
       (isWithinExplicitInclude(el) || isWithinExplicitIncludeXpath(xpath)) &&
       !explicitIncludeSet.has(xpath)
     ) {
@@ -2984,11 +3060,17 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (seen.has(item.xpath)) {
       continue;
     }
+    if (isWithinExplicitExcludedXpath(item.xpath, explicitExcludeSet)) {
+      continue;
+    }
     const explicitEl = getElementFromXPath(item.xpath);
     if (!explicitEl) {
       if (isWithinExplicitIncludeXpath(item.xpath)) {
         continue;
       }
+      continue;
+    }
+    if (isWithinImmutableExcluded(explicitEl)) {
       continue;
     }
     if (isWithinExplicitInclude(explicitEl)) {
