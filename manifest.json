@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unfluffify",
-  "version": "0.8.1",
+  "version": "0.8.5",
   "description": "Chrome extension to label what's non-meaningful text content to help AI find the meaningful text content.",
   "action": {
     "default_title": "Unfluffify"
