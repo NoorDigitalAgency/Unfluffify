@@ -9,6 +9,7 @@ export const DEVICE_SCALE_LIMITS = {
 };
 
 export const state = {
+  currentView: "Marking",
   currentTab: null,
   currentBaseUrl: "",
   currentConfig: null,
@@ -17,6 +18,7 @@ export const state = {
   lastTabId: null,
   baseUrlEditMode: false,
   endpointEditMode: false,
+  configEndpointEditMode: false,
   aiRequestInFlight: null,
   configMenuOpen: false,
   currentDeviceMode: "desktop",
@@ -32,5 +34,6 @@ export const state = {
   copySourcePageUrl: "",
   clearDomainCacheDisabled: false,
   lastPopupPageUrl: "",
-  lastPopupEnabled: null
+  lastPopupEnabled: null,
+  configViewLocked: false
 };

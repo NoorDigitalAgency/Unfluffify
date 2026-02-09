@@ -75,13 +75,16 @@ export async function updateDeviceEmulation({ enabled, mode, scale }) {
 }
 
 export async function loadGlobalAiSettings() {
-  const [tokenResult, endpointResult] = await Promise.all([
+  const [tokenResult, endpointResult, configEndpointResult] = await Promise.all([
     utils.storageGet(chrome.storage.sync, "globalToken"),
-    utils.storageGet(chrome.storage.sync, "globalEndpoint")
+    utils.storageGet(chrome.storage.sync, "globalEndpoint"),
+    utils.storageGet(chrome.storage.sync, "globalConfigEndpoint")
   ]);
   return {
     tokenValue: (tokenResult && tokenResult.globalToken) || "",
-    endpointValue: (endpointResult && endpointResult.globalEndpoint) || ""
+    endpointValue: (endpointResult && endpointResult.globalEndpoint) || "",
+    configEndpointValue:
+      (configEndpointResult && configEndpointResult.globalConfigEndpoint) || ""
   };
 }
 

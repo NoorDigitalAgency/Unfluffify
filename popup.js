@@ -215,6 +215,7 @@ async function refreshUi() {
   if (currentTabId && state.lastTabId !== currentTabId) {
     state.baseUrlEditMode = false;
     state.endpointEditMode = false;
+    state.configEndpointEditMode = false;
     state.copySourceBaseUrl = "";
     state.copySourcePageUrl = "";
   }
@@ -303,10 +304,26 @@ async function refreshUi() {
   const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
+  const { tokenValue, endpointValue, configEndpointValue } =
+    await helpers.loadGlobalAiSettings();
+  if (!configEndpointValue) {
+    state.configEndpointEditMode = false;
+  }
   if (!endpointValue) {
     state.endpointEditMode = false;
   }
+  const configEndpointSet = Boolean(configEndpointValue);
+  const configEndpointField = getEditableFieldState({
+    inputRef: refs.configEndpointUrlInput,
+    currentValue: view.configEndpointUrlValue,
+    value: configEndpointValue,
+    isSet: configEndpointSet,
+    editMode: state.configEndpointEditMode,
+    suggestedValue: configEndpointValue,
+    noticeUnset: "Set Configuration Endpoint before continuing",
+    noticeEdit: "Set Configuration Endpoint to continue"
+  });
+  const configEndpointReady = configEndpointField.isReady;
   const endpointSet = Boolean(endpointValue);
   const endpointField = getEditableFieldState({
     inputRef: refs.endpointUrlInput,
@@ -320,6 +337,8 @@ async function refreshUi() {
   });
   const endpointReady = endpointField.isReady;
 
+  const configurationComplete =
+    configEndpointReady && endpointReady && Boolean(tokenValue);
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
     (state.currentConfig && state.currentConfig.latestComputedSelectors) || [];
@@ -368,6 +387,27 @@ async function refreshUi() {
   const pagePatternReady = Boolean(patternSelection);
   const aiBlockedByDraft = state.currentDraftDirty;
 
+  let resolvedView =
+    state.currentView ||
+    uiModule.getViewState().currentView ||
+    uiModule.View.Marking;
+  if (!configurationComplete) {
+    resolvedView = uiModule.View.Configuration;
+    state.configViewLocked = true;
+  } else if (state.configViewLocked) {
+    resolvedView = uiModule.View.Marking;
+    state.configViewLocked = false;
+  }
+  state.currentView = resolvedView;
+
+  nextViewState.currentView = resolvedView;
+  nextViewState.configurationComplete = configurationComplete;
+  nextViewState.configurationContinueDisabled = !configurationComplete;
+  nextViewState.configurationNoticeVisible = !configurationComplete;
+  nextViewState.configurationNoticeText = configurationComplete
+    ? ""
+    : "Provide the Configuration Endpoint, AI Endpoint, and token to continue.";
+
   nextViewState.toggleEnabled = toggleEnabled;
   nextViewState.toggleEnabledDisabled = !baseUrlReady;
   nextViewState.mainUiHidden = !isEnabled;
@@ -381,6 +421,17 @@ async function refreshUi() {
   nextViewState.aiTokenHidden = !endpointReady;
   nextViewState.aiControlsHidden = !endpointReady || !tokenValue;
   nextViewState.tokenActionDisabled = aiBusy;
+  nextViewState.configEndpointUrlValue = configEndpointField.value;
+  nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
+  nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
+  nextViewState.configEndpointEditVisible = configEndpointSet;
+  nextViewState.configEndpointEditText = state.configEndpointEditMode ? "Cancel" : "Change";
+  nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
+  nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
+  nextViewState.configEndpointInputDisabled = aiBusy;
+  nextViewState.configEndpointSetDisabled = aiBusy;
+  nextViewState.configEndpointEditDisabled = aiBusy;
+
   nextViewState.endpointUrlValue = endpointField.value;
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
   nextViewState.endpointSetVisible = endpointField.isEditing;
@@ -658,6 +709,10 @@ function handleBaseUrlInput(event) {
   uiModule.setViewState({ baseUrlInputValue: event.target.value });
 }
 
+function handleConfigEndpointInput(event) {
+  uiModule.setViewState({ configEndpointUrlValue: event.target.value });
+}
+
 function handleEndpointInput(event) {
   uiModule.setViewState({ endpointUrlValue: event.target.value });
 }
@@ -668,6 +723,15 @@ function handleBaseUrlKeyDown(event) {
   }
   if (!uiModule.getViewState().baseUrlInputReadOnly) {
     handleBaseUrlSet();
+  }
+}
+
+function handleConfigEndpointKeyDown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  if (!uiModule.getViewState().configEndpointUrlReadOnly) {
+    handleConfigEndpointSet();
   }
 }
 
@@ -687,6 +751,28 @@ function handleConfigToggle(event) {
 
 function handleConfigMenuClick(event) {
   event.stopPropagation();
+}
+
+async function handleOpenConfigurationView() {
+  uiModule.setConfigMenuOpen(false);
+  state.currentView = uiModule.View.Configuration;
+  uiModule.setViewState({ currentView: state.currentView });
+  await refreshUi();
+}
+
+async function maybeSwitchToMarkingView() {
+  const { tokenValue, endpointValue, configEndpointValue } =
+    await helpers.loadGlobalAiSettings();
+  if (tokenValue && endpointValue && configEndpointValue) {
+    state.currentView = uiModule.View.Marking;
+    state.configViewLocked = false;
+    uiModule.setViewState({ currentView: state.currentView });
+  }
+}
+
+async function handleConfigurationContinue() {
+  await maybeSwitchToMarkingView();
+  await refreshUi();
 }
 
 async function handleExplicitExcludeView(xpath) {
@@ -1001,13 +1087,15 @@ async function handleExportAll() {
       state.currentConfig
     );
   }
-  const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
+  const { tokenValue, endpointValue, configEndpointValue } =
+    await helpers.loadGlobalAiSettings();
   const payload = {
     version: 1,
     scope: "all",
     configs: normalizedConfigs,
     globalToken: tokenValue,
-    globalEndpoint: endpointValue
+    globalEndpoint: endpointValue,
+    globalConfigEndpoint: configEndpointValue
   };
   const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
@@ -1072,32 +1160,6 @@ async function handleClearCurrent() {
   await refreshUi();
 }
 
-async function handleClearAll() {
-  uiModule.setConfigMenuOpen(false);
-  const confirmed = window.confirm(
-    "Clear all configuration and tokens? This cannot be undone."
-  );
-  if (!confirmed) {
-    return;
-  }
-  await config.saveConfigs({});
-  await utils.storageSet(chrome.storage.sync, {
-    globalToken: "",
-    globalEndpoint: ""
-  });
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (tab) {
-    await utils.setTabState(tab.id, { enabled: false, baseUrl: "" });
-    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
-  state.currentBaseUrl = "";
-  state.currentConfig = null;
-  state.baseUrlEditMode = false;
-  state.endpointEditMode = false;
-  uiModule.showToast("All configuration cleared");
-  await refreshUi();
-}
-
 async function handleImportFile(event) {
   const file = event.target.files && event.target.files[0];
   event.target.value = "";
@@ -1135,7 +1197,8 @@ async function handleImportFile(event) {
     incomingConfigs,
     includeGlobals,
     globalToken,
-    globalEndpoint
+    globalEndpoint,
+    globalConfigEndpoint
   } = config.extractIncomingConfigs(parsed);
   const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
   if (!baseUrls.length) {
@@ -1160,8 +1223,10 @@ async function handleImportFile(event) {
   if (includeGlobals) {
     await utils.storageSet(chrome.storage.sync, {
       globalToken: globalToken || "",
-      globalEndpoint: globalEndpoint || ""
+      globalEndpoint: globalEndpoint || "",
+      globalConfigEndpoint: globalConfigEndpoint || ""
     });
+    await maybeSwitchToMarkingView();
   }
 
   if (
@@ -1315,6 +1380,31 @@ async function handleBaseUrlEditToggle() {
   await refreshUi();
 }
 
+async function handleConfigEndpointSet() {
+  const endpointValue = uiModule.getViewState().configEndpointUrlValue.trim();
+  if (!endpointValue) {
+    uiModule.showToast("Enter a Configuration Endpoint URL");
+    return;
+  }
+  try {
+    new URL(endpointValue);
+  } catch (error) {
+    uiModule.showToast("Enter a valid Configuration Endpoint URL");
+    return;
+  }
+  await utils.storageSet(chrome.storage.sync, {
+    globalConfigEndpoint: endpointValue
+  });
+  state.configEndpointEditMode = false;
+  await maybeSwitchToMarkingView();
+  await refreshUi();
+}
+
+async function handleConfigEndpointEditToggle() {
+  state.configEndpointEditMode = !state.configEndpointEditMode;
+  await refreshUi();
+}
+
 async function handleEndpointSet() {
   const endpointValue = uiModule.getViewState().endpointUrlValue.trim();
   if (!endpointValue) {
@@ -1329,6 +1419,7 @@ async function handleEndpointSet() {
   }
   await utils.storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
   state.endpointEditMode = false;
+  await maybeSwitchToMarkingView();
   await refreshUi();
 }
 
@@ -1347,6 +1438,7 @@ async function handleTokenBlur() {
   const token = entered.trim();
   await utils.storageSet(chrome.storage.sync, { globalToken: token });
   uiModule.showToast(token ? "Token saved" : "Token cleared");
+  await maybeSwitchToMarkingView();
   await refreshUi();
 }
 
@@ -1354,6 +1446,7 @@ async function handleContextRefresh() {
   const tab = await helpers.ensureActiveTab();
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
+  state.configEndpointEditMode = false;
   if (tab && tab.id) {
     const tabState = await utils.getTabState(tab.id);
     if (tabState && tabState.enabled) {
@@ -1930,12 +2023,13 @@ async function init() {
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
     onConfigMenuClick: handleConfigMenuClick,
+    onOpenConfiguration: handleOpenConfigurationView,
+    onConfigurationContinue: handleConfigurationContinue,
     onExportAll: handleExportAll,
     onExportCurrent: handleExportCurrent,
     onImport: handleImport,
     onClearDomainCache: handleClearDomainCache,
     onClearCurrent: handleClearCurrent,
-    onClearAll: handleClearAll,
     onImportFile: handleImportFile,
     onBaseUrlInput: handleBaseUrlInput,
     onBaseUrlKeyDown: handleBaseUrlKeyDown,
@@ -1951,6 +2045,10 @@ async function init() {
     onCopyFromPage: handleCopyFromPage,
     onXpathCssCopyAll: handleXpathCssCopyAll,
     onXpathCssHighlightChange: handleXpathCssHighlightToggle,
+    onConfigEndpointInput: handleConfigEndpointInput,
+    onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
+    onConfigEndpointSet: handleConfigEndpointSet,
+    onConfigEndpointEditToggle: handleConfigEndpointEditToggle,
     onEndpointInput: handleEndpointInput,
     onEndpointKeyDown: handleEndpointKeyDown,
     onEndpointSet: handleEndpointSet,

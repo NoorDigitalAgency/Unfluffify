@@ -322,9 +322,10 @@ export function extractIncomingConfigs(parsed) {
   let includeGlobals = false;
   let globalToken = "";
   let globalEndpoint = "";
+  let globalConfigEndpoint = "";
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
   }
 
   if (parsed.configs && typeof parsed.configs === "object") {
@@ -332,17 +333,23 @@ export function extractIncomingConfigs(parsed) {
     includeGlobals = parsed.scope === "all";
     globalToken = parsed.globalToken || "";
     globalEndpoint = parsed.globalEndpoint || "";
-    if (!includeGlobals && ("globalToken" in parsed || "globalEndpoint" in parsed)) {
+    globalConfigEndpoint = parsed.globalConfigEndpoint || "";
+    if (
+      !includeGlobals &&
+      ("globalToken" in parsed ||
+        "globalEndpoint" in parsed ||
+        "globalConfigEndpoint" in parsed)
+    ) {
       includeGlobals = true;
     }
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
   }
 
   if (parsed.baseUrl && looksLikeBaseUrl(parsed.baseUrl)) {
     const config =
       parsed.config && typeof parsed.config === "object" ? parsed.config : parsed;
     incomingConfigs[parsed.baseUrl] = config;
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
   }
 
   Object.entries(parsed).forEach(([key, value]) => {
@@ -355,5 +362,5 @@ export function extractIncomingConfigs(parsed) {
     incomingConfigs[key] = value;
   });
 
-  return { incomingConfigs, includeGlobals, globalToken, globalEndpoint };
+  return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
 }
