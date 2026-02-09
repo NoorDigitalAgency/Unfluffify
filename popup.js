@@ -792,13 +792,14 @@ async function handleBasePageNavigate(url) {
   });
 }
 async function handleEnableToggle(event) {
+  const source = event && (event.currentTarget || event.target);
+  const desiredEnabled = source
+    ? Boolean(source.checked)
+    : uiModule.getViewState().toggleEnabled;
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
   }
-  const desiredEnabled = event
-    ? Boolean(event.target.checked)
-    : uiModule.getViewState().toggleEnabled;
   uiModule.setViewState({ toggleEnabled: desiredEnabled });
   if (!helpers.ensureBaseUrl("Set Base Page URL before enabling marking")) {
     uiModule.setViewState({ toggleEnabled: false });
@@ -851,12 +852,12 @@ async function handleEnableToggle(event) {
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {
+  const desiredEnabled = event && event.currentTarget
+    ? Boolean(event.currentTarget.checked)
+    : uiModule.getViewState().deviceEmulationEnabled;
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const desiredEnabled = event
-    ? Boolean(event.target.checked)
-    : uiModule.getViewState().deviceEmulationEnabled;
   uiModule.setViewState({ deviceEmulationEnabled: desiredEnabled });
   if (desiredEnabled === state.currentDeviceEmulationEnabled) {
     return;
@@ -869,10 +870,12 @@ async function handleDeviceEmulationEnabledToggle(event) {
 }
 
 async function handleDeviceModeToggle(event) {
+  const desiredMode = event && event.currentTarget
+    ? event.currentTarget.value
+    : uiModule.getViewState().deviceMode;
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const desiredMode = event && event.target ? event.target.value : uiModule.getViewState().deviceMode;
   if (!state.currentDeviceEmulationEnabled) {
     uiModule.setViewState({
       deviceEmulationEnabled: state.currentDeviceEmulationEnabled,
@@ -894,7 +897,9 @@ async function handleDeviceModeToggle(event) {
 }
 
 function handleDeviceScaleInput(event) {
-  const value = event && event.target ? event.target.value : uiModule.getViewState().deviceScale;
+  const value = event && event.currentTarget
+    ? event.currentTarget.value
+    : uiModule.getViewState().deviceScale;
   const scale = Number.parseFloat(value);
   if (!Number.isFinite(scale)) {
     return;
@@ -906,10 +911,12 @@ function handleDeviceScaleInput(event) {
 }
 
 async function handleDeviceScaleChange(event) {
+  const value = event && event.currentTarget
+    ? event.currentTarget.value
+    : uiModule.getViewState().deviceScale;
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const value = event && event.target ? event.target.value : uiModule.getViewState().deviceScale;
   const scale = Number.parseFloat(value);
   if (!Number.isFinite(scale)) {
     return;
@@ -1218,6 +1225,9 @@ async function handleBaseUrlSet() {
 }
 
 async function handlePagePatternChange(event) {
+  const selected = event && event.currentTarget
+    ? event.currentTarget.value
+    : uiModule.getViewState().pagePatternValue;
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
@@ -1225,7 +1235,6 @@ async function handlePagePatternChange(event) {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  const selected = event && event.target ? event.target.value : uiModule.getViewState().pagePatternValue;
   uiModule.setViewState({ pagePatternValue: selected });
   if (!selected) {
     uiModule.showToast("Choose a URL pattern");
@@ -1663,8 +1672,9 @@ async function handleXpathCssCopyAll() {
 }
 
 async function handleXpathCssHighlightToggle(event) {
-  const enabled = event
-    ? Boolean(event.target.checked)
+  const source = event && (event.currentTarget || event.target);
+  const enabled = source
+    ? Boolean(source.checked)
     : uiModule.getViewState().xpathCssHighlightChecked;
   await setXpathCssHighlight(enabled);
 }

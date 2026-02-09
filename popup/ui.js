@@ -1020,6 +1020,9 @@ export function setUiBusy(isBusy) {
 }
 
 export function setConfigMenuOpen(open) {
+  if (state.configMenuOpen === open) {
+    return;
+  }
   state.configMenuOpen = open;
   setViewState({ configMenuOpen: open });
 }
