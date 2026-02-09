@@ -197,27 +197,6 @@ function App({ state: view, actions: handlers }) {
             h(
               "button",
               {
-                id: "config-export-all",
-                type: "button",
-                role: "menuitem",
-                disabled: view.configExportAllDisabled,
-                onClick: handlers.onExportAll
-              },
-              "Export all"
-            ),
-            h(
-              "button",
-              {
-                id: "config-open-view",
-                type: "button",
-                role: "menuitem",
-                onClick: handlers.onOpenConfiguration
-              },
-              "Open configuration view"
-            ),
-            h(
-              "button",
-              {
                 id: "config-export-current",
                 type: "button",
                 role: "menuitem",
@@ -225,6 +204,17 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onExportCurrent
               },
               "Export current"
+            ),
+            h(
+              "button",
+              {
+                id: "config-export-all",
+                type: "button",
+                role: "menuitem",
+                disabled: view.configExportAllDisabled,
+                onClick: handlers.onExportAll
+              },
+              "Export all"
             ),
             h("div", { class: "config-divider", role: "separator" }),
             h(
@@ -237,6 +227,17 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onImport
               },
               "Import"
+            ),
+            h("div", { class: "config-divider", role: "separator" }),
+            h(
+              "button",
+              {
+                id: "config-open-view",
+                type: "button",
+                role: "menuitem",
+                onClick: handlers.onOpenConfiguration
+              },
+              "Open configuration view"
             ),
             h("div", { class: "config-divider", role: "separator" }),
             h(
