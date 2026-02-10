@@ -323,9 +323,21 @@ export function extractIncomingConfigs(parsed) {
   let globalToken = "";
   let globalEndpoint = "";
   let globalConfigEndpoint = "";
+  let globalLoginEndpoint = "";
+  let globalLoginUsername = "";
+  let globalLoginPassword = "";
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
+    return {
+      incomingConfigs,
+      includeGlobals,
+      globalToken,
+      globalEndpoint,
+      globalConfigEndpoint,
+      globalLoginEndpoint,
+      globalLoginUsername,
+      globalLoginPassword
+    };
   }
 
   if (parsed.configs && typeof parsed.configs === "object") {
@@ -334,22 +346,46 @@ export function extractIncomingConfigs(parsed) {
     globalToken = parsed.globalToken || "";
     globalEndpoint = parsed.globalEndpoint || "";
     globalConfigEndpoint = parsed.globalConfigEndpoint || "";
+    globalLoginEndpoint = parsed.globalLoginEndpoint || "";
+    globalLoginUsername = parsed.globalLoginUsername || "";
+    globalLoginPassword = parsed.globalLoginPassword || "";
     if (
       !includeGlobals &&
       ("globalToken" in parsed ||
         "globalEndpoint" in parsed ||
-        "globalConfigEndpoint" in parsed)
+        "globalConfigEndpoint" in parsed ||
+        "globalLoginEndpoint" in parsed ||
+        "globalLoginUsername" in parsed ||
+        "globalLoginPassword" in parsed)
     ) {
       includeGlobals = true;
     }
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
+    return {
+      incomingConfigs,
+      includeGlobals,
+      globalToken,
+      globalEndpoint,
+      globalConfigEndpoint,
+      globalLoginEndpoint,
+      globalLoginUsername,
+      globalLoginPassword
+    };
   }
 
   if (parsed.baseUrl && looksLikeBaseUrl(parsed.baseUrl)) {
     const config =
       parsed.config && typeof parsed.config === "object" ? parsed.config : parsed;
     incomingConfigs[parsed.baseUrl] = config;
-    return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
+    return {
+      incomingConfigs,
+      includeGlobals,
+      globalToken,
+      globalEndpoint,
+      globalConfigEndpoint,
+      globalLoginEndpoint,
+      globalLoginUsername,
+      globalLoginPassword
+    };
   }
 
   Object.entries(parsed).forEach(([key, value]) => {
@@ -362,5 +398,14 @@ export function extractIncomingConfigs(parsed) {
     incomingConfigs[key] = value;
   });
 
-  return { incomingConfigs, includeGlobals, globalToken, globalEndpoint, globalConfigEndpoint };
+  return {
+    incomingConfigs,
+    includeGlobals,
+    globalToken,
+    globalEndpoint,
+    globalConfigEndpoint,
+    globalLoginEndpoint,
+    globalLoginUsername,
+    globalLoginPassword
+  };
 }

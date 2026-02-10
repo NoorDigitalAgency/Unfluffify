@@ -19,6 +19,7 @@ export const state = {
   baseUrlEditMode: false,
   endpointEditMode: false,
   configEndpointEditMode: false,
+  loginEndpointEditMode: false,
   aiRequestInFlight: null,
   configMenuOpen: false,
   currentDeviceMode: "desktop",

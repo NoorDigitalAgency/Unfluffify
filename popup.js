@@ -216,6 +216,7 @@ async function refreshUi() {
     state.baseUrlEditMode = false;
     state.endpointEditMode = false;
     state.configEndpointEditMode = false;
+    state.loginEndpointEditMode = false;
     state.copySourceBaseUrl = "";
     state.copySourcePageUrl = "";
   }
@@ -304,13 +305,23 @@ async function refreshUi() {
   const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  const { tokenValue, endpointValue, configEndpointValue } =
+  const {
+    tokenValue,
+    endpointValue,
+    configEndpointValue,
+    loginEndpointValue,
+    loginUsernameValue,
+    loginPasswordValue
+  } =
     await helpers.loadGlobalAiSettings();
   if (!configEndpointValue) {
     state.configEndpointEditMode = false;
   }
   if (!endpointValue) {
     state.endpointEditMode = false;
+  }
+  if (!loginEndpointValue) {
+    state.loginEndpointEditMode = false;
   }
   const configEndpointSet = Boolean(configEndpointValue);
   const configEndpointField = getEditableFieldState({
@@ -336,9 +347,22 @@ async function refreshUi() {
     noticeEdit: "Set Endpoint URL to continue"
   });
   const endpointReady = endpointField.isReady;
+  const loginEndpointSet = Boolean(loginEndpointValue);
+  const loginEndpointField = getEditableFieldState({
+    inputRef: refs.loginEndpointUrlInput,
+    currentValue: view.loginEndpointUrlValue,
+    value: loginEndpointValue,
+    isSet: loginEndpointSet,
+    editMode: state.loginEndpointEditMode,
+    suggestedValue: loginEndpointValue,
+    noticeUnset: "Set Login Endpoint before signing in",
+    noticeEdit: "Set Login Endpoint to continue"
+  });
+  const loginEndpointReady = loginEndpointField.isReady;
+  const loginCredentialsEnabled = loginEndpointReady;
 
   const configurationComplete =
-    configEndpointReady && endpointReady && Boolean(tokenValue);
+    configEndpointReady && endpointReady && loginEndpointReady && Boolean(tokenValue);
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
   const latestComputed =
     (state.currentConfig && state.currentConfig.latestComputedSelectors) || [];
@@ -406,7 +430,7 @@ async function refreshUi() {
   nextViewState.configurationNoticeVisible = !configurationComplete;
   nextViewState.configurationNoticeText = configurationComplete
     ? ""
-    : "Provide the Configuration Endpoint, AI Endpoint, and token to continue.";
+    : "Provide Configuration Endpoint, AI Endpoint, Login Endpoint, then login to continue.";
 
   nextViewState.toggleEnabled = toggleEnabled;
   nextViewState.toggleEnabledDisabled = !baseUrlReady;
@@ -416,11 +440,26 @@ async function refreshUi() {
     aiBusy || !aiReady || !hasNewSelectors || aiBlockedByDraft;
   nextViewState.previewLatestButtonDisabled =
     aiBusy || !baseUrlReady || !hasStoredSelectors || aiBlockedByDraft;
-  nextViewState.tokenStatusText = tokenValue ? "Token saved" : "Token required";
-  nextViewState.tokenActionText = tokenValue ? "Change token" : "Set token";
-  nextViewState.aiTokenHidden = !endpointReady;
   nextViewState.aiControlsHidden = !endpointReady || !tokenValue;
-  nextViewState.tokenActionDisabled = aiBusy;
+  nextViewState.loginEndpointUrlValue = loginEndpointField.value;
+  nextViewState.loginEndpointUrlReadOnly = !loginEndpointField.isEditing;
+  nextViewState.loginEndpointSetVisible = loginEndpointField.isEditing;
+  nextViewState.loginEndpointEditVisible = loginEndpointSet;
+  nextViewState.loginEndpointEditText = state.loginEndpointEditMode ? "Cancel" : "Change";
+  nextViewState.loginEndpointNoticeText = loginEndpointField.noticeText;
+  nextViewState.loginEndpointNoticeVisible = loginEndpointField.noticeVisible;
+  nextViewState.loginEndpointInputDisabled = aiBusy;
+  nextViewState.loginEndpointSetDisabled = aiBusy;
+  nextViewState.loginEndpointEditDisabled = aiBusy;
+  nextViewState.loginUsernameValue = loginUsernameValue;
+  nextViewState.loginPasswordValue = loginPasswordValue;
+  nextViewState.loginCredentialsDisabled = aiBusy || !loginCredentialsEnabled;
+  nextViewState.loginStatusText = tokenValue ? "Token saved" : "Login required";
+  nextViewState.loginActionDisabled =
+    aiBusy ||
+    !loginCredentialsEnabled ||
+    !loginUsernameValue.trim() ||
+    !loginPasswordValue.trim();
   nextViewState.configEndpointUrlValue = configEndpointField.value;
   nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
   nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
@@ -717,6 +756,18 @@ function handleEndpointInput(event) {
   uiModule.setViewState({ endpointUrlValue: event.target.value });
 }
 
+function handleLoginEndpointInput(event) {
+  uiModule.setViewState({ loginEndpointUrlValue: event.target.value });
+}
+
+function handleLoginUsernameInput(event) {
+  uiModule.setViewState({ loginUsernameValue: event.target.value });
+}
+
+function handleLoginPasswordInput(event) {
+  uiModule.setViewState({ loginPasswordValue: event.target.value });
+}
+
 function handleBaseUrlKeyDown(event) {
   if (event.key !== "Enter") {
     return;
@@ -744,6 +795,24 @@ function handleEndpointKeyDown(event) {
   }
 }
 
+function handleLoginEndpointKeyDown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  if (!uiModule.getViewState().loginEndpointUrlReadOnly) {
+    handleLoginEndpointSet();
+  }
+}
+
+function handleLoginPasswordKeyDown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  if (!uiModule.getViewState().loginActionDisabled) {
+    handleLoginAction();
+  }
+}
+
 function handleConfigToggle(event) {
   event.stopPropagation();
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
@@ -761,9 +830,9 @@ async function handleOpenConfigurationView() {
 }
 
 async function maybeSwitchToMarkingView() {
-  const { tokenValue, endpointValue, configEndpointValue } =
+  const { tokenValue, endpointValue, configEndpointValue, loginEndpointValue } =
     await helpers.loadGlobalAiSettings();
-  if (tokenValue && endpointValue && configEndpointValue) {
+  if (tokenValue && endpointValue && configEndpointValue && loginEndpointValue) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
     uiModule.setViewState({ currentView: state.currentView });
@@ -1087,7 +1156,14 @@ async function handleExportAll() {
       state.currentConfig
     );
   }
-  const { tokenValue, endpointValue, configEndpointValue } =
+  const {
+    tokenValue,
+    endpointValue,
+    configEndpointValue,
+    loginEndpointValue,
+    loginUsernameValue,
+    loginPasswordValue
+  } =
     await helpers.loadGlobalAiSettings();
   const payload = {
     version: 1,
@@ -1095,7 +1171,10 @@ async function handleExportAll() {
     configs: normalizedConfigs,
     globalToken: tokenValue,
     globalEndpoint: endpointValue,
-    globalConfigEndpoint: configEndpointValue
+    globalConfigEndpoint: configEndpointValue,
+    globalLoginEndpoint: loginEndpointValue,
+    globalLoginUsername: loginUsernameValue,
+    globalLoginPassword: loginPasswordValue
   };
   const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
@@ -1198,7 +1277,10 @@ async function handleImportFile(event) {
     includeGlobals,
     globalToken,
     globalEndpoint,
-    globalConfigEndpoint
+    globalConfigEndpoint,
+    globalLoginEndpoint,
+    globalLoginUsername,
+    globalLoginPassword
   } = config.extractIncomingConfigs(parsed);
   const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
   if (!baseUrls.length) {
@@ -1224,7 +1306,10 @@ async function handleImportFile(event) {
     await utils.storageSet(chrome.storage.sync, {
       globalToken: globalToken || "",
       globalEndpoint: globalEndpoint || "",
-      globalConfigEndpoint: globalConfigEndpoint || ""
+      globalConfigEndpoint: globalConfigEndpoint || "",
+      globalLoginEndpoint: globalLoginEndpoint || "",
+      globalLoginUsername: globalLoginUsername || "",
+      globalLoginPassword: globalLoginPassword || ""
     });
     await maybeSwitchToMarkingView();
   }
@@ -1428,16 +1513,96 @@ async function handleEndpointEditToggle() {
   await refreshUi();
 }
 
-async function handleTokenBlur() {
-  const tokenResult = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const existing = tokenResult.globalToken || "";
-  const entered = window.prompt("Enter token", existing);
-  if (entered === null) {
+async function handleLoginEndpointSet() {
+  const endpointValue = uiModule.getViewState().loginEndpointUrlValue.trim();
+  if (!endpointValue) {
+    uiModule.showToast("Enter a Login Endpoint URL");
     return;
   }
-  const token = entered.trim();
-  await utils.storageSet(chrome.storage.sync, { globalToken: token });
-  uiModule.showToast(token ? "Token saved" : "Token cleared");
+  try {
+    new URL(endpointValue);
+  } catch (error) {
+    uiModule.showToast("Enter a valid Login Endpoint URL");
+    return;
+  }
+  await utils.storageSet(chrome.storage.sync, { globalLoginEndpoint: endpointValue });
+  state.loginEndpointEditMode = false;
+  await maybeSwitchToMarkingView();
+  await refreshUi();
+}
+
+async function handleLoginEndpointEditToggle() {
+  state.loginEndpointEditMode = !state.loginEndpointEditMode;
+  await refreshUi();
+}
+
+async function handleLoginAction() {
+  const view = uiModule.getViewState();
+  const endpointValue = view.loginEndpointUrlValue.trim();
+  const username = view.loginUsernameValue.trim();
+  const password = view.loginPasswordValue;
+
+  if (!endpointValue) {
+    uiModule.showToast("Set Login Endpoint URL first");
+    return;
+  }
+  if (!username) {
+    uiModule.showToast("Enter username");
+    return;
+  }
+  if (!password.trim()) {
+    uiModule.showToast("Enter password");
+    return;
+  }
+
+  await utils.storageSet(chrome.storage.sync, {
+    globalLoginEndpoint: endpointValue,
+    globalLoginUsername: username,
+    globalLoginPassword: password
+  });
+  state.aiRequestInFlight = "login";
+  await refreshUi();
+  try {
+    const response = await fetch(endpointValue, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ username, password })
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      const errorText =
+        (payload && typeof payload.error === "string" && payload.error) ||
+        (payload && typeof payload.message === "string" && payload.message) ||
+        `Login failed (${response.status})`;
+      uiModule.showToast(errorText);
+      return;
+    }
+    const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
+    if (!token) {
+      uiModule.showToast("Login response did not include token");
+      return;
+    }
+
+    await utils.storageSet(chrome.storage.sync, {
+      globalLoginEndpoint: endpointValue,
+      globalLoginUsername: username,
+      globalLoginPassword: password,
+      globalToken: token
+    });
+    uiModule.showToast("Login successful");
+  } catch (error) {
+    uiModule.showToast("Login request failed");
+  } finally {
+    state.aiRequestInFlight = null;
+  }
   await maybeSwitchToMarkingView();
   await refreshUi();
 }
@@ -1447,6 +1612,7 @@ async function handleContextRefresh() {
   state.baseUrlEditMode = false;
   state.endpointEditMode = false;
   state.configEndpointEditMode = false;
+  state.loginEndpointEditMode = false;
   if (tab && tab.id) {
     const tabState = await utils.getTabState(tab.id);
     if (tabState && tabState.enabled) {
@@ -2053,7 +2219,14 @@ async function init() {
     onEndpointKeyDown: handleEndpointKeyDown,
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
-    onTokenAction: handleTokenBlur,
+    onLoginEndpointInput: handleLoginEndpointInput,
+    onLoginEndpointKeyDown: handleLoginEndpointKeyDown,
+    onLoginEndpointSet: handleLoginEndpointSet,
+    onLoginEndpointEditToggle: handleLoginEndpointEditToggle,
+    onLoginUsernameInput: handleLoginUsernameInput,
+    onLoginPasswordInput: handleLoginPasswordInput,
+    onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
+    onLoginAction: handleLoginAction,
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,

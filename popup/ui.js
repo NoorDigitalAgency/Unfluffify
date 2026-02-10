@@ -85,10 +85,21 @@ const initialViewState = {
   configEndpointInputDisabled: false,
   configEndpointSetDisabled: false,
   configEndpointEditDisabled: false,
-  tokenStatusText: "",
-  tokenActionText: "Set token",
-  tokenActionDisabled: false,
-  aiTokenHidden: true,
+  loginEndpointUrlValue: "",
+  loginEndpointUrlReadOnly: true,
+  loginEndpointSetVisible: true,
+  loginEndpointEditVisible: false,
+  loginEndpointEditText: "Change",
+  loginEndpointNoticeText: "",
+  loginEndpointNoticeVisible: false,
+  loginEndpointInputDisabled: false,
+  loginEndpointSetDisabled: false,
+  loginEndpointEditDisabled: false,
+  loginUsernameValue: "",
+  loginPasswordValue: "",
+  loginCredentialsDisabled: true,
+  loginStatusText: "",
+  loginActionDisabled: false,
   aiControlsHidden: true,
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
@@ -943,8 +954,8 @@ function renderMarkingView({state: view, actions: handlers}) {
 
 function renderConfigurationView({state: view, actions: handlers}) {
     return h(
-        "div",
-        {},
+        Fragment,
+        null,
         h(
             "section",
             {class: "card"},
@@ -952,7 +963,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
             h(
                 "div",
                 {class: "hint"},
-                "Set the endpoints and token to enable Marking features."
+                "Set endpoints, login credentials, and sign in to enable Marking features."
             ),
             h(
                 "div",
@@ -1084,34 +1095,109 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     )
                 )
             ),
+        ),
+        h(
+            "section",
+            {class: "card"},
+            h("div", {class: "section-title"}, "AI settings"),
             h(
-                "div",
-                {
-                    id: "endpoint-notice",
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.endpointNoticeVisible
-                },
-                view.endpointNoticeText
-            ),
-            h(
-                "label",
-                {id: "ai-token", class: "field"},
-                h("span", null, "Token"),
+                Fragment,
+                null,
+                h(
+                    "label",
+                    {class: "field"},
+                    h("span", null, "Login Endpoint URL"),
+                    h(
+                        "div",
+                        {class: "input-row"},
+                        h("input", {
+                            id: "login-endpoint-url",
+                            type: "text",
+                            placeholder: "https://example.com/login",
+                            readOnly: view.loginEndpointUrlReadOnly,
+                            value: view.loginEndpointUrlValue,
+                            disabled: view.loginEndpointInputDisabled,
+                            onInput: handlers.onLoginEndpointInput,
+                            onKeyDown: handlers.onLoginEndpointKeyDown,
+                            ref: (el) => {
+                                refs.loginEndpointUrlInput = el;
+                            }
+                        }),
+                        h(
+                            "button",
+                            {
+                                id: "login-endpoint-url-set",
+                                type: "button",
+                                style: {display: view.loginEndpointSetVisible ? "inline-flex" : "none"},
+                                disabled: view.loginEndpointSetDisabled,
+                                onClick: handlers.onLoginEndpointSet
+                            },
+                            "Set"
+                        ),
+                        h(
+                            "button",
+                            {
+                                id: "login-endpoint-url-edit",
+                                type: "button",
+                                style: {display: view.loginEndpointEditVisible ? "inline-flex" : "none"},
+                                disabled: view.loginEndpointEditDisabled,
+                                onClick: handlers.onLoginEndpointEditToggle
+                            },
+                            view.loginEndpointEditText
+                        )
+                    )
+                ),
+                h(
+                    "div",
+                    {
+                        id: "login-endpoint-notice",
+                        class: "notice",
+                        role: "status",
+                        "aria-live": "polite",
+                        hidden: !view.loginEndpointNoticeVisible
+                    },
+                    view.loginEndpointNoticeText
+                ),
+                h(
+                    "label",
+                    {class: "field"},
+                    h("span", null, "Username"),
+                    h("input", {
+                        id: "login-username",
+                        type: "text",
+                        placeholder: "username",
+                        value: view.loginUsernameValue,
+                        disabled: view.loginCredentialsDisabled,
+                        onInput: handlers.onLoginUsernameInput
+                    })
+                ),
+                h(
+                    "label",
+                    {class: "field"},
+                    h("span", null, "Password"),
+                    h("input", {
+                        id: "login-password",
+                        type: "password",
+                        placeholder: "password",
+                        value: view.loginPasswordValue,
+                        disabled: view.loginCredentialsDisabled,
+                        onInput: handlers.onLoginPasswordInput,
+                        onKeyDown: handlers.onLoginPasswordKeyDown
+                    })
+                ),
                 h(
                     "div",
                     {class: "token-row"},
-                    h("span", {id: "token-status", class: "token-status"}, view.tokenStatusText),
+                    h("span", {id: "token-status", class: "token-status"}, view.loginStatusText),
                     h(
                         "button",
                         {
-                            id: "token-action",
+                            id: "login-action",
                             type: "button",
-                            disabled: view.tokenActionDisabled,
-                            onClick: handlers.onTokenAction
+                            disabled: view.loginActionDisabled,
+                            onClick: handlers.onLoginAction
                         },
-                        view.tokenActionText
+                        "Login"
                     )
                 )
             )
