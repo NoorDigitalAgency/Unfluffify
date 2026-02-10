@@ -324,8 +324,6 @@ export function extractIncomingConfigs(parsed) {
   let globalEndpoint = "";
   let globalConfigEndpoint = "";
   let globalLoginEndpoint = "";
-  let globalLoginUsername = "";
-  let globalLoginPassword = "";
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
@@ -334,9 +332,7 @@ export function extractIncomingConfigs(parsed) {
       globalToken,
       globalEndpoint,
       globalConfigEndpoint,
-      globalLoginEndpoint,
-      globalLoginUsername,
-      globalLoginPassword
+      globalLoginEndpoint
     };
   }
 
@@ -347,16 +343,12 @@ export function extractIncomingConfigs(parsed) {
     globalEndpoint = parsed.globalEndpoint || "";
     globalConfigEndpoint = parsed.globalConfigEndpoint || "";
     globalLoginEndpoint = parsed.globalLoginEndpoint || "";
-    globalLoginUsername = parsed.globalLoginUsername || "";
-    globalLoginPassword = parsed.globalLoginPassword || "";
     if (
       !includeGlobals &&
       ("globalToken" in parsed ||
         "globalEndpoint" in parsed ||
         "globalConfigEndpoint" in parsed ||
-        "globalLoginEndpoint" in parsed ||
-        "globalLoginUsername" in parsed ||
-        "globalLoginPassword" in parsed)
+        "globalLoginEndpoint" in parsed)
     ) {
       includeGlobals = true;
     }
@@ -366,9 +358,7 @@ export function extractIncomingConfigs(parsed) {
       globalToken,
       globalEndpoint,
       globalConfigEndpoint,
-      globalLoginEndpoint,
-      globalLoginUsername,
-      globalLoginPassword
+      globalLoginEndpoint
     };
   }
 
@@ -382,9 +372,7 @@ export function extractIncomingConfigs(parsed) {
       globalToken,
       globalEndpoint,
       globalConfigEndpoint,
-      globalLoginEndpoint,
-      globalLoginUsername,
-      globalLoginPassword
+      globalLoginEndpoint
     };
   }
 
@@ -404,8 +392,6 @@ export function extractIncomingConfigs(parsed) {
     globalToken,
     globalEndpoint,
     globalConfigEndpoint,
-    globalLoginEndpoint,
-    globalLoginUsername,
-    globalLoginPassword
+    globalLoginEndpoint
   };
 }

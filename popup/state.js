@@ -36,5 +36,8 @@ export const state = {
   clearDomainCacheDisabled: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
-  configViewLocked: false
+  configViewLocked: false,
+  tokenValidationInFlight: false,
+  lastTokenValidationAt: 0,
+  tokenValidationTimer: 0
 };

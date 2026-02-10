@@ -11,6 +11,69 @@ import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
 
 const { state } = stateModule;
+const TOKEN_VALIDATION_INTERVAL_MS = 60 * 1000;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(value) {
+  return EMAIL_REGEX.test(value);
+}
+
+function resolveRelativeEndpoint(baseUrl, path) {
+  try {
+    return new URL(path, baseUrl).toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+async function invalidateTokenAndLockConfiguration(showToast = true) {
+  await utils.storageSet(chrome.storage.sync, { globalToken: "" });
+  state.currentView = uiModule.View.Configuration;
+  state.configViewLocked = true;
+  uiModule.setViewState({
+    currentView: state.currentView,
+    loginStatusText: "Login required"
+  });
+  if (showToast) {
+    uiModule.showToast("Token expired. Login required");
+  }
+}
+
+async function validateStoredToken(options = {}) {
+  const { force = false, showToastOnInvalid = true } = options;
+  if (state.tokenValidationInFlight) {
+    return true;
+  }
+  const { tokenValue, loginEndpointValue } = await helpers.loadGlobalAiSettings();
+  if (!tokenValue || !loginEndpointValue) {
+    return Boolean(tokenValue);
+  }
+  const now = Date.now();
+  if (!force && now - state.lastTokenValidationAt < TOKEN_VALIDATION_INTERVAL_MS) {
+    return true;
+  }
+  const claimsUrl = resolveRelativeEndpoint(loginEndpointValue, "/api/account/getuserclaims");
+  if (!claimsUrl) {
+    return true;
+  }
+  state.lastTokenValidationAt = now;
+  state.tokenValidationInFlight = true;
+  try {
+    const response = await fetch(claimsUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${tokenValue}` }
+    });
+    if (response.status === 401 || response.status === 403) {
+      await invalidateTokenAndLockConfiguration(showToastOnInvalid);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    return true;
+  } finally {
+    state.tokenValidationInFlight = false;
+  }
+}
 
 async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
@@ -211,6 +274,7 @@ async function refreshUi() {
   if (!state.currentTab) {
     return;
   }
+  await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
   if (currentTabId && state.lastTabId !== currentTabId) {
     state.baseUrlEditMode = false;
@@ -309,11 +373,11 @@ async function refreshUi() {
     tokenValue,
     endpointValue,
     configEndpointValue,
-    loginEndpointValue,
-    loginUsernameValue,
-    loginPasswordValue
+    loginEndpointValue
   } =
     await helpers.loadGlobalAiSettings();
+  const loginEmailValue = view.loginEmailValue || "";
+  const loginPasswordValue = view.loginPasswordValue || "";
   if (!configEndpointValue) {
     state.configEndpointEditMode = false;
   }
@@ -451,14 +515,14 @@ async function refreshUi() {
   nextViewState.loginEndpointInputDisabled = aiBusy;
   nextViewState.loginEndpointSetDisabled = aiBusy;
   nextViewState.loginEndpointEditDisabled = aiBusy;
-  nextViewState.loginUsernameValue = loginUsernameValue;
+  nextViewState.loginEmailValue = loginEmailValue;
   nextViewState.loginPasswordValue = loginPasswordValue;
   nextViewState.loginCredentialsDisabled = aiBusy || !loginCredentialsEnabled;
   nextViewState.loginStatusText = tokenValue ? "Token saved" : "Login required";
   nextViewState.loginActionDisabled =
     aiBusy ||
     !loginCredentialsEnabled ||
-    !loginUsernameValue.trim() ||
+    !isValidEmail(loginEmailValue.trim()) ||
     !loginPasswordValue.trim();
   nextViewState.configEndpointUrlValue = configEndpointField.value;
   nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
@@ -760,8 +824,8 @@ function handleLoginEndpointInput(event) {
   uiModule.setViewState({ loginEndpointUrlValue: event.target.value });
 }
 
-function handleLoginUsernameInput(event) {
-  uiModule.setViewState({ loginUsernameValue: event.target.value });
+function handleLoginEmailInput(event) {
+  uiModule.setViewState({ loginEmailValue: event.target.value });
 }
 
 function handleLoginPasswordInput(event) {
@@ -830,9 +894,13 @@ async function handleOpenConfigurationView() {
 }
 
 async function maybeSwitchToMarkingView() {
+  const tokenIsValid = await validateStoredToken({
+    force: true,
+    showToastOnInvalid: false
+  });
   const { tokenValue, endpointValue, configEndpointValue, loginEndpointValue } =
     await helpers.loadGlobalAiSettings();
-  if (tokenValue && endpointValue && configEndpointValue && loginEndpointValue) {
+  if (tokenIsValid && tokenValue && endpointValue && configEndpointValue && loginEndpointValue) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
     uiModule.setViewState({ currentView: state.currentView });
@@ -1160,9 +1228,7 @@ async function handleExportAll() {
     tokenValue,
     endpointValue,
     configEndpointValue,
-    loginEndpointValue,
-    loginUsernameValue,
-    loginPasswordValue
+    loginEndpointValue
   } =
     await helpers.loadGlobalAiSettings();
   const payload = {
@@ -1172,9 +1238,7 @@ async function handleExportAll() {
     globalToken: tokenValue,
     globalEndpoint: endpointValue,
     globalConfigEndpoint: configEndpointValue,
-    globalLoginEndpoint: loginEndpointValue,
-    globalLoginUsername: loginUsernameValue,
-    globalLoginPassword: loginPasswordValue
+    globalLoginEndpoint: loginEndpointValue
   };
   const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
   chromeHelpers.downloadJsonFile(filename, payload);
@@ -1278,9 +1342,7 @@ async function handleImportFile(event) {
     globalToken,
     globalEndpoint,
     globalConfigEndpoint,
-    globalLoginEndpoint,
-    globalLoginUsername,
-    globalLoginPassword
+    globalLoginEndpoint
   } = config.extractIncomingConfigs(parsed);
   const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
   if (!baseUrls.length) {
@@ -1307,9 +1369,7 @@ async function handleImportFile(event) {
       globalToken: globalToken || "",
       globalEndpoint: globalEndpoint || "",
       globalConfigEndpoint: globalConfigEndpoint || "",
-      globalLoginEndpoint: globalLoginEndpoint || "",
-      globalLoginUsername: globalLoginUsername || "",
-      globalLoginPassword: globalLoginPassword || ""
+      globalLoginEndpoint: globalLoginEndpoint || ""
     });
     await maybeSwitchToMarkingView();
   }
@@ -1525,8 +1585,20 @@ async function handleLoginEndpointSet() {
     uiModule.showToast("Enter a valid Login Endpoint URL");
     return;
   }
-  await utils.storageSet(chrome.storage.sync, { globalLoginEndpoint: endpointValue });
+  const stored = await utils.storageGet(chrome.storage.sync, [
+    "globalLoginEndpoint",
+    "globalToken"
+  ]);
+  const previousEndpoint = (stored && stored.globalLoginEndpoint) || "";
+  const hasToken = Boolean(stored && stored.globalToken);
+  await utils.storageSet(chrome.storage.sync, {
+    globalLoginEndpoint: endpointValue,
+    globalToken: previousEndpoint !== endpointValue && hasToken ? "" : stored.globalToken || ""
+  });
   state.loginEndpointEditMode = false;
+  if (previousEndpoint !== endpointValue && hasToken) {
+    uiModule.showToast("Login endpoint changed. Login required");
+  }
   await maybeSwitchToMarkingView();
   await refreshUi();
 }
@@ -1539,15 +1611,15 @@ async function handleLoginEndpointEditToggle() {
 async function handleLoginAction() {
   const view = uiModule.getViewState();
   const endpointValue = view.loginEndpointUrlValue.trim();
-  const username = view.loginUsernameValue.trim();
+  const email = view.loginEmailValue.trim();
   const password = view.loginPasswordValue;
 
   if (!endpointValue) {
     uiModule.showToast("Set Login Endpoint URL first");
     return;
   }
-  if (!username) {
-    uiModule.showToast("Enter username");
+  if (!isValidEmail(email)) {
+    uiModule.showToast("Enter a valid email");
     return;
   }
   if (!password.trim()) {
@@ -1555,20 +1627,20 @@ async function handleLoginAction() {
     return;
   }
 
-  await utils.storageSet(chrome.storage.sync, {
-    globalLoginEndpoint: endpointValue,
-    globalLoginUsername: username,
-    globalLoginPassword: password
-  });
   state.aiRequestInFlight = "login";
   await refreshUi();
   try {
-    const response = await fetch(endpointValue, {
+    const loginUrl = resolveRelativeEndpoint(endpointValue, "/api/account/login");
+    if (!loginUrl) {
+      uiModule.showToast("Enter a valid Login Endpoint URL");
+      return;
+    }
+    const response = await fetch(loginUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ email, password })
     });
     let payload = null;
     try {
@@ -1593,10 +1665,9 @@ async function handleLoginAction() {
 
     await utils.storageSet(chrome.storage.sync, {
       globalLoginEndpoint: endpointValue,
-      globalLoginUsername: username,
-      globalLoginPassword: password,
       globalToken: token
     });
+    uiModule.setViewState({ loginPasswordValue: "" });
     uiModule.showToast("Login successful");
   } catch (error) {
     uiModule.showToast("Login request failed");
@@ -2223,7 +2294,7 @@ async function init() {
     onLoginEndpointKeyDown: handleLoginEndpointKeyDown,
     onLoginEndpointSet: handleLoginEndpointSet,
     onLoginEndpointEditToggle: handleLoginEndpointEditToggle,
-    onLoginUsernameInput: handleLoginUsernameInput,
+    onLoginEmailInput: handleLoginEmailInput,
     onLoginPasswordInput: handleLoginPasswordInput,
     onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
     onLoginAction: handleLoginAction,
@@ -2338,6 +2409,16 @@ async function init() {
       scheduleRefresh();
     }
   });
+
+  if (state.tokenValidationTimer) {
+    window.clearInterval(state.tokenValidationTimer);
+  }
+  state.tokenValidationTimer = window.setInterval(async () => {
+    const isValid = await validateStoredToken({ force: true, showToastOnInvalid: true });
+    if (!isValid) {
+      await refreshUi();
+    }
+  }, TOKEN_VALIDATION_INTERVAL_MS);
 
   await refreshUi();
 }

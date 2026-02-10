@@ -295,6 +295,7 @@ button.button-small {
 }
 
 input[type="text"],
+input[type="email"],
 input[type="password"] {
   padding: 8px 10px;
   border: 1px solid var(--line);

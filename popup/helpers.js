@@ -75,20 +75,12 @@ export async function updateDeviceEmulation({ enabled, mode, scale }) {
 }
 
 export async function loadGlobalAiSettings() {
-  const [
-    tokenResult,
-    endpointResult,
-    configEndpointResult,
-    loginEndpointResult,
-    loginUsernameResult,
-    loginPasswordResult
-  ] = await Promise.all([
+  const [tokenResult, endpointResult, configEndpointResult, loginEndpointResult] =
+    await Promise.all([
     utils.storageGet(chrome.storage.sync, "globalToken"),
     utils.storageGet(chrome.storage.sync, "globalEndpoint"),
     utils.storageGet(chrome.storage.sync, "globalConfigEndpoint"),
-    utils.storageGet(chrome.storage.sync, "globalLoginEndpoint"),
-    utils.storageGet(chrome.storage.sync, "globalLoginUsername"),
-    utils.storageGet(chrome.storage.sync, "globalLoginPassword")
+    utils.storageGet(chrome.storage.sync, "globalLoginEndpoint")
   ]);
   return {
     tokenValue: (tokenResult && tokenResult.globalToken) || "",
@@ -96,11 +88,7 @@ export async function loadGlobalAiSettings() {
     configEndpointValue:
       (configEndpointResult && configEndpointResult.globalConfigEndpoint) || "",
     loginEndpointValue:
-      (loginEndpointResult && loginEndpointResult.globalLoginEndpoint) || "",
-    loginUsernameValue:
-      (loginUsernameResult && loginUsernameResult.globalLoginUsername) || "",
-    loginPasswordValue:
-      (loginPasswordResult && loginPasswordResult.globalLoginPassword) || ""
+      (loginEndpointResult && loginEndpointResult.globalLoginEndpoint) || ""
   };
 }
 

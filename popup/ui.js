@@ -95,7 +95,7 @@ const initialViewState = {
   loginEndpointInputDisabled: false,
   loginEndpointSetDisabled: false,
   loginEndpointEditDisabled: false,
-  loginUsernameValue: "",
+  loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
   loginStatusText: "",
@@ -333,8 +333,8 @@ function renderMarkingView({state: view, actions: handlers}) {
     const previewClass = classNames("full-width", "margin-above");
 
     return h(
-        "div",
-        {},
+        Fragment,
+        null,
         h(
             "section",
             {class: "card"},
@@ -1161,14 +1161,14 @@ function renderConfigurationView({state: view, actions: handlers}) {
                 h(
                     "label",
                     {class: "field"},
-                    h("span", null, "Username"),
+                    h("span", null, "Email"),
                     h("input", {
-                        id: "login-username",
-                        type: "text",
-                        placeholder: "username",
-                        value: view.loginUsernameValue,
+                        id: "login-email",
+                        type: "email",
+                        placeholder: "name@example.com",
+                        value: view.loginEmailValue,
                         disabled: view.loginCredentialsDisabled,
-                        onInput: handlers.onLoginUsernameInput
+                        onInput: handlers.onLoginEmailInput
                     })
                 ),
                 h(
