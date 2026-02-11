@@ -1,6 +1,79 @@
 import { normalizePatternValue } from "./patterns.js";
 import { looksLikeBaseUrl, idbGet, idbSet } from "./utilities.js";
 
+function normalizeUniqueXpathList(list) {
+  const values = [];
+  const seen = new Set();
+  let changed = false;
+  for (const value of Array.isArray(list) ? list : []) {
+    if (typeof value !== "string") {
+      changed = true;
+      continue;
+    }
+    const xpath = value.trim();
+    if (!xpath) {
+      changed = true;
+      continue;
+    }
+    if (xpath !== value) {
+      changed = true;
+    }
+    if (seen.has(xpath)) {
+      changed = true;
+      continue;
+    }
+    seen.add(xpath);
+    values.push(xpath);
+  }
+  return { values, changed };
+}
+
+function normalizeXpathItems(rawXpaths) {
+  const parsed = [];
+  let changed = false;
+  for (const item of Array.isArray(rawXpaths) ? rawXpaths : []) {
+    if (typeof item === "string") {
+      const xpath = item.trim();
+      if (!xpath) {
+        changed = true;
+        continue;
+      }
+      if (xpath !== item) {
+        changed = true;
+      }
+      changed = true;
+      parsed.push({ xpath, excluded: true });
+      continue;
+    }
+    if (item && typeof item.xpath === "string") {
+      const xpath = item.xpath.trim();
+      if (!xpath) {
+        changed = true;
+        continue;
+      }
+      const excluded = Boolean(item.excluded);
+      if (xpath !== item.xpath || item.excluded !== excluded) {
+        changed = true;
+      }
+      parsed.push({ xpath, excluded });
+      continue;
+    }
+    changed = true;
+  }
+  const seen = new Set();
+  const values = [];
+  for (let i = parsed.length - 1; i >= 0; i -= 1) {
+    const item = parsed[i];
+    if (seen.has(item.xpath)) {
+      changed = true;
+      continue;
+    }
+    seen.add(item.xpath);
+    values.unshift(item);
+  }
+  return { values, changed };
+}
+
 export function createDefaultConfig(baseUrl) {
   let domain = "";
   try {
@@ -31,19 +104,11 @@ export function normalizePageMarkings(pageMarkings) {
       return;
     }
     const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-    const xpaths = rawXpaths
-      .map((item) => {
-        if (typeof item === "string") {
-          changed = true;
-          return { xpath: item, excluded: true };
-        }
-        if (item && typeof item.xpath === "string") {
-          return { xpath: item.xpath, excluded: Boolean(item.excluded) };
-        }
-        changed = true;
-        return null;
-      })
-      .filter(Boolean);
+    const normalizedXpaths = normalizeXpathItems(rawXpaths);
+    const xpaths = normalizedXpaths.values;
+    if (normalizedXpaths.changed) {
+      changed = true;
+    }
     const rawPattern =
       typeof entry.pagePattern === "string"
         ? entry.pagePattern
@@ -86,8 +151,11 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.consentXPaths) {
       changed = true;
     }
-    const consentXpaths = rawConsent
-      .filter((xpath) => typeof xpath === "string" && xpath.length > 0);
+    const consentResult = normalizeUniqueXpathList(rawConsent);
+    const consentXpaths = consentResult.values;
+    if (consentResult.changed) {
+      changed = true;
+    }
     const rawInclude =
       Array.isArray(entry.includeXpaths)
         ? entry.includeXpaths
@@ -97,8 +165,11 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.explicitIncludeXpaths) {
       changed = true;
     }
-    const includeXpaths = rawInclude
-      .filter((xpath) => typeof xpath === "string" && xpath.length > 0);
+    const includeResult = normalizeUniqueXpathList(rawInclude);
+    const includeXpaths = includeResult.values;
+    if (includeResult.changed) {
+      changed = true;
+    }
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,

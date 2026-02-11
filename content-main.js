@@ -674,7 +674,26 @@ export function main() {
         } else {
           targetItem.excluded = !targetItem.excluded;
         }
+        if (targetItem.excluded) {
+          for (let i = items.length - 1; i >= 0; i -= 1) {
+            const item = items[i];
+            if (!item || !item.xpath || item.xpath === xpath) {
+              continue;
+            }
+            const existingEl = core.getElementFromXPath(item.xpath);
+            if (
+              (existingEl && target.contains(existingEl)) ||
+              core.isXPathDescendant(xpath, item.xpath)
+            ) {
+              items.splice(i, 1);
+            }
+          }
+          if (Array.isArray(entry.includeXpaths)) {
+            entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
+          }
+        }
         entry.xpaths = items;
+        core.normalizePageEntryXpaths(entry);
         config.pageMarkings[location.href] = entry;
         if (useStateConfig) {
           state.config = config;
@@ -853,10 +872,26 @@ export function main() {
       } else {
         targetItem.excluded = excluded;
       }
+      const target = core.getElementFromXPath(xpath);
+      if (excluded) {
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (!item || !item.xpath || item.xpath === xpath) {
+            continue;
+          }
+          const existingEl = core.getElementFromXPath(item.xpath);
+          const withinTarget =
+            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, item.xpath);
+          if (withinTarget) {
+            items.splice(i, 1);
+          }
+        }
+      }
       if (excluded && Array.isArray(entry.includeXpaths)) {
         entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
       }
       entry.xpaths = items;
+      core.normalizePageEntryXpaths(entry);
       state.config.pageMarkings[location.href] = entry;
       core.scheduleRender();
       core.scheduleSnapshotSave();
@@ -885,40 +920,37 @@ export function main() {
           includeXpaths.push(xpath);
         }
         const target = core.getElementFromXPath(xpath);
-        if (target) {
-          const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-          for (let i = items.length - 1; i >= 0; i -= 1) {
-            const item = items[i];
-            if (!item || !item.xpath || item.xpath === xpath) {
-              continue;
-            }
-            const existingEl = core.getElementFromXPath(item.xpath);
-            if (!existingEl) {
-              continue;
-            }
-            if (target.contains(existingEl)) {
-              items.splice(i, 1);
-            }
+        const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (!item || !item.xpath || item.xpath === xpath) {
+            continue;
           }
-          entry.xpaths = items;
-          for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-            const childXpath = includeXpaths[i];
-            if (!childXpath || childXpath === xpath) {
-              continue;
-            }
-            const existingEl = core.getElementFromXPath(childXpath);
-            if (!existingEl) {
-              continue;
-            }
-            if (target.contains(existingEl)) {
-              includeXpaths.splice(i, 1);
-            }
+          const existingEl = core.getElementFromXPath(item.xpath);
+          const withinTarget =
+            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, item.xpath);
+          if (withinTarget) {
+            items.splice(i, 1);
+          }
+        }
+        entry.xpaths = items;
+        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+          const childXpath = includeXpaths[i];
+          if (!childXpath || childXpath === xpath) {
+            continue;
+          }
+          const existingEl = core.getElementFromXPath(childXpath);
+          const withinTarget =
+            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, childXpath);
+          if (withinTarget) {
+            includeXpaths.splice(i, 1);
           }
         }
       } else if (existingIndex >= 0) {
         includeXpaths.splice(existingIndex, 1);
       }
       entry.includeXpaths = includeXpaths;
+      core.normalizePageEntryXpaths(entry);
       state.config.pageMarkings[location.href] = entry;
       core.scheduleRender();
       core.scheduleSnapshotSave();

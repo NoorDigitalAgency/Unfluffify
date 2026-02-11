@@ -330,7 +330,7 @@ function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
-function isXPathDescendant(parentXpath, childXpath) {
+export function isXPathDescendant(parentXpath, childXpath) {
   if (!parentXpath || !childXpath) {
     return false;
   }
@@ -610,6 +610,57 @@ function collectExcludedXPaths(items) {
     }
   }
   return results;
+}
+
+function normalizeXPathItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (!item || typeof item.xpath !== "string") {
+      continue;
+    }
+    const xpath = item.xpath.trim();
+    if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    normalized.unshift({ xpath, excluded: Boolean(item.excluded) });
+  }
+  return normalized;
+}
+
+function normalizeXPathList(list) {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  for (const value of list) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const xpath = value.trim();
+    if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    normalized.push(xpath);
+  }
+  return normalized;
+}
+
+export function normalizePageEntryXpaths(entry) {
+  if (!entry || typeof entry !== "object") {
+    return entry;
+  }
+  entry.xpaths = normalizeXPathItems(entry.xpaths);
+  entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
+  entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
+  return entry;
 }
 
 function getExcludedXPathSet(config, pageUrl) {
@@ -1480,10 +1531,10 @@ function toggleExplicitExclude(target) {
         continue;
       }
       const existingEl = getElementFromXPath(item.xpath);
-      if (!existingEl) {
-        continue;
-      }
-      if (target.contains(existingEl)) {
+      if (
+        (existingEl && target.contains(existingEl)) ||
+        (!existingEl && isXPathDescendant(currentXPath, item.xpath))
+      ) {
         items.splice(i, 1);
       }
     }
@@ -1507,6 +1558,7 @@ function toggleExplicitExclude(target) {
   }
 
   entry.xpaths = items;
+  normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
   scheduleRender();
@@ -1564,6 +1616,7 @@ function toggleExplicitInclude(target) {
 
   entry.includeXpaths = includeXpaths;
   entry.xpaths = items;
+  normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
   scheduleRender();
@@ -2239,31 +2292,16 @@ export function clonePageEntry(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
   }
-  const xpaths = Array.isArray(entry.xpaths)
-      ? entry.xpaths
-          .map((item) => {
-            if (!item || typeof item.xpath !== "string") {
-              return null;
-            }
-            return { xpath: item.xpath, excluded: Boolean(item.excluded) };
-          })
-          .filter(Boolean)
-      : [];
-  const consentXpaths = Array.isArray(entry.consentXpaths)
-      ? entry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-      : [];
-  const includeXpaths = Array.isArray(entry.includeXpaths)
-      ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-      : [];
-  return {
+  const cloned = {
     url: entry.url || "",
     title: entry.title || "",
-    xpaths,
-    consentXpaths,
-    includeXpaths,
+    xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
+    consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
+    includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     pagePattern: patterns.normalizePatternValue(entry.pagePattern || ""),
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
   };
+  return normalizePageEntryXpaths(cloned);
 }
 
 export function copyEntryXpathsToPage(config, pageUrl, sourceEntry) {
@@ -2551,10 +2589,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
   }
   const existing = config.pageMarkings[pageUrl];
   if (existing && Array.isArray(existing.xpaths)) {
-    if (!Array.isArray(existing.includeXpaths)) {
-      existing.includeXpaths = [];
-    }
-    return existing;
+    return normalizePageEntryXpaths(existing);
   }
   const entry = {
     url: pageUrl || "",
@@ -2970,6 +3005,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     create: allowCreate || hadEntry,
     persist: shouldPersist
   });
+  normalizePageEntryXpaths(entry);
   const excludedLookup = new Map();
   for (const item of entry.xpaths || []) {
     if (item && item.xpath) {
@@ -2982,12 +3018,19 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       explicitExcludeSet.add(xpath);
     }
   }
-  if (!Array.isArray(entry.includeXpaths)) {
-    entry.includeXpaths = [];
-  }
   const explicitIncludeSet = new Set(
     entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
   );
+  entry.includeXpaths = Array.from(explicitIncludeSet);
+  const isExplicitlyMarkedXpath = (xpath) => {
+    if (!xpath) {
+      return false;
+    }
+    if (explicitIncludeSet.has(xpath)) {
+      return true;
+    }
+    return excludedLookup.get(xpath) === true && !utils.isHeadingXPath(xpath);
+  };
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
     const el = getElementFromXPath(xpath);
@@ -3021,6 +3064,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   const excludedParents = collectExcludedParentElements(previousItems);
   const items = [];
   const seen = new Set();
+  const generatedExcludedSet = new Set();
   const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
   for (const el of candidates) {
     const xpath = getXPath(el);
@@ -3028,8 +3072,14 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     if (
+      isWithinExplicitExcludedXpath(xpath, generatedExcludedSet) &&
+      !isExplicitlyMarkedXpath(xpath)
+    ) {
+      continue;
+    }
+    if (
       isWithinExplicitExcludedXpath(xpath, explicitExcludeSet) &&
-      !explicitIncludeSet.has(xpath) &&
+      !isExplicitlyMarkedXpath(xpath) &&
       !isWithinExplicitInclude(el) &&
       !isWithinExplicitIncludeXpath(xpath)
     ) {
@@ -3037,7 +3087,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     }
     if (
       (isWithinExplicitInclude(el) || isWithinExplicitIncludeXpath(xpath)) &&
-      !explicitIncludeSet.has(xpath)
+      !isExplicitlyMarkedXpath(xpath)
     ) {
       continue;
     }
@@ -3049,6 +3099,9 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
         ? excludedLookup.get(xpath) === true
         : isHeading;
     items.push({ xpath, excluded });
+    if (excluded) {
+      generatedExcludedSet.add(xpath);
+    }
   }
   for (const item of previousItems) {
     if (!item || !item.xpath || !item.excluded) {
