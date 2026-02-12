@@ -694,8 +694,7 @@ async function refreshUi() {
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
   nextViewState.aiSelectorModifiersVisible =
     resolvedView === uiModule.View.Marking &&
-    ((isEnabled && aiControlsVisible) ||
-      (!isEnabled && Boolean(state.currentBaseUrl) && latestComputed.length > 0));
+    !isEnabled;
   nextViewState.aiSelectorRemoveIdsChecked = adjustedAiSelectorContext.draft.removeIdSegments;
   nextViewState.aiSelectorRemoveIdsDisabled =
     aiBusy || !baseUrlReady || latestComputed.length === 0;
@@ -2447,6 +2446,12 @@ async function handleSaveExcludes() {
   }
   if (utils.arraysEqual(selectors, getLastSubmittedSelectorsFromConfig())) {
     uiModule.showToast("No new selectors to submit");
+    return;
+  }
+  const confirmed = window.confirm(
+    "Are these the final settings to this property for extractin the contents?"
+  );
+  if (!confirmed) {
     return;
   }
   state.aiRequestInFlight = "save";

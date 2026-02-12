@@ -290,14 +290,7 @@ function App({ state: view, actions: handlers }) {
         )
       ),
       view.currentView === View.Marking ?
-          h(
-            Fragment,
-            null,
-            renderMarkingView({ state: view, actions: handlers }),
-            view.mainUiHidden && view.aiSelectorModifiersVisible
-              ? renderAiSelectorModifierSection({ state: view, actions: handlers })
-              : null
-          ) :
+          renderMarkingView({ state: view, actions: handlers }) :
           view.currentView === View.Configuration ?
               renderConfigurationView({ state: view, actions: handlers }) :
               null
@@ -341,11 +334,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         "full-width",
         "margin-above",
         view.computeButtonLoading && "loading"
-    );
-    const saveExcludesClass = classNames(
-        "full-width",
-        "margin-above",
-        view.saveExcludesButtonLoading && "loading"
     );
     const previewClass = classNames("full-width", "margin-above");
 
@@ -944,17 +932,6 @@ function renderMarkingView({state: view, actions: handlers}) {
                     h(
                         "button",
                         {
-                            id: "save-excludes",
-                            class: saveExcludesClass,
-                            type: "button",
-                            disabled: view.saveExcludesButtonDisabled,
-                            onClick: handlers.onSaveExcludes
-                        },
-                        view.saveExcludesButtonText
-                    ),
-                    h(
-                        "button",
-                        {
                             id: "preview-latest",
                             class: previewClass,
                             type: "button",
@@ -972,6 +949,11 @@ function renderMarkingView({state: view, actions: handlers}) {
 }
 
 function renderAiSelectorModifierSection({ state: view, actions: handlers }) {
+    const submitClass = classNames(
+      "full-width",
+      "margin-above",
+      view.saveExcludesButtonLoading && "loading"
+    );
     const depthLabel = view.aiSelectorDepthMax <= 1
       ? `${view.aiSelectorDepthValue} segment`
       : `${view.aiSelectorDepthValue} / ${view.aiSelectorDepthMax} segments`;
@@ -1041,6 +1023,17 @@ function renderAiSelectorModifierSection({ state: view, actions: handlers }) {
         "div",
         { id: "ai-selector-settings-status", class: "hint" },
         view.aiSelectorSettingsStatusText
+      ),
+      h(
+        "button",
+        {
+          id: "save-excludes",
+          class: submitClass,
+          type: "button",
+          disabled: view.saveExcludesButtonDisabled,
+          onClick: handlers.onSaveExcludes
+        },
+        view.saveExcludesButtonText
       )
     );
 }
