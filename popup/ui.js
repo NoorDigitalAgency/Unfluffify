@@ -465,7 +465,7 @@ function renderMarkingView({state: view, actions: handlers}) {
             h(
                 "label",
                 {class: "row"},
-                h("span", null, "Enable on this tab"),
+                h("span", null, "Enable Marking"),
                 h("input", {
                     id: "toggle-enabled",
                     type: "checkbox",
@@ -942,9 +942,10 @@ function renderMarkingView({state: view, actions: handlers}) {
                     )
                 )
             ),
-            view.aiSelectorModifiersVisible &&
-              renderAiSelectorModifierSection({ state: view, actions: handlers })
         )
+        ,
+        view.aiSelectorModifiersVisible &&
+          renderAiSelectorModifierSection({ state: view, actions: handlers })
     );
 }
 
