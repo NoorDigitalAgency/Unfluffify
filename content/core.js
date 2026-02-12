@@ -46,7 +46,7 @@ export const state = {
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
-const SCROLL_DEBOUNCE_MS = 120;
+const SCROLL_DEBOUNCE_MS = 250;
 
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
