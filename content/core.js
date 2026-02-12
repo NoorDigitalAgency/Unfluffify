@@ -46,6 +46,7 @@ export const state = {
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
+const SCROLL_DEBOUNCE_MS = 120;
 
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
@@ -2718,14 +2719,16 @@ export function handleScroll() {
       return;
     }
     window.requestAnimationFrame(() => {
-      state.isScrolling = false;
       renderHighlights();
       refreshHoverHighlight();
-      if (state.overlay) {
-        state.overlay.classList.remove("uf-scrolling");
-      }
+      window.requestAnimationFrame(() => {
+        state.isScrolling = false;
+        if (state.overlay) {
+          state.overlay.classList.remove("uf-scrolling");
+        }
+      });
     });
-  }, 50);
+  }, SCROLL_DEBOUNCE_MS);
 }
 
 export function collectPreviewItems(selectors) {
