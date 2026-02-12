@@ -2309,17 +2309,6 @@ async function handleComputeSelectors() {
         }
         combined.set(item.xpath, { xpath: item.xpath, excluded: Boolean(item.excluded) });
       });
-      consentXpaths.forEach((xpath) => {
-        if (!xpath || typeof xpath !== "string") {
-          return;
-        }
-        const existing = combined.get(xpath);
-        if (existing) {
-          existing.excluded = true;
-        } else {
-          combined.set(xpath, { xpath, excluded: true });
-        }
-      });
       inclusionXpaths.forEach((xpath) => {
         if (!xpath || typeof xpath !== "string") {
           return;
@@ -2329,6 +2318,18 @@ async function handleComputeSelectors() {
           existing.excluded = false;
         } else {
           combined.set(xpath, { xpath, excluded: false });
+        }
+      });
+      // Consent-hidden xpaths must always be sent as excluded.
+      consentXpaths.forEach((xpath) => {
+        if (!xpath || typeof xpath !== "string") {
+          return;
+        }
+        const existing = combined.get(xpath);
+        if (existing) {
+          existing.excluded = true;
+        } else {
+          combined.set(xpath, { xpath, excluded: true });
         }
       });
       const combinedXpaths = Array.from(combined.values());
