@@ -210,6 +210,7 @@ function ensureSilentHighlightingStyles() {
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}].uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
         opacity: 1 !important;
         visibility: visible !important;
+        pointer-events: auto !important;
       }
       #${VISIBLE_CONSENT_TOGGLE_ID} {
         position: fixed;
