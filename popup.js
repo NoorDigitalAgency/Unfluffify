@@ -26,6 +26,24 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
+function updateLoginActionState(patch = {}) {
+  const view = { ...uiModule.getViewState(), ...patch };
+  const emailValue = (view.loginEmailValue || "").trim();
+  const passwordValue = view.loginPasswordValue || "";
+  const aiBusy = Boolean(view.aiControlsBusy || view.isBusy);
+  const loginCredentialsEnabled =
+    view.loginEndpointUrlReadOnly && Boolean((view.loginEndpointUrlValue || "").trim());
+
+  uiModule.setViewState({
+    ...patch,
+    loginActionDisabled:
+      aiBusy ||
+      !loginCredentialsEnabled ||
+      !isValidEmail(emailValue) ||
+      !passwordValue.trim()
+  });
+}
+
 async function invalidateTokenAndLockConfiguration(showToast = true) {
   await utils.storageSet(chrome.storage.sync, { globalToken: "" });
   state.currentView = uiModule.View.Configuration;
@@ -825,11 +843,11 @@ function handleLoginEndpointInput(event) {
 }
 
 function handleLoginEmailInput(event) {
-  uiModule.setViewState({ loginEmailValue: event.target.value });
+  updateLoginActionState({ loginEmailValue: event.target.value });
 }
 
 function handleLoginPasswordInput(event) {
-  uiModule.setViewState({ loginPasswordValue: event.target.value });
+  updateLoginActionState({ loginPasswordValue: event.target.value });
 }
 
 function handleBaseUrlKeyDown(event) {
