@@ -555,7 +555,10 @@ async function refreshSilentHighlightings() {
       }
     });
   });
-  const contentNodes = Array.from(contentNodeSelectorMap.keys());
+  const contentNodes = core.collapseElementsByNesting(
+    Array.from(contentNodeSelectorMap.keys()),
+    { onlyVisible: true }
+  );
   contentNodes.forEach((node) => {
     const selector = contentNodeSelectorMap.get(node) || "";
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");

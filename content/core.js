@@ -609,6 +609,59 @@ function collectSelectorElements(selectors) {
   return elements;
 }
 
+function getElementDepth(el) {
+  let depth = 0;
+  let current = el;
+  while (current && current.parentElement) {
+    depth += 1;
+    current = current.parentElement;
+  }
+  return depth;
+}
+
+function compareDocumentOrder(left, right) {
+  if (left === right) {
+    return 0;
+  }
+  const relation = left.compareDocumentPosition(right);
+  if (relation & Node.DOCUMENT_POSITION_FOLLOWING) {
+    return -1;
+  }
+  if (relation & Node.DOCUMENT_POSITION_PRECEDING) {
+    return 1;
+  }
+  return 0;
+}
+
+export function collapseElementsByNesting(elements, options = {}) {
+  const { onlyVisible = false } = options;
+  const list = Array.from(elements || []).filter((el) => {
+    if (!el || el.nodeType !== 1) {
+      return false;
+    }
+    if (onlyVisible && !isVisible(el)) {
+      return false;
+    }
+    return true;
+  });
+  list.sort((left, right) => {
+    const depthDiff = getElementDepth(right) - getElementDepth(left);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return compareDocumentOrder(left, right);
+  });
+  const kept = [];
+  for (const candidate of list) {
+    const isAncestorOfKept = kept.some((el) => candidate.contains(el));
+    if (!isAncestorOfKept) {
+      kept.push(candidate);
+    }
+  }
+  kept.sort(compareDocumentOrder);
+  return kept;
+}
+
 function collectExcludedXPaths(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -1904,8 +1957,13 @@ function renderHighlights() {
     aiSelectorOverride || state.config.aiSelectorModifiers,
     aiSelectorMaxDepth
   );
-  const aiContent = collectSelectorElements(
-    applyAiSelectorModifiers(normalizedAiSelectors, aiSelectorModifiers)
+  const aiContent = new Set(
+    collapseElementsByNesting(
+      collectSelectorElements(
+        applyAiSelectorModifiers(normalizedAiSelectors, aiSelectorModifiers)
+      ),
+      { onlyVisible: true }
+    )
   );
   const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
 
@@ -2767,33 +2825,33 @@ export function handleScroll() {
 }
 
 export function collectPreviewItems(selectors) {
-  const seen = new Set();
+  const candidates = [];
   const rows = [];
   for (const selector of selectors) {
     try {
       const elements = document.querySelectorAll(selector);
       for (const el of elements) {
-        if (!el || el.nodeType !== 1 || seen.has(el)) {
+        if (!el || el.nodeType !== 1) {
           continue;
         }
-        if (!isVisible(el)) {
-          continue;
-        }
-        seen.add(el);
-        const rect = el.getBoundingClientRect();
-        const text = (el.innerText || "").replace(/\s+/g, " ").trim();
-        if (!text) {
-          continue;
-        }
-        rows.push({
-          text,
-          top: rect.top + window.scrollY,
-          left: rect.left + window.scrollX
-        });
+        candidates.push(el);
       }
     } catch {
       // Ignore invalid selectors
     }
+  }
+  const elements = collapseElementsByNesting(candidates, { onlyVisible: true });
+  for (const el of elements) {
+    const rect = el.getBoundingClientRect();
+    const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    if (!text) {
+      continue;
+    }
+    rows.push({
+      text,
+      top: rect.top + window.scrollY,
+      left: rect.left + window.scrollX
+    });
   }
   rows.sort((a, b) => {
     if (a.top === b.top) {
