@@ -10,6 +10,7 @@ const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
+const SILENT_CONTENT_SELECTOR_ATTR = "data-uf-silent-content-selector";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
@@ -18,6 +19,16 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
+const silentHighlightingOriginalTitles = new WeakMap();
+
+const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
+  SILENT_LINK_HIGHLIGHTING_ATTR,
+  SILENT_CONTENT_HIGHLIGHTING_ATTR,
+  SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
+  SILENT_CONTENT_POSITION_ATTR,
+  SILENT_CONTENT_SELECTOR_ATTR,
+  core.CONSENT_HIDDEN_ATTR
+]);
 
 function ensurePageToastStyle() {
   if (document.getElementById(PAGE_TOAST_STYLE_ID)) {
@@ -168,7 +179,7 @@ function ensureSilentHighlightingStyles() {
         outline-offset: -1px !important;
       }
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"] {
-        position: relative;
+        position: relative !important;
       }
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::after {
         content: "" !important;
@@ -229,6 +240,7 @@ function ensureVisibleConsentToggle() {
   }
   const container = document.createElement("label");
   container.id = VISIBLE_CONSENT_TOGGLE_ID;
+  container.setAttribute("data-uf-extension-ui", "true");
 
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
@@ -270,11 +282,21 @@ function setSilentHighlightingsActive(active) {
 }
 
 function clearSilentHighlightingMarks() {
-  const marked = document.querySelectorAll(`a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}]`);
-  marked.forEach((anchor) => {
-    anchor.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
-    anchor.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
-    anchor.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
+  const marked = document.querySelectorAll(
+    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_SELECTOR_ATTR}]`
+  );
+  marked.forEach((node) => {
+    const originalTitle = silentHighlightingOriginalTitles.get(node);
+    if (originalTitle === null) {
+      node.removeAttribute("title");
+    } else if (typeof originalTitle === "string") {
+      node.setAttribute("title", originalTitle);
+    }
+    silentHighlightingOriginalTitles.delete(node);
+    node.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
+    node.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
+    node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
+    node.removeAttribute(SILENT_CONTENT_SELECTOR_ATTR);
   });
 }
 
@@ -299,6 +321,46 @@ function scheduleSilentHighlightingsRefresh() {
   }, 200);
 }
 
+function isExtensionUiNode(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (node.getAttribute("data-uf-extension-ui") === "true") {
+    return true;
+  }
+  return Boolean(node.closest("[data-uf-extension-ui=\"true\"]"));
+}
+
+function shouldRefreshForSilentMutation(mutation) {
+  if (!mutation) {
+    return false;
+  }
+  if (mutation.type === "attributes") {
+    const attrName = mutation.attributeName || "";
+    if (SILENT_HIGHLIGHTING_INTERNAL_ATTRS.has(attrName) || attrName === "title") {
+      return false;
+    }
+    return !isExtensionUiNode(mutation.target);
+  }
+  if (mutation.type !== "childList") {
+    return false;
+  }
+  if (isExtensionUiNode(mutation.target)) {
+    return false;
+  }
+  for (const node of mutation.addedNodes || []) {
+    if (node && node.nodeType === 1 && !isExtensionUiNode(node)) {
+      return true;
+    }
+  }
+  for (const node of mutation.removedNodes || []) {
+    if (node && node.nodeType === 1 && !isExtensionUiNode(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function startSilentHighlightingObserver() {
   if (silentHighlightingObserver) {
     return;
@@ -307,10 +369,19 @@ function startSilentHighlightingObserver() {
   if (!root) {
     return;
   }
-  silentHighlightingObserver = new MutationObserver(() => {
-    scheduleSilentHighlightingsRefresh();
+  silentHighlightingObserver = new MutationObserver((mutations) => {
+    if (!Array.isArray(mutations) || mutations.length === 0) {
+      return;
+    }
+    if (mutations.some((mutation) => shouldRefreshForSilentMutation(mutation))) {
+      scheduleSilentHighlightingsRefresh();
+    }
   });
-  silentHighlightingObserver.observe(root, { childList: true, subtree: true });
+  silentHighlightingObserver.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true
+  });
 }
 
 function startSilentHighlightingUrlWatcher() {
@@ -398,24 +469,91 @@ async function refreshSilentHighlightings() {
     }
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
-  const contentNodes = latestComputedSelectors
-      .map(selector => {
-        try {
-          return Array.from(document.querySelectorAll(selector));
-        } catch {
-          return [];
-        }
-      }).flat();
+  const contentNodeSelectorMap = new Map();
+  latestComputedSelectors.forEach((selector) => {
+    if (typeof selector !== "string" || !selector) {
+      return;
+    }
+    let matches = [];
+    try {
+      matches = Array.from(document.querySelectorAll(selector));
+    } catch {
+      return;
+    }
+    matches.forEach((node) => {
+      if (!contentNodeSelectorMap.has(node)) {
+        contentNodeSelectorMap.set(node, selector);
+      }
+    });
+  });
+  const contentNodes = Array.from(contentNodeSelectorMap.keys());
   contentNodes.forEach((node) => {
+    const selector = contentNodeSelectorMap.get(node) || "";
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
+    node.setAttribute(SILENT_CONTENT_SELECTOR_ATTR, selector);
+    if (!silentHighlightingOriginalTitles.has(node)) {
+      silentHighlightingOriginalTitles.set(node, node.getAttribute("title"));
+    }
+    node.setAttribute("title", `Unfluffify selector: ${selector}`);
     const computed = window.getComputedStyle(node);
     const position = computed ? computed.position : "";
     const positionValue = position && position !== "static" ? "existing" : "relative";
     node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
   });
-  console.log(latestComputedSelectors, contentNodes);
   setSilentHighlightingsActive(anchors.length > 0 || contentNodes.length > 0);
   startSilentHighlightingObserver();
+}
+
+async function copyToClipboard(text) {
+  if (!text) {
+    return false;
+  }
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  (document.body || document.documentElement).appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    throw new Error("Copy failed");
+  }
+  return true;
+}
+
+function handleSilentHighlightingClick(event) {
+  if (state.enabled) {
+    return;
+  }
+  if (!document.documentElement.hasAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR)) {
+    return;
+  }
+  const target = event.target && event.target.closest
+    ? event.target.closest(`[${SILENT_CONTENT_SELECTOR_ATTR}]`)
+    : null;
+  if (!target) {
+    return;
+  }
+  const selector = target.getAttribute(SILENT_CONTENT_SELECTOR_ATTR);
+  if (!selector) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  copyToClipboard(selector)
+    .then(() => {
+      showPageToast("Selector copied");
+    })
+    .catch(() => {
+      showPageToast("Unable to copy selector");
+    });
 }
 
 export function main() {
@@ -463,6 +601,7 @@ export function main() {
       }
     }
   }, true);
+  document.addEventListener("click", handleSilentHighlightingClick, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
