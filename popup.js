@@ -9,6 +9,7 @@ import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
+import * as aiSelectorModifiers from "./common/ai-selector-modifiers.js";
 
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 60 * 1000;
@@ -288,6 +289,109 @@ function getEditableFieldState(options) {
   return { isEditing, isReady: isSet && !editMode, value: nextValue, noticeText, noticeVisible };
 }
 
+function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  return Array.isArray(sourceConfig && sourceConfig.latestComputedSelectors)
+    ? sourceConfig.latestComputedSelectors
+      .filter((selector) => typeof selector === "string")
+      .map((selector) => selector.trim())
+      .filter(Boolean)
+    : [];
+}
+
+function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  return Array.isArray(sourceConfig && sourceConfig.lastSavedSelectors)
+    ? sourceConfig.lastSavedSelectors
+      .filter((selector) => typeof selector === "string")
+      .map((selector) => selector.trim())
+      .filter(Boolean)
+    : [];
+}
+
+function resolveAiSelectorModifierContext(selectors = getLatestComputedSelectorsFromConfig()) {
+  const maxDescendantSelectors =
+    aiSelectorModifiers.getMaximumDescendantSelectorCount(selectors);
+  const savedModifiers = aiSelectorModifiers.normalizeAiSelectorModifiers(
+    state.currentConfig && state.currentConfig.aiSelectorModifiers,
+    maxDescendantSelectors
+  );
+  const baseUrl = state.currentBaseUrl || "";
+  if (!baseUrl || !state.currentConfig) {
+    state.selectorModifierBaseUrl = "";
+    state.selectorModifierSaved = { ...savedModifiers };
+    state.selectorModifierDraft = { ...savedModifiers };
+    return {
+      maxDescendantSelectors,
+      saved: savedModifiers,
+      draft: savedModifiers,
+      dirty: false
+    };
+  }
+  const baseChanged = state.selectorModifierBaseUrl !== baseUrl;
+  if (
+    baseChanged ||
+    !state.selectorModifierDraft ||
+    !state.selectorModifierSaved
+  ) {
+    state.selectorModifierBaseUrl = baseUrl;
+    state.selectorModifierSaved = { ...savedModifiers };
+    state.selectorModifierDraft = { ...savedModifiers };
+  } else {
+    state.selectorModifierSaved = { ...savedModifiers };
+    state.selectorModifierDraft = aiSelectorModifiers.normalizeAiSelectorModifiers(
+      state.selectorModifierDraft,
+      maxDescendantSelectors
+    );
+  }
+  const draft = aiSelectorModifiers.normalizeAiSelectorModifiers(
+    state.selectorModifierDraft,
+    maxDescendantSelectors
+  );
+  state.selectorModifierDraft = draft;
+  const dirty = !aiSelectorModifiers.areAiSelectorModifiersEqual(
+    draft,
+    state.selectorModifierSaved
+  );
+  return {
+    maxDescendantSelectors,
+    saved: state.selectorModifierSaved,
+    draft,
+    dirty
+  };
+}
+
+function getAdjustedAiSelectors(options = {}) {
+  const { selectors = getLatestComputedSelectorsFromConfig() } = options;
+  const context = resolveAiSelectorModifierContext(selectors);
+  return {
+    selectors: aiSelectorModifiers.applyAiSelectorModifiers(
+      selectors,
+      context.draft
+    ),
+    context
+  };
+}
+
+async function syncAiSelectorModifierPreview(contextOverride = null) {
+  if (!state.currentTab || !state.currentTab.id) {
+    return;
+  }
+  if (!state.currentBaseUrl) {
+    await messages.sendTabMessage({
+      type: "setAiSelectorModifierPreview",
+      clear: true
+    });
+    return;
+  }
+  const selectors = getLatestComputedSelectorsFromConfig();
+  const context = contextOverride || resolveAiSelectorModifierContext(selectors);
+  await messages.sendTabMessage({
+    type: "setAiSelectorModifierPreview",
+    baseUrl: state.currentBaseUrl,
+    modifiers: context.draft,
+    dirty: context.dirty
+  });
+}
+
 async function refreshUi() {
   if (!state.currentTab) {
     return;
@@ -446,13 +550,20 @@ async function refreshUi() {
   const configurationComplete =
     configEndpointReady && endpointReady && loginEndpointReady && Boolean(tokenValue);
   const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
-  const latestComputed =
-    (state.currentConfig && state.currentConfig.latestComputedSelectors) || [];
-  const lastSaved = (state.currentConfig && state.currentConfig.lastSavedSelectors) || [];
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const lastSaved = getLastSubmittedSelectorsFromConfig();
+  const adjustedAiSelectorContext = resolveAiSelectorModifierContext(latestComputed);
+  const adjustedAiSelectors = aiSelectorModifiers.applyAiSelectorModifiers(
+    latestComputed,
+    adjustedAiSelectorContext.draft
+  );
+  const selectorModifierDirty = adjustedAiSelectorContext.dirty;
   const hasNewSelectors =
-    latestComputed.length > 0 && !utils.arraysEqual(latestComputed, lastSaved);
+    adjustedAiSelectors.length > 0 &&
+    !utils.arraysEqual(adjustedAiSelectors, lastSaved);
   const aiBusy = Boolean(state.aiRequestInFlight);
-  const hasStoredSelectors = latestComputed.length > 0;
+  const hasStoredSelectors = adjustedAiSelectors.length > 0;
+  const aiControlsVisible = endpointReady && Boolean(tokenValue);
 
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
@@ -519,10 +630,14 @@ async function refreshUi() {
   nextViewState.mainUiHidden = !isEnabled;
   nextViewState.computeButtonDisabled = aiBusy || !aiReady || aiBlockedByDraft;
   nextViewState.saveExcludesButtonDisabled =
-    aiBusy || !aiReady || !hasNewSelectors || aiBlockedByDraft;
+    aiBusy ||
+    !aiReady ||
+    !hasNewSelectors ||
+    aiBlockedByDraft ||
+    selectorModifierDirty;
   nextViewState.previewLatestButtonDisabled =
     aiBusy || !baseUrlReady || !hasStoredSelectors || aiBlockedByDraft;
-  nextViewState.aiControlsHidden = !endpointReady || !tokenValue;
+  nextViewState.aiControlsHidden = !aiControlsVisible;
   nextViewState.loginEndpointUrlValue = loginEndpointField.value;
   nextViewState.loginEndpointUrlReadOnly = !loginEndpointField.isEditing;
   nextViewState.loginEndpointSetVisible = loginEndpointField.isEditing;
@@ -572,11 +687,39 @@ async function refreshUi() {
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
   nextViewState.saveExcludesButtonText =
-    state.aiRequestInFlight === "save" ? "Saving..." : "Save Excludes";
+    state.aiRequestInFlight === "save" ? "Submitting..." : "Submit to the server";
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
+  nextViewState.aiSelectorModifiersVisible =
+    resolvedView === uiModule.View.Marking &&
+    ((isEnabled && aiControlsVisible) ||
+      (!isEnabled && Boolean(state.currentBaseUrl) && latestComputed.length > 0));
+  nextViewState.aiSelectorRemoveIdsChecked = adjustedAiSelectorContext.draft.removeIdSegments;
+  nextViewState.aiSelectorRemoveIdsDisabled =
+    aiBusy || !baseUrlReady || latestComputed.length === 0;
+  nextViewState.aiSelectorDepthMin = 1;
+  nextViewState.aiSelectorDepthMax =
+    adjustedAiSelectorContext.maxDescendantSelectors;
+  nextViewState.aiSelectorDepthValue =
+    adjustedAiSelectorContext.draft.maxDescendantSelectors;
+  nextViewState.aiSelectorDepthDisabled =
+    aiBusy || !baseUrlReady || latestComputed.length === 0;
+  nextViewState.aiSelectorSettingsSaveDisabled =
+    aiBusy || !baseUrlReady || !selectorModifierDirty;
+  nextViewState.aiSelectorSettingsRevertDisabled =
+    aiBusy || !baseUrlReady || !selectorModifierDirty;
+  if (!baseUrlReady) {
+    nextViewState.aiSelectorSettingsStatusText = "Set Base Page URL first";
+  } else if (!latestComputed.length) {
+    nextViewState.aiSelectorSettingsStatusText =
+      "Compute selectors to tune highlighting";
+  } else if (selectorModifierDirty) {
+    nextViewState.aiSelectorSettingsStatusText = "Unsaved selector modifier changes";
+  } else {
+    nextViewState.aiSelectorSettingsStatusText = "All selector modifier changes saved";
+  }
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlInputReadOnly = !baseField.isEditing;
   nextViewState.baseUrlSetVisible = baseField.isEditing;
@@ -824,6 +967,7 @@ async function refreshUi() {
   nextViewState.basePageUrlsEmptyText = "No base URLs saved";
 
   uiModule.setViewState(nextViewState);
+  await syncAiSelectorModifierPreview(adjustedAiSelectorContext);
 }
 
 function handleBaseUrlInput(event) {
@@ -848,6 +992,100 @@ function handleLoginEmailInput(event) {
 
 function handleLoginPasswordInput(event) {
   updateLoginActionState({ loginPasswordValue: event.target.value });
+}
+
+async function handleAiSelectorRemoveIdsChange(event) {
+  const checked = event && event.currentTarget
+    ? Boolean(event.currentTarget.checked)
+    : false;
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const context = resolveAiSelectorModifierContext(latestComputed);
+  state.selectorModifierDraft = aiSelectorModifiers.normalizeAiSelectorModifiers(
+    {
+      ...context.draft,
+      removeIdSegments: checked
+    },
+    context.maxDescendantSelectors
+  );
+  const nextContext = resolveAiSelectorModifierContext(latestComputed);
+  await syncAiSelectorModifierPreview(nextContext);
+  await refreshUi();
+}
+
+async function handleAiSelectorDepthInput(event) {
+  const value = event && event.currentTarget
+    ? Number.parseInt(event.currentTarget.value, 10)
+    : NaN;
+  if (!Number.isFinite(value)) {
+    return;
+  }
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const context = resolveAiSelectorModifierContext(latestComputed);
+  state.selectorModifierDraft = aiSelectorModifiers.normalizeAiSelectorModifiers(
+    {
+      ...context.draft,
+      maxDescendantSelectors: value
+    },
+    context.maxDescendantSelectors
+  );
+  const nextContext = resolveAiSelectorModifierContext(latestComputed);
+  await syncAiSelectorModifierPreview(nextContext);
+  await refreshUi();
+}
+
+async function handleAiSelectorDepthChange(event) {
+  await handleAiSelectorDepthInput(event);
+}
+
+async function handleAiSelectorSettingsSave() {
+  if (state.aiRequestInFlight) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  if (!latestComputed.length) {
+    uiModule.showToast("Compute selectors before saving selector settings");
+    return;
+  }
+  const context = resolveAiSelectorModifierContext(latestComputed);
+  if (!context.dirty) {
+    uiModule.showToast("Selector settings are already saved");
+    return;
+  }
+  const nextSaved = { ...context.draft };
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
+    cfg.aiSelectorModifiers = { ...nextSaved };
+  });
+  state.selectorModifierSaved = { ...nextSaved };
+  state.selectorModifierDraft = { ...nextSaved };
+  await messages.sendTabMessage({
+    type: "configUpdated",
+    baseUrl: state.currentBaseUrl
+  });
+  await syncAiSelectorModifierPreview(
+    resolveAiSelectorModifierContext(getLatestComputedSelectorsFromConfig())
+  );
+  uiModule.showToast("Selector settings saved");
+  await refreshUi();
+}
+
+async function handleAiSelectorSettingsRevert() {
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const context = resolveAiSelectorModifierContext(latestComputed);
+  if (!context.dirty) {
+    uiModule.showToast("No selector settings to revert");
+    return;
+  }
+  state.selectorModifierDraft = { ...context.saved };
+  const nextContext = resolveAiSelectorModifierContext(latestComputed);
+  await syncAiSelectorModifierPreview(nextContext);
+  uiModule.showToast("Reverted to saved selector settings");
+  await refreshUi();
 }
 
 function handleBaseUrlKeyDown(event) {
@@ -2160,11 +2398,13 @@ async function handleComputeSelectors() {
         inclusionSelectors: selectors
       };
     });
+    const adjusted = getAdjustedAiSelectors({ selectors });
 
     await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
+    await syncAiSelectorModifierPreview(adjusted.context);
     await messages.sendTabMessage({
       type: "showAiPreview",
-      selectors
+      selectors: adjusted.selectors
     });
     uiModule.showToast("Selectors computed");
   } catch (error) {
@@ -2194,13 +2434,19 @@ async function handleSaveExcludes() {
     return;
   }
   const { endpointValue, tokenValue } = credentials;
-  const selectors = state.currentConfig.latestComputedSelectors || [];
-  if (!selectors.length) {
-    uiModule.showToast("Compute selectors before saving");
+  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const adjusted = getAdjustedAiSelectors({ selectors: latestComputed });
+  const selectors = adjusted.selectors;
+  if (adjusted.context.dirty) {
+    uiModule.showToast("Save or revert selector settings before submitting");
     return;
   }
-  if (utils.arraysEqual(selectors, state.currentConfig.lastSavedSelectors || [])) {
-    uiModule.showToast("No new selectors to save");
+  if (!selectors.length) {
+    uiModule.showToast("No selectors available to submit");
+    return;
+  }
+  if (utils.arraysEqual(selectors, getLastSubmittedSelectorsFromConfig())) {
+    uiModule.showToast("No new selectors to submit");
     return;
   }
   state.aiRequestInFlight = "save";
@@ -2219,15 +2465,15 @@ async function handleSaveExcludes() {
       })
     });
     if (!response.ok) {
-      uiModule.showToast("Save response error");
+      uiModule.showToast("Submit response error");
       return;
     }
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.lastSavedSelectors = selectors;
     });
-    uiModule.showToast("Excludes saved");
+    uiModule.showToast("Submitted to server");
   } catch (error) {
-    uiModule.showToast("Save request failed");
+    uiModule.showToast("Submit request failed");
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
@@ -2245,11 +2491,13 @@ async function handlePreviewLatest() {
     uiModule.showToast("Set Base Page URL first");
     return;
   }
-  const selectors = state.currentConfig.latestComputedSelectors || [];
+  const adjusted = getAdjustedAiSelectors();
+  const selectors = adjusted.selectors;
   if (!selectors.length) {
     uiModule.showToast("No stored selectors available");
     return;
   }
+  await syncAiSelectorModifierPreview(adjusted.context);
   await messages.sendTabMessage({
     type: "showAiPreview",
     selectors
@@ -2265,6 +2513,16 @@ function scheduleRefresh() {
     await helpers.ensureActiveTab();
     await refreshUi();
   }, 120);
+}
+
+function clearAiSelectorModifierPreviewOnUnload() {
+  if (!state.currentTab || !state.currentTab.id) {
+    return;
+  }
+  messages.sendTabMessage({
+    type: "setAiSelectorModifierPreview",
+    clear: true
+  }).then();
 }
 
 async function init() {
@@ -2319,6 +2577,11 @@ async function init() {
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
+    onAiSelectorRemoveIdsChange: handleAiSelectorRemoveIdsChange,
+    onAiSelectorDepthInput: handleAiSelectorDepthInput,
+    onAiSelectorDepthChange: handleAiSelectorDepthChange,
+    onAiSelectorSettingsSave: handleAiSelectorSettingsSave,
+    onAiSelectorSettingsRevert: handleAiSelectorSettingsRevert,
     onExplicitExcludeView: handleExplicitExcludeView,
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
@@ -2330,6 +2593,7 @@ async function init() {
   });
 
   document.addEventListener("click", () => uiModule.setConfigMenuOpen(false));
+  window.addEventListener("beforeunload", clearAiSelectorModifierPreviewOnUnload);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);

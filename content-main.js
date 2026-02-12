@@ -2,6 +2,11 @@ import * as patterns from "./common/patterns.js";
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
 import * as utils from "./common/utilities.js";
+import {
+  applyAiSelectorModifiers,
+  getMaximumDescendantSelectorCount,
+  normalizeAiSelectorModifiers
+} from "./common/ai-selector-modifiers.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
 
 const { state } = core;
@@ -401,11 +406,73 @@ function startSilentHighlightingUrlWatcher() {
   }, 800);
 }
 
+function normalizeSelectorList(selectors) {
+  return Array.isArray(selectors)
+    ? selectors
+      .filter((selector) => typeof selector === "string")
+      .map((selector) => selector.trim())
+      .filter(Boolean)
+    : [];
+}
+
+function getStoredAiSelectors(baseConfig) {
+  if (!baseConfig || typeof baseConfig !== "object") {
+    return [];
+  }
+  const latestComputed = normalizeSelectorList(baseConfig.latestComputedSelectors);
+  if (latestComputed.length) {
+    return latestComputed;
+  }
+  const inclusion =
+    baseConfig.domainAiSelectorSet &&
+    Array.isArray(baseConfig.domainAiSelectorSet.inclusionSelectors)
+      ? baseConfig.domainAiSelectorSet.inclusionSelectors
+      : [];
+  return normalizeSelectorList(inclusion);
+}
+
+function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors) {
+  const maxDepth = getMaximumDescendantSelectorCount(selectors);
+  const saved = normalizeAiSelectorModifiers(
+    baseConfig && baseConfig.aiSelectorModifiers,
+    maxDepth
+  );
+  const override = state.aiSelectorModifierOverride;
+  const useOverride = Boolean(
+    override &&
+    typeof override === "object" &&
+    (!override.baseUrl || !baseUrl || override.baseUrl === baseUrl)
+  );
+  return normalizeAiSelectorModifiers(useOverride ? override : saved, maxDepth);
+}
+
+function getEffectiveAiSelectors(baseConfig, baseUrl) {
+  const selectors = getStoredAiSelectors(baseConfig);
+  if (!selectors.length) {
+    return selectors;
+  }
+  const modifiers = getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors);
+  return applyAiSelectorModifiers(selectors, modifiers);
+}
+
+function refreshEnabledAiHighlights() {
+  if (!state.enabled || !state.baseUrl || !state.config) {
+    return;
+  }
+  const selectors = getEffectiveAiSelectors(state.config, state.baseUrl);
+  if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
+    state.config.domainAiSelectorSet = { inclusionSelectors: [] };
+  }
+  state.config.domainAiSelectorSet.inclusionSelectors = selectors;
+  core.scheduleRender();
+}
+
 async function refreshSilentHighlightings() {
   if (state.enabled) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
+    refreshEnabledAiHighlights();
     return;
   }
   const pageUrl = location.href;
@@ -424,9 +491,8 @@ async function refreshSilentHighlightings() {
     await config.saveConfigs(configs);
   }
   const pageMarkings = baseConfig.pageMarkings || {};
-  const latestComputedSelectors = Array.isArray(baseConfig.latestComputedSelectors)
-    ? baseConfig.latestComputedSelectors
-    : [];
+  const latestComputedSelectors = getStoredAiSelectors(baseConfig);
+  const effectiveSelectors = getEffectiveAiSelectors(baseConfig, baseUrl);
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
@@ -470,7 +536,7 @@ async function refreshSilentHighlightings() {
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
   const contentNodeSelectorMap = new Map();
-  latestComputedSelectors.forEach((selector) => {
+  effectiveSelectors.forEach((selector) => {
     if (typeof selector !== "string" || !selector) {
       return;
     }
@@ -563,6 +629,7 @@ export function main() {
   state.initialized = true;
 
   core.refreshFromTabState().then(() => {
+    refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
   });
 
@@ -613,7 +680,10 @@ export function main() {
         stopSilentHighlightingObserver();
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
-        core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern }).then();
+        core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern })
+          .then(() => {
+            refreshEnabledAiHighlights();
+          });
       } else {
         core.disable();
         refreshSilentHighlightings().then();
@@ -630,7 +700,7 @@ export function main() {
         core.loadConfig(state.baseUrl).then((config) => {
           core.mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
           state.config = config;
-          core.scheduleRender();
+          refreshEnabledAiHighlights();
         });
       } else {
         refreshSilentHighlightings().then();
@@ -639,8 +709,37 @@ export function main() {
       return;
     }
 
+    if (message.type === "setAiSelectorModifierPreview") {
+      if (message.clear) {
+        state.aiSelectorModifierOverride = null;
+      } else if (message.dirty) {
+        const targetBaseUrl =
+          typeof message.baseUrl === "string" ? message.baseUrl : state.baseUrl || "";
+        const normalizedOverride = normalizeAiSelectorModifiers(
+          message.modifiers,
+          Number.MAX_SAFE_INTEGER
+        );
+        state.aiSelectorModifierOverride = {
+          ...normalizedOverride,
+          baseUrl: targetBaseUrl
+        };
+      } else {
+        state.aiSelectorModifierOverride = null;
+      }
+      if (state.enabled) {
+        refreshEnabledAiHighlights();
+        sendResponse({ ok: true });
+        return;
+      }
+      refreshSilentHighlightings().then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
+
     if (message.type === "forceRefresh") {
       core.refreshFromTabState().then(() => {
+        refreshEnabledAiHighlights();
         refreshSilentHighlightings().then(() => {
           sendResponse({ ok: true });
         });

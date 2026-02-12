@@ -1,5 +1,9 @@
 import { normalizePatternValue } from "./patterns.js";
 import { looksLikeBaseUrl, idbGet, idbSet } from "./utilities.js";
+import {
+  DEFAULT_AI_SELECTOR_MODIFIERS,
+  normalizeAiSelectorModifiers
+} from "./ai-selector-modifiers.js";
 
 function normalizeUniqueXpathList(list) {
   const values = [];
@@ -88,7 +92,8 @@ export function createDefaultConfig(baseUrl) {
     latestComputedSelectors: [],
     lastSavedSelectors: [],
     domainAiSelectorSet: { inclusionSelectors: [] },
-    pageCssSelectors: {}
+    pageCssSelectors: {},
+    aiSelectorModifiers: { ...DEFAULT_AI_SELECTOR_MODIFIERS }
   };
 }
 
@@ -197,6 +202,26 @@ export function normalizeAiSelectorSet(value) {
   } else {
     changed = true;
   }
+  return { normalized, changed };
+}
+
+function normalizeAiSelectorModifiersConfig(value, maxDescendantSelectors) {
+  const normalized = normalizeAiSelectorModifiers(value, maxDescendantSelectors);
+  if (!value || typeof value !== "object") {
+    return { normalized, changed: true };
+  }
+  const rawRemoveIdSegments = "removeIdSegments" in value
+    ? Boolean(value.removeIdSegments)
+    : DEFAULT_AI_SELECTOR_MODIFIERS.removeIdSegments;
+  const rawMaxDescendant = Number.parseInt(value.maxDescendantSelectors, 10);
+  const resolvedRawMax = Number.isFinite(rawMaxDescendant)
+    ? rawMaxDescendant
+    : maxDescendantSelectors;
+  const changed =
+    !("removeIdSegments" in value) ||
+    !("maxDescendantSelectors" in value) ||
+    rawRemoveIdSegments !== normalized.removeIdSegments ||
+    resolvedRawMax !== normalized.maxDescendantSelectors;
   return { normalized, changed };
 }
 
@@ -324,6 +349,21 @@ export function normalizeConfig(baseUrl, incoming) {
   const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
   normalized.domainAiSelectorSet = aiSelectors.normalized;
   if (aiSelectors.changed) {
+    changed = true;
+  }
+  const rawAiSelectorModifiers =
+    incoming.aiSelectorModifiers !== undefined
+      ? incoming.aiSelectorModifiers
+      : incoming.aiSelectorModifierSettings;
+  if (incoming.aiSelectorModifierSettings !== undefined) {
+    changed = true;
+  }
+  const aiSelectorModifiers = normalizeAiSelectorModifiersConfig(
+    rawAiSelectorModifiers,
+    Number.MAX_SAFE_INTEGER
+  );
+  normalized.aiSelectorModifiers = aiSelectorModifiers.normalized;
+  if (aiSelectorModifiers.changed) {
     changed = true;
   }
   const pageCssSelectors = normalizePageCssSelectors(

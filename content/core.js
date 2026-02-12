@@ -3,6 +3,11 @@ import * as patterns from "../common/patterns.js";
 import * as utils from "../common/utilities.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../common/constants.js";
 import {
+  applyAiSelectorModifiers,
+  getMaximumDescendantSelectorCount,
+  normalizeAiSelectorModifiers
+} from "../common/ai-selector-modifiers.js";
+import {
   HEADING_TAG_SELECTOR,
   REMOVABLE_ELEMENT_SELECTORS
 } from "./constants.js";
@@ -41,6 +46,7 @@ export const state = {
   initialized: false,
   cssHighlightEnabled: false,
   cssHighlightSelectors: "",
+  aiSelectorModifierOverride: null,
   layerBoxes: new WeakMap()
 };
 
@@ -1870,8 +1876,33 @@ function renderHighlights() {
     }
     return false;
   };
-  const aiContent = collectSelectorElements(
+  const rawAiSelectors = Array.isArray(state.config.latestComputedSelectors) &&
+    state.config.latestComputedSelectors.length
+    ? state.config.latestComputedSelectors
+    : Array.isArray(
+      state.config.domainAiSelectorSet &&
       state.config.domainAiSelectorSet.inclusionSelectors
+    )
+      ? state.config.domainAiSelectorSet.inclusionSelectors
+      : [];
+  const normalizedAiSelectors = rawAiSelectors
+    .filter((selector) => typeof selector === "string")
+    .map((selector) => selector.trim())
+    .filter(Boolean);
+  const aiSelectorMaxDepth = getMaximumDescendantSelectorCount(normalizedAiSelectors);
+  const aiSelectorOverride = state.aiSelectorModifierOverride &&
+    typeof state.aiSelectorModifierOverride === "object" &&
+    (!state.aiSelectorModifierOverride.baseUrl ||
+      !state.baseUrl ||
+      state.aiSelectorModifierOverride.baseUrl === state.baseUrl)
+    ? state.aiSelectorModifierOverride
+    : null;
+  const aiSelectorModifiers = normalizeAiSelectorModifiers(
+    aiSelectorOverride || state.config.aiSelectorModifiers,
+    aiSelectorMaxDepth
+  );
+  const aiContent = collectSelectorElements(
+    applyAiSelectorModifiers(normalizedAiSelectors, aiSelectorModifiers)
   );
   const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
 
@@ -2622,6 +2653,7 @@ export function disable() {
   state.enabled = false;
   state.baseUrl = "";
   state.config = null;
+  state.aiSelectorModifierOverride = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
