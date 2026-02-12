@@ -286,6 +286,9 @@ function registerConsentRoot(element) {
 }
 
 function hideConsentElement(element) {
+  if (isWithinAiPopover(element) || isWithinExtensionUi(element)) {
+    return false;
+  }
   if (isWithinConsentElement(element)) {
     return false;
   }
@@ -2922,6 +2925,7 @@ export function showAiPopover(items) {
   closeAiPopover();
   const popover = document.createElement("div");
   popover.className = "uf-ai-popover";
+  popover.setAttribute("data-uf-extension-ui", "true");
   const modal = document.createElement("div");
   modal.className = "uf-ai-popover-modal";
   const header = document.createElement("div");

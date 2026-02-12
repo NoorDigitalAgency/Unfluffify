@@ -547,6 +547,9 @@ async function refreshSilentHighlightings() {
       return;
     }
     matches.forEach((node) => {
+      if (isExtensionUiNode(node)) {
+        return;
+      }
       if (!contentNodeSelectorMap.has(node)) {
         contentNodeSelectorMap.set(node, selector);
       }

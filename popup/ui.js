@@ -950,6 +950,7 @@ function renderMarkingView({state: view, actions: handlers}) {
 }
 
 function renderAiSelectorModifierSection({ state: view, actions: handlers }) {
+    const previewClass = classNames("full-width", "margin-above");
     const submitClass = classNames(
       "full-width",
       "margin-above",
@@ -1024,6 +1025,17 @@ function renderAiSelectorModifierSection({ state: view, actions: handlers }) {
         "div",
         { id: "ai-selector-settings-status", class: "hint" },
         view.aiSelectorSettingsStatusText
+      ),
+      h(
+        "button",
+        {
+          id: "preview-latest-modifiers",
+          class: previewClass,
+          type: "button",
+          disabled: view.previewLatestButtonDisabled,
+          onClick: handlers.onPreviewLatest
+        },
+        "Preview Latest"
       ),
       h(
         "button",
