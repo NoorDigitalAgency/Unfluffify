@@ -2303,33 +2303,38 @@ async function handleComputeSelectors() {
         ? entry.includeXpaths
         : [];
       const combined = new Map();
+      const normalizeXpath = (value) =>
+        typeof value === "string" ? value.trim() : "";
       xpaths.forEach((item) => {
-        if (!item || typeof item.xpath !== "string" || !item.xpath) {
+        const xpath = normalizeXpath(item && item.xpath);
+        if (!xpath) {
           return;
         }
-        combined.set(item.xpath, { xpath: item.xpath, excluded: Boolean(item.excluded) });
+        combined.set(xpath, { xpath, excluded: Boolean(item.excluded) });
       });
       inclusionXpaths.forEach((xpath) => {
-        if (!xpath || typeof xpath !== "string") {
+        const normalizedXpath = normalizeXpath(xpath);
+        if (!normalizedXpath) {
           return;
         }
-        const existing = combined.get(xpath);
+        const existing = combined.get(normalizedXpath);
         if (existing) {
           existing.excluded = false;
         } else {
-          combined.set(xpath, { xpath, excluded: false });
+          combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: false });
         }
       });
       // Consent-hidden xpaths must always be sent as excluded.
       consentXpaths.forEach((xpath) => {
-        if (!xpath || typeof xpath !== "string") {
+        const normalizedXpath = normalizeXpath(xpath);
+        if (!normalizedXpath) {
           return;
         }
-        const existing = combined.get(xpath);
+        const existing = combined.get(normalizedXpath);
         if (existing) {
           existing.excluded = true;
         } else {
-          combined.set(xpath, { xpath, excluded: true });
+          combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: true });
         }
       });
       const combinedXpaths = Array.from(combined.values());
