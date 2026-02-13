@@ -1518,15 +1518,7 @@ function getMarkableTarget(x, y, options) {
         explicitlyExcluded ||
         explicitlyIncluded
       ) {
-        const resolved = resolveMarkableElement(el, state.config, {
-          allowParent,
-          explicitlyExcluded,
-          explicitlyIncluded,
-          allowImmutableChildren
-        });
-        if (resolved) {
-          return resolved;
-        }
+        return el;
       }
     }
   }
@@ -1657,6 +1649,26 @@ function toggleExplicitExclude(target) {
   const config = state.config;
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  const includeIndex = includeXpaths.indexOf(xpath);
+  if (includeIndex >= 0) {
+    includeXpaths.splice(includeIndex, 1);
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item && item.xpath === xpath && !item.excluded) {
+        items.splice(i, 1);
+      }
+    }
+    entry.includeXpaths = includeXpaths;
+    entry.xpaths = items;
+    normalizePageEntryXpaths(entry);
+    config.pageMarkings[location.href] = entry;
+    state.config = config;
+    scheduleRender();
+    scheduleSnapshotSave();
+    notifyDraftStatus(location.href);
+    return;
+  }
   const explicitExcludeSet = new Set(collectExcludedXPaths(items));
   if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
     showToast("Use Alt+Shift include to override an excluded parent");
@@ -1722,6 +1734,34 @@ function toggleExplicitInclude(target) {
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
+  const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
+  if (targetItem && targetItem.excluded) {
+    if (matchesToggleableDefaultExcluded(target)) {
+      const existingIncludeIndex = includeXpaths.indexOf(xpath);
+      if (existingIncludeIndex >= 0) {
+        includeXpaths.splice(existingIncludeIndex, 1);
+      } else {
+        includeXpaths.push(xpath);
+      }
+    } else {
+      items.splice(targetItemIndex, 1);
+      for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+        if (includeXpaths[i] === xpath) {
+          includeXpaths.splice(i, 1);
+        }
+      }
+    }
+    entry.includeXpaths = includeXpaths;
+    entry.xpaths = items;
+    normalizePageEntryXpaths(entry);
+    config.pageMarkings[location.href] = entry;
+    state.config = config;
+    scheduleRender();
+    scheduleSnapshotSave();
+    notifyDraftStatus(location.href);
+    return;
+  }
   const cleanupDescendants = () => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -2570,9 +2610,6 @@ export function isMarkableElement(el, config, options) {
     return false;
   }
   if (options && (options.explicitlyExcluded || options.explicitlyIncluded)) {
-    if (!options.allowParent && !isSelfMarkableWithoutParentMode(el)) {
-      return false;
-    }
     return true;
   }
   if (isSelfMarkableWithoutParentMode(el)) {
