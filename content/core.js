@@ -248,14 +248,55 @@ function hasTextualDescendant(el) {
   return false;
 }
 
+function hasExplicitlyMarkedDescendant(el) {
+  if (!el || el.nodeType !== 1 || !state.config) {
+    return false;
+  }
+  const explicitExcludeSet = getExcludedXPathSet(state.config, location.href);
+  const explicitIncludeSet = getIncludeXPathSet(state.config, location.href);
+  if (explicitExcludeSet.size === 0 && explicitIncludeSet.size === 0) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    const xpath = getXPath(node);
+    if (
+      xpath &&
+      (explicitExcludeSet.has(xpath) || explicitIncludeSet.has(xpath))
+    ) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function isSelfMarkableWithoutParentMode(el) {
   if (!isTextualContainer(el)) {
+    return false;
+  }
+  if (!hasDirectText(el) && hasTextualDescendant(el)) {
     return false;
   }
   if (!matchesToggleableDefaultExcluded(el)) {
     return true;
   }
-  return !hasTextualDescendant(el);
+  return !hasTextualDescendant(el) && !hasExplicitlyMarkedDescendant(el);
 }
 
 function matchesImmutableExcluded(el) {
