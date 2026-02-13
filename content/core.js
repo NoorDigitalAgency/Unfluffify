@@ -44,7 +44,10 @@ export const state = {
   consentRootElements: new Set(),
   initialized: false,
   aiSelectorModifierOverride: null,
-  layerBoxes: new WeakMap()
+  layerBoxes: new WeakMap(),
+  cachedCollections: null,
+  visibilityCache: null,
+  hoverRaf: 0
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
@@ -797,7 +800,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     candidates.push(el);
   }
 
-  return collapseElementsByNesting(candidates, { onlyVisible: true });
+  return collapseElementsByNesting(candidates);
 }
 
 function getElementDepth(el) {
@@ -1802,13 +1805,22 @@ function handleMouseMove(event) {
     y: event.clientY,
     shiftKey: event.shiftKey
   };
-  const allowImmutableChildren = getMarkModeFromEvent(event) === "include";
-  updateHoverHighlight(
-    event.clientX,
-    event.clientY,
-    event.shiftKey,
-    allowImmutableChildren
-  );
+  if (state.hoverRaf) {
+    return;
+  }
+  state.hoverRaf = window.requestAnimationFrame(() => {
+    state.hoverRaf = 0;
+    if (!state.enabled || !state.lastPointer) {
+      return;
+    }
+    const allowImmutableChildren = getMarkModeFromEvent(event) === "include";
+    updateHoverHighlight(
+      state.lastPointer.x,
+      state.lastPointer.y,
+      state.lastPointer.shiftKey,
+      allowImmutableChildren
+    );
+  });
 }
 
 function toggleExplicitExclude(target) {
@@ -2209,12 +2221,31 @@ function getVisibleRects(el) {
   return visibleRects;
 }
 
+function invalidateCachedCollections() {
+  state.cachedCollections = null;
+}
+
 function renderHighlights() {
   if (!state.enabled || !state.overlay) {
     return;
   }
 
+  state.visibilityCache = new Map();
+  try {
+    renderHighlightsInner();
+  } finally {
+    state.visibilityCache = null;
+  }
+}
+
+function renderHighlightsInner() {
   updateOverlayGutter();
+
+  const cached = state.cachedCollections;
+  if (cached) {
+    repositionHighlights(cached);
+    return;
+  }
 
   const immutableExcluded = collectImmutableElements();
   const pageUrl = location.href;
@@ -2267,21 +2298,6 @@ function renderHighlights() {
   const aiContent = new Set(
     collectIncludedElementsFromSelectorSet(adjustedAiSelectorSet)
   );
-  const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
-
-  const layerHard = state.layers["hard"];
-  const layerExplicitExclude = state.layers["explicit-exclude"];
-  const layerExplicitInclude = state.layers["explicit-include"];
-  const layerAiContent = state.layers["ai-content"];
-  const layerDefault = state.layers["default"];
-
-  const layerHardState = beginLayerRender(layerHard);
-  const layerExplicitExcludeState = beginLayerRender(layerExplicitExclude);
-  const layerExplicitIncludeState = beginLayerRender(layerExplicitInclude);
-  const layerAiContentState = beginLayerRender(layerAiContent);
-  const layerDefaultState = beginLayerRender(layerDefault);
-  const markedElements = new Set();
-
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...explicitExclude,
@@ -2290,65 +2306,17 @@ function renderHighlights() {
   ]);
   const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
-  for (const el of immutableExcluded) {
-    const rects = getVisibleRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerHardState,
-        rects,
-        "uf-hard-locked",
-        el,
-        "immutable",
-        markedElements
-      );
-    }
-  }
-
+  const filteredExplicitExclude = [];
   for (const el of explicitExclude) {
-    if (immutableExcluded.has(el) || isWithinExplicitInclude(el)) {
-      continue;
-    }
-    const rects = getVisibleRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerExplicitExcludeState,
-        rects,
-        "uf-explicit-exclude",
-        el,
-        "explicit-exclude",
-        markedElements
-      );
+    if (!immutableExcluded.has(el) && !isWithinExplicitInclude(el)) {
+      filteredExplicitExclude.push(el);
     }
   }
 
+  const filteredExplicitInclude = [];
   for (const el of explicitInclude) {
-    if (immutableExcluded.has(el) || explicitExclude.has(el)) {
-      continue;
-    }
-    const rects = getVisibleRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerExplicitIncludeState,
-        rects,
-        "uf-explicit-include",
-        el,
-        "explicit-include",
-        markedElements
-      );
-    }
-  }
-
-  for (const el of aiContent) {
-    const rects = getVisibleRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentState,
-        rects,
-        "uf-ai-content",
-        el,
-        "ai-content",
-        markedElements
-      );
+    if (!immutableExcluded.has(el) && !explicitExclude.has(el)) {
+      filteredExplicitInclude.push(el);
     }
   }
 
@@ -2358,19 +2326,104 @@ function renderHighlights() {
     hasHigherPrecedence,
     precedenceSet
   });
-  for (const el of defaultTargets) {
-    const rects = getVisibleRects(el);
+
+  const collections = {
+    hardElements: Array.from(immutableExcluded),
+    explicitExcludeElements: filteredExplicitExclude,
+    explicitIncludeElements: filteredExplicitInclude,
+    aiContentElements: Array.from(aiContent),
+    defaultElements: defaultTargets
+  };
+  state.cachedCollections = collections;
+
+  drawCollections(collections, getVisibleRects);
+}
+
+function getRectsInViewport(el) {
+  const clientRects = el.getClientRects();
+  const visibleRects = [];
+  for (let i = 0; i < clientRects.length; i++) {
+    const rect = clientRects[i];
+    if (rect.width === 0 || rect.height === 0) {
+      continue;
+    }
+    if (
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight ||
+        rect.right < 0 ||
+        rect.left > window.innerWidth
+    ) {
+      continue;
+    }
+    visibleRects.push({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      right: rect.right,
+      bottom: rect.bottom
+    });
+  }
+  return visibleRects;
+}
+
+function repositionHighlights(collections) {
+  drawCollections(collections, getRectsInViewport);
+}
+
+function drawCollections(collections, getRects) {
+  const layerHardState = beginLayerRender(state.layers["hard"]);
+  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
+  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
+  const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
+  const layerDefaultState = beginLayerRender(state.layers["default"]);
+  const markedElements = new Set();
+
+  for (const el of collections.hardElements) {
+    const rects = getRects(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
-        layerDefaultState,
-        rects,
-        "uf-default",
-        el,
-        "default",
-        markedElements
+        layerHardState, rects, "uf-hard-locked", el, "immutable", markedElements
       );
     }
   }
+
+  for (const el of collections.explicitExcludeElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerExplicitExcludeState, rects, "uf-explicit-exclude", el, "explicit-exclude", markedElements
+      );
+    }
+  }
+
+  for (const el of collections.explicitIncludeElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerExplicitIncludeState, rects, "uf-explicit-include", el, "explicit-include", markedElements
+      );
+    }
+  }
+
+  for (const el of collections.aiContentElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerAiContentState, rects, "uf-ai-content", el, "ai-content", markedElements
+      );
+    }
+  }
+
+  for (const el of collections.defaultElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerDefaultState, rects, "uf-default", el, "default", markedElements
+      );
+    }
+  }
+
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
@@ -2835,6 +2888,21 @@ export function isVisible(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
+  const cache = state.visibilityCache;
+  if (cache) {
+    const cached = cache.get(el);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+  const result = isVisibleUncached(el);
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
+}
+
+function isVisibleUncached(el) {
   if (isWithinExtensionUi(el)) {
     return false;
   }
@@ -2863,7 +2931,6 @@ export function isVisible(el) {
   if (rect.width === 0 || rect.height === 0) {
     return false;
   }
-  // Check if element is clipped by ancestor overflow
   return !isClippedByOverflow(el);
 }
 
@@ -2914,6 +2981,7 @@ export function collectImmutableElements() {
 }
 
 export function scheduleRender(options) {
+  invalidateCachedCollections();
   if (state.renderTimer) {
     return;
   }
@@ -3016,7 +3084,12 @@ export function disable() {
     window.clearTimeout(state.snapshotTimer);
     state.snapshotTimer = 0;
   }
+  if (state.hoverRaf) {
+    window.cancelAnimationFrame(state.hoverRaf);
+    state.hoverRaf = 0;
+  }
   state.isScrolling = false;
+  state.cachedCollections = null;
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   removeOverlay();
