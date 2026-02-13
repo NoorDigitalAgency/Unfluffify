@@ -219,6 +219,45 @@ function isTextualContainer(el) {
   return Boolean(headingText);
 }
 
+function hasTextualDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    if (isTextualContainer(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function isSelfMarkableWithoutParentMode(el) {
+  if (!isTextualContainer(el)) {
+    return false;
+  }
+  if (!matchesToggleableDefaultExcluded(el)) {
+    return true;
+  }
+  return !hasTextualDescendant(el);
+}
+
 function matchesImmutableExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -588,7 +627,7 @@ function collectDefaultHighlightTargets(root, options) {
         !isRoot &&
         !frame.ancestorHardExcluded &&
         !frame.ancestorHasPrecedence &&
-        isTextualContainer(node) &&
+        isSelfMarkableWithoutParentMode(node) &&
         !hasHigherPrecedence(node);
 
     if (candidate) {
@@ -1413,9 +1452,9 @@ function hasMultipleMarkableDescendants(el) {
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
-    if (isTextualContainer(node)) {
+    if (isSelfMarkableWithoutParentMode(node)) {
       markableCount += 1;
-      if (markableCount >= 2) {
+      if (markableCount >= 1) {
         return true;
       }
     }
@@ -2531,12 +2570,12 @@ export function isMarkableElement(el, config, options) {
     return false;
   }
   if (options && (options.explicitlyExcluded || options.explicitlyIncluded)) {
-    if (!options.allowParent && !isTextualContainer(el)) {
+    if (!options.allowParent && !isSelfMarkableWithoutParentMode(el)) {
       return false;
     }
     return true;
   }
-  if (isTextualContainer(el)) {
+  if (isSelfMarkableWithoutParentMode(el)) {
     return true;
   }
   if (!options || !options.allowParent) {

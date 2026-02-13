@@ -865,7 +865,7 @@ export function main() {
         const target = core.getElementFromXPath(xpath);
         if (
           !target ||
-          !core.isMarkableElement(target, config) ||
+          !core.isMarkableElement(target, config, { allowParent: true }) ||
           !core.isDefaultToggleableExcludedElement(target)
         ) {
           sendResponse({ ok: false });
