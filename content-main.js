@@ -400,32 +400,52 @@ function startSilentHighlightingUrlWatcher() {
 }
 
 function normalizeSelectorList(selectors) {
-  return Array.isArray(selectors)
-    ? selectors
-      .filter((selector) => typeof selector === "string")
-      .map((selector) => selector.trim())
-      .filter(Boolean)
-    : [];
+  const values = [];
+  const seen = new Set();
+  for (const selector of Array.isArray(selectors) ? selectors : []) {
+    if (typeof selector !== "string") {
+      continue;
+    }
+    const trimmed = selector.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    values.push(trimmed);
+  }
+  return values;
 }
 
-function getStoredAiSelectors(baseConfig) {
-  if (!baseConfig || typeof baseConfig !== "object") {
-    return [];
+function normalizeAiSelectorSet(value) {
+  if (!value || typeof value !== "object") {
+    return { exclusionSelectors: [], inclusionSelectors: [] };
   }
-  const latestComputed = normalizeSelectorList(baseConfig.latestComputedSelectors);
-  if (latestComputed.length) {
+  return {
+    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
+    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
+  };
+}
+
+function combineAiSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
+}
+
+function getStoredAiSelectorSet(baseConfig) {
+  if (!baseConfig || typeof baseConfig !== "object") {
+    return { exclusionSelectors: [], inclusionSelectors: [] };
+  }
+  const latestComputed = normalizeAiSelectorSet(baseConfig.latestComputedSelectors);
+  if (combineAiSelectorSet(latestComputed).length) {
     return latestComputed;
   }
-  const exclusion =
-    baseConfig.domainAiSelectorSet &&
-    Array.isArray(baseConfig.domainAiSelectorSet.exclusionSelectors)
-      ? baseConfig.domainAiSelectorSet.exclusionSelectors
-      : [];
-  return normalizeSelectorList(exclusion);
+  return normalizeAiSelectorSet(baseConfig.domainAiSelectorSet);
 }
 
-function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors) {
-  const maxDepth = getMaximumDescendantSelectorCount(selectors);
+function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectorSet) {
+  const maxDepth = getMaximumDescendantSelectorCount(
+    combineAiSelectorSet(selectorSet)
+  );
   const saved = normalizeAiSelectorModifiers(
     baseConfig && baseConfig.aiSelectorModifiers,
     maxDepth
@@ -439,13 +459,23 @@ function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors) {
   return normalizeAiSelectorModifiers(useOverride ? override : saved, maxDepth);
 }
 
-function getEffectiveAiSelectors(baseConfig, baseUrl) {
-  const selectors = getStoredAiSelectors(baseConfig);
-  if (!selectors.length) {
-    return selectors;
+function getEffectiveAiSelectorSet(baseConfig, baseUrl) {
+  const selectorSet = getStoredAiSelectorSet(baseConfig);
+  const combined = combineAiSelectorSet(selectorSet);
+  if (!combined.length) {
+    return selectorSet;
   }
-  const modifiers = getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors);
-  return applyAiSelectorModifiers(selectors, modifiers);
+  const modifiers = getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectorSet);
+  return {
+    exclusionSelectors: applyAiSelectorModifiers(
+      selectorSet.exclusionSelectors,
+      modifiers
+    ),
+    inclusionSelectors: applyAiSelectorModifiers(
+      selectorSet.inclusionSelectors,
+      modifiers
+    )
+  };
 }
 
 function collectExcludedNodesFromSelectors(selectors) {
@@ -520,8 +550,9 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
-function collectIncludedNodesFromExclusions(selectors) {
-  const excluded = collectExcludedNodesFromSelectors(selectors);
+function collectIncludedNodesFromSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  const excluded = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
   const candidates = [];
   const stack = [document.body];
 
@@ -550,6 +581,34 @@ function collectIncludedNodesFromExclusions(selectors) {
     }
   }
 
+  normalized.inclusionSelectors.forEach((selector) => {
+    if (typeof selector !== "string" || !selector) {
+      return;
+    }
+    try {
+      document.querySelectorAll(selector).forEach((node) => {
+        if (!node || node.nodeType !== 1) {
+          return;
+        }
+        if (isExtensionUiNode(node)) {
+          return;
+        }
+        if (!core.isVisible(node)) {
+          return;
+        }
+        if (isWithinImmutableDefaultNode(node)) {
+          return;
+        }
+        if (!hasRenderableText(node)) {
+          return;
+        }
+        candidates.push(node);
+      });
+    } catch {
+      // Ignore invalid selectors
+    }
+  });
+
   return core.collapseElementsByNesting(candidates, { onlyVisible: true });
 }
 
@@ -557,11 +616,14 @@ function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
-  const selectors = getEffectiveAiSelectors(state.config, state.baseUrl);
+  const selectorSet = getEffectiveAiSelectorSet(state.config, state.baseUrl);
   if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
-    state.config.domainAiSelectorSet = { exclusionSelectors: [] };
+    state.config.domainAiSelectorSet = {
+      exclusionSelectors: [],
+      inclusionSelectors: []
+    };
   }
-  state.config.domainAiSelectorSet.exclusionSelectors = selectors;
+  state.config.domainAiSelectorSet = selectorSet;
   core.scheduleRender();
 }
 
@@ -589,8 +651,8 @@ async function refreshSilentHighlightings() {
     await config.saveConfigs(configs);
   }
   const pageMarkings = baseConfig.pageMarkings || {};
-  const latestComputedSelectors = getStoredAiSelectors(baseConfig);
-  const effectiveSelectors = getEffectiveAiSelectors(baseConfig, baseUrl);
+  const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
+  const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig, baseUrl);
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
@@ -601,7 +663,7 @@ async function refreshSilentHighlightings() {
       : null;
   const shouldObserve =
     savedUrls.size > 0 ||
-    latestComputedSelectors.length > 0 ||
+    combineAiSelectorSet(latestComputedSelectors).length > 0 ||
     (storedConsentXpaths && storedConsentXpaths.length > 0);
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
@@ -633,7 +695,7 @@ async function refreshSilentHighlightings() {
     }
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
-  const contentNodes = collectIncludedNodesFromExclusions(effectiveSelectors);
+  const contentNodes = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
   contentNodes.forEach((node) => {
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
     const computed = window.getComputedStyle(node);
@@ -1216,8 +1278,8 @@ export function main() {
     }
 
     if (message.type === "showAiPreview") {
-      const selectors = Array.isArray(message.selectors) ? message.selectors : [];
-      const items = core.collectPreviewItems(selectors);
+      const selectorSet = normalizeAiSelectorSet(message.selectorSet);
+      const items = core.collectPreviewItems(selectorSet);
       core.showAiPopover(items);
       sendResponse({ ok: true, count: items.length });
     }
