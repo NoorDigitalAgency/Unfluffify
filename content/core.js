@@ -1679,11 +1679,7 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
   }
   const layerState = beginLayerRender(layerHover);
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
-  const excludedSet = allowImmutableChildren
-    ? explicitParentSet
-    : allowParent
-      ? null
-      : explicitParentSet;
+  const excludedSet = allowParent ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(x, y, {
     allowParent,
@@ -1948,11 +1944,7 @@ function handleToggleEvent(event) {
   const allowParent = event.shiftKey;
   const allowImmutableChildren = mode === "include";
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
-  const excludedSet = allowImmutableChildren
-    ? explicitParentSet
-    : allowParent
-      ? null
-      : explicitParentSet;
+  const excludedSet = allowParent ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
