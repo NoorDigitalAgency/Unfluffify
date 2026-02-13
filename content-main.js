@@ -1095,10 +1095,21 @@ export function main() {
       const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
       const existingIndex = includeXpaths.indexOf(xpath);
       if (included) {
+        const target = core.getElementFromXPath(xpath);
+        if (!target) {
+          sendResponse({ ok: false });
+          return;
+        }
+        if (
+          existingIndex === -1 &&
+          !core.canApplyExplicitInclude(target, state.config, location.href, entry)
+        ) {
+          sendResponse({ ok: false });
+          return;
+        }
         if (existingIndex === -1) {
           includeXpaths.push(xpath);
         }
-        const target = core.getElementFromXPath(xpath);
         const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
         for (let i = items.length - 1; i >= 0; i -= 1) {
           const item = items[i];
