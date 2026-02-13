@@ -64,6 +64,40 @@ function normalizeXpathItems(rawXpaths) {
   return { values, changed };
 }
 
+function normalizeSelectorList(list) {
+  const values = [];
+  const seen = new Set();
+  let changed = false;
+  if (!Array.isArray(list)) {
+    return { values, changed: true };
+  }
+  for (const value of list) {
+    if (typeof value !== "string") {
+      changed = true;
+      continue;
+    }
+    const selector = value.trim();
+    if (!selector) {
+      changed = true;
+      continue;
+    }
+    if (selector !== value) {
+      changed = true;
+    }
+    if (seen.has(selector)) {
+      changed = true;
+      continue;
+    }
+    seen.add(selector);
+    values.push(selector);
+  }
+  return { values, changed };
+}
+
+export function createEmptyAiSelectorSet() {
+  return { exclusionSelectors: [], inclusionSelectors: [] };
+}
+
 export function createDefaultConfig(baseUrl) {
   let domain = "";
   try {
@@ -75,9 +109,9 @@ export function createDefaultConfig(baseUrl) {
     baseUrl,
     domain,
     pageMarkings: {},
-    latestComputedSelectors: [],
-    lastSavedSelectors: [],
-    domainAiSelectorSet: { exclusionSelectors: [] },
+    latestComputedSelectors: createEmptyAiSelectorSet(),
+    lastSavedSelectors: createEmptyAiSelectorSet(),
+    domainAiSelectorSet: createEmptyAiSelectorSet(),
     aiSelectorModifiers: { ...DEFAULT_AI_SELECTOR_MODIFIERS }
   };
 }
@@ -137,16 +171,29 @@ export function normalizePageMarkings(pageMarkings) {
 }
 
 export function normalizeAiSelectorSet(value) {
-  const normalized = { exclusionSelectors: [] };
-  let changed = false;
+  const normalized = createEmptyAiSelectorSet();
+  let changed = true;
   if (!value || typeof value !== "object") {
     return { normalized, changed };
   }
-  if (Array.isArray(value.exclusionSelectors)) {
-    normalized.exclusionSelectors = value.exclusionSelectors;
-  } else {
+  changed = false;
+
+  const exclusionResult = normalizeSelectorList(value.exclusionSelectors);
+  normalized.exclusionSelectors = exclusionResult.values;
+  if (exclusionResult.changed) {
     changed = true;
   }
+
+  const inclusionResult = normalizeSelectorList(value.inclusionSelectors);
+  normalized.inclusionSelectors = inclusionResult.values;
+  if (inclusionResult.changed) {
+    changed = true;
+  }
+
+  if (!Array.isArray(value.exclusionSelectors) || !Array.isArray(value.inclusionSelectors)) {
+    changed = true;
+  }
+
   return { normalized, changed };
 }
 
@@ -191,14 +238,14 @@ export function normalizeConfig(baseUrl, incoming) {
   } else if (incoming.pageMarkings !== undefined) {
     changed = true;
   }
-  if (Array.isArray(incoming.latestComputedSelectors)) {
-    normalized.latestComputedSelectors = incoming.latestComputedSelectors;
-  } else if (incoming.latestComputedSelectors !== undefined) {
+  const latestComputed = normalizeAiSelectorSet(incoming.latestComputedSelectors);
+  normalized.latestComputedSelectors = latestComputed.normalized;
+  if (latestComputed.changed) {
     changed = true;
   }
-  if (Array.isArray(incoming.lastSavedSelectors)) {
-    normalized.lastSavedSelectors = incoming.lastSavedSelectors;
-  } else if (incoming.lastSavedSelectors !== undefined) {
+  const lastSaved = normalizeAiSelectorSet(incoming.lastSavedSelectors);
+  normalized.lastSavedSelectors = lastSaved.normalized;
+  if (lastSaved.changed) {
     changed = true;
   }
   const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);

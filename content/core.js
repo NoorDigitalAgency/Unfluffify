@@ -680,6 +680,57 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
+function normalizeSelectorList(selectors) {
+  const values = [];
+  const seen = new Set();
+  for (const selector of Array.isArray(selectors) ? selectors : []) {
+    if (typeof selector !== "string") {
+      continue;
+    }
+    const trimmed = selector.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    values.push(trimmed);
+  }
+  return values;
+}
+
+function normalizeAiSelectorSet(value) {
+  if (!value || typeof value !== "object") {
+    return { exclusionSelectors: [], inclusionSelectors: [] };
+  }
+  return {
+    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
+    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
+  };
+}
+
+function combineAiSelectorSet(selectorSet) {
+  if (!selectorSet || typeof selectorSet !== "object") {
+    return [];
+  }
+  return [
+    ...normalizeSelectorList(selectorSet.exclusionSelectors),
+    ...normalizeSelectorList(selectorSet.inclusionSelectors)
+  ];
+}
+
+function applyAiSelectorModifiersToSet(selectorSet, modifiers) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  return {
+    exclusionSelectors: applyAiSelectorModifiers(
+      normalized.exclusionSelectors,
+      modifiers
+    ),
+    inclusionSelectors: applyAiSelectorModifiers(
+      normalized.inclusionSelectors,
+      modifiers
+    )
+  };
+}
+
 function collectSelectorElements(selectors) {
   const elements = new Set();
   for (const selector of selectors || []) {
@@ -708,8 +759,9 @@ function isWithinElementSet(el, elements) {
   return false;
 }
 
-function collectIncludedElementsFromExclusionSelectors(selectors) {
-  const excludedElements = collectSelectorElements(selectors);
+function collectIncludedElementsFromSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
   const candidates = [];
   const stack = document.body ? [document.body] : [];
   while (stack.length) {
@@ -730,6 +782,21 @@ function collectIncludedElementsFromExclusionSelectors(selectors) {
       stack.push(el.children[i]);
     }
   }
+
+  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  for (const el of includedElements) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      continue;
+    }
+    if (!isTextualContainer(el) || isWithinImmutableExcluded(el)) {
+      continue;
+    }
+    candidates.push(el);
+  }
+
   return collapseElementsByNesting(candidates, { onlyVisible: true });
 }
 
@@ -1183,7 +1250,7 @@ function getMarkMode() {
   if (!state.enabled || !state.overlay) {
     return "disabled";
   }
-  if (state.altHeld && state.shiftHeld) {
+  if (state.altHeld) {
     return "include";
   }
   return "exclude";
@@ -1193,7 +1260,7 @@ function getMarkModeFromEvent(event) {
   if (!event) {
     return getMarkMode();
   }
-  if (event.altKey && event.shiftKey) {
+  if (event.altKey) {
     return "include";
   }
   return "exclude";
@@ -1783,7 +1850,7 @@ function toggleExplicitExclude(target) {
   }
   const explicitExcludeSet = new Set(collectExcludedXPaths(items));
   if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
-    showToast("Use Alt+Shift include to override an excluded parent");
+    showToast("Use Alt include to override an excluded parent");
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -2173,20 +2240,15 @@ function renderHighlights() {
     }
     return false;
   };
-  const rawAiSelectors = Array.isArray(state.config.latestComputedSelectors) &&
-    state.config.latestComputedSelectors.length
-    ? state.config.latestComputedSelectors
-    : Array.isArray(
-      state.config.domainAiSelectorSet &&
-      state.config.domainAiSelectorSet.exclusionSelectors
-    )
-      ? state.config.domainAiSelectorSet.exclusionSelectors
-      : [];
-  const normalizedAiSelectors = rawAiSelectors
-    .filter((selector) => typeof selector === "string")
-    .map((selector) => selector.trim())
-    .filter(Boolean);
-  const aiSelectorMaxDepth = getMaximumDescendantSelectorCount(normalizedAiSelectors);
+  const latestComputedSelectorSet = normalizeAiSelectorSet(state.config.latestComputedSelectors);
+  const latestCombinedSelectors = combineAiSelectorSet(latestComputedSelectorSet);
+  const storedSelectorSet = normalizeAiSelectorSet(state.config.domainAiSelectorSet);
+  const rawAiSelectorSet = latestCombinedSelectors.length
+    ? latestComputedSelectorSet
+    : storedSelectorSet;
+  const normalizedAiSelectorSet = normalizeAiSelectorSet(rawAiSelectorSet);
+  const allAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet);
+  const aiSelectorMaxDepth = getMaximumDescendantSelectorCount(allAiSelectors);
   const aiSelectorOverride = state.aiSelectorModifierOverride &&
     typeof state.aiSelectorModifierOverride === "object" &&
     (!state.aiSelectorModifierOverride.baseUrl ||
@@ -2198,12 +2260,12 @@ function renderHighlights() {
     aiSelectorOverride || state.config.aiSelectorModifiers,
     aiSelectorMaxDepth
   );
-  const adjustedAiSelectors = applyAiSelectorModifiers(
-    normalizedAiSelectors,
+  const adjustedAiSelectorSet = applyAiSelectorModifiersToSet(
+    normalizedAiSelectorSet,
     aiSelectorModifiers
   );
   const aiContent = new Set(
-    collectIncludedElementsFromExclusionSelectors(adjustedAiSelectors)
+    collectIncludedElementsFromSelectorSet(adjustedAiSelectorSet)
   );
   const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
 
@@ -3035,30 +3097,9 @@ export function handleScroll() {
   }, SCROLL_DEBOUNCE_MS);
 }
 
-export function collectPreviewItems(selectors) {
-  const excludedElements = collectSelectorElements(selectors);
-  const candidates = [];
+export function collectPreviewItems(selectorSet) {
+  const elements = collectIncludedElementsFromSelectorSet(selectorSet);
   const rows = [];
-  const stack = document.body ? [document.body] : [];
-  while (stack.length) {
-    const el = stack.pop();
-    if (!el || el.nodeType !== 1) {
-      continue;
-    }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-      continue;
-    }
-    if (isWithinElementSet(el, excludedElements)) {
-      continue;
-    }
-    if (isTextualContainer(el) && !isWithinImmutableExcluded(el)) {
-      candidates.push(el);
-    }
-    for (let i = el.children.length - 1; i >= 0; i -= 1) {
-      stack.push(el.children[i]);
-    }
-  }
-  const elements = collapseElementsByNesting(candidates, { onlyVisible: true });
   for (const el of elements) {
     const text = (el.innerText || "").replace(/\s+/g, " ").trim();
     if (!text) {
