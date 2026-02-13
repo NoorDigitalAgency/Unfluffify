@@ -1,4 +1,3 @@
-import { normalizePatternValue } from "./patterns.js";
 import { looksLikeBaseUrl, idbGet, idbSet } from "./utilities.js";
 import {
   DEFAULT_AI_SELECTOR_MODIFIERS,
@@ -91,8 +90,7 @@ export function createDefaultConfig(baseUrl) {
     pageMarkings: {},
     latestComputedSelectors: [],
     lastSavedSelectors: [],
-    domainAiSelectorSet: { inclusionSelectors: [] },
-    pageCssSelectors: {},
+    domainAiSelectorSet: { exclusionSelectors: [] },
     aiSelectorModifiers: { ...DEFAULT_AI_SELECTOR_MODIFIERS }
   };
 }
@@ -114,26 +112,7 @@ export function normalizePageMarkings(pageMarkings) {
     if (normalizedXpaths.changed) {
       changed = true;
     }
-    const rawPattern =
-      typeof entry.pagePattern === "string"
-        ? entry.pagePattern
-        : typeof entry.pattern === "string"
-          ? entry.pattern
-          : "";
-    const pagePattern = normalizePatternValue(rawPattern);
-    let resolvedPattern = pagePattern;
-    if (!resolvedPattern) {
-      const fallbackUrl = typeof entry.url === "string" ? entry.url : url;
-      const fallbackPattern = normalizePatternValue(fallbackUrl);
-      if (fallbackPattern) {
-        resolvedPattern = fallbackPattern;
-        changed = true;
-      }
-    }
-    if (entry.pattern) {
-      changed = true;
-    }
-    if (rawPattern && rawPattern !== pagePattern) {
+    if (entry.pagePattern || entry.pattern) {
       changed = true;
     }
     const fullHTML =
@@ -175,13 +154,15 @@ export function normalizePageMarkings(pageMarkings) {
     if (includeResult.changed) {
       changed = true;
     }
+    if (entry.cssSelectors !== undefined || entry.pageCssSelectors !== undefined) {
+      changed = true;
+    }
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,
       xpaths,
       consentXpaths,
       includeXpaths,
-      pagePattern: resolvedPattern,
       fullHTML
     };
   });
@@ -189,15 +170,15 @@ export function normalizePageMarkings(pageMarkings) {
 }
 
 export function normalizeAiSelectorSet(value) {
-  const normalized = { inclusionSelectors: [] };
+  const normalized = { exclusionSelectors: [] };
   let changed = false;
   if (!value || typeof value !== "object") {
     return { normalized, changed };
   }
-  if (Array.isArray(value.inclusionSelectors)) {
-    normalized.inclusionSelectors = value.inclusionSelectors;
-  } else if (Array.isArray(value.exclusionSelectors)) {
-    normalized.inclusionSelectors = value.exclusionSelectors;
+  if (Array.isArray(value.exclusionSelectors)) {
+    normalized.exclusionSelectors = value.exclusionSelectors;
+  } else if (Array.isArray(value.inclusionSelectors)) {
+    normalized.exclusionSelectors = value.inclusionSelectors;
     changed = true;
   } else {
     changed = true;
@@ -222,85 +203,6 @@ function normalizeAiSelectorModifiersConfig(value, maxDescendantSelectors) {
     !("maxDescendantSelectors" in value) ||
     rawRemoveIdSegments !== normalized.removeIdSegments ||
     resolvedRawMax !== normalized.maxDescendantSelectors;
-  return { normalized, changed };
-}
-
-function normalizePageCssSelectors(value, pageMarkings) {
-  const normalized = {};
-  let changed = false;
-
-  const toCssString = (raw) => {
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      return trimmed ? trimmed : "";
-    }
-    if (Array.isArray(raw)) {
-      const items = raw
-        .filter((item) => typeof item === "string")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      if (items.length) {
-        changed = true;
-        return items.join(", ");
-      }
-    }
-    return "";
-  };
-
-  const addCss = (url, rawCss, allowOverwrite = false) => {
-    if (typeof url !== "string" || !url) {
-      return;
-    }
-    const css = toCssString(rawCss);
-    if (!css) {
-      return;
-    }
-    if (!allowOverwrite && normalized[url]) {
-      return;
-    }
-    normalized[url] = css;
-  };
-
-  if (value instanceof Map) {
-    value.forEach((css, url) => addCss(url, css, true));
-    changed = true;
-  } else if (Array.isArray(value)) {
-    value.forEach((entry) => {
-      if (Array.isArray(entry)) {
-        addCss(entry[0], entry[1], true);
-        changed = true;
-        return;
-      }
-      if (entry && typeof entry === "object") {
-        addCss(entry.url, entry.cssSelectors ?? entry.pageCssSelectors, true);
-        if ("cssSelectors" in entry || "pageCssSelectors" in entry) {
-          changed = true;
-        }
-      }
-    });
-  } else if (value && typeof value === "object") {
-    Object.entries(value).forEach(([url, css]) => addCss(url, css, true));
-  } else if (value !== undefined) {
-    changed = true;
-  }
-
-  if (pageMarkings && typeof pageMarkings === "object") {
-    Object.entries(pageMarkings).forEach(([url, entry]) => {
-      if (!entry || typeof entry !== "object") {
-        return;
-      }
-      if (entry.cssSelectors !== undefined) {
-        addCss(url, entry.cssSelectors);
-        changed = true;
-        return;
-      }
-      if (entry.pageCssSelectors !== undefined) {
-        addCss(url, entry.pageCssSelectors);
-        changed = true;
-      }
-    });
-  }
-
   return { normalized, changed };
 }
 
@@ -336,6 +238,9 @@ export function normalizeConfig(baseUrl, incoming) {
   if (incoming.pageUrlPatterns !== undefined) {
     changed = true;
   }
+  if (incoming.pageCssSelectors !== undefined) {
+    changed = true;
+  }
   if (Array.isArray(incoming.latestComputedSelectors)) {
     normalized.latestComputedSelectors = incoming.latestComputedSelectors;
   } else if (incoming.latestComputedSelectors !== undefined) {
@@ -364,14 +269,6 @@ export function normalizeConfig(baseUrl, incoming) {
   );
   normalized.aiSelectorModifiers = aiSelectorModifiers.normalized;
   if (aiSelectorModifiers.changed) {
-    changed = true;
-  }
-  const pageCssSelectors = normalizePageCssSelectors(
-    incoming.pageCssSelectors,
-    normalized.pageMarkings
-  );
-  normalized.pageCssSelectors = pageCssSelectors.normalized;
-  if (pageCssSelectors.changed) {
     changed = true;
   }
 

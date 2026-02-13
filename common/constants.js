@@ -21,20 +21,38 @@ export const DEVICE_EMULATION_PRESETS = {
     mobile: true
   }
 };
-export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = [
-    "IMG",
-    "FOOTER",
-    "FORM",
-    "BUTTON",
-    "INPUT",
-    "LABEL",
-    "NAV",
-    "HEADER",
-    "NOSCRIPT",
-    "DIALOG",
-    "ASIDE",
-    "SELECT",
-    "TITLE",
-    "STYLE",
-    "VIDEO"
+
+export const DEFAULT_EXCLUDED_TAG_SELECTORS = [
+  "IMG",
+  "FOOTER",
+  "FORM",
+  "BUTTON",
+  "INPUT",
+  "LABEL",
+  "NAV",
+  "HEADER",
+  "NOSCRIPT",
+  "DIALOG",
+  "ASIDE",
+  "SELECT",
+  "TITLE",
+  "STYLE",
+  "VIDEO"
 ];
+
+export const DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS = [
+  "FOOTER",
+  "FORM",
+  "BUTTON",
+  "LABEL",
+  "NAV",
+  "HEADER",
+  "NOSCRIPT",
+  "DIALOG",
+  "ASIDE",
+  "SELECT"
+];
+
+export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = DEFAULT_EXCLUDED_TAG_SELECTORS.filter(
+  (selector) => !DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS.includes(selector)
+);

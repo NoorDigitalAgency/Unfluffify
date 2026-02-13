@@ -26,12 +26,6 @@ const initialViewState = {
   baseUrlEditText: "Change",
   baseUrlNoticeText: "",
   baseUrlNoticeVisible: false,
-  pagePatternOptions: [],
-  pagePatternPlaceholder: "",
-  pagePatternValue: "",
-  pagePatternDisabled: true,
-  pagePatternNoticeText: "",
-  pagePatternNoticeVisible: false,
   toggleEnabled: false,
   toggleEnabledDisabled: true,
   mainUiHidden: true,
@@ -53,14 +47,12 @@ const initialViewState = {
   copySourcePagePlaceholder: "Select a Base Page URL first",
   copySourcePageDisabled: true,
   copyFromPageDisabled: true,
-  xpathCssHighlightChecked: false,
-  xpathCssHighlightDisabled: true,
   explicitExcludes: [],
   explicitExcludesEmptyText: "Set Base Page URL first",
   explicitIncludes: [],
   explicitIncludesEmptyText: "Set Base Page URL first",
-  headingDefaults: [],
-  headingDefaultsEmptyText: "Set Base Page URL first",
+  defaultTagExclusions: [],
+  defaultTagExclusionsEmptyText: "Set Base Page URL first",
   markedPages: [],
   markedPagesEmptyText: "Set Base Page URL first",
   basePageUrls: [],
@@ -568,36 +560,6 @@ function renderMarkingView({state: view, actions: handlers}) {
                     "No saved data for this page yet. Save to store it."
                 ),
                 h(
-                    "label",
-                    {class: "field"},
-                    h("span", null, "Page URL pattern"),
-                    h(
-                        "div",
-                        {class: "input-row"},
-                        h(
-                            "select",
-                            {
-                                id: "page-pattern",
-                                value: view.pagePatternValue,
-                                disabled: view.pagePatternDisabled,
-                                onChange: handlers.onPagePatternChange
-                            },
-                            renderOptions(view.pagePatternOptions, view.pagePatternPlaceholder)
-                        )
-                    ),
-                    h(
-                        "div",
-                        {
-                            id: "page-pattern-notice",
-                            class: "notice",
-                            role: "status",
-                            "aria-live": "polite",
-                            hidden: !view.pagePatternNoticeVisible
-                        },
-                        view.pagePatternNoticeText
-                    )
-                ),
-                h(
                     "div",
                     {class: "button-row"},
                     h(
@@ -679,41 +641,6 @@ function renderMarkingView({state: view, actions: handlers}) {
                                 onClick: handlers.onCopyFromPage
                             },
                             "Copy from"
-                        )
-                    )
-                ),
-                h(
-                    "details",
-                    {class: "collapsible"},
-                    h("summary", null, "XPaths to CSS"),
-                    h(
-                        "div",
-                        {class: "collapsible-body"},
-                        h(
-                            "div",
-                            {class: "toggle-row"},
-                            h(
-                                "label",
-                                {for: "xpath-css-highlight"},
-                                h("input", {
-                                    id: "xpath-css-highlight",
-                                    type: "checkbox",
-                                    checked: view.xpathCssHighlightChecked,
-                                    disabled: view.xpathCssHighlightDisabled,
-                                    onChange: handlers.onXpathCssHighlightChange
-                                }),
-                                "Highlight CSS selectors"
-                            )
-                        ),
-                        h(
-                            "button",
-                            {
-                                id: "xpath-css-copy-all",
-                                type: "button",
-                                class: "button-secondary full-width margin-above",
-                                onClick: handlers.onXpathCssCopyAll
-                            },
-                            "Copy All Pages"
                         )
                     )
                 )
@@ -799,13 +726,13 @@ function renderMarkingView({state: view, actions: handlers}) {
             h(
                 "section",
                 {class: "card"},
-                h("div", {class: "section-title"}, "Heading defaults"),
+                h("div", {class: "section-title"}, "Default tag exclusions"),
                 h(
                     "ul",
-                    {id: "heading-defaults", class: "list"},
+                    {id: "default-tag-exclusions", class: "list"},
                     renderListItems(
-                        view.headingDefaults,
-                        view.headingDefaultsEmptyText,
+                        view.defaultTagExclusions,
+                        view.defaultTagExclusionsEmptyText,
                         (item) =>
                             h(
                                 "li",
@@ -824,7 +751,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                                     "button",
                                     {
                                         type: "button",
-                                        onClick: () => handlers.onHeadingDefaultView(item)
+                                        onClick: () => handlers.onDefaultTagExclusionView(item)
                                     },
                                     "View"
                                 ),
@@ -832,7 +759,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                                     "button",
                                     {
                                         type: "button",
-                                        onClick: () => handlers.onHeadingDefaultToggle(item)
+                                        onClick: () => handlers.onDefaultTagExclusionToggle(item)
                                     },
                                     item.excluded ? "Include" : "Exclude"
                                 )

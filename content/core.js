@@ -1,16 +1,15 @@
 import * as config from "../common/config.js";
-import * as patterns from "../common/patterns.js";
 import * as utils from "../common/utilities.js";
-import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../common/constants.js";
+import {
+  DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
+} from "../common/constants.js";
 import {
   applyAiSelectorModifiers,
   getMaximumDescendantSelectorCount,
   normalizeAiSelectorModifiers
 } from "../common/ai-selector-modifiers.js";
-import {
-  HEADING_TAG_SELECTOR,
-  REMOVABLE_ELEMENT_SELECTORS
-} from "./constants.js";
+import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
 
 export const state = {
   enabled: false,
@@ -44,8 +43,6 @@ export const state = {
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
   initialized: false,
-  cssHighlightEnabled: false,
-  cssHighlightSelectors: "",
   aiSelectorModifierOverride: null,
   layerBoxes: new WeakMap()
 };
@@ -66,8 +63,6 @@ function getEntryFingerprint(entry) {
   if (!entry || !Array.isArray(entry.xpaths)) {
     return [];
   }
-  const pattern = patterns.normalizePatternValue(entry.pagePattern || "");
-  const fingerprint = [`pattern:${pattern}`];
   const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
       .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`)
@@ -84,7 +79,7 @@ function getEntryFingerprint(entry) {
           .map((xpath) => `consent:${xpath}`)
           .sort()
       : [];
-  return fingerprint.concat(xpathFingerprint, includeFingerprint, consentFingerprint);
+  return xpathFingerprint.concat(includeFingerprint, consentFingerprint);
 }
 
 function isClippedByOverflow(el) {
@@ -179,6 +174,30 @@ function hasDirectText(el) {
   return false;
 }
 
+function isHeadingElementTag(el) {
+  return Boolean(el && el.nodeType === 1 && /^H[1-6]$/i.test(el.tagName));
+}
+
+function matchesToggleableDefaultExcluded(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
+    try {
+      if (isTagSelector(selector)) {
+        if (el.tagName === selector.toUpperCase()) {
+          return true;
+        }
+      } else if (el.matches(selector)) {
+        return true;
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return false;
+}
+
 function isTextualContainer(el) {
   if (!isVisible(el)) {
     return false;
@@ -186,7 +205,14 @@ function isTextualContainer(el) {
   if (hasDirectText(el)) {
     return true;
   }
-  if (!isHeadingElement(el)) {
+  if (matchesToggleableDefaultExcluded(el)) {
+    if (el.children.length > 0) {
+      return true;
+    }
+    const nestedText = (el.innerText || "").replace(/\s+/g, " ").trim();
+    return Boolean(nestedText);
+  }
+  if (!isHeadingElementTag(el)) {
     return false;
   }
   const headingText = (el.innerText || "").replace(/\s+/g, " ").trim();
@@ -211,27 +237,6 @@ function matchesImmutableExcluded(el) {
     }
   }
   return false;
-}
-
-function collectHeadingTargets() {
-  if (!HEADING_TAG_SELECTOR) {
-    return new Set();
-  }
-  const targets = new Set();
-  const headings = document.querySelectorAll(HEADING_TAG_SELECTOR);
-
-  for (const heading of headings) {
-    if (isWithinAiPopover(heading)) {
-      continue;
-    }
-    if (isWithinImmutableExcluded(heading)) {
-      continue;
-    }
-    if (isTextualContainer(heading)) {
-      targets.add(heading);
-    }
-  }
-  return targets;
 }
 
 function isWithinImmutableExcluded(el) {
@@ -609,6 +614,45 @@ function collectSelectorElements(selectors) {
   return elements;
 }
 
+function isWithinElementSet(el, elements) {
+  if (!el || !elements || elements.size === 0) {
+    return false;
+  }
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (elements.has(node)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function collectIncludedElementsFromExclusionSelectors(selectors) {
+  const excludedElements = collectSelectorElements(selectors);
+  const candidates = [];
+  const stack = document.body ? [document.body] : [];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      continue;
+    }
+    if (isWithinElementSet(el, excludedElements)) {
+      continue;
+    }
+    if (isTextualContainer(el) && !isWithinImmutableExcluded(el)) {
+      candidates.push(el);
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
+    }
+  }
+  return collapseElementsByNesting(candidates, { onlyVisible: true });
+}
+
 function getElementDepth(el) {
   let depth = 0;
   let current = el;
@@ -780,7 +824,7 @@ function shouldScheduleRenderForMutations(mutations) {
       if (parent && isWithinConsentElement(parent)) {
         continue;
       }
-      if (parent && (isHeadingElement(parent) || hasDirectText(parent))) {
+      if (parent && (isHeadingElementTag(parent) || hasDirectText(parent))) {
         return true;
       }
       continue;
@@ -920,21 +964,6 @@ function createOverlay() {
         background-clip: border-box;
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
-      @keyframes uf-css-highlight-dash {
-        0% {
-          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
-        }
-        50% {
-          box-shadow: 0px 0px 7.5px 7.5px rgba(34, 124, 40, 0.85);
-        }
-        100% {
-          box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
-        }
-      }
-      #unfluffify-overlay .uf-css-highlight {
-        box-shadow: 0px 0px 7.5px 0 rgba(34, 124, 40, 0);
-        animation: uf-css-highlight-dash 2s linear infinite !important;
-      }
       #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
@@ -974,7 +1003,6 @@ function createOverlay() {
     "explicit-exclude",
     "explicit-include",
     "ai-content",
-    "css-highlight",
     "default",
     "focus",
     "hover"
@@ -1937,9 +1965,14 @@ function renderHighlights() {
     ? state.config.latestComputedSelectors
     : Array.isArray(
       state.config.domainAiSelectorSet &&
-      state.config.domainAiSelectorSet.inclusionSelectors
+      state.config.domainAiSelectorSet.exclusionSelectors
     )
-      ? state.config.domainAiSelectorSet.inclusionSelectors
+      ? state.config.domainAiSelectorSet.exclusionSelectors
+      : Array.isArray(
+        state.config.domainAiSelectorSet &&
+        state.config.domainAiSelectorSet.inclusionSelectors
+      )
+        ? state.config.domainAiSelectorSet.inclusionSelectors
       : [];
   const normalizedAiSelectors = rawAiSelectors
     .filter((selector) => typeof selector === "string")
@@ -1957,13 +1990,12 @@ function renderHighlights() {
     aiSelectorOverride || state.config.aiSelectorModifiers,
     aiSelectorMaxDepth
   );
+  const adjustedAiSelectors = applyAiSelectorModifiers(
+    normalizedAiSelectors,
+    aiSelectorModifiers
+  );
   const aiContent = new Set(
-    collapseElementsByNesting(
-      collectSelectorElements(
-        applyAiSelectorModifiers(normalizedAiSelectors, aiSelectorModifiers)
-      ),
-      { onlyVisible: true }
-    )
+    collectIncludedElementsFromExclusionSelectors(adjustedAiSelectors)
   );
   const allDefaultExcluded = new Set([...immutableExcluded, ...explicitExclude]);
 
@@ -2069,36 +2101,11 @@ function renderHighlights() {
       );
     }
   }
-
-  const layerCssHighlight = state.layers["css-highlight"];
-  const layerCssState = beginLayerRender(layerCssHighlight);
-  if (state.cssHighlightEnabled && state.cssHighlightSelectors) {
-    let cssElements;
-    try {
-      cssElements = document.querySelectorAll(state.cssHighlightSelectors);
-    } catch (error) {
-      cssElements = [];
-    }
-    for (const el of cssElements) {
-      const rects = getVisibleRects(el);
-      if (rects.length > 0) {
-        drawMultiRectReuse(
-          layerCssState,
-          rects,
-          "uf-css-highlight",
-          el,
-          null,
-          null
-        );
-      }
-    }
-  }
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
   finalizeLayerRender(layerAiContentState);
   finalizeLayerRender(layerDefaultState);
-  finalizeLayerRender(layerCssState);
 
   updateFocusHighlight();
   updateMarkedElements(markedElements);
@@ -2357,8 +2364,8 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
 // Public API
 // ====================================================================
 
-export function isHeadingElement (el) {
-  return Boolean(el && el.nodeType === 1 && el.matches(HEADING_TAG_SELECTOR));
+export function isDefaultToggleableExcludedElement(el) {
+  return matchesToggleableDefaultExcluded(el);
 }
 
 export function isPageDraftDirty(pageUrl) {
@@ -2391,7 +2398,6 @@ export function clonePageEntry(entry) {
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
-    pagePattern: patterns.normalizePatternValue(entry.pagePattern || ""),
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
   };
   return normalizePageEntryXpaths(cloned);
@@ -2541,12 +2547,6 @@ export function clearFocusHighlight() {
   updateFocusHighlight();
 }
 
-export function setCssHighlight(enabled, css) {
-  state.cssHighlightEnabled = Boolean(enabled);
-  state.cssHighlightSelectors = typeof css === "string" ? css : "";
-  scheduleRender();
-}
-
 export function isVisible(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -2673,7 +2673,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
       title: pageUrl || "",
       xpaths: [],
       consentXpaths: [],
-      pagePattern: "",
+      includeXpaths: [],
       fullHTML: ""
     };
   }
@@ -2690,7 +2690,6 @@ export function getPageMarkingEntry(config, pageUrl, options) {
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
-    pagePattern: "",
     fullHTML: ""
   };
   if (create && persist) {
@@ -2749,7 +2748,7 @@ export function disable() {
   stopUrlWatcher();
 }
 
-export async function enableForBaseUrl(baseUrl, options) {
+export async function enableForBaseUrl(baseUrl) {
   if (!baseUrl || !location.href.startsWith(baseUrl)) {
     disable();
     return;
@@ -2758,17 +2757,7 @@ export async function enableForBaseUrl(baseUrl, options) {
   state.baseUrl = baseUrl;
   state.config = await loadConfig(baseUrl);
   state.consentRootElements = new Set();
-  const pendingPattern = patterns.normalizePatternValue(options && options.pagePattern);
   const pageUrl = location.href;
-  if (pendingPattern) {
-    const entry = getPageMarkingEntry(state.config, pageUrl);
-    entry.pagePattern = pendingPattern;
-    state.config.pageMarkings[pageUrl] = entry;
-  }
-  if (!patterns.isPageUrlAllowed(state.config, pageUrl, pendingPattern)) {
-    disable();
-    return;
-  }
   const savedEntry =
       state.config &&
       state.config.pageMarkings &&
@@ -2825,28 +2814,35 @@ export function handleScroll() {
 }
 
 export function collectPreviewItems(selectors) {
+  const excludedElements = collectSelectorElements(selectors);
   const candidates = [];
   const rows = [];
-  for (const selector of selectors) {
-    try {
-      const elements = document.querySelectorAll(selector);
-      for (const el of elements) {
-        if (!el || el.nodeType !== 1) {
-          continue;
-        }
-        candidates.push(el);
-      }
-    } catch {
-      // Ignore invalid selectors
+  const stack = document.body ? [document.body] : [];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      continue;
+    }
+    if (isWithinElementSet(el, excludedElements)) {
+      continue;
+    }
+    if (isTextualContainer(el) && !isWithinImmutableExcluded(el)) {
+      candidates.push(el);
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
     }
   }
   const elements = collapseElementsByNesting(candidates, { onlyVisible: true });
   for (const el of elements) {
-    const rect = el.getBoundingClientRect();
     const text = (el.innerText || "").replace(/\s+/g, " ").trim();
     if (!text) {
       continue;
     }
+    const rect = el.getBoundingClientRect();
     rows.push({
       text,
       top: rect.top + window.scrollY,
@@ -2862,7 +2858,7 @@ export function collectPreviewItems(selectors) {
   return rows.map((row) => row.text);
 }
 
-export function collectHeadingDefaultStatus(config, entryOverride) {
+export function collectDefaultTagExclusionStatus(config, entryOverride) {
   if (!config) {
     return [];
   }
@@ -2893,11 +2889,26 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
   }
   const withinExplicitInclude = new Set();
   const results = new Map();
-  const headingTargets = HEADING_TAG_SELECTOR
-    ? Array.from(document.querySelectorAll(HEADING_TAG_SELECTOR))
-    : [];
-  for (const el of headingTargets) {
+  const targets = new Set();
+  for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
+    if (!selector) {
+      continue;
+    }
+    try {
+      const elements = document.querySelectorAll(toQuerySelector(selector));
+      elements.forEach((el) => targets.add(el));
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  for (const el of targets) {
     if (isWithinAiPopover(el)) {
+      continue;
+    }
+    if (isWithinConsentElement(el)) {
+      continue;
+    }
+    if (!matchesToggleableDefaultExcluded(el)) {
       continue;
     }
     if (!isTextualContainer(el)) {
@@ -2933,7 +2944,9 @@ export function collectHeadingDefaultStatus(config, entryOverride) {
     ...item,
     excluded: includeSet.has(item.xpath) || withinExplicitInclude.has(item.xpath)
       ? false
-      : excludedLookup.get(item.xpath) === true
+      : excludedLookup.has(item.xpath)
+        ? excludedLookup.get(item.xpath) === true
+        : true
   }));
 }
 
@@ -3056,10 +3069,6 @@ export async function refreshFromTabState() {
               ? config.pageMarkings[pageUrl]
               : null;
       mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
-      if (!patterns.isPageUrlAllowed(config, pageUrl)) {
-        disable();
-        return;
-      }
       state.baseUrl = response.baseUrl;
       state.config = config;
       setSavedPageEntry(pageUrl, storedEntry);
@@ -3126,7 +3135,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (explicitIncludeSet.has(xpath)) {
       return true;
     }
-    return excludedLookup.get(xpath) === true && !utils.isHeadingXPath(xpath);
+    return excludedLookup.get(xpath) === true;
   };
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
@@ -3189,12 +3198,12 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     seen.add(xpath);
-    const isHeading = isHeadingElement(el);
+    const defaultExcluded = matchesToggleableDefaultExcluded(el);
     const excluded = explicitIncludeSet.has(xpath)
       ? false
       : excludedLookup.has(xpath)
         ? excludedLookup.get(xpath) === true
-        : isHeading;
+        : defaultExcluded;
     items.push({ xpath, excluded });
     if (excluded) {
       generatedExcludedSet.add(xpath);

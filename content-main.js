@@ -1,4 +1,3 @@
-import * as patterns from "./common/patterns.js";
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
 import * as utils from "./common/utilities.js";
@@ -15,7 +14,7 @@ const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
-const SILENT_CONTENT_SELECTOR_ATTR = "data-uf-silent-content-selector";
+const LEGACY_SILENT_CONTENT_SELECTOR_ATTR = "data-uf-silent-content-selector";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
@@ -24,14 +23,13 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
-const silentHighlightingOriginalTitles = new WeakMap();
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
   SILENT_CONTENT_HIGHLIGHTING_ATTR,
   SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
   SILENT_CONTENT_POSITION_ATTR,
-  SILENT_CONTENT_SELECTOR_ATTR,
+  LEGACY_SILENT_CONTENT_SELECTOR_ATTR,
   core.CONSENT_HIDDEN_ATTR
 ]);
 
@@ -168,7 +166,7 @@ async function toggleEnabledFromPage() {
     enabled: true,
     baseUrl
   });
-  core.enableForBaseUrl(baseUrl, {}).then();
+  core.enableForBaseUrl(baseUrl).then();
   refreshSilentHighlightings().then();
 }
 
@@ -289,20 +287,17 @@ function setSilentHighlightingsActive(active) {
 
 function clearSilentHighlightingMarks() {
   const marked = document.querySelectorAll(
-    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_SELECTOR_ATTR}]`
+    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${LEGACY_SILENT_CONTENT_SELECTOR_ATTR}]`
   );
   marked.forEach((node) => {
-    const originalTitle = silentHighlightingOriginalTitles.get(node);
-    if (originalTitle === null) {
+    const title = node.getAttribute("title") || "";
+    if (title.startsWith("Unfluffify selector:")) {
       node.removeAttribute("title");
-    } else if (typeof originalTitle === "string") {
-      node.setAttribute("title", originalTitle);
     }
-    silentHighlightingOriginalTitles.delete(node);
     node.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
-    node.removeAttribute(SILENT_CONTENT_SELECTOR_ATTR);
+    node.removeAttribute(LEGACY_SILENT_CONTENT_SELECTOR_ATTR);
   });
 }
 
@@ -424,12 +419,15 @@ function getStoredAiSelectors(baseConfig) {
   if (latestComputed.length) {
     return latestComputed;
   }
-  const inclusion =
+  const exclusion =
     baseConfig.domainAiSelectorSet &&
-    Array.isArray(baseConfig.domainAiSelectorSet.inclusionSelectors)
-      ? baseConfig.domainAiSelectorSet.inclusionSelectors
+    Array.isArray(baseConfig.domainAiSelectorSet.exclusionSelectors)
+      ? baseConfig.domainAiSelectorSet.exclusionSelectors
+      : baseConfig.domainAiSelectorSet &&
+          Array.isArray(baseConfig.domainAiSelectorSet.inclusionSelectors)
+        ? baseConfig.domainAiSelectorSet.inclusionSelectors
       : [];
-  return normalizeSelectorList(inclusion);
+  return normalizeSelectorList(exclusion);
 }
 
 function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectors) {
@@ -456,15 +454,120 @@ function getEffectiveAiSelectors(baseConfig, baseUrl) {
   return applyAiSelectorModifiers(selectors, modifiers);
 }
 
+function collectExcludedNodesFromSelectors(selectors) {
+  const excluded = new Set();
+  selectors.forEach((selector) => {
+    if (typeof selector !== "string" || !selector) {
+      return;
+    }
+    try {
+      document.querySelectorAll(selector).forEach((node) => {
+        if (!isExtensionUiNode(node)) {
+          excluded.add(node);
+        }
+      });
+    } catch {
+      // Ignore invalid selectors
+    }
+  });
+  return excluded;
+}
+
+function isWithinExcludedNode(node, excluded) {
+  if (!node || !excluded || excluded.size === 0) {
+    return false;
+  }
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (excluded.has(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function hasRenderableText(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (node.tagName === "SCRIPT" || node.tagName === "STYLE" || node.tagName === "NOSCRIPT") {
+    return false;
+  }
+  const text = (node.innerText || "").replace(/\s+/g, " ").trim();
+  return Boolean(text);
+}
+
+function matchesImmutableDefaultSelector(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
+    try {
+      const query = /^[a-z]+$/i.test(selector) ? selector.toLowerCase() : selector;
+      if (node.matches(query)) {
+        return true;
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return false;
+}
+
+function isWithinImmutableDefaultNode(node) {
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (matchesImmutableDefaultSelector(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function collectIncludedNodesFromExclusions(selectors) {
+  const excluded = collectExcludedNodesFromSelectors(selectors);
+  const candidates = [];
+  const stack = [document.body];
+
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node)) {
+      continue;
+    }
+    if (!core.isVisible(node)) {
+      continue;
+    }
+    if (isWithinImmutableDefaultNode(node)) {
+      continue;
+    }
+    if (isWithinExcludedNode(node, excluded)) {
+      continue;
+    }
+    if (hasRenderableText(node)) {
+      candidates.push(node);
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+
+  return core.collapseElementsByNesting(candidates, { onlyVisible: true });
+}
+
 function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
   const selectors = getEffectiveAiSelectors(state.config, state.baseUrl);
   if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
-    state.config.domainAiSelectorSet = { inclusionSelectors: [] };
+    state.config.domainAiSelectorSet = { exclusionSelectors: [] };
   }
-  state.config.domainAiSelectorSet.inclusionSelectors = selectors;
+  state.config.domainAiSelectorSet.exclusionSelectors = selectors;
   core.scheduleRender();
 }
 
@@ -536,38 +639,9 @@ async function refreshSilentHighlightings() {
     }
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
-  const contentNodeSelectorMap = new Map();
-  effectiveSelectors.forEach((selector) => {
-    if (typeof selector !== "string" || !selector) {
-      return;
-    }
-    let matches = [];
-    try {
-      matches = Array.from(document.querySelectorAll(selector));
-    } catch {
-      return;
-    }
-    matches.forEach((node) => {
-      if (isExtensionUiNode(node)) {
-        return;
-      }
-      if (!contentNodeSelectorMap.has(node)) {
-        contentNodeSelectorMap.set(node, selector);
-      }
-    });
-  });
-  const contentNodes = core.collapseElementsByNesting(
-    Array.from(contentNodeSelectorMap.keys()),
-    { onlyVisible: true }
-  );
+  const contentNodes = collectIncludedNodesFromExclusions(effectiveSelectors);
   contentNodes.forEach((node) => {
-    const selector = contentNodeSelectorMap.get(node) || "";
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
-    node.setAttribute(SILENT_CONTENT_SELECTOR_ATTR, selector);
-    if (!silentHighlightingOriginalTitles.has(node)) {
-      silentHighlightingOriginalTitles.set(node, node.getAttribute("title"));
-    }
-    node.setAttribute("title", `Unfluffify selector: ${selector}`);
     const computed = window.getComputedStyle(node);
     const position = computed ? computed.position : "";
     const positionValue = position && position !== "static" ? "existing" : "relative";
@@ -575,58 +649,6 @@ async function refreshSilentHighlightings() {
   });
   setSilentHighlightingsActive(anchors.length > 0 || contentNodes.length > 0);
   startSilentHighlightingObserver();
-}
-
-async function copyToClipboard(text) {
-  if (!text) {
-    return false;
-  }
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-    await navigator.clipboard.writeText(text);
-    return true;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  (document.body || document.documentElement).appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand("copy");
-  textarea.remove();
-  if (!copied) {
-    throw new Error("Copy failed");
-  }
-  return true;
-}
-
-function handleSilentHighlightingClick(event) {
-  if (state.enabled) {
-    return;
-  }
-  if (!document.documentElement.hasAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR)) {
-    return;
-  }
-  const target = event.target && event.target.closest
-    ? event.target.closest(`[${SILENT_CONTENT_SELECTOR_ATTR}]`)
-    : null;
-  if (!target) {
-    return;
-  }
-  const selector = target.getAttribute(SILENT_CONTENT_SELECTOR_ATTR);
-  if (!selector) {
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
-  copyToClipboard(selector)
-    .then(() => {
-      showPageToast("Selector copied");
-    })
-    .catch(() => {
-      showPageToast("Unable to copy selector");
-    });
 }
 
 export function main() {
@@ -661,21 +683,12 @@ export function main() {
         if (!state.enabled) {
           return;
         }
-        const entry = core.getDraftPageEntry(location.href);
-        const pagePattern = patterns.normalizePatternValue(
-          entry && entry.pagePattern ? entry.pagePattern : ""
-        );
-        if (!pagePattern) {
-          showPageToast("Choose a URL pattern in the popup first.");
-          return;
-        }
         event.preventDefault();
         event.stopPropagation();
         saveCurrentPageDraft({ showToast: true }).then();
       }
     }
   }, true);
-  document.addEventListener("click", handleSilentHighlightingClick, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
@@ -687,7 +700,7 @@ export function main() {
         stopSilentHighlightingObserver();
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
-        core.enableForBaseUrl(message.baseUrl, { pagePattern: message.pagePattern })
+        core.enableForBaseUrl(message.baseUrl)
           .then(() => {
             refreshEnabledAiHighlights();
           });
@@ -779,7 +792,7 @@ export function main() {
       return true;
     }
 
-    if (message.type === "getHeadingDefaultStatus") {
+    if (message.type === "getDefaultTagExclusionStatus") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       const useStateConfig =
         state.baseUrl === targetBaseUrl && state.config;
@@ -793,7 +806,7 @@ export function main() {
           allowCreate: hasEntry,
           persist: useStateConfig && hasEntry
         });
-        sendResponse({ items: core.collectHeadingDefaultStatus(config, syncResult.entry) });
+        sendResponse({ items: core.collectDefaultTagExclusionStatus(config, syncResult.entry) });
       });
       return true;
     }
@@ -822,56 +835,6 @@ export function main() {
       return;
     }
 
-    if (message.type === "computeCssSelectorsFromXPaths") {
-      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
-      const excludedXPaths = Array.isArray(message.excludedXPaths)
-        ? message.excludedXPaths
-        : [];
-      const selectors = [];
-      const includedElements = new Set();
-      xpaths.forEach((xpath) => {
-        if (!xpath) {
-          return;
-        }
-        const el = core.getElementFromXPath(xpath);
-        if (el) {
-          includedElements.add(el);
-        }
-      });
-      const excludedElements = new Set();
-      excludedXPaths.forEach((xpath) => {
-        if (!xpath) {
-          return;
-        }
-        const el = core.getElementFromXPath(xpath);
-        if (el) {
-          excludedElements.add(el);
-        }
-      });
-      xpaths.forEach((xpath) => {
-        if (!xpath) {
-          return;
-        }
-        const el = core.getElementFromXPath(xpath);
-        if (!el) {
-          return;
-        }
-        let ancestor = el.parentElement;
-        while (ancestor) {
-          if (excludedElements.has(ancestor) && !includedElements.has(ancestor)) {
-            return;
-          }
-          ancestor = ancestor.parentElement;
-        }
-        const selector = core.buildCssSelectorPath(el);
-        if (selector) {
-          selectors.push(selector);
-        }
-      });
-      sendResponse({ ok: true, selectors });
-      return;
-    }
-
     if (message.type === "focusElement") {
       const xpath = message.xpath || "";
       const target = xpath ? core.getElementFromXPath(xpath) : null;
@@ -892,7 +855,7 @@ export function main() {
       return;
     }
 
-    if (message.type === "toggleHeadingDefault") {
+    if (message.type === "toggleDefaultTagExclusion") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       const xpath = message.xpath || "";
       if (!xpath) {
@@ -906,18 +869,24 @@ export function main() {
         : core.loadConfig(targetBaseUrl);
       loadPromise.then((config) => {
         const target = core.getElementFromXPath(xpath);
-        if (!target || !core.isMarkableElement(target, config) || !core.isHeadingElement(target)) {
+        if (
+          !target ||
+          !core.isMarkableElement(target, config) ||
+          !core.isDefaultToggleableExcludedElement(target)
+        ) {
           sendResponse({ ok: false });
           return;
         }
         const entry = core.getPageMarkingEntry(config, location.href);
         const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
         let targetItem = items.find((item) => item && item.xpath === xpath);
+        const currentExcluded = targetItem ? Boolean(targetItem.excluded) : true;
+        const nextExcluded = !currentExcluded;
         if (!targetItem) {
-          targetItem = { xpath, excluded: true };
+          targetItem = { xpath, excluded: nextExcluded };
           items.push(targetItem);
         } else {
-          targetItem.excluded = !targetItem.excluded;
+          targetItem.excluded = nextExcluded;
         }
         if (targetItem.excluded) {
           for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -1002,35 +971,6 @@ export function main() {
         sendResponse({ ok: true });
       })();
 
-      return true;
-    }
-
-    if (message.type === "setPagePatternDraft") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const pagePattern = patterns.normalizePatternValue(message.pagePattern || "");
-      const basePattern = patterns.normalizePatternValue(targetBaseUrl);
-      if (!targetBaseUrl || !pagePattern) {
-        sendResponse({ ok: false });
-        return;
-      }
-      if (!basePattern || !patterns.isPageUrlMatchingPattern(pagePattern, basePattern)) {
-        sendResponse({ ok: false });
-        return;
-      }
-      (async () => {
-        let config = state.config;
-        if (!config || state.baseUrl !== targetBaseUrl) {
-          config = await core.loadConfig(targetBaseUrl);
-        }
-        const pageUrl = location.href;
-        const entry = core.getPageMarkingEntry(config, pageUrl);
-        entry.pagePattern = pagePattern;
-        config.pageMarkings[pageUrl] = entry;
-        state.baseUrl = targetBaseUrl;
-        state.config = config;
-        core.notifyDraftStatus(pageUrl);
-        sendResponse({ ok: true });
-      })();
       return true;
     }
 
@@ -1275,11 +1215,6 @@ export function main() {
       const items = core.collectPreviewItems(selectors);
       core.showAiPopover(items);
       sendResponse({ ok: true, count: items.length });
-    }
-
-    if (message.type === "setCssHighlight") {
-      core.setCssHighlight(message.enabled, message.css || "");
-      sendResponse({ ok: true });
     }
   });
 

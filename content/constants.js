@@ -1,5 +1,3 @@
-export const HEADING_TAG_SELECTOR = ["h1", "h2", "h3", "h4", "h5", "h6"].join(",");
-
 export const REMOVABLE_ELEMENT_SELECTORS = [
   ":not(body):not(html).backdrop",
   ":not(body):not(html).overlay",

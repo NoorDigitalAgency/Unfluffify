@@ -2,8 +2,6 @@ import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
-import * as drafts from "./popup/drafts.js";
-import * as patterns from "./common/patterns.js";
 import * as uiModule from "./popup/ui.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
@@ -98,17 +96,6 @@ async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
 }
 
-function parseSnapshotDocument(html) {
-  if (!html) {
-    return null;
-  }
-  try {
-    return new DOMParser().parseFromString(html, "text/html");
-  } catch (error) {
-    return null;
-  }
-}
-
 function isEditableTarget(target) {
   if (!target) {
     return false;
@@ -118,141 +105,6 @@ function isEditableTarget(target) {
   }
   const tagName = target.tagName;
   return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
-function getElementFromXPathInDocument(doc, xpath) {
-  try {
-    const result = doc.evaluate(
-      xpath,
-      doc,
-      null,
-      XPathResult.FIRST_ORDERED_NODE_TYPE,
-      null
-    );
-    const node = result.singleNodeValue;
-    if (node && node.nodeType === 1) {
-      return node;
-    }
-    return null;
-  } catch (error) {
-    return null;
-  }
-}
-
-function getNthOfTypeIndex(node) {
-  let index = 1;
-  let sibling = node.previousElementSibling;
-  while (sibling) {
-    if (sibling.tagName === node.tagName) {
-      index += 1;
-    }
-    sibling = sibling.previousElementSibling;
-  }
-  return index;
-}
-
-function escapeCssIdentifier(value) {
-  if (window.CSS && typeof window.CSS.escape === "function") {
-    return window.CSS.escape(value);
-  }
-  return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
-}
-
-function getClassSelector(node) {
-  if (!node || !node.classList) {
-    return null;
-  }
-  const classes = Array.from(node.classList)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0 && !value.startsWith("uf-"));
-  if (!classes.length) {
-    return null;
-  }
-  return {
-    classes,
-    selector: `.${classes.map((value) => escapeCssIdentifier(value)).join(".")}`
-  };
-}
-
-function buildCssSelectorPathForDocument(node, doc) {
-  if (!node || node.nodeType !== 1 || !doc) {
-    return "";
-  }
-  if (node === doc.documentElement || node === doc.body) {
-    return "";
-  }
-  const parts = [];
-  let current = node;
-  while (current && current.nodeType === 1) {
-    if (current === doc.documentElement || current === doc.body) {
-      break;
-    }
-    const tag = current.tagName.toLowerCase();
-    const classInfo = getClassSelector(current);
-    const classSelector = classInfo ? classInfo.selector : "";
-    let segment = `${tag}${classSelector}`;
-    if (!classSelector) {
-      const index = getNthOfTypeIndex(current);
-      segment = `${tag}:nth-of-type(${index})`;
-    } else if (current.parentElement) {
-      const siblings = Array.from(current.parentElement.children).filter((sibling) => {
-        if (sibling.tagName !== current.tagName) {
-          return false;
-        }
-        return classInfo.classes.every((cls) => sibling.classList.contains(cls));
-      });
-      if (siblings.length > 1) {
-        const index = getNthOfTypeIndex(current);
-        segment = `${segment}:nth-of-type(${index})`;
-      }
-    }
-    parts.unshift(segment);
-    current = current.parentElement;
-  }
-  return parts.join(" > ");
-}
-
-function computeSelectorsFromSnapshot(fullHTML, includedXPaths, excludedXPaths) {
-  if (!fullHTML || !fullHTML.trim()) {
-    return null;
-  }
-  const doc = parseSnapshotDocument(fullHTML);
-  if (!doc) {
-    return null;
-  }
-  const includedElements = new Set();
-  const excludedElements = new Set();
-  includedXPaths.forEach((xpath) => {
-    const el = getElementFromXPathInDocument(doc, xpath);
-    if (el) {
-      includedElements.add(el);
-    }
-  });
-  excludedXPaths.forEach((xpath) => {
-    const el = getElementFromXPathInDocument(doc, xpath);
-    if (el) {
-      excludedElements.add(el);
-    }
-  });
-  const selectors = [];
-  includedXPaths.forEach((xpath) => {
-    const el = getElementFromXPathInDocument(doc, xpath);
-    if (!el) {
-      return;
-    }
-    let ancestor = el.parentElement;
-    while (ancestor) {
-      if (excludedElements.has(ancestor) && !includedElements.has(ancestor)) {
-        return;
-      }
-      ancestor = ancestor.parentElement;
-    }
-    const selector = buildCssSelectorPathForDocument(el, doc);
-    if (selector) {
-      selectors.push(selector);
-    }
-  });
-  return selectors;
 }
 
 function getEditableFieldState(options) {
@@ -305,6 +157,21 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
       .map((selector) => selector.trim())
       .filter(Boolean)
     : [];
+}
+
+const DEFAULT_TOGGLEABLE_TAG_XPATH_LOOKUP = new Set(
+  constants.DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS.map((selector) => selector.toLowerCase())
+);
+
+function isDefaultToggleableTagXPath(xpath) {
+  if (typeof xpath !== "string" || !xpath) {
+    return false;
+  }
+  const match = xpath.match(/\/([a-z0-9_-]+)\[\d+\]\s*$/i);
+  if (!match || !match[1]) {
+    return false;
+  }
+  return DEFAULT_TOGGLEABLE_TAG_XPATH_LOOKUP.has(match[1].toLowerCase());
 }
 
 function resolveAiSelectorModifierContext(selectors = getLatestComputedSelectorsFromConfig()) {
@@ -460,12 +327,6 @@ async function refreshUi() {
     noticeEdit: "Set Base Page URL to continue"
   });
   const baseUrlReady = baseField.isReady;
-  const patternDrafts = state.currentTab ? await drafts.getPagePatternDraft(state.currentTab.id) : {};
-  const draftEntry = state.currentDraftEntry;
-  let draftPattern =
-    patterns.normalizePatternValue(
-      draftEntry && draftEntry.url === pageUrl ? draftEntry.pagePattern : ""
-    ) || patterns.normalizePatternValue(patternDrafts[pageUrl] || "");
   let toggleEnabled = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
@@ -479,16 +340,6 @@ async function refreshUi() {
     }
   }
   const isEnabled = toggleEnabled;
-  const pagePatternOptions = baseUrlReady
-    ? patterns.getPatternOptions(pageUrl, state.currentBaseUrl)
-    : [];
-  const storedPatterns = patterns.collectPagePatterns(
-    state.currentConfig ? state.currentConfig.pageMarkings : null
-  );
-  if (draftPattern && !storedPatterns.includes(draftPattern)) {
-    storedPatterns.push(draftPattern);
-  }
-  const matchingPattern = patterns.findBestMatchingPattern(pageUrl, storedPatterns);
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
   const {
@@ -597,11 +448,6 @@ async function refreshUi() {
           savedEntry.consentXpaths.length > 0) ||
         (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
   );
-  if (!hasSavedPageData && state.currentTab && pageUrl && !draftPattern) {
-    await drafts.clearPagePatternDraft(state.currentTab.id, pageUrl);
-  }
-  const patternSelection = draftPattern || (hasSavedPageData ? matchingPattern : "");
-  const pagePatternReady = Boolean(patternSelection);
   const aiBlockedByDraft = state.currentDraftDirty;
 
   let resolvedView =
@@ -713,7 +559,7 @@ async function refreshUi() {
     nextViewState.aiSelectorSettingsStatusText = "Set Base Page URL first";
   } else if (!latestComputed.length) {
     nextViewState.aiSelectorSettingsStatusText =
-      "Compute selectors to tune highlighting";
+      "Compute selectors to tune exclusion selectors";
   } else if (selectorModifierDirty) {
     nextViewState.aiSelectorSettingsStatusText = "Unsaved selector modifier changes";
   } else {
@@ -726,37 +572,11 @@ async function refreshUi() {
   nextViewState.baseUrlEditText = state.baseUrlEditMode ? "Cancel" : "Change";
   nextViewState.baseUrlNoticeText = baseField.noticeText;
   nextViewState.baseUrlNoticeVisible = baseField.noticeVisible;
-  const patternUiDisabled =
-    !baseUrlReady || !pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl);
-  nextViewState.pagePatternOptions = pagePatternOptions;
-  nextViewState.pagePatternPlaceholder = pagePatternOptions.length
-    ? "Select a URL pattern"
-    : "No patterns available";
-  const hasPatternSelection = pagePatternOptions.some(
-    (option) => option.value === patternSelection
-  );
-  nextViewState.pagePatternValue = hasPatternSelection ? patternSelection : "";
-  nextViewState.pagePatternDisabled = patternUiDisabled || !pagePatternOptions.length;
-  if (!baseUrlReady) {
-    nextViewState.pagePatternNoticeText = "Set Base Page URL first";
-    nextViewState.pagePatternNoticeVisible = true;
-  } else if (!pageUrl || !patterns.isPageWithinBase(pageUrl, state.currentBaseUrl)) {
-    nextViewState.pagePatternNoticeText = "Current page is outside the Base Page URL";
-    nextViewState.pagePatternNoticeVisible = true;
-  } else if (!pagePatternReady) {
-    nextViewState.pagePatternNoticeText = "Choose a URL pattern before enabling";
-    nextViewState.pagePatternNoticeVisible = true;
-  } else {
-    nextViewState.pagePatternNoticeText = "";
-    nextViewState.pagePatternNoticeVisible = false;
-  }
-  const selectedPatternValue = patternSelection;
   const draftButtonsDisabled =
     !baseUrlReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
-    !state.currentDraftDirty ||
-    !selectedPatternValue;
+    !state.currentDraftDirty;
   nextViewState.pageSaveDisabled = draftButtonsDisabled;
   nextViewState.pageRevertDisabled =
     !baseUrlReady ||
@@ -786,16 +606,6 @@ async function refreshUi() {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
-  const allCss = getAllPagesCss();
-  const hasAnyCss = Boolean(allCss);
-  const highlightEnabled = hasAnyCss ? Boolean(view.xpathCssHighlightChecked) : false;
-  nextViewState.xpathCssHighlightChecked = highlightEnabled;
-  nextViewState.xpathCssHighlightDisabled = !hasAnyCss;
-  await messages.sendTabMessage({
-    type: "setCssHighlight",
-    enabled: highlightEnabled,
-    css: highlightEnabled ? allCss : ""
-  });
   const baseOptions = Object.keys(configs)
     .filter((baseUrl) => {
       const entries = configs[baseUrl] && configs[baseUrl].pageMarkings;
@@ -845,17 +655,17 @@ async function refreshUi() {
   nextViewState.copySourcePageDisabled = !state.copySourceBaseUrl || !pageOptions.length;
   nextViewState.copyFromPageDisabled = !state.copySourceBaseUrl || !state.copySourcePageUrl;
 
-  let headingDefaults = [];
-  let headingXPathSet = new Set();
+  let defaultTagExclusions = [];
+  let defaultTagXPathSet = new Set();
   if (state.currentBaseUrl) {
     const response = await messages.sendTabMessage({
-      type: "getHeadingDefaultStatus",
+      type: "getDefaultTagExclusionStatus",
       baseUrl: state.currentBaseUrl
     });
     if (response && Array.isArray(response.items)) {
-      headingDefaults = response.items;
-      headingXPathSet = new Set(
-        headingDefaults.map((item) => item.xpath).filter(Boolean)
+      defaultTagExclusions = response.items;
+      defaultTagXPathSet = new Set(
+        defaultTagExclusions.map((item) => item.xpath).filter(Boolean)
       );
     }
   }
@@ -874,7 +684,8 @@ async function refreshUi() {
         item &&
         item.excluded &&
         item.xpath &&
-        !headingXPathSet.has(item.xpath) &&
+        !defaultTagXPathSet.has(item.xpath) &&
+        !isDefaultToggleableTagXPath(item.xpath) &&
         !utils.isHeadingXPath(item.xpath)
     )
     .map((item) => item.xpath);
@@ -892,20 +703,27 @@ async function refreshUi() {
     }
   }
 
-  let pageExplicitInclude = explicitIncludeXPaths.map((xpath) => ({
+  const filteredExplicitIncludeXPaths = explicitIncludeXPaths.filter(
+    (xpath) =>
+      xpath &&
+      !defaultTagXPathSet.has(xpath) &&
+      !isDefaultToggleableTagXPath(xpath) &&
+      !utils.isHeadingXPath(xpath)
+  );
+  let pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
     xpath,
     text: xpath
   }));
-  if (state.currentBaseUrl && explicitIncludeXPaths.length) {
+  if (state.currentBaseUrl && filteredExplicitIncludeXPaths.length) {
     const response = await messages.sendTabMessage({
       type: "describeXPathsOnPage",
-      xpaths: explicitIncludeXPaths
+      xpaths: filteredExplicitIncludeXPaths
     });
     if (response && Array.isArray(response.items)) {
       const labelMap = new Map(
         response.items.map((item) => [item.xpath, item.text || item.xpath])
       );
-      pageExplicitInclude = explicitIncludeXPaths.map((xpath) => ({
+      pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
         xpath,
         text: labelMap.get(xpath) || xpath
       }));
@@ -920,8 +738,8 @@ async function refreshUi() {
   nextViewState.explicitIncludesEmptyText = baseUrlSet
     ? "None yet"
     : "Set Base Page URL first";
-  nextViewState.headingDefaults = headingDefaults;
-  nextViewState.headingDefaultsEmptyText = baseUrlSet
+  nextViewState.defaultTagExclusions = defaultTagExclusions;
+  nextViewState.defaultTagExclusionsEmptyText = baseUrlSet
     ? "None yet"
     : "Set Base Page URL first";
 
@@ -943,9 +761,20 @@ async function refreshUi() {
         item &&
         item.excluded &&
         item.xpath &&
+        !defaultTagXPathSet.has(item.xpath) &&
+        !isDefaultToggleableTagXPath(item.xpath) &&
         !utils.isHeadingXPath(item.xpath)
     ).length;
-    const includedCount = entry.includeXpaths.length;
+    const includedCount = Array.isArray(entry.includeXpaths)
+      ? entry.includeXpaths.filter(
+          (xpath) =>
+            typeof xpath === "string" &&
+            xpath &&
+            !defaultTagXPathSet.has(xpath) &&
+            !isDefaultToggleableTagXPath(xpath) &&
+            !utils.isHeadingXPath(xpath)
+        ).length
+      : 0;
     markedPages.push({
       url,
       title: entry.title || url,
@@ -1223,7 +1052,7 @@ async function handleExplicitIncludeRemove(xpath) {
   refreshUi();
 }
 
-async function handleHeadingDefaultView(item) {
+async function handleDefaultTagExclusionView(item) {
   const response = await messages.sendTabMessage({
     type: "focusElement",
     xpath: item.xpath
@@ -1233,18 +1062,18 @@ async function handleHeadingDefaultView(item) {
   }
 }
 
-async function handleHeadingDefaultToggle(item) {
+async function handleDefaultTagExclusionToggle(item) {
   if (!state.currentBaseUrl) {
     return;
   }
   await clearFocusedElement();
   const response = await messages.sendTabMessage({
-    type: "toggleHeadingDefault",
+    type: "toggleDefaultTagExclusion",
     baseUrl: state.currentBaseUrl,
     xpath: item.xpath
   });
   if (!response || !response.ok) {
-    uiModule.showToast("Unable to update heading");
+    uiModule.showToast("Unable to update default tag exclusion");
     return;
   }
   await refreshUi();
@@ -1303,7 +1132,6 @@ async function handleEnableToggle(event) {
       return;
     }
     state.currentConfig = await config.ensureConfig(baseUrlValue);
-    const selectedPattern = uiModule.getViewState().pagePatternValue || "";
     // Inject content script first
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -1318,8 +1146,7 @@ async function handleEnableToggle(event) {
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
-      baseUrl: baseUrlValue,
-      pagePattern: selectedPattern
+      baseUrl: baseUrlValue
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
@@ -1669,62 +1496,14 @@ async function handleBaseUrlSet() {
   }
   state.currentBaseUrl = baseUrlValue;
   state.currentConfig = await config.ensureConfig(baseUrlValue);
-  const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
-  const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
-  const shouldEnable = Boolean(matchingPattern) || storedPatterns.length === 0;
   state.baseUrlEditMode = false;
-  if (shouldEnable) {
-    await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl: baseUrlValue,
-      pagePattern: ""
-    });
-    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-  } else {
-    await utils.setTabState(tab.id, { enabled: false, baseUrl: baseUrlValue });
-    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
-  await refreshUi();
-}
-
-async function handlePagePatternChange(event) {
-  const selected = event && event.currentTarget
-    ? event.currentTarget.value
-    : uiModule.getViewState().pagePatternValue;
-  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
-  if (!tab) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  uiModule.setViewState({ pagePatternValue: selected });
-  if (!selected) {
-    uiModule.showToast("Choose a URL pattern");
-    return;
-  }
-  if (!patterns.isPageWithinBase(selected, state.currentBaseUrl)) {
-    uiModule.showToast("Pattern must be within the Base Page URL");
-    return;
-  }
-  await drafts.setPagePatternDraft(tab.id, tab.url, selected);
-  const injectResult = await helpers.injectContentScriptIfNeeded();
-  if (!injectResult.ok) {
-    uiModule.showToast(injectResult.error || "Unable to reach the page");
-    return;
-  }
-  const response = await messages.sendTabMessageWithRetry({
-    type: "setPagePatternDraft",
-    baseUrl: state.currentBaseUrl,
-    pagePattern: selected
+  await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
+  await messages.sendTabMessageWithRetry({
+    type: "setEnabled",
+    enabled: true,
+    baseUrl: baseUrlValue
   });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to set pattern");
-    await refreshUi();
-    return;
-  }
+  await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   await refreshUi();
 }
 
@@ -1752,30 +1531,16 @@ async function handleBaseUrlEditToggle() {
       return;
     }
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-    const storedPatterns = patterns.collectPagePatterns(state.currentConfig.pageMarkings || {});
-    const matchingPattern = patterns.findBestMatchingPattern(tab.url, storedPatterns);
-    const selectedPattern = uiModule.getViewState().pagePatternValue || "";
-    const shouldEnable =
-      Boolean(selectedPattern) || Boolean(matchingPattern) || storedPatterns.length === 0;
-    if (shouldEnable) {
-      await utils.setTabState(tab.id, {
-        enabled: true,
-        baseUrl: state.currentBaseUrl
-      });
-      await messages.sendTabMessageWithRetry({
-        type: "setEnabled",
-        enabled: true,
-        baseUrl: state.currentBaseUrl,
-        pagePattern: selectedPattern
-      });
-      await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-    } else {
-      await utils.setTabState(tab.id, {
-        enabled: false,
-        baseUrl: state.currentBaseUrl
-      });
-      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-    }
+    await utils.setTabState(tab.id, {
+      enabled: true,
+      baseUrl: state.currentBaseUrl
+    });
+    await messages.sendTabMessageWithRetry({
+      type: "setEnabled",
+      enabled: true,
+      baseUrl: state.currentBaseUrl
+    });
+    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   }
   await refreshUi();
 }
@@ -1949,18 +1714,10 @@ async function handleContextRefresh() {
 }
 
 async function handlePageSave() {
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (!tab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const view = uiModule.getViewState();
-  const wasHighlightEnabled = Boolean(view.xpathCssHighlightChecked);
   if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  const selectedPattern = view.pagePatternValue || "";
-  if (!selectedPattern) {
-    uiModule.showToast("Choose a URL pattern before saving");
     return;
   }
   const response = await messages.sendTabMessage({
@@ -1972,22 +1729,11 @@ async function handlePageSave() {
     return;
   }
   uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
-  if (response.saved) {
-    await drafts.clearPagePatternDraft(tab.id, tab.url || "");
-  }
   await refreshUi();
-  if (response.saved) {
-    await updateCssSelectorsForSavedEntry({ quiet: true });
-    await refreshUi();
-    if (wasHighlightEnabled) {
-      await setXpathCssHighlight(true);
-    }
-  }
 }
 
 async function handlePageRevert() {
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (!tab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
@@ -2008,13 +1754,11 @@ async function handlePageRevert() {
     return;
   }
   uiModule.showToast("Reverted to last saved");
-  await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   await refreshUi();
 }
 
 async function handlePageDelete() {
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (!tab) {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
@@ -2035,7 +1779,6 @@ async function handlePageDelete() {
     return;
   }
   uiModule.showToast("Page data deleted");
-  await drafts.clearPagePatternDraft(tab.id, tab.url || "");
   await refreshUi();
 }
 
@@ -2103,167 +1846,6 @@ async function handleCopyFromPage() {
   await refreshUi();
 }
 
-function getXpathCssInputs(entry) {
-  const includedXPaths = [];
-  const excludedXPaths = [];
-  const includedSet = new Set();
-  const excludedSet = new Set();
-  const xpathItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  xpathItems.forEach((item) => {
-    if (!item || typeof item.xpath !== "string" || !item.xpath) {
-      return;
-    }
-    if (item.excluded) {
-      if (!excludedSet.has(item.xpath)) {
-        excludedSet.add(item.xpath);
-        excludedXPaths.push(item.xpath);
-      }
-      return;
-    }
-    if (!includedSet.has(item.xpath)) {
-      includedSet.add(item.xpath);
-      includedXPaths.push(item.xpath);
-    }
-  });
-  const explicitIncludes = Array.isArray(entry.includeXpaths)
-    ? entry.includeXpaths
-    : [];
-  explicitIncludes.forEach((xpath) => {
-    if (typeof xpath !== "string" || !xpath) {
-      return;
-    }
-    if (!includedSet.has(xpath)) {
-      includedSet.add(xpath);
-      includedXPaths.push(xpath);
-    }
-  });
-  const filteredExcludedXPaths = excludedXPaths.filter((xpath) => !includedSet.has(xpath));
-  return { includedXPaths, filteredExcludedXPaths };
-}
-
-async function updateCssSelectorsForSavedEntry(options) {
-  const { quiet = false } = options || {};
-  if (
-    !state.currentSavedEntry ||
-    (!Array.isArray(state.currentSavedEntry.xpaths) &&
-      !Array.isArray(state.currentSavedEntry.includeXpaths))
-  ) {
-    return;
-  }
-  if (!state.currentBaseUrl) {
-    return;
-  }
-  const pageUrl = state.currentTab ? state.currentTab.url : "";
-  if (!pageUrl) {
-    return;
-  }
-  const { includedXPaths, filteredExcludedXPaths } = getXpathCssInputs(
-    state.currentSavedEntry
-  );
-  if (!includedXPaths.length) {
-    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
-      if (!cfg.pageCssSelectors) {
-        cfg.pageCssSelectors = {};
-      }
-      delete cfg.pageCssSelectors[pageUrl];
-    });
-    if (uiModule.getViewState().xpathCssHighlightChecked) {
-      await setXpathCssHighlight(true);
-    }
-    return;
-  }
-  const response = await messages.sendTabMessage({
-    type: "computeCssSelectorsFromXPaths",
-    xpaths: includedXPaths,
-    excludedXPaths: filteredExcludedXPaths
-  });
-  const snapshotSelectors = computeSelectorsFromSnapshot(
-    state.currentSavedEntry.fullHTML || "",
-    includedXPaths,
-    filteredExcludedXPaths
-  );
-  const selectorSet = new Set();
-  if (response && response.ok && Array.isArray(response.selectors)) {
-    response.selectors.forEach((item) => {
-      if (typeof item === "string") {
-        const trimmed = item.trim();
-        if (trimmed) {
-          selectorSet.add(trimmed);
-        }
-      }
-    });
-  }
-  if (Array.isArray(snapshotSelectors)) {
-    snapshotSelectors.forEach((item) => {
-      if (typeof item === "string") {
-        const trimmed = item.trim();
-        if (trimmed) {
-          selectorSet.add(trimmed);
-        }
-      }
-    });
-  }
-  const output = Array.from(selectorSet).join(", ");
-  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (cfg) => {
-    if (!cfg.pageCssSelectors) {
-      cfg.pageCssSelectors = {};
-    }
-    if (output) {
-      cfg.pageCssSelectors[pageUrl] = output;
-    } else {
-      delete cfg.pageCssSelectors[pageUrl];
-    }
-  });
-  if (uiModule.getViewState().xpathCssHighlightChecked) {
-    await setXpathCssHighlight(true);
-  }
-  if (!quiet) {
-    uiModule.showToast(output ? "CSS selectors updated" : "No selectors generated");
-  }
-}
-
-function getAllPagesCss() {
-  if (!state.currentConfig || !state.currentConfig.pageCssSelectors) {
-    return "";
-  }
-  const allSelectors = Object.values(state.currentConfig.pageCssSelectors)
-    .filter((css) => typeof css === "string" && css.trim())
-    .join(", ");
-  return allSelectors;
-}
-
-async function setXpathCssHighlight(enabled) {
-  uiModule.setViewState({ xpathCssHighlightChecked: enabled });
-  const allCss = enabled ? getAllPagesCss() : "";
-  await messages.sendTabMessage({
-    type: "setCssHighlight",
-    enabled,
-    css: allCss
-  });
-}
-
-async function handleXpathCssCopyAll() {
-  const allCss = getAllPagesCss();
-  if (!allCss) {
-    uiModule.showToast("No CSS selectors stored for any page");
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(allCss);
-    uiModule.showToast("All pages CSS copied to clipboard");
-  } catch (error) {
-    uiModule.showToast("Unable to copy to clipboard");
-  }
-}
-
-async function handleXpathCssHighlightToggle(event) {
-  const source = event && (event.currentTarget || event.target);
-  const enabled = source
-    ? Boolean(source.checked)
-    : uiModule.getViewState().xpathCssHighlightChecked;
-  await setXpathCssHighlight(enabled);
-}
-
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -2287,13 +1869,11 @@ async function handleComputeSelectors() {
   state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
 
   const pageMarkings = state.currentConfig.pageMarkings || {};
-  const pageCssSelectors = state.currentConfig.pageCssSelectors || {};
   const pages = Object.entries(pageMarkings)
     .map(([url, entry]) => {
       if (!url || !entry) {
         return null;
       }
-      const cssSelectors = (pageCssSelectors[url] || "").split(",").map((item) => item.trim());
       const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       const consentXpaths = Array.isArray(entry.consentXpaths)
@@ -2338,13 +1918,10 @@ async function handleComputeSelectors() {
         }
       });
       const combinedXpaths = Array.from(combined.values());
-      const pattern = typeof entry.pagePattern === "string" ? entry.pagePattern : "";
       return {
         url,
         fullHTML,
-        xpaths: combinedXpaths,
-        pattern,
-        cssSelectors
+        xpaths: combinedXpaths
       };
     })
     .filter((entry) => {
@@ -2400,7 +1977,7 @@ async function handleComputeSelectors() {
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.latestComputedSelectors = selectors;
       config.domainAiSelectorSet = {
-        inclusionSelectors: selectors
+        exclusionSelectors: selectors
       };
     });
     const adjusted = getAdjustedAiSelectors({ selectors });
@@ -2560,15 +2137,12 @@ async function init() {
     onRefreshContext: handleContextRefresh,
     onBaseUrlSet: handleBaseUrlSet,
     onBaseUrlEditToggle: handleBaseUrlEditToggle,
-    onPagePatternChange: handlePagePatternChange,
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
     onPageDelete: handlePageDelete,
     onCopySourceBaseChange: handleCopySourceBaseChange,
     onCopySourcePageChange: handleCopySourcePageChange,
     onCopyFromPage: handleCopyFromPage,
-    onXpathCssCopyAll: handleXpathCssCopyAll,
-    onXpathCssHighlightChange: handleXpathCssHighlightToggle,
     onConfigEndpointInput: handleConfigEndpointInput,
     onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
     onConfigEndpointSet: handleConfigEndpointSet,
@@ -2597,8 +2171,8 @@ async function init() {
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
-    onHeadingDefaultView: handleHeadingDefaultView,
-    onHeadingDefaultToggle: handleHeadingDefaultToggle,
+    onDefaultTagExclusionView: handleDefaultTagExclusionView,
+    onDefaultTagExclusionToggle: handleDefaultTagExclusionToggle,
     onMarkedPageNavigate: handleMarkedPageNavigate,
     onBasePageNavigate: handleBasePageNavigate
   });
@@ -2668,8 +2242,7 @@ async function init() {
       (areaName === "session" &&
         state.currentTab &&
         (changes[`${constants.TAB_STATE_PREFIX}${state.currentTab.id}`] ||
-          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`] ||
-          changes[`${stateModule.PAGE_PATTERN_DRAFT_PREFIX}${state.currentTab.id}`]))
+          changes[`${constants.DEVICE_EMULATION_PREFIX}${state.currentTab.id}`]))
     ) {
       scheduleRefresh();
     }
