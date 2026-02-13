@@ -14,7 +14,6 @@ const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
-const LEGACY_SILENT_CONTENT_SELECTOR_ATTR = "data-uf-silent-content-selector";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
@@ -29,7 +28,6 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_CONTENT_HIGHLIGHTING_ATTR,
   SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
   SILENT_CONTENT_POSITION_ATTR,
-  LEGACY_SILENT_CONTENT_SELECTOR_ATTR,
   core.CONSENT_HIDDEN_ATTR
 ]);
 
@@ -287,7 +285,7 @@ function setSilentHighlightingsActive(active) {
 
 function clearSilentHighlightingMarks() {
   const marked = document.querySelectorAll(
-    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${LEGACY_SILENT_CONTENT_SELECTOR_ATTR}]`
+    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}]`
   );
   marked.forEach((node) => {
     const title = node.getAttribute("title") || "";
@@ -297,7 +295,6 @@ function clearSilentHighlightingMarks() {
     node.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
-    node.removeAttribute(LEGACY_SILENT_CONTENT_SELECTOR_ATTR);
   });
 }
 
@@ -423,9 +420,6 @@ function getStoredAiSelectors(baseConfig) {
     baseConfig.domainAiSelectorSet &&
     Array.isArray(baseConfig.domainAiSelectorSet.exclusionSelectors)
       ? baseConfig.domainAiSelectorSet.exclusionSelectors
-      : baseConfig.domainAiSelectorSet &&
-          Array.isArray(baseConfig.domainAiSelectorSet.inclusionSelectors)
-        ? baseConfig.domainAiSelectorSet.inclusionSelectors
       : [];
   return normalizeSelectorList(exclusion);
 }

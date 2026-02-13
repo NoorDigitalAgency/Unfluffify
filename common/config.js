@@ -35,19 +35,6 @@ function normalizeXpathItems(rawXpaths) {
   const parsed = [];
   let changed = false;
   for (const item of Array.isArray(rawXpaths) ? rawXpaths : []) {
-    if (typeof item === "string") {
-      const xpath = item.trim();
-      if (!xpath) {
-        changed = true;
-        continue;
-      }
-      if (xpath !== item) {
-        changed = true;
-      }
-      changed = true;
-      parsed.push({ xpath, excluded: true });
-      continue;
-    }
     if (item && typeof item.xpath === "string") {
       const xpath = item.xpath.trim();
       if (!xpath) {
@@ -106,55 +93,35 @@ export function normalizePageMarkings(pageMarkings) {
       changed = true;
       return;
     }
+    if (!Array.isArray(entry.xpaths) && entry.xpaths !== undefined) {
+      changed = true;
+    }
     const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const normalizedXpaths = normalizeXpathItems(rawXpaths);
     const xpaths = normalizedXpaths.values;
     if (normalizedXpaths.changed) {
       changed = true;
     }
-    if (entry.pagePattern || entry.pattern) {
+    const fullHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
+    if (entry.fullHTML !== undefined && typeof entry.fullHTML !== "string") {
       changed = true;
     }
-    const fullHTML =
-      typeof entry.fullHTML === "string"
-        ? entry.fullHTML
-        : typeof entry.fullHtml === "string"
-          ? entry.fullHtml
-          : typeof entry.html === "string"
-            ? entry.html
-            : "";
-    if (entry.fullHtml || entry.html) {
+    if (!Array.isArray(entry.consentXpaths) && entry.consentXpaths !== undefined) {
       changed = true;
     }
-    const rawConsent =
-      Array.isArray(entry.consentXpaths)
-        ? entry.consentXpaths
-        : Array.isArray(entry.consentXPaths)
-          ? entry.consentXPaths
-          : [];
-    if (entry.consentXPaths) {
-      changed = true;
-    }
+    const rawConsent = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
     const consentResult = normalizeUniqueXpathList(rawConsent);
     const consentXpaths = consentResult.values;
     if (consentResult.changed) {
       changed = true;
     }
-    const rawInclude =
-      Array.isArray(entry.includeXpaths)
-        ? entry.includeXpaths
-        : Array.isArray(entry.explicitIncludeXpaths)
-          ? entry.explicitIncludeXpaths
-          : [];
-    if (entry.explicitIncludeXpaths) {
+    if (!Array.isArray(entry.includeXpaths) && entry.includeXpaths !== undefined) {
       changed = true;
     }
+    const rawInclude = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
     const includeResult = normalizeUniqueXpathList(rawInclude);
     const includeXpaths = includeResult.values;
     if (includeResult.changed) {
-      changed = true;
-    }
-    if (entry.cssSelectors !== undefined || entry.pageCssSelectors !== undefined) {
       changed = true;
     }
     normalized[url] = {
@@ -177,9 +144,6 @@ export function normalizeAiSelectorSet(value) {
   }
   if (Array.isArray(value.exclusionSelectors)) {
     normalized.exclusionSelectors = value.exclusionSelectors;
-  } else if (Array.isArray(value.inclusionSelectors)) {
-    normalized.exclusionSelectors = value.inclusionSelectors;
-    changed = true;
   } else {
     changed = true;
   }
@@ -215,14 +179,6 @@ export function normalizeConfig(baseUrl, incoming) {
     return { config: normalized, changed: true };
   }
 
-  if (
-    incoming.explicitXPathDecisions ||
-    incoming.defaultToggleExclusionsDisabled ||
-    incoming.pageHtmlSnapshots ||
-    incoming.pendingAiSave !== undefined
-  ) {
-    changed = true;
-  }
   if (typeof incoming.domain === "string") {
     normalized.domain = incoming.domain;
   }
@@ -233,12 +189,6 @@ export function normalizeConfig(baseUrl, incoming) {
       changed = true;
     }
   } else if (incoming.pageMarkings !== undefined) {
-    changed = true;
-  }
-  if (incoming.pageUrlPatterns !== undefined) {
-    changed = true;
-  }
-  if (incoming.pageCssSelectors !== undefined) {
     changed = true;
   }
   if (Array.isArray(incoming.latestComputedSelectors)) {
@@ -256,15 +206,8 @@ export function normalizeConfig(baseUrl, incoming) {
   if (aiSelectors.changed) {
     changed = true;
   }
-  const rawAiSelectorModifiers =
-    incoming.aiSelectorModifiers !== undefined
-      ? incoming.aiSelectorModifiers
-      : incoming.aiSelectorModifierSettings;
-  if (incoming.aiSelectorModifierSettings !== undefined) {
-    changed = true;
-  }
   const aiSelectorModifiers = normalizeAiSelectorModifiersConfig(
-    rawAiSelectorModifiers,
+    incoming.aiSelectorModifiers,
     Number.MAX_SAFE_INTEGER
   );
   normalized.aiSelectorModifiers = aiSelectorModifiers.normalized;

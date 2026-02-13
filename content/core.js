@@ -1103,7 +1103,7 @@ function getMarkMode() {
   if (!state.enabled || !state.overlay) {
     return "disabled";
   }
-  if (state.altHeld) {
+  if (state.altHeld && state.shiftHeld) {
     return "include";
   }
   return "exclude";
@@ -1113,7 +1113,7 @@ function getMarkModeFromEvent(event) {
   if (!event) {
     return getMarkMode();
   }
-  if (event.altKey) {
+  if (event.altKey && event.shiftKey) {
     return "include";
   }
   return "exclude";
@@ -1479,7 +1479,15 @@ function getMarkableTarget(x, y, options) {
         explicitlyExcluded ||
         explicitlyIncluded
       ) {
-        return el;
+        const resolved = resolveMarkableElement(el, state.config, {
+          allowParent,
+          explicitlyExcluded,
+          explicitlyIncluded,
+          allowImmutableChildren
+        });
+        if (resolved) {
+          return resolved;
+        }
       }
     }
   }
@@ -1612,7 +1620,7 @@ function toggleExplicitExclude(target) {
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
   const explicitExcludeSet = new Set(collectExcludedXPaths(items));
   if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
-    showToast("Use include to override an excluded parent");
+    showToast("Use Alt+Shift include to override an excluded parent");
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -1968,11 +1976,6 @@ function renderHighlights() {
       state.config.domainAiSelectorSet.exclusionSelectors
     )
       ? state.config.domainAiSelectorSet.exclusionSelectors
-      : Array.isArray(
-        state.config.domainAiSelectorSet &&
-        state.config.domainAiSelectorSet.inclusionSelectors
-      )
-        ? state.config.domainAiSelectorSet.inclusionSelectors
       : [];
   const normalizedAiSelectors = rawAiSelectors
     .filter((selector) => typeof selector === "string")
@@ -2528,6 +2531,9 @@ export function isMarkableElement(el, config, options) {
     return false;
   }
   if (options && (options.explicitlyExcluded || options.explicitlyIncluded)) {
+    if (!options.allowParent && !isTextualContainer(el)) {
+      return false;
+    }
     return true;
   }
   if (isTextualContainer(el)) {

@@ -1874,7 +1874,7 @@ async function handleComputeSelectors() {
       if (!url || !entry) {
         return null;
       }
-      const fullHTML = entry.fullHTML || entry.fullHtml || entry.html || "";
+      const fullHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
       const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
       const consentXpaths = Array.isArray(entry.consentXpaths)
         ? entry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
