@@ -69,7 +69,7 @@ async function validateStoredToken(options = {}) {
   if (!force && now - state.lastTokenValidationAt < TOKEN_VALIDATION_INTERVAL_MS) {
     return true;
   }
-  const claimsUrl = resolveRelativeEndpoint(loginEndpointValue, "/api/account/getuserclaims");
+  const claimsUrl = resolveRelativeEndpoint(loginEndpointValue, "/api/account/verify");
   if (!claimsUrl) {
     return true;
   }
