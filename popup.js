@@ -214,6 +214,66 @@ function isDefaultToggleableTagXPath(xpath) {
   return DEFAULT_TOGGLEABLE_TAG_XPATH_LOOKUP.has(match[1].toLowerCase());
 }
 
+function getXPathDepth(xpath) {
+  if (typeof xpath !== "string" || !xpath) {
+    return 0;
+  }
+  return xpath.split("/").filter(Boolean).length;
+}
+
+function getNearestAncestorStatus(xpath, statusByXpath) {
+  if (!xpath || !statusByXpath || statusByXpath.size === 0) {
+    return null;
+  }
+  const parts = xpath.split("/").filter(Boolean);
+  for (let i = parts.length - 1; i > 0; i -= 1) {
+    const ancestor = `/${parts.slice(0, i).join("/")}`;
+    if (statusByXpath.has(ancestor)) {
+      return statusByXpath.get(ancestor);
+    }
+  }
+  return null;
+}
+
+function normalizePayloadXpaths(items) {
+  const rawItems = Array.isArray(items) ? items : [];
+  const deduped = [];
+  const seen = new Set();
+  for (let i = rawItems.length - 1; i >= 0; i -= 1) {
+    const item = rawItems[i];
+    const xpath =
+      item && typeof item.xpath === "string" ? item.xpath.trim() : "";
+    if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    seen.add(xpath);
+    deduped.unshift({ xpath, excluded: Boolean(item.excluded) });
+  }
+
+  const sorted = deduped
+    .map((item, index) => ({ ...item, index, depth: getXPathDepth(item.xpath) }))
+    .sort((left, right) => {
+      const depthDiff = left.depth - right.depth;
+      if (depthDiff !== 0) {
+        return depthDiff;
+      }
+      return left.index - right.index;
+    });
+
+  const statusByXpath = new Map();
+  const redundantXpaths = new Set();
+  sorted.forEach((item) => {
+    const nearestAncestorStatus = getNearestAncestorStatus(item.xpath, statusByXpath);
+    if (nearestAncestorStatus !== null && nearestAncestorStatus === item.excluded) {
+      redundantXpaths.add(item.xpath);
+      return;
+    }
+    statusByXpath.set(item.xpath, item.excluded);
+  });
+
+  return deduped.filter((item) => !redundantXpaths.has(item.xpath));
+}
+
 function resolveAiSelectorModifierContext(
   selectorSet = getLatestComputedSelectorsFromConfig()
 ) {
@@ -1969,10 +2029,11 @@ async function handleComputeSelectors() {
         }
       });
       const combinedXpaths = Array.from(combined.values());
+      const normalizedPayloadXpaths = normalizePayloadXpaths(combinedXpaths);
       return {
         url,
         fullHTML,
-        xpaths: combinedXpaths
+        xpaths: normalizedPayloadXpaths
       };
     })
     .filter((entry) => {
