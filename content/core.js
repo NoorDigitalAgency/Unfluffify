@@ -1372,28 +1372,9 @@ function createOverlay() {
         background-clip: border-box;
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
-      @keyframes uf-ai-content-excluded-dash {
-        0% {
-          background-position: 0 0, 0 100%, 0 0, 100% 0;
-        }
-        100% {
-          background-position: 18px 0, -18px 100%, 0 -18px, 100% 18px;
-        }
-      }
       #unfluffify-overlay .uf-ai-content-excluded {
-        border: 1px solid transparent;
-        background-color: rgba(178, 72, 72, 0.12);
-        background-image:
-          repeating-linear-gradient(90deg, #fc5353ff 0 5px, transparent 5px 10px),
-          repeating-linear-gradient(90deg, #fc5353ff 0 5px, transparent 5px 10px),
-          repeating-linear-gradient(0deg, #fc5353ff 0 5px, transparent 5px 10px),
-          repeating-linear-gradient(0deg, #fc5353ff 0 5px, transparent 5px 10px);
-        background-size: 18px 2px, 18px 2px, 2px 18px, 2px 18px;
-        background-position: 0 0, 0 100%, 0 0, 100% 0;
-        background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-        background-origin: border-box;
-        background-clip: border-box;
-        animation: uf-ai-content-excluded-dash 1.6s linear infinite !important;
+        border: 3px solid #c62828;
+        background: rgba(198, 40, 40, 0.2);
       }
       #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
