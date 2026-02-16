@@ -919,7 +919,6 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     const previewClass = classNames("full-width", "margin-above");
     const submitClass = classNames(
       "full-width",
-      "margin-above",
       view.saveExcludesButtonLoading && "loading"
     );
     return h(
