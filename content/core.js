@@ -878,6 +878,9 @@ function canPromoteIncludedParent(
   ) {
     return false;
   }
+  if (!hasDirectText(parent)) {
+    return false;
+  }
   let hasSelectedDescendant = false;
   const stack = Array.from(parent.children || []);
   while (stack.length) {
@@ -1719,6 +1722,7 @@ function ensureAiPopoverStyle() {
         font-size: 13px;
         line-height: 1.45;
         color: #2f2a24;
+        white-space: pre-line;
       }
     `;
   document.documentElement.appendChild(style);
@@ -3484,8 +3488,8 @@ function getPreviewTextForIncludedElement(
       continue;
     }
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) {
+      const text = (node.textContent || "").replace(/\u00a0/g, " ");
+      if (text.trim()) {
         chunks.push(text);
       }
       continue;
@@ -3518,14 +3522,20 @@ function getPreviewTextForIncludedElement(
       continue;
     }
     if (el.tagName === "BR" || el.tagName === "WBR") {
-      chunks.push(" ");
+      chunks.push("\n");
       continue;
     }
     for (let i = el.childNodes.length - 1; i >= 0; i -= 1) {
       stack.push(el.childNodes[i]);
     }
   }
-  return chunks.join(" ").replace(/\s+/g, " ").trim();
+  return chunks
+    .join("")
+    .replace(/\r/g, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function collectDefaultTagExclusionStatus(config, entryOverride) {

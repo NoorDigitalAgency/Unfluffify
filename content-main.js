@@ -658,6 +658,9 @@ function canPromoteToParent(
   if (!isInclusionEligibleNode(parent, excludedNodes, includedNodes, inclusionContextSet)) {
     return false;
   }
+  if (!hasDirectRenderableText(parent)) {
+    return false;
+  }
   let hasSelectedDescendant = false;
   const stack = Array.from(parent.children || []);
   while (stack.length) {
