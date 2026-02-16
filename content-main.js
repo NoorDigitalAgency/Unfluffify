@@ -750,6 +750,23 @@ function collectExcludedChildrenInsideIncludedParents(
   return marked;
 }
 
+function collectSelectorExcludedNodes(excludedNodes, includedNodes) {
+  const marked = new Set();
+  for (const node of excludedNodes || []) {
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node) || !core.isVisible(node)) {
+      continue;
+    }
+    if (isWithinNodeSet(node, includedNodes)) {
+      continue;
+    }
+    marked.add(node);
+  }
+  return collapseToShallowest(marked);
+}
+
 function collectIncludedNodesFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedNodes = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
@@ -818,12 +835,14 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   });
 
   const included = collapseToShallowest(selectedNodes);
-  const excluded = collectExcludedChildrenInsideIncludedParents(
+  const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     included,
     excludedNodes,
     includedNodes,
     inclusionContextSet
   );
+  const selectorExcluded = collectSelectorExcludedNodes(excludedNodes, includedNodes);
+  const excluded = Array.from(new Set([...selectorExcluded, ...excludedDescendants]));
   return { included, excluded };
 }
 
@@ -912,7 +931,7 @@ async function refreshSilentHighlightings() {
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
   const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
   const contentNodes = contentMarking.included;
-  const excludedChildNodes = contentMarking.excluded;
+  const excludedNodes = contentMarking.excluded;
   contentNodes.forEach((node) => {
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
     const computed = window.getComputedStyle(node);
@@ -920,11 +939,11 @@ async function refreshSilentHighlightings() {
     const positionValue = position && position !== "static" ? "existing" : "relative";
     node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
   });
-  excludedChildNodes.forEach((node) => {
+  excludedNodes.forEach((node) => {
     node.setAttribute(SILENT_CONTENT_EXCLUDED_ATTR, "on");
   });
   setSilentHighlightingsActive(
-    anchors.length > 0 || contentNodes.length > 0 || excludedChildNodes.length > 0
+    anchors.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0
   );
   startSilentHighlightingObserver();
 }
