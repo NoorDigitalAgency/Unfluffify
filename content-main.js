@@ -1,11 +1,6 @@
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
 import * as utils from "./common/utilities.js";
-import {
-  applyAiSelectorModifiers,
-  getMaximumDescendantSelectorCount,
-  normalizeAiSelectorModifiers
-} from "./common/ai-selector-modifiers.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
 
 const { state } = core;
@@ -450,40 +445,8 @@ function getStoredAiSelectorSet(baseConfig) {
   return normalizeAiSelectorSet(baseConfig.domainAiSelectorSet);
 }
 
-function getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectorSet) {
-  const maxDepth = getMaximumDescendantSelectorCount(
-    combineAiSelectorSet(selectorSet)
-  );
-  const saved = normalizeAiSelectorModifiers(
-    baseConfig && baseConfig.aiSelectorModifiers,
-    maxDepth
-  );
-  const override = state.aiSelectorModifierOverride;
-  const useOverride = Boolean(
-    override &&
-    typeof override === "object" &&
-    (!override.baseUrl || !baseUrl || override.baseUrl === baseUrl)
-  );
-  return normalizeAiSelectorModifiers(useOverride ? override : saved, maxDepth);
-}
-
-function getEffectiveAiSelectorSet(baseConfig, baseUrl) {
-  const selectorSet = getStoredAiSelectorSet(baseConfig);
-  const combined = combineAiSelectorSet(selectorSet);
-  if (!combined.length) {
-    return selectorSet;
-  }
-  const modifiers = getEffectiveAiSelectorModifiers(baseConfig, baseUrl, selectorSet);
-  return {
-    exclusionSelectors: applyAiSelectorModifiers(
-      selectorSet.exclusionSelectors,
-      modifiers
-    ),
-    inclusionSelectors: applyAiSelectorModifiers(
-      selectorSet.inclusionSelectors,
-      modifiers
-    )
-  };
+function getEffectiveAiSelectorSet(baseConfig) {
+  return getStoredAiSelectorSet(baseConfig);
 }
 
 function collectExcludedNodesFromSelectors(selectors) {
@@ -517,17 +480,6 @@ function isWithinExcludedNode(node, excluded) {
     current = current.parentElement;
   }
   return false;
-}
-
-function hasRenderableText(node) {
-  if (!node || node.nodeType !== 1) {
-    return false;
-  }
-  if (node.tagName === "SCRIPT" || node.tagName === "STYLE" || node.tagName === "NOSCRIPT") {
-    return false;
-  }
-  const text = (node.innerText || "").replace(/\s+/g, " ").trim();
-  return Boolean(text);
 }
 
 function hasDirectRenderableText(node) {
@@ -594,6 +546,11 @@ function isSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
+function isExcludedNatureNode(node, excludedNodes, includedNodes) {
+  return matchesImmutableDefaultSelector(node) ||
+    isSelectorExcludedNode(node, excludedNodes, includedNodes);
+}
+
 function isInclusionEligibleNode(node, excludedNodes, includedNodes) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -608,6 +565,32 @@ function isInclusionEligibleNode(node, excludedNodes, includedNodes) {
     return false;
   }
   return !isWithinNodeSet(node, excludedNodes) || isWithinNodeSet(node, includedNodes);
+}
+
+function hasRenderableTextOutsideExcludedNature(node, excludedNodes, includedNodes) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  const stack = [node];
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || current.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(current) || !core.isVisible(current)) {
+      continue;
+    }
+    if (current !== node && isExcludedNatureNode(current, excludedNodes, includedNodes)) {
+      continue;
+    }
+    if (hasDirectRenderableText(current)) {
+      return true;
+    }
+    for (let i = current.children.length - 1; i >= 0; i -= 1) {
+      stack.push(current.children[i]);
+    }
+  }
+  return false;
 }
 
 function getNodeDepth(node) {
@@ -645,7 +628,7 @@ function canPromoteToParent(parent, selectedNodes, excludedNodes, includedNodes)
     if (isExtensionUiNode(node) || !core.isVisible(node)) {
       continue;
     }
-    if (matchesImmutableDefaultSelector(node) || isSelectorExcludedNode(node, excludedNodes, includedNodes)) {
+    if (isExcludedNatureNode(node, excludedNodes, includedNodes)) {
       return false;
     }
     if (selectedNodes.has(node)) {
@@ -698,8 +681,7 @@ function collectExcludedChildrenInsideIncludedParents(includedParents, excludedN
       if (isExtensionUiNode(node) || !core.isVisible(node)) {
         continue;
       }
-      const excludedNature = matchesImmutableDefaultSelector(node) ||
-        isSelectorExcludedNode(node, excludedNodes, includedNodes);
+      const excludedNature = isExcludedNatureNode(node, excludedNodes, includedNodes);
       if (excludedNature) {
         if (!seen.has(node)) {
           seen.add(node);
@@ -732,7 +714,10 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     }
     if (hasDirectRenderableText(node)) {
       baseSelected.add(node);
-    } else if (includedNodes.has(node) && hasRenderableText(node)) {
+    } else if (
+      includedNodes.has(node) &&
+      hasRenderableTextOutsideExcludedNature(node, excludedNodes, includedNodes)
+    ) {
       baseSelected.add(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
@@ -773,7 +758,7 @@ function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
-  const selectorSet = getEffectiveAiSelectorSet(state.config, state.baseUrl);
+  const selectorSet = getEffectiveAiSelectorSet(state.config);
   if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
     state.config.domainAiSelectorSet = {
       exclusionSelectors: [],
@@ -809,7 +794,7 @@ async function refreshSilentHighlightings() {
   }
   const pageMarkings = baseConfig.pageMarkings || {};
   const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
-  const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig, baseUrl);
+  const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
   const savedUrls = new Set(
     Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
@@ -947,34 +932,6 @@ export function main() {
       }
       sendResponse({ ok: true });
       return;
-    }
-
-    if (message.type === "setAiSelectorModifierPreview") {
-      if (message.clear) {
-        state.aiSelectorModifierOverride = null;
-      } else if (message.dirty) {
-        const targetBaseUrl =
-          typeof message.baseUrl === "string" ? message.baseUrl : state.baseUrl || "";
-        const normalizedOverride = normalizeAiSelectorModifiers(
-          message.modifiers,
-          Number.MAX_SAFE_INTEGER
-        );
-        state.aiSelectorModifierOverride = {
-          ...normalizedOverride,
-          baseUrl: targetBaseUrl
-        };
-      } else {
-        state.aiSelectorModifierOverride = null;
-      }
-      if (state.enabled) {
-        refreshEnabledAiHighlights();
-        sendResponse({ ok: true });
-        return;
-      }
-      refreshSilentHighlightings().then(() => {
-        sendResponse({ ok: true });
-      });
-      return true;
     }
 
     if (message.type === "forceRefresh") {

@@ -4,11 +4,6 @@ import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
 } from "../common/constants.js";
-import {
-  applyAiSelectorModifiers,
-  getMaximumDescendantSelectorCount,
-  normalizeAiSelectorModifiers
-} from "../common/ai-selector-modifiers.js";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
 
 export const state = {
@@ -43,7 +38,6 @@ export const state = {
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
   initialized: false,
-  aiSelectorModifierOverride: null,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
   visibilityCache: null,
@@ -720,20 +714,6 @@ function combineAiSelectorSet(selectorSet) {
   ];
 }
 
-function applyAiSelectorModifiersToSet(selectorSet, modifiers) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  return {
-    exclusionSelectors: applyAiSelectorModifiers(
-      normalized.exclusionSelectors,
-      modifiers
-    ),
-    inclusionSelectors: applyAiSelectorModifiers(
-      normalized.inclusionSelectors,
-      modifiers
-    )
-  };
-}
-
 function collectSelectorElements(selectors) {
   const elements = new Set();
   for (const selector of selectors || []) {
@@ -766,6 +746,11 @@ function isSelectorExcludedElement(el, excludedElements, includedElements) {
   return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
 }
 
+function isExcludedNatureElement(el, excludedElements, includedElements) {
+  return matchesImmutableExcluded(el) ||
+    isSelectorExcludedElement(el, excludedElements, includedElements);
+}
+
 function isInclusionEligibleElement(el, excludedElements, includedElements) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -780,6 +765,35 @@ function isInclusionEligibleElement(el, excludedElements, includedElements) {
     return false;
   }
   return !isWithinElementSet(el, excludedElements) || isWithinElementSet(el, includedElements);
+}
+
+function hasRenderableTextOutsideExcludedNature(el, excludedElements, includedElements) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = [el];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
+      continue;
+    }
+    if (!isVisible(node)) {
+      continue;
+    }
+    if (node !== el && isExcludedNatureElement(node, excludedElements, includedElements)) {
+      continue;
+    }
+    if (hasDirectText(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
 }
 
 function isCoveredBySelectedElement(el, boundary, selectedElements) {
@@ -810,7 +824,7 @@ function canPromoteIncludedParent(parent, selectedElements, excludedElements, in
     if (!isVisible(el)) {
       continue;
     }
-    if (matchesImmutableExcluded(el) || isSelectorExcludedElement(el, excludedElements, includedElements)) {
+    if (isExcludedNatureElement(el, excludedElements, includedElements)) {
       return false;
     }
     if (selectedElements.has(el)) {
@@ -847,6 +861,44 @@ function collapseToShallowestElements(elements) {
   return kept;
 }
 
+function collectExcludedChildrenInsideIncludedParents(
+  includedParents,
+  excludedElements,
+  includedElements
+) {
+  const marked = [];
+  const seen = new Set();
+  includedParents.forEach((parent) => {
+    if (!parent || parent.nodeType !== 1) {
+      return;
+    }
+    const stack = Array.from(parent.children || []);
+    while (stack.length) {
+      const el = stack.pop();
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+        continue;
+      }
+      if (!isVisible(el)) {
+        continue;
+      }
+      if (isExcludedNatureElement(el, excludedElements, includedElements)) {
+        if (!seen.has(el)) {
+          seen.add(el);
+          marked.push(el);
+        }
+        continue;
+      }
+      for (let i = el.children.length - 1; i >= 0; i -= 1) {
+        stack.push(el.children[i]);
+      }
+    }
+  });
+  return marked;
+}
+
 function collectIncludedElementsFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
@@ -860,7 +912,10 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     }
     if (hasDirectText(el)) {
       baseSelected.add(el);
-    } else if (includedElements.has(el) && isTextualContainer(el)) {
+    } else if (
+      includedElements.has(el) &&
+      hasRenderableTextOutsideExcludedNature(el, excludedElements, includedElements)
+    ) {
       baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
@@ -888,7 +943,13 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     }
   });
 
-  return collapseToShallowestElements(selectedElements);
+  const included = collapseToShallowestElements(selectedElements);
+  const excluded = collectExcludedChildrenInsideIncludedParents(
+    included,
+    excludedElements,
+    includedElements
+  );
+  return { included, excluded };
 }
 
 function getElementDepth(el) {
@@ -1202,6 +1263,29 @@ function createOverlay() {
         background-clip: border-box;
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
+      @keyframes uf-ai-content-excluded-dash {
+        0% {
+          background-position: 0 0, 0 100%, 0 0, 100% 0;
+        }
+        100% {
+          background-position: 18px 0, -18px 100%, 0 -18px, 100% 18px;
+        }
+      }
+      #unfluffify-overlay .uf-ai-content-excluded {
+        border: 1px solid transparent;
+        background-color: rgba(178, 72, 72, 0.12);
+        background-image:
+          repeating-linear-gradient(90deg, #b24848 0 5px, transparent 5px 10px),
+          repeating-linear-gradient(90deg, #b24848 0 5px, transparent 5px 10px),
+          repeating-linear-gradient(0deg, #b24848 0 5px, transparent 5px 10px),
+          repeating-linear-gradient(0deg, #b24848 0 5px, transparent 5px 10px);
+        background-size: 18px 2px, 18px 2px, 2px 18px, 2px 18px;
+        background-position: 0 0, 0 100%, 0 0, 100% 0;
+        background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+        background-origin: border-box;
+        background-clip: border-box;
+        animation: uf-ai-content-excluded-dash 1.6s linear infinite !important;
+      }
       #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
@@ -1241,6 +1325,7 @@ function createOverlay() {
     "explicit-exclude",
     "explicit-include",
     "ai-content",
+    "ai-content-excluded",
     "default",
     "focus",
     "hover"
@@ -2364,35 +2449,18 @@ function renderHighlightsInner() {
   const latestComputedSelectorSet = normalizeAiSelectorSet(state.config.latestComputedSelectors);
   const latestCombinedSelectors = combineAiSelectorSet(latestComputedSelectorSet);
   const storedSelectorSet = normalizeAiSelectorSet(state.config.domainAiSelectorSet);
-  const rawAiSelectorSet = latestCombinedSelectors.length
+  const normalizedAiSelectorSet = latestCombinedSelectors.length
     ? latestComputedSelectorSet
     : storedSelectorSet;
-  const normalizedAiSelectorSet = normalizeAiSelectorSet(rawAiSelectorSet);
-  const allAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet);
-  const aiSelectorMaxDepth = getMaximumDescendantSelectorCount(allAiSelectors);
-  const aiSelectorOverride = state.aiSelectorModifierOverride &&
-    typeof state.aiSelectorModifierOverride === "object" &&
-    (!state.aiSelectorModifierOverride.baseUrl ||
-      !state.baseUrl ||
-      state.aiSelectorModifierOverride.baseUrl === state.baseUrl)
-    ? state.aiSelectorModifierOverride
-    : null;
-  const aiSelectorModifiers = normalizeAiSelectorModifiers(
-    aiSelectorOverride || state.config.aiSelectorModifiers,
-    aiSelectorMaxDepth
-  );
-  const adjustedAiSelectorSet = applyAiSelectorModifiersToSet(
-    normalizedAiSelectorSet,
-    aiSelectorModifiers
-  );
-  const aiContent = new Set(
-    collectIncludedElementsFromSelectorSet(adjustedAiSelectorSet)
-  );
+  const aiContentMarking = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet);
+  const aiContent = new Set(aiContentMarking.included);
+  const aiExcludedDescendants = new Set(aiContentMarking.excluded);
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...explicitExclude,
     ...explicitInclude,
-    ...aiContent
+    ...aiContent,
+    ...aiExcludedDescendants
   ]);
   const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
@@ -2422,6 +2490,7 @@ function renderHighlightsInner() {
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     aiContentElements: Array.from(aiContent),
+    aiContentExcludedElements: Array.from(aiExcludedDescendants),
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
@@ -2466,6 +2535,7 @@ function drawCollections(collections, getRects) {
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
+  const layerAiContentExcludedState = beginLayerRender(state.layers["ai-content-excluded"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -2505,6 +2575,20 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  for (const el of collections.aiContentExcludedElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerAiContentExcludedState,
+        rects,
+        "uf-ai-content-excluded",
+        el,
+        "ai-content-excluded",
+        markedElements
+      );
+    }
+  }
+
   for (const el of collections.defaultElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
@@ -2518,6 +2602,7 @@ function drawCollections(collections, getRects) {
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
   finalizeLayerRender(layerAiContentState);
+  finalizeLayerRender(layerAiContentExcludedState);
   finalizeLayerRender(layerDefaultState);
 
   updateFocusHighlight();
@@ -3155,7 +3240,6 @@ export function disable() {
   state.enabled = false;
   state.baseUrl = "";
   state.config = null;
-  state.aiSelectorModifierOverride = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
@@ -3261,7 +3345,7 @@ export function handleScroll() {
 }
 
 export function collectPreviewItems(selectorSet) {
-  const elements = collectIncludedElementsFromSelectorSet(selectorSet);
+  const { included: elements } = collectIncludedElementsFromSelectorSet(selectorSet);
   const rows = [];
   for (const el of elements) {
     const text = (el.innerText || "").replace(/\s+/g, " ").trim();

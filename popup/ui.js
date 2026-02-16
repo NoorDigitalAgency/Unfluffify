@@ -102,16 +102,7 @@ const initialViewState = {
   saveExcludesButtonDisabled: true,
   saveExcludesButtonLoading: false,
   previewLatestButtonDisabled: true,
-  aiSelectorModifiersVisible: false,
-  aiSelectorRemoveIdsChecked: true,
-  aiSelectorRemoveIdsDisabled: true,
-  aiSelectorDepthValue: 1,
-  aiSelectorDepthMin: 1,
-  aiSelectorDepthMax: 1,
-  aiSelectorDepthDisabled: true,
-  aiSelectorSettingsSaveDisabled: true,
-  aiSelectorSettingsRevertDisabled: true,
-  aiSelectorSettingsStatusText: "",
+  cssSelectorsVisible: false,
   configMenuOpen: false,
   configExportAllDisabled: false,
   configExportCurrentDisabled: true,
@@ -327,7 +318,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         "margin-above",
         view.computeButtonLoading && "loading"
     );
-    const previewClass = classNames("full-width", "margin-above");
 
     return h(
         Fragment,
@@ -855,108 +845,31 @@ function renderMarkingView({state: view, actions: handlers}) {
                             onClick: handlers.onCompute
                         },
                         view.computeButtonText
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "preview-latest",
-                            class: previewClass,
-                            type: "button",
-                            disabled: view.previewLatestButtonDisabled,
-                            onClick: handlers.onPreviewLatest
-                        },
-                        "Preview Latest"
                     )
                 )
             ),
         )
         ,
-        view.aiSelectorModifiersVisible &&
-          renderAiSelectorModifierSection({ state: view, actions: handlers })
+        view.cssSelectorsVisible &&
+          renderCssSelectorsSection({ state: view, actions: handlers })
     );
 }
 
-function renderAiSelectorModifierSection({ state: view, actions: handlers }) {
+function renderCssSelectorsSection({ state: view, actions: handlers }) {
     const previewClass = classNames("full-width", "margin-above");
     const submitClass = classNames(
       "full-width",
       "margin-above",
       view.saveExcludesButtonLoading && "loading"
     );
-    const depthLabel = view.aiSelectorDepthMax <= 1
-      ? `${view.aiSelectorDepthValue} segment`
-      : `${view.aiSelectorDepthValue} / ${view.aiSelectorDepthMax} segments`;
     return h(
       "section",
       { class: "card" },
-      h("div", { class: "section-title" }, "AI selector modifiers"),
-      h(
-        "label",
-        { class: "row", for: "ai-selector-remove-ids" },
-        h("span", null, "Remove id selector segments"),
-        h("input", {
-          id: "ai-selector-remove-ids",
-          type: "checkbox",
-          checked: view.aiSelectorRemoveIdsChecked,
-          disabled: view.aiSelectorRemoveIdsDisabled,
-          onChange: handlers.onAiSelectorRemoveIdsChange
-        })
-      ),
-      h(
-        "div",
-        { class: "scale-control" },
-        h(
-          "div",
-          { class: "row" },
-          h("span", null, "Max descendant selectors"),
-          h("span", { id: "ai-selector-depth-value", class: "scale-value" }, depthLabel)
-        ),
-        h("input", {
-          id: "ai-selector-depth",
-          type: "range",
-          min: String(view.aiSelectorDepthMin),
-          max: String(view.aiSelectorDepthMax),
-          step: "1",
-          value: String(view.aiSelectorDepthValue),
-          disabled: view.aiSelectorDepthDisabled,
-          onInput: handlers.onAiSelectorDepthInput,
-          onChange: handlers.onAiSelectorDepthChange
-        })
-      ),
-      h(
-        "div",
-        { class: "button-row" },
-        h(
-          "button",
-          {
-            id: "ai-selector-settings-save",
-            type: "button",
-            disabled: view.aiSelectorSettingsSaveDisabled,
-            onClick: handlers.onAiSelectorSettingsSave
-          },
-          "Save"
-        ),
-        h(
-          "button",
-          {
-            id: "ai-selector-settings-revert",
-            type: "button",
-            class: "button-secondary",
-            disabled: view.aiSelectorSettingsRevertDisabled,
-            onClick: handlers.onAiSelectorSettingsRevert
-          },
-          "Revert to saved"
-        )
-      ),
-      h(
-        "div",
-        { id: "ai-selector-settings-status", class: "hint" },
-        view.aiSelectorSettingsStatusText
-      ),
+      h("div", { class: "section-title" }, "CSS Selectors"),
       h(
         "button",
         {
-          id: "preview-latest-modifiers",
+          id: "preview-latest",
           class: previewClass,
           type: "button",
           disabled: view.previewLatestButtonDisabled,
