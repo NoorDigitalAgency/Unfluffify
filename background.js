@@ -2,6 +2,37 @@ import * as utils from "./common/utilities.js";
 import {getDeviceEmulationState, updateDeviceEmulation} from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 
+const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = {
+  markedPages: true,
+  includedContent: true,
+  excludedContent: false,
+  visibleConsent: false
+};
+
+function normalizeSilentHighlightOptions(value) {
+  if (!value || typeof value !== "object") {
+    return { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
+  }
+  return {
+    markedPages:
+      typeof value.markedPages === "boolean"
+        ? value.markedPages
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.markedPages,
+    includedContent:
+      typeof value.includedContent === "boolean"
+        ? value.includedContent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.includedContent,
+    excludedContent:
+      typeof value.excludedContent === "boolean"
+        ? value.excludedContent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.excludedContent,
+    visibleConsent:
+      typeof value.visibleConsent === "boolean"
+        ? value.visibleConsent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.visibleConsent
+  };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
     return;
@@ -29,11 +60,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false });
       return;
     }
-    const state = {
-      enabled: Boolean(message.enabled),
-      baseUrl: message.baseUrl || ""
-    };
-    utils.setTabState(tabId, state)
+    utils.getTabState(tabId)
+      .then((existingState) => {
+        const existing = existingState && typeof existingState === "object"
+          ? existingState
+          : {};
+        const nextState = {
+          ...existing,
+          enabled: Boolean(message.enabled),
+          baseUrl: message.baseUrl || ""
+        };
+        if (existing.silentHighlightOptions) {
+          nextState.silentHighlightOptions = normalizeSilentHighlightOptions(
+            existing.silentHighlightOptions
+          );
+        }
+        if (
+          message.silentHighlightOptions &&
+          typeof message.silentHighlightOptions === "object"
+        ) {
+          nextState.silentHighlightOptions = normalizeSilentHighlightOptions({
+            ...(existing.silentHighlightOptions || {}),
+            ...message.silentHighlightOptions
+          });
+        }
+        return utils.setTabState(tabId, nextState);
+      })
       .then(() => {
         utils.updateActionForTab(tabId).then();
         sendResponse({ ok: true });
@@ -41,6 +93,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => {
         sendResponse({ ok: false });
       });
+    return true;
+  }
+
+  if (message.type === "setSilentHighlightOptions") {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
+      sendResponse({ ok: false });
+      return;
+    }
+    utils.getTabState(tabId)
+      .then((existingState) => {
+        const existing = existingState && typeof existingState === "object"
+          ? existingState
+          : {};
+        const nextState = {
+          enabled: Boolean(existing.enabled),
+          baseUrl: typeof existing.baseUrl === "string" ? existing.baseUrl : "",
+          ...existing,
+          silentHighlightOptions: normalizeSilentHighlightOptions({
+            ...(existing.silentHighlightOptions || {}),
+            ...(message.silentHighlightOptions || {})
+          })
+        };
+        return utils.setTabState(tabId, nextState);
+      })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 

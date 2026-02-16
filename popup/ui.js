@@ -103,6 +103,11 @@ const initialViewState = {
   saveExcludesButtonLoading: false,
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
+  highlightingOptionsVisible: false,
+  highlightMarkedPagesChecked: true,
+  highlightIncludedContentChecked: true,
+  highlightExcludedContentChecked: false,
+  highlightVisibleConsentChecked: false,
   configMenuOpen: false,
   configExportAllDisabled: false,
   configExportCurrentDisabled: true,
@@ -457,6 +462,8 @@ function renderMarkingView({state: view, actions: handlers}) {
                 })
             )
         ),
+        view.highlightingOptionsVisible &&
+          renderHighlightingOptionsSection({ state: view, actions: handlers }),
         h(
             "div",
             {id: "main-ui", hidden: view.mainUiHidden},
@@ -855,6 +862,59 @@ function renderMarkingView({state: view, actions: handlers}) {
     );
 }
 
+function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
+    return h(
+      "section",
+      { class: "card" },
+      h("div", { class: "section-title" }, "Highlighting"),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Marked pages (anchors)"),
+        h("input", {
+          id: "highlight-marked-pages",
+          type: "checkbox",
+          checked: view.highlightMarkedPagesChecked,
+          onChange: handlers.onHighlightMarkedPagesChange
+        })
+      ),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Included content"),
+        h("input", {
+          id: "highlight-included-content",
+          type: "checkbox",
+          checked: view.highlightIncludedContentChecked,
+          onChange: handlers.onHighlightIncludedContentChange
+        })
+      ),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Excluded content"),
+        h("input", {
+          id: "highlight-excluded-content",
+          type: "checkbox",
+          checked: view.highlightExcludedContentChecked,
+          onChange: handlers.onHighlightExcludedContentChange
+        })
+      ),
+      h("div", { class: "section-divider", role: "separator" }),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Visible Consent"),
+        h("input", {
+          id: "highlight-visible-consent",
+          type: "checkbox",
+          checked: view.highlightVisibleConsentChecked,
+          onChange: handlers.onHighlightVisibleConsentChange
+        })
+      )
+    );
+}
+
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
     const previewClass = classNames("full-width", "margin-above");
     const submitClass = classNames(
@@ -877,6 +937,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
         },
         "Preview Latest"
       ),
+      h("div", { class: "section-divider", role: "separator" }),
       h(
         "button",
         {

@@ -158,6 +158,11 @@ body.is-busy {
   gap: 8px;
 }
 
+.section-divider {
+  border-top: 1px solid var(--line);
+  margin: 2px 0;
+}
+
 .actions {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;

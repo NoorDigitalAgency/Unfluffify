@@ -11,6 +11,12 @@ import * as stateModule from "./popup/state.js";
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = {
+  markedPages: true,
+  includedContent: true,
+  excludedContent: false,
+  visibleConsent: false
+};
 
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
@@ -157,6 +163,30 @@ function normalizeSelectorList(selectors) {
   return values;
 }
 
+function normalizeSilentHighlightOptions(value) {
+  if (!value || typeof value !== "object") {
+    return { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
+  }
+  return {
+    markedPages:
+      typeof value.markedPages === "boolean"
+        ? value.markedPages
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.markedPages,
+    includedContent:
+      typeof value.includedContent === "boolean"
+        ? value.includedContent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.includedContent,
+    excludedContent:
+      typeof value.excludedContent === "boolean"
+        ? value.excludedContent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.excludedContent,
+    visibleConsent:
+      typeof value.visibleConsent === "boolean"
+        ? value.visibleConsent
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.visibleConsent
+  };
+}
+
 function normalizeAiSelectorSet(value) {
   if (!value || typeof value !== "object") {
     return {
@@ -273,6 +303,72 @@ function normalizePayloadXpaths(items) {
   return deduped.filter((item) => !redundantXpaths.has(item.xpath));
 }
 
+function getSilentHighlightVisibility() {
+  return {
+    markedPages: state.silentHighlightShowMarkedPages !== false,
+    includedContent: state.silentHighlightShowIncludedContent !== false,
+    excludedContent: Boolean(state.silentHighlightShowExcludedContent),
+    visibleConsent: Boolean(state.silentHighlightShowVisibleConsent)
+  };
+}
+
+function getSilentHighlightVisibilityKey(visibility) {
+  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}`;
+}
+
+async function persistSilentHighlightVisibility() {
+  if (!state.currentTab || !state.currentTab.id) {
+    return;
+  }
+  const visibility = getSilentHighlightVisibility();
+  await messages.sendRuntimeMessage({
+    type: "setSilentHighlightOptions",
+    tabId: state.currentTab.id,
+    silentHighlightOptions: visibility
+  });
+}
+
+async function applySilentHighlightVisibility(options = {}) {
+  const { force = false } = options;
+  if (!state.currentTab || !state.currentTab.id) {
+    return;
+  }
+  const visibility = getSilentHighlightVisibility();
+  const key = getSilentHighlightVisibilityKey(visibility);
+  const tabId = state.currentTab.id;
+  if (
+    !force &&
+    state.lastAppliedSilentHighlightTabId === tabId &&
+    state.lastAppliedSilentHighlightKey === key
+  ) {
+    return;
+  }
+  const response = await messages.sendTabMessageWithRetry({
+    type: "setSilentHighlightVisibility",
+    ...visibility
+  }, 2);
+  let finalResponse = response;
+  if ((!finalResponse || !finalResponse.ok) && tabId) {
+    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
+    finalResponse = await messages.sendTabMessageWithRetry({
+      type: "setSilentHighlightVisibility",
+      ...visibility
+    }, 3);
+  }
+  if (finalResponse && finalResponse.ok) {
+    state.lastAppliedSilentHighlightTabId = tabId;
+    state.lastAppliedSilentHighlightKey = key;
+  }
+}
+
+function readCheckboxValue(event, fallbackValue) {
+  const target = event && (event.currentTarget || event.target);
+  if (!target || typeof target.checked !== "boolean") {
+    return fallbackValue;
+  }
+  return Boolean(target.checked);
+}
+
 async function refreshUi() {
   if (!state.currentTab) {
     return;
@@ -287,6 +383,10 @@ async function refreshUi() {
     state.copySourceBaseUrl = "";
     state.copySourcePageUrl = "";
   }
+  if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
+    state.lastAppliedSilentHighlightTabId = currentTabId;
+    state.lastAppliedSilentHighlightKey = "";
+  }
   state.lastTabId = currentTabId;
   const configs = await config.getConfigs();
   const tabState =
@@ -297,6 +397,13 @@ async function refreshUi() {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
+  const silentHighlightOptions = normalizeSilentHighlightOptions(
+    tabState && tabState.silentHighlightOptions
+  );
+  state.silentHighlightShowMarkedPages = silentHighlightOptions.markedPages;
+  state.silentHighlightShowIncludedContent = silentHighlightOptions.includedContent;
+  state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
+  state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   const fallbackBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (state.currentBaseUrl) {
@@ -548,6 +655,13 @@ async function refreshUi() {
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
   nextViewState.cssSelectorsVisible =
     resolvedView === uiModule.View.Marking;
+  const highlightingMode =
+    resolvedView === uiModule.View.Marking && !isEnabled;
+  nextViewState.highlightingOptionsVisible = highlightingMode;
+  nextViewState.highlightMarkedPagesChecked = state.silentHighlightShowMarkedPages;
+  nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
+  nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
+  nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlInputReadOnly = !baseField.isEditing;
   nextViewState.baseUrlSetVisible = baseField.isEditing;
@@ -778,6 +892,9 @@ async function refreshUi() {
   nextViewState.basePageUrlsEmptyText = "No base URLs saved";
 
   uiModule.setViewState(nextViewState);
+  if (resolvedView === uiModule.View.Marking) {
+    await applySilentHighlightVisibility();
+  }
 }
 
 function handleBaseUrlInput(event) {
@@ -1042,6 +1159,38 @@ async function handleEnableToggle(event) {
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
+}
+
+async function handleHighlightMarkedPagesChange(event) {
+  const checked = readCheckboxValue(event, state.silentHighlightShowMarkedPages);
+  state.silentHighlightShowMarkedPages = checked;
+  uiModule.setViewState({ highlightMarkedPagesChecked: checked });
+  await persistSilentHighlightVisibility();
+  await applySilentHighlightVisibility({ force: true });
+}
+
+async function handleHighlightIncludedContentChange(event) {
+  const checked = readCheckboxValue(event, state.silentHighlightShowIncludedContent);
+  state.silentHighlightShowIncludedContent = checked;
+  uiModule.setViewState({ highlightIncludedContentChecked: checked });
+  await persistSilentHighlightVisibility();
+  await applySilentHighlightVisibility({ force: true });
+}
+
+async function handleHighlightExcludedContentChange(event) {
+  const checked = readCheckboxValue(event, state.silentHighlightShowExcludedContent);
+  state.silentHighlightShowExcludedContent = checked;
+  uiModule.setViewState({ highlightExcludedContentChecked: checked });
+  await persistSilentHighlightVisibility();
+  await applySilentHighlightVisibility({ force: true });
+}
+
+async function handleHighlightVisibleConsentChange(event) {
+  const checked = readCheckboxValue(event, state.silentHighlightShowVisibleConsent);
+  state.silentHighlightShowVisibleConsent = checked;
+  uiModule.setViewState({ highlightVisibleConsentChecked: checked });
+  await persistSilentHighlightVisibility();
+  await applySilentHighlightVisibility({ force: true });
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {
@@ -1992,6 +2141,10 @@ async function init() {
 
   uiModule.initUi({
     onToggleEnabled: handleEnableToggle,
+    onHighlightMarkedPagesChange: handleHighlightMarkedPagesChange,
+    onHighlightIncludedContentChange: handleHighlightIncludedContentChange,
+    onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
+    onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
     onDeviceModeChange: handleDeviceModeToggle,
     onDeviceScaleInput: handleDeviceScaleInput,

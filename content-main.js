@@ -12,12 +12,18 @@ const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
-const VISIBLE_CONSENT_TOGGLE_ID = "unfluffify-visible-toggle";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
+const SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS = {
+  markedPages: true,
+  includedContent: true,
+  excludedContent: false,
+  visibleConsent: false
+};
+let silentHighlightVisibility = { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
@@ -210,76 +216,13 @@ function ensureSilentHighlightingStyles() {
         visibility: visible !important;
         pointer-events: auto !important;
       }
-      #${VISIBLE_CONSENT_TOGGLE_ID} {
-        position: fixed;
-        bottom: 14px;
-        left: 14px;
-        z-index: 2147483646;
-        display: none;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        background: rgba(47, 42, 36, 0.9);
-        color: #fdf6ed;
-        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
-        font-size: 13px;
-        border-radius: 8px;
-        cursor: pointer;
-        user-select: none;
-      }
-      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] #${VISIBLE_CONSENT_TOGGLE_ID} {
-        display: flex;
-      }
-      #${VISIBLE_CONSENT_TOGGLE_ID} input[type="checkbox"] {
-        cursor: pointer;
-        margin: 0;
-      }
     `;
   (document.head || document.documentElement).appendChild(style);
-}
-
-function ensureVisibleConsentToggle() {
-  if (document.getElementById(VISIBLE_CONSENT_TOGGLE_ID)) {
-    return;
-  }
-  const container = document.createElement("label");
-  container.id = VISIBLE_CONSENT_TOGGLE_ID;
-  container.setAttribute("data-uf-extension-ui", "true");
-
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = document.documentElement.classList.contains("uf-visible-consent");
-
-  const label = document.createElement("span");
-  label.textContent = "Visible Consent";
-
-  container.appendChild(checkbox);
-  container.appendChild(label);
-
-  container.addEventListener("click", (event) => {
-    if (event.target === checkbox) {
-      return;
-    }
-    event.preventDefault();
-    checkbox.checked = !checkbox.checked;
-    checkbox.dispatchEvent(new Event("change"));
-  });
-
-  checkbox.addEventListener("change", () => {
-    if (checkbox.checked) {
-      document.documentElement.classList.add("uf-visible-consent");
-    } else {
-      document.documentElement.classList.remove("uf-visible-consent");
-    }
-  });
-
-  (document.body || document.documentElement).appendChild(container);
 }
 
 function setSilentHighlightingsActive(active) {
   if (active) {
     document.documentElement.setAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR, "on");
-    ensureVisibleConsentToggle();
   } else {
     document.documentElement.removeAttribute(SILENT_HIGHLIGHTINGS_ACTIVE_ATTR);
   }
@@ -432,6 +375,64 @@ function normalizeAiSelectorSet(value) {
 function combineAiSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
+}
+
+function normalizeSilentHighlightVisibility(value) {
+  if (!value || typeof value !== "object") {
+    return { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
+  }
+  return {
+    markedPages:
+      typeof value.markedPages === "boolean"
+        ? value.markedPages
+        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.markedPages,
+    includedContent:
+      typeof value.includedContent === "boolean"
+        ? value.includedContent
+        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.includedContent,
+    excludedContent:
+      typeof value.excludedContent === "boolean"
+        ? value.excludedContent
+        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.excludedContent,
+    visibleConsent:
+      typeof value.visibleConsent === "boolean"
+        ? value.visibleConsent
+        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.visibleConsent
+  };
+}
+
+function applyVisibleConsentVisibility(visibility) {
+  const normalized = normalizeSilentHighlightVisibility(visibility);
+  if (normalized.visibleConsent) {
+    document.documentElement.classList.add("uf-visible-consent");
+  } else {
+    document.documentElement.classList.remove("uf-visible-consent");
+  }
+}
+
+async function syncSilentHighlightVisibilityFromTabState() {
+  try {
+    const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
+    silentHighlightVisibility = normalizeSilentHighlightVisibility(
+      tabState && tabState.silentHighlightOptions
+    );
+  } catch {
+    silentHighlightVisibility = { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
+  }
+  applyVisibleConsentVisibility(silentHighlightVisibility);
+}
+
+function normalizeUrlForLinkHighlight(url, baseUrl) {
+  if (typeof url !== "string" || !url) {
+    return "";
+  }
+  try {
+    const resolved = new URL(url, baseUrl || location.href);
+    resolved.hash = "";
+    return resolved.href;
+  } catch {
+    return "";
+  }
 }
 
 function getStoredAiSelectorSet(baseConfig) {
@@ -887,8 +888,13 @@ async function refreshSilentHighlightings() {
   const pageMarkings = baseConfig.pageMarkings || {};
   const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
+  const visibility = normalizeSilentHighlightVisibility(silentHighlightVisibility);
+  applyVisibleConsentVisibility(visibility);
+  const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
   const savedUrls = new Set(
-    Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
+    Object.keys(pageMarkings)
+      .map((url) => normalizeUrlForLinkHighlight(url, pageUrl))
+      .filter(Boolean)
   );
   const storedEntry = pageMarkings[pageUrl] || null;
   const storedConsentXpaths =
@@ -896,8 +902,8 @@ async function refreshSilentHighlightings() {
       ? storedEntry.consentXpaths
       : null;
   const shouldObserve =
-    savedUrls.size > 0 ||
-    combineAiSelectorSet(latestComputedSelectors).length > 0 ||
+    (visibility.markedPages && savedUrls.size > 0) ||
+    ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) ||
     (storedConsentXpaths && storedConsentXpaths.length > 0);
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
@@ -909,39 +915,49 @@ async function refreshSilentHighlightings() {
   clearSilentHighlightingMarks();
   core.hideConsentElements(storedConsentXpaths);
   const anchors = [];
-  const anchorNodes = document.querySelectorAll("a[href]");
-  anchorNodes.forEach((anchor) => {
-    if (!anchor || !anchor.getAttribute) {
-      return;
+  if (visibility.markedPages && savedUrls.size > 0) {
+    const anchorNodes = document.querySelectorAll("a[href]");
+    anchorNodes.forEach((anchor) => {
+      if (!anchor || !anchor.getAttribute) {
+        return;
+      }
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("javascript:") || href.startsWith("#")) {
+        return;
+      }
+      let resolved = "";
+      try {
+        resolved = normalizeUrlForLinkHighlight(href, pageUrl);
+      } catch (error) {
+        return;
+      }
+      if (savedUrls.has(resolved)) {
+        anchors.push(anchor);
+      }
+    });
+    anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
+  }
+  let contentNodes = [];
+  let excludedNodes = [];
+  if ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) {
+    const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
+    if (visibility.includedContent) {
+      contentNodes = contentMarking.included;
+      contentNodes.forEach((node) => {
+        node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
+        const computed = window.getComputedStyle(node);
+        const position = computed ? computed.position : "";
+        const positionValue = position && position !== "static" ? "existing" : "relative";
+        node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+      });
     }
-    const href = anchor.getAttribute("href");
-    if (!href || href.startsWith("javascript:") || href.startsWith("#")) {
-      return;
+    if (visibility.excludedContent) {
+      excludedNodes = contentMarking.excluded;
+      excludedNodes.forEach((node) => {
+        node.setAttribute(SILENT_CONTENT_EXCLUDED_ATTR, "on");
+      });
     }
-    let resolved = "";
-    try {
-      resolved = new URL(href, pageUrl).href;
-    } catch (error) {
-      return;
-    }
-    if (savedUrls.has(resolved)) {
-      anchors.push(anchor);
-    }
-  });
-  anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
-  const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
-  const contentNodes = contentMarking.included;
-  const excludedNodes = contentMarking.excluded;
-  contentNodes.forEach((node) => {
-    node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
-    const computed = window.getComputedStyle(node);
-    const position = computed ? computed.position : "";
-    const positionValue = position && position !== "static" ? "existing" : "relative";
-    node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
-  });
-  excludedNodes.forEach((node) => {
-    node.setAttribute(SILENT_CONTENT_EXCLUDED_ATTR, "on");
-  });
+  }
   setSilentHighlightingsActive(
     anchors.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0
   );
@@ -956,7 +972,9 @@ export function main() {
 
   core.refreshFromTabState().then(() => {
     refreshEnabledAiHighlights();
-    refreshSilentHighlightings().then();
+    syncSilentHighlightVisibilityFromTabState().then(() => {
+      refreshSilentHighlightings().then();
+    });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -1007,6 +1025,15 @@ export function main() {
       }
       sendResponse({ ok: true });
       return;
+    }
+
+    if (message.type === "setSilentHighlightVisibility") {
+      silentHighlightVisibility = normalizeSilentHighlightVisibility(message);
+      applyVisibleConsentVisibility(silentHighlightVisibility);
+      refreshSilentHighlightings().then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
     }
 
     if (message.type === "configUpdated") {
@@ -1502,7 +1529,9 @@ export function main() {
     refreshSilentHighlightings().then();
   });
 
-  refreshSilentHighlightings().then();
+  syncSilentHighlightVisibilityFromTabState().then(() => {
+    refreshSilentHighlightings().then();
+  });
   startSilentHighlightingUrlWatcher();
   window.addEventListener("resize", core.scheduleRender);
   window.addEventListener("scroll", core.handleScroll, { passive: true });
