@@ -762,11 +762,43 @@ function isWithinElementSet(el, elements) {
   return false;
 }
 
-function collectIncludedElementsFromSelectorSet(selectorSet) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
-  const candidates = [];
-  const stack = document.body ? [document.body] : [];
+function isSelectorExcludedElement(el, excludedElements, includedElements) {
+  return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
+}
+
+function isInclusionEligibleElement(el, excludedElements, includedElements) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+    return false;
+  }
+  if (!isVisible(el)) {
+    return false;
+  }
+  if (isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  return !isWithinElementSet(el, excludedElements) || isWithinElementSet(el, includedElements);
+}
+
+function isCoveredBySelectedElement(el, boundary, selectedElements) {
+  let current = el;
+  while (current && current !== boundary) {
+    if (selectedElements.has(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function canPromoteIncludedParent(parent, selectedElements, excludedElements, includedElements) {
+  if (!isInclusionEligibleElement(parent, excludedElements, includedElements)) {
+    return false;
+  }
+  let hasSelectedDescendant = false;
+  const stack = Array.from(parent.children || []);
   while (stack.length) {
     const el = stack.pop();
     if (!el || el.nodeType !== 1) {
@@ -775,32 +807,88 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
       continue;
     }
-    if (isWithinElementSet(el, excludedElements)) {
+    if (!isVisible(el)) {
       continue;
     }
-    if (isTextualContainer(el) && !isWithinImmutableExcluded(el)) {
-      candidates.push(el);
+    if (matchesImmutableExcluded(el) || isSelectorExcludedElement(el, excludedElements, includedElements)) {
+      return false;
+    }
+    if (selectedElements.has(el)) {
+      hasSelectedDescendant = true;
+    }
+    if (hasDirectText(el) && !isCoveredBySelectedElement(el, parent, selectedElements)) {
+      return false;
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
+    }
+  }
+  return hasSelectedDescendant;
+}
+
+function collapseToShallowestElements(elements) {
+  const sorted = Array.from(elements || []).sort((left, right) => {
+    const depthDiff = getElementDepth(left) - getElementDepth(right);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return compareDocumentOrder(left, right);
+  });
+  const kept = [];
+  sorted.forEach((el) => {
+    if (!el || el.nodeType !== 1) {
+      return;
+    }
+    const hasAncestor = kept.some((ancestor) => ancestor.contains(el));
+    if (!hasAncestor) {
+      kept.push(el);
+    }
+  });
+  return kept;
+}
+
+function collectIncludedElementsFromSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
+  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const baseSelected = new Set();
+  const stack = document.body ? [document.body] : [];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!isInclusionEligibleElement(el, excludedElements, includedElements)) {
+      continue;
+    }
+    if (hasDirectText(el)) {
+      baseSelected.add(el);
+    } else if (includedElements.has(el) && isTextualContainer(el)) {
+      baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
       stack.push(el.children[i]);
     }
   }
 
-  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
-  for (const el of includedElements) {
-    if (!el || el.nodeType !== 1) {
-      continue;
+  const selectedElements = new Set(baseSelected);
+  const sortedByDepthDesc = Array.from(baseSelected).sort(
+    (left, right) => getElementDepth(right) - getElementDepth(left)
+  );
+  sortedByDepthDesc.forEach((el) => {
+    let current = el && el.parentElement;
+    while (current && current.nodeType === 1) {
+      if (!canPromoteIncludedParent(current, selectedElements, excludedElements, includedElements)) {
+        break;
+      }
+      for (const existing of Array.from(selectedElements)) {
+        if (existing !== current && current.contains(existing)) {
+          selectedElements.delete(existing);
+        }
+      }
+      selectedElements.add(current);
+      current = current.parentElement;
     }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-      continue;
-    }
-    if (!isTextualContainer(el) || isWithinImmutableExcluded(el)) {
-      continue;
-    }
-    candidates.push(el);
-  }
+  });
 
-  return collapseElementsByNesting(candidates);
+  return collapseToShallowestElements(selectedElements);
 }
 
 function getElementDepth(el) {

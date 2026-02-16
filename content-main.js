@@ -12,6 +12,7 @@ const { state } = core;
 
 const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
+const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
@@ -26,6 +27,7 @@ let silentHighlightingRefreshTimer = 0;
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
   SILENT_CONTENT_HIGHLIGHTING_ATTR,
+  SILENT_CONTENT_EXCLUDED_ATTR,
   SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
   SILENT_CONTENT_POSITION_ATTR,
   core.CONSENT_HIDDEN_ATTR
@@ -194,6 +196,11 @@ function ensureSilentHighlightingStyles() {
         height: 100% !important;
         z-index: 1 !important;
       }
+      html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] [${SILENT_CONTENT_EXCLUDED_ATTR}] {
+        outline: 2px dashed #b03b3b !important;
+        outline-offset: -2px !important;
+        background: rgba(176, 59, 59, 0.08) !important;
+      }
       html[${SILENT_HIGHLIGHTINGS_ACTIVE_ATTR}] a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}] {
         outline: none !important;
         background: #56acce7f !important;
@@ -285,7 +292,7 @@ function setSilentHighlightingsActive(active) {
 
 function clearSilentHighlightingMarks() {
   const marked = document.querySelectorAll(
-    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}]`
+    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_EXCLUDED_ATTR}]`
   );
   marked.forEach((node) => {
     const title = node.getAttribute("title") || "";
@@ -294,6 +301,7 @@ function clearSilentHighlightingMarks() {
     }
     node.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
+    node.removeAttribute(SILENT_CONTENT_EXCLUDED_ATTR);
     node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
   });
 }
@@ -522,6 +530,24 @@ function hasRenderableText(node) {
   return Boolean(text);
 }
 
+function hasDirectRenderableText(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (node.tagName === "SCRIPT" || node.tagName === "STYLE" || node.tagName === "NOSCRIPT") {
+    return false;
+  }
+  for (const child of node.childNodes || []) {
+    if (child.nodeType !== Node.TEXT_NODE) {
+      continue;
+    }
+    if ((child.textContent || "").replace(/\s+/g, " ").trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -550,10 +576,150 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
+function isWithinNodeSet(node, nodes) {
+  if (!node || !nodes || nodes.size === 0) {
+    return false;
+  }
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (nodes.has(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function isSelectorExcludedNode(node, excludedNodes, includedNodes) {
+  return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
+}
+
+function isInclusionEligibleNode(node, excludedNodes, includedNodes) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (isExtensionUiNode(node)) {
+    return false;
+  }
+  if (!core.isVisible(node)) {
+    return false;
+  }
+  if (isWithinImmutableDefaultNode(node)) {
+    return false;
+  }
+  return !isWithinNodeSet(node, excludedNodes) || isWithinNodeSet(node, includedNodes);
+}
+
+function getNodeDepth(node) {
+  let depth = 0;
+  let current = node;
+  while (current && current.parentElement) {
+    depth += 1;
+    current = current.parentElement;
+  }
+  return depth;
+}
+
+function isCoveredBySelected(node, boundary, selectedNodes) {
+  let current = node;
+  while (current && current !== boundary) {
+    if (selectedNodes.has(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function canPromoteToParent(parent, selectedNodes, excludedNodes, includedNodes) {
+  if (!isInclusionEligibleNode(parent, excludedNodes, includedNodes)) {
+    return false;
+  }
+  let hasSelectedDescendant = false;
+  const stack = Array.from(parent.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node) || !core.isVisible(node)) {
+      continue;
+    }
+    if (matchesImmutableDefaultSelector(node) || isSelectorExcludedNode(node, excludedNodes, includedNodes)) {
+      return false;
+    }
+    if (selectedNodes.has(node)) {
+      hasSelectedDescendant = true;
+    }
+    if (hasDirectRenderableText(node) && !isCoveredBySelected(node, parent, selectedNodes)) {
+      return false;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return hasSelectedDescendant;
+}
+
+function collapseToShallowest(nodes) {
+  const sorted = Array.from(nodes || []).sort((left, right) => {
+    const depthDiff = getNodeDepth(left) - getNodeDepth(right);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return 0;
+  });
+  const kept = [];
+  sorted.forEach((node) => {
+    if (!node || node.nodeType !== 1) {
+      return;
+    }
+    const hasAncestor = kept.some((ancestor) => ancestor.contains(node));
+    if (!hasAncestor) {
+      kept.push(node);
+    }
+  });
+  return kept;
+}
+
+function collectExcludedChildrenInsideIncludedParents(includedParents, excludedNodes, includedNodes) {
+  const marked = [];
+  const seen = new Set();
+  includedParents.forEach((parent) => {
+    if (!parent || parent.nodeType !== 1) {
+      return;
+    }
+    const stack = Array.from(parent.children || []);
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || node.nodeType !== 1) {
+        continue;
+      }
+      if (isExtensionUiNode(node) || !core.isVisible(node)) {
+        continue;
+      }
+      const excludedNature = matchesImmutableDefaultSelector(node) ||
+        isSelectorExcludedNode(node, excludedNodes, includedNodes);
+      if (excludedNature) {
+        if (!seen.has(node)) {
+          seen.add(node);
+          marked.push(node);
+        }
+        continue;
+      }
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        stack.push(node.children[i]);
+      }
+    }
+  });
+  return marked;
+}
+
 function collectIncludedNodesFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
-  const excluded = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
-  const candidates = [];
+  const excludedNodes = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
+  const includedNodes = collectExcludedNodesFromSelectors(normalized.inclusionSelectors);
+  const baseSelected = new Set();
   const stack = [document.body];
 
   while (stack.length) {
@@ -561,55 +727,46 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (isExtensionUiNode(node)) {
+    if (!isInclusionEligibleNode(node, excludedNodes, includedNodes)) {
       continue;
     }
-    if (!core.isVisible(node)) {
-      continue;
-    }
-    if (isWithinImmutableDefaultNode(node)) {
-      continue;
-    }
-    if (isWithinExcludedNode(node, excluded)) {
-      continue;
-    }
-    if (hasRenderableText(node)) {
-      candidates.push(node);
+    if (hasDirectRenderableText(node)) {
+      baseSelected.add(node);
+    } else if (includedNodes.has(node) && hasRenderableText(node)) {
+      baseSelected.add(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
   }
 
-  normalized.inclusionSelectors.forEach((selector) => {
-    if (typeof selector !== "string" || !selector) {
-      return;
-    }
-    try {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (!node || node.nodeType !== 1) {
-          return;
+  const selectedNodes = new Set(baseSelected);
+  const sortedByDepthDesc = Array.from(baseSelected).sort(
+    (left, right) => getNodeDepth(right) - getNodeDepth(left)
+  );
+  sortedByDepthDesc.forEach((node) => {
+    let current = node && node.parentElement;
+    while (current && current.nodeType === 1) {
+      if (!canPromoteToParent(current, selectedNodes, excludedNodes, includedNodes)) {
+        break;
+      }
+      for (const existing of Array.from(selectedNodes)) {
+        if (existing !== current && current.contains(existing)) {
+          selectedNodes.delete(existing);
         }
-        if (isExtensionUiNode(node)) {
-          return;
-        }
-        if (!core.isVisible(node)) {
-          return;
-        }
-        if (isWithinImmutableDefaultNode(node)) {
-          return;
-        }
-        if (!hasRenderableText(node)) {
-          return;
-        }
-        candidates.push(node);
-      });
-    } catch {
-      // Ignore invalid selectors
+      }
+      selectedNodes.add(current);
+      current = current.parentElement;
     }
   });
 
-  return core.collapseElementsByNesting(candidates, { onlyVisible: true });
+  const included = collapseToShallowest(selectedNodes);
+  const excluded = collectExcludedChildrenInsideIncludedParents(
+    included,
+    excludedNodes,
+    includedNodes
+  );
+  return { included, excluded };
 }
 
 function refreshEnabledAiHighlights() {
@@ -695,7 +852,9 @@ async function refreshSilentHighlightings() {
     }
   });
   anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
-  const contentNodes = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
+  const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
+  const contentNodes = contentMarking.included;
+  const excludedChildNodes = contentMarking.excluded;
   contentNodes.forEach((node) => {
     node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
     const computed = window.getComputedStyle(node);
@@ -703,7 +862,12 @@ async function refreshSilentHighlightings() {
     const positionValue = position && position !== "static" ? "existing" : "relative";
     node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
   });
-  setSilentHighlightingsActive(anchors.length > 0 || contentNodes.length > 0);
+  excludedChildNodes.forEach((node) => {
+    node.setAttribute(SILENT_CONTENT_EXCLUDED_ATTR, "on");
+  });
+  setSilentHighlightingsActive(
+    anchors.length > 0 || contentNodes.length > 0 || excludedChildNodes.length > 0
+  );
   startSilentHighlightingObserver();
 }
 
