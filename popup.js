@@ -10,7 +10,7 @@ import * as stateModule from "./popup/state.js";
 import * as aiSelectorModifiers from "./common/ai-selector-modifiers.js";
 
 const { state } = stateModule;
-const TOKEN_VALIDATION_INTERVAL_MS = 60 * 1000;
+const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isValidEmail(value) {
