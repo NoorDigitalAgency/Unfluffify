@@ -542,16 +542,35 @@ function isWithinNodeSet(node, nodes) {
   return false;
 }
 
-function isSelectorExcludedNode(node, excludedNodes, includedNodes) {
+function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
-function isExcludedNatureNode(node, excludedNodes, includedNodes) {
-  return matchesImmutableDefaultSelector(node) ||
-    isSelectorExcludedNode(node, excludedNodes, includedNodes);
+function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
+  if (!isRawSelectorExcludedNode(node, excludedNodes, includedNodes)) {
+    return false;
+  }
+  return !(inclusionContextSet && inclusionContextSet.has(node));
 }
 
-function isInclusionEligibleNode(node, excludedNodes, includedNodes) {
+function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
+  return matchesImmutableDefaultSelector(node) ||
+    isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet);
+}
+
+function buildInclusionContextSet(includedNodes) {
+  const context = new Set();
+  for (const node of includedNodes || []) {
+    let current = node;
+    while (current && current.nodeType === 1) {
+      context.add(current);
+      current = current.parentElement;
+    }
+  }
+  return context;
+}
+
+function isInclusionEligibleNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   if (!node || node.nodeType !== 1) {
     return false;
   }
@@ -564,10 +583,17 @@ function isInclusionEligibleNode(node, excludedNodes, includedNodes) {
   if (isWithinImmutableDefaultNode(node)) {
     return false;
   }
-  return !isWithinNodeSet(node, excludedNodes) || isWithinNodeSet(node, includedNodes);
+  return !isWithinNodeSet(node, excludedNodes) ||
+    isWithinNodeSet(node, includedNodes) ||
+    Boolean(inclusionContextSet && inclusionContextSet.has(node));
 }
 
-function hasRenderableTextOutsideExcludedNature(node, excludedNodes, includedNodes) {
+function hasRenderableTextOutsideExcludedNature(
+  node,
+  excludedNodes,
+  includedNodes,
+  inclusionContextSet
+) {
   if (!node || node.nodeType !== 1) {
     return false;
   }
@@ -580,7 +606,15 @@ function hasRenderableTextOutsideExcludedNature(node, excludedNodes, includedNod
     if (isExtensionUiNode(current) || !core.isVisible(current)) {
       continue;
     }
-    if (current !== node && isExcludedNatureNode(current, excludedNodes, includedNodes)) {
+    if (
+      current !== node &&
+      isExcludedNatureNode(
+        current,
+        excludedNodes,
+        includedNodes,
+        inclusionContextSet
+      )
+    ) {
       continue;
     }
     if (hasDirectRenderableText(current)) {
@@ -614,8 +648,14 @@ function isCoveredBySelected(node, boundary, selectedNodes) {
   return false;
 }
 
-function canPromoteToParent(parent, selectedNodes, excludedNodes, includedNodes) {
-  if (!isInclusionEligibleNode(parent, excludedNodes, includedNodes)) {
+function canPromoteToParent(
+  parent,
+  selectedNodes,
+  excludedNodes,
+  includedNodes,
+  inclusionContextSet
+) {
+  if (!isInclusionEligibleNode(parent, excludedNodes, includedNodes, inclusionContextSet)) {
     return false;
   }
   let hasSelectedDescendant = false;
@@ -628,7 +668,7 @@ function canPromoteToParent(parent, selectedNodes, excludedNodes, includedNodes)
     if (isExtensionUiNode(node) || !core.isVisible(node)) {
       continue;
     }
-    if (isExcludedNatureNode(node, excludedNodes, includedNodes)) {
+    if (isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet)) {
       return false;
     }
     if (selectedNodes.has(node)) {
@@ -665,7 +705,12 @@ function collapseToShallowest(nodes) {
   return kept;
 }
 
-function collectExcludedChildrenInsideIncludedParents(includedParents, excludedNodes, includedNodes) {
+function collectExcludedChildrenInsideIncludedParents(
+  includedParents,
+  excludedNodes,
+  includedNodes,
+  inclusionContextSet
+) {
   const marked = [];
   const seen = new Set();
   includedParents.forEach((parent) => {
@@ -681,7 +726,12 @@ function collectExcludedChildrenInsideIncludedParents(includedParents, excludedN
       if (isExtensionUiNode(node) || !core.isVisible(node)) {
         continue;
       }
-      const excludedNature = isExcludedNatureNode(node, excludedNodes, includedNodes);
+      const excludedNature = isExcludedNatureNode(
+        node,
+        excludedNodes,
+        includedNodes,
+        inclusionContextSet
+      );
       if (excludedNature) {
         if (!seen.has(node)) {
           seen.add(node);
@@ -701,6 +751,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedNodes = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
   const includedNodes = collectExcludedNodesFromSelectors(normalized.inclusionSelectors);
+  const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const baseSelected = new Set();
   const stack = [document.body];
 
@@ -709,14 +760,24 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (!isInclusionEligibleNode(node, excludedNodes, includedNodes)) {
+    if (!isInclusionEligibleNode(node, excludedNodes, includedNodes, inclusionContextSet)) {
       continue;
     }
-    if (hasDirectRenderableText(node)) {
+    const rawSelectorExcluded = isRawSelectorExcludedNode(
+      node,
+      excludedNodes,
+      includedNodes
+    );
+    if (hasDirectRenderableText(node) && !rawSelectorExcluded) {
       baseSelected.add(node);
     } else if (
       includedNodes.has(node) &&
-      hasRenderableTextOutsideExcludedNature(node, excludedNodes, includedNodes)
+      hasRenderableTextOutsideExcludedNature(
+        node,
+        excludedNodes,
+        includedNodes,
+        inclusionContextSet
+      )
     ) {
       baseSelected.add(node);
     }
@@ -732,7 +793,15 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   sortedByDepthDesc.forEach((node) => {
     let current = node && node.parentElement;
     while (current && current.nodeType === 1) {
-      if (!canPromoteToParent(current, selectedNodes, excludedNodes, includedNodes)) {
+      if (
+        !canPromoteToParent(
+          current,
+          selectedNodes,
+          excludedNodes,
+          includedNodes,
+          inclusionContextSet
+        )
+      ) {
         break;
       }
       for (const existing of Array.from(selectedNodes)) {
@@ -749,7 +818,8 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   const excluded = collectExcludedChildrenInsideIncludedParents(
     included,
     excludedNodes,
-    includedNodes
+    includedNodes,
+    inclusionContextSet
   );
   return { included, excluded };
 }
