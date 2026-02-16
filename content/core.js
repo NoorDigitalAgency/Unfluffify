@@ -1008,7 +1008,15 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
       excludedElements,
       includedElements
     );
-    if (hasDirectText(el) && !rawSelectorExcluded) {
+    const isAutoIncludedHeading =
+      isHeadingElementTag(el) &&
+      hasRenderableTextOutsideExcludedNature(
+        el,
+        excludedElements,
+        includedElements,
+        inclusionContextSet
+      );
+    if ((hasDirectText(el) || isAutoIncludedHeading) && !rawSelectorExcluded) {
       baseSelected.add(el);
     } else if (
       includedElements.has(el) &&

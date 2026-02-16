@@ -501,6 +501,10 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
+function isHeadingNodeTag(node) {
+  return Boolean(node && node.nodeType === 1 && /^H[1-6]$/i.test(node.tagName));
+}
+
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -789,7 +793,15 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
       excludedNodes,
       includedNodes
     );
-    if (hasDirectRenderableText(node) && !rawSelectorExcluded) {
+    const isAutoIncludedHeading =
+      isHeadingNodeTag(node) &&
+      hasRenderableTextOutsideExcludedNature(
+        node,
+        excludedNodes,
+        includedNodes,
+        inclusionContextSet
+      );
+    if ((hasDirectRenderableText(node) || isAutoIncludedHeading) && !rawSelectorExcluded) {
       baseSelected.add(node);
     } else if (
       includedNodes.has(node) &&
