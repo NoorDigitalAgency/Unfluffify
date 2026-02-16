@@ -3435,10 +3435,19 @@ export function handleScroll() {
 }
 
 export function collectPreviewItems(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
+  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const inclusionContextSet = buildInclusionContextSet(includedElements);
   const { included: elements } = collectIncludedElementsFromSelectorSet(selectorSet);
   const rows = [];
   for (const el of elements) {
-    const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    const text = getPreviewTextForIncludedElement(
+      el,
+      excludedElements,
+      includedElements,
+      inclusionContextSet
+    );
     if (!text) {
       continue;
     }
@@ -3456,6 +3465,67 @@ export function collectPreviewItems(selectorSet) {
     return a.top - b.top;
   });
   return rows.map((row) => row.text);
+}
+
+function getPreviewTextForIncludedElement(
+  root,
+  excludedElements,
+  includedElements,
+  inclusionContextSet
+) {
+  if (!root || root.nodeType !== 1) {
+    return "";
+  }
+  const chunks = [];
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) {
+        chunks.push(text);
+      }
+      continue;
+    }
+    if (node.nodeType !== 1) {
+      continue;
+    }
+
+    const el = node;
+    if (el !== root) {
+      if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+        continue;
+      }
+      if (!isVisible(el)) {
+        continue;
+      }
+      if (
+        isExcludedNatureElement(
+          el,
+          excludedElements,
+          includedElements,
+          inclusionContextSet
+        )
+      ) {
+        continue;
+      }
+    }
+
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
+      continue;
+    }
+    if (el.tagName === "BR" || el.tagName === "WBR") {
+      chunks.push(" ");
+      continue;
+    }
+    for (let i = el.childNodes.length - 1; i >= 0; i -= 1) {
+      stack.push(el.childNodes[i]);
+    }
+  }
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
 }
 
 export function collectDefaultTagExclusionStatus(config, entryOverride) {
