@@ -422,19 +422,6 @@ async function syncSilentHighlightVisibilityFromTabState() {
   applyVisibleConsentVisibility(silentHighlightVisibility);
 }
 
-function normalizeUrlForLinkHighlight(url, baseUrl) {
-  if (typeof url !== "string" || !url) {
-    return "";
-  }
-  try {
-    const resolved = new URL(url, baseUrl || location.href);
-    resolved.hash = "";
-    return resolved.href;
-  } catch {
-    return "";
-  }
-}
-
 function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -664,7 +651,17 @@ function canPromoteToParent(
     return false;
   }
   if (!hasDirectRenderableText(parent)) {
-    return false;
+    if (
+      !isHeadingNodeTag(parent) ||
+      !hasRenderableTextOutsideExcludedNature(
+        parent,
+        excludedNodes,
+        includedNodes,
+        inclusionContextSet
+      )
+    ) {
+      return false;
+    }
   }
   let hasSelectedDescendant = false;
   const stack = Array.from(parent.children || []);
@@ -904,9 +901,7 @@ async function refreshSilentHighlightings() {
   applyVisibleConsentVisibility(visibility);
   const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
   const savedUrls = new Set(
-    Object.keys(pageMarkings)
-      .map((url) => normalizeUrlForLinkHighlight(url, pageUrl))
-      .filter(Boolean)
+    Object.keys(pageMarkings).filter((url) => typeof url === "string" && url)
   );
   const storedEntry = pageMarkings[pageUrl] || null;
   const storedConsentXpaths =
@@ -939,7 +934,7 @@ async function refreshSilentHighlightings() {
       }
       let resolved = "";
       try {
-        resolved = normalizeUrlForLinkHighlight(href, pageUrl);
+        resolved = new URL(href, pageUrl).href;
       } catch (error) {
         return;
       }

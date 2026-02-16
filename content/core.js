@@ -879,7 +879,17 @@ function canPromoteIncludedParent(
     return false;
   }
   if (!hasDirectText(parent)) {
-    return false;
+    if (
+      !isHeadingElementTag(parent) ||
+      !hasRenderableTextOutsideExcludedNature(
+        parent,
+        excludedElements,
+        includedElements,
+        inclusionContextSet
+      )
+    ) {
+      return false;
+    }
   }
   let hasSelectedDescendant = false;
   const stack = Array.from(parent.children || []);
