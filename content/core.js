@@ -3499,6 +3499,10 @@ function getPreviewTextForIncludedElement(
     }
 
     const el = node;
+    if (el.tagName === "BR" || el.tagName === "WBR") {
+      chunks.push("\n");
+      continue;
+    }
     if (el !== root) {
       if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
         continue;
@@ -3519,10 +3523,6 @@ function getPreviewTextForIncludedElement(
     }
 
     if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
-      continue;
-    }
-    if (el.tagName === "BR" || el.tagName === "WBR") {
-      chunks.push("\n");
       continue;
     }
     for (let i = el.childNodes.length - 1; i >= 0; i -= 1) {
