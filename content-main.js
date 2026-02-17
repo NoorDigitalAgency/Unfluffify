@@ -174,21 +174,37 @@ async function toggleEnabledFromPage() {
 }
 
 function ensureSilentHighlightingStyles() {
-  if (document.getElementById("unfluffify-silent-highlightings-style")) {
-    return;
-  }
-  const style = document.createElement("style");
-  style.id = "unfluffify-silent-highlightings-style";
-  style.textContent = `
-      a[${SILENT_LINK_HIGHLIGHTING_ATTR}] {
-        outline: 1px dashed #56acce !important;
-        outline-offset: -1px !important;
-        box-shadow: inset 0 0 0 1px rgba(86, 172, 206, 0.65) !important;
+  let style = document.getElementById("unfluffify-silent-highlightings-style");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "unfluffify-silent-highlightings-style";
+    style.setAttribute("data-uf-extension-ui", "true");
+    style.textContent = `
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_LINK_HIGHLIGHTING_ATTR}] {
+        position: relative !important;
+        outline: 2px dashed #56acce !important;
+        outline-offset: -2px !important;
       }
-      [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"] {
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_LINK_HIGHLIGHTING_ATTR}]::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        border: 2px dashed #56acce !important;
+        pointer-events: none !important;
+        z-index: 2 !important;
+        box-sizing: border-box !important;
+      }
+      html body [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"][${SILENT_CONTENT_HIGHLIGHTING_ATTR}] {
         position: relative !important;
       }
-      [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::after {
+      html body [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}] {
+        outline: 2px dashed #44b532 !important;
+        outline-offset: -2px !important;
+      }
+      html body [${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}]::after {
         content: "" !important;
         position: absolute !important;
         outline: 2px dashed #44b532 !important;
@@ -200,15 +216,29 @@ function ensureSilentHighlightingStyles() {
         height: 100% !important;
         z-index: 1 !important;
       }
-      [${SILENT_CONTENT_EXCLUDED_ATTR}] {
+      html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_EXCLUDED_ATTR}] {
+        position: relative !important;
         outline: 2px dashed #b03b3b !important;
         outline-offset: -2px !important;
         background: rgba(176, 59, 59, 0.08) !important;
       }
-      a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}] {
+      html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_EXCLUDED_ATTR}]::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        border: 2px dashed #b03b3b !important;
+        pointer-events: none !important;
+        z-index: 2 !important;
+        box-sizing: border-box !important;
+      }
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::before {
+        content: none !important;
+      }
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}] {
         outline: none !important;
-        box-shadow: none !important;
-        background: #56acce7f !important;
       }
       html [${core.CONSENT_HIDDEN_ATTR}] {
         opacity: 0 !important;
@@ -221,7 +251,14 @@ function ensureSilentHighlightingStyles() {
         pointer-events: auto !important;
       }
     `;
-  (document.head || document.documentElement).appendChild(style);
+  }
+  const host = document.documentElement || document.body || document.head;
+  if (!host) {
+    return;
+  }
+  if (style.parentNode !== host || host.lastElementChild !== style) {
+    host.appendChild(style);
+  }
 }
 
 function setSilentHighlightingsActive(active) {
@@ -516,15 +553,22 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
-function isHeadingNodeTag(node) {
-  return Boolean(node && node.nodeType === 1 && /^H[1-6]$/i.test(node.tagName));
-}
-
 function getNormalizedNodeText(node) {
   if (!node || node.nodeType !== 1) {
     return "";
   }
   return (node.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function canUseCollapsedTextFallbackNode(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (!getNormalizedNodeText(node)) {
+    return false;
+  }
+  const rect = node.getBoundingClientRect();
+  return rect.width === 0 || rect.height === 0;
 }
 
 function matchesImmutableDefaultSelector(node) {
@@ -604,10 +648,7 @@ function isInclusionEligibleNode(node, excludedNodes, includedNodes, inclusionCo
   if (isExtensionUiNode(node)) {
     return false;
   }
-  if (
-    !core.isVisible(node) &&
-    (!isHeadingNodeTag(node) || !getNormalizedNodeText(node))
-  ) {
+  if (!core.isVisible(node) && !canUseCollapsedTextFallbackNode(node)) {
     return false;
   }
   if (isWithinImmutableDefaultNode(node)) {
@@ -633,7 +674,10 @@ function hasRenderableTextOutsideExcludedNature(
     if (!current || current.nodeType !== 1) {
       continue;
     }
-    if (isExtensionUiNode(current) || !core.isVisible(current)) {
+    if (isExtensionUiNode(current)) {
+      continue;
+    }
+    if (current !== node && !core.isVisible(current)) {
       continue;
     }
     if (
@@ -690,7 +734,7 @@ function canPromoteToParent(
   }
   if (!hasDirectRenderableText(parent)) {
     if (
-      !isHeadingNodeTag(parent) ||
+      !canUseCollapsedTextFallbackNode(parent) ||
       !(
         getNormalizedNodeText(parent) ||
         hasRenderableTextOutsideExcludedNature(
@@ -831,8 +875,8 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
       excludedNodes,
       includedNodes
     );
-    const isAutoIncludedHeading =
-      isHeadingNodeTag(node) &&
+    const isAutoIncludedCollapsedText =
+      canUseCollapsedTextFallbackNode(node) &&
       (
         getNormalizedNodeText(node) ||
         hasRenderableTextOutsideExcludedNature(
@@ -842,7 +886,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
           inclusionContextSet
         )
       );
-    if ((hasDirectRenderableText(node) || isAutoIncludedHeading) && !rawSelectorExcluded) {
+    if ((hasDirectRenderableText(node) || isAutoIncludedCollapsedText) && !rawSelectorExcluded) {
       baseSelected.add(node);
     } else if (
       includedNodes.has(node) &&
@@ -937,6 +981,57 @@ function buildSilentHighlightingRenderKey(visibility, anchors, contentNodes, exc
     contentIds.join(","),
     excludedIds.join(",")
   ].join("|");
+}
+
+function hasRenderableClientBox(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  const rect = node.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function resolveSilentHighlightRenderTarget(node) {
+  if (!node || node.nodeType !== 1) {
+    return null;
+  }
+  if (hasRenderableClientBox(node)) {
+    return node;
+  }
+  const stack = Array.from(node.children || []);
+  let inspected = 0;
+  const MAX_INSPECTED = 200;
+  while (stack.length && inspected < MAX_INSPECTED) {
+    const current = stack.shift();
+    inspected += 1;
+    if (!current || current.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(current) || !core.isVisible(current)) {
+      continue;
+    }
+    if (hasRenderableClientBox(current)) {
+      return current;
+    }
+    for (let i = 0; i < current.children.length; i += 1) {
+      stack.push(current.children[i]);
+    }
+  }
+  return null;
+}
+
+function toRenderableNodeList(nodes) {
+  const results = [];
+  const seen = new Set();
+  for (const node of nodes || []) {
+    const target = resolveSilentHighlightRenderTarget(node);
+    if (!target || seen.has(target)) {
+      continue;
+    }
+    seen.add(target);
+    results.push(target);
+  }
+  return results;
 }
 
 function refreshEnabledAiHighlights() {
@@ -1044,10 +1139,10 @@ async function refreshSilentHighlightings() {
   if ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) {
     const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
     if (visibility.includedContent) {
-      contentNodes = contentMarking.included;
+      contentNodes = toRenderableNodeList(contentMarking.included);
     }
     if (visibility.excludedContent) {
-      excludedNodes = contentMarking.excluded;
+      excludedNodes = toRenderableNodeList(contentMarking.excluded);
     }
   }
   const shouldBeActive =

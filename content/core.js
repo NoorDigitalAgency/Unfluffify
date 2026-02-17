@@ -182,6 +182,17 @@ function getNormalizedElementText(el) {
   return (el.textContent || "").replace(/\s+/g, " ").trim();
 }
 
+function canUseCollapsedTextFallbackElement(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (!getNormalizedElementText(el)) {
+    return false;
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width === 0 || rect.height === 0;
+}
+
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -804,10 +815,7 @@ function isInclusionEligibleElement(
   if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
     return false;
   }
-  if (
-    !isVisible(el) &&
-    (!isHeadingElementTag(el) || !getNormalizedElementText(el))
-  ) {
+  if (!isVisible(el) && !canUseCollapsedTextFallbackElement(el)) {
     return false;
   }
   if (isWithinImmutableExcluded(el)) {
@@ -836,7 +844,7 @@ function hasRenderableTextOutsideExcludedNature(
     if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
       continue;
     }
-    if (!isVisible(node)) {
+    if (node !== el && !isVisible(node)) {
       continue;
     }
     if (
@@ -890,7 +898,7 @@ function canPromoteIncludedParent(
   }
   if (!hasDirectText(parent)) {
     if (
-      !isHeadingElementTag(parent) ||
+      !canUseCollapsedTextFallbackElement(parent) ||
       !(
         getNormalizedElementText(parent) ||
         hasRenderableTextOutsideExcludedNature(
@@ -1031,8 +1039,8 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
       excludedElements,
       includedElements
     );
-    const isAutoIncludedHeading =
-      isHeadingElementTag(el) &&
+    const isAutoIncludedCollapsedText =
+      canUseCollapsedTextFallbackElement(el) &&
       (
         getNormalizedElementText(el) ||
         hasRenderableTextOutsideExcludedNature(
@@ -1042,7 +1050,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
           inclusionContextSet
         )
       );
-    if ((hasDirectText(el) || isAutoIncludedHeading) && !rawSelectorExcluded) {
+    if ((hasDirectText(el) || isAutoIncludedCollapsedText) && !rawSelectorExcluded) {
       baseSelected.add(el);
     } else if (
       includedElements.has(el) &&
@@ -2493,11 +2501,7 @@ function drawMultiRectReuse(layerState, rects, className, el, kind, markedSet) {
   }
 }
 
-function getVisibleRects(el) {
-  if (!isVisible(el)) {
-    return [];
-  }
-  const clientRects = el.getClientRects();
+function collectRectsFromClientRects(clientRects) {
   const visibleRects = [];
   for (let i = 0; i < clientRects.length; i++) {
     const rect = clientRects[i];
@@ -2522,6 +2526,48 @@ function getVisibleRects(el) {
     });
   }
   return visibleRects;
+}
+
+function getCollapsedTextualFallbackRects(el) {
+  if (!getNormalizedElementText(el)) {
+    return [];
+  }
+  const stack = Array.from(el.children || []);
+  let inspected = 0;
+  const MAX_INSPECTED = 200;
+  while (stack.length && inspected < MAX_INSPECTED) {
+    const node = stack.shift();
+    inspected += 1;
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (!isVisible(node)) {
+      continue;
+    }
+    const rects = collectRectsFromClientRects(node.getClientRects());
+    if (rects.length > 0) {
+      return rects;
+    }
+    for (let i = 0; i < node.children.length; i += 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return [];
+}
+
+function getVisibleRects(el) {
+  const allowCollapsedTextFallback = Boolean(getNormalizedElementText(el));
+  if (!isVisible(el) && !allowCollapsedTextFallback) {
+    return [];
+  }
+  const visibleRects = collectRectsFromClientRects(el.getClientRects());
+  if (visibleRects.length > 0) {
+    return visibleRects;
+  }
+  if (allowCollapsedTextFallback) {
+    return getCollapsedTextualFallbackRects(el);
+  }
+  return [];
 }
 
 function invalidateCachedCollections() {
@@ -2627,31 +2673,14 @@ function renderHighlightsInner() {
 }
 
 function getRectsInViewport(el) {
-  const clientRects = el.getClientRects();
-  const visibleRects = [];
-  for (let i = 0; i < clientRects.length; i++) {
-    const rect = clientRects[i];
-    if (rect.width === 0 || rect.height === 0) {
-      continue;
-    }
-    if (
-        rect.bottom < 0 ||
-        rect.top > window.innerHeight ||
-        rect.right < 0 ||
-        rect.left > window.innerWidth
-    ) {
-      continue;
-    }
-    visibleRects.push({
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height,
-      right: rect.right,
-      bottom: rect.bottom
-    });
+  const visibleRects = collectRectsFromClientRects(el.getClientRects());
+  if (visibleRects.length > 0) {
+    return visibleRects;
   }
-  return visibleRects;
+  if (getNormalizedElementText(el)) {
+    return getCollapsedTextualFallbackRects(el);
+  }
+  return [];
 }
 
 function repositionHighlights(collections) {
