@@ -175,6 +175,13 @@ function isHeadingElementTag(el) {
   return Boolean(el && el.nodeType === 1 && /^H[1-6]$/i.test(el.tagName));
 }
 
+function getNormalizedElementText(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  return (el.textContent || "").replace(/\s+/g, " ").trim();
+}
+
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -797,7 +804,10 @@ function isInclusionEligibleElement(
   if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
     return false;
   }
-  if (!isVisible(el)) {
+  if (
+    !isVisible(el) &&
+    (!isHeadingElementTag(el) || !getNormalizedElementText(el))
+  ) {
     return false;
   }
   if (isWithinImmutableExcluded(el)) {
@@ -881,11 +891,14 @@ function canPromoteIncludedParent(
   if (!hasDirectText(parent)) {
     if (
       !isHeadingElementTag(parent) ||
-      !hasRenderableTextOutsideExcludedNature(
-        parent,
-        excludedElements,
-        includedElements,
-        inclusionContextSet
+      !(
+        getNormalizedElementText(parent) ||
+        hasRenderableTextOutsideExcludedNature(
+          parent,
+          excludedElements,
+          includedElements,
+          inclusionContextSet
+        )
       )
     ) {
       return false;
@@ -1020,11 +1033,14 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     );
     const isAutoIncludedHeading =
       isHeadingElementTag(el) &&
-      hasRenderableTextOutsideExcludedNature(
-        el,
-        excludedElements,
-        includedElements,
-        inclusionContextSet
+      (
+        getNormalizedElementText(el) ||
+        hasRenderableTextOutsideExcludedNature(
+          el,
+          excludedElements,
+          includedElements,
+          inclusionContextSet
+        )
       );
     if ((hasDirectText(el) || isAutoIncludedHeading) && !rawSelectorExcluded) {
       baseSelected.add(el);
