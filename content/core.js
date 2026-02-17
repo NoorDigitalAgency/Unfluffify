@@ -2839,16 +2839,22 @@ export function hideConsentElements(storedXpaths = null) {
     if (removedXpaths.length > 0) {
       restorePageScrolling();
     }
-    return;
+    return removedXpaths.length;
   }
   const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR))
       .filter((element) => typeof element.parentElement !== "undefined");
 
-  elements.forEach(element => hideConsentElement(element));
+  let hiddenCount = 0;
+  elements.forEach((element) => {
+    if (hideConsentElement(element)) {
+      hiddenCount += 1;
+    }
+  });
 
-  if (elements.length > 0) {
+  if (hiddenCount > 0) {
     restorePageScrolling();
   }
+  return hiddenCount;
 }
 
 function removeConsentElements(storedXpaths) {

@@ -1091,6 +1091,7 @@ async function refreshSilentHighlightings() {
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
   const visibility = normalizeSilentHighlightVisibility(silentHighlightVisibility);
   applyVisibleConsentVisibility(visibility);
+  ensureSilentHighlightingStyles();
   const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
   const savedUrls = new Set();
   const savedLooseUrls = new Set();
@@ -1109,18 +1110,20 @@ async function refreshSilentHighlightings() {
     storedEntry && Array.isArray(storedEntry.consentXpaths)
       ? storedEntry.consentXpaths
       : null;
+  const newlyHiddenConsentCount = core.hideConsentElements(storedConsentXpaths);
+  const hasHiddenConsent =
+    newlyHiddenConsentCount > 0 ||
+    Boolean(document.querySelector(`[${core.CONSENT_HIDDEN_ATTR}]`));
   const shouldObserve =
     (visibility.markedPages && savedUrls.size > 0) ||
     ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) ||
-    (storedConsentXpaths && storedConsentXpaths.length > 0);
+    hasHiddenConsent;
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
-  ensureSilentHighlightingStyles();
-  core.hideConsentElements(storedConsentXpaths);
   const anchors = [];
   if (visibility.markedPages && savedUrls.size > 0) {
     const anchorNodes = document.querySelectorAll("a[href]");
