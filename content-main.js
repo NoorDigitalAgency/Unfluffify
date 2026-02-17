@@ -27,7 +27,7 @@ const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
-const SILENT_HIGHLIGHT_LAYER_KEYS = ["content", "links", "excluded"];
+const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
@@ -308,8 +308,9 @@ function ensureSilentHighlightOverlay() {
       layer = document.createElement("div");
       layer.className = "uf-silent-layer";
       layer.dataset.layer = key;
-      overlay.appendChild(layer);
     }
+    // Enforce stacking order: later siblings render above earlier ones.
+    overlay.appendChild(layer);
     silentHighlightLayers[key] = layer;
     if (!silentHighlightLayerBoxes[key]) {
       silentHighlightLayerBoxes[key] = new Map();
