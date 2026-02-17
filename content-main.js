@@ -253,12 +253,10 @@ function ensureSilentHighlightingStyles() {
         background: rgba(176, 59, 59, 0.08);
       }
       html [${core.CONSENT_HIDDEN_ATTR}] {
-        opacity: 0 !important;
         pointer-events: none !important;
         visibility: hidden !important;
       }
       html.uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
-        opacity: 1 !important;
         visibility: visible !important;
         pointer-events: auto !important;
       }
