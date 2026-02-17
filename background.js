@@ -1,37 +1,7 @@
 import * as utils from "./common/utilities.js";
 import {getDeviceEmulationState, updateDeviceEmulation} from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
-
-const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = {
-  markedPages: true,
-  includedContent: true,
-  excludedContent: false,
-  visibleConsent: false
-};
-
-function normalizeSilentHighlightOptions(value) {
-  if (!value || typeof value !== "object") {
-    return { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
-  }
-  return {
-    markedPages:
-      typeof value.markedPages === "boolean"
-        ? value.markedPages
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.markedPages,
-    includedContent:
-      typeof value.includedContent === "boolean"
-        ? value.includedContent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.includedContent,
-    excludedContent:
-      typeof value.excludedContent === "boolean"
-        ? value.excludedContent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.excludedContent,
-    visibleConsent:
-      typeof value.visibleConsent === "boolean"
-        ? value.visibleConsent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.visibleConsent
-  };
-}
+import { normalizeSilentHighlightOptions } from "./common/silent-highlight-options.js";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {

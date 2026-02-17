@@ -1,37 +1,10 @@
-export function normalizeSelectorList(selectors) {
-  const values = [];
-  const seen = new Set();
-  for (const selector of Array.isArray(selectors) ? selectors : []) {
-    if (typeof selector !== "string") {
-      continue;
-    }
-    const trimmed = selector.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    values.push(trimmed);
-  }
-  return values;
-}
+import {
+  normalizeSelectorList,
+  normalizeAiSelectorSet,
+  combineAiSelectorSet
+} from "../common/selector-set.js";
 
-export function normalizeAiSelectorSet(value) {
-  if (!value || typeof value !== "object") {
-    return { exclusionSelectors: [], inclusionSelectors: [] };
-  }
-  return {
-    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
-    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
-  };
-}
-
-export function combineAiSelectorSet(selectorSet) {
-  if (!selectorSet || typeof selectorSet !== "object") {
-    return [];
-  }
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
-}
+export { normalizeSelectorList, normalizeAiSelectorSet, combineAiSelectorSet };
 
 export function isWithinAncestorSet(node, nodes) {
   if (!node || !nodes || nodes.size === 0) {

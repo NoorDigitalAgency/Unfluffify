@@ -7,17 +7,18 @@ import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
+import {
+  normalizeAiSelectorSet,
+  combineAiSelectorSet,
+  aiSelectorSetsEqual
+} from "./common/selector-set.js";
+import {
+  normalizeSilentHighlightOptions
+} from "./common/silent-highlight-options.js";
 
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = {
-  markedPages: true,
-  includedContent: true,
-  excludedContent: false,
-  visibleConsent: false
-};
-
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
@@ -144,80 +145,6 @@ function getEditableFieldState(options) {
   }
 
   return { isEditing, isReady: isSet && !editMode, value: nextValue, noticeText, noticeVisible };
-}
-
-function normalizeSelectorList(selectors) {
-  const values = [];
-  const seen = new Set();
-  for (const selector of Array.isArray(selectors) ? selectors : []) {
-    if (typeof selector !== "string") {
-      continue;
-    }
-    const trimmed = selector.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    values.push(trimmed);
-  }
-  return values;
-}
-
-function normalizeSilentHighlightOptions(value) {
-  if (!value || typeof value !== "object") {
-    return { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
-  }
-  return {
-    markedPages:
-      typeof value.markedPages === "boolean"
-        ? value.markedPages
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.markedPages,
-    includedContent:
-      typeof value.includedContent === "boolean"
-        ? value.includedContent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.includedContent,
-    excludedContent:
-      typeof value.excludedContent === "boolean"
-        ? value.excludedContent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.excludedContent,
-    visibleConsent:
-      typeof value.visibleConsent === "boolean"
-        ? value.visibleConsent
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.visibleConsent
-  };
-}
-
-function normalizeAiSelectorSet(value) {
-  if (!value || typeof value !== "object") {
-    return {
-      exclusionSelectors: [],
-      inclusionSelectors: []
-    };
-  }
-  return {
-    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
-    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
-  };
-}
-
-function combineAiSelectorSet(selectorSet) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
-}
-
-function aiSelectorSetsEqual(left, right) {
-  const normalizedLeft = normalizeAiSelectorSet(left);
-  const normalizedRight = normalizeAiSelectorSet(right);
-  return (
-    utils.arraysEqual(
-      normalizedLeft.exclusionSelectors,
-      normalizedRight.exclusionSelectors
-    ) &&
-    utils.arraysEqual(
-      normalizedLeft.inclusionSelectors,
-      normalizedRight.inclusionSelectors
-    )
-  );
 }
 
 function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig) {
@@ -917,49 +844,54 @@ function handleLoginPasswordInput(event) {
   updateLoginActionState({ loginPasswordValue: event.target.value });
 }
 
-function handleBaseUrlKeyDown(event) {
+function handleEnterKeyDown(event, shouldHandle, handler) {
   if (event.key !== "Enter") {
     return;
   }
-  if (!uiModule.getViewState().baseUrlInputReadOnly) {
-    handleBaseUrlSet();
+  if (!shouldHandle()) {
+    return;
   }
+  handler();
+}
+
+function handleBaseUrlKeyDown(event) {
+  handleEnterKeyDown(
+    event,
+    () => !uiModule.getViewState().baseUrlInputReadOnly,
+    handleBaseUrlSet
+  );
 }
 
 function handleConfigEndpointKeyDown(event) {
-  if (event.key !== "Enter") {
-    return;
-  }
-  if (!uiModule.getViewState().configEndpointUrlReadOnly) {
-    handleConfigEndpointSet();
-  }
+  handleEnterKeyDown(
+    event,
+    () => !uiModule.getViewState().configEndpointUrlReadOnly,
+    handleConfigEndpointSet
+  );
 }
 
 function handleEndpointKeyDown(event) {
-  if (event.key !== "Enter") {
-    return;
-  }
-  if (!uiModule.getViewState().endpointUrlReadOnly) {
-    handleEndpointSet();
-  }
+  handleEnterKeyDown(
+    event,
+    () => !uiModule.getViewState().endpointUrlReadOnly,
+    handleEndpointSet
+  );
 }
 
 function handleLoginEndpointKeyDown(event) {
-  if (event.key !== "Enter") {
-    return;
-  }
-  if (!uiModule.getViewState().loginEndpointUrlReadOnly) {
-    handleLoginEndpointSet();
-  }
+  handleEnterKeyDown(
+    event,
+    () => !uiModule.getViewState().loginEndpointUrlReadOnly,
+    handleLoginEndpointSet
+  );
 }
 
 function handleLoginPasswordKeyDown(event) {
-  if (event.key !== "Enter") {
-    return;
-  }
-  if (!uiModule.getViewState().loginActionDisabled) {
-    handleLoginAction();
-  }
+  handleEnterKeyDown(
+    event,
+    () => !uiModule.getViewState().loginActionDisabled,
+    handleLoginAction
+  );
 }
 
 function handleConfigToggle(event) {
@@ -1158,33 +1090,41 @@ async function handleEnableToggle(event) {
 }
 
 async function handleHighlightMarkedPagesChange(event) {
-  const checked = readCheckboxValue(event, state.silentHighlightShowMarkedPages);
-  state.silentHighlightShowMarkedPages = checked;
-  uiModule.setViewState({ highlightMarkedPagesChecked: checked });
-  await persistSilentHighlightVisibility();
-  await applySilentHighlightVisibility({ force: true });
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightShowMarkedPages",
+    "highlightMarkedPagesChecked"
+  );
 }
 
 async function handleHighlightIncludedContentChange(event) {
-  const checked = readCheckboxValue(event, state.silentHighlightShowIncludedContent);
-  state.silentHighlightShowIncludedContent = checked;
-  uiModule.setViewState({ highlightIncludedContentChecked: checked });
-  await persistSilentHighlightVisibility();
-  await applySilentHighlightVisibility({ force: true });
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightShowIncludedContent",
+    "highlightIncludedContentChecked"
+  );
 }
 
 async function handleHighlightExcludedContentChange(event) {
-  const checked = readCheckboxValue(event, state.silentHighlightShowExcludedContent);
-  state.silentHighlightShowExcludedContent = checked;
-  uiModule.setViewState({ highlightExcludedContentChecked: checked });
-  await persistSilentHighlightVisibility();
-  await applySilentHighlightVisibility({ force: true });
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightShowExcludedContent",
+    "highlightExcludedContentChecked"
+  );
 }
 
 async function handleHighlightVisibleConsentChange(event) {
-  const checked = readCheckboxValue(event, state.silentHighlightShowVisibleConsent);
-  state.silentHighlightShowVisibleConsent = checked;
-  uiModule.setViewState({ highlightVisibleConsentChecked: checked });
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightShowVisibleConsent",
+    "highlightVisibleConsentChecked"
+  );
+}
+
+async function updateHighlightVisibilityOption(event, stateKey, viewKey) {
+  const checked = readCheckboxValue(event, state[stateKey]);
+  state[stateKey] = checked;
+  uiModule.setViewState({ [viewKey]: checked });
   await persistSilentHighlightVisibility();
   await applySilentHighlightVisibility({ force: true });
 }

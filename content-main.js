@@ -10,6 +10,10 @@ import {
   getNormalizedTextContent as getNormalizedNodeText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
 } from "./content/shared-inclusion.js";
+import {
+  SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
+  normalizeSilentHighlightOptions
+} from "./common/silent-highlight-options.js";
 
 const { state } = core;
 
@@ -27,13 +31,7 @@ let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
-const SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS = {
-  markedPages: true,
-  includedContent: true,
-  excludedContent: false,
-  visibleConsent: false
-};
-let silentHighlightVisibility = { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
+let silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
@@ -400,32 +398,8 @@ function startSilentHighlightingUrlWatcher() {
   }, 800);
 }
 
-function normalizeSilentHighlightVisibility(value) {
-  if (!value || typeof value !== "object") {
-    return { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
-  }
-  return {
-    markedPages:
-      typeof value.markedPages === "boolean"
-        ? value.markedPages
-        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.markedPages,
-    includedContent:
-      typeof value.includedContent === "boolean"
-        ? value.includedContent
-        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.includedContent,
-    excludedContent:
-      typeof value.excludedContent === "boolean"
-        ? value.excludedContent
-        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.excludedContent,
-    visibleConsent:
-      typeof value.visibleConsent === "boolean"
-        ? value.visibleConsent
-        : SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS.visibleConsent
-  };
-}
-
 function applyVisibleConsentVisibility(visibility) {
-  const normalized = normalizeSilentHighlightVisibility(visibility);
+  const normalized = normalizeSilentHighlightOptions(visibility);
   if (normalized.visibleConsent) {
     document.documentElement.classList.add("uf-visible-consent");
   } else {
@@ -436,11 +410,11 @@ function applyVisibleConsentVisibility(visibility) {
 async function syncSilentHighlightVisibilityFromTabState() {
   try {
     const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
-    silentHighlightVisibility = normalizeSilentHighlightVisibility(
+    silentHighlightVisibility = normalizeSilentHighlightOptions(
       tabState && tabState.silentHighlightOptions
     );
   } catch {
-    silentHighlightVisibility = { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
+    silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
   }
   applyVisibleConsentVisibility(silentHighlightVisibility);
 }
@@ -1021,7 +995,7 @@ async function refreshSilentHighlightings() {
   const pageMarkings = baseConfig.pageMarkings || {};
   const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
-  const visibility = normalizeSilentHighlightVisibility(silentHighlightVisibility);
+  const visibility = normalizeSilentHighlightOptions(silentHighlightVisibility);
   applyVisibleConsentVisibility(visibility);
   ensureSilentHighlightingStyles();
   const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
@@ -1190,7 +1164,7 @@ export function main() {
     }
 
     if (message.type === "setSilentHighlightVisibility") {
-      silentHighlightVisibility = normalizeSilentHighlightVisibility(message);
+      silentHighlightVisibility = normalizeSilentHighlightOptions(message);
       applyVisibleConsentVisibility(silentHighlightVisibility);
       refreshSilentHighlightings().then(() => {
         sendResponse({ ok: true });
