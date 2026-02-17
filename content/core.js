@@ -5,6 +5,14 @@ import {
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
 } from "../common/constants.js";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
+import {
+  normalizeAiSelectorSet,
+  combineAiSelectorSet,
+  isWithinAncestorSet as isWithinElementSet,
+  buildInclusionContextSet,
+  getNormalizedTextContent as getNormalizedElementText,
+  canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
+} from "./shared-inclusion.js";
 
 export const state = {
   enabled: false,
@@ -169,52 +177,6 @@ function hasDirectText(el) {
     }
   }
   return false;
-}
-
-function getNormalizedElementText(el) {
-  if (!el || el.nodeType !== 1) {
-    return "";
-  }
-  if (!el.querySelector("script,style,noscript,template")) {
-    return (el.textContent || "").replace(/\s+/g, " ").trim();
-  }
-  const chunks = [];
-  const stack = [el];
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) {
-        chunks.push(text);
-      }
-      continue;
-    }
-    if (node.nodeType !== 1) {
-      continue;
-    }
-    const tag = node.tagName;
-    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
-      continue;
-    }
-    for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
-      stack.push(node.childNodes[i]);
-    }
-  }
-  return chunks.join(" ").replace(/\s+/g, " ").trim();
-}
-
-function canUseCollapsedTextFallbackElement(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (!getNormalizedElementText(el)) {
-    return false;
-  }
-  const rect = el.getBoundingClientRect();
-  return rect.width === 0 || rect.height === 0;
 }
 
 function matchesToggleableDefaultExcluded(el) {
@@ -715,43 +677,6 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
-function normalizeSelectorList(selectors) {
-  const values = [];
-  const seen = new Set();
-  for (const selector of Array.isArray(selectors) ? selectors : []) {
-    if (typeof selector !== "string") {
-      continue;
-    }
-    const trimmed = selector.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    values.push(trimmed);
-  }
-  return values;
-}
-
-function normalizeAiSelectorSet(value) {
-  if (!value || typeof value !== "object") {
-    return { exclusionSelectors: [], inclusionSelectors: [] };
-  }
-  return {
-    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
-    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
-  };
-}
-
-function combineAiSelectorSet(selectorSet) {
-  if (!selectorSet || typeof selectorSet !== "object") {
-    return [];
-  }
-  return [
-    ...normalizeSelectorList(selectorSet.exclusionSelectors),
-    ...normalizeSelectorList(selectorSet.inclusionSelectors)
-  ];
-}
-
 function collectSelectorElements(selectors) {
   const elements = new Set();
   for (const selector of selectors || []) {
@@ -764,20 +689,6 @@ function collectSelectorElements(selectors) {
     }
   }
   return elements;
-}
-
-function isWithinElementSet(el, elements) {
-  if (!el || !elements || elements.size === 0) {
-    return false;
-  }
-  let node = el;
-  while (node && node.nodeType === 1) {
-    if (elements.has(node)) {
-      return true;
-    }
-    node = node.parentElement;
-  }
-  return false;
 }
 
 function isRawSelectorExcludedElement(el, excludedElements, includedElements) {
@@ -809,18 +720,6 @@ function isExcludedNatureElement(
       includedElements,
       inclusionContextSet
     );
-}
-
-function buildInclusionContextSet(includedElements) {
-  const context = new Set();
-  for (const el of includedElements || []) {
-    let current = el;
-    while (current && current.nodeType === 1) {
-      context.add(current);
-      current = current.parentElement;
-    }
-  }
-  return context;
 }
 
 function isInclusionEligibleElement(

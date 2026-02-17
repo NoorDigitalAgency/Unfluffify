@@ -2,6 +2,14 @@ import * as core from "./content/core.js";
 import * as config from "./common/config.js";
 import * as utils from "./common/utilities.js";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "./common/constants.js";
+import {
+  normalizeAiSelectorSet,
+  combineAiSelectorSet,
+  isWithinAncestorSet as isWithinNodeSet,
+  buildInclusionContextSet,
+  getNormalizedTextContent as getNormalizedNodeText,
+  canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
+} from "./content/shared-inclusion.js";
 
 const { state } = core;
 
@@ -392,38 +400,6 @@ function startSilentHighlightingUrlWatcher() {
   }, 800);
 }
 
-function normalizeSelectorList(selectors) {
-  const values = [];
-  const seen = new Set();
-  for (const selector of Array.isArray(selectors) ? selectors : []) {
-    if (typeof selector !== "string") {
-      continue;
-    }
-    const trimmed = selector.trim();
-    if (!trimmed || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    values.push(trimmed);
-  }
-  return values;
-}
-
-function normalizeAiSelectorSet(value) {
-  if (!value || typeof value !== "object") {
-    return { exclusionSelectors: [], inclusionSelectors: [] };
-  }
-  return {
-    exclusionSelectors: normalizeSelectorList(value.exclusionSelectors),
-    inclusionSelectors: normalizeSelectorList(value.inclusionSelectors)
-  };
-}
-
-function combineAiSelectorSet(selectorSet) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  return [...normalized.exclusionSelectors, ...normalized.inclusionSelectors];
-}
-
 function normalizeSilentHighlightVisibility(value) {
   if (!value || typeof value !== "object") {
     return { ...SILENT_HIGHLIGHT_VISIBILITY_DEFAULTS };
@@ -557,52 +533,6 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
-function getNormalizedNodeText(node) {
-  if (!node || node.nodeType !== 1) {
-    return "";
-  }
-  if (!node.querySelector("script,style,noscript,template")) {
-    return (node.textContent || "").replace(/\s+/g, " ").trim();
-  }
-  const chunks = [];
-  const stack = [node];
-  while (stack.length) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    if (current.nodeType === Node.TEXT_NODE) {
-      const text = (current.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) {
-        chunks.push(text);
-      }
-      continue;
-    }
-    if (current.nodeType !== 1) {
-      continue;
-    }
-    const tag = current.tagName;
-    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
-      continue;
-    }
-    for (let i = current.childNodes.length - 1; i >= 0; i -= 1) {
-      stack.push(current.childNodes[i]);
-    }
-  }
-  return chunks.join(" ").replace(/\s+/g, " ").trim();
-}
-
-function canUseCollapsedTextFallbackNode(node) {
-  if (!node || node.nodeType !== 1) {
-    return false;
-  }
-  if (!getNormalizedNodeText(node)) {
-    return false;
-  }
-  const rect = node.getBoundingClientRect();
-  return rect.width === 0 || rect.height === 0;
-}
-
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -631,20 +561,6 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
-function isWithinNodeSet(node, nodes) {
-  if (!node || !nodes || nodes.size === 0) {
-    return false;
-  }
-  let current = node;
-  while (current && current.nodeType === 1) {
-    if (nodes.has(current)) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
-
 function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
@@ -659,18 +575,6 @@ function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionCon
 function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return matchesImmutableDefaultSelector(node) ||
     isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet);
-}
-
-function buildInclusionContextSet(includedNodes) {
-  const context = new Set();
-  for (const node of includedNodes || []) {
-    let current = node;
-    while (current && current.nodeType === 1) {
-      context.add(current);
-      current = current.parentElement;
-    }
-  }
-  return context;
 }
 
 function isInclusionEligibleNode(node, excludedNodes, includedNodes, inclusionContextSet) {
