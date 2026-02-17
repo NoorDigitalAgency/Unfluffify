@@ -35,6 +35,7 @@ export const state = {
   markedElements: new Set(),
   renderRaf: 0,
   renderTimer: 0,
+  pendingRenderInvalidate: false,
   lastRenderAt: 0,
   scrollHideTimer: 0,
   isScrolling: false,
@@ -1170,7 +1171,8 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
-function shouldScheduleRenderForMutations(mutations) {
+function getMutationRenderMode(mutations) {
+  let mode = "none";
   for (const mutation of mutations) {
     const targetNode =
       mutation.target && mutation.target.nodeType === 1
@@ -1183,11 +1185,12 @@ function shouldScheduleRenderForMutations(mutations) {
       const name = mutation.attributeName || "";
       if (
         name === "class" ||
-        name === "style" ||
-        name === "hidden" ||
-        name === "aria-hidden"
+        name === "id"
       ) {
-        return true;
+        return "rebuild";
+      }
+      if (name === "hidden" || name === "aria-hidden") {
+        mode = "reposition";
       }
       continue;
     }
@@ -1197,7 +1200,7 @@ function shouldScheduleRenderForMutations(mutations) {
         continue;
       }
       if (parent && getNormalizedElementText(parent)) {
-        return true;
+        return "rebuild";
       }
       continue;
     }
@@ -1218,11 +1221,11 @@ function shouldScheduleRenderForMutations(mutations) {
         }
       }
       if (hasRelevantChange) {
-        return true;
+        return "rebuild";
       }
     }
   }
-  return false;
+  return mode;
 }
 
 function isExplicitlyIncludedElement(el, includeSet) {
@@ -2746,10 +2749,15 @@ function startObservers() {
           return;
         }
       }
-      if (!shouldScheduleRenderForMutations(mutations)) {
+      const renderMode = getMutationRenderMode(mutations);
+      if (renderMode === "none") {
         return;
       }
-      scheduleRender({ delay: 120, minInterval: 250 });
+      scheduleRender({
+        delay: 120,
+        minInterval: 250,
+        invalidate: renderMode === "rebuild"
+      });
     } catch (error) {
       // Silently handle errors to prevent observer from stopping
     }
@@ -2759,7 +2767,8 @@ function startObservers() {
       state.mutationObserver.observe(document.body, {
         childList: true,
         subtree: true,
-        attributes: true
+        attributes: true,
+        attributeFilter: ["class", "id", "hidden", "aria-hidden"]
       });
     } catch (error) {
       // Silently handle if body is not available
@@ -3283,7 +3292,8 @@ export function collectImmutableElements() {
 }
 
 export function scheduleRender(options) {
-  invalidateCachedCollections();
+  const shouldInvalidate = !options || options.invalidate !== false;
+  state.pendingRenderInvalidate = state.pendingRenderInvalidate || shouldInvalidate;
   if (state.renderTimer) {
     return;
   }
@@ -3295,6 +3305,9 @@ export function scheduleRender(options) {
   const effectiveDelay = Math.max(delay, waitForInterval);
   state.renderTimer = window.setTimeout(() => {
     state.renderTimer = 0;
+    if (state.pendingRenderInvalidate) {
+      invalidateCachedCollections();
+    }
     if (state.renderRaf) {
       return;
     }
@@ -3302,6 +3315,7 @@ export function scheduleRender(options) {
       state.renderRaf = 0;
       state.lastRenderAt = Date.now();
       renderHighlights();
+      state.pendingRenderInvalidate = false;
     });
   }, effectiveDelay);
 }
@@ -3377,6 +3391,7 @@ export function disable() {
     window.cancelAnimationFrame(state.renderRaf);
     state.renderRaf = 0;
   }
+  state.pendingRenderInvalidate = false;
   if (state.scrollHideTimer) {
     window.clearTimeout(state.scrollHideTimer);
     state.scrollHideTimer = 0;

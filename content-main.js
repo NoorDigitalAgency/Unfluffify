@@ -25,12 +25,31 @@ const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
+const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
+const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
+const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
+  "class",
+  "id",
+  "href",
+  "src",
+  "hidden",
+  "aria-hidden",
+  "open"
+]);
+const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
+  "class",
+  "hidden",
+  "aria-hidden",
+  "open"
+]);
 
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
+let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
+let silentHighlightingPositionRefreshPending = false;
 let silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
@@ -245,7 +264,7 @@ function ensureSilentHighlightingStyles() {
         box-sizing: border-box !important;
       }
       html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::before {
-        background: rgba(86, 172, 206, 0.2) !important;
+        background: rgba(86, 172, 206, 0.5) !important;
       }
       html [${core.CONSENT_HIDDEN_ATTR}] {
         opacity: 0 !important;
@@ -292,6 +311,7 @@ function clearSilentHighlightingMarks() {
   });
   lastSilentHighlightingRenderKey = "";
   lastSilentHighlightingsActive = false;
+  silentHighlightingPositionRefreshPending = false;
 }
 
 function stopSilentHighlightingObserver() {
@@ -309,10 +329,21 @@ function scheduleSilentHighlightingsRefresh() {
   if (silentHighlightingRefreshTimer) {
     return;
   }
+  const now = Date.now();
+  const sinceLast = now - lastSilentHighlightingRefreshAt;
+  const waitForMinInterval =
+    sinceLast < SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS
+      ? SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS - sinceLast
+      : 0;
+  const delay = Math.max(
+    SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS,
+    waitForMinInterval
+  );
   silentHighlightingRefreshTimer = window.setTimeout(() => {
     silentHighlightingRefreshTimer = 0;
+    lastSilentHighlightingRefreshAt = Date.now();
     refreshSilentHighlightings().then();
-  }, 500);
+  }, delay);
 }
 
 function isExtensionUiNode(node) {
@@ -332,6 +363,9 @@ function shouldRefreshForSilentMutation(mutation) {
   if (mutation.type === "attributes") {
     const attrName = mutation.attributeName || "";
     if (SILENT_HIGHLIGHTING_INTERNAL_ATTRS.has(attrName) || attrName === "title") {
+      return false;
+    }
+    if (!SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS.has(attrName)) {
       return false;
     }
     return !isExtensionUiNode(mutation.target);
@@ -367,14 +401,29 @@ function startSilentHighlightingObserver() {
     if (!Array.isArray(mutations) || mutations.length === 0) {
       return;
     }
-    if (mutations.some((mutation) => shouldRefreshForSilentMutation(mutation))) {
+    let needsRefresh = false;
+    for (const mutation of mutations) {
+      if (!shouldRefreshForSilentMutation(mutation)) {
+        continue;
+      }
+      needsRefresh = true;
+      if (
+        mutation.type === "attributes" &&
+        SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(mutation.attributeName || "")
+      ) {
+        silentHighlightingPositionRefreshPending = true;
+      }
+      break;
+    }
+    if (needsRefresh) {
       scheduleSilentHighlightingsRefresh();
     }
   });
   silentHighlightingObserver.observe(root, {
     childList: true,
     subtree: true,
-    attributes: true
+    attributes: true,
+    attributeFilter: Array.from(SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS)
   });
 }
 
@@ -977,6 +1026,7 @@ function refreshEnabledAiHighlights() {
 }
 
 async function refreshSilentHighlightings() {
+  lastSilentHighlightingRefreshAt = Date.now();
   if (state.enabled) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
@@ -1083,9 +1133,11 @@ async function refreshSilentHighlightings() {
     contentNodes,
     excludedNodes
   );
-  if (
+  const renderChanged =
     renderKey !== lastSilentHighlightingRenderKey ||
-    shouldBeActive !== lastSilentHighlightingsActive
+    shouldBeActive !== lastSilentHighlightingsActive;
+  if (
+    renderChanged
   ) {
     clearSilentHighlightingMarks();
     anchors.forEach((anchor) => {
@@ -1103,7 +1155,7 @@ async function refreshSilentHighlightings() {
     lastSilentHighlightingRenderKey = renderKey;
     lastSilentHighlightingsActive = shouldBeActive;
   }
-  if (shouldBeActive) {
+  if (shouldBeActive && (renderChanged || silentHighlightingPositionRefreshPending)) {
     anchors.forEach((anchor) => {
       setSilentHighlightNodePosition(anchor);
     });
@@ -1114,6 +1166,7 @@ async function refreshSilentHighlightings() {
       setSilentHighlightNodePosition(node);
     });
   }
+  silentHighlightingPositionRefreshPending = false;
   setSilentHighlightingsActive(shouldBeActive);
   startSilentHighlightingObserver();
 }
