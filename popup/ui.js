@@ -108,6 +108,7 @@ const initialViewState = {
   highlightIncludedContentChecked: true,
   highlightExcludedContentChecked: false,
   highlightVisibleConsentChecked: false,
+  highlightHideDuringScrollRedrawChecked: false,
   configMenuOpen: false,
   configExportAllDisabled: false,
   configExportCurrentDisabled: true,
@@ -919,6 +920,18 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           type: "checkbox",
           checked: view.highlightVisibleConsentChecked,
           onChange: handlers.onHighlightVisibleConsentChange
+        })
+      ),
+      h("div", { class: "section-divider", role: "separator" }),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Hide while redraw/scroll"),
+        h("input", {
+          id: "highlight-hide-during-scroll-redraw",
+          type: "checkbox",
+          checked: view.highlightHideDuringScrollRedrawChecked,
+          onChange: handlers.onHighlightHideDuringScrollRedrawChange
         })
       )
     );

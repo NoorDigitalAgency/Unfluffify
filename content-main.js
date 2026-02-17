@@ -28,6 +28,7 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
+const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483647";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
@@ -61,6 +62,7 @@ let silentHighlightLayerBoxes = {};
 let silentHighlightCollections = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
+let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
@@ -220,12 +222,15 @@ function ensureSilentHighlightingStyles() {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        z-index: 2147483646;
+        z-index: ${SILENT_HIGHLIGHT_OVERLAY_Z_INDEX};
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-layer {
         position: absolute;
         inset: 0;
         pointer-events: none;
+      }
+      #${SILENT_HIGHLIGHT_OVERLAY_ID}.uf-silent-hidden .uf-silent-layer {
+        opacity: 0;
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-rect {
         position: absolute;
@@ -294,9 +299,10 @@ function ensureSilentHighlightOverlay() {
   if (!host) {
     return null;
   }
-  if (overlay.parentNode !== host) {
+  if (overlay.parentNode !== host || host.lastElementChild !== overlay) {
     host.appendChild(overlay);
   }
+  overlay.style.zIndex = SILENT_HIGHLIGHT_OVERLAY_Z_INDEX;
   if (silentHighlightOverlay !== overlay) {
     silentHighlightOverlay = overlay;
     silentHighlightLayers = {};
@@ -329,6 +335,39 @@ function clearSilentHighlightOverlay() {
   silentHighlightCollections = null;
 }
 
+function setSilentHighlightOverlayHidden(hidden) {
+  if (!silentHighlightOverlay) {
+    return;
+  }
+  if (!silentHighlightVisibility.hideDuringScrollRedraw) {
+    silentHighlightOverlay.classList.remove("uf-silent-hidden");
+    return;
+  }
+  if (hidden) {
+    silentHighlightOverlay.classList.add("uf-silent-hidden");
+  } else {
+    silentHighlightOverlay.classList.remove("uf-silent-hidden");
+  }
+}
+
+function scheduleSilentHighlightOverlayReveal() {
+  if (!silentHighlightVisibility.hideDuringScrollRedraw) {
+    setSilentHighlightOverlayHidden(false);
+    return;
+  }
+  if (silentHighlightRevealRaf) {
+    window.cancelAnimationFrame(silentHighlightRevealRaf);
+    silentHighlightRevealRaf = 0;
+  }
+  silentHighlightRevealRaf = window.requestAnimationFrame(() => {
+    silentHighlightRevealRaf = 0;
+    if (silentHighlightScrollTimer || silentHighlightRepositionRaf) {
+      return;
+    }
+    setSilentHighlightOverlayHidden(false);
+  });
+}
+
 function clearSilentHighlightRepositionTimers() {
   if (silentHighlightScrollTimer) {
     window.clearTimeout(silentHighlightScrollTimer);
@@ -337,6 +376,10 @@ function clearSilentHighlightRepositionTimers() {
   if (silentHighlightRepositionRaf) {
     window.cancelAnimationFrame(silentHighlightRepositionRaf);
     silentHighlightRepositionRaf = 0;
+  }
+  if (silentHighlightRevealRaf) {
+    window.cancelAnimationFrame(silentHighlightRevealRaf);
+    silentHighlightRevealRaf = 0;
   }
 }
 
@@ -445,6 +488,7 @@ function renderSilentHighlightOverlay(collections) {
   if (!overlay) {
     return;
   }
+  setSilentHighlightOverlayHidden(true);
   const contentNodes = Array.from(collections.contentNodes || []);
   const anchorNodes = Array.from(collections.anchors || []);
   const excludedNodes = Array.from(collections.excludedNodes || []);
@@ -474,12 +518,14 @@ function renderSilentHighlightOverlay(collections) {
     contentNodes,
     excludedNodes
   };
+  scheduleSilentHighlightOverlayReveal();
 }
 
 function repositionSilentHighlightOverlay() {
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
+  setSilentHighlightOverlayHidden(true);
   renderSilentHighlightOverlay(silentHighlightCollections);
 }
 
@@ -487,6 +533,7 @@ function scheduleSilentHighlightReposition() {
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
+  setSilentHighlightOverlayHidden(true);
   if (silentHighlightScrollTimer) {
     window.clearTimeout(silentHighlightScrollTimer);
   }
@@ -664,6 +711,7 @@ function startSilentHighlightingUrlWatcher() {
 
 function applyVisibleConsentVisibility(visibility) {
   const normalized = normalizeSilentHighlightOptions(visibility);
+  core.setHiddenConsentElementsVisible(normalized.visibleConsent);
   if (normalized.visibleConsent) {
     document.documentElement.classList.add("uf-visible-consent");
   } else {
@@ -1251,7 +1299,6 @@ async function refreshSilentHighlightings() {
   const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
   const visibility = normalizeSilentHighlightOptions(silentHighlightVisibility);
-  applyVisibleConsentVisibility(visibility);
   ensureSilentHighlightingStyles();
   clearLegacySilentHighlightingAttributes();
   const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
@@ -1273,6 +1320,7 @@ async function refreshSilentHighlightings() {
       ? storedEntry.consentXpaths
       : null;
   const newlyHiddenConsentCount = core.hideConsentElements(storedConsentXpaths);
+  applyVisibleConsentVisibility(visibility);
   const hasHiddenConsent =
     newlyHiddenConsentCount > 0 ||
     Boolean(document.querySelector(`[${core.CONSENT_HIDDEN_ATTR}]`));

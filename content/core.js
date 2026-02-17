@@ -46,6 +46,7 @@ export const state = {
   savedPageUrl: "",
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
+  consentStyleSnapshots: new WeakMap(),
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
@@ -54,6 +55,7 @@ export const state = {
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
+const CONSENT_HIDDEN_STYLE_PROPS = ["opacity", "visibility", "pointer-events"];
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SCROLL_DEBOUNCE_MS = 250;
 
@@ -368,6 +370,59 @@ function registerConsentRoot(element) {
   return true;
 }
 
+function getConsentStyleSnapshot(element) {
+  if (!element || element.nodeType !== 1) {
+    return null;
+  }
+  if (!state.consentStyleSnapshots) {
+    state.consentStyleSnapshots = new WeakMap();
+  }
+  let snapshot = state.consentStyleSnapshots.get(element);
+  if (snapshot) {
+    return snapshot;
+  }
+  snapshot = {};
+  CONSENT_HIDDEN_STYLE_PROPS.forEach((prop) => {
+    snapshot[prop] = {
+      value: element.style.getPropertyValue(prop) || "",
+      priority: element.style.getPropertyPriority(prop) || ""
+    };
+  });
+  state.consentStyleSnapshots.set(element, snapshot);
+  return snapshot;
+}
+
+function setConsentElementHiddenVisibility(element, visible) {
+  if (!element || element.nodeType !== 1) {
+    return;
+  }
+  const snapshot = getConsentStyleSnapshot(element);
+  if (!snapshot) {
+    return;
+  }
+  if (visible) {
+    CONSENT_HIDDEN_STYLE_PROPS.forEach((prop) => {
+      const saved = snapshot[prop];
+      if (saved && saved.value) {
+        element.style.setProperty(prop, saved.value, saved.priority || "");
+      } else {
+        element.style.removeProperty(prop);
+      }
+    });
+    return;
+  }
+  element.style.setProperty("opacity", "0", "important");
+  element.style.setProperty("visibility", "hidden", "important");
+  element.style.setProperty("pointer-events", "none", "important");
+}
+
+export function setHiddenConsentElementsVisible(visible) {
+  const nodes = document.querySelectorAll(`[${CONSENT_HIDDEN_ATTR}]`);
+  nodes.forEach((element) => {
+    setConsentElementHiddenVisibility(element, Boolean(visible));
+  });
+}
+
 function hideConsentElement(element) {
   if (isWithinAiPopover(element) || isWithinExtensionUi(element)) {
     return false;
@@ -376,6 +431,7 @@ function hideConsentElement(element) {
     return false;
   }
   element.setAttribute(CONSENT_HIDDEN_ATTR, "on");
+  setConsentElementHiddenVisibility(element, false);
   return registerConsentRoot(element);
 }
 

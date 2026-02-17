@@ -235,12 +235,13 @@ function getSilentHighlightVisibility() {
     markedPages: state.silentHighlightShowMarkedPages !== false,
     includedContent: state.silentHighlightShowIncludedContent !== false,
     excludedContent: Boolean(state.silentHighlightShowExcludedContent),
-    visibleConsent: Boolean(state.silentHighlightShowVisibleConsent)
+    visibleConsent: Boolean(state.silentHighlightShowVisibleConsent),
+    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw)
   };
 }
 
 function getSilentHighlightVisibilityKey(visibility) {
-  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}`;
+  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
 }
 
 async function persistSilentHighlightVisibility() {
@@ -331,6 +332,7 @@ async function refreshUi() {
   state.silentHighlightShowIncludedContent = silentHighlightOptions.includedContent;
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
+  state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
   const fallbackBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (state.currentBaseUrl) {
@@ -589,6 +591,8 @@ async function refreshUi() {
   nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
   nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
   nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
+  nextViewState.highlightHideDuringScrollRedrawChecked =
+    state.silentHighlightHideDuringScrollRedraw;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlInputReadOnly = !baseField.isEditing;
   nextViewState.baseUrlSetVisible = baseField.isEditing;
@@ -1118,6 +1122,14 @@ async function handleHighlightVisibleConsentChange(event) {
     event,
     "silentHighlightShowVisibleConsent",
     "highlightVisibleConsentChecked"
+  );
+}
+
+async function handleHighlightHideDuringScrollRedrawChange(event) {
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightHideDuringScrollRedraw",
+    "highlightHideDuringScrollRedrawChecked"
   );
 }
 
@@ -2081,6 +2093,7 @@ async function init() {
     onHighlightIncludedContentChange: handleHighlightIncludedContentChange,
     onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
     onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
+    onHighlightHideDuringScrollRedrawChange: handleHighlightHideDuringScrollRedrawChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
     onDeviceModeChange: handleDeviceModeToggle,
     onDeviceScaleInput: handleDeviceScaleInput,
