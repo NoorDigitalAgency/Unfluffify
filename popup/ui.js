@@ -162,6 +162,50 @@ function renderListItems(items, emptyText, renderItem) {
   return items.map(renderItem);
 }
 
+function renderMarkedPagesSection(view, handlers, extraClassName = "") {
+  return h(
+    "section",
+    {class: classNames("card", "margin-above", "margin-below", extraClassName)},
+    h("div", {class: "padding-below section-title"}, "Marked Pages"),
+    h(
+      "ul",
+      {id: "marked-pages", class: "list"},
+      renderListItems(
+        view.markedPages,
+        view.markedPagesEmptyText,
+        (item) =>
+          h(
+            "li",
+            {key: item.url},
+            h(
+              "span",
+              {class: "page-title", title: item.title},
+              item.title
+            ),
+            h(
+              "span",
+              {class: "count"},
+              item.count === 0
+                ? "No marks"
+                : item.count === 1
+                  ? "1 mark"
+                  : `${item.count} marks`
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                disabled: item.url === view.currentPageUrl,
+                onClick: () => handlers.onMarkedPageNavigate(item.url)
+              },
+              "Navigate"
+            )
+          )
+      )
+    )
+  );
+}
+
 function App({ state: view, actions: handlers }) {
 
   return h(
@@ -323,6 +367,8 @@ function renderMarkingView({state: view, actions: handlers}) {
         "margin-above",
         view.computeButtonLoading && "loading"
     );
+    const showMarkedPagesInHighlightingMode =
+      view.highlightingOptionsVisible && view.markedPages.length > 0;
 
     return h(
         Fragment,
@@ -766,47 +812,6 @@ function renderMarkingView({state: view, actions: handlers}) {
             ),
             h(
                 "section",
-                {class: "card margin-above margin-below"},
-                h("div", {class: "padding-below section-title"}, "Marked Pages"),
-                h(
-                    "ul",
-                    {id: "marked-pages", class: "list"},
-                    renderListItems(
-                        view.markedPages,
-                        view.markedPagesEmptyText,
-                        (item) =>
-                            h(
-                                "li",
-                                {key: item.url},
-                                h(
-                                    "span",
-                                    {class: "page-title", title: item.title},
-                                    item.title
-                                ),
-                                h(
-                                    "span",
-                                    {class: "count"},
-                                    item.count === 0
-                                        ? "No marks"
-                                        : item.count === 1
-                                            ? "1 mark"
-                                            : `${item.count} marks`
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        disabled: item.url === view.currentPageUrl,
-                                        onClick: () => handlers.onMarkedPageNavigate(item.url)
-                                    },
-                                    "Navigate"
-                                )
-                            )
-                    )
-                )
-            ),
-            h(
-                "section",
                 {class: "card"},
                 h("div", {class: "section-title"}, "AI controls"),
                 !view.configurationComplete &&
@@ -855,10 +860,14 @@ function renderMarkingView({state: view, actions: handlers}) {
                     )
                 )
             ),
+            !showMarkedPagesInHighlightingMode &&
+              renderMarkedPagesSection(view, handlers),
         )
         ,
         view.cssSelectorsVisible &&
-          renderCssSelectorsSection({ state: view, actions: handlers })
+          renderCssSelectorsSection({ state: view, actions: handlers }),
+        showMarkedPagesInHighlightingMode &&
+          renderMarkedPagesSection(view, handlers)
     );
 }
 

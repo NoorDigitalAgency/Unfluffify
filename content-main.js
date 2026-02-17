@@ -245,10 +245,7 @@ function ensureSilentHighlightingStyles() {
         box-sizing: border-box !important;
       }
       html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::before {
-        content: none !important;
-      }
-      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}] {
-        outline: none !important;
+        background: rgba(86, 172, 206, 0.2) !important;
       }
       html [${core.CONSENT_HIDDEN_ATTR}] {
         opacity: 0 !important;
@@ -948,10 +945,20 @@ function setSilentHighlightNodePosition(node) {
   if (!node || node.nodeType !== 1) {
     return;
   }
+  const currentAttrValue = node.getAttribute(SILENT_CONTENT_POSITION_ATTR);
+  if (currentAttrValue) {
+    node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
+  }
   const computed = window.getComputedStyle(node);
-  const position = computed ? computed.position : "";
-  const positionValue = position && position !== "static" ? "existing" : "relative";
-  node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+  const computedPosition = computed ? computed.position : "";
+  if (currentAttrValue) {
+    node.setAttribute(SILENT_CONTENT_POSITION_ATTR, currentAttrValue);
+  }
+  const positionValue =
+    computedPosition && computedPosition !== "static" ? "existing" : "relative";
+  if (node.getAttribute(SILENT_CONTENT_POSITION_ATTR) !== positionValue) {
+    node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+  }
 }
 
 function refreshEnabledAiHighlights() {
@@ -1095,6 +1102,17 @@ async function refreshSilentHighlightings() {
     });
     lastSilentHighlightingRenderKey = renderKey;
     lastSilentHighlightingsActive = shouldBeActive;
+  }
+  if (shouldBeActive) {
+    anchors.forEach((anchor) => {
+      setSilentHighlightNodePosition(anchor);
+    });
+    contentNodes.forEach((node) => {
+      setSilentHighlightNodePosition(node);
+    });
+    excludedNodes.forEach((node) => {
+      setSilentHighlightNodePosition(node);
+    });
   }
   setSilentHighlightingsActive(shouldBeActive);
   startSilentHighlightingObserver();
