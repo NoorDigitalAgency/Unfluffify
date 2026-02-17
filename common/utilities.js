@@ -82,13 +82,6 @@ export function arraysEqual(left, right) {
   return true;
 }
 
-export function isHeadingXPath(value) {
-  if (typeof value !== "string") {
-    return false;
-  }
-  return /\/h[1-6]\[\d+\]\s*$/i.test(value);
-}
-
 export function parseBaseUrl(value) {
   if (!value) {
     return null;
@@ -98,6 +91,58 @@ export function parseBaseUrl(value) {
   } catch (error) {
     return null;
   }
+}
+
+function parseHttpUrl(value) {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+function normalizePathForMatch(pathname) {
+  if (typeof pathname !== "string" || !pathname) {
+    return "/";
+  }
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+function getBaseUrlSpecificity(baseUrl) {
+  const parsed = parseHttpUrl(baseUrl);
+  if (!parsed) {
+    return 0;
+  }
+  const normalizedPath = normalizePathForMatch(parsed.pathname);
+  return `${parsed.origin}${normalizedPath}`.length;
+}
+
+export function isPageWithinBaseUrl(pageUrl, baseUrl) {
+  const page = parseHttpUrl(pageUrl);
+  const base = parseHttpUrl(baseUrl);
+  if (!page || !base) {
+    return false;
+  }
+  if (page.origin !== base.origin) {
+    return false;
+  }
+  const pagePath = normalizePathForMatch(page.pathname);
+  const basePath = normalizePathForMatch(base.pathname);
+  if (basePath === "/") {
+    return true;
+  }
+  if (pagePath === basePath) {
+    return true;
+  }
+  return pagePath.startsWith(`${basePath}/`);
 }
 
 export function getOriginFromUrl(url) {
@@ -120,9 +165,15 @@ export function findMatchingBaseUrl(pageUrl, configs) {
     return "";
   }
   let match = "";
+  let matchSpecificity = 0;
   Object.keys(configs).forEach((baseUrl) => {
-    if (pageUrl.startsWith(baseUrl) && baseUrl.length > match.length) {
+    if (!isPageWithinBaseUrl(pageUrl, baseUrl)) {
+      return;
+    }
+    const specificity = getBaseUrlSpecificity(baseUrl);
+    if (specificity > matchSpecificity) {
       match = baseUrl;
+      matchSpecificity = specificity;
     }
   });
   return match;

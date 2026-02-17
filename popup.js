@@ -393,7 +393,7 @@ async function refreshUi() {
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
   const pageUrl = state.currentTab.url || "";
   let effectiveTabState = tabState;
-  if (tabState.baseUrl && pageUrl && !pageUrl.startsWith(tabState.baseUrl)) {
+  if (tabState.baseUrl && pageUrl && !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
@@ -452,7 +452,7 @@ async function refreshUi() {
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
-      pageUrl.startsWith(effectiveTabState.baseUrl)
+      utils.isPageWithinBaseUrl(pageUrl, effectiveTabState.baseUrl)
   );
   if (state.lastPopupEnabled !== null) {
     toggleEnabled = state.lastPopupEnabled;
@@ -782,8 +782,7 @@ async function refreshUi() {
         item.excluded &&
         item.xpath &&
         !defaultTagXPathSet.has(item.xpath) &&
-        !isDefaultToggleableTagXPath(item.xpath) &&
-        !utils.isHeadingXPath(item.xpath)
+        !isDefaultToggleableTagXPath(item.xpath)
     )
     .map((item) => item.xpath);
   let pageExplicitExclude = excludedXPaths.map((xpath) => ({
@@ -804,8 +803,7 @@ async function refreshUi() {
     (xpath) =>
       xpath &&
       !defaultTagXPathSet.has(xpath) &&
-      !isDefaultToggleableTagXPath(xpath) &&
-      !utils.isHeadingXPath(xpath)
+      !isDefaultToggleableTagXPath(xpath)
   );
   let pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
     xpath,
@@ -850,7 +848,7 @@ async function refreshUi() {
     if (!url || !entry || !Array.isArray(entry.xpaths)) {
       return;
     }
-    if (state.currentBaseUrl && !url.startsWith(state.currentBaseUrl)) {
+    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
       return;
     }
     const excludedCount = entry.xpaths.filter(
@@ -859,8 +857,7 @@ async function refreshUi() {
         item.excluded &&
         item.xpath &&
         !defaultTagXPathSet.has(item.xpath) &&
-        !isDefaultToggleableTagXPath(item.xpath) &&
-        !utils.isHeadingXPath(item.xpath)
+        !isDefaultToggleableTagXPath(item.xpath)
     ).length;
     const includedCount = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths.filter(
@@ -868,8 +865,7 @@ async function refreshUi() {
             typeof xpath === "string" &&
             xpath &&
             !defaultTagXPathSet.has(xpath) &&
-            !isDefaultToggleableTagXPath(xpath) &&
-            !utils.isHeadingXPath(xpath)
+            !isDefaultToggleableTagXPath(xpath)
         ).length
       : 0;
     markedPages.push({
@@ -1129,7 +1125,7 @@ async function handleEnableToggle(event) {
       await refreshUi();
       return;
     }
-    if (!tab.url.startsWith(baseUrlValue)) {
+    if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
       uiModule.showToast("Current page is outside the Base Page URL");
       uiModule.setViewState({ toggleEnabled: false });
       state.lastPopupEnabled = null;
@@ -1521,7 +1517,7 @@ async function handleBaseUrlSet() {
     uiModule.showToast("Enter a valid Base Page URL");
     return;
   }
-  if (!tab.url.startsWith(baseUrlValue)) {
+  if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
     uiModule.showToast("Current page is outside the Base Page URL");
     return;
   }
@@ -1558,7 +1554,7 @@ async function handleBaseUrlEditToggle() {
       });
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
-  } else if (tab && tab.url.startsWith(state.currentBaseUrl)) {
+  } else if (tab && utils.isPageWithinBaseUrl(tab.url, state.currentBaseUrl)) {
     // Inject content script first when re-enabling
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -1966,7 +1962,7 @@ async function handleComputeSelectors() {
       if (!entry || !entry.url) {
         return false;
       }
-      if (state.currentBaseUrl && !entry.url.startsWith(state.currentBaseUrl)) {
+      if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
         return false;
       }
       return (

@@ -171,10 +171,6 @@ function hasDirectText(el) {
   return false;
 }
 
-function isHeadingElementTag(el) {
-  return Boolean(el && el.nodeType === 1 && /^H[1-6]$/i.test(el.tagName));
-}
-
 function getNormalizedElementText(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -227,11 +223,7 @@ function isTextualContainer(el) {
     const nestedText = (el.innerText || "").replace(/\s+/g, " ").trim();
     return Boolean(nestedText);
   }
-  if (!isHeadingElementTag(el)) {
-    return false;
-  }
-  const headingText = (el.innerText || "").replace(/\s+/g, " ").trim();
-  return Boolean(headingText);
+  return Boolean(getNormalizedElementText(el));
 }
 
 function hasTextualDescendant(el) {
@@ -1277,7 +1269,7 @@ function shouldScheduleRenderForMutations(mutations) {
       if (parent && isWithinConsentElement(parent)) {
         continue;
       }
-      if (parent && (isHeadingElementTag(parent) || hasDirectText(parent))) {
+      if (parent && getNormalizedElementText(parent)) {
         return true;
       }
       continue;
@@ -2626,9 +2618,21 @@ function renderHighlightsInner() {
   const normalizedAiSelectorSet = latestCombinedSelectors.length
     ? latestComputedSelectorSet
     : storedSelectorSet;
-  const aiContentMarking = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet);
-  const aiContent = new Set(aiContentMarking.included);
-  const aiExcludedDescendants = new Set(aiContentMarking.excluded);
+  const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
+  let aiContent = new Set();
+  let aiExcludedDescendants = new Set();
+  if (hasAiSelectors) {
+    const aiContentMarking = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet);
+    const isWithinExcludedContainers = (el) =>
+      isWithinElementSet(el, immutableExcluded) ||
+      isWithinElementSet(el, explicitExclude);
+    aiContent = new Set(
+      (aiContentMarking.included || []).filter((el) => !isWithinExcludedContainers(el))
+    );
+    aiExcludedDescendants = new Set(
+      (aiContentMarking.excluded || []).filter((el) => !isWithinExcludedContainers(el))
+    );
+  }
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...explicitExclude,
@@ -3443,7 +3447,7 @@ export function disable() {
 }
 
 export async function enableForBaseUrl(baseUrl) {
-  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
     disable();
     return;
   }
@@ -3807,7 +3811,7 @@ export async function refreshFromTabState() {
   const response = await utils.sendRuntimeMessage({ type: "getTabState" });
   if (response && response.enabled && response.baseUrl) {
     // Enable if the URL still matches the baseUrl.
-    if (location.href.startsWith(response.baseUrl)) {
+    if (utils.isPageWithinBaseUrl(location.href, response.baseUrl)) {
       const pageUrl = location.href;
       const draftEntry = getDraftPageEntry(pageUrl);
       const savedEntry = getSavedPageEntry(pageUrl);

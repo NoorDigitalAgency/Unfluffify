@@ -146,11 +146,11 @@ async function toggleEnabledFromPage() {
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
   let baseUrl = state.baseUrl || (tabState && tabState.baseUrl ? tabState.baseUrl : "");
-  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
     const configs = await config.getConfigs();
     baseUrl = utils.findMatchingBaseUrl(location.href, configs);
   }
-  if (!baseUrl || !location.href.startsWith(baseUrl)) {
+  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
     showPageToast("Set Base Page URL in the Unfluffify popup first.");
     return;
   }
