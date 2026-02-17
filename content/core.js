@@ -1336,6 +1336,9 @@ function createOverlay() {
         background-clip: border-box;
         animation: uf-ai-content-dash 2s linear infinite !important;
       }
+      #unfluffify-overlay .uf-ai-content.uf-ai-content-overlay {
+        background-color: transparent;
+      }
       #unfluffify-overlay .uf-ai-content-excluded {
         border: 3px solid #c62828;
         background: rgba(198, 40, 40, 0.2);
@@ -2528,6 +2531,11 @@ function renderHighlightsInner() {
       collectExcludedXPaths(entry.xpaths)
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
+  const explicitUnexcludeOverrides = collectXPathElements(
+    (entry.xpaths || [])
+      .filter((item) => item && item.xpath && item.excluded === false)
+      .map((item) => item.xpath)
+  );
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitInclude.size === 0) {
       return false;
@@ -2557,7 +2565,9 @@ function renderHighlightsInner() {
       (aiContentMarking.included || []).filter((el) => !isWithinExcludedContainers(el))
     );
     aiExcludedDescendants = new Set(
-      (aiContentMarking.excluded || []).filter((el) => !isWithinExcludedContainers(el))
+      (aiContentMarking.excluded || []).filter(
+        (el) => !isWithinExcludedContainers(el) && !explicitUnexcludeOverrides.has(el)
+      )
     );
   }
   const precedenceSet = new Set([
@@ -2582,6 +2592,9 @@ function renderHighlightsInner() {
       filteredExplicitInclude.push(el);
     }
   }
+  const aiAnimatedExplicitIncludeElements = hasAiSelectors
+    ? filteredExplicitInclude.filter((el) => !aiContent.has(el))
+    : [];
 
   const defaultTargets = collectDefaultHighlightTargets(document.body, {
     excludedSet: precedenceSet,
@@ -2594,6 +2607,7 @@ function renderHighlightsInner() {
     hardElements: Array.from(immutableExcluded),
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
+    aiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
     aiContentExcludedElements: Array.from(aiExcludedDescendants),
     defaultElements: defaultTargets
@@ -2649,7 +2663,12 @@ function drawCollections(collections, getRects) {
     const rects = getRects(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
-        layerExplicitIncludeState, rects, "uf-explicit-include", el, "explicit-include", markedElements
+        layerExplicitIncludeState,
+        rects,
+        "uf-explicit-include",
+        el,
+        "explicit-include",
+        markedElements
       );
     }
   }
@@ -2659,6 +2678,20 @@ function drawCollections(collections, getRects) {
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerAiContentState, rects, "uf-ai-content", el, "ai-content", markedElements
+      );
+    }
+  }
+
+  for (const el of collections.aiAnimatedExplicitIncludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerAiContentState,
+        rects,
+        "uf-ai-content uf-ai-content-overlay",
+        el,
+        "ai-content-explicit-include",
+        markedElements
       );
     }
   }
@@ -3831,7 +3864,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (explicitIncludeSet.has(xpath)) {
       return true;
     }
-    return excludedLookup.get(xpath) === true;
+    return excludedLookup.has(xpath);
   };
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
