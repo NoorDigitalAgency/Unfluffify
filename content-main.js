@@ -181,11 +181,13 @@ function ensureSilentHighlightingStyles() {
     style.setAttribute("data-uf-extension-ui", "true");
     style.textContent = `
       html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_LINK_HIGHLIGHTING_ATTR}] {
-        position: relative !important;
         outline: 2px dashed #56acce !important;
         outline-offset: -2px !important;
       }
-      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_LINK_HIGHLIGHTING_ATTR}]::before {
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"] {
+        position: relative !important;
+      }
+      html body a[${SILENT_LINK_HIGHLIGHTING_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::before {
         content: "" !important;
         position: absolute !important;
         top: 0 !important;
@@ -217,12 +219,14 @@ function ensureSilentHighlightingStyles() {
         z-index: 1 !important;
       }
       html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_EXCLUDED_ATTR}] {
-        position: relative !important;
         outline: 2px dashed #b03b3b !important;
         outline-offset: -2px !important;
         background: rgba(176, 59, 59, 0.08) !important;
       }
-      html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_EXCLUDED_ATTR}]::before {
+      html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_POSITION_ATTR}="relative"] {
+        position: relative !important;
+      }
+      html body [${SILENT_CONTENT_EXCLUDED_ATTR}][${SILENT_CONTENT_POSITION_ATTR}]::before {
         content: "" !important;
         position: absolute !important;
         top: 0 !important;
@@ -1034,6 +1038,16 @@ function toRenderableNodeList(nodes) {
   return results;
 }
 
+function setSilentHighlightNodePosition(node) {
+  if (!node || node.nodeType !== 1) {
+    return;
+  }
+  const computed = window.getComputedStyle(node);
+  const position = computed ? computed.position : "";
+  const positionValue = position && position !== "static" ? "existing" : "relative";
+  node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+}
+
 function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -1158,16 +1172,17 @@ async function refreshSilentHighlightings() {
     shouldBeActive !== lastSilentHighlightingsActive
   ) {
     clearSilentHighlightingMarks();
-    anchors.forEach((anchor) => anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on"));
+    anchors.forEach((anchor) => {
+      anchor.setAttribute(SILENT_LINK_HIGHLIGHTING_ATTR, "on");
+      setSilentHighlightNodePosition(anchor);
+    });
     contentNodes.forEach((node) => {
       node.setAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR, "on");
-      const computed = window.getComputedStyle(node);
-      const position = computed ? computed.position : "";
-      const positionValue = position && position !== "static" ? "existing" : "relative";
-      node.setAttribute(SILENT_CONTENT_POSITION_ATTR, positionValue);
+      setSilentHighlightNodePosition(node);
     });
     excludedNodes.forEach((node) => {
       node.setAttribute(SILENT_CONTENT_EXCLUDED_ATTR, "on");
+      setSilentHighlightNodePosition(node);
     });
     lastSilentHighlightingRenderKey = renderKey;
     lastSilentHighlightingsActive = shouldBeActive;
