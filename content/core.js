@@ -175,7 +175,35 @@ function getNormalizedElementText(el) {
   if (!el || el.nodeType !== 1) {
     return "";
   }
-  return (el.textContent || "").replace(/\s+/g, " ").trim();
+  if (!el.querySelector("script,style,noscript,template")) {
+    return (el.textContent || "").replace(/\s+/g, " ").trim();
+  }
+  const chunks = [];
+  const stack = [el];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) {
+        chunks.push(text);
+      }
+      continue;
+    }
+    if (node.nodeType !== 1) {
+      continue;
+    }
+    const tag = node.tagName;
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
+      continue;
+    }
+    for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
+      stack.push(node.childNodes[i]);
+    }
+  }
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function canUseCollapsedTextFallbackElement(el) {
