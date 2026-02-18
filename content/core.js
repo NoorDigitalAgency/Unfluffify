@@ -686,7 +686,14 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
       continue;
     }
     if (hasExcludedParents && excludedParents.has(node)) {
-      if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+      if (
+        !isWithinImmutableExcluded(node) &&
+        isTextualContainer(node) &&
+        (
+          matchesToggleableDefaultExcluded(node) ||
+          isSelfMarkableWithoutParentMode(node)
+        )
+      ) {
         results.push(node);
       }
       continue;
@@ -697,7 +704,13 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (immutableExcluded && immutableExcluded.has(node)) {
       continue;
     }
-    if (isTextualContainer(node) && !isWithinImmutableExcluded(node)) {
+    if (
+      !isWithinImmutableExcluded(node) &&
+      (
+        (matchesToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
+        isSelfMarkableWithoutParentMode(node)
+      )
+    ) {
       results.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
