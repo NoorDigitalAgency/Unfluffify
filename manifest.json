@@ -7,7 +7,6 @@
     "default_title": "Unfluffify"
   },
   "permissions": [
-    "downloads",
     "storage",
     "sidePanel",
     "tabs",

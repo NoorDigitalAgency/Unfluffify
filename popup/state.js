@@ -1,6 +1,5 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
 
-export const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 export const DEVICE_SCALE_LIMITS = {
   min: 0.25,
   max: 1,
@@ -45,5 +44,9 @@ export const state = {
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,
-  tokenValidationTimer: 0
+  tokenValidationTimer: 0,
+  remoteConfigLoadKey: "",
+  remoteConfigLoadResult: null,
+  lastConfigLoadStatusText: "Not loaded yet",
+  lastConfigSaveStatusText: "No save sent yet"
 };

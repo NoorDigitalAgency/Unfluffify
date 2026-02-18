@@ -59,6 +59,14 @@ const CONSENT_HIDDEN_STYLE_PROPS = ["opacity", "visibility", "pointer-events"];
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SCROLL_DEBOUNCE_MS = 250;
 
+function createCurrentTimestamp() {
+  return config.createTimestampNow();
+}
+
+function normalizeEntryTimestampValue(value) {
+  return config.normalizeEntryTimestamp(value);
+}
+
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
 }
@@ -248,6 +256,32 @@ function hasTextualDescendant(el) {
   return false;
 }
 
+function hasTextualImmutableDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node) && isTextualContainer(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function hasExplicitlyMarkedDescendant(el) {
   if (!el || el.nodeType !== 1 || !state.config) {
     return false;
@@ -290,10 +324,14 @@ function isSelfMarkableWithoutParentMode(el) {
   if (!isTextualContainer(el)) {
     return false;
   }
-  if (!hasDirectText(el) && hasTextualDescendant(el)) {
+  const hasDirectOwnText = hasDirectText(el);
+  if (!hasDirectOwnText && hasTextualDescendant(el)) {
     return false;
   }
   if (!matchesToggleableDefaultExcluded(el)) {
+    if (!hasDirectOwnText && hasTextualImmutableDescendant(el)) {
+      return false;
+    }
     return true;
   }
   return !hasTextualDescendant(el) && !hasExplicitlyMarkedDescendant(el);
@@ -1196,7 +1234,20 @@ export function normalizePageEntryXpaths(entry) {
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
+  entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   return entry;
+}
+
+export function touchPageEntryTimestamp(entry, timestamp = null) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+  if (typeof timestamp === "string" && timestamp.trim()) {
+    entry.timestamp = config.normalizeEntryTimestamp(timestamp);
+    return entry.timestamp;
+  }
+  entry.timestamp = config.createTimestampNow();
+  return entry.timestamp;
 }
 
 function getExcludedXPathSet(config, pageUrl) {
@@ -2143,6 +2194,7 @@ function toggleExplicitExclude(target) {
     }
     entry.includeXpaths = includeXpaths;
     entry.xpaths = items;
+    touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
     config.pageMarkings[location.href] = entry;
     state.config = config;
@@ -2190,6 +2242,7 @@ function toggleExplicitExclude(target) {
   }
 
   entry.xpaths = items;
+  touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
@@ -2238,6 +2291,7 @@ function toggleExplicitInclude(target) {
       }
       entry.includeXpaths = includeXpaths;
       entry.xpaths = items;
+      touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
       config.pageMarkings[location.href] = entry;
       state.config = config;
@@ -2289,6 +2343,7 @@ function toggleExplicitInclude(target) {
 
   entry.includeXpaths = includeXpaths;
   entry.xpaths = items;
+  touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
@@ -3038,6 +3093,7 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
     return false;
   }
   entry.consentXpaths = normalized;
+  touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
   if (notifyOnChange) {
     notifyDraftStatus(pageUrl);
@@ -3085,6 +3141,7 @@ export function clonePageEntry(entry) {
   const cloned = {
     url: entry.url || "",
     title: entry.title || "",
+    timestamp: normalizeEntryTimestampValue(entry.timestamp),
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
@@ -3148,6 +3205,7 @@ export function copyEntryXpathsToPage(config, pageUrl, sourceEntry) {
   }
   entry.includeXpaths = includeMatched;
   entry.title = document.title || pageUrl;
+  touchPageEntryTimestamp(entry);
   config.pageMarkings[pageUrl] = entry;
   return {
     copied: matchedItems.length,
@@ -3395,6 +3453,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
     return {
       url: pageUrl || "",
       title: pageUrl || "",
+      timestamp: createCurrentTimestamp(),
       xpaths: [],
       consentXpaths: [],
       includeXpaths: [],
@@ -3411,6 +3470,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
   const entry = {
     url: pageUrl || "",
     title: document.title || pageUrl || "",
+    timestamp: createCurrentTimestamp(),
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
@@ -4052,6 +4112,11 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   entry.title = document.title || pageUrl;
   if (!entry.fullHTML) {
     entry.fullHTML = "";
+  }
+  if (changed) {
+    touchPageEntryTimestamp(entry);
+  } else if (!entry.timestamp) {
+    entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   }
   if (shouldPersist) {
     config.pageMarkings[pageUrl] = entry;

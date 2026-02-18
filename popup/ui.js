@@ -39,6 +39,8 @@ const initialViewState = {
   pageRevertDisabled: true,
   pageDeleteDisabled: true,
   pageDraftStatusText: "",
+  syncLoadStatusText: "Not loaded yet",
+  syncSaveStatusText: "No save sent yet",
   copySourceBaseOptions: [],
   copySourceBaseValue: "",
   copySourceBasePlaceholder: "No base URLs saved",
@@ -110,11 +112,7 @@ const initialViewState = {
   highlightVisibleConsentChecked: false,
   highlightHideDuringScrollRedrawChecked: false,
   configMenuOpen: false,
-  configExportAllDisabled: false,
-  configExportCurrentDisabled: true,
-  configImportDisabled: false,
   configClearCurrentDisabled: true,
-  configClearAllDisabled: false,
   clearDomainCacheDisabled: false,
   isBusy: false,
   toastMessage: "",
@@ -251,41 +249,6 @@ function App({ state: view, actions: handlers }) {
             h(
               "button",
               {
-                id: "config-export-current",
-                type: "button",
-                role: "menuitem",
-                disabled: view.configExportCurrentDisabled,
-                onClick: handlers.onExportCurrent
-              },
-              "Export current"
-            ),
-            h(
-              "button",
-              {
-                id: "config-export-all",
-                type: "button",
-                role: "menuitem",
-                disabled: view.configExportAllDisabled,
-                onClick: handlers.onExportAll
-              },
-              "Export all"
-            ),
-            h("div", { class: "config-divider", role: "separator" }),
-            h(
-              "button",
-              {
-                id: "config-import",
-                type: "button",
-                role: "menuitem",
-                disabled: view.configImportDisabled,
-                onClick: handlers.onImport
-              },
-              "Import"
-            ),
-            h("div", { class: "config-divider", role: "separator" }),
-            h(
-              "button",
-              {
                 id: "config-open-view",
                 type: "button",
                 role: "menuitem",
@@ -348,17 +311,7 @@ function App({ state: view, actions: handlers }) {
         hidden: !view.isBusy
       },
       h("div", { class: "ui-curtain__content" }, "Please wait...")
-    ),
-    h("input", {
-      id: "config-import-file",
-      type: "file",
-      accept: "application/json",
-      hidden: true,
-      ref: (el) => {
-        refs.configImportFile = el;
-      },
-      onChange: handlers.onImportFile
-    })
+    )
   );
 }
 
@@ -511,6 +464,7 @@ function renderMarkingView({state: view, actions: handlers}) {
         ),
         view.highlightingOptionsVisible &&
           renderHighlightingOptionsSection({ state: view, actions: handlers }),
+        renderServerSyncSection({ state: view }),
         h(
             "div",
             {id: "main-ui", hidden: view.mainUiHidden},
@@ -934,6 +888,16 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           onChange: handlers.onHighlightHideDuringScrollRedrawChange
         })
       )
+    );
+}
+
+function renderServerSyncSection({ state: view }) {
+    return h(
+      "section",
+      { class: "card" },
+      h("div", { class: "section-title" }, "Server Sync"),
+      h("div", { class: "hint", id: "sync-load-status" }, `Latest /load: ${view.syncLoadStatusText}`),
+      h("div", { class: "hint", id: "sync-save-status" }, `Latest /save: ${view.syncSaveStatusText}`)
     );
 }
 

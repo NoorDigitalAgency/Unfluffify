@@ -1,5 +1,3 @@
-import { showToast } from "./ui.js";
-
 export function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {
     chrome.browsingData.remove(
@@ -41,25 +39,4 @@ export function reloadTab(tabId) {
       resolve({ ok: true });
     });
   });
-}
-
-export function downloadJsonFile(filename, payload) {
-  const blob = new Blob([JSON.stringify(payload)], {
-    type: "application/json"
-  });
-  const url = URL.createObjectURL(blob);
-  chrome.downloads.download(
-    {
-      url,
-      filename,
-      saveAs: true
-    },
-    () => {
-      const error = chrome.runtime.lastError;
-      window.setTimeout(() => URL.revokeObjectURL(url), 1200);
-      if (error) {
-        showToast("Unable to save configuration");
-      }
-    }
-  );
 }

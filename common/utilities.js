@@ -179,28 +179,6 @@ export function findMatchingBaseUrl(pageUrl, configs) {
   return match;
 }
 
-export function looksLikeBaseUrl(value) {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
-export function formatBytes(bytes) {
-  if (!bytes) {
-    return "0 B";
-  }
-  const units = ["B", "KB", "MB"];
-  let size = bytes;
-  let index = 0;
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024;
-    index += 1;
-  }
-  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
-export function makeSafeFilename(value) {
-  return value.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
-}
-
 // Storage utilities
 export const storageGet = (area, keys) =>
     new Promise((resolve) => area.get(keys, resolve));

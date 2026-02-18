@@ -31,6 +31,174 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
+function createConfigSyncHeaders(token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function formatSyncStatusTimestamp(value = Date.now()) {
+  try {
+    return new Date(value).toLocaleTimeString();
+  } catch (error) {
+    return "";
+  }
+}
+
+function updateLastConfigLoadStatus(result) {
+  const status = result && typeof result.status === "string" ? result.status : "";
+  const baseUrl = result && typeof result.baseUrl === "string" ? result.baseUrl : "";
+  let label = "Unknown";
+  if (status === "ok") {
+    label = baseUrl ? `Synced (${baseUrl})` : "Synced";
+  } else if (status === "not_found") {
+    label = "No remote data (404)";
+  } else if (status === "skipped") {
+    label = "Skipped";
+  } else if (status === "error") {
+    label = "Failed";
+  }
+  if (status === "skipped") {
+    state.lastConfigLoadStatusText = label;
+    return;
+  }
+  const at = formatSyncStatusTimestamp();
+  state.lastConfigLoadStatusText = at ? `${label} at ${at}` : label;
+}
+
+function updateLastConfigSaveStatus(label) {
+  const safeLabel = typeof label === "string" && label ? label : "Unknown";
+  const at = formatSyncStatusTimestamp();
+  state.lastConfigSaveStatusText = at ? `${safeLabel} at ${at}` : safeLabel;
+}
+
+function buildRemoteConfigLoadKey(tabId, pageUrl, endpointValue) {
+  return `${tabId || ""}|${pageUrl || ""}|${endpointValue || ""}`;
+}
+
+async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
+  const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
+  if (!normalizedPayload.baseUrl) {
+    return {
+      ok: false,
+      changed: false,
+      replacedCurrentPage: false,
+      baseUrl: ""
+    };
+  }
+  const baseUrl = normalizedPayload.baseUrl;
+  const allConfigs = await config.getConfigs();
+  const existingRaw = allConfigs[baseUrl];
+  const normalizedLocal = config.normalizeConfig(baseUrl, existingRaw);
+  const localConfig = normalizedLocal.config;
+  const mergeResult = config.mergePageMarkingsByTimestamp(
+    localConfig.pageMarkings,
+    normalizedPayload.pageMarkings
+  );
+  localConfig.pageMarkings = mergeResult.pageMarkings;
+  const shouldSave =
+    !existingRaw ||
+    normalizedLocal.changed ||
+    mergeResult.replacedUrls.length > 0;
+  if (shouldSave) {
+    allConfigs[baseUrl] = localConfig;
+    await config.saveConfigs(allConfigs);
+  }
+  return {
+    ok: true,
+    changed: shouldSave,
+    replacedCurrentPage: mergeResult.replacedExistingUrls.includes(currentPageUrl),
+    baseUrl
+  };
+}
+
+async function loadRemoteConfigForCurrentPage(options = {}) {
+  const {
+    tabId = null,
+    pageUrl = "",
+    endpointValue = "",
+    tokenValue = "",
+    force = false
+  } = options;
+  if (!tabId || !pageUrl || !endpointValue) {
+    const result = { status: "skipped", baseUrl: "" };
+    state.remoteConfigLoadResult = result;
+    updateLastConfigLoadStatus(result);
+    return result;
+  }
+  const loadKey = buildRemoteConfigLoadKey(tabId, pageUrl, endpointValue);
+  if (
+    !force &&
+    state.remoteConfigLoadKey === loadKey &&
+    state.remoteConfigLoadResult &&
+    (
+      state.remoteConfigLoadResult.status === "ok" ||
+      state.remoteConfigLoadResult.status === "not_found"
+    )
+  ) {
+    return state.remoteConfigLoadResult;
+  }
+  state.remoteConfigLoadKey = loadKey;
+  const loadUrl = resolveRelativeEndpoint(endpointValue, "/load");
+  if (!loadUrl) {
+    const result = { status: "error", baseUrl: "" };
+    state.remoteConfigLoadResult = result;
+    updateLastConfigLoadStatus(result);
+    return result;
+  }
+  try {
+    const response = await fetch(loadUrl, {
+      method: "POST",
+      headers: createConfigSyncHeaders(tokenValue),
+      body: JSON.stringify({ url: pageUrl })
+    });
+    if (response.status === 404) {
+      const result = { status: "not_found", baseUrl: "" };
+      state.remoteConfigLoadResult = result;
+      updateLastConfigLoadStatus(result);
+      return result;
+    }
+    if (!response.ok) {
+      const result = { status: "error", baseUrl: "" };
+      state.remoteConfigLoadResult = result;
+      updateLastConfigLoadStatus(result);
+      return result;
+    }
+    const payload = await response.json();
+    const mergeResult = await mergeServerConfigIntoLocal(payload, pageUrl);
+    if (!mergeResult.ok) {
+      const result = { status: "error", baseUrl: "" };
+      state.remoteConfigLoadResult = result;
+      updateLastConfigLoadStatus(result);
+      return result;
+    }
+    if (mergeResult.changed && mergeResult.baseUrl) {
+      await messages.sendTabMessageWithRetry({
+        type: "configUpdated",
+        baseUrl: mergeResult.baseUrl,
+        forceReloadPageEntry: mergeResult.replacedCurrentPage
+      }, 2);
+    }
+    if (mergeResult.replacedCurrentPage) {
+      window.alert("Newer data for this page was found and replaced your local changes.");
+    }
+    const result = {
+      status: "ok",
+      baseUrl: mergeResult.baseUrl
+    };
+    state.remoteConfigLoadResult = result;
+    updateLastConfigLoadStatus(result);
+    return result;
+  } catch {
+    const result = { status: "error", baseUrl: "" };
+    state.remoteConfigLoadResult = result;
+    updateLastConfigLoadStatus(result);
+    return result;
+  }
+}
+
 function updateLoginActionState(patch = {}) {
   const view = { ...uiModule.getViewState(), ...patch };
   const emailValue = (view.loginEmailValue || "").trim();
@@ -310,20 +478,55 @@ async function refreshUi() {
     state.loginEndpointEditMode = false;
     state.copySourceBaseUrl = "";
     state.copySourcePageUrl = "";
+    state.remoteConfigLoadKey = "";
+    state.remoteConfigLoadResult = null;
   }
+  const pageUrl = state.currentTab.url || "";
+  if (pageUrl !== state.lastPopupPageUrl) {
+    state.remoteConfigLoadKey = "";
+    state.remoteConfigLoadResult = null;
+  }
+  state.lastPopupPageUrl = pageUrl;
   if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
     state.lastAppliedSilentHighlightTabId = currentTabId;
     state.lastAppliedSilentHighlightKey = "";
   }
   state.lastTabId = currentTabId;
+  const {
+    tokenValue,
+    endpointValue,
+    configEndpointValue,
+    loginEndpointValue
+  } = await helpers.loadGlobalAiSettings();
+  const remoteLoadResult = await loadRemoteConfigForCurrentPage({
+    tabId: currentTabId,
+    pageUrl,
+    endpointValue: configEndpointValue,
+    tokenValue,
+    force: false
+  });
   const configs = await config.getConfigs();
   const tabState =
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
-  const pageUrl = state.currentTab.url || "";
+  const localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+  const hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
+  }
+  if (
+    remoteLoadResult &&
+    remoteLoadResult.status === "not_found" &&
+    effectiveTabState.baseUrl &&
+    !hasLocalConfigForWebsite
+  ) {
+    const wasEnabled = Boolean(effectiveTabState.enabled);
+    effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
+    await utils.setTabState(state.currentTab.id, effectiveTabState);
+    if (wasEnabled) {
+      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    }
   }
   const silentHighlightOptions = normalizeSilentHighlightOptions(
     tabState && tabState.silentHighlightOptions
@@ -333,7 +536,12 @@ async function refreshUi() {
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
-  const fallbackBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+  const fallbackBaseUrl =
+    remoteLoadResult &&
+    remoteLoadResult.status === "not_found" &&
+    !hasLocalConfigForWebsite
+      ? ""
+      : localMatchingBaseUrl;
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (state.currentBaseUrl) {
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
@@ -392,13 +600,6 @@ async function refreshUi() {
   const isEnabled = toggleEnabled;
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  const {
-    tokenValue,
-    endpointValue,
-    configEndpointValue,
-    loginEndpointValue
-  } =
-    await helpers.loadGlobalAiSettings();
   const loginEmailValue = view.loginEmailValue || "";
   const loginPasswordValue = view.loginPasswordValue || "";
   if (!configEndpointValue) {
@@ -568,11 +769,7 @@ async function refreshUi() {
   nextViewState.endpointInputDisabled = aiBusy;
   nextViewState.endpointSetDisabled = aiBusy;
   nextViewState.endpointEditDisabled = aiBusy;
-  nextViewState.configExportAllDisabled = aiBusy;
-  nextViewState.configExportCurrentDisabled = aiBusy || !baseUrlReady;
-  nextViewState.configImportDisabled = aiBusy;
   nextViewState.configClearCurrentDisabled = aiBusy || !state.currentBaseUrl;
-  nextViewState.configClearAllDisabled = aiBusy;
   nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
@@ -624,6 +821,8 @@ async function refreshUi() {
   } else {
     nextViewState.pageDraftStatusText = "All changes saved";
   }
+  nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || "Not loaded yet";
+  nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || "No save sent yet";
   nextViewState.pageDataNewNoticeHidden =
     !baseUrlReady ||
     !isEnabled ||
@@ -1278,72 +1477,6 @@ async function handleClearDomainCache() {
   }
 }
 
-async function handleExportAll() {
-  uiModule.setConfigMenuOpen(false);
-  const configs = await config.getConfigs();
-  const normalizedConfigs = {};
-  Object.entries(configs).forEach(([baseUrl, entry]) => {
-    normalizedConfigs[baseUrl] = config.normalizeImportedConfig(baseUrl, entry);
-  });
-  if (state.currentBaseUrl && state.currentConfig) {
-    normalizedConfigs[state.currentBaseUrl] = config.normalizeImportedConfig(
-      state.currentBaseUrl,
-      state.currentConfig
-    );
-  }
-  const {
-    tokenValue,
-    endpointValue,
-    configEndpointValue,
-    loginEndpointValue
-  } =
-    await helpers.loadGlobalAiSettings();
-  const payload = {
-    version: 1,
-    scope: "all",
-    configs: normalizedConfigs,
-    globalToken: tokenValue,
-    globalEndpoint: endpointValue,
-    globalConfigEndpoint: configEndpointValue,
-    globalLoginEndpoint: loginEndpointValue
-  };
-  const filename = `unfluffify-all-${new Date().toISOString().slice(0, 10)}.json`;
-  chromeHelpers.downloadJsonFile(filename, payload);
-}
-
-async function handleExportCurrent() {
-  uiModule.setConfigMenuOpen(false);
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  const configs = await config.getConfigs();
-  const sourceConfig =
-    state.currentConfig ||
-    configs[state.currentBaseUrl] ||
-    config.createDefaultConfig(state.currentBaseUrl);
-  const normalizedConfig = config.normalizeImportedConfig(
-    state.currentBaseUrl,
-    sourceConfig
-  );
-  const payload = {
-    version: 1,
-    scope: "baseUrl",
-    baseUrl: state.currentBaseUrl,
-    config: normalizedConfig
-  };
-  const safeBase = utils.makeSafeFilename(state.currentBaseUrl) || "base";
-  const filename = `unfluffify-${safeBase}.json`;
-  chromeHelpers.downloadJsonFile(filename, payload);
-}
-
-async function handleImport() {
-  uiModule.setConfigMenuOpen(false);
-  const { configImportFile } = uiModule.getRefs();
-  if (configImportFile) {
-    configImportFile.click();
-  }
-}
-
 async function handleClearCurrent() {
   uiModule.setConfigMenuOpen(false);
   if (!helpers.ensureBaseUrl()) {
@@ -1367,90 +1500,6 @@ async function handleClearCurrent() {
   state.currentConfig = null;
   state.baseUrlEditMode = false;
   uiModule.showToast("Base Page URL cleared");
-  await refreshUi();
-}
-
-async function handleImportFile(event) {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = "";
-  if (!file) {
-    return;
-  }
-  if (file.size > stateModule.MAX_IMPORT_BYTES) {
-    const confirmLarge = window.confirm(
-      `File is ${utils.formatBytes(file.size)}. Importing may take a moment. Continue?`
-    );
-    if (!confirmLarge) {
-      return;
-    }
-  }
-
-  let text = "";
-  try {
-    text = await file.text();
-  } catch (error) {
-    uiModule.showToast("Unable to read file");
-    return;
-  }
-
-  let parsed = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    uiModule.showToast("Import file is not valid JSON");
-    return;
-  } finally {
-    text = "";
-  }
-
-  const {
-    incomingConfigs,
-    includeGlobals,
-    globalToken,
-    globalEndpoint,
-    globalConfigEndpoint,
-    globalLoginEndpoint
-  } = config.extractIncomingConfigs(parsed);
-  const baseUrls = Object.keys(incomingConfigs).filter((value) => value.length > 0);
-  if (!baseUrls.length) {
-    uiModule.showToast("No configuration found in file");
-    return;
-  }
-
-  const confirmImport = window.confirm(
-    `Import ${baseUrls.length} configuration ${baseUrls.length === 1 ? "entry" : "entries"} and merge with existing data?`
-  );
-  if (!confirmImport) {
-    return;
-  }
-
-  const existing = await config.getConfigs();
-  baseUrls.forEach((baseUrl) => {
-    const normalized = config.normalizeImportedConfig(baseUrl, incomingConfigs[baseUrl]);
-    existing[baseUrl] = normalized;
-  });
-  await config.saveConfigs(existing);
-
-  if (includeGlobals) {
-    await utils.storageSet(chrome.storage.sync, {
-      globalToken: globalToken || "",
-      globalEndpoint: globalEndpoint || "",
-      globalConfigEndpoint: globalConfigEndpoint || "",
-      globalLoginEndpoint: globalLoginEndpoint || ""
-    });
-    await maybeSwitchToMarkingView();
-  }
-
-  if (
-    state.currentBaseUrl &&
-    baseUrls.includes(state.currentBaseUrl) &&
-    state.currentTab &&
-    state.currentTab.id
-  ) {
-    await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
-  }
-
-  uiModule.showToast("Configuration imported");
   await refreshUi();
 }
 
@@ -1710,10 +1759,25 @@ async function handlePageSave() {
     baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
+    updateLastConfigSaveStatus("Save failed");
     uiModule.showToast("Unable to save page");
     return;
   }
-  uiModule.showToast(response.saved ? "Page saved" : "No changes to save");
+  if (response.saved) {
+    updateLastConfigSaveStatus(
+      response.syncFailed
+        ? "Saved locally (sync failed)"
+        : "Saved and synced"
+    );
+    uiModule.showToast(
+      response.syncFailed
+        ? "Page saved locally (server sync failed)"
+        : "Page saved"
+    );
+  } else {
+    updateLastConfigSaveStatus("No local changes to save");
+    uiModule.showToast("No changes to save");
+  }
   await refreshUi();
 }
 
@@ -1735,10 +1799,20 @@ async function handlePageRevert() {
     baseUrl: state.currentBaseUrl
   });
   if (!response || !response.ok) {
+    updateLastConfigSaveStatus("Revert failed");
     uiModule.showToast("Unable to revert page");
     return;
   }
-  uiModule.showToast("Reverted to last saved");
+  updateLastConfigSaveStatus(
+    response.syncFailed
+      ? "Reverted locally (sync failed)"
+      : "Reverted and synced"
+  );
+  uiModule.showToast(
+    response.syncFailed
+      ? "Reverted locally (server sync failed)"
+      : "Reverted to last saved"
+  );
   await refreshUi();
 }
 
@@ -2102,12 +2176,8 @@ async function init() {
     onConfigMenuClick: handleConfigMenuClick,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
-    onExportAll: handleExportAll,
-    onExportCurrent: handleExportCurrent,
-    onImport: handleImport,
     onClearDomainCache: handleClearDomainCache,
     onClearCurrent: handleClearCurrent,
-    onImportFile: handleImportFile,
     onBaseUrlInput: handleBaseUrlInput,
     onBaseUrlKeyDown: handleBaseUrlKeyDown,
     onRefreshContext: handleContextRefresh,
