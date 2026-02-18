@@ -41,14 +41,6 @@ const initialViewState = {
   pageDraftStatusText: "",
   syncLoadStatusText: "Not loaded yet",
   syncSaveStatusText: "No save sent yet",
-  copySourceBaseOptions: [],
-  copySourceBaseValue: "",
-  copySourceBasePlaceholder: "No base URLs saved",
-  copySourcePageOptions: [],
-  copySourcePageValue: "",
-  copySourcePagePlaceholder: "Select a Base Page URL first",
-  copySourcePageDisabled: true,
-  copyFromPageDisabled: true,
   explicitExcludes: [],
   explicitExcludesEmptyText: "Set Base Page URL first",
   explicitIncludes: [],
@@ -124,34 +116,6 @@ let actions = {};
 
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
-}
-
-function renderOptions(options, placeholder) {
-  const items = [];
-  if (placeholder) {
-    items.push(
-      h("option", { value: "" }, placeholder)
-    );
-  }
-  if (!options.length && !placeholder) {
-    items.push(
-      h("option", { value: "" }, "No options available")
-    );
-    return items;
-  }
-  return items.concat(
-    options.map((option) =>
-      h(
-        "option",
-        {
-          key: option.value,
-          value: option.value,
-          title: option.title || option.value
-        },
-        option.label || option.value
-      )
-    )
-  );
 }
 
 function renderListItems(items, emptyText, renderItem) {
@@ -464,7 +428,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         ),
         view.highlightingOptionsVisible &&
           renderHighlightingOptionsSection({ state: view, actions: handlers }),
-        renderServerSyncSection({ state: view }),
         h(
             "div",
             {id: "main-ui", hidden: view.mainUiHidden},
@@ -594,54 +557,10 @@ function renderMarkingView({state: view, actions: handlers}) {
                     "Delete current page"
                 ),
                 h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
-                h(
-                    "details",
-                    {class: "collapsible"},
-                    h("summary", null, "Copy from saved page"),
-                    h(
-                        "div",
-                        {class: "collapsible-body"},
-                        h(
-                            "label",
-                            {class: "field"},
-                            h("span", null, "Base Page URL"),
-                            h(
-                                "select",
-                                {
-                                    id: "copy-source-base-url",
-                                    value: view.copySourceBaseValue,
-                                    onChange: handlers.onCopySourceBaseChange
-                                },
-                                renderOptions(view.copySourceBaseOptions, view.copySourceBasePlaceholder)
-                            )
-                        ),
-                        h(
-                            "label",
-                            {class: "field"},
-                            h("span", null, "Page URL"),
-                            h(
-                                "select",
-                                {
-                                    id: "copy-source-page-url",
-                                    value: view.copySourcePageValue,
-                                    disabled: view.copySourcePageDisabled,
-                                    onChange: handlers.onCopySourcePageChange
-                                },
-                                renderOptions(view.copySourcePageOptions, view.copySourcePagePlaceholder)
-                            )
-                        ),
-                        h(
-                            "button",
-                            {
-                                id: "copy-from-page",
-                                type: "button",
-                                disabled: view.copyFromPageDisabled,
-                                onClick: handlers.onCopyFromPage
-                            },
-                            "Copy from"
-                        )
-                    )
-                )
+                h("div", { class: "section-divider", role: "separator" }),
+                h("div", { class: "section-title" }, "Server Sync"),
+                h("div", { class: "hint", id: "sync-load-status" }, `Latest /load: ${view.syncLoadStatusText}`),
+                h("div", { class: "hint", id: "sync-save-status" }, `Latest /save: ${view.syncSaveStatusText}`)
             ),
             h(
                 "section",
@@ -888,16 +807,6 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           onChange: handlers.onHighlightHideDuringScrollRedrawChange
         })
       )
-    );
-}
-
-function renderServerSyncSection({ state: view }) {
-    return h(
-      "section",
-      { class: "card" },
-      h("div", { class: "section-title" }, "Server Sync"),
-      h("div", { class: "hint", id: "sync-load-status" }, `Latest /load: ${view.syncLoadStatusText}`),
-      h("div", { class: "hint", id: "sync-save-status" }, `Latest /save: ${view.syncSaveStatusText}`)
     );
 }
 

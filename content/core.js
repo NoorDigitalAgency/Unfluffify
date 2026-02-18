@@ -882,6 +882,26 @@ function hasRenderableTextOutsideExcludedNature(
   return false;
 }
 
+function hasRenderableTextForHighlight(
+  el,
+  excludedElements,
+  includedElements,
+  inclusionContextSet
+) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (hasDirectText(el)) {
+    return true;
+  }
+  return hasRenderableTextOutsideExcludedNature(
+    el,
+    excludedElements,
+    includedElements,
+    inclusionContextSet
+  );
+}
+
 function isCoveredBySelectedElement(el, boundary, selectedElements) {
   let current = el;
   while (current && current !== boundary) {
@@ -1015,7 +1035,12 @@ function collectExcludedChildrenInsideIncludedParents(
           inclusionContextSet
         )
       ) {
-        if (!seen.has(el)) {
+        if (!seen.has(el) && hasRenderableTextForHighlight(
+          el,
+          excludedElements,
+          includedElements,
+          inclusionContextSet
+        )) {
           seen.add(el);
           marked.push(el);
         }
@@ -2718,7 +2743,9 @@ function renderHighlightsInner() {
   });
 
   const collections = {
-    hardElements: Array.from(immutableExcluded),
+    hardElements: Array.from(immutableExcluded).filter((el) =>
+      hasRenderableTextForHighlight(el, null, null, null)
+    ),
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     aiAnimatedExplicitIncludeElements,
@@ -3148,71 +3175,6 @@ export function clonePageEntry(entry) {
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
   };
   return normalizePageEntryXpaths(cloned);
-}
-
-export function copyEntryXpathsToPage(config, pageUrl, sourceEntry) {
-  if (!config || !pageUrl || !sourceEntry || !Array.isArray(sourceEntry.xpaths)) {
-    return { copied: 0, total: 0 };
-  }
-  const sourceItems = sourceEntry.xpaths;
-  const matchedItems = [];
-  const seen = new Set();
-  for (const item of sourceItems) {
-    if (!item || typeof item.xpath !== "string") {
-      continue;
-    }
-    if (seen.has(item.xpath)) {
-      continue;
-    }
-    const el = getElementFromXPath(item.xpath);
-    if (!el) {
-      continue;
-    }
-    if (!isMarkableElement(el, config, {
-      allowParent: true,
-      explicitlyExcluded: Boolean(item.excluded)
-    })) {
-      continue;
-    }
-    matchedItems.push({ xpath: item.xpath, excluded: Boolean(item.excluded) });
-    seen.add(item.xpath);
-  }
-  const entry = getPageMarkingEntry(config, pageUrl);
-  entry.xpaths = matchedItems;
-  entry.includeXpaths = [];
-  const includeSource = Array.isArray(sourceEntry.includeXpaths)
-    ? sourceEntry.includeXpaths
-    : [];
-  const includeMatched = [];
-  const includeSeen = new Set();
-  for (const xpath of includeSource) {
-    if (typeof xpath !== "string" || !xpath) {
-      continue;
-    }
-    if (includeSeen.has(xpath)) {
-      continue;
-    }
-    const el = getElementFromXPath(xpath);
-    if (!el) {
-      continue;
-    }
-    if (!canApplyExplicitInclude(el, config, pageUrl, entry)) {
-      continue;
-    }
-    includeMatched.push(xpath);
-    entry.includeXpaths = includeMatched;
-    includeSeen.add(xpath);
-  }
-  entry.includeXpaths = includeMatched;
-  entry.title = document.title || pageUrl;
-  touchPageEntryTimestamp(entry);
-  config.pageMarkings[pageUrl] = entry;
-  return {
-    copied: matchedItems.length,
-    total: sourceItems.length,
-    copiedIncludes: includeMatched.length,
-    totalIncludes: includeSource.length
-  };
 }
 
 export function setSavedPageEntry(pageUrl, entry) {

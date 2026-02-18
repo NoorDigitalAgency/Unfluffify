@@ -576,8 +576,6 @@ async function refreshUi() {
     state.endpointEditMode = false;
     state.configEndpointEditMode = false;
     state.loginEndpointEditMode = false;
-    state.copySourceBaseUrl = "";
-    state.copySourcePageUrl = "";
     state.remoteConfigLoadKey = "";
     state.remoteConfigLoadResult = null;
   }
@@ -897,12 +895,13 @@ async function refreshUi() {
   nextViewState.baseUrlEditText = state.baseUrlEditMode ? "Cancel" : "Change";
   nextViewState.baseUrlNoticeText = baseField.noticeText;
   nextViewState.baseUrlNoticeVisible = baseField.noticeVisible;
-  const draftButtonsDisabled =
+  const canInitialPageSave = !hasSavedPageData;
+  const pageSaveDisabled =
     !baseUrlReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
-    !state.currentDraftDirty;
-  nextViewState.pageSaveDisabled = draftButtonsDisabled;
+    (!state.currentDraftDirty && !canInitialPageSave);
+  nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageRevertDisabled =
     !baseUrlReady ||
     !isEnabled ||
@@ -916,6 +915,8 @@ async function refreshUi() {
     nextViewState.pageDraftStatusText = "Enable marking to edit this page";
   } else if (!state.currentDraftAvailable) {
     nextViewState.pageDraftStatusText = "Draft unavailable";
+  } else if (!hasSavedPageData) {
+    nextViewState.pageDraftStatusText = "No saved data yet";
   } else if (state.currentDraftDirty) {
     nextViewState.pageDraftStatusText = "Unsaved changes";
   } else {
@@ -933,54 +934,6 @@ async function refreshUi() {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
-  const baseOptions = Object.keys(configs)
-    .filter((baseUrl) => {
-      const entries = configs[baseUrl] && configs[baseUrl].pageMarkings;
-      return entries && Object.keys(entries).length > 0;
-    })
-    .sort()
-    .map((baseUrl) => ({ value: baseUrl, label: baseUrl }));
-  if (!baseOptions.some((option) => option.value === state.copySourceBaseUrl)) {
-    state.copySourceBaseUrl = "";
-    state.copySourcePageUrl = "";
-  }
-  let pageOptions = [];
-  if (state.copySourceBaseUrl && configs[state.copySourceBaseUrl]) {
-    const pageMarkings = configs[state.copySourceBaseUrl].pageMarkings || {};
-    pageOptions = Object.entries(pageMarkings)
-      .filter(([url, entry]) => {
-        return (
-          url &&
-          entry &&
-          Array.isArray(entry.xpaths) &&
-          entry.xpaths.length > 0
-        );
-      })
-      .map(([url, entry]) => ({
-        value: url,
-        label: url,
-        title: entry.title || url
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }
-  if (!pageOptions.some((option) => option.value === state.copySourcePageUrl)) {
-    state.copySourcePageUrl = "";
-  }
-  const pagePlaceholder = state.copySourceBaseUrl
-    ? pageOptions.length
-      ? "Select a Page URL"
-      : "No saved pages under this Base Page URL"
-    : "Select a Base Page URL first";
-  nextViewState.copySourceBaseOptions = baseOptions;
-  nextViewState.copySourceBaseValue = state.copySourceBaseUrl;
-  nextViewState.copySourceBasePlaceholder = baseOptions.length
-    ? "Select a Base Page URL"
-    : "No base URLs saved";
-  nextViewState.copySourcePageOptions = pageOptions;
-  nextViewState.copySourcePageValue = state.copySourcePageUrl;
-  nextViewState.copySourcePagePlaceholder = pagePlaceholder;
-  nextViewState.copySourcePageDisabled = !state.copySourceBaseUrl || !pageOptions.length;
-  nextViewState.copyFromPageDisabled = !state.copySourceBaseUrl || !state.copySourcePageUrl;
 
   let defaultTagExclusions = [];
   let defaultTagXPathSet = new Set();
@@ -1971,70 +1924,6 @@ async function handlePageDelete() {
   await refreshUi();
 }
 
-async function handleCopySourceBaseChange(event) {
-  const value = event && event.target ? event.target.value : "";
-  state.copySourceBaseUrl = value;
-  state.copySourcePageUrl = "";
-  uiModule.setViewState({
-    copySourceBaseValue: value,
-    copySourcePageValue: ""
-  });
-  await refreshUi();
-}
-
-async function handleCopySourcePageChange(event) {
-  const value = event && event.target ? event.target.value : "";
-  state.copySourcePageUrl = value;
-  uiModule.setViewState({ copySourcePageValue: value });
-  await refreshUi();
-}
-
-async function handleCopyFromPage() {
-  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
-  if (!tab) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!uiModule.getViewState().toggleEnabled) {
-    uiModule.showToast("Enable marking to copy page data");
-    return;
-  }
-  const sourceBaseUrl = state.copySourceBaseUrl;
-  const sourcePageUrl = state.copySourcePageUrl;
-  if (!sourceBaseUrl || !sourcePageUrl) {
-    uiModule.showToast("Choose a Base Page URL and Page URL first");
-    return;
-  }
-  const confirmed = window.confirm(
-    `Copy stored page data from ${sourcePageUrl} into the current page draft? This will overwrite existing draft marks.`
-  );
-  if (!confirmed) {
-    return;
-  }
-  const response = await messages.sendTabMessage({
-    type: "copyPageDataFromStored",
-    baseUrl: state.currentBaseUrl,
-    sourceBaseUrl,
-    sourcePageUrl
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast(response && response.error ? response.error : "Unable to copy page data");
-    return;
-  }
-  const copied = Number.isFinite(response.copied) ? response.copied : 0;
-  const total = Number.isFinite(response.total) ? response.total : 0;
-  uiModule.showToast(
-    total
-      ? `Copied ${copied} of ${total} matched elements`
-      : copied
-        ? `Copied ${copied} matched elements`
-        : "No matching elements found"
-  );
-  await refreshUi();
-}
-
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -2316,9 +2205,6 @@ async function init() {
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
     onPageDelete: handlePageDelete,
-    onCopySourceBaseChange: handleCopySourceBaseChange,
-    onCopySourcePageChange: handleCopySourcePageChange,
-    onCopyFromPage: handleCopyFromPage,
     onConfigEndpointInput: handleConfigEndpointInput,
     onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
     onConfigEndpointSet: handleConfigEndpointSet,
