@@ -1190,7 +1190,14 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     }
   });
 
-  const included = collapseToShallowest(selectedNodes);
+  const included = collapseToShallowest(selectedNodes).filter((node) =>
+    hasRenderableTextForHighlight(
+      node,
+      excludedNodes,
+      includedNodes,
+      inclusionContextSet
+    )
+  );
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     included,
     excludedNodes,
