@@ -727,16 +727,14 @@ function collectDefaultHighlightTargets(root, options) {
   const {
     excludedSet = new Set(),
     hardExcludedSet = new Set(),
-    hasHigherPrecedence = () => false,
-    precedenceSet = new Set()
+    hasHigherPrecedence = () => false
   } = options || {};
   const results = [];
   const stack = [
     {
       node: root,
       index: 0,
-      ancestorHardExcluded: false,
-      ancestorHasPrecedence: false
+      ancestorHardExcluded: false
     }
   ];
 
@@ -756,15 +754,10 @@ function collectDefaultHighlightTargets(root, options) {
           frame.ancestorHardExcluded ||
           hardExcludedSet.has(frame.node) ||
           hardExcludedSet.has(child);
-      const childHasPrecedence =
-          frame.ancestorHasPrecedence ||
-          precedenceSet.has(frame.node) ||
-          precedenceSet.has(child);
       stack.push({
         node: child,
         index: 0,
-        ancestorHardExcluded: childHardExcluded,
-        ancestorHasPrecedence: childHasPrecedence
+        ancestorHardExcluded: childHardExcluded
       });
       continue;
     }
@@ -776,7 +769,6 @@ function collectDefaultHighlightTargets(root, options) {
         !excludedSelf &&
         !isRoot &&
         !frame.ancestorHardExcluded &&
-        !frame.ancestorHasPrecedence &&
         isSelfMarkableWithoutParentMode(node) &&
         !hasHigherPrecedence(node);
 
