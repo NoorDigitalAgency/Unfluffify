@@ -74,6 +74,16 @@ function updateLastConfigSaveStatus(label) {
   state.lastConfigSaveStatusText = at ? `${safeLabel} at ${at}` : safeLabel;
 }
 
+function isSuccessfulConfigSyncResult(syncResult) {
+  return Boolean(syncResult && (syncResult.ok || syncResult.skipped));
+}
+
+function waitForRetryDelay(delayMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
 function buildRemoteConfigLoadKey(tabId, pageUrl, endpointValue) {
   return `${tabId || ""}|${pageUrl || ""}|${endpointValue || ""}`;
 }
@@ -197,6 +207,96 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     updateLastConfigLoadStatus(result);
     return result;
   }
+}
+
+async function syncBaseConfigToServer(options = {}) {
+  const {
+    baseUrl = "",
+    pageUrl = "",
+    endpointValue = "",
+    tokenValue = "",
+    alertOnCurrentReplacement = true,
+    maxAttempts = 5
+  } = options;
+  if (!baseUrl || !pageUrl || !endpointValue) {
+    return { ok: false, skipped: true };
+  }
+  const saveUrl = resolveRelativeEndpoint(endpointValue, "/save");
+  if (!saveUrl) {
+    return { ok: false, skipped: true };
+  }
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  let retryDelayMs = 1500;
+  let lastStatus = 0;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const allConfigs = await config.getConfigs();
+    const normalized = config.normalizeConfig(baseUrl, allConfigs[baseUrl]);
+    const sourceConfig = normalized.config;
+    if (!allConfigs[baseUrl] || normalized.changed) {
+      allConfigs[baseUrl] = sourceConfig;
+      await config.saveConfigs(allConfigs);
+    }
+    const payload = config.createConfigSyncPayload(baseUrl, sourceConfig);
+    try {
+      const response = await fetch(saveUrl, {
+        method: "POST",
+        headers: createConfigSyncHeaders(tokenValue),
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        lastStatus = response.status || 0;
+        if (attempt + 1 < attempts) {
+          await waitForRetryDelay(retryDelayMs);
+          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+          continue;
+        }
+        return { ok: false, status: lastStatus };
+      }
+
+      let responseData = null;
+      try {
+        responseData = await response.json();
+      } catch (error) {
+        responseData = null;
+      }
+      if (!responseData || typeof responseData !== "object") {
+        return { ok: true, replacedCurrentPage: false };
+      }
+
+      const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl);
+      if (!mergeResult.ok) {
+        if (attempt + 1 < attempts) {
+          await waitForRetryDelay(retryDelayMs);
+          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+          continue;
+        }
+        return { ok: false };
+      }
+      if (mergeResult.changed && mergeResult.baseUrl) {
+        await messages.sendTabMessageWithRetry({
+          type: "configUpdated",
+          baseUrl: mergeResult.baseUrl,
+          forceReloadPageEntry: mergeResult.replacedCurrentPage
+        }, 2);
+      }
+      if (mergeResult.replacedCurrentPage && alertOnCurrentReplacement) {
+        window.alert("Newer data for this page was found and replaced your local changes.");
+      }
+      return {
+        ok: true,
+        replacedCurrentPage: mergeResult.replacedCurrentPage
+      };
+    } catch (error) {
+      if (attempt + 1 < attempts) {
+        await waitForRetryDelay(retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+        continue;
+      }
+      return { ok: false };
+    }
+  }
+  return { ok: false, status: lastStatus };
 }
 
 function updateLoginActionState(patch = {}) {
@@ -1764,13 +1864,28 @@ async function handlePageSave() {
     return;
   }
   if (response.saved) {
+    const pageUrl = (state.currentTab && state.currentTab.url) || "";
+    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+    const syncResult = await syncBaseConfigToServer({
+      baseUrl: state.currentBaseUrl,
+      pageUrl,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      alertOnCurrentReplacement: true
+    });
+    const syncSkipped = Boolean(syncResult && syncResult.skipped);
+    const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
     updateLastConfigSaveStatus(
-      response.syncFailed
+      syncSkipped
+        ? "Saved locally (sync skipped)"
+        : syncFailed
         ? "Saved locally (sync failed)"
         : "Saved and synced"
     );
     uiModule.showToast(
-      response.syncFailed
+      syncSkipped
+        ? "Page saved locally (server sync skipped)"
+        : syncFailed
         ? "Page saved locally (server sync failed)"
         : "Page saved"
     );
@@ -1803,13 +1918,28 @@ async function handlePageRevert() {
     uiModule.showToast("Unable to revert page");
     return;
   }
+  const pageUrl = (state.currentTab && state.currentTab.url) || "";
+  const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+  const syncResult = await syncBaseConfigToServer({
+    baseUrl: state.currentBaseUrl,
+    pageUrl,
+    endpointValue: configEndpointValue,
+    tokenValue,
+    alertOnCurrentReplacement: true
+  });
+  const syncSkipped = Boolean(syncResult && syncResult.skipped);
+  const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
   updateLastConfigSaveStatus(
-    response.syncFailed
+    syncSkipped
+      ? "Reverted locally (sync skipped)"
+      : syncFailed
       ? "Reverted locally (sync failed)"
       : "Reverted and synced"
   );
   uiModule.showToast(
-    response.syncFailed
+    syncSkipped
+      ? "Reverted locally (server sync skipped)"
+      : syncFailed
       ? "Reverted locally (server sync failed)"
       : "Reverted to last saved"
   );

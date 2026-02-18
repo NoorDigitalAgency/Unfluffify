@@ -32,8 +32,6 @@ const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483647";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
-const CONFIG_SYNC_RETRY_INITIAL_DELAY_MS = 5000;
-const CONFIG_SYNC_RETRY_MAX_DELAY_MS = 60000;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "class",
   "id",
@@ -66,11 +64,6 @@ let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
 let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
-let configSyncRetryTimer = 0;
-let configSyncRetryDelayMs = CONFIG_SYNC_RETRY_INITIAL_DELAY_MS;
-let configSyncRetryInFlight = false;
-let configSyncRetryTargetBaseUrl = "";
-let configSyncRetryTargetPageUrl = "";
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
@@ -145,215 +138,6 @@ function isEditableTarget(target) {
   return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
 }
 
-function resolveRelativeEndpoint(baseUrl, path) {
-  try {
-    return new URL(path, baseUrl).toString();
-  } catch {
-    return "";
-  }
-}
-
-async function loadConfigSyncSettings() {
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalConfigEndpoint",
-    "globalToken"
-  ]);
-  return {
-    endpoint:
-      stored && typeof stored.globalConfigEndpoint === "string"
-        ? stored.globalConfigEndpoint.trim()
-        : "",
-    token:
-      stored && typeof stored.globalToken === "string"
-        ? stored.globalToken.trim()
-        : ""
-  };
-}
-
-function createConfigSyncHeaders(token) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-function isSuccessfulConfigSyncResult(syncResult) {
-  return Boolean(syncResult && (syncResult.ok || syncResult.skipped));
-}
-
-function clearConfigSyncRetryState() {
-  if (configSyncRetryTimer) {
-    window.clearTimeout(configSyncRetryTimer);
-    configSyncRetryTimer = 0;
-  }
-  configSyncRetryDelayMs = CONFIG_SYNC_RETRY_INITIAL_DELAY_MS;
-  configSyncRetryInFlight = false;
-  configSyncRetryTargetBaseUrl = "";
-  configSyncRetryTargetPageUrl = "";
-}
-
-async function runPendingConfigSyncRetry() {
-  if (configSyncRetryInFlight || !configSyncRetryTargetBaseUrl) {
-    return;
-  }
-  configSyncRetryInFlight = true;
-  let syncResult = { ok: false };
-  try {
-    syncResult = await syncBaseConfigToServer({
-      baseUrl: configSyncRetryTargetBaseUrl,
-      pageUrl: configSyncRetryTargetPageUrl || location.href,
-      alertOnCurrentReplacement: true
-    });
-  } catch {
-    syncResult = { ok: false };
-  } finally {
-    configSyncRetryInFlight = false;
-  }
-  if (isSuccessfulConfigSyncResult(syncResult)) {
-    clearConfigSyncRetryState();
-    return;
-  }
-  configSyncRetryDelayMs = Math.min(
-    Math.max(configSyncRetryDelayMs * 2, CONFIG_SYNC_RETRY_INITIAL_DELAY_MS),
-    CONFIG_SYNC_RETRY_MAX_DELAY_MS
-  );
-  scheduleConfigSyncRetry({
-    baseUrl: configSyncRetryTargetBaseUrl,
-    pageUrl: configSyncRetryTargetPageUrl || location.href
-  });
-}
-
-function scheduleConfigSyncRetry(options = {}) {
-  const {
-    baseUrl = "",
-    pageUrl = location.href,
-    resetDelay = false
-  } = options;
-  if (!baseUrl) {
-    return;
-  }
-  const targetChanged =
-    configSyncRetryTargetBaseUrl !== baseUrl ||
-    configSyncRetryTargetPageUrl !== pageUrl;
-  configSyncRetryTargetBaseUrl = baseUrl;
-  configSyncRetryTargetPageUrl = pageUrl;
-  if (resetDelay || targetChanged) {
-    configSyncRetryDelayMs = CONFIG_SYNC_RETRY_INITIAL_DELAY_MS;
-  }
-  if (configSyncRetryInFlight || configSyncRetryTimer) {
-    return;
-  }
-  configSyncRetryTimer = window.setTimeout(() => {
-    configSyncRetryTimer = 0;
-    runPendingConfigSyncRetry().then();
-  }, configSyncRetryDelayMs);
-}
-
-function updateConfigSyncRetryState(syncResult, options = {}) {
-  if (isSuccessfulConfigSyncResult(syncResult)) {
-    clearConfigSyncRetryState();
-    return;
-  }
-  scheduleConfigSyncRetry({
-    ...options,
-    resetDelay: true
-  });
-}
-
-async function syncBaseConfigToServer(options = {}) {
-  const {
-    baseUrl = "",
-    pageUrl = location.href,
-    alertOnCurrentReplacement = false
-  } = options;
-  if (!baseUrl) {
-    return { ok: false, skipped: true };
-  }
-  const settings = await loadConfigSyncSettings();
-  if (!settings.endpoint) {
-    return { ok: false, skipped: true };
-  }
-  const saveUrl = resolveRelativeEndpoint(settings.endpoint, "/save");
-  if (!saveUrl) {
-    return { ok: false, skipped: true };
-  }
-  const sourceConfig =
-    state.baseUrl === baseUrl && state.config
-      ? state.config
-      : await core.loadConfig(baseUrl);
-  const payload = config.createConfigSyncPayload(baseUrl, sourceConfig);
-
-  let response;
-  try {
-    response = await fetch(saveUrl, {
-      method: "POST",
-      headers: createConfigSyncHeaders(settings.token),
-      body: JSON.stringify(payload)
-    });
-  } catch {
-    return { ok: false };
-  }
-  if (!response.ok) {
-    return { ok: false, status: response.status };
-  }
-
-  let responseData = null;
-  try {
-    responseData = await response.json();
-  } catch {
-    responseData = null;
-  }
-  if (!responseData || typeof responseData !== "object") {
-    return { ok: true, replacedCurrentPage: false };
-  }
-
-  const normalized = config.normalizeConfigSyncPayload(responseData, baseUrl);
-  const mergeResult = config.mergePageMarkingsByTimestamp(
-    sourceConfig.pageMarkings,
-    normalized.pageMarkings
-  );
-  const hasServerReplacements = mergeResult.replacedUrls.length > 0;
-  if (!hasServerReplacements) {
-    return { ok: true, replacedCurrentPage: false };
-  }
-
-  sourceConfig.pageMarkings = mergeResult.pageMarkings;
-  await core.saveConfig(baseUrl, sourceConfig);
-  if (state.baseUrl === baseUrl) {
-    state.config = sourceConfig;
-  }
-
-  const replacedCurrentPage = mergeResult.replacedExistingUrls.includes(pageUrl);
-  if (replacedCurrentPage && state.baseUrl === baseUrl) {
-    const currentEntry = sourceConfig.pageMarkings
-      ? sourceConfig.pageMarkings[pageUrl] || null
-      : null;
-    core.setSavedPageEntry(pageUrl, currentEntry);
-    if (currentEntry) {
-      const immutableExcluded = core.collectImmutableElements();
-      const syncResult = core.syncPageMarkings(sourceConfig, pageUrl, immutableExcluded, {
-        allowCreate: true,
-        persist: true
-      });
-      if (syncResult && syncResult.entry) {
-        core.setSavedPageEntry(pageUrl, syncResult.entry);
-      }
-    }
-    core.scheduleRender();
-    core.notifyDraftStatus(pageUrl);
-    if (alertOnCurrentReplacement) {
-      window.alert("Newer data for this page was found and replaced your local changes.");
-    }
-  }
-
-  return {
-    ok: true,
-    replacedCurrentPage,
-    replacedUrls: mergeResult.replacedUrls.slice()
-  };
-}
-
 async function saveCurrentPageDraft(options) {
   const { baseUrl, showToast = false } = options || {};
   const targetBaseUrl = baseUrl || state.baseUrl || "";
@@ -391,32 +175,13 @@ async function saveCurrentPageDraft(options) {
   core.setSavedPageEntry(pageUrl, entry);
   core.scheduleRender();
   core.notifyDraftStatus(pageUrl);
-  let syncResult = { ok: true };
-  try {
-    syncResult = await syncBaseConfigToServer({
-      baseUrl: targetBaseUrl,
-      pageUrl,
-      alertOnCurrentReplacement: true
-    });
-  } catch {
-    syncResult = { ok: false };
-  }
-  updateConfigSyncRetryState(syncResult, {
-    baseUrl: targetBaseUrl,
-    pageUrl
-  });
   if (showToast) {
-    showPageToast(
-      isSuccessfulConfigSyncResult(syncResult)
-        ? "Page saved"
-        : "Page saved locally (server sync failed)"
-    );
+    showPageToast("Page saved locally");
   }
   return {
     ok: true,
     saved: true,
-    dirty: false,
-    syncFailed: !isSuccessfulConfigSyncResult(syncResult)
+    dirty: false
   };
 }
 
@@ -2194,23 +1959,8 @@ export function main() {
         state.config = config;
         core.scheduleRender();
         core.notifyDraftStatus(pageUrl);
-        let syncResult = { ok: true };
-        try {
-          syncResult = await syncBaseConfigToServer({
-            baseUrl: targetBaseUrl,
-            pageUrl,
-            alertOnCurrentReplacement: true
-          });
-        } catch {
-          syncResult = { ok: false };
-        }
-        updateConfigSyncRetryState(syncResult, {
-          baseUrl: targetBaseUrl,
-          pageUrl
-        });
         sendResponse({
           ok: true,
-          syncFailed: !isSuccessfulConfigSyncResult(syncResult),
           dirty: core.isPageDraftDirty(pageUrl),
           entry: core.getSavedPageEntry(pageUrl)
         });
