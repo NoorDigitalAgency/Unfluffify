@@ -906,107 +906,6 @@ function hasRenderableTextForHighlight(
   );
 }
 
-function isCoveredBySelectedElement(el, boundary, selectedElements) {
-  let current = el;
-  while (current && current !== boundary) {
-    if (selectedElements.has(current)) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
-
-function canPromoteIncludedParent(
-  parent,
-  selectedElements,
-  excludedElements,
-  includedElements,
-  inclusionContextSet
-) {
-  if (
-    !isInclusionEligibleElement(
-      parent,
-      excludedElements,
-      includedElements,
-      inclusionContextSet
-    )
-  ) {
-    return false;
-  }
-  if (!hasDirectText(parent)) {
-    if (
-      !canUseCollapsedTextFallbackElement(parent) ||
-      !(
-        getNormalizedElementText(parent) ||
-        hasRenderableTextOutsideExcludedNature(
-          parent,
-          excludedElements,
-          includedElements,
-          inclusionContextSet
-        )
-      )
-    ) {
-      return false;
-    }
-  }
-  let hasSelectedDescendant = false;
-  const stack = Array.from(parent.children || []);
-  while (stack.length) {
-    const el = stack.pop();
-    if (!el || el.nodeType !== 1) {
-      continue;
-    }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-      continue;
-    }
-    if (!isVisible(el)) {
-      continue;
-    }
-    if (
-      isExcludedNatureElement(
-        el,
-        excludedElements,
-        includedElements,
-        inclusionContextSet
-      )
-    ) {
-      return false;
-    }
-    if (selectedElements.has(el)) {
-      hasSelectedDescendant = true;
-    }
-    if (hasDirectText(el) && !isCoveredBySelectedElement(el, parent, selectedElements)) {
-      return false;
-    }
-    for (let i = el.children.length - 1; i >= 0; i -= 1) {
-      stack.push(el.children[i]);
-    }
-  }
-  return hasSelectedDescendant;
-}
-
-function collapseToShallowestElements(elements) {
-  const sorted = Array.from(elements || []).sort((left, right) => {
-    const depthDiff = getElementDepth(left) - getElementDepth(right);
-    if (depthDiff !== 0) {
-      return depthDiff;
-    }
-    return compareDocumentOrder(left, right);
-  });
-  const kept = [];
-  sorted.forEach((el) => {
-    if (!el || el.nodeType !== 1) {
-      return;
-    }
-    const hasAncestor = kept.some((ancestor) => ancestor.contains(el));
-    if (!hasAncestor) {
-      kept.push(el);
-    }
-  });
-  return kept;
-}
-
 function collectExcludedChildrenInsideIncludedParents(
   includedParents,
   excludedElements,
@@ -1093,9 +992,15 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
           inclusionContextSet
         )
       );
-    if ((hasDirectText(el) || isAutoIncludedCollapsedText) && !rawSelectorExcluded) {
+    const isMarkableInclusionCandidate = isSelfMarkableWithoutParentMode(el);
+    if (
+      isMarkableInclusionCandidate &&
+      (hasDirectText(el) || isAutoIncludedCollapsedText) &&
+      !rawSelectorExcluded
+    ) {
       baseSelected.add(el);
     } else if (
+      isMarkableInclusionCandidate &&
       includedElements.has(el) &&
       hasRenderableTextOutsideExcludedNature(
         el,
@@ -1111,35 +1016,7 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     }
   }
 
-  const selectedElements = new Set(baseSelected);
-  const sortedByDepthDesc = Array.from(baseSelected).sort(
-    (left, right) => getElementDepth(right) - getElementDepth(left)
-  );
-  sortedByDepthDesc.forEach((el) => {
-    let current = el && el.parentElement;
-    while (current && current.nodeType === 1) {
-      if (
-        !canPromoteIncludedParent(
-          current,
-          selectedElements,
-          excludedElements,
-          includedElements,
-          inclusionContextSet
-        )
-      ) {
-        break;
-      }
-      for (const existing of Array.from(selectedElements)) {
-        if (existing !== current && current.contains(existing)) {
-          selectedElements.delete(existing);
-        }
-      }
-      selectedElements.add(current);
-      current = current.parentElement;
-    }
-  });
-
-  const included = collapseToShallowestElements(selectedElements).filter((el) =>
+  const included = collapseElementsByNesting(baseSelected).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
