@@ -1,36 +1,48 @@
 import { idbGet, idbSet } from "./utilities.js";
 
-const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00";
+const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
 
-function toTimestampMillis(value) {
+function parseTimestampMillis(value) {
   if (typeof value !== "string") {
-    return Number.NEGATIVE_INFINITY;
+    return Number.NaN;
   }
   const trimmed = value.trim();
   if (!trimmed) {
-    return Number.NEGATIVE_INFINITY;
+    return Number.NaN;
   }
-  const parsed = Date.parse(trimmed);
+  const hasExplicitTimezone = /(?:z|[+\-]\d{2}:?\d{2})$/i.test(trimmed);
+  const parseValue = hasExplicitTimezone ? trimmed : `${trimmed}Z`;
+  const parsed = Date.parse(parseValue);
+  if (!Number.isFinite(parsed)) {
+    return Number.NaN;
+  }
+  return parsed;
+}
+
+function toTimestampMillis(value) {
+  const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
     return Number.NEGATIVE_INFINITY;
   }
   return parsed;
 }
 
+function toUtcTimestampString(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return `${date.toISOString().slice(0, 19)}Z`;
+}
+
 export function createTimestampNow() {
-  return new Date().toISOString().slice(0, 19);
+  return toUtcTimestampString(new Date());
 }
 
 export function normalizeEntryTimestamp(value) {
-  if (typeof value !== "string") {
+  const parsed = parseTimestampMillis(value);
+  if (!Number.isFinite(parsed)) {
     return PAGE_TIMESTAMP_FALLBACK;
   }
-  const trimmed = value.trim();
-  if (!trimmed || !Number.isFinite(Date.parse(trimmed))) {
-    return PAGE_TIMESTAMP_FALLBACK;
-  }
-  return trimmed;
+  return toUtcTimestampString(parsed);
 }
 
 export function isIncomingTimestampNewer(incomingTimestamp, localTimestamp) {
