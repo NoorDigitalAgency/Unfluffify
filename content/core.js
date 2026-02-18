@@ -325,16 +325,20 @@ function isSelfMarkableWithoutParentMode(el) {
     return false;
   }
   const hasDirectOwnText = hasDirectText(el);
-  if (!hasDirectOwnText && hasTextualDescendant(el)) {
+  const hasVisibleTextualDescendant = hasTextualDescendant(el);
+  if (!hasDirectOwnText && hasVisibleTextualDescendant) {
     return false;
   }
   if (!matchesToggleableDefaultExcluded(el)) {
+    if (!hasDirectOwnText && !hasVisibleTextualDescendant) {
+      return false;
+    }
     if (!hasDirectOwnText && hasTextualImmutableDescendant(el)) {
       return false;
     }
     return true;
   }
-  return !hasTextualDescendant(el) && !hasExplicitlyMarkedDescendant(el);
+  return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant(el);
 }
 
 function matchesImmutableExcluded(el) {
@@ -1641,6 +1645,10 @@ function getMarkModeFromEvent(event) {
   return "exclude";
 }
 
+function shouldAllowParentMarking(mode, shiftHeld) {
+  return mode !== "include" && Boolean(shiftHeld);
+}
+
 function clearCursorMode() {
   const root = document.documentElement;
   if (!root) {
@@ -2159,11 +2167,13 @@ function refreshHoverHighlight() {
     clearLayer(layerHover);
     return;
   }
-  const allowImmutableChildren = getMarkMode() === "include";
+  const mode = getMarkMode();
+  const allowImmutableChildren = mode === "include";
+  const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
       state.lastPointer.x,
       state.lastPointer.y,
-      state.shiftHeld,
+      allowParent,
       allowImmutableChildren
   );
 }
@@ -2187,11 +2197,13 @@ function handleMouseMove(event) {
     if (!state.enabled || !state.lastPointer) {
       return;
     }
-    const allowImmutableChildren = getMarkModeFromEvent(event) === "include";
+    const mode = getMarkModeFromEvent(event);
+    const allowImmutableChildren = mode === "include";
+    const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
       state.lastPointer.x,
       state.lastPointer.y,
-      state.lastPointer.shiftKey,
+      allowParent,
       allowImmutableChildren
     );
   });
@@ -2398,7 +2410,7 @@ function handleToggleEvent(event) {
       clearFocusHighlight();
     }
   }
-  const allowParent = event.shiftKey;
+  const allowParent = shouldAllowParentMarking(mode, event.shiftKey);
   const allowImmutableChildren = mode === "include";
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
   const excludedSet =

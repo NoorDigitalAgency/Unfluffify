@@ -488,7 +488,8 @@ function normalizePayloadXpaths(items) {
   const redundantXpaths = new Set();
   sorted.forEach((item) => {
     const nearestAncestorStatus = getNearestAncestorStatus(item.xpath, statusByXpath);
-    if (nearestAncestorStatus !== null && nearestAncestorStatus === item.excluded) {
+    // Keep all included descendants, but collapse excluded descendants under excluded ancestors.
+    if (item.excluded && nearestAncestorStatus === true) {
       redundantXpaths.add(item.xpath);
       return;
     }
