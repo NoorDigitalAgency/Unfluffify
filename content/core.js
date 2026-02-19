@@ -3271,111 +3271,6 @@ export function canApplyExplicitInclude(el, configValue = state.config, pageUrl 
   return hasExcludedAncestor(el);
 }
 
-function getEffectiveAiSelectorSet(configValue) {
-  const latestComputed = normalizeAiSelectorSet(configValue && configValue.latestComputedSelectors);
-  if (combineAiSelectorSet(latestComputed).length > 0) {
-    return latestComputed;
-  }
-  return normalizeAiSelectorSet(configValue && configValue.domainAiSelectorSet);
-}
-
-function applySelectorDefaultsToItems(items, configValue) {
-  if (!Array.isArray(items) || !configValue) {
-    return;
-  }
-  const selectorSet = getEffectiveAiSelectorSet(configValue);
-  if (!combineAiSelectorSet(selectorSet).length) {
-    return;
-  }
-  const excludedElements = collectSelectorElements(selectorSet.exclusionSelectors);
-  const includedElements = collectSelectorElements(selectorSet.inclusionSelectors);
-  if (excludedElements.size === 0 && includedElements.size === 0) {
-    return;
-  }
-  const itemByXpath = new Map();
-  const defaultExcludedElementByXpath = new Map();
-  for (const item of items) {
-    if (item && typeof item.xpath === "string" && item.xpath) {
-      itemByXpath.set(item.xpath, item);
-      if (!item.excluded) {
-        continue;
-      }
-      const el = getElementFromXPath(item.xpath);
-      if (!el || !matchesToggleableDefaultExcluded(el)) {
-        continue;
-      }
-      defaultExcludedElementByXpath.set(item.xpath, el);
-    }
-  }
-  const directSelectorExcludedXpaths = new Set();
-  const upsert = (el, excluded) => {
-    if (!el || el.nodeType !== 1) {
-      return;
-    }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-      return;
-    }
-    if (isWithinImmutableExcluded(el)) {
-      return;
-    }
-    if (!isSelfMarkableWithoutParentMode(el)) {
-      return;
-    }
-    const xpath = getXPath(el);
-    if (!xpath) {
-      return;
-    }
-    const existing = itemByXpath.get(xpath);
-    if (existing) {
-      existing.excluded = excluded;
-      return;
-    }
-    const nextItem = { xpath, excluded };
-    items.push(nextItem);
-    itemByXpath.set(xpath, nextItem);
-  };
-  // Exclusions apply first, then inclusions override.
-  excludedElements.forEach((el) => {
-    const xpath = getXPath(el);
-    if (xpath) {
-      directSelectorExcludedXpaths.add(xpath);
-    }
-    upsert(el, true);
-  });
-
-  // Merge with defaults:
-  // If a default-excluded element has selector-excluded descendants,
-  // move the exclusion down to descendants unless the default itself
-  // is directly matched by an exclusion selector.
-  for (const [defaultXpath, defaultEl] of defaultExcludedElementByXpath) {
-    if (!defaultEl || defaultEl.nodeType !== 1) {
-      continue;
-    }
-    const existingItem = itemByXpath.get(defaultXpath);
-    if (!existingItem || !existingItem.excluded) {
-      continue;
-    }
-    if (directSelectorExcludedXpaths.has(defaultXpath)) {
-      continue;
-    }
-    let hasSelectorExcludedDescendant = false;
-    for (const excludedEl of excludedElements) {
-      if (!excludedEl || excludedEl.nodeType !== 1 || excludedEl === defaultEl) {
-        continue;
-      }
-      if (defaultEl.contains(excludedEl)) {
-        hasSelectorExcludedDescendant = true;
-        break;
-      }
-    }
-    if (hasSelectorExcludedDescendant) {
-      existingItem.excluded = false;
-    }
-  }
-
-  includedElements.forEach((el) => upsert(el, false));
-}
-
 export function clearFocusHighlight() {
   if (!state.focusElement) {
     return;
@@ -4074,12 +3969,10 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   }
   const {
     allowCreate = true,
-    persist = true,
-    applySelectorDefaultsForNew = true
+    persist = true
   } = options || {};
   const hadEntry = hasPageMarkingEntry(config, pageUrl);
   const shouldPersist = persist && (allowCreate || hadEntry);
-  const hasSavedSnapshot = Boolean(getSavedPageEntry(pageUrl));
   const entry = getPageMarkingEntry(config, pageUrl, {
     create: allowCreate || hadEntry,
     persist: shouldPersist
@@ -4253,14 +4146,6 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     // Preserve hidden include choices so user overrides survive accordion-like visibility toggles.
     items.push({ xpath: item.xpath, excluded: false });
     seen.add(item.xpath);
-  }
-  const shouldApplySelectorDefaults =
-    applySelectorDefaultsForNew &&
-    !hasSavedSnapshot &&
-    previousItems.length === 0 &&
-    explicitIncludeSet.size === 0;
-  if (shouldApplySelectorDefaults) {
-    applySelectorDefaultsToItems(items, config);
   }
   const changed =
       items.length !== previousItems.length ||
