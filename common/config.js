@@ -216,6 +216,17 @@ export function normalizePageMarkings(pageMarkings) {
     if (includeResult.changed) {
       changed = true;
     }
+    if (!Array.isArray(entry.submissionXpaths) && entry.submissionXpaths !== undefined) {
+      changed = true;
+    }
+    const rawSubmission = Array.isArray(entry.submissionXpaths)
+      ? entry.submissionXpaths
+      : [];
+    const normalizedSubmission = normalizeXpathItems(rawSubmission);
+    const submissionXpaths = normalizedSubmission.values;
+    if (normalizedSubmission.changed) {
+      changed = true;
+    }
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,
@@ -223,6 +234,7 @@ export function normalizePageMarkings(pageMarkings) {
       xpaths,
       consentXpaths,
       includeXpaths,
+      submissionXpaths,
       fullHTML
     };
   });
@@ -311,6 +323,7 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
+    submissionXpaths: [],
     fullHTML: ""
   };
 }

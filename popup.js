@@ -2653,7 +2653,7 @@ async function handleComputeSelectors() {
     );
   });
 
-  const pageXpathsByUrl = new Map(
+  const pageSubmissionXpathsByUrl = new Map(
     persistedPages.map((entry) => [
       entry.url,
       normalizePayloadXpaths(entry.xpaths, {
@@ -2668,21 +2668,20 @@ async function handleComputeSelectors() {
     if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
       configValue.pageMarkings = {};
     }
-    pageXpathsByUrl.forEach((nextXpaths, url) => {
+    pageSubmissionXpathsByUrl.forEach((nextXpaths, url) => {
       if (!url || !Array.isArray(nextXpaths) || !configValue.pageMarkings[url]) {
         return;
       }
       const pageEntry = configValue.pageMarkings[url];
       const preserveExcludedXpaths = preserveExcludedXpathsByUrl.get(url) || new Set();
-      const currentXpaths = normalizePayloadXpaths(
-        Array.isArray(pageEntry.xpaths) ? pageEntry.xpaths : [],
+      const currentSubmissionXpaths = normalizePayloadXpaths(
+        Array.isArray(pageEntry.submissionXpaths) ? pageEntry.submissionXpaths : [],
         { preserveExcludedXpaths }
       );
-      if (areXPathRowsEqual(currentXpaths, nextXpaths)) {
+      if (areXPathRowsEqual(currentSubmissionXpaths, nextXpaths)) {
         return;
       }
-      pageEntry.xpaths = nextXpaths;
-      pageEntry.timestamp = config.createTimestampNow();
+      pageEntry.submissionXpaths = nextXpaths;
       configValue.pageMarkings[url] = pageEntry;
     });
   });

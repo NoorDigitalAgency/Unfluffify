@@ -44,6 +44,7 @@ export const state = {
   mutationObserver: null,
   savedPageEntry: null,
   savedPageUrl: "",
+  disabledUnsavedDraft: null,
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
   consentStyleSnapshots: new WeakMap(),
@@ -1160,6 +1161,7 @@ export function normalizePageEntryXpaths(entry) {
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
+  entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   return entry;
 }
@@ -3097,6 +3099,7 @@ export function clonePageEntry(entry) {
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
+    submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
   };
   return normalizePageEntryXpaths(cloned);
@@ -3402,6 +3405,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
       xpaths: [],
       consentXpaths: [],
       includeXpaths: [],
+      submissionXpaths: [],
       fullHTML: ""
     };
   }
@@ -3419,6 +3423,7 @@ export function getPageMarkingEntry(config, pageUrl, options) {
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
+    submissionXpaths: [],
     fullHTML: ""
   };
   if (create && persist) {
@@ -3438,7 +3443,37 @@ export async function loadConfig(baseUrl) {
   return configs[baseUrl];
 }
 
+function cloneDraftEntryForDisableCache(entry) {
+  const cloned = clonePageEntry(entry);
+  if (!cloned) {
+    return null;
+  }
+  // Keep disable/enable cache small; fullHTML is not needed for draft restoration.
+  cloned.fullHTML = "";
+  return cloned;
+}
+
+function cacheUnsavedDraftBeforeDisable() {
+  if (!state.enabled || !state.baseUrl || !state.config) {
+    return;
+  }
+  const pageUrl = location.href;
+  const draftEntry = getDraftPageEntry(pageUrl);
+  const savedEntry = getSavedPageEntry(pageUrl);
+  if (!draftEntry || areEntriesEquivalent(draftEntry, savedEntry)) {
+    state.disabledUnsavedDraft = null;
+    return;
+  }
+  state.disabledUnsavedDraft = {
+    baseUrl: state.baseUrl,
+    pageUrl,
+    draftEntry: cloneDraftEntryForDisableCache(draftEntry),
+    savedEntry: cloneDraftEntryForDisableCache(savedEntry)
+  };
+}
+
 export function disable() {
+  cacheUnsavedDraftBeforeDisable();
   state.enabled = false;
   state.baseUrl = "";
   state.config = null;
@@ -3497,6 +3532,21 @@ export async function enableForBaseUrl(baseUrl) {
       state.config.pageMarkings &&
       state.config.pageMarkings[pageUrl];
   setSavedPageEntry(pageUrl, savedEntry || null);
+  const cachedDraft = state.disabledUnsavedDraft;
+  if (
+    cachedDraft &&
+    cachedDraft.baseUrl === baseUrl &&
+    cachedDraft.pageUrl === pageUrl &&
+    cachedDraft.draftEntry
+  ) {
+    mergeDraftEntry(
+      state.config,
+      pageUrl,
+      cachedDraft.draftEntry,
+      cachedDraft.savedEntry
+    );
+  }
+  state.disabledUnsavedDraft = null;
 
   const hasSavedEntry = Boolean(savedEntry);
   syncConsentOnEnable(pageUrl, hasSavedEntry);
