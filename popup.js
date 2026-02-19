@@ -32,21 +32,6 @@ function isMobileSimulationActive(deviceState) {
   return Boolean(deviceState.enabled) && deviceState.mode === "mobile";
 }
 
-async function ensureMobileSimulationForMarking() {
-  if (isMobileSimulationActive({
-    enabled: state.currentDeviceEmulationEnabled,
-    mode: state.currentDeviceMode
-  })) {
-    return true;
-  }
-  const updated = await helpers.updateDeviceEmulation({
-    enabled: true,
-    mode: "mobile",
-    scale: state.currentDeviceScale
-  });
-  return isMobileSimulationActive(updated);
-}
-
 function ensureMobileSimulationForActions() {
   if (isMobileSimulationActive({
     enabled: state.currentDeviceEmulationEnabled,
@@ -1935,14 +1920,6 @@ async function handleEnableToggle(event) {
       await refreshUi();
       return;
     }
-    const mobileReady = await ensureMobileSimulationForMarking();
-    if (!mobileReady) {
-      uiModule.showToast("Unable to enable mobile simulation");
-      uiModule.setViewState({ toggleEnabled: false });
-      state.lastPopupEnabled = null;
-      await refreshUi();
-      return;
-    }
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
     await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
@@ -2194,11 +2171,6 @@ async function handleBaseUrlSet() {
     uiModule.showToast(injectResult.error || "Unable to activate on this page");
     return;
   }
-  const mobileReady = await ensureMobileSimulationForMarking();
-  if (!mobileReady) {
-    uiModule.showToast("Unable to enable mobile simulation");
-    return;
-  }
   state.currentBaseUrl = baseUrlValue;
   state.currentConfig = await config.ensureConfig(baseUrlValue);
   state.baseUrlEditMode = false;
@@ -2231,13 +2203,6 @@ async function handleBaseUrlEditToggle() {
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
-      state.baseUrlEditMode = true;
-      await refreshUi();
-      return;
-    }
-    const mobileReady = await ensureMobileSimulationForMarking();
-    if (!mobileReady) {
-      uiModule.showToast("Unable to enable mobile simulation");
       state.baseUrlEditMode = true;
       await refreshUi();
       return;

@@ -213,21 +213,6 @@ async function toggleEnabledFromPage() {
     refreshSilentHighlightings().then();
     return;
   }
-  const emulationResponse = await utils.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    enabled: true,
-    mode: "mobile"
-  });
-  if (
-    !emulationResponse ||
-    !emulationResponse.ok ||
-    !emulationResponse.state ||
-    !emulationResponse.state.enabled ||
-    emulationResponse.state.mode !== "mobile"
-  ) {
-    showPageToast("Unable to enable mobile simulation. Open the popup and try again.");
-    return;
-  }
   await utils.sendRuntimeMessage({
     type: "setTabState",
     enabled: true,
