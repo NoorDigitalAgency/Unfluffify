@@ -520,7 +520,11 @@ function getNearestAncestorStatus(xpath, statusByXpath) {
   return null;
 }
 
-function normalizePayloadXpaths(items) {
+function normalizePayloadXpaths(items, options = {}) {
+  const preserveExcludedXpaths =
+    options && options.preserveExcludedXpaths instanceof Set
+      ? options.preserveExcludedXpaths
+      : new Set();
   const rawItems = Array.isArray(items) ? items : [];
   const deduped = [];
   const seen = new Set();
@@ -549,6 +553,10 @@ function normalizePayloadXpaths(items) {
   const redundantXpaths = new Set();
   sorted.forEach((item) => {
     const nearestAncestorStatus = getNearestAncestorStatus(item.xpath, statusByXpath);
+    if (item.excluded && preserveExcludedXpaths.has(item.xpath)) {
+      statusByXpath.set(item.xpath, true);
+      return;
+    }
     // Keep all included descendants, but collapse excluded descendants under excluded ancestors.
     if (item.excluded && nearestAncestorStatus === true) {
       redundantXpaths.add(item.xpath);
@@ -905,21 +913,89 @@ function isXPathDescendant(parentXpath, childXpath) {
   return childXpath.startsWith(`${parentXpath}/`);
 }
 
-function isWithinExcludedXPathSet(xpath, excludedSet) {
-  if (!xpath || !excludedSet || excludedSet.size === 0) {
+function collectExplicitXPathSetsFromEntry(entry) {
+  const explicitExcluded = new Set();
+  const explicitIncluded = new Set();
+  const consentExcluded = new Set();
+  if (!entry || typeof entry !== "object") {
+    return { explicitExcluded, explicitIncluded, consentExcluded };
+  }
+  const normalizeXPath = (value) =>
+    typeof value === "string" ? value.trim() : "";
+  const rows = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  rows.forEach((item) => {
+    if (!item || typeof item.xpath !== "string") {
+      return;
+    }
+    const xpath = normalizeXPath(item.xpath);
+    if (!xpath) {
+      return;
+    }
+    if (item.excluded) {
+      explicitExcluded.add(xpath);
+    } else {
+      explicitIncluded.add(xpath);
+    }
+  });
+  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  includeXpaths.forEach((xpath) => {
+    const normalized = normalizeXPath(xpath);
+    if (normalized) {
+      explicitIncluded.add(normalized);
+    }
+  });
+  const consentXpaths = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
+  consentXpaths.forEach((xpath) => {
+    const normalized = normalizeXPath(xpath);
+    if (!normalized) {
+      return;
+    }
+    consentExcluded.add(normalized);
+    explicitExcluded.add(normalized);
+  });
+  return { explicitExcluded, explicitIncluded, consentExcluded };
+}
+
+function hasExplicitExcludedAncestor(xpath, explicitExcludedSet) {
+  if (!xpath || !explicitExcludedSet || explicitExcludedSet.size === 0) {
     return false;
   }
-  for (const excludedXpath of excludedSet) {
-    if (excludedXpath && excludedXpath !== xpath && isXPathDescendant(excludedXpath, xpath)) {
+  for (const excludedXpath of explicitExcludedSet) {
+    if (
+      excludedXpath &&
+      excludedXpath !== xpath &&
+      isXPathDescendant(excludedXpath, xpath)
+    ) {
       return true;
     }
   }
   return false;
 }
 
-function collectInvisibleMarkableExcludedXpathsFromHtml(fullHTML, excludedSet) {
+function collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry) {
+  const { explicitExcluded, explicitIncluded, consentExcluded } =
+    collectExplicitXPathSetsFromEntry(entry);
+  const rowsByXpath = new Map();
+  const upsert = (xpath, excluded) => {
+    if (typeof xpath !== "string" || !xpath) {
+      return;
+    }
+    const existing = rowsByXpath.get(xpath);
+    if (existing) {
+      if (excluded) {
+        existing.excluded = true;
+      }
+      return;
+    }
+    rowsByXpath.set(xpath, { xpath, excluded: Boolean(excluded) });
+  };
+  explicitExcluded.forEach((xpath) => upsert(xpath, true));
+  consentExcluded.forEach((xpath) => upsert(xpath, true));
+
   if (typeof fullHTML !== "string" || !fullHTML.trim()) {
-    return [];
+    return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
+      preserveExcludedXpaths: explicitExcluded
+    });
   }
   let doc = null;
   try {
@@ -928,15 +1004,19 @@ function collectInvisibleMarkableExcludedXpathsFromHtml(fullHTML, excludedSet) {
     doc = null;
   }
   if (!doc || !doc.body) {
-    return [];
+    return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
+      preserveExcludedXpaths: explicitExcluded
+    });
   }
-  const results = [];
-  const seen = new Set();
+
   const stack = [doc.body];
   while (stack.length) {
     const el = stack.pop();
     if (!el || el.nodeType !== 1) {
       continue;
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
     }
     if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
       continue;
@@ -945,21 +1025,49 @@ function collectInvisibleMarkableExcludedXpathsFromHtml(fullHTML, excludedSet) {
       continue;
     }
     const xpath = getStaticXPath(el);
-    if (
-      xpath &&
-      !seen.has(xpath) &&
-      !isWithinExcludedXPathSet(xpath, excludedSet) &&
-      isStaticSelfMarkableWithoutParentMode(el) &&
-      isStaticNodeOrAncestorHidden(el)
-    ) {
-      seen.add(xpath);
-      results.push(xpath);
+    if (!xpath) {
+      continue;
     }
-    for (let i = el.children.length - 1; i >= 0; i -= 1) {
-      stack.push(el.children[i]);
+    if (explicitExcluded.has(xpath)) {
+      upsert(xpath, true);
+      continue;
+    }
+    const explicitlyIncluded = explicitIncluded.has(xpath);
+    if (hasExplicitExcludedAncestor(xpath, explicitExcluded) && !explicitlyIncluded) {
+      continue;
+    }
+    if (!isStaticSelfMarkableWithoutParentMode(el)) {
+      continue;
+    }
+    const hidden = isStaticNodeOrAncestorHidden(el);
+    if (explicitlyIncluded) {
+      upsert(xpath, hidden);
+      continue;
+    }
+    upsert(xpath, hidden);
+  }
+  return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
+    preserveExcludedXpaths: explicitExcluded
+  });
+}
+
+function areXPathRowsEqual(left, right) {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : [];
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    const aItem = a[i];
+    const bItem = b[i];
+    if (!aItem || !bItem) {
+      return false;
+    }
+    if (aItem.xpath !== bItem.xpath || Boolean(aItem.excluded) !== Boolean(bItem.excluded)) {
+      return false;
     }
   }
-  return results;
+  return true;
 }
 
 function getSilentHighlightVisibility() {
@@ -2482,74 +2590,13 @@ async function handleComputeSelectors() {
         return null;
       }
       const fullHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
-      const xpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-      const consentXpaths = Array.isArray(entry.consentXpaths)
-        ? entry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-        : [];
-      const inclusionXpaths = Array.isArray(entry.includeXpaths)
-        ? entry.includeXpaths
-        : [];
-      const combined = new Map();
-      const normalizeXpath = (value) =>
-        typeof value === "string" ? value.trim() : "";
-      xpaths.forEach((item) => {
-        const xpath = normalizeXpath(item && item.xpath);
-        if (!xpath) {
-          return;
-        }
-        combined.set(xpath, { xpath, excluded: Boolean(item.excluded) });
-      });
-      inclusionXpaths.forEach((xpath) => {
-        const normalizedXpath = normalizeXpath(xpath);
-        if (!normalizedXpath) {
-          return;
-        }
-        const existing = combined.get(normalizedXpath);
-        if (existing) {
-          existing.excluded = false;
-        } else {
-          combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: false });
-        }
-      });
-      // Consent-hidden xpaths must always be sent as excluded.
-      consentXpaths.forEach((xpath) => {
-        const normalizedXpath = normalizeXpath(xpath);
-        if (!normalizedXpath) {
-          return;
-        }
-        const existing = combined.get(normalizedXpath);
-        if (existing) {
-          existing.excluded = true;
-        } else {
-          combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: true });
-        }
-      });
-      const excludedSet = new Set(
-        Array.from(combined.values())
-          .filter((item) => item && item.excluded)
-          .map((item) => item.xpath)
-      );
-      const invisibleMarkableXpaths = collectInvisibleMarkableExcludedXpathsFromHtml(
-        fullHTML,
-        excludedSet
-      );
-      invisibleMarkableXpaths.forEach((xpath) => {
-        if (!xpath) {
-          return;
-        }
-        const existing = combined.get(xpath);
-        if (existing) {
-          existing.excluded = true;
-        } else {
-          combined.set(xpath, { xpath, excluded: true });
-        }
-      });
-      const combinedXpaths = Array.from(combined.values());
-      const normalizedPayloadXpaths = normalizePayloadXpaths(combinedXpaths);
+      const { explicitExcluded } = collectExplicitXPathSetsFromEntry(entry);
+      const normalizedPayloadXpaths = collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry);
       return {
         url,
         fullHTML,
-        xpaths: normalizedPayloadXpaths
+        xpaths: normalizedPayloadXpaths,
+        explicitExcludedXpaths: explicitExcluded
       };
     });
 
@@ -2575,26 +2622,70 @@ async function handleComputeSelectors() {
             return { xpath, excluded: Boolean(item.excluded) };
           })
           .filter(Boolean);
-        if (liveXpaths.length > 0) {
-          currentPageEntry.xpaths = liveXpaths;
-        }
+        currentPageEntry.xpaths = normalizePayloadXpaths(liveXpaths, {
+          preserveExcludedXpaths: currentPageEntry.explicitExcludedXpaths
+        });
       }
     }
   }
 
+  const persistedPages = pages.filter((entry) => {
+    if (!entry || !entry.url) {
+      return false;
+    }
+    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
+      return false;
+    }
+    return Array.isArray(entry.xpaths);
+  });
+
   const filteredPages = pages.filter((entry) => {
-      if (!entry || !entry.url) {
-        return false;
+    if (!entry || !entry.url) {
+      return false;
+    }
+    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
+      return false;
+    }
+    return (
+      Array.isArray(entry.xpaths) &&
+      entry.xpaths.length > 0 &&
+      entry.fullHTML
+    );
+  });
+
+  const pageXpathsByUrl = new Map(
+    persistedPages.map((entry) => [
+      entry.url,
+      normalizePayloadXpaths(entry.xpaths, {
+        preserveExcludedXpaths: entry.explicitExcludedXpaths
+      })
+    ])
+  );
+  const preserveExcludedXpathsByUrl = new Map(
+    persistedPages.map((entry) => [entry.url, entry.explicitExcludedXpaths])
+  );
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (configValue) => {
+    if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
+      configValue.pageMarkings = {};
+    }
+    pageXpathsByUrl.forEach((nextXpaths, url) => {
+      if (!url || !Array.isArray(nextXpaths) || !configValue.pageMarkings[url]) {
+        return;
       }
-      if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
-        return false;
-      }
-      return (
-        Array.isArray(entry.xpaths) &&
-        entry.xpaths.length > 0 &&
-        entry.fullHTML
+      const pageEntry = configValue.pageMarkings[url];
+      const preserveExcludedXpaths = preserveExcludedXpathsByUrl.get(url) || new Set();
+      const currentXpaths = normalizePayloadXpaths(
+        Array.isArray(pageEntry.xpaths) ? pageEntry.xpaths : [],
+        { preserveExcludedXpaths }
       );
+      if (areXPathRowsEqual(currentXpaths, nextXpaths)) {
+        return;
+      }
+      pageEntry.xpaths = nextXpaths;
+      pageEntry.timestamp = config.createTimestampNow();
+      configValue.pageMarkings[url] = pageEntry;
     });
+  });
 
   if (!filteredPages.length) {
     uiModule.showToast("Mark pages before computing selectors");
@@ -2604,7 +2695,11 @@ async function handleComputeSelectors() {
   const payload = {
     baseUrl: state.currentBaseUrl,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    pages: filteredPages
+    pages: filteredPages.map((entry) => ({
+      url: entry.url,
+      fullHTML: entry.fullHTML,
+      xpaths: entry.xpaths
+    }))
   };
 
   let selectorSet = {

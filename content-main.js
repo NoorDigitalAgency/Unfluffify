@@ -1494,7 +1494,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
       allowParent: false,
       allowImmutableChildren: false
     });
-    if (!isMarkableTextual && !explicitlyIncluded) {
+    if (!isMarkableTextual) {
       continue;
     }
     const visibleToUser = core.isVisible(node);
