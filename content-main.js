@@ -1713,6 +1713,16 @@ export function main() {
       return;
     }
 
+    if (message.type === "filterInvisibleXpathsOnPage") {
+      const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
+      const filtered = xpaths.filter((xpath) => {
+        const el = core.getElementFromXPath(xpath);
+        return el && !core.isVisible(el);
+      });
+      sendResponse({ xpaths: filtered });
+      return;
+    }
+
     if (message.type === "describeXPathsOnPage") {
       const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
       const items = [];

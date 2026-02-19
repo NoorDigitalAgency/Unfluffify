@@ -2524,28 +2524,26 @@ async function handleComputeSelectors() {
           combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: true });
         }
       });
-      if (combined.size > 0) {
-        const excludedSet = new Set(
-          Array.from(combined.values())
-            .filter((item) => item && item.excluded)
-            .map((item) => item.xpath)
-        );
-        const invisibleMarkableXpaths = collectInvisibleMarkableExcludedXpathsFromHtml(
-          fullHTML,
-          excludedSet
-        );
-        invisibleMarkableXpaths.forEach((xpath) => {
-          if (!xpath) {
-            return;
-          }
-          const existing = combined.get(xpath);
-          if (existing) {
-            existing.excluded = true;
-          } else {
-            combined.set(xpath, { xpath, excluded: true });
-          }
-        });
-      }
+      const excludedSet = new Set(
+        Array.from(combined.values())
+          .filter((item) => item && item.excluded)
+          .map((item) => item.xpath)
+      );
+      const invisibleMarkableXpaths = collectInvisibleMarkableExcludedXpathsFromHtml(
+        fullHTML,
+        excludedSet
+      );
+      invisibleMarkableXpaths.forEach((xpath) => {
+        if (!xpath) {
+          return;
+        }
+        const existing = combined.get(xpath);
+        if (existing) {
+          existing.excluded = true;
+        } else {
+          combined.set(xpath, { xpath, excluded: true });
+        }
+      });
       const combinedXpaths = Array.from(combined.values());
       const normalizedPayloadXpaths = normalizePayloadXpaths(combinedXpaths);
       return {
@@ -2553,8 +2551,38 @@ async function handleComputeSelectors() {
         fullHTML,
         xpaths: normalizedPayloadXpaths
       };
-    })
-    .filter((entry) => {
+    });
+
+  const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
+  if (currentPageUrl) {
+    const currentPageEntry = pages.find(
+      (entry) => entry && entry.url === currentPageUrl && Array.isArray(entry.xpaths)
+    );
+    if (currentPageEntry && currentPageEntry.xpaths.length > 0) {
+      const hiddenResponse = await messages.sendTabMessage({
+        type: "filterInvisibleXpathsOnPage",
+        xpaths: currentPageEntry.xpaths.map((item) => item && item.xpath).filter(Boolean)
+      });
+      if (hiddenResponse && Array.isArray(hiddenResponse.xpaths) && hiddenResponse.xpaths.length > 0) {
+        const hiddenSet = new Set(
+          hiddenResponse.xpaths.filter((xpath) => typeof xpath === "string" && xpath)
+        );
+        currentPageEntry.xpaths = normalizePayloadXpaths(
+          currentPageEntry.xpaths.map((item) => {
+            if (!item || typeof item.xpath !== "string" || !item.xpath) {
+              return item;
+            }
+            if (hiddenSet.has(item.xpath)) {
+              return { xpath: item.xpath, excluded: true };
+            }
+            return item;
+          })
+        );
+      }
+    }
+  }
+
+  const filteredPages = pages.filter((entry) => {
       if (!entry || !entry.url) {
         return false;
       }
@@ -2568,7 +2596,7 @@ async function handleComputeSelectors() {
       );
     });
 
-  if (!pages.length) {
+  if (!filteredPages.length) {
     uiModule.showToast("Mark pages before computing selectors");
     return;
   }
@@ -2576,7 +2604,7 @@ async function handleComputeSelectors() {
   const payload = {
     baseUrl: state.currentBaseUrl,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    pages
+    pages: filteredPages
   };
 
   let selectorSet = {
