@@ -45,8 +45,6 @@ const initialViewState = {
   explicitExcludesEmptyText: "Set Base Page URL first",
   explicitIncludes: [],
   explicitIncludesEmptyText: "Set Base Page URL first",
-  defaultTagExclusions: [],
-  defaultTagExclusionsEmptyText: "Set Base Page URL first",
   markedPages: [],
   markedPagesEmptyText: "Set Base Page URL first",
   basePageUrls: [],
@@ -657,51 +655,7 @@ function renderMarkingView({state: view, actions: handlers}) {
             ),
             h(
                 "section",
-                {class: "card"},
-                h("div", {class: "section-title"}, "Default tag exclusions"),
-                h(
-                    "ul",
-                    {id: "default-tag-exclusions", class: "list"},
-                    renderListItems(
-                        view.defaultTagExclusions,
-                        view.defaultTagExclusionsEmptyText,
-                        (item) =>
-                            h(
-                                "li",
-                                {key: item.xpath},
-                                h(
-                                    "span",
-                                    {title: item.text},
-                                    item.text
-                                ),
-                                h(
-                                    "span",
-                                    {class: "status"},
-                                    item.excluded ? "Excluded" : "Included"
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onDefaultTagExclusionView(item)
-                                    },
-                                    "View"
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onDefaultTagExclusionToggle(item)
-                                    },
-                                    item.excluded ? "Include" : "Exclude"
-                                )
-                            )
-                    )
-                )
-            ),
-            h(
-                "section",
-                {class: "card"},
+                {class: "card margin-above"},
                 h("div", {class: "section-title"}, "AI controls"),
                 view.mobileSimulationRequiredVisible &&
                   h(

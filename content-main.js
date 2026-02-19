@@ -1793,25 +1793,6 @@ export function main() {
       return true;
     }
 
-    if (message.type === "getDefaultTagExclusionStatus") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const useStateConfig =
-        state.baseUrl === targetBaseUrl && state.config;
-      const loadPromise = useStateConfig
-        ? Promise.resolve(state.config)
-        : core.loadConfig(targetBaseUrl);
-      loadPromise.then((config) => {
-        const immutableExcluded = core.collectImmutableElements();
-        const hasEntry = core.hasPageMarkingEntry(config, location.href);
-        const syncResult = core.syncPageMarkings(config, location.href, immutableExcluded, {
-          allowCreate: hasEntry,
-          persist: useStateConfig && hasEntry
-        });
-        sendResponse({ items: core.collectDefaultTagExclusionStatus(config, syncResult.entry) });
-      });
-      return true;
-    }
-
     if (message.type === "filterXPathsOnPage") {
       const xpaths = Array.isArray(message.xpaths) ? message.xpaths : [];
       const filtered = xpaths.filter((xpath) => {
@@ -1870,72 +1851,6 @@ export function main() {
       core.clearFocusHighlight();
       sendResponse({ ok: true });
       return;
-    }
-
-    if (message.type === "toggleDefaultTagExclusion") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      const xpath = message.xpath || "";
-      if (!xpath) {
-        sendResponse({ ok: false });
-        return;
-      }
-      const useStateConfig =
-        state.baseUrl === targetBaseUrl && state.config;
-      const loadPromise = useStateConfig
-        ? Promise.resolve(state.config)
-        : core.loadConfig(targetBaseUrl);
-      loadPromise.then((config) => {
-        const target = core.getElementFromXPath(xpath);
-        if (
-          !target ||
-          !core.isMarkableElement(target, config, { allowParent: true }) ||
-          !core.isDefaultToggleableExcludedElement(target)
-        ) {
-          sendResponse({ ok: false });
-          return;
-        }
-        const entry = core.getPageMarkingEntry(config, location.href);
-        const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-        let targetItem = items.find((item) => item && item.xpath === xpath);
-        const currentExcluded = targetItem ? Boolean(targetItem.excluded) : true;
-        const nextExcluded = !currentExcluded;
-        if (!targetItem) {
-          targetItem = { xpath, excluded: nextExcluded };
-          items.push(targetItem);
-        } else {
-          targetItem.excluded = nextExcluded;
-        }
-        if (targetItem.excluded) {
-          for (let i = items.length - 1; i >= 0; i -= 1) {
-            const item = items[i];
-            if (!item || !item.xpath || item.xpath === xpath) {
-              continue;
-            }
-            const existingEl = core.getElementFromXPath(item.xpath);
-            if (
-              (existingEl && target.contains(existingEl)) ||
-              core.isXPathDescendant(xpath, item.xpath)
-            ) {
-              items.splice(i, 1);
-            }
-          }
-          if (Array.isArray(entry.includeXpaths)) {
-            entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
-          }
-        }
-        entry.xpaths = items;
-        core.touchPageEntryTimestamp(entry);
-        core.normalizePageEntryXpaths(entry);
-        config.pageMarkings[location.href] = entry;
-        if (useStateConfig) {
-          state.config = config;
-          core.scheduleRender();
-          core.scheduleSnapshotSave();
-          core.notifyDraftStatus(location.href);
-        }
-        sendResponse({ ok: true });
-      });
-      return true;
     }
 
     if (message.type === "capturePageSnapshot") {

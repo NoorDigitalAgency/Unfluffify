@@ -469,21 +469,6 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.lastSavedSelectors);
 }
 
-const DEFAULT_TOGGLEABLE_TAG_XPATH_LOOKUP = new Set(
-  constants.DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS.map((selector) => selector.toLowerCase())
-);
-
-function isDefaultToggleableTagXPath(xpath) {
-  if (typeof xpath !== "string" || !xpath) {
-    return false;
-  }
-  const match = xpath.match(/\/([a-z0-9_-]+)\[\d+\]\s*$/i);
-  if (!match || !match[1]) {
-    return false;
-  }
-  return DEFAULT_TOGGLEABLE_TAG_XPATH_LOOKUP.has(match[1].toLowerCase());
-}
-
 function getXPathDepth(xpath) {
   if (typeof xpath !== "string" || !xpath) {
     return 0;
@@ -1525,21 +1510,6 @@ async function refreshUi() {
   nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
 
-  let defaultTagExclusions = [];
-  let defaultTagXPathSet = new Set();
-  if (state.currentBaseUrl) {
-    const response = await messages.sendTabMessage({
-      type: "getDefaultTagExclusionStatus",
-      baseUrl: state.currentBaseUrl
-    });
-    if (response && Array.isArray(response.items)) {
-      defaultTagExclusions = response.items;
-      defaultTagXPathSet = new Set(
-        defaultTagExclusions.map((item) => item.xpath).filter(Boolean)
-      );
-    }
-  }
-
   const pageEntry =
     state.currentDraftEntry ||
     (state.currentConfig &&
@@ -1553,9 +1523,7 @@ async function refreshUi() {
       (item) =>
         item &&
         item.excluded &&
-        item.xpath &&
-        !defaultTagXPathSet.has(item.xpath) &&
-        !isDefaultToggleableTagXPath(item.xpath)
+        item.xpath
     )
     .map((item) => item.xpath);
   let pageExplicitExclude = excludedXPaths.map((xpath) => ({
@@ -1572,12 +1540,7 @@ async function refreshUi() {
     }
   }
 
-  const filteredExplicitIncludeXPaths = explicitIncludeXPaths.filter(
-    (xpath) =>
-      xpath &&
-      !defaultTagXPathSet.has(xpath) &&
-      !isDefaultToggleableTagXPath(xpath)
-  );
+  const filteredExplicitIncludeXPaths = explicitIncludeXPaths.filter((xpath) => xpath);
   let pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
     xpath,
     text: xpath
@@ -1606,10 +1569,6 @@ async function refreshUi() {
   nextViewState.explicitIncludesEmptyText = baseUrlSet
     ? "None yet"
     : "Set Base Page URL first";
-  nextViewState.defaultTagExclusions = defaultTagExclusions;
-  nextViewState.defaultTagExclusionsEmptyText = baseUrlSet
-    ? "None yet"
-    : "Set Base Page URL first";
 
   const markedPages = [];
   const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -1628,17 +1587,13 @@ async function refreshUi() {
       (item) =>
         item &&
         item.excluded &&
-        item.xpath &&
-        !defaultTagXPathSet.has(item.xpath) &&
-        !isDefaultToggleableTagXPath(item.xpath)
+        item.xpath
     ).length;
     const includedCount = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths.filter(
           (xpath) =>
             typeof xpath === "string" &&
-            xpath &&
-            !defaultTagXPathSet.has(xpath) &&
-            !isDefaultToggleableTagXPath(xpath)
+            xpath
         ).length
       : 0;
     markedPages.push({
@@ -1829,33 +1784,6 @@ async function handleExplicitIncludeRemove(xpath) {
     return;
   }
   refreshUi();
-}
-
-async function handleDefaultTagExclusionView(item) {
-  const response = await messages.sendTabMessage({
-    type: "focusElement",
-    xpath: item.xpath
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to focus element");
-  }
-}
-
-async function handleDefaultTagExclusionToggle(item) {
-  if (!state.currentBaseUrl) {
-    return;
-  }
-  await clearFocusedElement();
-  const response = await messages.sendTabMessage({
-    type: "toggleDefaultTagExclusion",
-    baseUrl: state.currentBaseUrl,
-    xpath: item.xpath
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to update default tag exclusion");
-    return;
-  }
-  await refreshUi();
 }
 
 async function handleMarkedPageNavigate(url) {
@@ -2872,8 +2800,6 @@ async function init() {
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
-    onDefaultTagExclusionView: handleDefaultTagExclusionView,
-    onDefaultTagExclusionToggle: handleDefaultTagExclusionToggle,
     onMarkedPageNavigate: handleMarkedPageNavigate,
     onBasePageNavigate: handleBasePageNavigate
   });
