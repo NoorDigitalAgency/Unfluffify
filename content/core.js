@@ -1030,7 +1030,9 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
     }
   }
 
-  const included = collapseElementsByNesting(baseSelected).filter((el) =>
+  const included = collapseElementsByNesting(baseSelected, {
+    prefer: "shallowest"
+  }).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
@@ -1072,7 +1074,7 @@ function compareDocumentOrder(left, right) {
 }
 
 export function collapseElementsByNesting(elements, options = {}) {
-  const { onlyVisible = false } = options;
+  const { onlyVisible = false, prefer = "shallowest" } = options;
   const list = Array.from(elements || []).filter((el) => {
     if (!el || el.nodeType !== 1) {
       return false;
@@ -1083,16 +1085,34 @@ export function collapseElementsByNesting(elements, options = {}) {
     return true;
   });
   list.sort((left, right) => {
-    const depthDiff = getElementDepth(right) - getElementDepth(left);
+    const depthDiff = getElementDepth(left) - getElementDepth(right);
     if (depthDiff !== 0) {
       return depthDiff;
     }
     return compareDocumentOrder(left, right);
   });
+  if (prefer === "deepest") {
+    const reverseSorted = list.slice().sort((left, right) => {
+      const depthDiff = getElementDepth(right) - getElementDepth(left);
+      if (depthDiff !== 0) {
+        return depthDiff;
+      }
+      return compareDocumentOrder(left, right);
+    });
+    const keptDeep = [];
+    for (const candidate of reverseSorted) {
+      const isAncestorOfKept = keptDeep.some((el) => candidate.contains(el));
+      if (!isAncestorOfKept) {
+        keptDeep.push(candidate);
+      }
+    }
+    keptDeep.sort(compareDocumentOrder);
+    return keptDeep;
+  }
   const kept = [];
   for (const candidate of list) {
-    const isAncestorOfKept = kept.some((el) => candidate.contains(el));
-    if (!isAncestorOfKept) {
+    const hasAncestor = kept.some((ancestor) => ancestor.contains(candidate));
+    if (!hasAncestor) {
       kept.push(candidate);
     }
   }

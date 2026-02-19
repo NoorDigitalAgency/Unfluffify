@@ -1271,7 +1271,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     }
   }
 
-  const included = collapseToDeepest(baseSelected).filter((node) =>
+  const included = collapseToShallowest(baseSelected).filter((node) =>
     hasRenderableTextForHighlight(
       node,
       excludedNodes,
