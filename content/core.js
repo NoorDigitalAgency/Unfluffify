@@ -52,7 +52,9 @@ export const state = {
   layerBoxes: new WeakMap(),
   cachedCollections: null,
   visibilityCache: null,
-  hoverRaf: 0
+  hoverRaf: 0,
+  currentPageUrl: "",
+  currentPageEntry: null
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
@@ -1228,19 +1230,29 @@ export function touchPageEntryTimestamp(entry, timestamp = null) {
 }
 
 function getExcludedXPathSet(config, pageUrl) {
-  if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
-    return new Set();
-  }
-  const entry = config.pageMarkings[pageUrl];
+  const entry =
+    config &&
+    config.pageMarkings &&
+    typeof config.pageMarkings === "object" &&
+    config.pageMarkings[pageUrl]
+      ? config.pageMarkings[pageUrl]
+      : state.currentPageUrl === pageUrl && state.currentPageEntry
+        ? state.currentPageEntry
+        : null;
   const items = entry && Array.isArray(entry.xpaths) ? entry.xpaths : [];
   return new Set(collectExcludedXPaths(items));
 }
 
 function getIncludeXPathSet(config, pageUrl) {
-  if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
-    return new Set();
-  }
-  const entry = config.pageMarkings[pageUrl];
+  const entry =
+    config &&
+    config.pageMarkings &&
+    typeof config.pageMarkings === "object" &&
+    config.pageMarkings[pageUrl]
+      ? config.pageMarkings[pageUrl]
+      : state.currentPageUrl === pageUrl && state.currentPageEntry
+        ? state.currentPageEntry
+        : null;
   const includeXpaths = entry && Array.isArray(entry.includeXpaths)
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
@@ -1906,6 +1918,10 @@ function createExcludedAncestorChecker(options = {}) {
     configValue.pageMarkings &&
     typeof configValue.pageMarkings === "object"
       ? configValue.pageMarkings[pageUrl] || null
+      : null
+  ) || (
+    state.currentPageUrl === pageUrl && state.currentPageEntry
+      ? state.currentPageEntry
       : null
   );
   const excludedLookup = new Map();
@@ -2607,6 +2623,7 @@ function renderHighlights() {
 
 function renderHighlightsInner() {
   updateOverlayGutter();
+  state.currentPageUrl = location.href;
 
   const cached = state.cachedCollections;
   if (cached) {
@@ -2623,6 +2640,7 @@ function renderHighlightsInner() {
   });
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
+  state.currentPageEntry = entry || null;
   const explicitExclude = collectXPathElements(
       collectExcludedXPaths(entry.xpaths)
   );
@@ -3326,46 +3344,35 @@ function applySelectorDefaultsToItems(items, configValue) {
   });
 
   // Merge with defaults:
-  // If a default-excluded parent only has selector-excluded descendants,
-  // keep exclusions at child level by un-excluding the parent.
-  excludedElements.forEach((el) => {
-    if (!el || el.nodeType !== 1) {
-      return;
+  // If a default-excluded element has selector-excluded descendants,
+  // move the exclusion down to descendants unless the default itself
+  // is directly matched by an exclusion selector.
+  for (const [defaultXpath, defaultEl] of defaultExcludedElementByXpath) {
+    if (!defaultEl || defaultEl.nodeType !== 1) {
+      continue;
     }
-    let ancestor = el.parentElement;
-    while (ancestor && ancestor.nodeType === 1) {
-      if (
-        isWithinAiPopover(ancestor) ||
-        isWithinConsentElement(ancestor) ||
-        isWithinExtensionUi(ancestor)
-      ) {
-        ancestor = ancestor.parentElement;
+    const existingItem = itemByXpath.get(defaultXpath);
+    if (!existingItem || !existingItem.excluded) {
+      continue;
+    }
+    if (directSelectorExcludedXpaths.has(defaultXpath)) {
+      continue;
+    }
+    let hasSelectorExcludedDescendant = false;
+    for (const excludedEl of excludedElements) {
+      if (!excludedEl || excludedEl.nodeType !== 1 || excludedEl === defaultEl) {
         continue;
       }
-      if (isWithinImmutableExcluded(ancestor)) {
-        ancestor = ancestor.parentElement;
-        continue;
+      if (defaultEl.contains(excludedEl)) {
+        hasSelectorExcludedDescendant = true;
+        break;
       }
-      const ancestorXpath = getXPath(ancestor);
-      if (!ancestorXpath) {
-        ancestor = ancestor.parentElement;
-        continue;
-      }
-      const existingItem = itemByXpath.get(ancestorXpath);
-      const defaultExcludedEl = defaultExcludedElementByXpath.get(ancestorXpath);
-      if (!existingItem || !existingItem.excluded || !defaultExcludedEl) {
-        ancestor = ancestor.parentElement;
-        continue;
-      }
-      // If selector directly excludes the default itself, keep it excluded.
-      if (directSelectorExcludedXpaths.has(ancestorXpath)) {
-        ancestor = ancestor.parentElement;
-        continue;
-      }
+    }
+    if (hasSelectorExcludedDescendant) {
       existingItem.excluded = false;
-      ancestor = ancestor.parentElement;
     }
-  });
+  }
+
   includedElements.forEach((el) => upsert(el, false));
 }
 
@@ -3597,6 +3604,8 @@ export function disable() {
   state.enabled = false;
   state.baseUrl = "";
   state.config = null;
+  state.currentPageUrl = "";
+  state.currentPageEntry = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
