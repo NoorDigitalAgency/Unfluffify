@@ -4187,7 +4187,12 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     items.push({ xpath: item.xpath, excluded: false });
     seen.add(item.xpath);
   }
-  if (!hadEntry && applySelectorDefaultsForNew && !hasSavedSnapshot) {
+  const shouldApplySelectorDefaults =
+    applySelectorDefaultsForNew &&
+    !hasSavedSnapshot &&
+    previousItems.length === 0 &&
+    explicitIncludeSet.size === 0;
+  if (shouldApplySelectorDefaults) {
     applySelectorDefaultsToItems(items, config);
   }
   const changed =
