@@ -46,5 +46,6 @@ export const state = {
   remoteConfigLoadKey: "",
   remoteConfigLoadResult: null,
   lastConfigLoadStatusText: "Not loaded yet",
-  lastConfigSaveStatusText: "No save sent yet"
+  lastConfigSaveStatusText: "No save sent yet",
+  mobileAutoAppliedTabIds: new Set()
 };

@@ -1035,7 +1035,8 @@ async function refreshUi() {
   }
   await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
-  if (currentTabId && state.lastTabId !== currentTabId) {
+  const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
+  if (tabChanged) {
     state.baseUrlEditMode = false;
     state.endpointEditMode = false;
     state.configEndpointEditMode = false;
@@ -1160,9 +1161,25 @@ async function refreshUi() {
     }
   }
   const isEnabled = toggleEnabled;
-  const normalizedDeviceState = await ensureMobileSimulationForSidebar(
-    state.currentTab.id
-  );
+  const shouldAutoEnableMobile =
+    Boolean(currentTabId) &&
+    tabChanged &&
+    !state.mobileAutoAppliedTabIds.has(currentTabId);
+  let normalizedDeviceState = null;
+  if (shouldAutoEnableMobile) {
+    normalizedDeviceState = await ensureMobileSimulationForSidebar(currentTabId);
+    state.mobileAutoAppliedTabIds.add(currentTabId);
+  }
+  if (!normalizedDeviceState) {
+    const storedDeviceState = currentTabId
+      ? await emulation.getDeviceEmulationState(currentTabId)
+      : {
+          enabled: state.currentDeviceEmulationEnabled,
+          mode: state.currentDeviceMode,
+          scale: state.currentDeviceScale
+        };
+    normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
+  }
   const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
   const mobileSimulationBlocked = !mobileSimulationReady;
   const loginEmailValue = view.loginEmailValue || "";
