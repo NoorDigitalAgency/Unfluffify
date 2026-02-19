@@ -20,7 +20,7 @@ const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_MESSAGE =
-  "Mobile simulation (enabled + Mobile 412x960) is required for saving and AI calculations.";
+  "Mobile simulation must be enabled, for this to work.";
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
@@ -387,7 +387,7 @@ async function invalidateTokenAndLockConfiguration(showToast = true) {
     loginStatusText: "Login required"
   });
   if (showToast) {
-    uiModule.showToast("Token expired. Login required");
+    uiModule.showToast("Login expired. Please log in again.");
   }
 }
 

@@ -571,8 +571,8 @@ function renderMarkingView({state: view, actions: handlers}) {
                 h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
                 h("div", { class: "section-divider", role: "separator" }),
                 h("div", { class: "section-title" }, "Server Sync"),
-                h("div", { class: "hint", id: "sync-load-status" }, `Latest /load: ${view.syncLoadStatusText}`),
-                h("div", { class: "hint", id: "sync-save-status" }, `Latest /save: ${view.syncSaveStatusText}`)
+                h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
+                h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
             ),
             h(
                 "section",
