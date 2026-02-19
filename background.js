@@ -305,6 +305,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id) {
+    updateDeviceEmulation(tab.id, {
+      enabled: true,
+      mode: "mobile"
+    }).then();
     chrome.sidePanel.setOptions({
       tabId: tab.id,
       path: "popup.html",

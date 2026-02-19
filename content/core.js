@@ -1172,7 +1172,17 @@ export function touchPageEntryTimestamp(entry, timestamp = null) {
     entry.timestamp = config.normalizeEntryTimestamp(timestamp);
     return entry.timestamp;
   }
-  entry.timestamp = config.createTimestampNow();
+  const previousMillis = Date.parse(normalizeEntryTimestampValue(entry.timestamp));
+  const nowTimestamp = config.createTimestampNow();
+  let nextMillis = Date.parse(nowTimestamp);
+  if (Number.isFinite(previousMillis) && Number.isFinite(nextMillis) && nextMillis <= previousMillis) {
+    nextMillis = previousMillis + 1000;
+  }
+  if (!Number.isFinite(nextMillis)) {
+    entry.timestamp = nowTimestamp;
+    return entry.timestamp;
+  }
+  entry.timestamp = normalizeEntryTimestampValue(new Date(nextMillis).toISOString());
   return entry.timestamp;
 }
 
@@ -1304,7 +1314,7 @@ function createOverlay() {
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 2147483647;
+        z-index: 2147483646;
         pointer-events: auto;
       }
       #unfluffify-overlay .uf-layer {
@@ -1656,7 +1666,7 @@ function ensureAiPopoverStyle() {
         position: fixed;
         inset: 0;
         background: rgba(26, 22, 18, 0.45);
-        z-index: 2147483648;
+        z-index: 2147483647;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -2651,7 +2661,9 @@ function renderHighlightsInner() {
     excludedAncestorSet: new Set([
       ...immutableExcluded,
       ...explicitExclude,
-      ...aiExcludedDescendants
+      ...aiExcludedDescendants,
+      ...explicitInclude,
+      ...aiContent
     ])
   });
 

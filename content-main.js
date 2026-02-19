@@ -31,13 +31,14 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
-const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483647";
+const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "class",
   "id",
+  "style",
   "href",
   "src",
   "hidden",
@@ -46,6 +47,7 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
 ]);
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "class",
+  "style",
   "hidden",
   "aria-hidden",
   "open"
@@ -99,7 +101,7 @@ function ensurePageToastStyle() {
         transform: translateY(8px);
         transition: opacity 0.2s ease, transform 0.2s ease;
         pointer-events: none;
-        z-index: 2147483647;
+        z-index: 2147483646;
         text-align: center;
         box-shadow: 0 8px 10px rgba(0, 0, 0, 0.35);
       }
@@ -348,9 +350,12 @@ function ensureSilentHighlightOverlay() {
 }
 
 function clearSilentHighlightOverlay() {
-  if (silentHighlightOverlay) {
-    silentHighlightOverlay.remove();
-  }
+  const overlays = document.querySelectorAll(`#${SILENT_HIGHLIGHT_OVERLAY_ID}`);
+  overlays.forEach((node) => {
+    if (node && node.remove) {
+      node.remove();
+    }
+  });
   silentHighlightOverlay = null;
   silentHighlightLayers = {};
   silentHighlightLayerBoxes = {};
@@ -1369,7 +1374,7 @@ function toRenderableNodeList(nodes) {
   const results = [];
   const seen = new Set();
   for (const node of nodes || []) {
-    const target = resolveSilentHighlightRenderTarget(node);
+    const target = resolveSilentHighlightRenderTarget(node) || node;
     if (!target || seen.has(target)) {
       continue;
     }
@@ -1383,6 +1388,9 @@ function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
+  stopSilentHighlightingObserver();
+  clearSilentHighlightingMarks();
+  setSilentHighlightingsActive(false);
   const selectorSet = getEffectiveAiSelectorSet(state.config);
   if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
     state.config.domainAiSelectorSet = {
@@ -2100,12 +2108,17 @@ export function main() {
     }
     scheduleSilentHighlightReposition();
   });
-  window.addEventListener("scroll", () => {
+  const handleSilentOrMarkingScroll = () => {
     if (state.enabled) {
       core.handleScroll();
       return;
     }
     scheduleSilentHighlightReposition();
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", handleSilentOrMarkingScroll, { passive: true });
+  document.addEventListener("scroll", handleSilentOrMarkingScroll, {
+    passive: true,
+    capture: true
+  });
   window.addEventListener("beforeunload", core.handleBeforeUnload);
 }

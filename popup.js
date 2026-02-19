@@ -58,6 +58,32 @@ function ensureMobileSimulationForActions() {
   return false;
 }
 
+async function ensureMobileSimulationForSidebar(tabId) {
+  if (!tabId) {
+    return emulation.syncDeviceEmulationState({
+      enabled: state.currentDeviceEmulationEnabled,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
+    });
+  }
+  const storedDeviceState = await emulation.getDeviceEmulationState(tabId);
+  let normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
+  if (isMobileSimulationActive(normalizedDeviceState)) {
+    return normalizedDeviceState;
+  }
+  const response = await messages.sendRuntimeMessage({
+    type: "updateDeviceEmulation",
+    tabId,
+    enabled: true,
+    mode: "mobile",
+    scale: normalizedDeviceState.scale
+  });
+  if (response && response.ok && response.state) {
+    normalizedDeviceState = emulation.syncDeviceEmulationState(response.state);
+  }
+  return normalizedDeviceState;
+}
+
 function resolveRelativeEndpoint(baseUrl, path) {
   try {
     return new URL(path, baseUrl).toString();
@@ -1134,8 +1160,9 @@ async function refreshUi() {
     }
   }
   const isEnabled = toggleEnabled;
-  const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
-  const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
+  const normalizedDeviceState = await ensureMobileSimulationForSidebar(
+    state.currentTab.id
+  );
   const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
   const mobileSimulationBlocked = !mobileSimulationReady;
   const loginEmailValue = view.loginEmailValue || "";
