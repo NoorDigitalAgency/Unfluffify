@@ -19,8 +19,43 @@ import {
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MOBILE_SIMULATION_REQUIRED_MESSAGE =
+  "Mobile simulation (enabled + Mobile 412x960) is required for saving and AI calculations.";
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
+}
+
+function isMobileSimulationActive(deviceState) {
+  if (!deviceState || typeof deviceState !== "object") {
+    return false;
+  }
+  return Boolean(deviceState.enabled) && deviceState.mode === "mobile";
+}
+
+async function ensureMobileSimulationForMarking() {
+  if (isMobileSimulationActive({
+    enabled: state.currentDeviceEmulationEnabled,
+    mode: state.currentDeviceMode
+  })) {
+    return true;
+  }
+  const updated = await helpers.updateDeviceEmulation({
+    enabled: true,
+    mode: "mobile",
+    scale: state.currentDeviceScale
+  });
+  return isMobileSimulationActive(updated);
+}
+
+function ensureMobileSimulationForActions() {
+  if (isMobileSimulationActive({
+    enabled: state.currentDeviceEmulationEnabled,
+    mode: state.currentDeviceMode
+  })) {
+    return true;
+  }
+  uiModule.showToast(MOBILE_SIMULATION_REQUIRED_MESSAGE);
+  return false;
 }
 
 function resolveRelativeEndpoint(baseUrl, path) {
@@ -499,6 +534,408 @@ function normalizePayloadXpaths(items) {
   return deduped.filter((item) => !redundantXpaths.has(item.xpath));
 }
 
+function isTagSelector(selector) {
+  return /^[a-z]+$/i.test(selector);
+}
+
+function selectorMatchesElement(el, selector) {
+  if (!el || el.nodeType !== 1 || !selector) {
+    return false;
+  }
+  try {
+    if (isTagSelector(selector)) {
+      return el.tagName === selector.toUpperCase();
+    }
+    return el.matches(selector);
+  } catch {
+    return false;
+  }
+}
+
+function matchesStaticImmutableExcluded(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  for (const selector of constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
+    if (selectorMatchesElement(el, selector)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matchesStaticToggleableExcluded(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  for (const selector of constants.DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
+    if (selectorMatchesElement(el, selector)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isWithinStaticImmutableExcluded(el) {
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (matchesStaticImmutableExcluded(node)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function hasDirectStaticText(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  for (const node of Array.from(el.childNodes || [])) {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getNormalizedStaticTextContent(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  const chunks = [];
+  const stack = [el];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) {
+        chunks.push(text);
+      }
+      continue;
+    }
+    if (node.nodeType !== 1) {
+      continue;
+    }
+    const tag = node.tagName;
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
+      continue;
+    }
+    for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
+      stack.push(node.childNodes[i]);
+    }
+  }
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function isStaticTextualContainer(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (hasDirectStaticText(el)) {
+    return true;
+  }
+  if (matchesStaticToggleableExcluded(el)) {
+    if (el.children.length > 0) {
+      return true;
+    }
+    return Boolean((el.textContent || "").replace(/\s+/g, " ").trim());
+  }
+  return Boolean(getNormalizedStaticTextContent(el));
+}
+
+function hasStaticTextualDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (matchesStaticImmutableExcluded(node)) {
+      continue;
+    }
+    if (isStaticTextualContainer(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function hasStaticTextualImmutableDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (matchesStaticImmutableExcluded(node) && isStaticTextualContainer(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function isStaticSelfMarkableWithoutParentMode(el) {
+  if (!isStaticTextualContainer(el)) {
+    return false;
+  }
+  const hasDirectOwnText = hasDirectStaticText(el);
+  const hasTextualDescendant = hasStaticTextualDescendant(el);
+  if (!hasDirectOwnText && hasTextualDescendant) {
+    return false;
+  }
+  if (!matchesStaticToggleableExcluded(el)) {
+    if (!hasDirectOwnText && !hasTextualDescendant) {
+      return false;
+    }
+    if (!hasDirectOwnText && hasStaticTextualImmutableDescendant(el)) {
+      return false;
+    }
+    return true;
+  }
+  return !hasTextualDescendant;
+}
+
+function parseInlineStyle(styleText) {
+  const styles = new Map();
+  if (typeof styleText !== "string" || !styleText) {
+    return styles;
+  }
+  styleText.split(";").forEach((chunk) => {
+    const [rawKey, ...rest] = chunk.split(":");
+    if (!rawKey || rest.length === 0) {
+      return;
+    }
+    const key = rawKey.trim().toLowerCase();
+    const value = rest.join(":").replace(/!important/gi, "").trim().toLowerCase();
+    if (!key) {
+      return;
+    }
+    styles.set(key, value);
+  });
+  return styles;
+}
+
+function parseStyleNumber(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+function isHiddenByStyleMap(styles) {
+  if (!styles || styles.size === 0) {
+    return false;
+  }
+  const display = styles.get("display") || "";
+  if (display.includes("none")) {
+    return true;
+  }
+  const visibility = styles.get("visibility");
+  if (visibility === "hidden" || visibility === "collapse") {
+    return true;
+  }
+  const opacity = parseStyleNumber(styles.get("opacity") || "");
+  if (opacity !== null && opacity <= 0) {
+    return true;
+  }
+  const contentVisibility = styles.get("content-visibility") || "";
+  if (contentVisibility.includes("hidden")) {
+    return true;
+  }
+  const clip = (styles.get("clip") || "").replace(/\s+/g, "");
+  if (clip && clip !== "auto" && clip.includes("rect(")) {
+    const numbers = clip.match(/-?\d*\.?\d+/g);
+    if (numbers && numbers.length >= 4 && numbers.every((value) => Number(value) === 0)) {
+      return true;
+    }
+  }
+  const clipPath = (styles.get("clip-path") || "").replace(/\s+/g, "");
+  if (
+    clipPath &&
+    (clipPath.includes("inset(50%") ||
+      clipPath.includes("inset(100%") ||
+      clipPath.includes("circle(0") ||
+      clipPath.includes("ellipse(0"))
+  ) {
+    return true;
+  }
+  const transform = (styles.get("transform") || "").replace(/\s+/g, "");
+  if (transform && (transform.includes("scale(0") || transform.includes("scaleX(0") || transform.includes("scaleY(0"))) {
+    return true;
+  }
+  const overflow = styles.get("overflow") || "";
+  if (overflow.includes("hidden")) {
+    const width = parseStyleNumber(styles.get("width") || "");
+    const height = parseStyleNumber(styles.get("height") || "");
+    const maxWidth = parseStyleNumber(styles.get("max-width") || "");
+    const maxHeight = parseStyleNumber(styles.get("max-height") || "");
+    if (
+      (width !== null && width <= 1) ||
+      (height !== null && height <= 1) ||
+      (maxWidth !== null && maxWidth <= 1) ||
+      (maxHeight !== null && maxHeight <= 1)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasVisuallyHiddenClass(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  const className = (node.getAttribute("class") || "").toLowerCase();
+  if (!className) {
+    return false;
+  }
+  return (
+    className.includes("sr-only") ||
+    className.includes("visually-hidden") ||
+    className.includes("screen-reader")
+  );
+}
+
+function isStaticHiddenNode(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (node.hasAttribute("hidden")) {
+    return true;
+  }
+  if ((node.getAttribute("aria-hidden") || "").toLowerCase() === "true") {
+    return true;
+  }
+  if (node.tagName === "INPUT" && (node.getAttribute("type") || "").toLowerCase() === "hidden") {
+    return true;
+  }
+  if (hasVisuallyHiddenClass(node)) {
+    return true;
+  }
+  return isHiddenByStyleMap(parseInlineStyle(node.getAttribute("style") || ""));
+}
+
+function isStaticNodeOrAncestorHidden(node) {
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (isStaticHiddenNode(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function getStaticXPath(el) {
+  if (!el || el.nodeType !== 1) {
+    return "";
+  }
+  const parts = [];
+  let node = el;
+  const root = node.ownerDocument && node.ownerDocument.documentElement;
+  while (node && node.nodeType === 1) {
+    const tag = node.tagName.toLowerCase();
+    let index = 1;
+    let sibling = node.previousElementSibling;
+    while (sibling) {
+      if (sibling.tagName === node.tagName) {
+        index += 1;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    parts.unshift(`${tag}[${index}]`);
+    if (root && node === root) {
+      break;
+    }
+    node = node.parentElement;
+  }
+  return `/${parts.join("/")}`;
+}
+
+function isXPathDescendant(parentXpath, childXpath) {
+  if (!parentXpath || !childXpath || parentXpath === childXpath) {
+    return false;
+  }
+  return childXpath.startsWith(`${parentXpath}/`);
+}
+
+function isWithinExcludedXPathSet(xpath, excludedSet) {
+  if (!xpath || !excludedSet || excludedSet.size === 0) {
+    return false;
+  }
+  for (const excludedXpath of excludedSet) {
+    if (excludedXpath && excludedXpath !== xpath && isXPathDescendant(excludedXpath, xpath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function collectInvisibleMarkableExcludedXpathsFromHtml(fullHTML, excludedSet) {
+  if (typeof fullHTML !== "string" || !fullHTML.trim()) {
+    return [];
+  }
+  let doc = null;
+  try {
+    doc = new DOMParser().parseFromString(fullHTML, "text/html");
+  } catch {
+    doc = null;
+  }
+  if (!doc || !doc.body) {
+    return [];
+  }
+  const results = [];
+  const seen = new Set();
+  const stack = [doc.body];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
+      continue;
+    }
+    if (isWithinStaticImmutableExcluded(el)) {
+      continue;
+    }
+    const xpath = getStaticXPath(el);
+    if (
+      xpath &&
+      !seen.has(xpath) &&
+      !isWithinExcludedXPathSet(xpath, excludedSet) &&
+      isStaticSelfMarkableWithoutParentMode(el) &&
+      isStaticNodeOrAncestorHidden(el)
+    ) {
+      seen.add(xpath);
+      results.push(xpath);
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
+    }
+  }
+  return results;
+}
+
 function getSilentHighlightVisibility() {
   return {
     markedPages: state.silentHighlightShowMarkedPages !== false,
@@ -699,6 +1136,8 @@ async function refreshUi() {
   const isEnabled = toggleEnabled;
   const storedDeviceState = await emulation.getDeviceEmulationState(state.currentTab.id);
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
+  const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
+  const mobileSimulationBlocked = !mobileSimulationReady;
   const loginEmailValue = view.loginEmailValue || "";
   const loginPasswordValue = view.loginPasswordValue || "";
   if (!configEndpointValue) {
@@ -819,15 +1258,23 @@ async function refreshUi() {
   nextViewState.toggleEnabled = toggleEnabled;
   nextViewState.toggleEnabledDisabled = !baseUrlReady;
   nextViewState.mainUiHidden = !isEnabled;
-  nextViewState.computeButtonDisabled = aiBusy || !aiReady || aiBlockedByDraft;
+  nextViewState.computeButtonDisabled =
+    aiBusy || !aiReady || aiBlockedByDraft || mobileSimulationBlocked;
   nextViewState.saveExcludesButtonDisabled =
     aiBusy ||
     !aiReady ||
     !hasNewSelectors ||
-    aiBlockedByDraft;
+    aiBlockedByDraft ||
+    mobileSimulationBlocked;
   nextViewState.previewLatestButtonDisabled =
-    aiBusy || !baseUrlReady || !hasStoredSelectors || aiBlockedByDraft;
+    aiBusy ||
+    !baseUrlReady ||
+    !hasStoredSelectors ||
+    aiBlockedByDraft ||
+    mobileSimulationBlocked;
   nextViewState.aiControlsHidden = !aiControlsVisible;
+  nextViewState.mobileSimulationRequiredVisible = mobileSimulationBlocked;
+  nextViewState.mobileSimulationRequiredText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
   nextViewState.loginEndpointUrlValue = loginEndpointField.value;
   nextViewState.loginEndpointUrlReadOnly = !loginEndpointField.isEditing;
   nextViewState.loginEndpointSetVisible = loginEndpointField.isEditing;
@@ -901,19 +1348,24 @@ async function refreshUi() {
     !baseUrlReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
+    mobileSimulationBlocked ||
     (!state.currentDraftDirty && !canInitialPageSave);
   nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageRevertDisabled =
     !baseUrlReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
+    mobileSimulationBlocked ||
     !hasSavedPageData ||
     !state.currentDraftDirty;
-  nextViewState.pageDeleteDisabled = !baseUrlReady || !isEnabled || !hasSavedPageData;
+  nextViewState.pageDeleteDisabled =
+    !baseUrlReady || !isEnabled || !hasSavedPageData || mobileSimulationBlocked;
   if (!baseUrlReady) {
     nextViewState.pageDraftStatusText = "Set Base Page URL first";
   } else if (!isEnabled) {
     nextViewState.pageDraftStatusText = "Enable marking to edit this page";
+  } else if (mobileSimulationBlocked) {
+    nextViewState.pageDraftStatusText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
   } else if (!state.currentDraftAvailable) {
     nextViewState.pageDraftStatusText = "Draft unavailable";
   } else if (!hasSavedPageData) {
@@ -1331,6 +1783,14 @@ async function handleEnableToggle(event) {
       await refreshUi();
       return;
     }
+    const mobileReady = await ensureMobileSimulationForMarking();
+    if (!mobileReady) {
+      uiModule.showToast("Unable to enable mobile simulation");
+      uiModule.setViewState({ toggleEnabled: false });
+      state.lastPopupEnabled = null;
+      await refreshUi();
+      return;
+    }
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
     await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
     await messages.sendTabMessageWithRetry({
@@ -1582,6 +2042,11 @@ async function handleBaseUrlSet() {
     uiModule.showToast(injectResult.error || "Unable to activate on this page");
     return;
   }
+  const mobileReady = await ensureMobileSimulationForMarking();
+  if (!mobileReady) {
+    uiModule.showToast("Unable to enable mobile simulation");
+    return;
+  }
   state.currentBaseUrl = baseUrlValue;
   state.currentConfig = await config.ensureConfig(baseUrlValue);
   state.baseUrlEditMode = false;
@@ -1614,6 +2079,13 @@ async function handleBaseUrlEditToggle() {
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
       uiModule.showToast(injectResult.error || "Unable to activate on this page");
+      state.baseUrlEditMode = true;
+      await refreshUi();
+      return;
+    }
+    const mobileReady = await ensureMobileSimulationForMarking();
+    if (!mobileReady) {
+      uiModule.showToast("Unable to enable mobile simulation");
       state.baseUrlEditMode = true;
       await refreshUi();
       return;
@@ -1808,6 +2280,9 @@ async function handlePageSave() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
+  if (!ensureMobileSimulationForActions()) {
+    return;
+  }
   const response = await messages.sendTabMessage({
     type: "savePageDraft",
     baseUrl: state.currentBaseUrl
@@ -1855,6 +2330,9 @@ async function handlePageRevert() {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!ensureMobileSimulationForActions()) {
     return;
   }
   const confirmed = window.confirm(
@@ -1907,6 +2385,9 @@ async function handlePageDelete() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
+  if (!ensureMobileSimulationForActions()) {
+    return;
+  }
   const confirmed = window.confirm(
     "Delete saved data for this page? This cannot be undone."
   );
@@ -1933,6 +2414,9 @@ async function handleComputeSelectors() {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!ensureMobileSimulationForActions()) {
     return;
   }
   if (state.currentDraftDirty) {
@@ -1996,6 +2480,28 @@ async function handleComputeSelectors() {
           combined.set(normalizedXpath, { xpath: normalizedXpath, excluded: true });
         }
       });
+      if (combined.size > 0) {
+        const excludedSet = new Set(
+          Array.from(combined.values())
+            .filter((item) => item && item.excluded)
+            .map((item) => item.xpath)
+        );
+        const invisibleMarkableXpaths = collectInvisibleMarkableExcludedXpathsFromHtml(
+          fullHTML,
+          excludedSet
+        );
+        invisibleMarkableXpaths.forEach((xpath) => {
+          if (!xpath) {
+            return;
+          }
+          const existing = combined.get(xpath);
+          if (existing) {
+            existing.excluded = true;
+          } else {
+            combined.set(xpath, { xpath, excluded: true });
+          }
+        });
+      }
       const combinedXpaths = Array.from(combined.values());
       const normalizedPayloadXpaths = normalizePayloadXpaths(combinedXpaths);
       return {
@@ -2088,6 +2594,9 @@ async function handleSaveExcludes() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
+  if (!ensureMobileSimulationForActions()) {
+    return;
+  }
   if (state.currentDraftDirty) {
     uiModule.showToast("Save the current page before using AI controls");
     return;
@@ -2150,6 +2659,9 @@ async function handlePreviewLatest() {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!ensureMobileSimulationForActions()) {
     return;
   }
   if (!state.currentConfig) {

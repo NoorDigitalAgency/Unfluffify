@@ -89,6 +89,8 @@ const initialViewState = {
   aiControlsHidden: true,
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
+  mobileSimulationRequiredVisible: false,
+  mobileSimulationRequiredText: "",
   computeButtonText: "Decide Content",
   computeButtonDisabled: true,
   computeButtonLoading: false,
@@ -509,6 +511,16 @@ function renderMarkingView({state: view, actions: handlers}) {
                 "section",
                 {class: "card"},
                 h("div", {class: "section-title"}, "Page data"),
+                view.mobileSimulationRequiredVisible &&
+                  h(
+                    "div",
+                    {
+                      class: "notice",
+                      role: "status",
+                      "aria-live": "polite"
+                    },
+                    view.mobileSimulationRequiredText
+                  ),
                 h(
                     "div",
                     {
@@ -688,6 +700,16 @@ function renderMarkingView({state: view, actions: handlers}) {
                 "section",
                 {class: "card"},
                 h("div", {class: "section-title"}, "AI controls"),
+                view.mobileSimulationRequiredVisible &&
+                  h(
+                    "div",
+                    {
+                      class: "notice",
+                      role: "status",
+                      "aria-live": "polite"
+                    },
+                    view.mobileSimulationRequiredText
+                  ),
                 !view.configurationComplete &&
                     h(
                         "div",
@@ -820,6 +842,16 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
       "section",
       { class: "card" },
       h("div", { class: "section-title" }, "CSS Selectors"),
+      view.mobileSimulationRequiredVisible &&
+        h(
+          "div",
+          {
+            class: "notice",
+            role: "status",
+            "aria-live": "polite"
+          },
+          view.mobileSimulationRequiredText
+        ),
       h(
         "button",
         {

@@ -94,12 +94,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "setDeviceEmulation") {
-    if (!message.tabId) {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
       sendResponse({ ok: false, error: "Missing tab" });
       return;
     }
     const mode = message.mode === "mobile" ? "mobile" : "desktop";
-    updateDeviceEmulation(message.tabId, {
+    updateDeviceEmulation(tabId, {
       enabled: true,
       mode
     })
@@ -117,11 +118,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "updateDeviceEmulation") {
-    if (!message.tabId) {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
       sendResponse({ ok: false, error: "Missing tab" });
       return;
     }
-    updateDeviceEmulation(message.tabId, {
+    updateDeviceEmulation(tabId, {
       enabled: typeof message.enabled === "boolean" ? message.enabled : undefined,
       mode: message.mode,
       scale: message.scale

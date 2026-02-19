@@ -3176,6 +3176,64 @@ export function canApplyExplicitInclude(el, configValue = state.config, pageUrl 
   return hasExcludedAncestor(el);
 }
 
+function getEffectiveAiSelectorSet(configValue) {
+  const latestComputed = normalizeAiSelectorSet(configValue && configValue.latestComputedSelectors);
+  if (combineAiSelectorSet(latestComputed).length > 0) {
+    return latestComputed;
+  }
+  return normalizeAiSelectorSet(configValue && configValue.domainAiSelectorSet);
+}
+
+function applySelectorDefaultsToItems(items, configValue) {
+  if (!Array.isArray(items) || !configValue) {
+    return;
+  }
+  const selectorSet = getEffectiveAiSelectorSet(configValue);
+  if (!combineAiSelectorSet(selectorSet).length) {
+    return;
+  }
+  const excludedElements = collectSelectorElements(selectorSet.exclusionSelectors);
+  const includedElements = collectSelectorElements(selectorSet.inclusionSelectors);
+  if (excludedElements.size === 0 && includedElements.size === 0) {
+    return;
+  }
+  const itemByXpath = new Map();
+  for (const item of items) {
+    if (item && typeof item.xpath === "string" && item.xpath) {
+      itemByXpath.set(item.xpath, item);
+    }
+  }
+  const upsert = (el, excluded) => {
+    if (!el || el.nodeType !== 1) {
+      return;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      return;
+    }
+    if (isWithinImmutableExcluded(el)) {
+      return;
+    }
+    if (!isSelfMarkableWithoutParentMode(el)) {
+      return;
+    }
+    const xpath = getXPath(el);
+    if (!xpath) {
+      return;
+    }
+    const existing = itemByXpath.get(xpath);
+    if (existing) {
+      existing.excluded = excluded;
+      return;
+    }
+    const nextItem = { xpath, excluded };
+    items.push(nextItem);
+    itemByXpath.set(xpath, nextItem);
+  };
+  // Exclusions apply first, then inclusions override.
+  excludedElements.forEach((el) => upsert(el, true));
+  includedElements.forEach((el) => upsert(el, false));
+}
+
 export function clearFocusHighlight() {
   if (!state.focusElement) {
     return;
@@ -3972,6 +4030,9 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     }
     items.push({ xpath: item.xpath, excluded: true });
     seen.add(item.xpath);
+  }
+  if (!hadEntry) {
+    applySelectorDefaultsToItems(items, config);
   }
   const changed =
       items.length !== previousItems.length ||
