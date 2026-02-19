@@ -3893,9 +3893,14 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   if (!config || !pageUrl) {
     return { changed: false, entry: null, persisted: false, hadEntry: false };
   }
-  const { allowCreate = true, persist = true } = options || {};
+  const {
+    allowCreate = true,
+    persist = true,
+    applySelectorDefaultsForNew = true
+  } = options || {};
   const hadEntry = hasPageMarkingEntry(config, pageUrl);
   const shouldPersist = persist && (allowCreate || hadEntry);
+  const hasSavedSnapshot = Boolean(getSavedPageEntry(pageUrl));
   const entry = getPageMarkingEntry(config, pageUrl, {
     create: allowCreate || hadEntry,
     persist: shouldPersist
@@ -4043,7 +4048,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     items.push({ xpath: item.xpath, excluded: true });
     seen.add(item.xpath);
   }
-  if (!hadEntry) {
+  if (!hadEntry && applySelectorDefaultsForNew && !hasSavedSnapshot) {
     applySelectorDefaultsToItems(items, config);
   }
   const changed =
