@@ -496,7 +496,7 @@ function isWithinConsentElement(el) {
   return el.hasAttribute(CONSENT_HIDDEN_ATTR);
 }
 
-function getXPath(el) {
+export function getXPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
   }

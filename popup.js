@@ -2558,26 +2558,26 @@ async function handleComputeSelectors() {
     const currentPageEntry = pages.find(
       (entry) => entry && entry.url === currentPageUrl && Array.isArray(entry.xpaths)
     );
-    if (currentPageEntry && currentPageEntry.xpaths.length > 0) {
-      const hiddenResponse = await messages.sendTabMessage({
-        type: "filterInvisibleXpathsOnPage",
-        xpaths: currentPageEntry.xpaths.map((item) => item && item.xpath).filter(Boolean)
+    if (currentPageEntry) {
+      const liveResponse = await messages.sendTabMessage({
+        type: "collectAiSubmissionXpaths"
       });
-      if (hiddenResponse && Array.isArray(hiddenResponse.xpaths) && hiddenResponse.xpaths.length > 0) {
-        const hiddenSet = new Set(
-          hiddenResponse.xpaths.filter((xpath) => typeof xpath === "string" && xpath)
-        );
-        currentPageEntry.xpaths = normalizePayloadXpaths(
-          currentPageEntry.xpaths.map((item) => {
-            if (!item || typeof item.xpath !== "string" || !item.xpath) {
-              return item;
+      if (liveResponse && Array.isArray(liveResponse.xpaths)) {
+        const liveXpaths = liveResponse.xpaths
+          .map((item) => {
+            if (!item || typeof item.xpath !== "string") {
+              return null;
             }
-            if (hiddenSet.has(item.xpath)) {
-              return { xpath: item.xpath, excluded: true };
+            const xpath = item.xpath.trim();
+            if (!xpath) {
+              return null;
             }
-            return item;
+            return { xpath, excluded: Boolean(item.excluded) };
           })
-        );
+          .filter(Boolean);
+        if (liveXpaths.length > 0) {
+          currentPageEntry.xpaths = liveXpaths;
+        }
       }
     }
   }

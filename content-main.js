@@ -1384,6 +1384,130 @@ function toRenderableNodeList(nodes) {
   return results;
 }
 
+function collectAiSubmissionXpathsForCurrentPage() {
+  if (!state.config) {
+    return [];
+  }
+  const pageUrl = location.href;
+  const entry = core.getPageMarkingEntry(state.config, pageUrl, {
+    create: false,
+    persist: false
+  });
+  const explicitExcludedXpaths = new Set();
+  const explicitIncludedXpaths = new Set();
+  const consentXpaths = new Set();
+  const rowIndexByXpath = new Map();
+  const rows = [];
+  const pushRow = (xpath, excluded) => {
+    if (typeof xpath !== "string" || !xpath) {
+      return;
+    }
+    const existingIndex = rowIndexByXpath.has(xpath)
+      ? rowIndexByXpath.get(xpath)
+      : -1;
+    if (existingIndex >= 0) {
+      if (excluded) {
+        rows[existingIndex] = { xpath, excluded: true };
+      }
+      return;
+    }
+    rowIndexByXpath.set(xpath, rows.length);
+    rows.push({ xpath, excluded: Boolean(excluded) });
+  };
+  const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
+  const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
+  explicitRows.forEach((item) => {
+    if (!item || typeof item.xpath !== "string") {
+      return;
+    }
+    const xpath = normalizeXPath(item.xpath);
+    if (!xpath) {
+      return;
+    }
+    if (item.excluded) {
+      explicitExcludedXpaths.add(xpath);
+    } else {
+      explicitIncludedXpaths.add(xpath);
+    }
+  });
+  (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {
+    const normalized = normalizeXPath(xpath);
+    if (normalized) {
+      explicitIncludedXpaths.add(normalized);
+    }
+  });
+  (Array.isArray(entry && entry.consentXpaths) ? entry.consentXpaths : []).forEach((xpath) => {
+    const normalized = normalizeXPath(xpath);
+    if (normalized) {
+      consentXpaths.add(normalized);
+      explicitExcludedXpaths.add(normalized);
+    }
+  });
+
+  explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
+  consentXpaths.forEach((xpath) => pushRow(xpath, true));
+
+  const excludedXPathList = Array.from(explicitExcludedXpaths);
+  const hasExplicitlyExcludedAncestor = (xpath) => {
+    if (!xpath || excludedXPathList.length === 0) {
+      return false;
+    }
+    for (const excludedXpath of excludedXPathList) {
+      if (
+        excludedXpath &&
+        excludedXpath !== xpath &&
+        core.isXPathDescendant(excludedXpath, xpath)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (!document.body) {
+    return rows;
+  }
+  const stack = [document.body];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+    const xpath = core.getXPath(node);
+    if (!xpath) {
+      continue;
+    }
+    const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
+    if (explicitlyExcluded) {
+      pushRow(xpath, true);
+      continue;
+    }
+    const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
+    const insideExplicitExcludedParent = hasExplicitlyExcludedAncestor(xpath);
+    if (insideExplicitExcludedParent && !explicitlyIncluded) {
+      continue;
+    }
+    const isMarkableTextual = core.isMarkableElement(node, state.config, {
+      allowParent: false,
+      allowImmutableChildren: false
+    });
+    if (!isMarkableTextual && !explicitlyIncluded) {
+      continue;
+    }
+    const visibleToUser = core.isVisible(node);
+    if (explicitlyIncluded) {
+      pushRow(xpath, !visibleToUser);
+      continue;
+    }
+    // Non-explicit textual elements: visible => included, hidden => excluded.
+    pushRow(xpath, !visibleToUser);
+  }
+  return rows;
+}
+
 function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -1710,6 +1834,12 @@ export function main() {
         return el && core.isVisible(el);
       });
       sendResponse({ xpaths: filtered });
+      return;
+    }
+
+    if (message.type === "collectAiSubmissionXpaths") {
+      const xpaths = collectAiSubmissionXpathsForCurrentPage();
+      sendResponse({ xpaths });
       return;
     }
 
