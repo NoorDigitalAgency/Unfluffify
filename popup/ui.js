@@ -289,6 +289,82 @@ function renderMarkingView({state: view, actions: handlers}) {
     );
     const showMarkedPagesInHighlightingMode =
       view.highlightingOptionsVisible && view.markedPages.length > 0;
+    const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
+
+    const deviceSection = h(
+      "section",
+      { class: "card margin-below", hidden: !showDeviceSection },
+      h("div", {class: "section-title"}, "Device emulation"),
+      h(
+        "label",
+        {class: "row"},
+        h("span", null, "Enable simulation"),
+        h("input", {
+          id: "device-emulation-enabled",
+          type: "checkbox",
+          checked: view.deviceEmulationEnabled,
+          disabled: view.deviceControlsDisabled,
+          onChange: handlers.onDeviceEmulationEnabledChange
+        })
+      ),
+      h(
+        "div",
+        {
+          class: "radio-group",
+          role: "radiogroup",
+          "aria-label": "Device emulation"
+        },
+        h(
+          "label",
+          {class: "row"},
+          h("span", null, "Desktop 1920x1080"),
+          h("input", {
+            id: "device-mode-desktop",
+            type: "radio",
+            name: "device-mode",
+            value: "desktop",
+            checked: view.deviceMode === "desktop",
+            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+            onChange: handlers.onDeviceModeChange
+          })
+        ),
+        h(
+          "label",
+          {class: "row"},
+          h("span", null, "Mobile 412x960"),
+          h("input", {
+            id: "device-mode-mobile",
+            type: "radio",
+            name: "device-mode",
+            value: "mobile",
+            checked: view.deviceMode === "mobile",
+            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+            onChange: handlers.onDeviceModeChange
+          })
+        )
+      ),
+      h(
+        "div",
+        {class: "scale-control"},
+        h(
+          "div",
+          {class: "row"},
+          h("span", null, "Scale"),
+          h("span", {id: "device-scale-value", class: "scale-value"}, view.deviceScaleValue)
+        ),
+        h("input", {
+          id: "device-scale",
+          type: "range",
+          min: "0.25",
+          max: "1",
+          step: "0.01",
+          value: view.deviceScale,
+          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+          onInput: handlers.onDeviceScaleInput,
+          onChange: handlers.onDeviceScaleChange
+        })
+      )
+    );
 
     return h(
         Fragment,
@@ -430,83 +506,10 @@ function renderMarkingView({state: view, actions: handlers}) {
         ),
         view.highlightingOptionsVisible &&
           renderHighlightingOptionsSection({ state: view, actions: handlers }),
+        deviceSection,
         h(
             "div",
             {id: "main-ui", hidden: view.mainUiHidden},
-            h(
-                "section",
-                {class: "card margin-below"},
-                h("div", {class: "section-title"}, "Device emulation"),
-                h(
-                    "label",
-                    {class: "row"},
-                    h("span", null, "Enable simulation"),
-                    h("input", {
-                        id: "device-emulation-enabled",
-                        type: "checkbox",
-                        checked: view.deviceEmulationEnabled,
-                        disabled: view.deviceControlsDisabled,
-                        onChange: handlers.onDeviceEmulationEnabledChange
-                    })
-                ),
-                h(
-                    "div",
-                    {
-                        class: "radio-group",
-                        role: "radiogroup",
-                        "aria-label": "Device emulation"
-                    },
-                    h(
-                        "label",
-                        {class: "row"},
-                        h("span", null, "Desktop 1920x1080"),
-                        h("input", {
-                            id: "device-mode-desktop",
-                            type: "radio",
-                            name: "device-mode",
-                            value: "desktop",
-                            checked: view.deviceMode === "desktop",
-                            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-                            onChange: handlers.onDeviceModeChange
-                        })
-                    ),
-                    h(
-                        "label",
-                        {class: "row"},
-                        h("span", null, "Mobile 412x960"),
-                        h("input", {
-                            id: "device-mode-mobile",
-                            type: "radio",
-                            name: "device-mode",
-                            value: "mobile",
-                            checked: view.deviceMode === "mobile",
-                            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-                            onChange: handlers.onDeviceModeChange
-                        })
-                    )
-                ),
-                h(
-                    "div",
-                    {class: "scale-control"},
-                    h(
-                        "div",
-                        {class: "row"},
-                        h("span", null, "Scale"),
-                        h("span", {id: "device-scale-value", class: "scale-value"}, view.deviceScaleValue)
-                    ),
-                    h("input", {
-                        id: "device-scale",
-                        type: "range",
-                        min: "0.25",
-                        max: "1",
-                        step: "0.01",
-                        value: view.deviceScale,
-                        disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-                        onInput: handlers.onDeviceScaleInput,
-                        onChange: handlers.onDeviceScaleChange
-                    })
-                )
-            ),
             h(
                 "section",
                 {class: "card"},

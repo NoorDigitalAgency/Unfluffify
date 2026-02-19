@@ -2681,7 +2681,7 @@ function renderHighlightsInner() {
   const hiddenStoredExplicitExclude = [];
   const filteredExplicitExclude = [];
   for (const el of explicitExclude) {
-    if (consentExcluded.has(el)) {
+    if (consentExcluded.has(el) || isWithinElementSet(el, consentExcluded)) {
       continue;
     }
     if (isWithinExplicitInclude(el)) {
@@ -2701,6 +2701,7 @@ function renderHighlightsInner() {
     if (
       !immutableExcluded.has(el) &&
       !consentExcluded.has(el) &&
+      !isWithinElementSet(el, consentExcluded) &&
       !explicitExclude.has(el)
     ) {
       filteredExplicitInclude.push(el);
@@ -2712,7 +2713,6 @@ function renderHighlightsInner() {
 
   const hardExcludedSet = new Set([
     ...immutableExcluded,
-    ...consentExcluded,
     ...hiddenStoredExplicitExclude
   ]);
 
@@ -2722,6 +2722,7 @@ function renderHighlightsInner() {
     hasHigherPrecedence,
     excludedAncestorSet: new Set([
       ...hardExcludedSet,
+      ...consentExcluded,
       ...explicitExclude,
       ...aiExcludedDescendants,
       ...explicitInclude,
@@ -2731,6 +2732,7 @@ function renderHighlightsInner() {
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
+      !isWithinElementSet(el, consentExcluded) &&
       hasRenderableTextForHighlight(el, null, null, null)
     ),
     explicitExcludeElements: filteredExplicitExclude,
