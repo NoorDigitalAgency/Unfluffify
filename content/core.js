@@ -3275,11 +3275,21 @@ function applySelectorDefaultsToItems(items, configValue) {
     return;
   }
   const itemByXpath = new Map();
+  const defaultExcludedElementByXpath = new Map();
   for (const item of items) {
     if (item && typeof item.xpath === "string" && item.xpath) {
       itemByXpath.set(item.xpath, item);
+      if (!item.excluded) {
+        continue;
+      }
+      const el = getElementFromXPath(item.xpath);
+      if (!el || !matchesToggleableDefaultExcluded(el)) {
+        continue;
+      }
+      defaultExcludedElementByXpath.set(item.xpath, el);
     }
   }
+  const directSelectorExcludedXpaths = new Set();
   const upsert = (el, excluded) => {
     if (!el || el.nodeType !== 1) {
       return;
@@ -3307,7 +3317,55 @@ function applySelectorDefaultsToItems(items, configValue) {
     itemByXpath.set(xpath, nextItem);
   };
   // Exclusions apply first, then inclusions override.
-  excludedElements.forEach((el) => upsert(el, true));
+  excludedElements.forEach((el) => {
+    const xpath = getXPath(el);
+    if (xpath) {
+      directSelectorExcludedXpaths.add(xpath);
+    }
+    upsert(el, true);
+  });
+
+  // Merge with defaults:
+  // If a default-excluded parent only has selector-excluded descendants,
+  // keep exclusions at child level by un-excluding the parent.
+  excludedElements.forEach((el) => {
+    if (!el || el.nodeType !== 1) {
+      return;
+    }
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (
+        isWithinAiPopover(ancestor) ||
+        isWithinConsentElement(ancestor) ||
+        isWithinExtensionUi(ancestor)
+      ) {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (isWithinImmutableExcluded(ancestor)) {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      const ancestorXpath = getXPath(ancestor);
+      if (!ancestorXpath) {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      const existingItem = itemByXpath.get(ancestorXpath);
+      const defaultExcludedEl = defaultExcludedElementByXpath.get(ancestorXpath);
+      if (!existingItem || !existingItem.excluded || !defaultExcludedEl) {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      // If selector directly excludes the default itself, keep it excluded.
+      if (directSelectorExcludedXpaths.has(ancestorXpath)) {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      existingItem.excluded = false;
+      ancestor = ancestor.parentElement;
+    }
+  });
   includedElements.forEach((el) => upsert(el, false));
 }
 
