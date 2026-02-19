@@ -497,6 +497,25 @@ function isWithinConsentElement(el) {
   return el.hasAttribute(CONSENT_HIDDEN_ATTR);
 }
 
+function collectConsentExcludedElements() {
+  const elements = new Set();
+  const roots = state.consentRootElements;
+  if (roots && roots.size) {
+    for (const root of roots) {
+      if (!root || root.nodeType !== 1 || root.isConnected === false) {
+        continue;
+      }
+      elements.add(root);
+    }
+  }
+  document.querySelectorAll(`[${CONSENT_HIDDEN_ATTR}]`).forEach((el) => {
+    if (el && el.nodeType === 1 && el.isConnected !== false) {
+      elements.add(el);
+    }
+  });
+  return elements;
+}
+
 export function getXPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
@@ -2245,11 +2264,8 @@ function toggleExplicitInclude(target) {
   let convertedFromExcluded = false;
   if (targetItem && targetItem.excluded) {
     if (!canIncludeHere(target)) {
-      if (matchesToggleableDefaultExcluded(target)) {
-        targetItem.excluded = false;
-      } else {
-        items.splice(targetItemIndex, 1);
-      }
+      // Persist a direct include preference when user un-excludes a previously hidden item.
+      targetItem.excluded = false;
       for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
         if (includeXpaths[i] === xpath) {
           includeXpaths.splice(i, 1);
@@ -2611,6 +2627,7 @@ function renderHighlightsInner() {
       collectExcludedXPaths(entry.xpaths)
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
+  const consentExcluded = collectConsentExcludedElements();
   const explicitUnexcludeOverrides = collectXPathElements(
     (entry.xpaths || [])
       .filter((item) => item && item.xpath && item.excluded === false)
@@ -2640,7 +2657,8 @@ function renderHighlightsInner() {
     const aiContentMarking = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet);
     const isWithinExcludedContainers = (el) =>
       isWithinElementSet(el, immutableExcluded) ||
-      isWithinElementSet(el, explicitExclude);
+      isWithinElementSet(el, explicitExclude) ||
+      isWithinElementSet(el, consentExcluded);
     aiContent = new Set(
       (aiContentMarking.included || []).filter((el) => !isWithinExcludedContainers(el))
     );
@@ -2652,6 +2670,7 @@ function renderHighlightsInner() {
   }
   const precedenceSet = new Set([
     ...immutableExcluded,
+    ...consentExcluded,
     ...explicitExclude,
     ...explicitInclude,
     ...aiContent,
@@ -2659,16 +2678,31 @@ function renderHighlightsInner() {
   ]);
   const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
+  const hiddenStoredExplicitExclude = [];
   const filteredExplicitExclude = [];
   for (const el of explicitExclude) {
-    if (!immutableExcluded.has(el) && !isWithinExplicitInclude(el)) {
+    if (consentExcluded.has(el)) {
+      continue;
+    }
+    if (isWithinExplicitInclude(el)) {
+      continue;
+    }
+    if (!isVisible(el)) {
+      hiddenStoredExplicitExclude.push(el);
+      continue;
+    }
+    if (!immutableExcluded.has(el)) {
       filteredExplicitExclude.push(el);
     }
   }
 
   const filteredExplicitInclude = [];
   for (const el of explicitInclude) {
-    if (!immutableExcluded.has(el) && !explicitExclude.has(el)) {
+    if (
+      !immutableExcluded.has(el) &&
+      !consentExcluded.has(el) &&
+      !explicitExclude.has(el)
+    ) {
       filteredExplicitInclude.push(el);
     }
   }
@@ -2676,12 +2710,18 @@ function renderHighlightsInner() {
     ? filteredExplicitInclude.filter((el) => !aiContent.has(el))
     : [];
 
+  const hardExcludedSet = new Set([
+    ...immutableExcluded,
+    ...consentExcluded,
+    ...hiddenStoredExplicitExclude
+  ]);
+
   const defaultTargets = collectDefaultHighlightTargets(document.body, {
     excludedSet: precedenceSet,
-    hardExcludedSet: immutableExcluded,
+    hardExcludedSet,
     hasHigherPrecedence,
     excludedAncestorSet: new Set([
-      ...immutableExcluded,
+      ...hardExcludedSet,
       ...explicitExclude,
       ...aiExcludedDescendants,
       ...explicitInclude,
@@ -2690,7 +2730,7 @@ function renderHighlightsInner() {
   });
 
   const collections = {
-    hardElements: Array.from(immutableExcluded).filter((el) =>
+    hardElements: Array.from(hardExcludedSet).filter((el) =>
       hasRenderableTextForHighlight(el, null, null, null)
     ),
     explicitExcludeElements: filteredExplicitExclude,
@@ -4116,6 +4156,33 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     items.push({ xpath: item.xpath, excluded: true });
+    seen.add(item.xpath);
+  }
+  for (const item of previousItems) {
+    if (!item || !item.xpath || item.excluded) {
+      continue;
+    }
+    if (explicitIncludeSet.has(item.xpath)) {
+      continue;
+    }
+    if (seen.has(item.xpath)) {
+      continue;
+    }
+    const explicitEl = getElementFromXPath(item.xpath);
+    if (!explicitEl) {
+      continue;
+    }
+    if (isWithinConsentElement(explicitEl)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(explicitEl)) {
+      continue;
+    }
+    if (isVisible(explicitEl)) {
+      continue;
+    }
+    // Preserve hidden include choices so user overrides survive accordion-like visibility toggles.
+    items.push({ xpath: item.xpath, excluded: false });
     seen.add(item.xpath);
   }
   if (!hadEntry && applySelectorDefaultsForNew && !hasSavedSnapshot) {
