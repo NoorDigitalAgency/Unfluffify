@@ -25,6 +25,7 @@ const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
     domainId
+    domainName
   }
 }
 `;
@@ -148,6 +149,46 @@ function normalizeSiteIdValue(value) {
   return parsed;
 }
 
+function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
+  if (typeof domainName !== "string") {
+    return "";
+  }
+  const raw = domainName.trim();
+  if (!raw) {
+    return "";
+  }
+  let protocol = "https:";
+  try {
+    const page = new URL(pageUrl);
+    if (page.protocol === "http:" || page.protocol === "https:") {
+      protocol = page.protocol;
+    }
+  } catch (error) {
+    // Use HTTPS default.
+  }
+  let parsed = null;
+  try {
+    parsed = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+      ? new URL(raw)
+      : new URL(`${protocol}//${raw.replace(/^\/+/, "")}`);
+  } catch (error) {
+    return "";
+  }
+  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+    return "";
+  }
+  const hostname = (parsed.hostname || "").trim().toLowerCase();
+  if (!hostname) {
+    return "";
+  }
+  let pathname = parsed.pathname || "/";
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname) {
+    pathname = "/";
+  }
+  return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+}
+
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
@@ -156,7 +197,7 @@ async function resolveSiteIdFromGraphql(options = {}) {
   } = options;
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
   if (!graphqlEndpoint || !lookupUrl) {
-    return { ok: false, siteId: null, notFound: false };
+    return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }
   const headers = { "Content-Type": "application/json" };
   if (tokenValue) {
@@ -192,15 +233,20 @@ async function resolveSiteIdFromGraphql(options = {}) {
         return code === "NotFound";
       });
       if (notFound) {
-        return { ok: true, siteId: null, notFound: true };
+        return {
+          ok: true,
+          siteId: null,
+          baseUrl: "",
+          notFound: true
+        };
       }
-      return { ok: false, siteId: null, notFound: false };
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
     if (!response.ok) {
-      return { ok: false, siteId: null, notFound: false };
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
     if (!hasPayload) {
-      return { ok: false, siteId: null, notFound: false };
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
     const candidate = normalizeSiteIdValue(
       data &&
@@ -208,12 +254,32 @@ async function resolveSiteIdFromGraphql(options = {}) {
         data.data.urlSearchInfo &&
         data.data.urlSearchInfo.domainId
     );
+    const baseUrl = normalizeBaseUrlFromDomainName(
+      data &&
+        data.data &&
+        data.data.urlSearchInfo &&
+        data.data.urlSearchInfo.domainName,
+      lookupUrl
+    );
     if (!candidate) {
-      return { ok: true, siteId: null, notFound: true };
+      return {
+        ok: true,
+        siteId: null,
+        baseUrl,
+        notFound: true
+      };
     }
-    return { ok: true, siteId: candidate, notFound: false };
+    if (!baseUrl) {
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
+    }
+    return {
+      ok: true,
+      siteId: candidate,
+      baseUrl,
+      notFound: false
+    };
   } catch (error) {
-    return { ok: false, siteId: null, notFound: false };
+    return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }
 }
 
@@ -225,7 +291,7 @@ async function ensureBaseUrlSiteId(options = {}) {
     configs = null
   } = options;
   if (!baseUrl) {
-    return { ok: false, siteId: null, reason: "Set Base Page URL first" };
+    return { ok: false, siteId: null, reason: "No mapped base page URL/siteId for this page" };
   }
   const sourceConfigs = configs || await config.getConfigs();
   const normalizedConfig = config.normalizeConfig(baseUrl, sourceConfigs[baseUrl]);
@@ -1400,24 +1466,12 @@ async function refreshUi() {
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let currentSiteId = null;
   let siteIdBlockedReason = "";
+  let unsupportedByGraphql = false;
   let remoteLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
-  }
-  if (
-    remoteLoadResult &&
-    remoteLoadResult.status === "not_found" &&
-    effectiveTabState.baseUrl &&
-    !hasLocalConfigForWebsite
-  ) {
-    const wasEnabled = Boolean(effectiveTabState.enabled);
-    effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
-    await utils.setTabState(state.currentTab.id, effectiveTabState);
-    if (wasEnabled) {
-      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-    }
   }
   const silentHighlightOptions = normalizeSilentHighlightOptions(
     tabState && tabState.silentHighlightOptions
@@ -1432,7 +1486,6 @@ async function refreshUi() {
     !effectiveTabState.baseUrl &&
     currentTabId &&
     pageUrl &&
-    configEndpointValue &&
     normalizedStageBaseValue
   ) {
     const discoveryResult = await resolveSiteIdFromGraphql({
@@ -1440,20 +1493,44 @@ async function refreshUi() {
       lookupUrl: pageUrl,
       tokenValue
     });
-    if (discoveryResult && discoveryResult.ok && discoveryResult.siteId) {
-      remoteLoadResult = await loadRemoteConfigForCurrentPage({
-        tabId: currentTabId,
-        pageUrl,
-        siteId: discoveryResult.siteId,
-        endpointValue: configEndpointValue,
-        tokenValue,
-        force: false
-      });
-      if (remoteLoadResult && remoteLoadResult.status === "ok") {
+    if (
+      discoveryResult &&
+      discoveryResult.ok &&
+      discoveryResult.siteId &&
+      discoveryResult.baseUrl
+    ) {
+      const discoveredBaseUrl = discoveryResult.baseUrl;
+      const discoveredSiteId = normalizeSiteIdValue(discoveryResult.siteId);
+      if (discoveredSiteId) {
+        state.siteIdLookupByBaseUrl.set(discoveredBaseUrl, discoveredSiteId);
+        await config.updateConfig(discoveredBaseUrl, (entry) => {
+          entry.siteId = discoveredSiteId;
+        });
         configs = await config.getConfigs();
         localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
         hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
       }
+      if (configEndpointValue) {
+        remoteLoadResult = await loadRemoteConfigForCurrentPage({
+          tabId: currentTabId,
+          pageUrl,
+          siteId: discoveryResult.siteId,
+          endpointValue: configEndpointValue,
+          tokenValue,
+          force: false
+        });
+        if (
+          remoteLoadResult &&
+          (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
+        ) {
+          configs = await config.getConfigs();
+          localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+          hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
+        }
+      }
+    } else if (discoveryResult && discoveryResult.ok && discoveryResult.notFound) {
+      unsupportedByGraphql = true;
+      siteIdBlockedReason = "No mapped base page URL/siteId was found for this page.";
     }
   }
   const fallbackBaseUrl = localMatchingBaseUrl;
@@ -1521,6 +1598,23 @@ async function refreshUi() {
     currentSiteId = null;
     siteIdBlockedReason = "";
   }
+  if (unsupportedByGraphql) {
+    const unsupportedKey = `${currentTabId || ""}|${pageUrl}|${normalizedStageBaseValue}`;
+    if (state.lastUnsupportedPageAlertKey !== unsupportedKey) {
+      state.lastUnsupportedPageAlertKey = unsupportedKey;
+      window.alert("This page is not mapped to any siteId/base page URL. Marking is disabled.");
+    }
+    if (effectiveTabState.enabled) {
+      effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
+      await utils.setTabState(state.currentTab.id, effectiveTabState);
+      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    }
+    state.currentBaseUrl = "";
+    state.currentConfig = null;
+    currentSiteId = null;
+  } else if (state.lastUnsupportedPageAlertKey) {
+    state.lastUnsupportedPageAlertKey = "";
+  }
   if (!state.currentBaseUrl) {
     state.baseUrlEditMode = false;
   }
@@ -1533,26 +1627,15 @@ async function refreshUi() {
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen
   };
-  let suggestedBaseUrl = "";
-  if (pageUrl) {
-    try {
-      suggestedBaseUrl = new URL(pageUrl).origin;
-    } catch (error) {
-      suggestedBaseUrl = "";
-    }
-  }
-  const baseUrlSet = Boolean(state.currentBaseUrl);
-  const baseField = getEditableFieldState({
-    inputRef: refs.baseUrlInput,
-    currentValue: view.baseUrlInputValue,
-    value: state.currentBaseUrl,
-    isSet: baseUrlSet,
-    editMode: state.baseUrlEditMode,
-    suggestedValue: suggestedBaseUrl,
-    noticeUnset: "Set Base Page URL before enabling marking",
-    noticeEdit: "Set Base Page URL to continue"
-  });
-  const baseUrlReady = baseField.isReady;
+  const baseUrlReady = Boolean(state.currentBaseUrl);
+  const baseField = {
+    value: state.currentBaseUrl || "",
+    isEditing: false,
+    noticeText: baseUrlReady
+      ? ""
+      : "Base Page URL is resolved automatically from GraphQL.",
+    noticeVisible: !baseUrlReady
+  };
   let toggleEnabled = Boolean(
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
@@ -1639,14 +1722,20 @@ async function refreshUi() {
   const siteIdReady = Boolean(
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
   );
-  const effectiveSiteIdBlockedReason =
-    baseUrlReady && !siteIdReady
+  const effectiveSiteIdBlockedReason = unsupportedByGraphql
+    ? siteIdBlockedReason || "No mapped base page URL/siteId was found for this page."
+    : baseUrlReady && !siteIdReady
       ? siteIdBlockedReason || "No domainId exists for this base URL"
       : "";
 
   const configurationComplete =
     configEndpointReady && endpointReady && stageBaseReady && Boolean(tokenValue);
-  const aiReady = baseUrlReady && siteIdReady && endpointReady && Boolean(tokenValue);
+  const aiReady =
+    !unsupportedByGraphql &&
+    baseUrlReady &&
+    siteIdReady &&
+    endpointReady &&
+    Boolean(tokenValue);
   isEnabled = toggleEnabled && siteIdReady;
   if (toggleEnabled && !siteIdReady && currentTabId) {
     toggleEnabled = false;
@@ -1718,31 +1807,42 @@ async function refreshUi() {
 
   nextViewState.currentView = resolvedView;
   nextViewState.configurationComplete = configurationComplete;
-  nextViewState.configurationContinueDisabled = !configurationComplete;
-  nextViewState.configurationNoticeVisible = !configurationComplete;
-  nextViewState.configurationNoticeText = configurationComplete
-    ? ""
-    : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
+  nextViewState.configurationContinueDisabled = !configurationComplete || unsupportedByGraphql;
+  nextViewState.configurationNoticeVisible = !configurationComplete || unsupportedByGraphql;
+  nextViewState.configurationNoticeText = unsupportedByGraphql
+    ? "This page is not mapped to any siteId/base page URL. Extension UI is disabled."
+    : configurationComplete
+      ? ""
+      : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
 
-  nextViewState.toggleEnabled = isEnabled;
-  nextViewState.toggleEnabledDisabled = !baseUrlReady || !siteIdReady;
-  nextViewState.mainUiHidden = !isEnabled || !siteIdReady;
+  const uiDisabledForUnsupportedPage = unsupportedByGraphql;
+  nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
+  nextViewState.toggleEnabledDisabled =
+    uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady;
+  nextViewState.mainUiHidden =
+    uiDisabledForUnsupportedPage || !isEnabled || !siteIdReady;
   nextViewState.computeButtonDisabled =
-    aiBusy || !aiReady || aiBlockedByDraft || mobileSimulationBlocked;
+    uiDisabledForUnsupportedPage ||
+    aiBusy ||
+    !aiReady ||
+    aiBlockedByDraft ||
+    mobileSimulationBlocked;
   nextViewState.saveExcludesButtonDisabled =
+    uiDisabledForUnsupportedPage ||
     aiBusy ||
     !aiReady ||
     !hasNewSelectors ||
     aiBlockedByDraft ||
     mobileSimulationBlocked;
   nextViewState.previewLatestButtonDisabled =
+    uiDisabledForUnsupportedPage ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady ||
     !hasStoredSelectors ||
     aiBlockedByDraft ||
     mobileSimulationBlocked;
-  nextViewState.aiControlsHidden = !aiControlsVisible;
+  nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
   nextViewState.mobileSimulationRequiredVisible = mobileSimulationBlocked;
   nextViewState.mobileSimulationRequiredText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
   nextViewState.stageBaseValue = stageBaseField.value;
@@ -1752,14 +1852,16 @@ async function refreshUi() {
   nextViewState.stageBaseEditText = state.stageBaseEditMode ? "Cancel" : "Change";
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
-  nextViewState.stageBaseInputDisabled = aiBusy;
-  nextViewState.stageBaseSetDisabled = aiBusy;
-  nextViewState.stageBaseEditDisabled = aiBusy;
+  nextViewState.stageBaseInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.stageBaseSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.stageBaseEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
   nextViewState.loginEmailValue = loginEmailValue;
   nextViewState.loginPasswordValue = loginPasswordValue;
-  nextViewState.loginCredentialsDisabled = aiBusy || !loginCredentialsEnabled;
+  nextViewState.loginCredentialsDisabled =
+    aiBusy || uiDisabledForUnsupportedPage || !loginCredentialsEnabled;
   nextViewState.loginStatusText = tokenValue ? "Token saved" : "Login required";
   nextViewState.loginActionDisabled =
+    uiDisabledForUnsupportedPage ||
     aiBusy ||
     !loginCredentialsEnabled ||
     !isValidEmail(loginEmailValue.trim()) ||
@@ -1771,9 +1873,9 @@ async function refreshUi() {
   nextViewState.configEndpointEditText = state.configEndpointEditMode ? "Cancel" : "Change";
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
-  nextViewState.configEndpointInputDisabled = aiBusy;
-  nextViewState.configEndpointSetDisabled = aiBusy;
-  nextViewState.configEndpointEditDisabled = aiBusy;
+  nextViewState.configEndpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.configEndpointSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.configEndpointEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
 
   nextViewState.endpointUrlValue = endpointField.value;
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
@@ -1782,9 +1884,9 @@ async function refreshUi() {
   nextViewState.endpointEditText = state.endpointEditMode ? "Cancel" : "Change";
   nextViewState.endpointNoticeText = endpointField.noticeText;
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
-  nextViewState.endpointInputDisabled = aiBusy;
-  nextViewState.endpointSetDisabled = aiBusy;
-  nextViewState.endpointEditDisabled = aiBusy;
+  nextViewState.endpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.endpointSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.endpointEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
   nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
@@ -1806,16 +1908,17 @@ async function refreshUi() {
   nextViewState.highlightHideDuringScrollRedrawChecked =
     state.silentHighlightHideDuringScrollRedraw;
   nextViewState.baseUrlInputValue = baseField.value;
-  nextViewState.baseUrlInputReadOnly = !baseField.isEditing;
-  nextViewState.baseUrlSetVisible = baseField.isEditing;
-  nextViewState.baseUrlEditVisible = baseUrlSet;
-  nextViewState.baseUrlEditText = state.baseUrlEditMode ? "Cancel" : "Change";
+  nextViewState.baseUrlInputReadOnly = true;
+  nextViewState.baseUrlSetVisible = false;
+  nextViewState.baseUrlEditVisible = false;
+  nextViewState.baseUrlEditText = "Change";
   nextViewState.baseUrlNoticeText =
     effectiveSiteIdBlockedReason || baseField.noticeText;
   nextViewState.baseUrlNoticeVisible =
     Boolean(effectiveSiteIdBlockedReason) || baseField.noticeVisible;
   const canInitialPageSave = !hasSavedPageData;
   const pageSaveDisabled =
+    uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
     !siteIdReady ||
     !isEnabled ||
@@ -1824,6 +1927,7 @@ async function refreshUi() {
     (!state.currentDraftDirty && !canInitialPageSave);
   nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageRevertDisabled =
+    uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
     !siteIdReady ||
     !isEnabled ||
@@ -1832,7 +1936,10 @@ async function refreshUi() {
     !hasSavedPageData ||
     !state.currentDraftDirty;
   if (!baseUrlReady) {
-    nextViewState.pageDraftStatusText = "Set Base Page URL first";
+    nextViewState.pageDraftStatusText = "Base Page URL is resolved automatically.";
+  } else if (uiDisabledForUnsupportedPage) {
+    nextViewState.pageDraftStatusText =
+      "This page has no mapped siteId/base page URL.";
   } else if (!siteIdReady) {
     nextViewState.pageDraftStatusText =
       effectiveSiteIdBlockedReason || "No domainId exists for this base URL";
@@ -1852,6 +1959,7 @@ async function refreshUi() {
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || "Not loaded yet";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || "No save sent yet";
   nextViewState.pageDataNewNoticeHidden =
+    uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
     !siteIdReady ||
     !isEnabled ||
@@ -1915,13 +2023,13 @@ async function refreshUi() {
   }
 
   nextViewState.explicitExcludes = pageExplicitExclude;
-  nextViewState.explicitExcludesEmptyText = baseUrlSet
+  nextViewState.explicitExcludesEmptyText = baseUrlReady
     ? "None yet"
-    : "Set Base Page URL first";
+    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
   nextViewState.explicitIncludes = pageExplicitInclude;
-  nextViewState.explicitIncludesEmptyText = baseUrlSet
+  nextViewState.explicitIncludesEmptyText = baseUrlReady
     ? "None yet"
-    : "Set Base Page URL first";
+    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
 
   const markedPages = [];
   const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -1957,9 +2065,9 @@ async function refreshUi() {
   });
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
   nextViewState.markedPages = markedPages;
-  nextViewState.markedPagesEmptyText = baseUrlSet
+  nextViewState.markedPagesEmptyText = baseUrlReady
     ? "None yet"
-    : "Set Base Page URL first";
+    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
 
   const basePageUrls = Object.keys(configs)
     .filter((url) => {
@@ -1981,7 +2089,7 @@ async function refreshUi() {
 }
 
 function handleBaseUrlInput(event) {
-  uiModule.setViewState({ baseUrlInputValue: event.target.value });
+  uiModule.setViewState({ baseUrlInputValue: (event && event.target && event.target.value) || "" });
 }
 
 function handleConfigEndpointInput(event) {
@@ -2180,7 +2288,7 @@ async function handleEnableToggle(event) {
     return;
   }
   uiModule.setViewState({ toggleEnabled: desiredEnabled });
-  if (!helpers.ensureBaseUrl("Set Base Page URL before enabling marking")) {
+  if (!helpers.ensureBaseUrl("No mapped base page URL/siteId for this page")) {
     uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
     return;
@@ -2428,104 +2536,11 @@ async function handleClearDomainCache() {
 }
 
 async function handleBaseUrlSet() {
-  const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
-  if (!tab) {
-    return;
-  }
-  const baseUrlValue = uiModule.getViewState().baseUrlInputValue.trim();
-  if (!baseUrlValue) {
-    uiModule.showToast("Enter a Base Page URL");
-    return;
-  }
-  const parsed = utils.parseBaseUrl(baseUrlValue);
-  if (!parsed) {
-    uiModule.showToast("Enter a valid Base Page URL");
-    return;
-  }
-  if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
-    uiModule.showToast("Current page is outside the Base Page URL");
-    return;
-  }
-  const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
-  const sourceConfigs = await config.getConfigs();
-  const siteIdResult = await ensureBaseUrlSiteId({
-    baseUrl: baseUrlValue,
-    stageBase: stageBaseValue,
-    tokenValue,
-    configs: sourceConfigs
-  });
-  if (!siteIdResult.ok || !siteIdResult.siteId) {
-    uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
-    await refreshUi();
-    return;
-  }
-  // Inject content script first
-  const injectResult = await helpers.injectContentScriptIfNeeded();
-  if (!injectResult.ok) {
-    uiModule.showToast(injectResult.error || "Unable to activate on this page");
-    return;
-  }
-  state.currentBaseUrl = baseUrlValue;
-  state.currentConfig = siteIdResult.config || await config.ensureConfig(baseUrlValue);
-  state.baseUrlEditMode = false;
-  await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
-  await messages.sendTabMessageWithRetry({
-    type: "setEnabled",
-    enabled: true,
-    baseUrl: baseUrlValue
-  });
-  await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-  await refreshUi();
+  uiModule.showToast("Base Page URL is resolved automatically from GraphQL");
 }
 
 async function handleBaseUrlEditToggle() {
-  if (!state.currentBaseUrl) {
-    return;
-  }
-  state.baseUrlEditMode = !state.baseUrlEditMode;
-  const tab = await helpers.ensureActiveTab();
-  if (state.baseUrlEditMode) {
-    if (tab && tab.id) {
-      await utils.setTabState(tab.id, {
-        enabled: false,
-        baseUrl: state.currentBaseUrl
-      });
-      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-    }
-  } else if (tab && utils.isPageWithinBaseUrl(tab.url, state.currentBaseUrl)) {
-    const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl: state.currentBaseUrl,
-      stageBase: stageBaseValue,
-      tokenValue
-    });
-    if (!siteIdResult.ok || !siteIdResult.siteId) {
-      uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
-      state.baseUrlEditMode = true;
-      await refreshUi();
-      return;
-    }
-    // Inject content script first when re-enabling
-    const injectResult = await helpers.injectContentScriptIfNeeded();
-    if (!injectResult.ok) {
-      uiModule.showToast(injectResult.error || "Unable to activate on this page");
-      state.baseUrlEditMode = true;
-      await refreshUi();
-      return;
-    }
-    state.currentConfig = siteIdResult.config || await config.ensureConfig(state.currentBaseUrl);
-    await utils.setTabState(tab.id, {
-      enabled: true,
-      baseUrl: state.currentBaseUrl
-    });
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl: state.currentBaseUrl
-    });
-    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-  }
-  await refreshUi();
+  uiModule.showToast("Base Page URL is resolved automatically from GraphQL");
 }
 
 async function handleConfigEndpointSet() {
@@ -3075,7 +3090,7 @@ async function handlePreviewLatest() {
     return;
   }
   if (!state.currentConfig) {
-    uiModule.showToast("Set Base Page URL first");
+    uiModule.showToast("No mapped base page URL/siteId for this page");
     return;
   }
   const selectorSet = getLatestComputedSelectorsFromConfig();

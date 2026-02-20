@@ -48,5 +48,6 @@ export const state = {
   lastConfigLoadStatusText: "Not loaded yet",
   lastConfigSaveStatusText: "No save sent yet",
   mobileAutoAppliedTabIds: new Set(),
-  siteIdLookupByBaseUrl: new Map()
+  siteIdLookupByBaseUrl: new Map(),
+  lastUnsupportedPageAlertKey: ""
 };

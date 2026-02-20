@@ -19,7 +19,7 @@ export async function ensureActiveTab(options = {}) {
   return tab;
 }
 
-export function ensureBaseUrl(message = "Set Base Page URL first") {
+export function ensureBaseUrl(message = "No mapped base page URL/siteId for this page") {
   if (!state.currentBaseUrl) {
     uiModule.showToast(message);
     return false;
