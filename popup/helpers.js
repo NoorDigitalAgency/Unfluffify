@@ -38,7 +38,12 @@ export async function injectContentScriptIfNeeded() {
   return response || { ok: false, error: "Injection failed" };
 }
 
-export async function updateDeviceEmulation({ enabled, mode, scale }) {
+export async function updateDeviceEmulation({
+  enabled,
+  mode,
+  scale,
+  recalculateScale = false
+}) {
   if (!state.currentTab || !state.currentTab.id) {
     return null;
   }
@@ -56,7 +61,8 @@ export async function updateDeviceEmulation({ enabled, mode, scale }) {
     tabId: state.currentTab.id,
     enabled,
     mode,
-    scale
+    scale,
+    recalculateScale
   });
   emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {

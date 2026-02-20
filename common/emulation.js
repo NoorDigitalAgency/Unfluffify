@@ -178,6 +178,7 @@ export async function updateDeviceEmulation(tabId, updates) {
     ...current,
     ...updates
   };
+  const shouldRecalculateScale = Boolean(updates && updates.recalculateScale);
   next.mode = normalizeDeviceMode(next.mode);
   next.scale = normalizeDeviceScale(next.scale, next.mode);
 
@@ -192,7 +193,7 @@ export async function updateDeviceEmulation(tabId, updates) {
     await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
   }
 
-  if (!current.enabled || current.mode !== next.mode) {
+  if (shouldRecalculateScale || !current.enabled || current.mode !== next.mode) {
     next.scale = await getBestDeviceScale(tabId, next.mode);
   }
 

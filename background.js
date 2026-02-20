@@ -126,7 +126,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     updateDeviceEmulation(tabId, {
       enabled: typeof message.enabled === "boolean" ? message.enabled : undefined,
       mode: message.mode,
-      scale: message.scale
+      scale: message.scale,
+      recalculateScale: Boolean(message.recalculateScale)
     })
       .then((result) => {
         if (!result.ok) {

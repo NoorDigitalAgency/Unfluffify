@@ -61,15 +61,17 @@ async function ensureMobileSimulationForSidebar(tabId) {
   }
   const storedDeviceState = await emulation.getDeviceEmulationState(tabId);
   let normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  if (normalizedDeviceState.enabled) {
-    return normalizedDeviceState;
-  }
+  const desiredEnabled = true;
+  const desiredMode = normalizedDeviceState.enabled
+    ? normalizedDeviceState.mode
+    : "desktop";
   const response = await messages.sendRuntimeMessage({
     type: "updateDeviceEmulation",
     tabId,
-    enabled: true,
-    mode: "desktop",
-    scale: normalizedDeviceState.scale
+    enabled: desiredEnabled,
+    mode: desiredMode,
+    scale: normalizedDeviceState.scale,
+    recalculateScale: true
   });
   if (response && response.ok && response.state) {
     normalizedDeviceState = emulation.syncDeviceEmulationState(response.state);
