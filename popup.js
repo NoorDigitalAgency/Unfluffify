@@ -1599,11 +1599,6 @@ async function refreshUi() {
     siteIdBlockedReason = "";
   }
   if (unsupportedByGraphql) {
-    const unsupportedKey = `${currentTabId || ""}|${pageUrl}|${normalizedStageBaseValue}`;
-    if (state.lastUnsupportedPageAlertKey !== unsupportedKey) {
-      state.lastUnsupportedPageAlertKey = unsupportedKey;
-      window.alert("This page is not mapped to any siteId/base page URL. Marking is disabled.");
-    }
     if (effectiveTabState.enabled) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
       await utils.setTabState(state.currentTab.id, effectiveTabState);
@@ -1612,8 +1607,6 @@ async function refreshUi() {
     state.currentBaseUrl = "";
     state.currentConfig = null;
     currentSiteId = null;
-  } else if (state.lastUnsupportedPageAlertKey) {
-    state.lastUnsupportedPageAlertKey = "";
   }
   if (!state.currentBaseUrl) {
     state.baseUrlEditMode = false;
@@ -1897,10 +1890,11 @@ async function refreshUi() {
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
   nextViewState.cssSelectorsVisible =
-    resolvedView === uiModule.View.Marking;
+    !uiDisabledForUnsupportedPage && resolvedView === uiModule.View.Marking;
   const highlightingMode =
     resolvedView === uiModule.View.Marking && !isEnabled;
-  nextViewState.highlightingOptionsVisible = highlightingMode;
+  nextViewState.highlightingOptionsVisible =
+    !uiDisabledForUnsupportedPage && highlightingMode;
   nextViewState.highlightMarkedPagesChecked = state.silentHighlightShowMarkedPages;
   nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
   nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;

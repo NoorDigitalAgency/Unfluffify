@@ -265,437 +265,436 @@ function App({ state: view, actions: handlers }) {
 }
 
 function renderMarkingView({state: view, actions: handlers}) {
-    const computeButtonClass = classNames(
-        "full-width",
-        "margin-above",
-        view.computeButtonLoading && "loading"
-    );
-    const showMarkedPagesInHighlightingMode =
-      view.highlightingOptionsVisible && view.markedPages.length > 0;
-    const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
+  const computeButtonClass = classNames(
+    "full-width",
+    "margin-above",
+    view.computeButtonLoading && "loading"
+  );
+  const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
+  const markingMode = !view.mainUiHidden;
 
-    const deviceSection = h(
-      "section",
-      { class: "card margin-below", hidden: !showDeviceSection },
-      h("div", {class: "section-title"}, "Device emulation"),
+  const deviceSection = h(
+    "section",
+    { class: "card margin-below", hidden: !showDeviceSection },
+    h("div", {class: "section-title"}, "Device emulation"),
+    h(
+      "label",
+      {class: "row"},
+      h("span", null, "Enable simulation"),
+      h("input", {
+        id: "device-emulation-enabled",
+        type: "checkbox",
+        checked: view.deviceEmulationEnabled,
+        disabled: view.deviceControlsDisabled,
+        onChange: handlers.onDeviceEmulationEnabledChange
+      })
+    ),
+    h(
+      "div",
+      {
+        class: "radio-group",
+        role: "radiogroup",
+        "aria-label": "Device emulation"
+      },
       h(
         "label",
         {class: "row"},
-        h("span", null, "Enable simulation"),
+        h("span", null, "Desktop 1920x1080"),
         h("input", {
-          id: "device-emulation-enabled",
-          type: "checkbox",
-          checked: view.deviceEmulationEnabled,
-          disabled: view.deviceControlsDisabled,
-          onChange: handlers.onDeviceEmulationEnabledChange
+          id: "device-mode-desktop",
+          type: "radio",
+          name: "device-mode",
+          value: "desktop",
+          checked: view.deviceMode === "desktop",
+          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+          onChange: handlers.onDeviceModeChange
         })
+      ),
+      h(
+        "label",
+        {class: "row"},
+        h("span", null, "Mobile 412x960"),
+        h("input", {
+          id: "device-mode-mobile",
+          type: "radio",
+          name: "device-mode",
+          value: "mobile",
+          checked: view.deviceMode === "mobile",
+          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+          onChange: handlers.onDeviceModeChange
+        })
+      )
+    ),
+    h(
+      "div",
+      {class: "scale-control"},
+      h(
+        "div",
+        {class: "row"},
+        h("span", null, "Scale"),
+        h("span", {id: "device-scale-value", class: "scale-value"}, view.deviceScaleValue)
+      ),
+      h("input", {
+        id: "device-scale",
+        type: "range",
+        min: "0.25",
+        max: "1",
+        step: "0.01",
+        value: view.deviceScale,
+        disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
+        onInput: handlers.onDeviceScaleInput,
+        onChange: handlers.onDeviceScaleChange
+      })
+    )
+  );
+
+  const aiControlsSection = h(
+    "section",
+    {class: "card margin-above"},
+    h("div", {class: "section-title"}, "AI controls"),
+    view.mobileSimulationRequiredVisible &&
+      h(
+        "div",
+        {
+          class: "notice",
+          role: "status",
+          "aria-live": "polite"
+        },
+        view.mobileSimulationRequiredText
+      ),
+    !view.configurationComplete &&
+      h(
+        "div",
+        {
+          class: "notice",
+          role: "status",
+          "aria-live": "polite"
+        },
+        "Complete Configuration settings to enable AI controls."
+      ),
+    h(
+      "div",
+      {
+        id: "ai-controls",
+        class: "border-above",
+        "aria-busy": view.aiControlsBusy ? "true" : "false"
+      },
+      h(
+        "div",
+        {class: "section-title padding-above padding-below"},
+        "Selector Computation"
       ),
       h(
         "div",
         {
-          class: "radio-group",
-          role: "radiogroup",
-          "aria-label": "Device emulation"
+          id: "ai-dirty-notice",
+          class: "notice",
+          role: "status",
+          "aria-live": "polite",
+          style: {display: view.aiDirtyNoticeVisible ? "block" : "none"}
         },
+        "Save the current page before using AI controls"
+      ),
+      h(
+        "button",
+        {
+          id: "compute",
+          class: computeButtonClass,
+          type: "button",
+          disabled: view.computeButtonDisabled,
+          onClick: handlers.onCompute
+        },
+        view.computeButtonText
+      )
+    )
+  );
+
+  const pageDataSection = h(
+    "section",
+    {class: "card"},
+    h("div", {class: "section-title"}, "Page data"),
+    view.mobileSimulationRequiredVisible &&
+      h(
+        "div",
+        {
+          class: "notice",
+          role: "status",
+          "aria-live": "polite"
+        },
+        view.mobileSimulationRequiredText
+      ),
+    h(
+      "div",
+      {
+        id: "page-data-new-notice",
+        class: "notice",
+        role: "status",
+        "aria-live": "polite",
+        hidden: view.pageDataNewNoticeHidden
+      },
+      "No saved data for this page yet. Save to store it."
+    ),
+    h(
+      "div",
+      {class: "button-row"},
+      h(
+        "button",
+        {
+          id: "page-save",
+          type: "button",
+          disabled: view.pageSaveDisabled,
+          onClick: handlers.onPageSave
+        },
+        "Save"
+      ),
+      h(
+        "button",
+        {
+          id: "page-revert",
+          type: "button",
+          class: "button-secondary",
+          disabled: view.pageRevertDisabled,
+          onClick: handlers.onPageRevert
+        },
+        "Revert to saved"
+      )
+    ),
+    h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
+    h("div", { class: "section-divider", role: "separator" }),
+    h("div", { class: "section-title" }, "Server Sync"),
+    h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
+    h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
+  );
+
+  const explicitExcludesSection = h(
+    "section",
+    {class: "card"},
+    h("div", {class: "section-title"}, "Explicit excludes"),
+    h(
+      "ul",
+      {id: "explicit-excludes", class: "list"},
+      renderListItems(
+        view.explicitExcludes,
+        view.explicitExcludesEmptyText,
+        (item) =>
+          h(
+            "li",
+            {key: item.xpath},
+            h(
+              "span",
+              {title: item.text || item.xpath},
+              item.text || item.xpath
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                onClick: () => handlers.onExplicitExcludeView(item.xpath)
+              },
+              "View"
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                onClick: () => handlers.onExplicitExcludeRemove(item.xpath)
+              },
+              "Remove"
+            )
+          )
+      )
+    )
+  );
+
+  const explicitIncludesSection = h(
+    "section",
+    {class: "card"},
+    h("div", {class: "section-title"}, "Explicit includes"),
+    h(
+      "ul",
+      {id: "explicit-includes", class: "list"},
+      renderListItems(
+        view.explicitIncludes,
+        view.explicitIncludesEmptyText,
+        (item) =>
+          h(
+            "li",
+            {key: item.xpath},
+            h(
+              "span",
+              {title: item.text || item.xpath},
+              item.text || item.xpath
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                onClick: () => handlers.onExplicitIncludeView(item.xpath)
+              },
+              "View"
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                onClick: () => handlers.onExplicitIncludeRemove(item.xpath)
+              },
+              "Remove"
+            )
+          )
+      )
+    )
+  );
+
+  return h(
+    Fragment,
+    null,
+    h(
+      "section",
+      {class: "card"},
+      h(
+        "label",
+        {class: "field"},
+        h("span", null, "Current Page URL"),
         h(
-          "label",
-          {class: "row"},
-          h("span", null, "Desktop 1920x1080"),
-          h("input", {
-            id: "device-mode-desktop",
-            type: "radio",
-            name: "device-mode",
-            value: "desktop",
-            checked: view.deviceMode === "desktop",
-            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-            onChange: handlers.onDeviceModeChange
-          })
-        ),
+          "div",
+          {class: "input-row"},
+          h(
+            "div",
+            {
+              id: "current-page-url",
+              class: "readout",
+              title: view.currentPageUrlTitle
+            },
+            view.currentPageUrl
+          ),
+          h(
+            "button",
+            {
+              id: "refresh-context",
+              type: "button",
+              onClick: handlers.onRefreshContext
+            },
+            "Refresh"
+          )
+        )
+      ),
+      h(
+        "label",
+        {class: "field"},
+        h("span", null, "Base Page URL"),
         h(
-          "label",
-          {class: "row"},
-          h("span", null, "Mobile 412x960"),
+          "div",
+          {class: "input-row"},
           h("input", {
-            id: "device-mode-mobile",
-            type: "radio",
-            name: "device-mode",
-            value: "mobile",
-            checked: view.deviceMode === "mobile",
-            disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-            onChange: handlers.onDeviceModeChange
-          })
+            id: "base-url",
+            type: "text",
+            placeholder: "Resolved automatically",
+            readOnly: view.baseUrlInputReadOnly,
+            value: view.baseUrlInputValue,
+            onInput: handlers.onBaseUrlInput,
+            onKeyDown: handlers.onBaseUrlKeyDown,
+            ref: (el) => {
+              refs.baseUrlInput = el;
+            }
+          }),
+          h(
+            "button",
+            {
+              id: "base-url-set",
+              type: "button",
+              style: {display: view.baseUrlSetVisible ? "inline-flex" : "none"},
+              onClick: handlers.onBaseUrlSet
+            },
+            "Set"
+          ),
+          h(
+            "button",
+            {
+              id: "base-url-edit",
+              type: "button",
+              style: {display: view.baseUrlEditVisible ? "inline-flex" : "none"},
+              onClick: handlers.onBaseUrlEditToggle
+            },
+            view.baseUrlEditText
+          )
         )
       ),
       h(
         "div",
-        {class: "scale-control"},
+        {
+          id: "base-url-notice",
+          class: "notice",
+          role: "status",
+          "aria-live": "polite",
+          hidden: !view.baseUrlNoticeVisible
+        },
+        view.baseUrlNoticeText
+      ),
+      h(
+        "details",
+        {class: "collapsible"},
+        h("summary", null, "Base Page URLs"),
         h(
           "div",
-          {class: "row"},
-          h("span", null, "Scale"),
-          h("span", {id: "device-scale-value", class: "scale-value"}, view.deviceScaleValue)
-        ),
+          {class: "collapsible-body"},
+          h(
+            "ul",
+            {id: "base-page-urls", class: "list"},
+            renderListItems(
+              view.basePageUrls,
+              view.basePageUrlsEmptyText,
+              (item) =>
+                h(
+                  "li",
+                  {key: item.url},
+                  h(
+                    "span",
+                    {class: "page-title", title: item.url},
+                    item.url
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      disabled: item.url === view.currentBaseUrl,
+                      onClick: () => handlers.onBasePageNavigate(item.url)
+                    },
+                    "Navigate"
+                  )
+                )
+            )
+          )
+        )
+      )
+    ),
+    h(
+      "section",
+      {class: "card"},
+      h(
+        "label",
+        {class: "row"},
+        h("span", null, "Enable Marking"),
         h("input", {
-          id: "device-scale",
-          type: "range",
-          min: "0.25",
-          max: "1",
-          step: "0.01",
-          value: view.deviceScale,
-          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-          onInput: handlers.onDeviceScaleInput,
-          onChange: handlers.onDeviceScaleChange
+          id: "toggle-enabled",
+          type: "checkbox",
+          checked: view.toggleEnabled,
+          disabled: view.toggleEnabledDisabled,
+          onChange: handlers.onToggleEnabled
         })
       )
-    );
-
-    return h(
-        Fragment,
-        null,
-        h(
-            "section",
-            {class: "card"},
-            h(
-                "label",
-                {class: "field"},
-                h("span", null, "Current Page URL"),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h(
-                        "div",
-                        {
-                            id: "current-page-url",
-                            class: "readout",
-                            title: view.currentPageUrlTitle
-                        },
-                        view.currentPageUrl
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "refresh-context",
-                            type: "button",
-                            onClick: handlers.onRefreshContext
-                        },
-                        "Refresh"
-                    )
-                )
-            ),
-            h(
-                "label",
-                {class: "field"},
-                h("span", null, "Base Page URL"),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h("input", {
-                        id: "base-url",
-                        type: "text",
-                        placeholder: "Resolved automatically",
-                        readOnly: view.baseUrlInputReadOnly,
-                        value: view.baseUrlInputValue,
-                        onInput: handlers.onBaseUrlInput,
-                        onKeyDown: handlers.onBaseUrlKeyDown,
-                        ref: (el) => {
-                            refs.baseUrlInput = el;
-                        }
-                    }),
-                    h(
-                        "button",
-                        {
-                            id: "base-url-set",
-                            type: "button",
-                            style: {display: view.baseUrlSetVisible ? "inline-flex" : "none"},
-                            onClick: handlers.onBaseUrlSet
-                        },
-                        "Set"
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "base-url-edit",
-                            type: "button",
-                            style: {display: view.baseUrlEditVisible ? "inline-flex" : "none"},
-                            onClick: handlers.onBaseUrlEditToggle
-                        },
-                        view.baseUrlEditText
-                    )
-                )
-            ),
-            h(
-                "div",
-                {
-                    id: "base-url-notice",
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.baseUrlNoticeVisible
-                },
-                view.baseUrlNoticeText
-            ),
-            h(
-                "details",
-                {class: "collapsible"},
-                h("summary", null, "Base Page URLs"),
-                h(
-                    "div",
-                    {class: "collapsible-body"},
-                    h(
-                        "ul",
-                        {id: "base-page-urls", class: "list"},
-                        renderListItems(
-                            view.basePageUrls,
-                            view.basePageUrlsEmptyText,
-                            (item) =>
-                                h(
-                                    "li",
-                                    {key: item.url},
-                                    h(
-                                        "span",
-                                        {class: "page-title", title: item.url},
-                                        item.url
-                                    ),
-                                    h(
-                                        "button",
-                                        {
-                                            type: "button",
-                                            disabled: item.url === view.currentBaseUrl,
-                                            onClick: () => handlers.onBasePageNavigate(item.url)
-                                        },
-                                        "Navigate"
-                                    )
-                                )
-                        )
-                    )
-                )
-            )
-        ),
-        h(
-            "section",
-            {class: "card"},
-            h(
-                "label",
-                {class: "row"},
-                h("span", null, "Enable Marking"),
-                h("input", {
-                    id: "toggle-enabled",
-                    type: "checkbox",
-                    checked: view.toggleEnabled,
-                    disabled: view.toggleEnabledDisabled,
-                    onChange: handlers.onToggleEnabled
-                })
-            )
-        ),
-        view.highlightingOptionsVisible &&
-          renderHighlightingOptionsSection({ state: view, actions: handlers }),
-        deviceSection,
-        h(
-            "div",
-            {id: "main-ui", hidden: view.mainUiHidden},
-            h(
-                "section",
-                {class: "card"},
-                h("div", {class: "section-title"}, "Page data"),
-                view.mobileSimulationRequiredVisible &&
-                  h(
-                    "div",
-                    {
-                      class: "notice",
-                      role: "status",
-                      "aria-live": "polite"
-                    },
-                    view.mobileSimulationRequiredText
-                  ),
-                h(
-                    "div",
-                    {
-                        id: "page-data-new-notice",
-                        class: "notice",
-                        role: "status",
-                        "aria-live": "polite",
-                        hidden: view.pageDataNewNoticeHidden
-                    },
-                    "No saved data for this page yet. Save to store it."
-                ),
-                h(
-                    "div",
-                    {class: "button-row"},
-                    h(
-                        "button",
-                        {
-                            id: "page-save",
-                            type: "button",
-                            disabled: view.pageSaveDisabled,
-                            onClick: handlers.onPageSave
-                        },
-                        "Save"
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "page-revert",
-                            type: "button",
-                            class: "button-secondary",
-                            disabled: view.pageRevertDisabled,
-                            onClick: handlers.onPageRevert
-                        },
-                        "Revert to saved"
-                    )
-                ),
-                h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
-                h("div", { class: "section-divider", role: "separator" }),
-                h("div", { class: "section-title" }, "Server Sync"),
-                h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
-                h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
-            ),
-            h(
-                "section",
-                {class: "card"},
-                h("div", {class: "section-title"}, "Explicit excludes"),
-                h(
-                    "ul",
-                    {id: "explicit-excludes", class: "list"},
-                    renderListItems(
-                        view.explicitExcludes,
-                        view.explicitExcludesEmptyText,
-                        (item) =>
-                            h(
-                                "li",
-                                {key: item.xpath},
-                                h(
-                                    "span",
-                                    {title: item.text || item.xpath},
-                                    item.text || item.xpath
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onExplicitExcludeView(item.xpath)
-                                    },
-                                    "View"
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onExplicitExcludeRemove(item.xpath)
-                                    },
-                                    "Remove"
-                                )
-                            )
-                    )
-                )
-            ),
-            h(
-                "section",
-                {class: "card"},
-                h("div", {class: "section-title"}, "Explicit includes"),
-                h(
-                    "ul",
-                    {id: "explicit-includes", class: "list"},
-                    renderListItems(
-                        view.explicitIncludes,
-                        view.explicitIncludesEmptyText,
-                        (item) =>
-                            h(
-                                "li",
-                                {key: item.xpath},
-                                h(
-                                    "span",
-                                    {title: item.text || item.xpath},
-                                    item.text || item.xpath
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onExplicitIncludeView(item.xpath)
-                                    },
-                                    "View"
-                                ),
-                                h(
-                                    "button",
-                                    {
-                                        type: "button",
-                                        onClick: () => handlers.onExplicitIncludeRemove(item.xpath)
-                                    },
-                                    "Remove"
-                                )
-                            )
-                    )
-                )
-            ),
-            h(
-                "section",
-                {class: "card margin-above"},
-                h("div", {class: "section-title"}, "AI controls"),
-                view.mobileSimulationRequiredVisible &&
-                  h(
-                    "div",
-                    {
-                      class: "notice",
-                      role: "status",
-                      "aria-live": "polite"
-                    },
-                    view.mobileSimulationRequiredText
-                  ),
-                !view.configurationComplete &&
-                    h(
-                        "div",
-                        {
-                            class: "notice",
-                            role: "status",
-                            "aria-live": "polite"
-                        },
-                        "Complete Configuration settings to enable AI controls."
-                    ),
-                h(
-                    "div",
-                    {
-                        id: "ai-controls",
-                        class: "border-above",
-                        "aria-busy": view.aiControlsBusy ? "true" : "false"
-                    },
-                    h(
-                        "div",
-                        {class: "section-title padding-above padding-below"},
-                        "Selector Computation"
-                    ),
-                    h(
-                        "div",
-                        {
-                            id: "ai-dirty-notice",
-                            class: "notice",
-                            role: "status",
-                            "aria-live": "polite",
-                            style: {display: view.aiDirtyNoticeVisible ? "block" : "none"}
-                        },
-                        "Save the current page before using AI controls"
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "compute",
-                            class: computeButtonClass,
-                            type: "button",
-                            disabled: view.computeButtonDisabled,
-                            onClick: handlers.onCompute
-                        },
-                        view.computeButtonText
-                    )
-                )
-            ),
-            !showMarkedPagesInHighlightingMode &&
-              renderMarkedPagesSection(view, handlers),
-        )
-        ,
-        view.cssSelectorsVisible &&
-          renderCssSelectorsSection({ state: view, actions: handlers }),
-        showMarkedPagesInHighlightingMode &&
-          renderMarkedPagesSection(view, handlers)
-    );
+    ),
+    view.highlightingOptionsVisible &&
+      renderHighlightingOptionsSection({ state: view, actions: handlers }),
+    deviceSection,
+    markingMode && aiControlsSection,
+    view.cssSelectorsVisible &&
+      renderCssSelectorsSection({ state: view, actions: handlers }),
+    markingMode && pageDataSection,
+    markingMode && renderMarkedPagesSection(view, handlers),
+    markingMode && explicitExcludesSection,
+    markingMode && explicitIncludesSection
+  );
 }
 
 function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
