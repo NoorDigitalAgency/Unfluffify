@@ -3,6 +3,23 @@ import { idbGet, idbSet } from "./utilities.js";
 const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
 
+function normalizeSiteIdValue(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function parseTimestampMillis(value) {
   if (typeof value !== "string") {
     return Number.NaN;
@@ -153,6 +170,7 @@ export function createDefaultConfig(baseUrl) {
   return {
     baseUrl,
     domain,
+    siteId: null,
     pageMarkings: {},
     latestComputedSelectors: createEmptyAiSelectorSet(),
     lastSavedSelectors: createEmptyAiSelectorSet(),
@@ -280,6 +298,14 @@ export function normalizeConfig(baseUrl, incoming) {
   if (typeof incoming.domain === "string") {
     normalized.domain = incoming.domain;
   }
+  const siteId = normalizeSiteIdValue(incoming.siteId);
+  normalized.siteId = siteId;
+  if (incoming.siteId !== undefined && siteId !== incoming.siteId) {
+    changed = true;
+  }
+  if (incoming.siteId === undefined && normalized.siteId !== defaultConfig.siteId) {
+    changed = true;
+  }
   if (typeof incoming.pageMarkings === "object" && incoming.pageMarkings !== null) {
     const result = normalizePageMarkings(incoming.pageMarkings);
     normalized.pageMarkings = result.normalized;
@@ -333,6 +359,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
     return {
       version: SERVER_SYNC_VERSION,
       baseUrl: fallbackBaseUrl || "",
+      siteId: null,
       pageMarkings: {}
     };
   }
@@ -347,6 +374,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
         ? payload.version
         : SERVER_SYNC_VERSION,
     baseUrl,
+    siteId: normalizeSiteIdValue(payload.siteId),
     pageMarkings: normalizedMarkings.normalized
   };
 }
@@ -379,6 +407,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
   return {
     version: SERVER_SYNC_VERSION,
     baseUrl,
+    siteId: normalizeSiteIdValue(normalized.siteId),
     pageMarkings: payloadMarkings
   };
 }

@@ -68,16 +68,16 @@ const initialViewState = {
   configEndpointInputDisabled: false,
   configEndpointSetDisabled: false,
   configEndpointEditDisabled: false,
-  loginEndpointUrlValue: "",
-  loginEndpointUrlReadOnly: true,
-  loginEndpointSetVisible: true,
-  loginEndpointEditVisible: false,
-  loginEndpointEditText: "Change",
-  loginEndpointNoticeText: "",
-  loginEndpointNoticeVisible: false,
-  loginEndpointInputDisabled: false,
-  loginEndpointSetDisabled: false,
-  loginEndpointEditDisabled: false,
+  stageBaseValue: "",
+  stageBaseReadOnly: true,
+  stageBaseSetVisible: true,
+  stageBaseEditVisible: false,
+  stageBaseEditText: "Change",
+  stageBaseNoticeText: "",
+  stageBaseNoticeVisible: false,
+  stageBaseInputDisabled: false,
+  stageBaseSetDisabled: false,
+  stageBaseEditDisabled: false,
   loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
@@ -956,65 +956,70 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "AI settings"),
+            h("div", {class: "section-title"}, "Stage Base"),
+            h(
+                "label",
+                {class: "field"},
+                h("span", null, "Stage Base"),
+                h(
+                    "div",
+                    {class: "input-row"},
+                    h("input", {
+                        id: "stage-base",
+                        type: "text",
+                        placeholder: "noorlynx.com",
+                        readOnly: view.stageBaseReadOnly,
+                        value: view.stageBaseValue,
+                        disabled: view.stageBaseInputDisabled,
+                        onInput: handlers.onStageBaseInput,
+                        onKeyDown: handlers.onStageBaseKeyDown,
+                        ref: (el) => {
+                            refs.stageBaseInput = el;
+                        }
+                    }),
+                    h(
+                        "button",
+                        {
+                            id: "stage-base-set",
+                            type: "button",
+                            style: {display: view.stageBaseSetVisible ? "inline-flex" : "none"},
+                            disabled: view.stageBaseSetDisabled,
+                            onClick: handlers.onStageBaseSet
+                        },
+                        "Set"
+                    ),
+                    h(
+                        "button",
+                        {
+                            id: "stage-base-edit",
+                            type: "button",
+                            style: {display: view.stageBaseEditVisible ? "inline-flex" : "none"},
+                            disabled: view.stageBaseEditDisabled,
+                            onClick: handlers.onStageBaseEditToggle
+                        },
+                        view.stageBaseEditText
+                    )
+                )
+            ),
+            h(
+                "div",
+                {
+                    id: "stage-base-notice",
+                    class: "notice",
+                    role: "status",
+                    "aria-live": "polite",
+                    hidden: !view.stageBaseNoticeVisible
+                },
+                view.stageBaseNoticeText
+            )
+        ),
+        h(
+            "section",
+            {class: "card"},
+            h("div", {class: "section-title"}, "Authentication"),
             h(
                 Fragment,
                 null,
-                h(
-                    "label",
-                    {class: "field"},
-                    h("span", null, "Login Endpoint URL"),
-                    h(
-                        "div",
-                        {class: "input-row"},
-                        h("input", {
-                            id: "login-endpoint-url",
-                            type: "text",
-                            placeholder: "https://example.com/login",
-                            readOnly: view.loginEndpointUrlReadOnly,
-                            value: view.loginEndpointUrlValue,
-                            disabled: view.loginEndpointInputDisabled,
-                            onInput: handlers.onLoginEndpointInput,
-                            onKeyDown: handlers.onLoginEndpointKeyDown,
-                            ref: (el) => {
-                                refs.loginEndpointUrlInput = el;
-                            }
-                        }),
-                        h(
-                            "button",
-                            {
-                                id: "login-endpoint-url-set",
-                                type: "button",
-                                style: {display: view.loginEndpointSetVisible ? "inline-flex" : "none"},
-                                disabled: view.loginEndpointSetDisabled,
-                                onClick: handlers.onLoginEndpointSet
-                            },
-                            "Set"
-                        ),
-                        h(
-                            "button",
-                            {
-                                id: "login-endpoint-url-edit",
-                                type: "button",
-                                style: {display: view.loginEndpointEditVisible ? "inline-flex" : "none"},
-                                disabled: view.loginEndpointEditDisabled,
-                                onClick: handlers.onLoginEndpointEditToggle
-                            },
-                            view.loginEndpointEditText
-                        )
-                    )
-                ),
-                h(
-                    "div",
-                    {
-                        id: "login-endpoint-notice",
-                        class: "notice",
-                        role: "status",
-                        "aria-live": "polite",
-                        hidden: !view.loginEndpointNoticeVisible
-                    },
-                    view.loginEndpointNoticeText
-                ),
                 h(
                     "label",
                     {class: "field"},

@@ -15,9 +15,9 @@ export const state = {
   refreshTimer: 0,
   lastTabId: null,
   baseUrlEditMode: false,
+  stageBaseEditMode: false,
   endpointEditMode: false,
   configEndpointEditMode: false,
-  loginEndpointEditMode: false,
   aiRequestInFlight: null,
   configMenuOpen: false,
   currentDeviceMode: "desktop",
@@ -47,5 +47,6 @@ export const state = {
   remoteConfigLoadResult: null,
   lastConfigLoadStatusText: "Not loaded yet",
   lastConfigSaveStatusText: "No save sent yet",
-  mobileAutoAppliedTabIds: new Set()
+  mobileAutoAppliedTabIds: new Set(),
+  siteIdLookupByBaseUrl: new Map()
 };

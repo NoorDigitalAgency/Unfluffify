@@ -21,6 +21,13 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_MESSAGE =
   "Mobile simulation must be enabled, for this to work.";
+const URL_SEARCH_INFO_QUERY = `
+query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
+  urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
+    domainId
+  }
+}
+`;
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
@@ -77,6 +84,233 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
+function normalizeStageBase(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
+  }
+  let hostname = "";
+  try {
+    const url = trimmed.includes("://")
+      ? new URL(trimmed)
+      : new URL(`https://${trimmed}`);
+    hostname = (url.hostname || "").trim().toLowerCase();
+  } catch (error) {
+    return "";
+  }
+  const normalized = hostname.replace(/^\.+/, "").replace(/\.+$/, "");
+  if (!normalized) {
+    return "";
+  }
+  const domainPattern =
+    /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+  if (!domainPattern.test(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+function buildLoginEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBase(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://accounts.${normalized}/api/account/login`;
+}
+
+function buildValidateEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBase(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://accounts.${normalized}/api/account/validate`;
+}
+
+function buildGraphqlEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBase(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://${normalized}/graphql`;
+}
+
+function normalizeSiteIdValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+async function resolveSiteIdFromGraphql(options = {}) {
+  const {
+    stageBase = "",
+    lookupUrl = "",
+    tokenValue = ""
+  } = options;
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!graphqlEndpoint || !lookupUrl) {
+    return { ok: false, siteId: null, notFound: false };
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (tokenValue) {
+    headers.Authorization = `Bearer ${tokenValue}`;
+  }
+  try {
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: URL_SEARCH_INFO_QUERY,
+        variables: {
+          url: lookupUrl,
+          includePageInfo: false
+        }
+      })
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    const hasPayload = Boolean(data && typeof data === "object");
+    if (hasPayload && Array.isArray(data.errors) && data.errors.length > 0) {
+      const notFound = data.errors.some((item) => {
+        const code =
+          item &&
+          item.extensions &&
+          typeof item.extensions.code === "string"
+            ? item.extensions.code
+            : "";
+        return code === "NotFound";
+      });
+      if (notFound) {
+        return { ok: true, siteId: null, notFound: true };
+      }
+      return { ok: false, siteId: null, notFound: false };
+    }
+    if (!response.ok) {
+      return { ok: false, siteId: null, notFound: false };
+    }
+    if (!hasPayload) {
+      return { ok: false, siteId: null, notFound: false };
+    }
+    const candidate = normalizeSiteIdValue(
+      data &&
+        data.data &&
+        data.data.urlSearchInfo &&
+        data.data.urlSearchInfo.domainId
+    );
+    if (!candidate) {
+      return { ok: true, siteId: null, notFound: true };
+    }
+    return { ok: true, siteId: candidate, notFound: false };
+  } catch (error) {
+    return { ok: false, siteId: null, notFound: false };
+  }
+}
+
+async function ensureBaseUrlSiteId(options = {}) {
+  const {
+    baseUrl = "",
+    stageBase = "",
+    tokenValue = "",
+    configs = null
+  } = options;
+  if (!baseUrl) {
+    return { ok: false, siteId: null, reason: "Set Base Page URL first" };
+  }
+  const sourceConfigs = configs || await config.getConfigs();
+  const normalizedConfig = config.normalizeConfig(baseUrl, sourceConfigs[baseUrl]);
+  if (!sourceConfigs[baseUrl] || normalizedConfig.changed) {
+    sourceConfigs[baseUrl] = normalizedConfig.config;
+    await config.saveConfigs(sourceConfigs);
+  }
+  const existingSiteId = normalizeSiteIdValue(sourceConfigs[baseUrl].siteId);
+  if (existingSiteId) {
+    state.siteIdLookupByBaseUrl.set(baseUrl, existingSiteId);
+    return {
+      ok: true,
+      siteId: existingSiteId,
+      configs: sourceConfigs,
+      config: sourceConfigs[baseUrl]
+    };
+  }
+  const normalizedStageBase = normalizeStageBase(stageBase);
+  if (!normalizedStageBase) {
+    return {
+      ok: false,
+      siteId: null,
+      reason: "Set Stage Base before continuing",
+      configs: sourceConfigs,
+      config: sourceConfigs[baseUrl]
+    };
+  }
+  if (state.siteIdLookupByBaseUrl.has(baseUrl)) {
+    const cached = normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(baseUrl));
+    if (cached) {
+      sourceConfigs[baseUrl] = await config.updateConfig(baseUrl, (target) => {
+        target.siteId = cached;
+      });
+      return {
+        ok: true,
+        siteId: cached,
+        configs: sourceConfigs,
+        config: sourceConfigs[baseUrl]
+      };
+    }
+    return {
+      ok: false,
+      siteId: null,
+      reason: "No domainId available for this base URL",
+      configs: sourceConfigs,
+      config: sourceConfigs[baseUrl]
+    };
+  }
+  const lookupResult = await resolveSiteIdFromGraphql({
+    stageBase: normalizedStageBase,
+    lookupUrl: baseUrl,
+    tokenValue
+  });
+  if (!lookupResult.ok) {
+    return {
+      ok: false,
+      siteId: null,
+      reason: "Unable to resolve domainId right now",
+      configs: sourceConfigs,
+      config: sourceConfigs[baseUrl]
+    };
+  }
+  const resolvedSiteId = normalizeSiteIdValue(lookupResult.siteId);
+  if (!resolvedSiteId) {
+    state.siteIdLookupByBaseUrl.set(baseUrl, null);
+    return {
+      ok: false,
+      siteId: null,
+      reason: "No domainId exists for this base URL",
+      configs: sourceConfigs,
+      config: sourceConfigs[baseUrl]
+    };
+  }
+  state.siteIdLookupByBaseUrl.set(baseUrl, resolvedSiteId);
+  sourceConfigs[baseUrl] = await config.updateConfig(baseUrl, (target) => {
+    target.siteId = resolvedSiteId;
+  });
+  return {
+    ok: true,
+    siteId: resolvedSiteId,
+    configs: sourceConfigs,
+    config: sourceConfigs[baseUrl]
+  };
+}
+
 function createConfigSyncHeaders(token) {
   const headers = { "Content-Type": "application/json" };
   if (token) {
@@ -130,8 +364,8 @@ function waitForRetryDelay(delayMs) {
   });
 }
 
-function buildRemoteConfigLoadKey(tabId, pageUrl, endpointValue) {
-  return `${tabId || ""}|${pageUrl || ""}|${endpointValue || ""}`;
+function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
+  return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
 async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
@@ -149,6 +383,12 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
   const existingRaw = allConfigs[baseUrl];
   const normalizedLocal = config.normalizeConfig(baseUrl, existingRaw);
   const localConfig = normalizedLocal.config;
+  const incomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
+  const siteIdChanged =
+    Boolean(incomingSiteId) && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId;
+  if (incomingSiteId && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId) {
+    localConfig.siteId = incomingSiteId;
+  }
   const mergeResult = config.mergePageMarkingsByTimestamp(
     localConfig.pageMarkings,
     normalizedPayload.pageMarkings
@@ -157,6 +397,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
   const shouldSave =
     !existingRaw ||
     normalizedLocal.changed ||
+    siteIdChanged ||
     mergeResult.replacedUrls.length > 0;
   if (shouldSave) {
     allConfigs[baseUrl] = localConfig;
@@ -174,17 +415,18 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
   const {
     tabId = null,
     pageUrl = "",
+    siteId = null,
     endpointValue = "",
     tokenValue = "",
     force = false
   } = options;
-  if (!tabId || !pageUrl || !endpointValue) {
+  if (!tabId || !siteId || !endpointValue) {
     const result = { status: "skipped", baseUrl: "" };
     state.remoteConfigLoadResult = result;
     updateLastConfigLoadStatus(result);
     return result;
   }
-  const loadKey = buildRemoteConfigLoadKey(tabId, pageUrl, endpointValue);
+  const loadKey = buildRemoteConfigLoadKey(tabId, siteId, endpointValue);
   if (
     !force &&
     state.remoteConfigLoadKey === loadKey &&
@@ -208,7 +450,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     const response = await fetch(loadUrl, {
       method: "POST",
       headers: createConfigSyncHeaders(tokenValue),
-      body: JSON.stringify({ url: pageUrl })
+      body: JSON.stringify({ siteId })
     });
     if (response.status === 404) {
       const result = { status: "not_found", baseUrl: "" };
@@ -225,7 +467,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     const payload = await response.json();
     const mergeResult = await mergeServerConfigIntoLocal(payload, pageUrl);
     if (!mergeResult.ok) {
-      const result = { status: "error", baseUrl: "" };
+      const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
       return result;
@@ -261,6 +503,7 @@ async function syncBaseConfigToServer(options = {}) {
     pageUrl = "",
     endpointValue = "",
     tokenValue = "",
+    stageBase = "",
     alertOnCurrentReplacement = true,
     maxAttempts = 5
   } = options;
@@ -277,6 +520,15 @@ async function syncBaseConfigToServer(options = {}) {
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const allConfigs = await config.getConfigs();
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl,
+      stageBase,
+      tokenValue,
+      configs: allConfigs
+    });
+    if (!siteIdResult.ok || !siteIdResult.siteId) {
+      return { ok: false, skipped: true, reason: siteIdResult.reason || "Missing siteId" };
+    }
     const normalized = config.normalizeConfig(baseUrl, allConfigs[baseUrl]);
     const sourceConfig = normalized.config;
     if (!allConfigs[baseUrl] || normalized.changed) {
@@ -351,7 +603,7 @@ function updateLoginActionState(patch = {}) {
   const passwordValue = view.loginPasswordValue || "";
   const aiBusy = Boolean(view.aiControlsBusy || view.isBusy);
   const loginCredentialsEnabled =
-    view.loginEndpointUrlReadOnly && Boolean((view.loginEndpointUrlValue || "").trim());
+    view.stageBaseReadOnly && Boolean(normalizeStageBase(view.stageBaseValue || ""));
 
   uiModule.setViewState({
     ...patch,
@@ -381,22 +633,19 @@ async function validateStoredToken(options = {}) {
   if (state.tokenValidationInFlight) {
     return true;
   }
-  const { tokenValue, loginEndpointValue } = await helpers.loadGlobalAiSettings();
-  if (!tokenValue || !loginEndpointValue) {
+  const { tokenValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+  const validateUrl = buildValidateEndpointFromStageBase(stageBaseValue);
+  if (!tokenValue || !validateUrl) {
     return Boolean(tokenValue);
   }
   const now = Date.now();
   if (!force && now - state.lastTokenValidationAt < TOKEN_VALIDATION_INTERVAL_MS) {
     return true;
   }
-  const claimsUrl = resolveRelativeEndpoint(loginEndpointValue, "/api/account/validate");
-  if (!claimsUrl) {
-    return true;
-  }
   state.lastTokenValidationAt = now;
   state.tokenValidationInFlight = true;
   try {
-    const response = await fetch(claimsUrl, {
+    const response = await fetch(validateUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${tokenValue}` }
     });
@@ -1116,9 +1365,9 @@ async function refreshUi() {
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
   if (tabChanged) {
     state.baseUrlEditMode = false;
+    state.stageBaseEditMode = false;
     state.endpointEditMode = false;
     state.configEndpointEditMode = false;
-    state.loginEndpointEditMode = false;
     state.remoteConfigLoadKey = "";
     state.remoteConfigLoadResult = null;
   }
@@ -1137,24 +1386,21 @@ async function refreshUi() {
     tokenValue,
     endpointValue,
     configEndpointValue,
-    loginEndpointValue
+    stageBaseValue
   } = await helpers.loadGlobalAiSettings();
-  const remoteLoadResult = await loadRemoteConfigForCurrentPage({
-    tabId: currentTabId,
-    pageUrl,
-    endpointValue: configEndpointValue,
-    tokenValue,
-    force: false
-  });
-  const configs = await config.getConfigs();
+  const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
+  let configs = await config.getConfigs();
   const tabState =
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
   const initialTabState = currentTabId
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
   const sidebarOpenedOnTab = Boolean(initialTabState && initialTabState.active);
-  const localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
-  const hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
+  let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+  let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
+  let currentSiteId = null;
+  let siteIdBlockedReason = "";
+  let remoteLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
   if (tabState.baseUrl && pageUrl && !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)) {
     effectiveTabState = { enabled: false, baseUrl: "" };
@@ -1181,12 +1427,36 @@ async function refreshUi() {
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
-  const fallbackBaseUrl =
-    remoteLoadResult &&
-    remoteLoadResult.status === "not_found" &&
-    !hasLocalConfigForWebsite
-      ? ""
-      : localMatchingBaseUrl;
+  if (
+    !localMatchingBaseUrl &&
+    !effectiveTabState.baseUrl &&
+    currentTabId &&
+    pageUrl &&
+    configEndpointValue &&
+    normalizedStageBaseValue
+  ) {
+    const discoveryResult = await resolveSiteIdFromGraphql({
+      stageBase: normalizedStageBaseValue,
+      lookupUrl: pageUrl,
+      tokenValue
+    });
+    if (discoveryResult && discoveryResult.ok && discoveryResult.siteId) {
+      remoteLoadResult = await loadRemoteConfigForCurrentPage({
+        tabId: currentTabId,
+        pageUrl,
+        siteId: discoveryResult.siteId,
+        endpointValue: configEndpointValue,
+        tokenValue,
+        force: false
+      });
+      if (remoteLoadResult && remoteLoadResult.status === "ok") {
+        configs = await config.getConfigs();
+        localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+        hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
+      }
+    }
+  }
+  const fallbackBaseUrl = localMatchingBaseUrl;
   state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
   if (state.currentBaseUrl) {
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
@@ -1195,8 +1465,61 @@ async function refreshUi() {
       await config.saveConfigs(configs);
     }
     state.currentConfig = configs[state.currentBaseUrl];
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl: state.currentBaseUrl,
+      stageBase: normalizedStageBaseValue,
+      tokenValue,
+      configs
+    });
+    if (siteIdResult.ok && siteIdResult.siteId) {
+      currentSiteId = siteIdResult.siteId;
+      state.currentConfig = siteIdResult.config || state.currentConfig;
+      remoteLoadResult = await loadRemoteConfigForCurrentPage({
+        tabId: currentTabId,
+        pageUrl,
+        siteId: currentSiteId,
+        endpointValue: configEndpointValue,
+        tokenValue,
+        force: false
+      });
+      if (remoteLoadResult && remoteLoadResult.status === "ok") {
+        configs = await config.getConfigs();
+        if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
+          const normalizedCurrent = config.normalizeConfig(
+            state.currentBaseUrl,
+            configs[state.currentBaseUrl]
+          );
+          if (normalizedCurrent.changed) {
+            configs[state.currentBaseUrl] = normalizedCurrent.config;
+            await config.saveConfigs(configs);
+          }
+          state.currentConfig = configs[state.currentBaseUrl];
+        }
+      }
+    } else {
+      siteIdBlockedReason = siteIdResult.reason || "";
+      remoteLoadResult = { status: "skipped", baseUrl: "" };
+      updateLastConfigLoadStatus(remoteLoadResult);
+    }
   } else {
     state.currentConfig = null;
+  }
+  if (
+    remoteLoadResult &&
+    remoteLoadResult.status === "not_found" &&
+    effectiveTabState.baseUrl &&
+    !hasLocalConfigForWebsite
+  ) {
+    const wasEnabled = Boolean(effectiveTabState.enabled);
+    effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
+    await utils.setTabState(state.currentTab.id, effectiveTabState);
+    if (wasEnabled) {
+      await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+    }
+    state.currentBaseUrl = "";
+    state.currentConfig = null;
+    currentSiteId = null;
+    siteIdBlockedReason = "";
   }
   if (!state.currentBaseUrl) {
     state.baseUrlEditMode = false;
@@ -1242,7 +1565,7 @@ async function refreshUi() {
       state.lastPopupEnabled = null;
     }
   }
-  const isEnabled = toggleEnabled;
+  let isEnabled = toggleEnabled;
   const shouldAutoEnableMobile =
     Boolean(currentTabId) &&
     tabChanged &&
@@ -1273,8 +1596,8 @@ async function refreshUi() {
   if (!endpointValue) {
     state.endpointEditMode = false;
   }
-  if (!loginEndpointValue) {
-    state.loginEndpointEditMode = false;
+  if (!normalizedStageBaseValue) {
+    state.stageBaseEditMode = false;
   }
   const configEndpointSet = Boolean(configEndpointValue);
   const configEndpointField = getEditableFieldState({
@@ -1300,23 +1623,42 @@ async function refreshUi() {
     noticeEdit: "Set Endpoint URL to continue"
   });
   const endpointReady = endpointField.isReady;
-  const loginEndpointSet = Boolean(loginEndpointValue);
-  const loginEndpointField = getEditableFieldState({
-    inputRef: refs.loginEndpointUrlInput,
-    currentValue: view.loginEndpointUrlValue,
-    value: loginEndpointValue,
-    isSet: loginEndpointSet,
-    editMode: state.loginEndpointEditMode,
-    suggestedValue: loginEndpointValue,
-    noticeUnset: "Set Login Endpoint before signing in",
-    noticeEdit: "Set Login Endpoint to continue"
+  const stageBaseSet = Boolean(normalizedStageBaseValue);
+  const stageBaseField = getEditableFieldState({
+    inputRef: refs.stageBaseInput,
+    currentValue: view.stageBaseValue,
+    value: normalizedStageBaseValue,
+    isSet: stageBaseSet,
+    editMode: state.stageBaseEditMode,
+    suggestedValue: normalizedStageBaseValue,
+    noticeUnset: "Set Stage Base before signing in",
+    noticeEdit: "Set Stage Base to continue"
   });
-  const loginEndpointReady = loginEndpointField.isReady;
-  const loginCredentialsEnabled = loginEndpointReady;
+  const stageBaseReady = stageBaseField.isReady;
+  const loginCredentialsEnabled = stageBaseReady;
+  const siteIdReady = Boolean(
+    currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
+  );
+  const effectiveSiteIdBlockedReason =
+    baseUrlReady && !siteIdReady
+      ? siteIdBlockedReason || "No domainId exists for this base URL"
+      : "";
 
   const configurationComplete =
-    configEndpointReady && endpointReady && loginEndpointReady && Boolean(tokenValue);
-  const aiReady = baseUrlReady && endpointReady && Boolean(tokenValue);
+    configEndpointReady && endpointReady && stageBaseReady && Boolean(tokenValue);
+  const aiReady = baseUrlReady && siteIdReady && endpointReady && Boolean(tokenValue);
+  isEnabled = toggleEnabled && siteIdReady;
+  if (toggleEnabled && !siteIdReady && currentTabId) {
+    toggleEnabled = false;
+    isEnabled = false;
+    state.lastPopupEnabled = null;
+    effectiveTabState = { ...effectiveTabState, enabled: false };
+    await utils.setTabState(currentTabId, {
+      enabled: false,
+      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
+    });
+    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+  }
   const latestComputed = getLatestComputedSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
   const selectorCount = combineAiSelectorSet(latestComputed).length;
@@ -1380,11 +1722,11 @@ async function refreshUi() {
   nextViewState.configurationNoticeVisible = !configurationComplete;
   nextViewState.configurationNoticeText = configurationComplete
     ? ""
-    : "Provide Configuration Endpoint, AI Endpoint, Login Endpoint, then login to continue.";
+    : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
 
-  nextViewState.toggleEnabled = toggleEnabled;
-  nextViewState.toggleEnabledDisabled = !baseUrlReady;
-  nextViewState.mainUiHidden = !isEnabled;
+  nextViewState.toggleEnabled = isEnabled;
+  nextViewState.toggleEnabledDisabled = !baseUrlReady || !siteIdReady;
+  nextViewState.mainUiHidden = !isEnabled || !siteIdReady;
   nextViewState.computeButtonDisabled =
     aiBusy || !aiReady || aiBlockedByDraft || mobileSimulationBlocked;
   nextViewState.saveExcludesButtonDisabled =
@@ -1396,22 +1738,23 @@ async function refreshUi() {
   nextViewState.previewLatestButtonDisabled =
     aiBusy ||
     !baseUrlReady ||
+    !siteIdReady ||
     !hasStoredSelectors ||
     aiBlockedByDraft ||
     mobileSimulationBlocked;
   nextViewState.aiControlsHidden = !aiControlsVisible;
   nextViewState.mobileSimulationRequiredVisible = mobileSimulationBlocked;
   nextViewState.mobileSimulationRequiredText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
-  nextViewState.loginEndpointUrlValue = loginEndpointField.value;
-  nextViewState.loginEndpointUrlReadOnly = !loginEndpointField.isEditing;
-  nextViewState.loginEndpointSetVisible = loginEndpointField.isEditing;
-  nextViewState.loginEndpointEditVisible = loginEndpointSet;
-  nextViewState.loginEndpointEditText = state.loginEndpointEditMode ? "Cancel" : "Change";
-  nextViewState.loginEndpointNoticeText = loginEndpointField.noticeText;
-  nextViewState.loginEndpointNoticeVisible = loginEndpointField.noticeVisible;
-  nextViewState.loginEndpointInputDisabled = aiBusy;
-  nextViewState.loginEndpointSetDisabled = aiBusy;
-  nextViewState.loginEndpointEditDisabled = aiBusy;
+  nextViewState.stageBaseValue = stageBaseField.value;
+  nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
+  nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
+  nextViewState.stageBaseEditVisible = stageBaseSet;
+  nextViewState.stageBaseEditText = state.stageBaseEditMode ? "Cancel" : "Change";
+  nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
+  nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
+  nextViewState.stageBaseInputDisabled = aiBusy;
+  nextViewState.stageBaseSetDisabled = aiBusy;
+  nextViewState.stageBaseEditDisabled = aiBusy;
   nextViewState.loginEmailValue = loginEmailValue;
   nextViewState.loginPasswordValue = loginPasswordValue;
   nextViewState.loginCredentialsDisabled = aiBusy || !loginCredentialsEnabled;
@@ -1467,11 +1810,14 @@ async function refreshUi() {
   nextViewState.baseUrlSetVisible = baseField.isEditing;
   nextViewState.baseUrlEditVisible = baseUrlSet;
   nextViewState.baseUrlEditText = state.baseUrlEditMode ? "Cancel" : "Change";
-  nextViewState.baseUrlNoticeText = baseField.noticeText;
-  nextViewState.baseUrlNoticeVisible = baseField.noticeVisible;
+  nextViewState.baseUrlNoticeText =
+    effectiveSiteIdBlockedReason || baseField.noticeText;
+  nextViewState.baseUrlNoticeVisible =
+    Boolean(effectiveSiteIdBlockedReason) || baseField.noticeVisible;
   const canInitialPageSave = !hasSavedPageData;
   const pageSaveDisabled =
     !baseUrlReady ||
+    !siteIdReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
     mobileSimulationBlocked ||
@@ -1479,6 +1825,7 @@ async function refreshUi() {
   nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageRevertDisabled =
     !baseUrlReady ||
+    !siteIdReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
     mobileSimulationBlocked ||
@@ -1486,6 +1833,9 @@ async function refreshUi() {
     !state.currentDraftDirty;
   if (!baseUrlReady) {
     nextViewState.pageDraftStatusText = "Set Base Page URL first";
+  } else if (!siteIdReady) {
+    nextViewState.pageDraftStatusText =
+      effectiveSiteIdBlockedReason || "No domainId exists for this base URL";
   } else if (!isEnabled) {
     nextViewState.pageDraftStatusText = "Enable marking to edit this page";
   } else if (mobileSimulationBlocked) {
@@ -1503,6 +1853,7 @@ async function refreshUi() {
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || "No save sent yet";
   nextViewState.pageDataNewNoticeHidden =
     !baseUrlReady ||
+    !siteIdReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
     hasSavedPageData;
@@ -1611,11 +1962,17 @@ async function refreshUi() {
     : "Set Base Page URL first";
 
   const basePageUrls = Object.keys(configs)
-    .filter((url) => typeof url === "string" && url)
+    .filter((url) => {
+      if (typeof url !== "string" || !url) {
+        return false;
+      }
+      const normalized = config.normalizeConfig(url, configs[url]).config;
+      return Boolean(normalizeSiteIdValue(normalized.siteId));
+    })
     .sort((left, right) => left.localeCompare(right))
     .map((url) => ({ url }));
   nextViewState.basePageUrls = basePageUrls;
-  nextViewState.basePageUrlsEmptyText = "No base URLs saved";
+  nextViewState.basePageUrlsEmptyText = "No base URLs with domainId";
 
   uiModule.setViewState(nextViewState);
   if (resolvedView === uiModule.View.Marking) {
@@ -1635,8 +1992,8 @@ function handleEndpointInput(event) {
   uiModule.setViewState({ endpointUrlValue: event.target.value });
 }
 
-function handleLoginEndpointInput(event) {
-  uiModule.setViewState({ loginEndpointUrlValue: event.target.value });
+function handleStageBaseInput(event) {
+  uiModule.setViewState({ stageBaseValue: event.target.value });
 }
 
 function handleLoginEmailInput(event) {
@@ -1681,11 +2038,11 @@ function handleEndpointKeyDown(event) {
   );
 }
 
-function handleLoginEndpointKeyDown(event) {
+function handleStageBaseKeyDown(event) {
   handleEnterKeyDown(
     event,
-    () => !uiModule.getViewState().loginEndpointUrlReadOnly,
-    handleLoginEndpointSet
+    () => !uiModule.getViewState().stageBaseReadOnly,
+    handleStageBaseSet
   );
 }
 
@@ -1718,9 +2075,15 @@ async function maybeSwitchToMarkingView() {
     force: true,
     showToastOnInvalid: false
   });
-  const { tokenValue, endpointValue, configEndpointValue, loginEndpointValue } =
+  const { tokenValue, endpointValue, configEndpointValue, stageBaseValue } =
     await helpers.loadGlobalAiSettings();
-  if (tokenIsValid && tokenValue && endpointValue && configEndpointValue && loginEndpointValue) {
+  if (
+    tokenIsValid &&
+    tokenValue &&
+    endpointValue &&
+    configEndpointValue &&
+    normalizeStageBase(stageBaseValue)
+  ) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
     uiModule.setViewState({ currentView: state.currentView });
@@ -1841,6 +2204,20 @@ async function handleEnableToggle(event) {
       return;
     }
     state.currentConfig = await config.ensureConfig(baseUrlValue);
+    const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl: baseUrlValue,
+      stageBase: stageBaseValue,
+      tokenValue
+    });
+    if (!siteIdResult.ok || !siteIdResult.siteId) {
+      uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+      uiModule.setViewState({ toggleEnabled: false });
+      state.lastPopupEnabled = null;
+      await refreshUi();
+      return;
+    }
+    state.currentConfig = siteIdResult.config || state.currentConfig;
     // Inject content script first
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -2069,6 +2446,19 @@ async function handleBaseUrlSet() {
     uiModule.showToast("Current page is outside the Base Page URL");
     return;
   }
+  const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+  const sourceConfigs = await config.getConfigs();
+  const siteIdResult = await ensureBaseUrlSiteId({
+    baseUrl: baseUrlValue,
+    stageBase: stageBaseValue,
+    tokenValue,
+    configs: sourceConfigs
+  });
+  if (!siteIdResult.ok || !siteIdResult.siteId) {
+    uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+    await refreshUi();
+    return;
+  }
   // Inject content script first
   const injectResult = await helpers.injectContentScriptIfNeeded();
   if (!injectResult.ok) {
@@ -2076,7 +2466,7 @@ async function handleBaseUrlSet() {
     return;
   }
   state.currentBaseUrl = baseUrlValue;
-  state.currentConfig = await config.ensureConfig(baseUrlValue);
+  state.currentConfig = siteIdResult.config || await config.ensureConfig(baseUrlValue);
   state.baseUrlEditMode = false;
   await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
   await messages.sendTabMessageWithRetry({
@@ -2103,6 +2493,18 @@ async function handleBaseUrlEditToggle() {
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
   } else if (tab && utils.isPageWithinBaseUrl(tab.url, state.currentBaseUrl)) {
+    const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+    const siteIdResult = await ensureBaseUrlSiteId({
+      baseUrl: state.currentBaseUrl,
+      stageBase: stageBaseValue,
+      tokenValue
+    });
+    if (!siteIdResult.ok || !siteIdResult.siteId) {
+      uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+      state.baseUrlEditMode = true;
+      await refreshUi();
+      return;
+    }
     // Inject content script first when re-enabling
     const injectResult = await helpers.injectContentScriptIfNeeded();
     if (!injectResult.ok) {
@@ -2111,7 +2513,7 @@ async function handleBaseUrlEditToggle() {
       await refreshUi();
       return;
     }
-    state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+    state.currentConfig = siteIdResult.config || await config.ensureConfig(state.currentBaseUrl);
     await utils.setTabState(tab.id, {
       enabled: true,
       baseUrl: state.currentBaseUrl
@@ -2174,49 +2576,46 @@ async function handleEndpointEditToggle() {
   await refreshUi();
 }
 
-async function handleLoginEndpointSet() {
-  const endpointValue = uiModule.getViewState().loginEndpointUrlValue.trim();
-  if (!endpointValue) {
-    uiModule.showToast("Enter a Login Endpoint URL");
-    return;
-  }
-  try {
-    new URL(endpointValue);
-  } catch (error) {
-    uiModule.showToast("Enter a valid Login Endpoint URL");
+async function handleStageBaseSet() {
+  const inputValue = uiModule.getViewState().stageBaseValue.trim();
+  const normalized = normalizeStageBase(inputValue);
+  if (!normalized) {
+    uiModule.showToast("Enter a valid Stage Base");
     return;
   }
   const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalLoginEndpoint",
+    "globalStageBase",
     "globalToken"
   ]);
-  const previousEndpoint = (stored && stored.globalLoginEndpoint) || "";
+  const previousStageBase = normalizeStageBase((stored && stored.globalStageBase) || "");
   const hasToken = Boolean(stored && stored.globalToken);
   await utils.storageSet(chrome.storage.sync, {
-    globalLoginEndpoint: endpointValue,
-    globalToken: previousEndpoint !== endpointValue && hasToken ? "" : stored.globalToken || ""
+    globalStageBase: normalized,
+    globalToken:
+      previousStageBase !== normalized && hasToken ? "" : stored.globalToken || ""
   });
-  state.loginEndpointEditMode = false;
-  if (previousEndpoint !== endpointValue && hasToken) {
-    uiModule.showToast("Login endpoint changed. Login required");
+  state.stageBaseEditMode = false;
+  state.siteIdLookupByBaseUrl.clear();
+  if (previousStageBase !== normalized && hasToken) {
+    uiModule.showToast("Stage Base changed. Login required");
   }
   await maybeSwitchToMarkingView();
   await refreshUi();
 }
 
-async function handleLoginEndpointEditToggle() {
-  state.loginEndpointEditMode = !state.loginEndpointEditMode;
+async function handleStageBaseEditToggle() {
+  state.stageBaseEditMode = !state.stageBaseEditMode;
   await refreshUi();
 }
 
 async function handleLoginAction() {
   const view = uiModule.getViewState();
-  const endpointValue = view.loginEndpointUrlValue.trim();
+  const stageBase = normalizeStageBase(view.stageBaseValue || "");
   const email = view.loginEmailValue.trim();
   const password = view.loginPasswordValue;
 
-  if (!endpointValue) {
-    uiModule.showToast("Set Login Endpoint URL first");
+  if (!stageBase) {
+    uiModule.showToast("Set Stage Base first");
     return;
   }
   if (!isValidEmail(email)) {
@@ -2231,9 +2630,9 @@ async function handleLoginAction() {
   state.aiRequestInFlight = "login";
   await refreshUi();
   try {
-    const loginUrl = resolveRelativeEndpoint(endpointValue, "/api/account/login");
+    const loginUrl = buildLoginEndpointFromStageBase(stageBase);
     if (!loginUrl) {
-      uiModule.showToast("Enter a valid Login Endpoint URL");
+      uiModule.showToast("Set a valid Stage Base first");
       return;
     }
     const response = await fetch(loginUrl, {
@@ -2265,7 +2664,7 @@ async function handleLoginAction() {
     }
 
     await utils.storageSet(chrome.storage.sync, {
-      globalLoginEndpoint: endpointValue,
+      globalStageBase: stageBase,
       globalToken: token
     });
     uiModule.setViewState({ loginPasswordValue: "" });
@@ -2282,9 +2681,9 @@ async function handleLoginAction() {
 async function handleContextRefresh() {
   const tab = await helpers.ensureActiveTab();
   state.baseUrlEditMode = false;
+  state.stageBaseEditMode = false;
   state.endpointEditMode = false;
   state.configEndpointEditMode = false;
-  state.loginEndpointEditMode = false;
   if (tab && tab.id) {
     const tabState = await utils.getTabState(tab.id);
     if (tabState && tabState.enabled) {
@@ -2315,12 +2714,14 @@ async function handlePageSave() {
   }
   if (response.saved) {
     const pageUrl = (state.currentTab && state.currentTab.url) || "";
-    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+    const { tokenValue, configEndpointValue, stageBaseValue } =
+      await helpers.loadGlobalAiSettings();
     const syncResult = await syncBaseConfigToServer({
       baseUrl: state.currentBaseUrl,
       pageUrl,
       endpointValue: configEndpointValue,
       tokenValue,
+      stageBase: stageBaseValue,
       alertOnCurrentReplacement: true
     });
     const syncSkipped = Boolean(syncResult && syncResult.skipped);
@@ -2372,12 +2773,14 @@ async function handlePageRevert() {
     return;
   }
   const pageUrl = (state.currentTab && state.currentTab.url) || "";
-  const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+  const { tokenValue, configEndpointValue, stageBaseValue } =
+    await helpers.loadGlobalAiSettings();
   const syncResult = await syncBaseConfigToServer({
     baseUrl: state.currentBaseUrl,
     pageUrl,
     endpointValue: configEndpointValue,
     tokenValue,
+    stageBase: stageBaseValue,
     alertOnCurrentReplacement: true
   });
   const syncSkipped = Boolean(syncResult && syncResult.skipped);
@@ -2731,10 +3134,10 @@ async function init() {
     onEndpointKeyDown: handleEndpointKeyDown,
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
-    onLoginEndpointInput: handleLoginEndpointInput,
-    onLoginEndpointKeyDown: handleLoginEndpointKeyDown,
-    onLoginEndpointSet: handleLoginEndpointSet,
-    onLoginEndpointEditToggle: handleLoginEndpointEditToggle,
+    onStageBaseInput: handleStageBaseInput,
+    onStageBaseKeyDown: handleStageBaseKeyDown,
+    onStageBaseSet: handleStageBaseSet,
+    onStageBaseEditToggle: handleStageBaseEditToggle,
     onLoginEmailInput: handleLoginEmailInput,
     onLoginPasswordInput: handleLoginPasswordInput,
     onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
