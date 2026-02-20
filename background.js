@@ -307,7 +307,7 @@ chrome.action.onClicked.addListener((tab) => {
   if (tab.id) {
     updateDeviceEmulation(tab.id, {
       enabled: true,
-      mode: "mobile"
+      mode: "desktop"
     }).then();
     chrome.sidePanel.setOptions({
       tabId: tab.id,
