@@ -134,7 +134,7 @@ function buildGraphqlEndpointFromStageBase(stageBase) {
   if (!normalized) {
     return "";
   }
-  return `https://${normalized}/graphql`;
+  return `https://api.${normalized}/graphql`;
 }
 
 function normalizeSiteIdValue(value) {
