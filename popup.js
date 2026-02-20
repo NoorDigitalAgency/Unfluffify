@@ -1149,6 +1149,10 @@ async function refreshUi() {
   const configs = await config.getConfigs();
   const tabState =
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
+  const initialTabState = currentTabId
+    ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
+    : { active: false };
+  const sidebarOpenedOnTab = Boolean(initialTabState && initialTabState.active);
   const localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   const hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let effectiveTabState = tabState;
@@ -1242,6 +1246,7 @@ async function refreshUi() {
   const shouldAutoEnableMobile =
     Boolean(currentTabId) &&
     tabChanged &&
+    sidebarOpenedOnTab &&
     !state.mobileAutoAppliedTabIds.has(currentTabId);
   let normalizedDeviceState = null;
   if (shouldAutoEnableMobile) {
