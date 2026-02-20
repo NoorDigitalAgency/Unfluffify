@@ -1461,7 +1461,7 @@ async function refreshUi() {
   const initialTabState = currentTabId
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
-  const sidebarOpenedOnTab = Boolean(initialTabState && initialTabState.active);
+  const tabInScope = Boolean(initialTabState && initialTabState.active);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let currentSiteId = null;
@@ -1469,7 +1469,12 @@ async function refreshUi() {
   let unsupportedByGraphql = false;
   let remoteLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
-  if (tabState.baseUrl && pageUrl && !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)) {
+  if (
+    tabInScope &&
+    tabState.baseUrl &&
+    pageUrl &&
+    !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)
+  ) {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
@@ -1482,6 +1487,7 @@ async function refreshUi() {
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
   if (
+    tabInScope &&
     !localMatchingBaseUrl &&
     !effectiveTabState.baseUrl &&
     currentTabId &&
@@ -1533,8 +1539,10 @@ async function refreshUi() {
       siteIdBlockedReason = "No mapped base page URL/siteId was found for this page.";
     }
   }
-  const fallbackBaseUrl = localMatchingBaseUrl;
-  state.currentBaseUrl = effectiveTabState.baseUrl || fallbackBaseUrl || "";
+  const fallbackBaseUrl = tabInScope ? localMatchingBaseUrl : "";
+  state.currentBaseUrl = tabInScope
+    ? (effectiveTabState.baseUrl || fallbackBaseUrl || "")
+    : "";
   if (state.currentBaseUrl) {
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
     if (!configs[state.currentBaseUrl] || normalized.changed) {
@@ -1629,7 +1637,12 @@ async function refreshUi() {
       : "Base Page URL is resolved automatically from GraphQL.",
     noticeVisible: !baseUrlReady
   };
+  if (!tabInScope) {
+    baseField.noticeText = "Open the extension on this tab to enable controls.";
+    baseField.noticeVisible = true;
+  }
   let toggleEnabled = Boolean(
+    tabInScope &&
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
@@ -1645,7 +1658,7 @@ async function refreshUi() {
   const shouldAutoEnableMobile =
     Boolean(currentTabId) &&
     tabChanged &&
-    sidebarOpenedOnTab &&
+    tabInScope &&
     !state.mobileAutoAppliedTabIds.has(currentTabId);
   let normalizedDeviceState = null;
   if (shouldAutoEnableMobile) {
@@ -1717,6 +1730,8 @@ async function refreshUi() {
   );
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
     ? siteIdBlockedReason || "No mapped base page URL/siteId was found for this page."
+    : !tabInScope
+      ? "Open the extension on this tab to enable controls."
     : baseUrlReady && !siteIdReady
       ? siteIdBlockedReason || "No domainId exists for this base URL"
       : "";
@@ -1724,13 +1739,14 @@ async function refreshUi() {
   const configurationComplete =
     configEndpointReady && endpointReady && stageBaseReady && Boolean(tokenValue);
   const aiReady =
+    tabInScope &&
     !unsupportedByGraphql &&
     baseUrlReady &&
     siteIdReady &&
     endpointReady &&
     Boolean(tokenValue);
   isEnabled = toggleEnabled && siteIdReady;
-  if (toggleEnabled && !siteIdReady && currentTabId) {
+  if (tabInScope && toggleEnabled && !siteIdReady && currentTabId) {
     toggleEnabled = false;
     isEnabled = false;
     state.lastPopupEnabled = null;
@@ -1800,15 +1816,19 @@ async function refreshUi() {
 
   nextViewState.currentView = resolvedView;
   nextViewState.configurationComplete = configurationComplete;
-  nextViewState.configurationContinueDisabled = !configurationComplete || unsupportedByGraphql;
-  nextViewState.configurationNoticeVisible = !configurationComplete || unsupportedByGraphql;
+  nextViewState.configurationContinueDisabled =
+    !tabInScope || !configurationComplete || unsupportedByGraphql;
+  nextViewState.configurationNoticeVisible =
+    !tabInScope || !configurationComplete || unsupportedByGraphql;
   nextViewState.configurationNoticeText = unsupportedByGraphql
     ? "This page is not mapped to any siteId/base page URL. Extension UI is disabled."
+    : !tabInScope
+      ? "Open the extension on this tab to enable controls."
     : configurationComplete
       ? ""
       : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
 
-  const uiDisabledForUnsupportedPage = unsupportedByGraphql;
+  const uiDisabledForUnsupportedPage = unsupportedByGraphql || !tabInScope;
   nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
     uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady;
@@ -2077,7 +2097,7 @@ async function refreshUi() {
   nextViewState.basePageUrlsEmptyText = "No base URLs with domainId";
 
   uiModule.setViewState(nextViewState);
-  if (resolvedView === uiModule.View.Marking) {
+  if (tabInScope && resolvedView === uiModule.View.Marking) {
     await applySilentHighlightVisibility();
   }
 }
