@@ -37,7 +37,6 @@ const initialViewState = {
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
   pageRevertDisabled: true,
-  pageDeleteDisabled: true,
   pageDraftStatusText: "",
   syncLoadStatusText: "Not loaded yet",
   syncSaveStatusText: "No save sent yet",
@@ -104,7 +103,6 @@ const initialViewState = {
   highlightVisibleConsentChecked: false,
   highlightHideDuringScrollRedrawChecked: false,
   configMenuOpen: false,
-  configClearCurrentDisabled: true,
   clearDomainCacheDisabled: false,
   isBusy: false,
   toastMessage: "",
@@ -232,19 +230,6 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onClearDomainCache
               },
               "Empty cache for current domain"
-            ),
-            h("div", { class: "config-divider", role: "separator" }),
-            h(
-              "button",
-              {
-                id: "config-clear-current",
-                type: "button",
-                role: "menuitem",
-                class: "danger",
-                disabled: view.configClearCurrentDisabled,
-                onClick: handlers.onClearCurrent
-              },
-              "Delete current Base Page URL configuration"
             )
           )
         )
@@ -557,17 +542,6 @@ function renderMarkingView({state: view, actions: handlers}) {
                         },
                         "Revert to saved"
                     )
-                ),
-                h(
-                    "button",
-                    {
-                        id: "page-delete",
-                        type: "button",
-                        class: "button-danger button-small",
-                        disabled: view.pageDeleteDisabled,
-                        onClick: handlers.onPageDelete
-                    },
-                    "Delete current page"
                 ),
                 h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
                 h("div", { class: "section-divider", role: "separator" }),

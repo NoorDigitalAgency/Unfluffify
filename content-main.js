@@ -2105,26 +2105,6 @@ export function main() {
       return true;
     }
 
-    if (message.type === "deletePageEntry") {
-      const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
-        sendResponse({ ok: false });
-        return;
-      }
-      (async () => {
-        const pageUrl = location.href;
-        core.removePageEntry(state.config, pageUrl);
-        const storedConfig = await core.loadConfig(targetBaseUrl);
-        core.removePageEntry(storedConfig, pageUrl);
-        await core.saveConfig(targetBaseUrl, storedConfig);
-        core.setSavedPageEntry(pageUrl, null);
-        core.scheduleRender();
-        core.notifyDraftStatus(pageUrl);
-        sendResponse({ ok: true, dirty: core.isPageDraftDirty(pageUrl) });
-      })();
-      return true;
-    }
-
     if (message.type === "showAiPreview") {
       const selectorSet = normalizeAiSelectorSet(message.selectorSet);
       const items = core.collectPreviewItems(selectorSet);

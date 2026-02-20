@@ -3748,20 +3748,6 @@ export async function saveConfig(baseUrl, config) {
   await utils.idbSet({ configs });
 }
 
-export function removePageEntry(config, pageUrl) {
-  if (!config || !pageUrl) {
-    return false;
-  }
-  if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
-    return false;
-  }
-  if (!config.pageMarkings[pageUrl]) {
-    return false;
-  }
-  delete config.pageMarkings[pageUrl];
-  return true;
-}
-
 export function showAiPopover(items) {
   ensureAiPopoverStyle();
   closeAiPopover();

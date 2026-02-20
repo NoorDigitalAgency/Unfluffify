@@ -1437,7 +1437,6 @@ async function refreshUi() {
   nextViewState.endpointInputDisabled = aiBusy;
   nextViewState.endpointSetDisabled = aiBusy;
   nextViewState.endpointEditDisabled = aiBusy;
-  nextViewState.configClearCurrentDisabled = aiBusy || !state.currentBaseUrl;
   nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
@@ -1480,8 +1479,6 @@ async function refreshUi() {
     mobileSimulationBlocked ||
     !hasSavedPageData ||
     !state.currentDraftDirty;
-  nextViewState.pageDeleteDisabled =
-    !baseUrlReady || !isEnabled || !hasSavedPageData || mobileSimulationBlocked;
   if (!baseUrlReady) {
     nextViewState.pageDraftStatusText = "Set Base Page URL first";
   } else if (!isEnabled) {
@@ -2048,32 +2045,6 @@ async function handleClearDomainCache() {
   }
 }
 
-async function handleClearCurrent() {
-  uiModule.setConfigMenuOpen(false);
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  const confirmed = window.confirm(
-    "Clear all configuration for this Base Page URL? This cannot be undone."
-  );
-  if (!confirmed) {
-    return;
-  }
-  const configs = await config.getConfigs();
-  delete configs[state.currentBaseUrl];
-  await config.saveConfigs(configs);
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (tab) {
-    await utils.setTabState(tab.id, { enabled: false, baseUrl: "" });
-    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
-  state.currentBaseUrl = "";
-  state.currentConfig = null;
-  state.baseUrlEditMode = false;
-  uiModule.showToast("Base Page URL cleared");
-  await refreshUi();
-}
-
 async function handleBaseUrlSet() {
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
@@ -2423,34 +2394,6 @@ async function handlePageRevert() {
   await refreshUi();
 }
 
-async function handlePageDelete() {
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!ensureMobileSimulationForActions()) {
-    return;
-  }
-  const confirmed = window.confirm(
-    "Delete saved data for this page? This cannot be undone."
-  );
-  if (!confirmed) {
-    return;
-  }
-  const response = await messages.sendTabMessage({
-    type: "deletePageEntry",
-    baseUrl: state.currentBaseUrl
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to delete page data");
-    return;
-  }
-  uiModule.showToast("Page data deleted");
-  await refreshUi();
-}
-
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -2768,7 +2711,6 @@ async function init() {
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,
-    onClearCurrent: handleClearCurrent,
     onBaseUrlInput: handleBaseUrlInput,
     onBaseUrlKeyDown: handleBaseUrlKeyDown,
     onRefreshContext: handleContextRefresh,
@@ -2776,7 +2718,6 @@ async function init() {
     onBaseUrlEditToggle: handleBaseUrlEditToggle,
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
-    onPageDelete: handlePageDelete,
     onConfigEndpointInput: handleConfigEndpointInput,
     onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
     onConfigEndpointSet: handleConfigEndpointSet,
