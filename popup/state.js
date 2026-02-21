@@ -19,6 +19,8 @@ export const state = {
   endpointEditMode: false,
   configEndpointEditMode: false,
   aiRequestInFlight: null,
+  aiSelectorsComputedSinceLastSubmit: false,
+  aiSelectorsComputedBaseUrl: "",
   configMenuOpen: false,
   currentDeviceMode: "desktop",
   currentDeviceScale: DEVICE_SCALE_DEFAULTS.desktop,

@@ -29,6 +29,11 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   }
 }
 `;
+const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
+mutation updateScrapingConditions($domainId: Int!, $includeCss: String, $excludeCss: String) {
+  updateScrapingConditions(domainId: $domainId, includeCss: $includeCss, excludeCss: $excludeCss)
+}
+`;
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
@@ -1428,6 +1433,7 @@ async function refreshUi() {
   if (!state.currentTab) {
     return;
   }
+  const previousBaseUrl = state.currentBaseUrl;
   await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
@@ -1621,6 +1627,10 @@ async function refreshUi() {
   if (!state.currentBaseUrl) {
     state.baseUrlEditMode = false;
   }
+  if (state.currentBaseUrl !== previousBaseUrl) {
+    state.aiSelectorsComputedSinceLastSubmit = false;
+    state.aiSelectorsComputedBaseUrl = "";
+  }
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
@@ -1765,6 +1775,14 @@ async function refreshUi() {
   const hasNewSelectors =
     selectorCount > 0 &&
     !aiSelectorSetsEqual(latestComputed, lastSaved);
+  if (!hasNewSelectors && state.aiSelectorsComputedBaseUrl === state.currentBaseUrl) {
+    state.aiSelectorsComputedSinceLastSubmit = false;
+    state.aiSelectorsComputedBaseUrl = "";
+  }
+  const hasFreshComputedSelectors =
+    state.aiSelectorsComputedSinceLastSubmit &&
+    state.aiSelectorsComputedBaseUrl === state.currentBaseUrl;
+  const selectorsReadyForSubmit = hasNewSelectors && hasFreshComputedSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = selectorCount > 0;
   const aiControlsVisible = endpointReady && Boolean(tokenValue);
@@ -1846,7 +1864,7 @@ async function refreshUi() {
     uiDisabledForUnsupportedPage ||
     aiBusy ||
     !aiReady ||
-    !hasNewSelectors ||
+    !selectorsReadyForSubmit ||
     aiBlockedByDraft ||
     mobileSimulationBlocked;
   nextViewState.previewLatestButtonDisabled =
@@ -3010,6 +3028,10 @@ async function handleComputeSelectors() {
       config.latestComputedSelectors = normalizeAiSelectorSet(selectorSet);
       config.domainAiSelectorSet = normalizeAiSelectorSet(selectorSet);
     });
+    const hasComputedNewSelectors =
+      !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
+    state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
+    state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
 
     await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
     await messages.sendTabMessage({
@@ -3046,7 +3068,23 @@ async function handleSaveExcludes() {
   if (!credentials) {
     return;
   }
-  const { endpointValue, tokenValue } = credentials;
+  const { tokenValue } = credentials;
+  const { stageBaseValue } = await helpers.loadGlobalAiSettings();
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
+  if (!graphqlEndpoint) {
+    uiModule.showToast("Set Stage Base first");
+    return;
+  }
+  const siteIdResult = await ensureBaseUrlSiteId({
+    baseUrl: state.currentBaseUrl,
+    stageBase: stageBaseValue,
+    tokenValue
+  });
+  if (!siteIdResult.ok || !siteIdResult.siteId) {
+    uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+    return;
+  }
+  state.currentConfig = siteIdResult.config || state.currentConfig;
   const selectorSet = getLatestComputedSelectorsFromConfig();
   const selectorCount = combineAiSelectorSet(selectorSet).length;
   if (!selectorCount) {
@@ -3063,29 +3101,62 @@ async function handleSaveExcludes() {
   if (!confirmed) {
     return;
   }
+  const includeCss = selectorSet.inclusionSelectors.join(", ");
+  const excludeCss = selectorSet.exclusionSelectors.join(", ");
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
-    const response = await fetch(endpointValue, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${tokenValue}`
-      },
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: createConfigSyncHeaders(tokenValue),
       body: JSON.stringify({
-        baseUrl: state.currentBaseUrl,
-        defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-        exclusionSelectors: selectorSet.exclusionSelectors,
-        inclusionSelectors: selectorSet.inclusionSelectors
+        query: UPDATE_SCRAPING_CONDITIONS_MUTATION,
+        variables: {
+          domainId: siteIdResult.siteId,
+          includeCss,
+          excludeCss
+        }
       })
     });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
     if (!response.ok) {
+      uiModule.showToast("Submit response error");
+      return;
+    }
+    if (!payload || typeof payload !== "object") {
+      uiModule.showToast("Submit response format error");
+      return;
+    }
+    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+      const firstError =
+        payload.errors[0] && typeof payload.errors[0].message === "string"
+          ? payload.errors[0].message
+          : "Submit response error";
+      uiModule.showToast(firstError);
+      return;
+    }
+    const mutationResult =
+      payload.data && Object.prototype.hasOwnProperty.call(payload.data, "updateScrapingConditions")
+        ? payload.data.updateScrapingConditions
+        : undefined;
+    if (
+      mutationResult === undefined ||
+      mutationResult === null ||
+      mutationResult === false
+    ) {
       uiModule.showToast("Submit response error");
       return;
     }
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.lastSavedSelectors = normalizeAiSelectorSet(selectorSet);
     });
+    state.aiSelectorsComputedSinceLastSubmit = false;
+    state.aiSelectorsComputedBaseUrl = "";
     uiModule.showToast("Submitted to server");
   } catch (error) {
     uiModule.showToast("Submit request failed");
