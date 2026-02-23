@@ -84,6 +84,36 @@ async function ensureMobileSimulationForSidebar(tabId) {
   return normalizedDeviceState;
 }
 
+function scheduleSidebarScaleRefit(tabId) {
+  if (!tabId || state.sidebarScaleRefitScheduledTabIds.has(tabId)) {
+    return;
+  }
+  state.sidebarScaleRefitScheduledTabIds.add(tabId);
+  window.setTimeout(async () => {
+    state.sidebarScaleRefitScheduledTabIds.delete(tabId);
+    if (!state.currentTab || state.currentTab.id !== tabId) {
+      return;
+    }
+    try {
+      const storedDeviceState = await emulation.getDeviceEmulationState(tabId);
+      if (!storedDeviceState || !storedDeviceState.enabled) {
+        return;
+      }
+      await messages.sendRuntimeMessage({
+        type: "updateDeviceEmulation",
+        tabId,
+        enabled: true,
+        mode: storedDeviceState.mode,
+        scale: storedDeviceState.scale,
+        recalculateScale: true
+      });
+      scheduleRefresh();
+    } catch (error) {
+      // Ignore transient refit failures.
+    }
+  }, 280);
+}
+
 function resolveRelativeEndpoint(baseUrl, path) {
   try {
     return new URL(path, baseUrl).toString();
@@ -1676,6 +1706,7 @@ async function refreshUi() {
   if (shouldAutoEnableMobile) {
     normalizedDeviceState = await ensureMobileSimulationForSidebar(currentTabId);
     state.mobileAutoAppliedTabIds.add(currentTabId);
+    scheduleSidebarScaleRefit(currentTabId);
   }
   if (!normalizedDeviceState) {
     const storedDeviceState = currentTabId

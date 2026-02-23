@@ -46,7 +46,29 @@ function normalizeDeviceEmulationState(value) {
   };
 }
 
-async function getViewportSize(tabId) {
+async function getTabViewportSize(tabId) {
+  return new Promise((resolve) => {
+    if (!chrome.tabs || !tabId) {
+      resolve(null);
+      return;
+    }
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        resolve(null);
+        return;
+      }
+      const width = Number(tab.width);
+      const height = Number(tab.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        resolve(null);
+        return;
+      }
+      resolve({ width, height });
+    });
+  });
+}
+
+async function getPageViewportSize(tabId) {
   return new Promise((resolve) => {
     if (!chrome.scripting || !tabId) {
       resolve(null);
@@ -73,6 +95,24 @@ async function getViewportSize(tabId) {
       }
     );
   });
+}
+
+async function getViewportSize(tabId) {
+  const [tabViewport, pageViewport] = await Promise.all([
+    getTabViewportSize(tabId),
+    getPageViewportSize(tabId)
+  ]);
+  if (tabViewport && pageViewport) {
+    // Prefer the smaller dimensions. When the page is not yet emulated, pageViewport
+    // reflects the real content area (excluding the side panel) more accurately.
+    // When the page is already emulated, pageViewport is often inflated to the
+    // emulated width (e.g. 1920), so tabViewport wins naturally.
+    return {
+      width: Math.min(tabViewport.width, pageViewport.width),
+      height: Math.min(tabViewport.height, pageViewport.height)
+    };
+  }
+  return tabViewport || pageViewport;
 }
 
 async function getBestDeviceScale(tabId, mode) {
