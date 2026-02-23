@@ -1715,6 +1715,7 @@ async function refreshUi() {
     Boolean(currentTabId) &&
     tabChanged &&
     tabInScope &&
+    Boolean(utils.getOriginFromUrl(pageUrl)) &&
     !deviceAutoInitialized &&
     !state.mobileAutoAppliedTabIds.has(currentTabId) &&
     !hasStoredDevicePreference;

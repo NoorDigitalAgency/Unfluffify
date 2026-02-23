@@ -47,6 +47,22 @@ export async function updateDeviceEmulation({
   if (!state.currentTab || !state.currentTab.id) {
     return null;
   }
+  const supportedUrl = utils.getOriginFromUrl(state.currentTab.url || "");
+  if (enabled && !supportedUrl) {
+    uiModule.showToast("Device simulation is only available on http(s) pages");
+    const normalized = emulation.syncDeviceEmulationState({
+      enabled: false,
+      mode: state.currentDeviceMode,
+      scale: state.currentDeviceScale
+    });
+    uiModule.setViewState({
+      deviceEmulationEnabled: normalized.enabled,
+      deviceMode: normalized.mode,
+      deviceScale: normalized.scale.toFixed(2),
+      deviceScaleValue: `${Math.round(normalized.scale * 100)}%`
+    });
+    return null;
+  }
   const syncDeviceView = (normalized) => {
     uiModule.setViewState({
       deviceEmulationEnabled: normalized.enabled,
