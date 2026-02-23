@@ -1984,6 +1984,7 @@ function getMarkableTarget(x, y, options) {
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
   const explicitParentSet = options && options.explicitParentSet;
+  const allowExcludedParentChildren = options && options.allowExcludedParentChildren;
   const allowImmutableChildren = options && options.allowImmutableChildren;
   const requireExcludedAncestor = Boolean(options && options.requireExcludedAncestor);
   const hasExcludedAncestor = requireExcludedAncestor
@@ -2016,7 +2017,7 @@ function getMarkableTarget(x, y, options) {
       const explicitlyIncluded =
         xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
       const withinExplicitExcludedParent =
-        !allowImmutableChildren &&
+        !allowExcludedParentChildren &&
         xpath &&
         explicitParentSet &&
         explicitParentSet.size > 0 &&
@@ -2045,7 +2046,7 @@ function getMarkableTarget(x, y, options) {
     if (isWithinConsentElement(el)) {
       continue;
     }
-    if (!allowImmutableChildren && explicitParentSet && explicitParentSet.size > 0) {
+    if (!allowExcludedParentChildren && explicitParentSet && explicitParentSet.size > 0) {
       const xpath = getXPath(el);
       if (xpath && isWithinExplicitExcludedXpath(xpath, explicitParentSet)) {
         continue;
@@ -2077,7 +2078,13 @@ function getMarkableTarget(x, y, options) {
   return null;
 }
 
-function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
+function updateHoverHighlight(
+  x,
+  y,
+  allowParent,
+  allowExcludedParentChildren,
+  allowImmutableChildren
+) {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
@@ -2096,8 +2103,9 @@ function updateHoverHighlight(x, y, allowParent, allowImmutableChildren) {
     excludedSet,
     includeSet,
     explicitParentSet,
+    allowExcludedParentChildren,
     allowImmutableChildren,
-    requireExcludedAncestor: allowImmutableChildren
+    requireExcludedAncestor: false
   });
   if (!target) {
     finalizeLayerRender(layerState);
@@ -2125,12 +2133,14 @@ function refreshHoverHighlight() {
     return;
   }
   const mode = getMarkMode();
-  const allowImmutableChildren = mode === "include";
+  const allowExcludedParentChildren = mode === "include";
+  const allowImmutableChildren = false;
   const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
       state.lastPointer.x,
       state.lastPointer.y,
       allowParent,
+      allowExcludedParentChildren,
       allowImmutableChildren
   );
 }
@@ -2155,12 +2165,14 @@ function handleMouseMove(event) {
       return;
     }
     const mode = getMarkModeFromEvent(event);
-    const allowImmutableChildren = mode === "include";
+    const allowExcludedParentChildren = mode === "include";
+    const allowImmutableChildren = false;
     const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
       state.lastPointer.x,
       state.lastPointer.y,
       allowParent,
+      allowExcludedParentChildren,
       allowImmutableChildren
     );
   });
@@ -2270,17 +2282,12 @@ function toggleExplicitInclude(target) {
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  const canIncludeHere = createExcludedAncestorChecker({
-    config: state.config,
-    pageUrl: location.href,
-    entry
-  });
   const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
   const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
   let convertedFromExcluded = false;
   if (targetItem && targetItem.excluded) {
-    if (!canIncludeHere(target)) {
-      // Persist a direct include preference when user un-excludes a previously hidden item.
+    if (!canApplyExplicitInclude(target, state.config, location.href, entry)) {
+      // If the target is no longer include-eligible, Alt acts as an unmark for the exclusion.
       targetItem.excluded = false;
       for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
         if (includeXpaths[i] === xpath) {
@@ -2309,8 +2316,8 @@ function toggleExplicitInclude(target) {
   if (existingIndex >= 0 && !convertedFromExcluded) {
     includeXpaths.splice(existingIndex, 1);
   } else {
-    if (!canIncludeHere(target)) {
-      showToast("Include can only mark children of excluded elements");
+    if (!canApplyExplicitInclude(target, state.config, location.href, entry)) {
+      showToast("Element cannot be explicitly included");
       return;
     }
     includeXpaths.push(xpath);
@@ -2365,10 +2372,11 @@ function handleToggleEvent(event) {
     }
   }
   const allowParent = shouldAllowParentMarking(mode, event.shiftKey);
-  const allowImmutableChildren = mode === "include";
+  const allowExcludedParentChildren = mode === "include";
+  const allowImmutableChildren = false;
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
   const excludedSet =
-    allowParent || allowImmutableChildren ? null : explicitParentSet;
+    allowParent || allowExcludedParentChildren ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
@@ -2376,8 +2384,9 @@ function handleToggleEvent(event) {
     excludedSet,
     includeSet,
     explicitParentSet,
+    allowExcludedParentChildren,
     allowImmutableChildren,
-    requireExcludedAncestor: allowImmutableChildren
+    requireExcludedAncestor: false
   });
   if (target) {
     if (mode === "include") {
@@ -3262,13 +3271,46 @@ export function isMarkableElement(el, config, options) {
   return hasMultipleMarkableDescendants(el);
 }
 
-export function canApplyExplicitInclude(el, configValue = state.config, pageUrl = location.href, entryOverride = null) {
-  const hasExcludedAncestor = createExcludedAncestorChecker({
-    config: configValue,
-    pageUrl,
-    entry: entryOverride
-  });
-  return hasExcludedAncestor(el);
+export function canApplyExplicitInclude(
+  el,
+  configValue = state.config,
+  pageUrl = location.href,
+  entryOverride = null
+) {
+  if (isMarkableElement(el, configValue, {
+    allowParent: false,
+    allowImmutableChildren: false
+  })) {
+    return true;
+  }
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (isVisible(el)) {
+    return false;
+  }
+  const xpath = getXPath(el);
+  if (!xpath) {
+    return false;
+  }
+  const configEntry =
+    configValue &&
+    configValue.pageMarkings &&
+    typeof configValue.pageMarkings === "object" &&
+    pageUrl
+      ? configValue.pageMarkings[pageUrl] || null
+      : null;
+  const sourceEntries = [configEntry, entryOverride];
+  for (const entry of sourceEntries) {
+    const includeXpaths = Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : [];
+    if (includeXpaths.includes(xpath)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function clearFocusHighlight() {
