@@ -3584,13 +3584,14 @@ export function disable() {
 }
 
 export async function enableForBaseUrl(baseUrl) {
-  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
     return;
   }
   state.enabled = true;
-  state.baseUrl = baseUrl;
-  state.config = await loadConfig(baseUrl);
+  state.baseUrl = normalizedBaseUrl;
+  state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
   const savedEntry =
@@ -3601,7 +3602,7 @@ export async function enableForBaseUrl(baseUrl) {
   const cachedDraft = state.disabledUnsavedDraft;
   if (
     cachedDraft &&
-    cachedDraft.baseUrl === baseUrl &&
+    utils.sameBaseUrl(cachedDraft.baseUrl, normalizedBaseUrl) &&
     cachedDraft.pageUrl === pageUrl &&
     cachedDraft.draftEntry
   ) {

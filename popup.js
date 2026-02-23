@@ -3359,7 +3359,7 @@ async function init() {
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || message.type !== "pageDraftChanged") {
       if (message && message.type === "consentXpathsChanged") {
-        if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {
+        if (state.currentBaseUrl && utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)) {
           const hasSavedData = Boolean(
             state.currentSavedEntry &&
               ((Array.isArray(state.currentSavedEntry.xpaths) &&
@@ -3379,7 +3379,7 @@ async function init() {
       }
       return;
     }
-    if (state.currentBaseUrl && message.baseUrl === state.currentBaseUrl) {
+    if (state.currentBaseUrl && utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)) {
       scheduleRefresh();
     }
   });

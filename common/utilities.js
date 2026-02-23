@@ -83,11 +83,12 @@ export function arraysEqual(left, right) {
 }
 
 export function parseBaseUrl(value) {
-  if (!value) {
+  const normalized = normalizeBaseUrl(value);
+  if (!normalized) {
     return null;
   }
   try {
-    return new URL(value);
+    return new URL(normalized);
   } catch (error) {
     return null;
   }
@@ -106,6 +107,80 @@ function parseHttpUrl(value) {
   } catch (error) {
     return null;
   }
+}
+
+export function normalizeBaseUrl(value) {
+  const parsed = parseHttpUrl(value);
+  if (!parsed) {
+    return "";
+  }
+  const hostname = (parsed.hostname || "").toLowerCase();
+  if (!hostname) {
+    return "";
+  }
+  const pathname = normalizePathForMatch(parsed.pathname);
+  return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+}
+
+function normalizeBaseMatchHostname(hostname) {
+  if (typeof hostname !== "string") {
+    return "";
+  }
+  const lower = hostname.trim().toLowerCase();
+  if (!lower) {
+    return "";
+  }
+  return lower.startsWith("www.") ? lower.slice(4) : lower;
+}
+
+function hostnamesEquivalentForBaseMatch(leftHostname, rightHostname) {
+  if (!leftHostname || !rightHostname) {
+    return false;
+  }
+  if (leftHostname === rightHostname) {
+    return true;
+  }
+  const leftNormalized = normalizeBaseMatchHostname(leftHostname);
+  const rightNormalized = normalizeBaseMatchHostname(rightHostname);
+  if (!leftNormalized || !rightNormalized) {
+    return false;
+  }
+  if (leftNormalized !== rightNormalized) {
+    return false;
+  }
+  return leftHostname.startsWith("www.") || rightHostname.startsWith("www.");
+}
+
+function normalizedHttpPort(parsed) {
+  if (!parsed) {
+    return "";
+  }
+  if (parsed.port) {
+    return parsed.port;
+  }
+  if (parsed.protocol === "https:") {
+    return "443";
+  }
+  if (parsed.protocol === "http:") {
+    return "80";
+  }
+  return "";
+}
+
+function originsEquivalentForBaseMatch(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+  if (left.origin === right.origin) {
+    return true;
+  }
+  if (left.protocol !== right.protocol) {
+    return false;
+  }
+  if (normalizedHttpPort(left) !== normalizedHttpPort(right)) {
+    return false;
+  }
+  return hostnamesEquivalentForBaseMatch(left.hostname, right.hostname);
 }
 
 function normalizePathForMatch(pathname) {
@@ -127,11 +202,11 @@ function getBaseUrlSpecificity(baseUrl) {
 
 export function isPageWithinBaseUrl(pageUrl, baseUrl) {
   const page = parseHttpUrl(pageUrl);
-  const base = parseHttpUrl(baseUrl);
+  const base = parseHttpUrl(normalizeBaseUrl(baseUrl) || baseUrl);
   if (!page || !base) {
     return false;
   }
-  if (page.origin !== base.origin) {
+  if (!originsEquivalentForBaseMatch(page, base)) {
     return false;
   }
   const pagePath = normalizePathForMatch(page.pathname);
@@ -143,6 +218,29 @@ export function isPageWithinBaseUrl(pageUrl, baseUrl) {
     return true;
   }
   return pagePath.startsWith(`${basePath}/`);
+}
+
+export function sameBaseUrl(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+  const normalizedLeft = normalizeBaseUrl(left);
+  const normalizedRight = normalizeBaseUrl(right);
+  if (normalizedLeft && normalizedRight) {
+    if (normalizedLeft === normalizedRight) {
+      return true;
+    }
+    const parsedLeft = parseHttpUrl(normalizedLeft);
+    const parsedRight = parseHttpUrl(normalizedRight);
+    if (!parsedLeft || !parsedRight) {
+      return false;
+    }
+    return (
+      originsEquivalentForBaseMatch(parsedLeft, parsedRight) &&
+      normalizePathForMatch(parsedLeft.pathname) === normalizePathForMatch(parsedRight.pathname)
+    );
+  }
+  return String(left).trim() === String(right).trim();
 }
 
 export function getOriginFromUrl(url) {
@@ -358,12 +456,29 @@ export async function idbRemove(keys) {
 export async function getTabState(tabId, scope = null) {
   const key = `${TAB_STATE_PREFIX}${(scope ? `${scope}:` : '')}${tabId}`;
   const result = await storageGet(chrome.storage.session, key);
-  return result[key] || null;
+  const value = result[key] || null;
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  if (typeof value.baseUrl === "string" && value.baseUrl) {
+    const normalizedBaseUrl = normalizeBaseUrl(value.baseUrl);
+    if (normalizedBaseUrl && normalizedBaseUrl !== value.baseUrl) {
+      return { ...value, baseUrl: normalizedBaseUrl };
+    }
+  }
+  return value;
 }
 
 export async function setTabState(tabId, state, scope = null) {
   const key = `${TAB_STATE_PREFIX}${(scope ? `${scope}:` : '')}${tabId}`;
-  await storageSet(chrome.storage.session, {[key]: state});
+  let nextState = state;
+  if (nextState && typeof nextState === "object" && typeof nextState.baseUrl === "string") {
+    const normalizedBaseUrl = normalizeBaseUrl(nextState.baseUrl);
+    if (normalizedBaseUrl || nextState.baseUrl === "") {
+      nextState = { ...nextState, baseUrl: normalizedBaseUrl };
+    }
+  }
+  await storageSet(chrome.storage.session, {[key]: nextState});
 }
 
 export async function clearTabState(tabId) {

@@ -1,4 +1,4 @@
-import { idbGet, idbSet } from "./utilities.js";
+import { idbGet, idbSet, normalizeBaseUrl } from "./utilities.js";
 
 const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
@@ -161,14 +161,15 @@ export function createEmptyAiSelectorSet() {
 }
 
 export function createDefaultConfig(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let domain = "";
   try {
-    domain = new URL(baseUrl).hostname;
+    domain = new URL(normalizedBaseUrl).hostname;
   } catch (error) {
     domain = "";
   }
   return {
-    baseUrl,
+    baseUrl: normalizedBaseUrl,
     domain,
     siteId: null,
     pageMarkings: {},
@@ -287,8 +288,9 @@ export function normalizeAiSelectorSet(value) {
 }
 
 export function normalizeConfig(baseUrl, incoming) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let changed = false;
-  const defaultConfig = createDefaultConfig(baseUrl);
+  const defaultConfig = createDefaultConfig(normalizedBaseUrl);
   let normalized = { ...defaultConfig };
 
   if (!incoming) {
@@ -355,18 +357,18 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
 }
 
 export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
+  const normalizedFallbackBaseUrl = normalizeBaseUrl(fallbackBaseUrl) || fallbackBaseUrl || "";
   if (!payload || typeof payload !== "object") {
     return {
       version: SERVER_SYNC_VERSION,
-      baseUrl: fallbackBaseUrl || "",
+      baseUrl: normalizedFallbackBaseUrl,
       siteId: null,
       pageMarkings: {}
     };
   }
   const baseUrl =
-    typeof payload.baseUrl === "string" && payload.baseUrl
-      ? payload.baseUrl
-      : fallbackBaseUrl || "";
+    normalizeBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
+    normalizedFallbackBaseUrl;
   const normalizedMarkings = normalizePageMarkings(payload.pageMarkings);
   return {
     version:
@@ -380,7 +382,8 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
 }
 
 export function createConfigSyncPayload(baseUrl, sourceConfig) {
-  const normalized = normalizeConfig(baseUrl, sourceConfig).config;
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  const normalized = normalizeConfig(normalizedBaseUrl, sourceConfig).config;
   const pageMarkings = normalized.pageMarkings || {};
   const payloadMarkings = {};
   Object.entries(pageMarkings).forEach(([url, entry]) => {
@@ -406,7 +409,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
   });
   return {
     version: SERVER_SYNC_VERSION,
-    baseUrl,
+    baseUrl: normalizedBaseUrl,
     siteId: normalizeSiteIdValue(normalized.siteId),
     pageMarkings: payloadMarkings
   };
@@ -443,34 +446,79 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
 
 export async function getConfigs() {
   const result = await idbGet("configs");
-  return result.configs || {};
+  const rawConfigs = result.configs || {};
+  const normalizedConfigs = {};
+  Object.entries(rawConfigs).forEach(([key, value]) => {
+    const normalizedKey = normalizeBaseUrl(key) || key;
+    if (!normalizedConfigs[normalizedKey]) {
+      normalizedConfigs[normalizedKey] = value;
+      return;
+    }
+    const existing = normalizeConfig(normalizedKey, normalizedConfigs[normalizedKey]).config;
+    const incoming = normalizeConfig(normalizedKey, value).config;
+    const mergedPageMarkings = mergePageMarkingsByTimestamp(
+      existing.pageMarkings,
+      incoming.pageMarkings
+    ).pageMarkings;
+    normalizedConfigs[normalizedKey] = {
+      ...existing,
+      siteId: existing.siteId || incoming.siteId || null,
+      pageMarkings: mergedPageMarkings,
+      latestComputedSelectors:
+        (incoming.latestComputedSelectors &&
+          (incoming.latestComputedSelectors.exclusionSelectors.length > 0 ||
+            incoming.latestComputedSelectors.inclusionSelectors.length > 0))
+          ? incoming.latestComputedSelectors
+          : existing.latestComputedSelectors,
+      lastSavedSelectors:
+        (incoming.lastSavedSelectors &&
+          (incoming.lastSavedSelectors.exclusionSelectors.length > 0 ||
+            incoming.lastSavedSelectors.inclusionSelectors.length > 0))
+          ? incoming.lastSavedSelectors
+          : existing.lastSavedSelectors,
+      domainAiSelectorSet:
+        (incoming.domainAiSelectorSet &&
+          (incoming.domainAiSelectorSet.exclusionSelectors.length > 0 ||
+            incoming.domainAiSelectorSet.inclusionSelectors.length > 0))
+          ? incoming.domainAiSelectorSet
+          : existing.domainAiSelectorSet
+    };
+  });
+  return normalizedConfigs;
 }
 
 export async function saveConfigs(configs) {
-  await idbSet({ configs });
+  const normalizedConfigs = {};
+  Object.entries(configs || {}).forEach(([key, value]) => {
+    const normalizedKey = normalizeBaseUrl(key) || key;
+    normalizedConfigs[normalizedKey] = normalizeConfig(normalizedKey, value).config;
+  });
+  await idbSet({ configs: normalizedConfigs });
 }
 
 export async function ensureConfig(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const configs = await getConfigs();
-  if (!configs[baseUrl]) {
-    const defaultConfig = createDefaultConfig(baseUrl);
-    configs[baseUrl] = defaultConfig;
+  if (!configs[normalizedBaseUrl]) {
+    const defaultConfig = createDefaultConfig(normalizedBaseUrl);
+    configs[normalizedBaseUrl] = defaultConfig;
     await saveConfigs(configs);
     return defaultConfig;
   }
-  const { config, changed } = normalizeConfig(baseUrl, configs[baseUrl]);
+  const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
   if (changed) {
-    configs[baseUrl] = config;
+    configs[normalizedBaseUrl] = config;
     await saveConfigs(configs);
   }
   return config;
 }
 
 export async function updateConfig(baseUrl, updater) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const configs = await getConfigs();
-  const { config } = normalizeConfig(baseUrl, configs[baseUrl]);
+  const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
   updater(config);
-  configs[baseUrl] = config;
+  configs[normalizedBaseUrl] = config;
   await saveConfigs(configs);
   return config;
 }

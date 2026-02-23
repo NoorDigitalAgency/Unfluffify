@@ -143,10 +143,14 @@ function isEditableTarget(target) {
   return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
 }
 
+function matchesActiveBaseUrl(baseUrl) {
+  return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
+}
+
 async function saveCurrentPageDraft(options) {
   const { baseUrl, showToast = false } = options || {};
   const targetBaseUrl = baseUrl || state.baseUrl || "";
-  if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+  if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
     if (showToast) {
       showPageToast("Enable marking to save this page.");
     }
@@ -1719,7 +1723,7 @@ export function main() {
     }
 
     if (message.type === "configUpdated") {
-      if (state.enabled && message.baseUrl === state.baseUrl) {
+      if (state.enabled && utils.sameBaseUrl(message.baseUrl, state.baseUrl)) {
         const pageUrl = location.href;
         const draftEntry = core.getDraftPageEntry(pageUrl);
         const savedEntry = core.getSavedPageEntry(pageUrl);
@@ -1863,7 +1867,7 @@ export function main() {
 
       (async () => {
         let config;
-        if (state.baseUrl === targetBaseUrl && state.config) {
+        if (matchesActiveBaseUrl(targetBaseUrl) && state.config) {
           // Use the in-memory config to preserve any unsaved changes
           config = state.config;
         } else {
@@ -1895,7 +1899,7 @@ export function main() {
           await core.saveConfig(targetBaseUrl, config);
         }
 
-        if (state.baseUrl === targetBaseUrl) {
+        if (matchesActiveBaseUrl(targetBaseUrl)) {
           state.config = config;
           if (shouldPersist) {
             core.setSavedPageEntry(location.href, entry);
@@ -1909,7 +1913,7 @@ export function main() {
 
     if (message.type === "getPageDraftStatus") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
         return;
       }
@@ -1940,7 +1944,7 @@ export function main() {
 
     if (message.type === "setExplicitExclude") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
         return;
       }
@@ -1990,7 +1994,7 @@ export function main() {
 
     if (message.type === "setExplicitInclude") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
         return;
       }
@@ -2061,7 +2065,7 @@ export function main() {
 
     if (message.type === "savePageDraft") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
         return;
       }
@@ -2073,7 +2077,7 @@ export function main() {
 
     if (message.type === "revertPageDraft") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
-      if (!targetBaseUrl || state.baseUrl !== targetBaseUrl || !state.config) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
         return;
       }
