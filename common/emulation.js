@@ -133,6 +133,15 @@ export async function getDeviceEmulationState(tabId) {
   return normalizeDeviceEmulationState(result[key]);
 }
 
+export async function hasStoredDeviceEmulationState(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
+  const result = await storageGet(chrome.storage.session, key);
+  return Object.prototype.hasOwnProperty.call(result || {}, key);
+}
+
 async function setDeviceEmulationState(tabId, state) {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });

@@ -1697,26 +1697,32 @@ async function refreshUi() {
     }
   }
   let isEnabled = toggleEnabled;
+  let normalizedDeviceState = null;
+  const storedDeviceState = currentTabId
+    ? await emulation.getDeviceEmulationState(currentTabId)
+    : {
+        enabled: state.currentDeviceEmulationEnabled,
+        mode: state.currentDeviceMode,
+        scale: state.currentDeviceScale
+      };
+  const hasStoredDevicePreference = currentTabId
+    ? await emulation.hasStoredDeviceEmulationState(currentTabId)
+    : true;
   const shouldAutoEnableMobile =
     Boolean(currentTabId) &&
     tabChanged &&
     tabInScope &&
-    !state.mobileAutoAppliedTabIds.has(currentTabId);
-  let normalizedDeviceState = null;
+    !state.mobileAutoAppliedTabIds.has(currentTabId) &&
+    !hasStoredDevicePreference;
   if (shouldAutoEnableMobile) {
     normalizedDeviceState = await ensureMobileSimulationForSidebar(currentTabId);
     state.mobileAutoAppliedTabIds.add(currentTabId);
     scheduleSidebarScaleRefit(currentTabId);
-  }
-  if (!normalizedDeviceState) {
-    const storedDeviceState = currentTabId
-      ? await emulation.getDeviceEmulationState(currentTabId)
-      : {
-          enabled: state.currentDeviceEmulationEnabled,
-          mode: state.currentDeviceMode,
-          scale: state.currentDeviceScale
-        };
+  } else {
     normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
+    if (tabChanged && tabInScope && !state.mobileAutoAppliedTabIds.has(currentTabId)) {
+      state.mobileAutoAppliedTabIds.add(currentTabId);
+    }
   }
   const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
   const mobileSimulationBlocked = !mobileSimulationReady;

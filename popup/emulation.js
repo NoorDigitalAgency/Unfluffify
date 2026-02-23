@@ -5,6 +5,7 @@ import * as uiModule from "./ui.js";
 const { state } = stateModule;
 
 export const getDeviceEmulationState = commonEmulation.getDeviceEmulationState;
+export const hasStoredDeviceEmulationState = commonEmulation.hasStoredDeviceEmulationState;
 
 export function syncDeviceEmulationState(stateValue) {
   const normalized = commonEmulation.normalizeDeviceEmulationStateForUi(stateValue);
