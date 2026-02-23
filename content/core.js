@@ -2107,7 +2107,7 @@ function updateHoverHighlight(
   const layerState = beginLayerRender(layerHover);
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
   const excludedSet =
-    allowParent || allowImmutableChildren ? null : explicitParentSet;
+    allowParent || allowExcludedParentChildren ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const target = getMarkableTarget(x, y, {
     allowParent,
