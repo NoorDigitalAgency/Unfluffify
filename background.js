@@ -225,9 +225,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
+  const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
   const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  utils.storageRemove(chrome.storage.session, [key, deviceKey, scriptKey]).then();
+  utils.storageRemove(chrome.storage.session, [key, initialKey, deviceKey, scriptKey]).then();
 });
 
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {

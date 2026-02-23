@@ -1500,6 +1500,9 @@ async function refreshUi() {
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
   const tabInScope = Boolean(initialTabState && initialTabState.active);
+  const deviceAutoInitialized = Boolean(
+    initialTabState && initialTabState.deviceAutoInitialized
+  );
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let currentSiteId = null;
@@ -1712,6 +1715,7 @@ async function refreshUi() {
     Boolean(currentTabId) &&
     tabChanged &&
     tabInScope &&
+    !deviceAutoInitialized &&
     !state.mobileAutoAppliedTabIds.has(currentTabId) &&
     !hasStoredDevicePreference;
   if (shouldAutoEnableMobile) {
@@ -1723,6 +1727,17 @@ async function refreshUi() {
     if (tabChanged && tabInScope && !state.mobileAutoAppliedTabIds.has(currentTabId)) {
       state.mobileAutoAppliedTabIds.add(currentTabId);
     }
+  }
+  if (currentTabId && tabChanged && tabInScope && !deviceAutoInitialized) {
+    await utils.setTabState(
+      currentTabId,
+      {
+        ...(initialTabState || {}),
+        active: true,
+        deviceAutoInitialized: true
+      },
+      "initial"
+    );
   }
   const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
   const mobileSimulationBlocked = !mobileSimulationReady;
