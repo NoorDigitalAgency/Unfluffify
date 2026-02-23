@@ -1753,19 +1753,31 @@ function ensureAiPopoverStyle() {
         color: #6c4c2b;
       }
       .uf-ai-popover-close {
+        appearance: none;
+        -webkit-appearance: none;
         border: 1px solid #8a6f52;
         background: #f8e9d5;
         color: #6c4c2b;
         border-radius: 999px;
         width: 32px;
         height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 0;
+        margin: 0;
+        flex: 0 0 32px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 16px;
         font-weight: 700;
+        font-family: Arial, sans-serif;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         line-height: 1;
+        text-transform: none;
+        text-indent: 0;
+        box-shadow: none;
+        overflow: hidden;
       }
       .uf-ai-popover-close:focus-visible {
         outline: 2px solid #6c4c2b;
@@ -3807,7 +3819,7 @@ export function showAiPopover(items) {
   const close = document.createElement("button");
   close.className = "uf-ai-popover-close";
   close.type = "button";
-  close.innerHTML = "&#x2715;";
+  close.textContent = "\u00D7";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", () => closeAiPopover());
   header.appendChild(title);

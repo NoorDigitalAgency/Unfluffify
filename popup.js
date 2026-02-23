@@ -1831,10 +1831,7 @@ async function refreshUi() {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
   }
-  const hasFreshComputedSelectors =
-    state.aiSelectorsComputedSinceLastSubmit &&
-    state.aiSelectorsComputedBaseUrl === state.currentBaseUrl;
-  const selectorsReadyForSubmit = hasNewSelectors && hasFreshComputedSelectors;
+  const selectorsReadyForSubmit = hasNewSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = selectorCount > 0;
   const aiControlsVisible = endpointReady && Boolean(tokenValue);
