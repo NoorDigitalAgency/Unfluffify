@@ -1479,6 +1479,11 @@ function collectAiSubmissionXpathsForCurrentPage() {
     if (insideExplicitExcludedParent && !explicitlyIncluded) {
       continue;
     }
+    if (explicitlyIncluded) {
+      // Explicit includes persist while the element exists, regardless of visibility.
+      pushRow(xpath, false);
+      continue;
+    }
     const isMarkableTextual = core.isMarkableElement(node, state.config, {
       allowParent: false,
       allowImmutableChildren: false
@@ -1487,10 +1492,6 @@ function collectAiSubmissionXpathsForCurrentPage() {
       continue;
     }
     const visibleToUser = core.isVisible(node);
-    if (explicitlyIncluded) {
-      pushRow(xpath, !visibleToUser);
-      continue;
-    }
     // Non-explicit textual elements: visible => included, hidden => excluded.
     pushRow(xpath, !visibleToUser);
   }
