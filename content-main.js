@@ -35,6 +35,7 @@ const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
+const SILENT_EXCLUDED_DEBUG_LOGS = false;
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
@@ -1005,6 +1006,38 @@ function hasDirectRenderableText(node) {
   return false;
 }
 
+function isDefinitelyHiddenSubtreeNode(node) {
+  if (!node || node.nodeType !== 1) {
+    return true;
+  }
+  if (node.hidden) {
+    return true;
+  }
+  const ariaHidden = node.getAttribute("aria-hidden");
+  if (ariaHidden === "true") {
+    return true;
+  }
+  try {
+    const style = window.getComputedStyle(node);
+    if (!style) {
+      return false;
+    }
+    if (style.display === "none") {
+      return true;
+    }
+    if (style.visibility === "hidden" || style.visibility === "collapse") {
+      return true;
+    }
+    const opacity = Number.parseFloat(style.opacity);
+    if (Number.isFinite(opacity) && opacity === 0) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function matchesImmutableDefaultSelector(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -1192,7 +1225,11 @@ function hasRenderableTextOutsideExcludedNature(
     if (isExtensionUiNode(current)) {
       continue;
     }
-    if (current !== node && !core.isVisible(current)) {
+    if (
+      current !== node &&
+      !core.isVisible(current) &&
+      isDefinitelyHiddenSubtreeNode(current)
+    ) {
       continue;
     }
     if (
@@ -1256,7 +1293,11 @@ function hasRenderableTextForExcludedHighlight(
     if (isExtensionUiNode(current)) {
       continue;
     }
-    if (current !== node && !core.isVisible(current)) {
+    if (
+      current !== node &&
+      !core.isVisible(current) &&
+      isDefinitelyHiddenSubtreeNode(current)
+    ) {
       continue;
     }
     if (
@@ -1395,7 +1436,10 @@ function collectExcludedChildrenInsideIncludedParents(
       if (!node || node.nodeType !== 1) {
         continue;
       }
-      if (isExtensionUiNode(node) || !core.isVisible(node)) {
+      if (isExtensionUiNode(node)) {
+        continue;
+      }
+      if (!core.isVisible(node) && isDefinitelyHiddenSubtreeNode(node)) {
         continue;
       }
       const excludedNature = isExcludedNatureNode(
@@ -1433,7 +1477,10 @@ function collectSelectorExcludedNodes(
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (isExtensionUiNode(node) || !core.isVisible(node)) {
+    if (isExtensionUiNode(node)) {
+      continue;
+    }
+    if (!core.isVisible(node) && isDefinitelyHiddenSubtreeNode(node)) {
       continue;
     }
     if (isWithinNodeSet(node, includedNodes)) {
@@ -1704,7 +1751,10 @@ function collectSilentHighlightRenderTargets(node) {
     if (!current || current.nodeType !== 1) {
       continue;
     }
-    if (isExtensionUiNode(current) || !core.isVisible(current)) {
+    if (isExtensionUiNode(current)) {
+      continue;
+    }
+    if (!core.isVisible(current) && isDefinitelyHiddenSubtreeNode(current)) {
       continue;
     }
     if (hasRenderableClientBox(current)) {
@@ -2020,23 +2070,25 @@ async function refreshSilentHighlightings() {
         );
         excludedNodes = excludedRenderable.nodes;
         excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
-        console.log(
-          "[Unfluffify] Silent excluded debug: raw excluded source nodes",
-          excludedSourceNodesDebug.length,
-          excludedSourceNodesDebug
-        );
-        console.log(
-          "[Unfluffify] Silent excluded debug: renderable excluded nodes",
-          excludedNodes.length,
-          excludedNodes
-        );
-        console.log(
-          "[Unfluffify] Silent excluded debug: selector map entries",
-          Array.from(excludedSelectorByRenderNode.entries()).map(([node, selector]) => ({
-            selector,
-            node
-          }))
-        );
+        if (SILENT_EXCLUDED_DEBUG_LOGS) {
+          console.log(
+            "[Unfluffify] Silent excluded debug: raw excluded source nodes",
+            excludedSourceNodesDebug.length,
+            excludedSourceNodesDebug
+          );
+          console.log(
+            "[Unfluffify] Silent excluded debug: renderable excluded nodes",
+            excludedNodes.length,
+            excludedNodes
+          );
+          console.log(
+            "[Unfluffify] Silent excluded debug: selector map entries",
+            Array.from(excludedSelectorByRenderNode.entries()).map(([node, selector]) => ({
+              selector,
+              node
+            }))
+          );
+        }
       }
     } catch {
       // Keep other silent highlighting features active even if selector processing fails.
@@ -2044,7 +2096,7 @@ async function refreshSilentHighlightings() {
       excludedNodes = [];
       explicitIncludeSelectorByRenderNode = new Map();
       excludedSelectorByRenderNode = new Map();
-      if (visibility.excludedContent) {
+      if (visibility.excludedContent && SILENT_EXCLUDED_DEBUG_LOGS) {
         console.warn("[Unfluffify] Silent excluded debug: selector processing failed");
       }
     }
@@ -2071,7 +2123,7 @@ async function refreshSilentHighlightings() {
         explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
         excludedSelectorByNode: excludedSelectorByRenderNode
       });
-      if (visibility.excludedContent) {
+      if (visibility.excludedContent && SILENT_EXCLUDED_DEBUG_LOGS) {
         const excludedLayer = silentHighlightLayers.excluded || null;
         console.log(
           "[Unfluffify] Silent excluded layer boxes",
@@ -2098,7 +2150,7 @@ async function refreshSilentHighlightings() {
       explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
       excludedSelectorByNode: excludedSelectorByRenderNode
     });
-    if (visibility.excludedContent) {
+    if (visibility.excludedContent && SILENT_EXCLUDED_DEBUG_LOGS) {
       const excludedLayer = silentHighlightLayers.excluded || null;
       console.log(
         "[Unfluffify] Silent excluded layer boxes (re-render)",

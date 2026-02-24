@@ -886,6 +886,38 @@ function isInclusionEligibleElement(
     Boolean(inclusionContextSet && inclusionContextSet.has(el));
 }
 
+function isDefinitelyHiddenSubtreeElement(el) {
+  if (!el || el.nodeType !== 1) {
+    return true;
+  }
+  if (el.hidden) {
+    return true;
+  }
+  const ariaHidden = el.getAttribute("aria-hidden");
+  if (ariaHidden === "true") {
+    return true;
+  }
+  try {
+    const style = window.getComputedStyle(el);
+    if (!style) {
+      return false;
+    }
+    if (style.display === "none") {
+      return true;
+    }
+    if (style.visibility === "hidden" || style.visibility === "collapse") {
+      return true;
+    }
+    const opacity = Number.parseFloat(style.opacity);
+    if (Number.isFinite(opacity) && opacity === 0) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function hasRenderableTextOutsideExcludedNature(
   el,
   excludedElements,
@@ -904,7 +936,11 @@ function hasRenderableTextOutsideExcludedNature(
     if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
       continue;
     }
-    if (node !== el && !isVisible(node)) {
+    if (
+      node !== el &&
+      !isVisible(node) &&
+      isDefinitelyHiddenSubtreeElement(node)
+    ) {
       continue;
     }
     if (
@@ -968,7 +1004,11 @@ function hasRenderableTextForExcludedHighlight(
     if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
       continue;
     }
-    if (node !== el && !isVisible(node)) {
+    if (
+      node !== el &&
+      !isVisible(node) &&
+      isDefinitelyHiddenSubtreeElement(node)
+    ) {
       continue;
     }
     if (
@@ -1011,7 +1051,7 @@ function collectExcludedChildrenInsideIncludedParents(
       if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
         continue;
       }
-      if (!isVisible(el)) {
+      if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
         continue;
       }
       if (
@@ -1053,7 +1093,7 @@ function collectSelectorExcludedElements(
     if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
       continue;
     }
-    if (!isVisible(el)) {
+    if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
       continue;
     }
     if (isWithinElementSet(el, includedElements)) {
