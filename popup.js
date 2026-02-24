@@ -21,7 +21,7 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_MESSAGE =
-  "Mobile simulation must be enabled, for this to work.";
+  "Mobile simulation must be enabled to save markings and submit to the server.";
 const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
@@ -1977,8 +1977,7 @@ async function refreshUiInner() {
     uiDisabledForUnsupportedPage ||
     aiBusy ||
     !aiReady ||
-    aiBlockedByDraft ||
-    mobileSimulationBlocked;
+    aiBlockedByDraft;
   nextViewState.saveExcludesButtonDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -1992,10 +1991,15 @@ async function refreshUiInner() {
     !baseUrlReady ||
     !siteIdReady ||
     !hasStoredSelectors ||
-    aiBlockedByDraft ||
-    mobileSimulationBlocked;
+    aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
-  nextViewState.mobileSimulationRequiredVisible = mobileSimulationBlocked;
+  nextViewState.mobileSimulationRequiredVisible =
+    mobileSimulationBlocked &&
+    !uiDisabledForUnsupportedPage &&
+    aiControlsVisible &&
+    !aiBusy &&
+    aiReady &&
+    !aiBlockedByDraft;
   nextViewState.mobileSimulationRequiredText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
@@ -2087,7 +2091,6 @@ async function refreshUiInner() {
     !siteIdReady ||
     !isEnabled ||
     !state.currentDraftAvailable ||
-    mobileSimulationBlocked ||
     !hasSavedPageData ||
     !state.currentDraftDirty;
   if (!baseUrlReady) {
@@ -2958,9 +2961,6 @@ async function handlePageRevert() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  if (!ensureMobileSimulationForActions()) {
-    return;
-  }
   const confirmed = window.confirm(
     "Revert to the last saved version? Unsaved changes will be lost."
   );
@@ -3014,9 +3014,6 @@ async function handleComputeSelectors() {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!ensureMobileSimulationForActions()) {
     return;
   }
   if (state.currentDraftDirty) {
@@ -3326,9 +3323,6 @@ async function handlePreviewLatest() {
     return;
   }
   if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!ensureMobileSimulationForActions()) {
     return;
   }
   if (!state.currentConfig) {
