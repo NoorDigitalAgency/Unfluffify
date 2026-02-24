@@ -948,6 +948,48 @@ function hasRenderableTextForHighlight(
   );
 }
 
+function hasRenderableTextForExcludedHighlight(
+  el,
+  includedElements,
+  inclusionContextSet
+) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (hasDirectText(el)) {
+    return true;
+  }
+  const stack = [el];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
+      continue;
+    }
+    if (node !== el && !isVisible(node)) {
+      continue;
+    }
+    if (
+      node !== el &&
+      (
+        isWithinElementSet(node, includedElements) ||
+        Boolean(inclusionContextSet && inclusionContextSet.has(node))
+      )
+    ) {
+      continue;
+    }
+    if (hasDirectText(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function collectExcludedChildrenInsideIncludedParents(
   includedParents,
   excludedElements,
@@ -980,9 +1022,8 @@ function collectExcludedChildrenInsideIncludedParents(
           inclusionContextSet
         )
       ) {
-        if (!seen.has(el) && hasRenderableTextForHighlight(
+        if (!seen.has(el) && hasRenderableTextForExcludedHighlight(
           el,
-          excludedElements,
           includedElements,
           inclusionContextSet
         )) {
@@ -999,23 +1040,95 @@ function collectExcludedChildrenInsideIncludedParents(
   return marked;
 }
 
-function collectIncludedElementsFromSelectorSet(selectorSet) {
-  const normalized = normalizeAiSelectorSet(selectorSet);
-  const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
-  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
-  const inclusionContextSet = buildInclusionContextSet(includedElements);
+function collectSelectorExcludedElements(
+  excludedElements,
+  includedElements,
+  inclusionContextSet
+) {
+  const marked = new Set();
+  for (const el of excludedElements || []) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      continue;
+    }
+    if (!isVisible(el)) {
+      continue;
+    }
+    if (isWithinElementSet(el, includedElements)) {
+      continue;
+    }
+    if (!hasRenderableTextForExcludedHighlight(el, includedElements, inclusionContextSet)) {
+      continue;
+    }
+    marked.add(el);
+  }
+  return collapseElementsByNesting(marked, { prefer: "shallowest" });
+}
+
+function collectExplicitIncludedElements(
+  explicitIncludedMatches,
+  excludedElements,
+  includedElements,
+  inclusionContextSet
+) {
+  const selected = new Set();
+  const ordered = collapseElementsByNesting(explicitIncludedMatches, {
+    prefer: "shallowest"
+  });
+  for (const el of ordered) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (!isInclusionEligibleElement(el, excludedElements, includedElements, inclusionContextSet)) {
+      continue;
+    }
+    if (!isSelfMarkableWithoutParentMode(el)) {
+      continue;
+    }
+    if (!hasRenderableTextOutsideExcludedNature(
+      el,
+      excludedElements,
+      includedElements,
+      inclusionContextSet
+    )) {
+      continue;
+    }
+    selected.add(el);
+  }
+  return collapseElementsByNesting(selected, { prefer: "shallowest" }).filter((el) =>
+    hasRenderableTextForHighlight(
+      el,
+      excludedElements,
+      includedElements,
+      inclusionContextSet
+    )
+  );
+}
+
+function collectImplicitIncludedElementsOutsideExplicit(
+  explicitIncluded,
+  excludedElements,
+  includedElements,
+  inclusionContextSet
+) {
+  const explicitIncludedSet = new Set(explicitIncluded || []);
   const baseSelected = new Set();
   const stack = document.body ? [document.body] : [];
   while (stack.length) {
     const el = stack.pop();
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
     if (
-      !isInclusionEligibleElement(
-        el,
-        excludedElements,
-        includedElements,
-        inclusionContextSet
-      )
+      explicitIncludedSet.size > 0 &&
+      !explicitIncludedSet.has(el) &&
+      isWithinElementSet(el, explicitIncludedSet)
     ) {
+      continue;
+    }
+    if (!isInclusionEligibleElement(el, excludedElements, includedElements, inclusionContextSet)) {
       continue;
     }
     const rawSelectorExcluded = isRawSelectorExcludedElement(
@@ -1041,26 +1154,12 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
       !rawSelectorExcluded
     ) {
       baseSelected.add(el);
-    } else if (
-      isMarkableInclusionCandidate &&
-      includedElements.has(el) &&
-      hasRenderableTextOutsideExcludedNature(
-        el,
-        excludedElements,
-        includedElements,
-        inclusionContextSet
-      )
-    ) {
-      baseSelected.add(el);
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
       stack.push(el.children[i]);
     }
   }
-
-  const included = collapseElementsByNesting(baseSelected, {
-    prefer: "shallowest"
-  }).filter((el) =>
+  return collapseElementsByNesting(baseSelected, { prefer: "shallowest" }).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
@@ -1068,11 +1167,59 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
       inclusionContextSet
     )
   );
-  const excluded = collectExcludedChildrenInsideIncludedParents(
-    included,
+}
+
+function collectIncludedElementsFromSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  const excludedElements = new Set(
+    collapseElementsByNesting(collectSelectorElements(normalized.exclusionSelectors), {
+      prefer: "shallowest"
+    })
+  );
+  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const inclusionContextSet = buildInclusionContextSet(includedElements);
+  const explicitIncluded = collectExplicitIncludedElements(
+    includedElements,
     excludedElements,
     includedElements,
     inclusionContextSet
+  );
+  const explicitIncludedSet = new Set(explicitIncluded);
+  const explicitInclusionContextSet = buildInclusionContextSet(explicitIncludedSet);
+  const implicitIncluded = collectImplicitIncludedElementsOutsideExplicit(
+    explicitIncluded,
+    excludedElements,
+    includedElements,
+    inclusionContextSet
+  );
+  const included = collapseElementsByNesting(
+    new Set([...explicitIncluded, ...implicitIncluded]),
+    { prefer: "shallowest" }
+  ).filter((el) =>
+    hasRenderableTextForHighlight(
+      el,
+      excludedElements,
+      includedElements,
+      inclusionContextSet
+    )
+  );
+  const includedScopeRootsForExcludedTraversal = collapseElementsByNesting(includedElements, {
+    prefer: "shallowest"
+  });
+  const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
+    includedScopeRootsForExcludedTraversal,
+    excludedElements,
+    explicitIncludedSet,
+    explicitInclusionContextSet
+  );
+  const selectorExcluded = collectSelectorExcludedElements(
+    excludedElements,
+    explicitIncludedSet,
+    explicitInclusionContextSet
+  );
+  const excluded = collapseElementsByNestingWithOppositeBoundary(
+    [...selectorExcluded, ...excludedDescendants],
+    explicitIncludedSet
   );
   return { included, excluded };
 }
@@ -1143,6 +1290,40 @@ export function collapseElementsByNesting(elements, options = {}) {
     if (!hasAncestor) {
       kept.push(candidate);
     }
+  }
+  kept.sort(compareDocumentOrder);
+  return kept;
+}
+
+function collapseElementsByNestingWithOppositeBoundary(elements, oppositeElements) {
+  const oppositeSet = new Set(oppositeElements || []);
+  const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
+  list.sort((left, right) => {
+    const depthDiff = getElementDepth(left) - getElementDepth(right);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return compareDocumentOrder(left, right);
+  });
+  const kept = [];
+  const keptSet = new Set();
+  for (const candidate of list) {
+    let current = candidate.parentElement;
+    while (current && current.nodeType === 1) {
+      if (oppositeSet.has(current)) {
+        break;
+      }
+      if (keptSet.has(current)) {
+        current = null;
+        break;
+      }
+      current = current.parentElement;
+    }
+    if (current === null) {
+      continue;
+    }
+    kept.push(candidate);
+    keptSet.add(candidate);
   }
   kept.sort(compareDocumentOrder);
   return kept;
