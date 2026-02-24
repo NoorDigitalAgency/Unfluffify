@@ -1268,8 +1268,9 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
       inclusionContextSet
     )
   );
+  const includedScopeRootsForExcludedTraversal = collapseToShallowest(includedNodes);
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
-    included,
+    includedScopeRootsForExcludedTraversal,
     excludedNodes,
     includedNodes,
     inclusionContextSet
@@ -1330,16 +1331,17 @@ function hasRenderableClientBox(node) {
   return rect.width > 0 && rect.height > 0;
 }
 
-function resolveSilentHighlightRenderTarget(node) {
+function collectSilentHighlightRenderTargets(node) {
   if (!node || node.nodeType !== 1) {
-    return null;
+    return [];
   }
   if (hasRenderableClientBox(node)) {
-    return node;
+    return [node];
   }
+  const targets = [];
   const stack = Array.from(node.children || []);
   let inspected = 0;
-  const MAX_INSPECTED = 200;
+  const MAX_INSPECTED = 400;
   while (stack.length && inspected < MAX_INSPECTED) {
     const current = stack.shift();
     inspected += 1;
@@ -1350,25 +1352,37 @@ function resolveSilentHighlightRenderTarget(node) {
       continue;
     }
     if (hasRenderableClientBox(current)) {
-      return current;
+      targets.push(current);
+      // Keep the shallowest renderable descendants to avoid dense nested overlays.
+      continue;
     }
     for (let i = 0; i < current.children.length; i += 1) {
       stack.push(current.children[i]);
     }
   }
-  return null;
+  return targets;
 }
 
 function toRenderableNodeList(nodes) {
   const results = [];
   const seen = new Set();
   for (const node of nodes || []) {
-    const target = resolveSilentHighlightRenderTarget(node) || node;
-    if (!target || seen.has(target)) {
+    const targets = collectSilentHighlightRenderTargets(node);
+    if (!targets.length) {
+      if (!node || seen.has(node)) {
+        continue;
+      }
+      seen.add(node);
+      results.push(node);
       continue;
     }
-    seen.add(target);
-    results.push(target);
+    for (const target of targets) {
+      if (!target || seen.has(target)) {
+        continue;
+      }
+      seen.add(target);
+      results.push(target);
+    }
   }
   return results;
 }
