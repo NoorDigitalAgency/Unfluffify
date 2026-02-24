@@ -102,6 +102,7 @@ const initialViewState = {
   highlightExcludedContentChecked: false,
   highlightVisibleConsentChecked: false,
   highlightHideDuringScrollRedrawChecked: false,
+  highlightPreferShallowestExclusionsChecked: false,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   isBusy: false,
@@ -691,7 +692,8 @@ function renderMarkingView({state: view, actions: handlers}) {
     view.cssSelectorsVisible &&
       renderCssSelectorsSection({ state: view, actions: handlers }),
     markingMode && pageDataSection,
-    markingMode && renderMarkedPagesSection(view, handlers),
+    (markingMode || view.highlightingOptionsVisible) &&
+      renderMarkedPagesSection(view, handlers),
     markingMode && explicitExcludesSection,
     markingMode && explicitIncludesSection
   );
@@ -757,6 +759,19 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           type: "checkbox",
           checked: view.highlightHideDuringScrollRedrawChecked,
           onChange: handlers.onHighlightHideDuringScrollRedrawChange
+        })
+      ),
+      h("div", { class: "section-divider", role: "separator" }),
+      h(
+        "label",
+        { class: "row" },
+        h("span", null, "Prefer shallowest exclusions"),
+        h("input", {
+          id: "highlight-prefer-shallowest-exclusions",
+          type: "checkbox",
+          checked: view.highlightPreferShallowestExclusionsChecked,
+          disabled: !view.highlightExcludedContentChecked,
+          onChange: handlers.onHighlightPreferShallowestExclusionsChange
         })
       )
     );

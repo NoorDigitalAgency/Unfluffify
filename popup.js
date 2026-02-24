@@ -1398,12 +1398,24 @@ function getSilentHighlightVisibility() {
     includedContent: state.silentHighlightShowIncludedContent !== false,
     excludedContent: Boolean(state.silentHighlightShowExcludedContent),
     visibleConsent: Boolean(state.silentHighlightShowVisibleConsent),
-    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw)
+    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw),
+    preferShallowestExclusions: Boolean(
+      state.silentHighlightPreferShallowestExclusions
+    )
   };
 }
 
+async function loadGlobalSilentHighlightOptions() {
+  const stored = await utils.storageGet(chrome.storage.sync, [
+    "globalSilentHighlightOptions"
+  ]);
+  return normalizeSilentHighlightOptions(
+    stored && stored.globalSilentHighlightOptions
+  );
+}
+
 function getSilentHighlightVisibilityKey(visibility) {
-  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
+  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}${visibility.preferShallowestExclusions ? "1" : "0"}`;
 }
 
 async function persistSilentHighlightVisibility() {
@@ -1411,6 +1423,9 @@ async function persistSilentHighlightVisibility() {
     return;
   }
   const visibility = getSilentHighlightVisibility();
+  await utils.storageSet(chrome.storage.sync, {
+    globalSilentHighlightOptions: visibility
+  });
   await messages.sendRuntimeMessage({
     type: "setSilentHighlightOptions",
     tabId: state.currentTab.id,
@@ -1492,6 +1507,7 @@ async function refreshUi() {
     configEndpointValue,
     stageBaseValue
   } = await helpers.loadGlobalAiSettings();
+  const globalSilentHighlightOptions = await loadGlobalSilentHighlightOptions();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
   const tabState =
@@ -1516,14 +1532,23 @@ async function refreshUi() {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
-  const silentHighlightOptions = normalizeSilentHighlightOptions(
-    tabState && tabState.silentHighlightOptions
-  );
+  const silentHighlightOptions = normalizeSilentHighlightOptions({
+    ...globalSilentHighlightOptions,
+    ...(
+      tabState &&
+      tabState.silentHighlightOptions &&
+      typeof tabState.silentHighlightOptions === "object"
+        ? tabState.silentHighlightOptions
+        : {}
+    )
+  });
   state.silentHighlightShowMarkedPages = silentHighlightOptions.markedPages;
   state.silentHighlightShowIncludedContent = silentHighlightOptions.includedContent;
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
+  state.silentHighlightPreferShallowestExclusions =
+    silentHighlightOptions.preferShallowestExclusions;
   if (
     tabInScope &&
     !localMatchingBaseUrl &&
@@ -1784,7 +1809,8 @@ async function refreshUi() {
     effectiveTabState = { ...effectiveTabState, enabled: false };
     await utils.setTabState(currentTabId, {
       enabled: false,
-      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
+      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || "",
+      silentHighlightOptions: silentHighlightOptions
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
@@ -1957,6 +1983,8 @@ async function refreshUi() {
   nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
   nextViewState.highlightHideDuringScrollRedrawChecked =
     state.silentHighlightHideDuringScrollRedraw;
+  nextViewState.highlightPreferShallowestExclusionsChecked =
+    state.silentHighlightPreferShallowestExclusions;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlInputReadOnly = true;
   nextViewState.baseUrlSetVisible = false;
@@ -2386,7 +2414,11 @@ async function handleEnableToggle(event) {
       return;
     }
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
-    await utils.setTabState(tab.id, { enabled: true, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, {
+      enabled: true,
+      baseUrl: baseUrlValue,
+      silentHighlightOptions: getSilentHighlightVisibility()
+    });
     await messages.sendTabMessageWithRetry({
       type: "setEnabled",
       enabled: true,
@@ -2394,7 +2426,11 @@ async function handleEnableToggle(event) {
     });
     await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
   } else {
-    await utils.setTabState(tab.id, { enabled: false, baseUrl: baseUrlValue });
+    await utils.setTabState(tab.id, {
+      enabled: false,
+      baseUrl: baseUrlValue,
+      silentHighlightOptions: getSilentHighlightVisibility()
+    });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   await refreshUi();
@@ -2437,6 +2473,14 @@ async function handleHighlightHideDuringScrollRedrawChange(event) {
     event,
     "silentHighlightHideDuringScrollRedraw",
     "highlightHideDuringScrollRedrawChecked"
+  );
+}
+
+async function handleHighlightPreferShallowestExclusionsChange(event) {
+  await updateHighlightVisibilityOption(
+    event,
+    "silentHighlightPreferShallowestExclusions",
+    "highlightPreferShallowestExclusionsChecked"
   );
 }
 
@@ -3228,6 +3272,8 @@ async function init() {
     onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
     onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
     onHighlightHideDuringScrollRedrawChange: handleHighlightHideDuringScrollRedrawChange,
+    onHighlightPreferShallowestExclusionsChange:
+      handleHighlightPreferShallowestExclusionsChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
     onDeviceModeChange: handleDeviceModeToggle,
     onDeviceScaleInput: handleDeviceScaleInput,

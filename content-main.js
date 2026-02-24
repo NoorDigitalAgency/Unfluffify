@@ -1422,8 +1422,11 @@ function collectExcludedChildrenInsideIncludedParents(
   includedParents,
   excludedNodes,
   includedNodes,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
+  const preferShallowestExclusions =
+    !options || options.preferShallowestExclusions !== false;
   const marked = [];
   const seen = new Set();
   includedParents.forEach((parent) => {
@@ -1457,7 +1460,9 @@ function collectExcludedChildrenInsideIncludedParents(
           seen.add(node);
           marked.push(node);
         }
-        continue;
+        if (preferShallowestExclusions) {
+          continue;
+        }
       }
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
         stack.push(node.children[i]);
@@ -1470,8 +1475,11 @@ function collectExcludedChildrenInsideIncludedParents(
 function collectSelectorExcludedNodes(
   excludedNodes,
   includedNodes,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
+  const preferShallowestExclusions =
+    !options || options.preferShallowestExclusions !== false;
   const marked = new Set();
   for (const node of excludedNodes || []) {
     if (!node || node.nodeType !== 1) {
@@ -1491,7 +1499,10 @@ function collectSelectorExcludedNodes(
     }
     marked.add(node);
   }
-  return collapseToShallowest(marked);
+  if (preferShallowestExclusions) {
+    return collapseToShallowest(marked);
+  }
+  return Array.from(marked).sort(compareNodeOrder);
 }
 
 function collectExplicitIncludedNodes(
@@ -1595,13 +1606,19 @@ function collectImplicitIncludedNodesOutsideExplicit(
   );
 }
 
-function collectIncludedNodesFromSelectorSet(selectorSet) {
+function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
+  const preferShallowestExclusions =
+    !options || options.preferShallowestExclusions !== false;
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
-  // Collapse raw exclusion matches first so descendants under an excluded ancestor
-  // are treated as a single exclusion region unless an opposite marking reintroduces them.
-  const excludedNodes = new Set(collapseToShallowest(excludedMatches.nodes));
+  const rawExcludedNodes = preferShallowestExclusions
+    ? collapseToShallowest(excludedMatches.nodes)
+    : Array.from(excludedMatches.nodes).sort(compareNodeOrder);
+  // Optionally collapse raw exclusion matches first so descendants under an
+  // excluded ancestor are treated as a single exclusion region unless an
+  // opposite marking reintroduces them.
+  const excludedNodes = new Set(rawExcludedNodes);
   const includedNodes = includedMatches.nodes;
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const explicitIncluded = collectExplicitIncludedNodes(
@@ -1631,17 +1648,21 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     includedScopeRootsForExcludedTraversal,
     excludedNodes,
     explicitIncludedSet,
-    explicitInclusionContextSet
+    explicitInclusionContextSet,
+    { preferShallowestExclusions }
   );
   const selectorExcluded = collectSelectorExcludedNodes(
     excludedNodes,
     explicitIncludedSet,
-    explicitInclusionContextSet
+    explicitInclusionContextSet,
+    { preferShallowestExclusions }
   );
-  const excluded = collapseToShallowestWithOppositeBoundary(
-    Array.from(new Set([...selectorExcluded, ...excludedDescendants])),
-    explicitIncludedSet
+  const combinedExcluded = Array.from(
+    new Set([...selectorExcluded, ...excludedDescendants])
   );
+  const excluded = preferShallowestExclusions
+    ? collapseToShallowestWithOppositeBoundary(combinedExcluded, explicitIncludedSet)
+    : combinedExcluded.sort(compareNodeOrder);
   return {
     included,
     excluded,
@@ -1718,6 +1739,7 @@ function buildSilentHighlightingRenderKey(
     visibilityOptions && visibilityOptions.includedContent ? 1 : 0,
     visibilityOptions && visibilityOptions.excludedContent ? 1 : 0,
     visibilityOptions && visibilityOptions.visibleConsent ? 1 : 0,
+    visibilityOptions && visibilityOptions.preferShallowestExclusions ? 1 : 0,
     anchorIds.join(","),
     contentIds.join(","),
     excludedIds.join(","),
@@ -2047,7 +2069,12 @@ async function refreshSilentHighlightings() {
   let excludedSourceNodesDebug = [];
   if ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) {
     try {
-      const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
+      const contentMarking = collectIncludedNodesFromSelectorSet(
+        effectiveSelectorSet,
+        {
+          preferShallowestExclusions: visibility.preferShallowestExclusions
+        }
+      );
       excludedSourceNodesDebug = Array.isArray(contentMarking.excluded)
         ? contentMarking.excluded.slice()
         : [];

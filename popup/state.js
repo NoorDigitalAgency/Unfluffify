@@ -39,6 +39,7 @@ export const state = {
   silentHighlightShowExcludedContent: false,
   silentHighlightShowVisibleConsent: false,
   silentHighlightHideDuringScrollRedraw: false,
+  silentHighlightPreferShallowestExclusions: false,
   lastAppliedSilentHighlightKey: "",
   lastAppliedSilentHighlightTabId: null,
   configViewLocked: false,
