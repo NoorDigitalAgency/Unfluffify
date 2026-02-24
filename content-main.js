@@ -482,7 +482,7 @@ function collectSilentHighlightRects(node) {
   ];
 }
 
-function drawSilentRectsForNode(layerState, node, className) {
+function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   if (!layerState || !node || node.nodeType !== 1 || !className) {
     return;
   }
@@ -490,7 +490,7 @@ function drawSilentRectsForNode(layerState, node, className) {
   const markId = getSilentRenderNodeId(node);
   for (let i = 0; i < rects.length; i += 1) {
     const rect = rects[i];
-    const key = `${markId}|${className}|${i}`;
+    const key = `${markId}|${className}|${keySalt}|${i}`;
     let box = layerState.map.get(key);
     if (!box) {
       box = document.createElement("div");
@@ -531,8 +531,15 @@ function renderSilentHighlightOverlay(collections) {
       : "uf-silent-link";
     drawSilentRectsForNode(linksLayerState, node, className);
   });
-  excludedNodes.forEach((node) => {
-    drawSilentRectsForNode(excludedLayerState, node, "uf-silent-excluded");
+  // Preserve duplicate excluded render targets (e.g. nested selector matches that
+  // resolve to the same visible node) by using per-occurrence keys.
+  excludedNodes.forEach((node, index) => {
+    drawSilentRectsForNode(
+      excludedLayerState,
+      node,
+      "uf-silent-excluded",
+      `excluded-occurrence-${index}`
+    );
   });
 
   finalizeSilentLayerRender(contentLayerState);
@@ -1480,6 +1487,10 @@ function collectSelectorExcludedNodes(
 ) {
   const preferShallowestExclusions =
     !options || options.preferShallowestExclusions !== false;
+  const ignoreIncludedSuppression =
+    Boolean(options && options.ignoreIncludedSuppression);
+  const requireRenderableText =
+    !options || options.requireRenderableText !== false;
   const marked = new Set();
   for (const node of excludedNodes || []) {
     if (!node || node.nodeType !== 1) {
@@ -1491,10 +1502,17 @@ function collectSelectorExcludedNodes(
     if (!core.isVisible(node) && isDefinitelyHiddenSubtreeNode(node)) {
       continue;
     }
-    if (isWithinNodeSet(node, includedNodes)) {
+    if (!ignoreIncludedSuppression && isWithinNodeSet(node, includedNodes)) {
       continue;
     }
-    if (!hasRenderableTextForExcludedHighlight(node, includedNodes, inclusionContextSet)) {
+    if (
+      requireRenderableText &&
+      !hasRenderableTextForExcludedHighlight(
+        node,
+        includedNodes,
+        inclusionContextSet
+      )
+    ) {
       continue;
     }
     marked.add(node);
@@ -1612,9 +1630,10 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  const allRawExcludedNodes = Array.from(excludedMatches.nodes).sort(compareNodeOrder);
   const rawExcludedNodes = preferShallowestExclusions
     ? collapseToShallowest(excludedMatches.nodes)
-    : Array.from(excludedMatches.nodes).sort(compareNodeOrder);
+    : allRawExcludedNodes.slice();
   // Optionally collapse raw exclusion matches first so descendants under an
   // excluded ancestor are treated as a single exclusion region unless an
   // opposite marking reintroduces them.
@@ -1644,28 +1663,35 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
     )
   );
   const includedScopeRootsForExcludedTraversal = collapseToShallowest(includedNodes);
-  const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
-    includedScopeRootsForExcludedTraversal,
-    excludedNodes,
-    explicitIncludedSet,
-    explicitInclusionContextSet,
-    { preferShallowestExclusions }
-  );
+  const excludedDescendants = preferShallowestExclusions
+    ? collectExcludedChildrenInsideIncludedParents(
+      includedScopeRootsForExcludedTraversal,
+      excludedNodes,
+      explicitIncludedSet,
+      explicitInclusionContextSet,
+      { preferShallowestExclusions }
+    )
+    : [];
   const selectorExcluded = collectSelectorExcludedNodes(
     excludedNodes,
     explicitIncludedSet,
     explicitInclusionContextSet,
-    { preferShallowestExclusions }
+    {
+      preferShallowestExclusions,
+      ignoreIncludedSuppression: !preferShallowestExclusions,
+      requireRenderableText: preferShallowestExclusions
+    }
   );
   const combinedExcluded = Array.from(
     new Set([...selectorExcluded, ...excludedDescendants])
   );
   const excluded = preferShallowestExclusions
     ? collapseToShallowestWithOppositeBoundary(combinedExcluded, explicitIncludedSet)
-    : combinedExcluded.sort(compareNodeOrder);
+    : selectorExcluded.slice().sort(compareNodeOrder);
   return {
     included,
     excluded,
+    rawExcludedMatched: allRawExcludedNodes,
     inclusionSelectorByNode: includedMatches.selectorByNode,
     exclusionSelectorByNode: excludedMatches.selectorByNode
   };
@@ -1756,7 +1782,8 @@ function hasRenderableClientBox(node) {
   return rect.width > 0 && rect.height > 0;
 }
 
-function collectSilentHighlightRenderTargets(node) {
+function collectSilentHighlightRenderTargets(node, options = {}) {
+  const keepShallowestOnly = !options || options.keepShallowestOnly !== false;
   if (!node || node.nodeType !== 1) {
     return [];
   }
@@ -1781,8 +1808,10 @@ function collectSilentHighlightRenderTargets(node) {
     }
     if (hasRenderableClientBox(current)) {
       targets.push(current);
-      // Keep the shallowest renderable descendants to avoid dense nested overlays.
-      continue;
+      if (keepShallowestOnly) {
+        // Keep the shallowest renderable descendants to avoid dense nested overlays.
+        continue;
+      }
     }
     for (let i = 0; i < current.children.length; i += 1) {
       stack.push(current.children[i]);
@@ -1791,35 +1820,66 @@ function collectSilentHighlightRenderTargets(node) {
   return targets;
 }
 
-function toRenderableNodeListWithSelectors(nodes, selectorResolver = null) {
+function toRenderableNodeListWithSelectors(
+  nodes,
+  selectorResolver = null,
+  options = {}
+) {
+  const dedupeTargets = !options || options.dedupeTargets !== false;
+  const keepShallowestFallbackTargets =
+    !options || options.keepShallowestFallbackTargets !== false;
   const results = [];
   const seen = new Set();
   const selectorByNode = new Map();
+  const appendSelector = (targetNode, selector) => {
+    if (
+      !targetNode ||
+      typeof selector !== "string" ||
+      !selector
+    ) {
+      return;
+    }
+    const existing = selectorByNode.get(targetNode);
+    if (!existing) {
+      selectorByNode.set(targetNode, selector);
+      return;
+    }
+    const parts = String(existing)
+      .split("\n")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!parts.includes(selector)) {
+      parts.push(selector);
+      selectorByNode.set(targetNode, parts.join("\n"));
+    }
+  };
   for (const node of nodes || []) {
-    const targets = collectSilentHighlightRenderTargets(node);
+    const targets = collectSilentHighlightRenderTargets(node, {
+      keepShallowestOnly: keepShallowestFallbackTargets
+    });
     const selector = typeof selectorResolver === "function"
       ? selectorResolver(node)
       : "";
     if (!targets.length) {
-      if (!node || seen.has(node)) {
+      if (!node || (dedupeTargets && seen.has(node))) {
         continue;
       }
-      seen.add(node);
-      results.push(node);
-      if (typeof selector === "string" && selector && !selectorByNode.has(node)) {
-        selectorByNode.set(node, selector);
+      if (dedupeTargets) {
+        seen.add(node);
       }
+      results.push(node);
+      appendSelector(node, selector);
       continue;
     }
     for (const target of targets) {
-      if (!target || seen.has(target)) {
+      if (!target || (dedupeTargets && seen.has(target))) {
         continue;
       }
-      seen.add(target);
-      results.push(target);
-      if (typeof selector === "string" && selector && !selectorByNode.has(target)) {
-        selectorByNode.set(target, selector);
+      if (dedupeTargets) {
+        seen.add(target);
       }
+      results.push(target);
+      appendSelector(target, selector);
     }
   }
   return { nodes: results, selectorByNode };
@@ -2075,9 +2135,14 @@ async function refreshSilentHighlightings() {
           preferShallowestExclusions: visibility.preferShallowestExclusions
         }
       );
-      excludedSourceNodesDebug = Array.isArray(contentMarking.excluded)
-        ? contentMarking.excluded.slice()
-        : [];
+      const excludedSourcesForSilentOverlay =
+        visibility.preferShallowestExclusions === false &&
+        Array.isArray(contentMarking.rawExcludedMatched)
+          ? contentMarking.rawExcludedMatched
+          : (Array.isArray(contentMarking.excluded)
+            ? contentMarking.excluded
+            : []);
+      excludedSourceNodesDebug = excludedSourcesForSilentOverlay.slice();
       if (visibility.includedContent) {
         contentNodes = toRenderableNodeList(contentMarking.included);
         const explicitIncludedSources = contentMarking.included.filter((node) =>
@@ -2092,11 +2157,48 @@ async function refreshSilentHighlightings() {
       }
       if (visibility.excludedContent) {
         const excludedRenderable = toRenderableNodeListWithSelectors(
-          contentMarking.excluded,
-          (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true)
+          excludedSourcesForSilentOverlay,
+          (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true),
+          {
+            dedupeTargets: visibility.preferShallowestExclusions !== false,
+            keepShallowestFallbackTargets:
+              visibility.preferShallowestExclusions !== false
+          }
         );
         excludedNodes = excludedRenderable.nodes;
         excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
+        if (visibility.preferShallowestExclusions === false) {
+          const debugExclusionSelectors = normalizeAiSelectorSet(effectiveSelectorSet)
+            .exclusionSelectors;
+          const selectorCounts = debugExclusionSelectors.map((selector) => {
+            try {
+              let count = 0;
+              document.querySelectorAll(selector).forEach((node) => {
+                if (!isExtensionUiNode(node)) {
+                  count += 1;
+                }
+              });
+              return { selector, count };
+            } catch (error) {
+              return {
+                selector,
+                count: 0,
+                error: error && error.message ? error.message : String(error)
+              };
+            }
+          });
+          console.log(
+            "[Unfluffify] Silent excluded debug: non-shallowest summary",
+            {
+              preferShallowestExclusions: visibility.preferShallowestExclusions,
+              rawExcludedSourceNodes: excludedSourcesForSilentOverlay.length,
+              renderableExcludedNodes: excludedNodes.length,
+              renderableSelectorAnnotatedNodes: excludedSelectorByRenderNode.size,
+              exclusionSelectors: debugExclusionSelectors,
+              selectorCounts
+            }
+          );
+        }
         if (SILENT_EXCLUDED_DEBUG_LOGS) {
           console.log(
             "[Unfluffify] Silent excluded debug: raw excluded source nodes",
