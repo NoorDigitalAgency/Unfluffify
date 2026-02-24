@@ -1686,13 +1686,14 @@ async function refreshUi() {
     baseField.noticeText = "Open the extension on this tab to enable controls.";
     baseField.noticeVisible = true;
   }
-  let toggleEnabled = Boolean(
+  const extensionEnabledForTab = Boolean(
     tabInScope &&
     effectiveTabState.enabled &&
       effectiveTabState.baseUrl &&
       pageUrl &&
       utils.isPageWithinBaseUrl(pageUrl, effectiveTabState.baseUrl)
   );
+  let toggleEnabled = extensionEnabledForTab;
   if (state.lastPopupEnabled !== null) {
     toggleEnabled = state.lastPopupEnabled;
     if (toggleEnabled === Boolean(effectiveTabState.enabled)) {
@@ -1715,6 +1716,7 @@ async function refreshUi() {
     Boolean(currentTabId) &&
     tabChanged &&
     tabInScope &&
+    extensionEnabledForTab &&
     Boolean(utils.getOriginFromUrl(pageUrl)) &&
     !deviceAutoInitialized &&
     !state.mobileAutoAppliedTabIds.has(currentTabId) &&
@@ -1729,7 +1731,13 @@ async function refreshUi() {
       state.mobileAutoAppliedTabIds.add(currentTabId);
     }
   }
-  if (currentTabId && tabChanged && tabInScope && !deviceAutoInitialized) {
+  if (
+    currentTabId &&
+    tabChanged &&
+    tabInScope &&
+    !deviceAutoInitialized &&
+    (extensionEnabledForTab || hasStoredDevicePreference)
+  ) {
     await utils.setTabState(
       currentTabId,
       {

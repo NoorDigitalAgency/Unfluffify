@@ -1097,6 +1097,38 @@ function collapseToShallowest(nodes) {
   return kept;
 }
 
+function collapseToShallowestWithOppositeBoundary(nodes, oppositeNodes) {
+  const oppositeSet = new Set(oppositeNodes || []);
+  const sorted = Array.from(new Set(nodes || [])).sort((left, right) => {
+    const depthDiff = getNodeDepth(left) - getNodeDepth(right);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return compareNodeOrder(left, right);
+  });
+  const kept = [];
+  const keptSet = new Set();
+  sorted.forEach((node) => {
+    if (!node || node.nodeType !== 1) {
+      return;
+    }
+    let current = node.parentElement;
+    while (current && current.nodeType === 1) {
+      if (oppositeSet.has(current)) {
+        break;
+      }
+      if (keptSet.has(current)) {
+        return;
+      }
+      current = current.parentElement;
+    }
+    kept.push(node);
+    keptSet.add(node);
+  });
+  kept.sort(compareNodeOrder);
+  return kept;
+}
+
 function compareNodeOrder(left, right) {
   if (left === right) {
     return 0;
@@ -1280,7 +1312,10 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     includedNodes,
     inclusionContextSet
   );
-  const excluded = Array.from(new Set([...selectorExcluded, ...excludedDescendants]));
+  const excluded = collapseToShallowestWithOppositeBoundary(
+    Array.from(new Set([...selectorExcluded, ...excludedDescendants])),
+    includedNodes
+  );
   return { included, excluded };
 }
 
