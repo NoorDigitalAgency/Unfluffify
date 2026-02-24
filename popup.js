@@ -20,8 +20,10 @@ const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MOBILE_SIMULATION_REQUIRED_MESSAGE =
-  "Mobile simulation must be enabled to save markings and submit to the server.";
+const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
+  "Mobile simulation must be enabled to save markings.";
+const MOBILE_SIMULATION_REQUIRED_FOR_SUBMIT_MESSAGE =
+  "Mobile simulation must be enabled to submit to the server.";
 const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
@@ -1993,14 +1995,18 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
-  nextViewState.mobileSimulationRequiredVisible =
+  nextViewState.mobileSimulationRequiredVisible = false;
+  nextViewState.mobileSimulationRequiredText = "";
+  nextViewState.submitMobileSimulationRequiredVisible =
     mobileSimulationBlocked &&
     !uiDisabledForUnsupportedPage &&
     aiControlsVisible &&
     !aiBusy &&
     aiReady &&
-    !aiBlockedByDraft;
-  nextViewState.mobileSimulationRequiredText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
+    !aiBlockedByDraft &&
+    selectorsReadyForSubmit;
+  nextViewState.submitMobileSimulationRequiredText =
+    MOBILE_SIMULATION_REQUIRED_FOR_SUBMIT_MESSAGE;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -2085,6 +2091,16 @@ async function refreshUiInner() {
     mobileSimulationBlocked ||
     (!state.currentDraftDirty && !canInitialPageSave);
   nextViewState.pageSaveDisabled = pageSaveDisabled;
+  nextViewState.pageSaveMobileSimulationRequiredVisible =
+    mobileSimulationBlocked &&
+    !uiDisabledForUnsupportedPage &&
+    baseUrlReady &&
+    siteIdReady &&
+    isEnabled &&
+    state.currentDraftAvailable &&
+    (state.currentDraftDirty || canInitialPageSave);
+  nextViewState.pageSaveMobileSimulationRequiredText =
+    MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE;
   nextViewState.pageRevertDisabled =
     uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
@@ -2103,8 +2119,6 @@ async function refreshUiInner() {
       effectiveSiteIdBlockedReason || "No domainId exists for this base URL";
   } else if (!isEnabled) {
     nextViewState.pageDraftStatusText = "Enable marking to edit this page";
-  } else if (mobileSimulationBlocked) {
-    nextViewState.pageDraftStatusText = MOBILE_SIMULATION_REQUIRED_MESSAGE;
   } else if (!state.currentDraftAvailable) {
     nextViewState.pageDraftStatusText = "Draft unavailable";
   } else if (!hasSavedPageData) {

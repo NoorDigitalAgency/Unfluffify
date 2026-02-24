@@ -26,8 +26,8 @@ function normalizeDeviceEmulationState(value) {
   if (!value) {
     return {
       enabled: false,
-      mode: "desktop",
-      scale: DEVICE_SCALE_DEFAULTS.desktop
+      mode: "mobile",
+      scale: DEVICE_SCALE_DEFAULTS.mobile
     };
   }
   if (typeof value === "string") {

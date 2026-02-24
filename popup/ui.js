@@ -30,9 +30,9 @@ const initialViewState = {
   toggleEnabledDisabled: true,
   mainUiHidden: true,
   deviceEmulationEnabled: false,
-  deviceMode: "desktop",
-  deviceScale: 0.7,
-  deviceScaleValue: "70%",
+  deviceMode: "mobile",
+  deviceScale: 0.85,
+  deviceScaleValue: "85%",
   deviceControlsDisabled: false,
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
@@ -88,6 +88,10 @@ const initialViewState = {
   aiDirtyNoticeVisible: false,
   mobileSimulationRequiredVisible: false,
   mobileSimulationRequiredText: "",
+  pageSaveMobileSimulationRequiredVisible: false,
+  pageSaveMobileSimulationRequiredText: "",
+  submitMobileSimulationRequiredVisible: false,
+  submitMobileSimulationRequiredText: "",
   computeButtonText: "Decide Content",
   computeButtonDisabled: true,
   computeButtonLoading: false,
@@ -402,16 +406,6 @@ function renderMarkingView({state: view, actions: handlers}) {
     "section",
     {class: "card margin-above"},
     h("div", {class: "section-title"}, "AI controls"),
-    view.mobileSimulationRequiredVisible &&
-      h(
-        "div",
-        {
-          class: "notice",
-          role: "status",
-          "aria-live": "polite"
-        },
-        view.mobileSimulationRequiredText
-      ),
     !view.configurationComplete &&
       h(
         "div",
@@ -463,7 +457,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     "section",
     {class: "card"},
     h("div", {class: "section-title"}, "Page data"),
-    view.mobileSimulationRequiredVisible &&
+    view.pageSaveMobileSimulationRequiredVisible &&
       h(
         "div",
         {
@@ -471,7 +465,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           role: "status",
           "aria-live": "polite"
         },
-        view.mobileSimulationRequiredText
+        view.pageSaveMobileSimulationRequiredText
       ),
     h(
       "div",
@@ -836,16 +830,6 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
       "section",
       { class: "card" },
       h("div", { class: "section-title" }, "CSS Selectors"),
-      view.mobileSimulationRequiredVisible &&
-        h(
-          "div",
-          {
-            class: "notice",
-            role: "status",
-            "aria-live": "polite"
-          },
-          view.mobileSimulationRequiredText
-        ),
       h(
         "button",
         {
@@ -858,6 +842,16 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
         "Preview Latest"
       ),
       h("div", { class: "section-divider", role: "separator" }),
+      view.submitMobileSimulationRequiredVisible &&
+        h(
+          "div",
+          {
+            class: "notice",
+            role: "status",
+            "aria-live": "polite"
+          },
+          view.submitMobileSimulationRequiredText
+        ),
       h(
         "button",
         {
