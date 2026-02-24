@@ -2674,6 +2674,7 @@ async function handleDeviceScaleChange(event) {
 }
 
 async function handleClearDomainCache() {
+  uiModule.setConfigMenuOpen(false);
   const tab = await helpers.ensureActiveTab({
     requireUrl: true,
     toastOnMissing: "No active tab to clear"

@@ -24,9 +24,10 @@ export function clearBrowsingDataForOrigin(origin) {
         { origins: [origin] },
         {
           cookies: true,
-          cache: true,
           cacheStorage: true,
-          localStorage: true
+          localStorage: true,
+          indexedDB: true,
+          serviceWorkers: true
         },
         () => {
           if (chrome.runtime.lastError) {
