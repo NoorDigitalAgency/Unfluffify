@@ -3874,11 +3874,30 @@ export function handleBeforeUnload(event) {
   event.returnValue = "";
 }
 
-export function handleScroll() {
+function isViewportScrollEvent(event) {
+  if (!event) {
+    return true;
+  }
+  const target = event.target;
+  const currentTarget = event.currentTarget;
+  if (
+    currentTarget === window ||
+    target === window ||
+    target === document ||
+    target === document.documentElement ||
+    target === document.body
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function handleScroll(event) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
-  if (!state.isScrolling) {
+  const hideDuringScroll = isViewportScrollEvent(event);
+  if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
     state.overlay.classList.add("uf-scrolling");
   }
@@ -3895,7 +3914,9 @@ export function handleScroll() {
       renderHighlights();
       refreshHoverHighlight();
       window.requestAnimationFrame(() => {
-        state.isScrolling = false;
+        if (state.isScrolling) {
+          state.isScrolling = false;
+        }
         if (state.overlay) {
           state.overlay.classList.remove("uf-scrolling");
         }

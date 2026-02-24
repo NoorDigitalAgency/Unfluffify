@@ -2684,9 +2684,9 @@ export function main() {
     }
     scheduleSilentHighlightReposition();
   });
-  const handleSilentOrMarkingScroll = () => {
+  const handleSilentOrMarkingScroll = (event) => {
     if (state.enabled) {
-      core.handleScroll();
+      core.handleScroll(event);
       return;
     }
     scheduleSilentHighlightReposition();
