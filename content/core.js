@@ -813,7 +813,14 @@ function collectDefaultHighlightTargets(root, options) {
 
 function collectSelectorElements(selectors) {
   const elements = new Set();
-  for (const selector of selectors || []) {
+  for (const rawSelector of Array.isArray(selectors) ? selectors : []) {
+    if (typeof rawSelector !== "string") {
+      continue;
+    }
+    const selector = rawSelector.trim();
+    if (!selector) {
+      continue;
+    }
     try {
       document.querySelectorAll(selector).forEach((el) => {
         elements.add(el);

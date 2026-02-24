@@ -25,6 +25,9 @@ const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
+const SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR = "data-uf-silent-selector-include";
+const SILENT_SELECTOR_EXCLUDE_ATTR = "data-uf-silent-selector-exclude";
+const SILENT_SELECTOR_TITLE_PREFIX = "Unfluffify selector: ";
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
@@ -69,6 +72,8 @@ let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
 let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
+let silentSelectorAnnotatedNodes = new Set();
+const silentSelectorOriginalTitles = new WeakMap();
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
@@ -76,6 +81,8 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_CONTENT_EXCLUDED_ATTR,
   SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
   SILENT_CONTENT_POSITION_ATTR,
+  SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR,
+  SILENT_SELECTOR_EXCLUDE_ATTR,
   core.CONSENT_HIDDEN_ATTR
 ]);
 
@@ -349,6 +356,7 @@ function clearSilentHighlightOverlay() {
   silentHighlightLayers = {};
   silentHighlightLayerBoxes = {};
   silentHighlightCollections = null;
+  clearSilentSelectorAnnotations();
 }
 
 function setSilentHighlightOverlayHidden(hidden) {
@@ -529,10 +537,19 @@ function renderSilentHighlightOverlay(collections) {
   finalizeSilentLayerRender(contentLayerState);
   finalizeSilentLayerRender(linksLayerState);
   finalizeSilentLayerRender(excludedLayerState);
+  applySilentSelectorAnnotations(collections);
   silentHighlightCollections = {
     anchors: anchorNodes,
     contentNodes,
-    excludedNodes
+    excludedNodes,
+    explicitIncludeSelectorByNode:
+      collections.explicitIncludeSelectorByNode instanceof Map
+        ? new Map(collections.explicitIncludeSelectorByNode)
+        : new Map(),
+    excludedSelectorByNode:
+      collections.excludedSelectorByNode instanceof Map
+        ? new Map(collections.excludedSelectorByNode)
+        : new Map()
   };
   scheduleSilentHighlightOverlayReveal();
 }
@@ -585,9 +602,134 @@ function clearLegacySilentHighlightingAttributes() {
   silentHighlightLegacyAttrsCleaned = true;
 }
 
+function clearSilentSelectorAnnotations() {
+  if (!silentSelectorAnnotatedNodes.size) {
+    return;
+  }
+  for (const node of silentSelectorAnnotatedNodes) {
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    node.removeAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR);
+    node.removeAttribute(SILENT_SELECTOR_EXCLUDE_ATTR);
+    const originalTitleState = silentSelectorOriginalTitles.get(node);
+    if (originalTitleState && typeof originalTitleState === "object") {
+      if (originalTitleState.hadTitle) {
+        node.setAttribute("title", originalTitleState.title || "");
+      } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
+        node.removeAttribute("title");
+      }
+      silentSelectorOriginalTitles.delete(node);
+    } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
+      node.removeAttribute("title");
+    }
+  }
+  silentSelectorAnnotatedNodes.clear();
+}
+
+function setSilentSelectorAnnotation(node, kind, selector) {
+  if (!node || node.nodeType !== 1 || typeof selector !== "string" || !selector) {
+    return;
+  }
+  const attrName = kind === "excluded"
+    ? SILENT_SELECTOR_EXCLUDE_ATTR
+    : SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR;
+  if (!silentSelectorOriginalTitles.has(node)) {
+    const hadTitle = node.hasAttribute("title");
+    silentSelectorOriginalTitles.set(node, {
+      hadTitle,
+      title: hadTitle ? (node.getAttribute("title") || "") : ""
+    });
+  }
+  node.setAttribute(attrName, selector);
+  node.setAttribute("title", `${SILENT_SELECTOR_TITLE_PREFIX}${selector}`);
+  silentSelectorAnnotatedNodes.add(node);
+}
+
+function applySilentSelectorAnnotations(collections) {
+  clearSilentSelectorAnnotations();
+  if (!collections || typeof collections !== "object") {
+    return;
+  }
+  const explicitIncludeSelectorByNode =
+    collections.explicitIncludeSelectorByNode instanceof Map
+      ? collections.explicitIncludeSelectorByNode
+      : new Map();
+  const excludedSelectorByNode =
+    collections.excludedSelectorByNode instanceof Map
+      ? collections.excludedSelectorByNode
+      : new Map();
+  explicitIncludeSelectorByNode.forEach((selector, node) => {
+    setSilentSelectorAnnotation(node, "included", selector);
+  });
+  excludedSelectorByNode.forEach((selector, node) => {
+    setSilentSelectorAnnotation(node, "excluded", selector);
+  });
+}
+
+async function copyTextToClipboard(text) {
+  if (typeof text !== "string" || !text) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to execCommand fallback.
+  }
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("data-uf-extension-ui", "true");
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.left = "-9999px";
+    (document.body || document.documentElement).appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return Boolean(copied);
+  } catch {
+    return false;
+  }
+}
+
+function handleSilentSelectorClickCopy(event) {
+  if (!event || event.defaultPrevented || event.button !== 0) {
+    return;
+  }
+  const target = event.target && event.target.nodeType === 1
+    ? event.target
+    : event.target && event.target.parentElement
+      ? event.target.parentElement
+      : null;
+  if (!target || isExtensionUiNode(target)) {
+    return;
+  }
+  const annotated = target.closest(
+    `[${SILENT_SELECTOR_EXCLUDE_ATTR}], [${SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR}]`
+  );
+  if (!annotated || isExtensionUiNode(annotated)) {
+    return;
+  }
+  const selector =
+    annotated.getAttribute(SILENT_SELECTOR_EXCLUDE_ATTR) ||
+    annotated.getAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR) ||
+    "";
+  if (!selector) {
+    return;
+  }
+  copyTextToClipboard(selector).then();
+}
+
 function clearSilentHighlightingMarks() {
   clearSilentHighlightRepositionTimers();
   clearSilentHighlightOverlay();
+  clearSilentSelectorAnnotations();
   clearLegacySilentHighlightingAttributes();
   lastSilentHighlightingRenderKey = "";
   lastSilentHighlightingsActive = false;
@@ -784,23 +926,51 @@ function getEffectiveAiSelectorSet(baseConfig) {
   return getStoredAiSelectorSet(baseConfig);
 }
 
-function collectExcludedNodesFromSelectors(selectors) {
-  const excluded = new Set();
-  selectors.forEach((selector) => {
-    if (typeof selector !== "string" || !selector) {
+function collectNodesFromSelectors(selectors) {
+  const nodes = new Set();
+  const selectorByNode = new Map();
+  selectors.forEach((rawSelector) => {
+    if (typeof rawSelector !== "string") {
+      return;
+    }
+    const selector = rawSelector.trim();
+    if (!selector) {
       return;
     }
     try {
       document.querySelectorAll(selector).forEach((node) => {
         if (!isExtensionUiNode(node)) {
-          excluded.add(node);
+          nodes.add(node);
+          if (!selectorByNode.has(node)) {
+            selectorByNode.set(node, selector);
+          }
         }
       });
     } catch {
       // Ignore invalid selectors
     }
   });
-  return excluded;
+  return { nodes, selectorByNode };
+}
+
+function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {
+  if (!node || !selectorByNode || selectorByNode.size === 0) {
+    return "";
+  }
+  if (selectorByNode.has(node)) {
+    return selectorByNode.get(node) || "";
+  }
+  if (!allowAncestorMatch) {
+    return "";
+  }
+  let current = node.parentElement;
+  while (current && current.nodeType === 1) {
+    if (selectorByNode.has(current)) {
+      return selectorByNode.get(current) || "";
+    }
+    current = current.parentElement;
+  }
+  return "";
 }
 
 function isWithinExcludedNode(node, excluded) {
@@ -1238,8 +1408,10 @@ function collectSelectorExcludedNodes(
 
 function collectIncludedNodesFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
-  const excludedNodes = collectExcludedNodesFromSelectors(normalized.exclusionSelectors);
-  const includedNodes = collectExcludedNodesFromSelectors(normalized.inclusionSelectors);
+  const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
+  const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  const excludedNodes = excludedMatches.nodes;
+  const includedNodes = includedMatches.nodes;
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const baseSelected = new Set();
   const stack = [document.body];
@@ -1316,7 +1488,12 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     Array.from(new Set([...selectorExcluded, ...excludedDescendants])),
     includedNodes
   );
-  return { included, excluded };
+  return {
+    included,
+    excluded,
+    inclusionSelectorByNode: includedMatches.selectorByNode,
+    exclusionSelectorByNode: excludedMatches.selectorByNode
+  };
 }
 
 let silentRenderNodeIdCounter = 0;
@@ -1334,7 +1511,20 @@ function getSilentRenderNodeId(node) {
   return id;
 }
 
-function buildSilentHighlightingRenderKey(visibility, anchors, contentNodes, excludedNodes) {
+function buildSilentHighlightingRenderKey(
+  visibilityOptions,
+  anchors,
+  contentNodes,
+  excludedNodes,
+  explicitIncludeSelectorByNode = null,
+  excludedSelectorByNode = null
+) {
+  const explicitIncludeSelectorEntries = explicitIncludeSelectorByNode instanceof Map
+    ? Array.from(explicitIncludeSelectorByNode.entries())
+    : [];
+  const excludedSelectorEntries = excludedSelectorByNode instanceof Map
+    ? Array.from(excludedSelectorByNode.entries())
+    : [];
   const anchorIds = anchors
     .map(getSilentRenderNodeId)
     .filter(Boolean)
@@ -1347,14 +1537,38 @@ function buildSilentHighlightingRenderKey(visibility, anchors, contentNodes, exc
     .map(getSilentRenderNodeId)
     .filter(Boolean)
     .sort((a, b) => a - b);
+  const explicitIncludeSelectorKey = JSON.stringify(
+    explicitIncludeSelectorEntries
+      .map(([node, selector]) => [getSilentRenderNodeId(node), selector || ""])
+      .filter(([id, selector]) => id && selector)
+      .sort((left, right) => {
+        if (left[0] !== right[0]) {
+          return left[0] - right[0];
+        }
+        return String(left[1]).localeCompare(String(right[1]));
+      })
+  );
+  const excludedSelectorKey = JSON.stringify(
+    excludedSelectorEntries
+      .map(([node, selector]) => [getSilentRenderNodeId(node), selector || ""])
+      .filter(([id, selector]) => id && selector)
+      .sort((left, right) => {
+        if (left[0] !== right[0]) {
+          return left[0] - right[0];
+        }
+        return String(left[1]).localeCompare(String(right[1]));
+      })
+  );
   return [
-    visibility.markedPages ? 1 : 0,
-    visibility.includedContent ? 1 : 0,
-    visibility.excludedContent ? 1 : 0,
-    visibility.visibleConsent ? 1 : 0,
+    visibilityOptions && visibilityOptions.markedPages ? 1 : 0,
+    visibilityOptions && visibilityOptions.includedContent ? 1 : 0,
+    visibilityOptions && visibilityOptions.excludedContent ? 1 : 0,
+    visibilityOptions && visibilityOptions.visibleConsent ? 1 : 0,
     anchorIds.join(","),
     contentIds.join(","),
-    excludedIds.join(",")
+    excludedIds.join(","),
+    explicitIncludeSelectorKey,
+    excludedSelectorKey
   ].join("|");
 }
 
@@ -1398,17 +1612,24 @@ function collectSilentHighlightRenderTargets(node) {
   return targets;
 }
 
-function toRenderableNodeList(nodes) {
+function toRenderableNodeListWithSelectors(nodes, selectorResolver = null) {
   const results = [];
   const seen = new Set();
+  const selectorByNode = new Map();
   for (const node of nodes || []) {
     const targets = collectSilentHighlightRenderTargets(node);
+    const selector = typeof selectorResolver === "function"
+      ? selectorResolver(node)
+      : "";
     if (!targets.length) {
       if (!node || seen.has(node)) {
         continue;
       }
       seen.add(node);
       results.push(node);
+      if (typeof selector === "string" && selector && !selectorByNode.has(node)) {
+        selectorByNode.set(node, selector);
+      }
       continue;
     }
     for (const target of targets) {
@@ -1417,9 +1638,16 @@ function toRenderableNodeList(nodes) {
       }
       seen.add(target);
       results.push(target);
+      if (typeof selector === "string" && selector && !selectorByNode.has(target)) {
+        selectorByNode.set(target, selector);
+      }
     }
   }
-  return results;
+  return { nodes: results, selectorByNode };
+}
+
+function toRenderableNodeList(nodes) {
+  return toRenderableNodeListWithSelectors(nodes).nodes;
 }
 
 function collectAiSubmissionXpathsForCurrentPage() {
@@ -1657,13 +1885,37 @@ async function refreshSilentHighlightings() {
   }
   let contentNodes = [];
   let excludedNodes = [];
+  let explicitIncludeSelectorByRenderNode = new Map();
+  let excludedSelectorByRenderNode = new Map();
   if ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) {
-    const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
-    if (visibility.includedContent) {
-      contentNodes = toRenderableNodeList(contentMarking.included);
-    }
-    if (visibility.excludedContent) {
-      excludedNodes = toRenderableNodeList(contentMarking.excluded);
+    try {
+      const contentMarking = collectIncludedNodesFromSelectorSet(effectiveSelectorSet);
+      if (visibility.includedContent) {
+        contentNodes = toRenderableNodeList(contentMarking.included);
+        const explicitIncludedSources = contentMarking.included.filter((node) =>
+          contentMarking.inclusionSelectorByNode instanceof Map &&
+          contentMarking.inclusionSelectorByNode.has(node)
+        );
+        const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
+          explicitIncludedSources,
+          (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
+        );
+        explicitIncludeSelectorByRenderNode = explicitIncludedRenderable.selectorByNode;
+      }
+      if (visibility.excludedContent) {
+        const excludedRenderable = toRenderableNodeListWithSelectors(
+          contentMarking.excluded,
+          (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true)
+        );
+        excludedNodes = excludedRenderable.nodes;
+        excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
+      }
+    } catch {
+      // Keep other silent highlighting features active even if selector processing fails.
+      contentNodes = [];
+      excludedNodes = [];
+      explicitIncludeSelectorByRenderNode = new Map();
+      excludedSelectorByRenderNode = new Map();
     }
   }
   const shouldBeActive =
@@ -1672,14 +1924,22 @@ async function refreshSilentHighlightings() {
     visibility,
     anchors,
     contentNodes,
-    excludedNodes
+    excludedNodes,
+    explicitIncludeSelectorByRenderNode,
+    excludedSelectorByRenderNode
   );
   const renderChanged =
     renderKey !== lastSilentHighlightingRenderKey ||
     shouldBeActive !== lastSilentHighlightingsActive;
   if (renderChanged) {
     if (shouldBeActive) {
-      renderSilentHighlightOverlay({ anchors, contentNodes, excludedNodes });
+      renderSilentHighlightOverlay({
+        anchors,
+        contentNodes,
+        excludedNodes,
+        explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
+        excludedSelectorByNode: excludedSelectorByRenderNode
+      });
     } else {
       clearSilentHighlightOverlay();
     }
@@ -1693,7 +1953,13 @@ async function refreshSilentHighlightings() {
       !silentHighlightOverlay
     )
   ) {
-    renderSilentHighlightOverlay({ anchors, contentNodes, excludedNodes });
+    renderSilentHighlightOverlay({
+      anchors,
+      contentNodes,
+      excludedNodes,
+      explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
+      excludedSelectorByNode: excludedSelectorByRenderNode
+    });
   }
   silentHighlightingPositionRefreshPending = false;
   setSilentHighlightingsActive(shouldBeActive);
@@ -1739,6 +2005,13 @@ export function main() {
         saveCurrentPageDraft({ showToast: true }).then();
       }
     }
+  }, true);
+
+  document.addEventListener("click", (event) => {
+    if (state.enabled) {
+      return;
+    }
+    handleSilentSelectorClickCopy(event);
   }, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -2161,7 +2434,12 @@ export function main() {
 
     if (message.type === "showAiPreview") {
       const selectorSet = normalizeAiSelectorSet(message.selectorSet);
-      const items = core.collectPreviewItems(selectorSet);
+      let items = [];
+      try {
+        items = core.collectPreviewItems(selectorSet);
+      } catch {
+        items = [];
+      }
       core.showAiPopover(items);
       sendResponse({ ok: true, count: items.length });
     }

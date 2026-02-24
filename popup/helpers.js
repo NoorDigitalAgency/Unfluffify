@@ -83,11 +83,14 @@ export async function updateDeviceEmulation({
   emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
     uiModule.showToast((response && response.error) || "Device emulation failed");
-    const normalized = emulation.syncDeviceEmulationState({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
-    });
+    const reconciledState = state.currentTab && state.currentTab.id
+      ? await emulation.reconcileDeviceEmulationState(state.currentTab.id)
+      : {
+          enabled: state.currentDeviceEmulationEnabled,
+          mode: state.currentDeviceMode,
+          scale: state.currentDeviceScale
+        };
+    const normalized = emulation.syncDeviceEmulationState(reconciledState);
     syncDeviceView(normalized);
     return null;
   }

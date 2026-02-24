@@ -147,6 +147,56 @@ async function setDeviceEmulationState(tabId, state) {
   await storageSet(chrome.storage.session, { [key]: state });
 }
 
+function getDebuggerTargets() {
+  return new Promise((resolve) => {
+    if (!chrome.debugger || !chrome.debugger.getTargets) {
+      resolve(null);
+      return;
+    }
+    chrome.debugger.getTargets((targets) => {
+      if (chrome.runtime.lastError || !Array.isArray(targets)) {
+        resolve(null);
+        return;
+      }
+      resolve(targets);
+    });
+  });
+}
+
+async function isDebuggerAttachedToTab(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const targets = await getDebuggerTargets();
+  if (!targets) {
+    return null;
+  }
+  for (const target of targets) {
+    if (!target || Number(target.tabId) !== Number(tabId)) {
+      continue;
+    }
+    return Boolean(target.attached);
+  }
+  return false;
+}
+
+export async function reconcileDeviceEmulationState(tabId) {
+  const current = await getDeviceEmulationState(tabId);
+  if (!current.enabled) {
+    return current;
+  }
+  const attached = await isDebuggerAttachedToTab(tabId);
+  if (attached !== false) {
+    return current;
+  }
+  const next = {
+    ...current,
+    enabled: false
+  };
+  await setDeviceEmulationState(tabId, next);
+  return normalizeDeviceEmulationState(next);
+}
+
 function attachDebugger(tabId) {
   return new Promise((resolve) => {
     chrome.debugger.attach({ tabId }, "1.3", () => {

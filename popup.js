@@ -1500,9 +1500,6 @@ async function refreshUi() {
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
   const tabInScope = Boolean(initialTabState && initialTabState.active);
-  const deviceAutoInitialized = Boolean(
-    initialTabState && initialTabState.deviceAutoInitialized
-  );
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let currentSiteId = null;
@@ -1701,53 +1698,14 @@ async function refreshUi() {
     }
   }
   let isEnabled = toggleEnabled;
-  let normalizedDeviceState = null;
   const storedDeviceState = currentTabId
-    ? await emulation.getDeviceEmulationState(currentTabId)
+    ? await emulation.reconcileDeviceEmulationState(currentTabId)
     : {
         enabled: state.currentDeviceEmulationEnabled,
         mode: state.currentDeviceMode,
         scale: state.currentDeviceScale
       };
-  const hasStoredDevicePreference = currentTabId
-    ? await emulation.hasStoredDeviceEmulationState(currentTabId)
-    : true;
-  const shouldAutoEnableMobile =
-    Boolean(currentTabId) &&
-    tabChanged &&
-    tabInScope &&
-    extensionEnabledForTab &&
-    Boolean(utils.getOriginFromUrl(pageUrl)) &&
-    !deviceAutoInitialized &&
-    !state.mobileAutoAppliedTabIds.has(currentTabId) &&
-    !hasStoredDevicePreference;
-  if (shouldAutoEnableMobile) {
-    normalizedDeviceState = await ensureMobileSimulationForSidebar(currentTabId);
-    state.mobileAutoAppliedTabIds.add(currentTabId);
-    scheduleSidebarScaleRefit(currentTabId);
-  } else {
-    normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-    if (tabChanged && tabInScope && !state.mobileAutoAppliedTabIds.has(currentTabId)) {
-      state.mobileAutoAppliedTabIds.add(currentTabId);
-    }
-  }
-  if (
-    currentTabId &&
-    tabChanged &&
-    tabInScope &&
-    !deviceAutoInitialized &&
-    (extensionEnabledForTab || hasStoredDevicePreference)
-  ) {
-    await utils.setTabState(
-      currentTabId,
-      {
-        ...(initialTabState || {}),
-        active: true,
-        deviceAutoInitialized: true
-      },
-      "initial"
-    );
-  }
+  const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
   const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
   const mobileSimulationBlocked = !mobileSimulationReady;
   const loginEmailValue = view.loginEmailValue || "";

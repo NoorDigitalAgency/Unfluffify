@@ -6,6 +6,7 @@ const { state } = stateModule;
 
 export const getDeviceEmulationState = commonEmulation.getDeviceEmulationState;
 export const hasStoredDeviceEmulationState = commonEmulation.hasStoredDeviceEmulationState;
+export const reconcileDeviceEmulationState = commonEmulation.reconcileDeviceEmulationState;
 
 export function syncDeviceEmulationState(stateValue) {
   const normalized = commonEmulation.normalizeDeviceEmulationStateForUi(stateValue);
