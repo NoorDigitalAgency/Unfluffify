@@ -741,6 +741,19 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
+        h("span", null, "Prefer shallowest exclusions"),
+        h("input", {
+          id: "highlight-prefer-shallowest-exclusions",
+          type: "checkbox",
+          checked: view.highlightPreferShallowestExclusionsChecked,
+          disabled: !view.highlightExcludedContentChecked,
+          onChange: handlers.onHighlightPreferShallowestExclusionsChange
+        })
+      ),
+      h("div", { class: "section-divider", role: "separator" }),
+      h(
+        "label",
+        { class: "row" },
         h("span", null, "Visible Consent"),
         h("input", {
           id: "highlight-visible-consent",
@@ -759,19 +772,6 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           type: "checkbox",
           checked: view.highlightHideDuringScrollRedrawChecked,
           onChange: handlers.onHighlightHideDuringScrollRedrawChange
-        })
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "label",
-        { class: "row" },
-        h("span", null, "Prefer shallowest exclusions"),
-        h("input", {
-          id: "highlight-prefer-shallowest-exclusions",
-          type: "checkbox",
-          checked: view.highlightPreferShallowestExclusionsChecked,
-          disabled: !view.highlightExcludedContentChecked,
-          onChange: handlers.onHighlightPreferShallowestExclusionsChange
         })
       )
     );
