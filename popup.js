@@ -18,6 +18,7 @@ import {
 
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
+const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_MESSAGE =
   "Mobile simulation must be enabled, for this to work.";
@@ -34,6 +35,82 @@ mutation updateScrapingConditions($domainId: Int!, $includeCss: String, $exclude
   updateScrapingConditions(domainId: $domainId, includeCss: $includeCss, excludeCss: $excludeCss)
 }
 `;
+
+let popupBusyOverlayDepth = 0;
+let popupBusyOverlayVisible = false;
+let popupBusyOverlayTimer = 0;
+let popupBusyOverlayMessage = "Loading popup...";
+
+function beginPopupBusyOverlay(message, options = {}) {
+  const delayMs = Number.isFinite(options.delayMs)
+    ? Math.max(0, Math.trunc(options.delayMs))
+    : 0;
+  const suppressIfActive = Boolean(options.suppressIfActive);
+  if (
+    suppressIfActive &&
+    (popupBusyOverlayDepth > 0 || popupBusyOverlayVisible || popupBusyOverlayTimer)
+  ) {
+    return false;
+  }
+  popupBusyOverlayDepth += 1;
+  if (typeof message === "string" && message.trim()) {
+    popupBusyOverlayMessage = message.trim();
+  }
+  if (popupBusyOverlayVisible) {
+    uiModule.setUiBusy(true, popupBusyOverlayMessage);
+    return;
+  }
+  if (delayMs > 0) {
+    if (popupBusyOverlayTimer) {
+      return;
+    }
+    popupBusyOverlayTimer = window.setTimeout(() => {
+      popupBusyOverlayTimer = 0;
+      if (popupBusyOverlayDepth <= 0 || popupBusyOverlayVisible) {
+        return;
+      }
+      popupBusyOverlayVisible = true;
+      uiModule.setUiBusy(true, popupBusyOverlayMessage);
+    }, delayMs);
+    return true;
+  }
+  if (popupBusyOverlayTimer) {
+    window.clearTimeout(popupBusyOverlayTimer);
+    popupBusyOverlayTimer = 0;
+  }
+  popupBusyOverlayVisible = true;
+  uiModule.setUiBusy(true, popupBusyOverlayMessage);
+  return true;
+}
+
+function endPopupBusyOverlay(started = true) {
+  if (!started) {
+    return;
+  }
+  popupBusyOverlayDepth = Math.max(0, popupBusyOverlayDepth - 1);
+  if (popupBusyOverlayDepth > 0) {
+    return;
+  }
+  if (popupBusyOverlayTimer) {
+    window.clearTimeout(popupBusyOverlayTimer);
+    popupBusyOverlayTimer = 0;
+  }
+  if (!popupBusyOverlayVisible) {
+    return;
+  }
+  popupBusyOverlayVisible = false;
+  uiModule.setUiBusy(false);
+}
+
+async function runWithPopupBusyOverlay(message, task, options = {}) {
+  const started = beginPopupBusyOverlay(message, options);
+  try {
+    return await task();
+  } finally {
+    endPopupBusyOverlay(started);
+  }
+}
+
 function isValidEmail(value) {
   return EMAIL_REGEX.test(value);
 }
@@ -1474,7 +1551,7 @@ function readCheckboxValue(event, fallbackValue) {
   return Boolean(target.checked);
 }
 
-async function refreshUi() {
+async function refreshUiInner() {
   if (!state.currentTab) {
     return;
   }
@@ -2166,6 +2243,17 @@ async function refreshUi() {
   }
 }
 
+async function refreshUi() {
+  return runWithPopupBusyOverlay(
+    "Loading and preparing popup...",
+    () => refreshUiInner(),
+    {
+      delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+      suppressIfActive: true
+    }
+  );
+}
+
 function handleBaseUrlInput(event) {
   uiModule.setViewState({ baseUrlInputValue: (event && event.target && event.target.value) || "" });
 }
@@ -2610,22 +2698,28 @@ async function handleClearDomainCache() {
   if (!confirmed) {
     return;
   }
-  uiModule.setUiBusy(true);
+  beginPopupBusyOverlay("Clearing cache and reloading page...");
   state.clearDomainCacheDisabled = true;
   uiModule.setViewState({ clearDomainCacheDisabled: true });
-  const result = await chromeHelpers.clearBrowsingDataForOrigin(origin);
-  state.clearDomainCacheDisabled = false;
-  uiModule.setViewState({ clearDomainCacheDisabled: false });
-  if (!result.ok) {
-    uiModule.setUiBusy(false);
-    uiModule.showToast(result.error || "Unable to clear cache");
-    return;
-  }
-  uiModule.showToast("Domain cache cleared");
-  const reloadResult = await chromeHelpers.reloadTab(tab.id);
-  uiModule.setUiBusy(false);
-  if (!reloadResult.ok) {
-    uiModule.showToast(reloadResult.error || "Unable to reload tab");
+  try {
+    const result = await chromeHelpers.clearBrowsingDataForOrigin(origin);
+    if (!result.ok) {
+      uiModule.showToast(result.error || "Unable to clear cache");
+      return;
+    }
+    uiModule.showToast("Domain cache cleared");
+    const reloadResult = await chromeHelpers.reloadTab(tab.id);
+    if (!reloadResult.ok) {
+      uiModule.showToast(reloadResult.error || "Unable to reload tab");
+    }
+  } catch (error) {
+    uiModule.showToast(
+      (error && error.message) || "Unable to clear cache"
+    );
+  } finally {
+    state.clearDomainCacheDisabled = false;
+    uiModule.setViewState({ clearDomainCacheDisabled: false });
+    endPopupBusyOverlay();
   }
 }
 

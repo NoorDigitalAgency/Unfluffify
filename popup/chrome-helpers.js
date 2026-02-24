@@ -1,24 +1,50 @@
+const CLEAR_BROWSING_DATA_TIMEOUT_MS = 20000;
+const RELOAD_TAB_TIMEOUT_MS = 10000;
+
 export function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {
-    chrome.browsingData.remove(
-      { origins: [origin] },
-      {
-        cookies: true,
-        cache: true,
-        cacheStorage: true,
-        localStorage: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          resolve({
-            ok: false,
-            error: chrome.runtime.lastError.message || "Unable to clear cache"
-          });
-          return;
-        }
-        resolve({ ok: true });
+    if (!origin || typeof origin !== "string") {
+      resolve({ ok: false, error: "Missing origin" });
+      return;
+    }
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {
+        return;
       }
-    );
+      settled = true;
+      window.clearTimeout(timeoutId);
+      resolve(result);
+    };
+    const timeoutId = window.setTimeout(() => {
+      finish({ ok: false, error: "Timed out while clearing cache" });
+    }, CLEAR_BROWSING_DATA_TIMEOUT_MS);
+    try {
+      chrome.browsingData.remove(
+        { origins: [origin] },
+        {
+          cookies: true,
+          cache: true,
+          cacheStorage: true,
+          localStorage: true
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            finish({
+              ok: false,
+              error: chrome.runtime.lastError.message || "Unable to clear cache"
+            });
+            return;
+          }
+          finish({ ok: true });
+        }
+      );
+    } catch (error) {
+      finish({
+        ok: false,
+        error: (error && error.message) || "Unable to clear cache"
+      });
+    }
   });
 }
 
@@ -28,15 +54,34 @@ export function reloadTab(tabId) {
       resolve({ ok: false, error: "Missing tab" });
       return;
     }
-    chrome.tabs.reload(tabId, () => {
-      if (chrome.runtime.lastError) {
-        resolve({
-          ok: false,
-          error: chrome.runtime.lastError.message || "Unable to reload tab"
-        });
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {
         return;
       }
-      resolve({ ok: true });
-    });
+      settled = true;
+      window.clearTimeout(timeoutId);
+      resolve(result);
+    };
+    const timeoutId = window.setTimeout(() => {
+      finish({ ok: false, error: "Timed out while reloading tab" });
+    }, RELOAD_TAB_TIMEOUT_MS);
+    try {
+      chrome.tabs.reload(tabId, () => {
+        if (chrome.runtime.lastError) {
+          finish({
+            ok: false,
+            error: chrome.runtime.lastError.message || "Unable to reload tab"
+          });
+          return;
+        }
+        finish({ ok: true });
+      });
+    } catch (error) {
+      finish({
+        ok: false,
+        error: (error && error.message) || "Unable to reload tab"
+      });
+    }
   });
 }

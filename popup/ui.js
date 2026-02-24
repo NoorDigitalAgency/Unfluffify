@@ -106,6 +106,7 @@ const initialViewState = {
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   isBusy: false,
+  busyMessage: "",
   toastMessage: "",
   toastVisible: false
 };
@@ -122,6 +123,43 @@ function renderListItems(items, emptyText, renderItem) {
     return [h("li", { class: "empty" }, emptyText)];
   }
   return items.map(renderItem);
+}
+
+function getBlockingUiCurtainState(view) {
+  if (view.isBusy) {
+    return {
+      visible: true,
+      message: view.busyMessage || "Loading popup..."
+    };
+  }
+  if (view.computeButtonLoading) {
+    return {
+      visible: true,
+      message: "Computing selectors..."
+    };
+  }
+  if (view.saveExcludesButtonLoading) {
+    return {
+      visible: true,
+      message: "Submitting selectors..."
+    };
+  }
+  if (view.aiControlsBusy) {
+    return {
+      visible: true,
+      message: "Working with AI..."
+    };
+  }
+  if (view.deviceControlsDisabled) {
+    return {
+      visible: true,
+      message: "Applying device emulation..."
+    };
+  }
+  return {
+    visible: false,
+    message: ""
+  };
 }
 
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
@@ -169,6 +207,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
 }
 
 function App({ state: view, actions: handlers }) {
+  const curtain = getBlockingUiCurtainState(view);
 
   return h(
     Fragment,
@@ -258,9 +297,19 @@ function App({ state: view, actions: handlers }) {
         class: "ui-curtain",
         role: "status",
         "aria-live": "polite",
-        hidden: !view.isBusy
+        hidden: !curtain.visible
       },
-      h("div", { class: "ui-curtain__content" }, "Please wait...")
+      h(
+        "div",
+        { class: "ui-curtain__content" },
+        h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
+        h("div", { class: "ui-curtain__title" }, curtain.message || "Please wait..."),
+        h(
+          "div",
+          { class: "ui-curtain__hint" },
+          "Working... controls are temporarily blocked."
+        )
+      )
     )
   );
 }
@@ -1087,6 +1136,10 @@ function renderApp() {
     return;
   }
   render(h(App, { state: viewState, actions }), root);
+  document.body.classList.toggle(
+    "is-busy",
+    getBlockingUiCurtainState(viewState).visible
+  );
 }
 
 export function initUi(actionHandlers) {
@@ -1120,9 +1173,11 @@ export function showToast(message) {
   }, 1800);
 }
 
-export function setUiBusy(isBusy) {
-  document.body.classList.toggle("is-busy", isBusy);
-  setViewState({ isBusy });
+export function setUiBusy(isBusy, message = "") {
+  setViewState({
+    isBusy: Boolean(isBusy),
+    busyMessage: isBusy ? (message || "Please wait...") : ""
+  });
 }
 
 export function setConfigMenuOpen(open) {
