@@ -2814,7 +2814,7 @@ async function handleSaveExcludes() {
     return;
   }
   const confirmed = window.confirm(
-    "Are these the final settings to this property for extractin the contents?"
+    "Are these the final settings for the current property for content extraction?"
   );
   if (!confirmed) {
     return;
