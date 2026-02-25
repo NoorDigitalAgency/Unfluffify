@@ -1520,10 +1520,12 @@ async function applySilentHighlightVisibility(options = {}) {
   const visibility = getSilentHighlightVisibility();
   const key = getSilentHighlightVisibilityKey(visibility);
   const tabId = state.currentTab.id;
+  const pageUrl = (state.currentTab && state.currentTab.url) || "";
   if (
     !force &&
     state.lastAppliedSilentHighlightTabId === tabId &&
-    state.lastAppliedSilentHighlightKey === key
+    state.lastAppliedSilentHighlightKey === key &&
+    state.lastAppliedSilentHighlightPageUrl === pageUrl
   ) {
     return;
   }
@@ -1542,6 +1544,7 @@ async function applySilentHighlightVisibility(options = {}) {
   if (finalResponse && finalResponse.ok) {
     state.lastAppliedSilentHighlightTabId = tabId;
     state.lastAppliedSilentHighlightKey = key;
+    state.lastAppliedSilentHighlightPageUrl = pageUrl;
   }
 }
 
@@ -1578,6 +1581,7 @@ async function refreshUiInner() {
   if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
     state.lastAppliedSilentHighlightTabId = currentTabId;
     state.lastAppliedSilentHighlightKey = "";
+    state.lastAppliedSilentHighlightPageUrl = "";
   }
   state.lastTabId = currentTabId;
   const {

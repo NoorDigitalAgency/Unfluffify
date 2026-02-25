@@ -42,6 +42,7 @@ export const state = {
   silentHighlightPreferShallowestExclusions: false,
   lastAppliedSilentHighlightKey: "",
   lastAppliedSilentHighlightTabId: null,
+  lastAppliedSilentHighlightPageUrl: "",
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,
