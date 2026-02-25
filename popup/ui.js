@@ -101,8 +101,7 @@ const initialViewState = {
   highlightIncludedContentChecked: true,
   highlightExcludedContentChecked: false,
   highlightVisibleConsentChecked: false,
-  highlightHideDuringScrollRedrawChecked: false,
-  highlightPreferShallowestExclusionsChecked: false,
+  highlightHideDuringScrollRedrawChecked: true,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   isBusy: false,
@@ -780,16 +779,14 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Prefer shallowest exclusions"),
+        h("span", null, "Hide while redraw/scroll"),
         h("input", {
-          id: "highlight-prefer-shallowest-exclusions",
+          id: "highlight-hide-during-scroll-redraw",
           type: "checkbox",
-          checked: view.highlightPreferShallowestExclusionsChecked,
-          disabled: !view.highlightExcludedContentChecked,
-          onChange: handlers.onHighlightPreferShallowestExclusionsChange
+          checked: view.highlightHideDuringScrollRedrawChecked,
+          onChange: handlers.onHighlightHideDuringScrollRedrawChange
         })
       ),
-      h("div", { class: "section-divider", role: "separator" }),
       h(
         "label",
         { class: "row" },
@@ -799,18 +796,6 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           type: "checkbox",
           checked: view.highlightVisibleConsentChecked,
           onChange: handlers.onHighlightVisibleConsentChange
-        })
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "label",
-        { class: "row" },
-        h("span", null, "Hide while redraw/scroll"),
-        h("input", {
-          id: "highlight-hide-during-scroll-redraw",
-          type: "checkbox",
-          checked: view.highlightHideDuringScrollRedrawChecked,
-          onChange: handlers.onHighlightHideDuringScrollRedrawChange
         })
       )
     );

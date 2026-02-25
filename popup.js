@@ -1065,10 +1065,7 @@ function getSilentHighlightVisibility() {
     includedContent: state.silentHighlightShowIncludedContent !== false,
     excludedContent: Boolean(state.silentHighlightShowExcludedContent),
     visibleConsent: Boolean(state.silentHighlightShowVisibleConsent),
-    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw),
-    preferShallowestExclusions: Boolean(
-      state.silentHighlightPreferShallowestExclusions
-    )
+    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw)
   };
 }
 
@@ -1082,7 +1079,7 @@ async function loadGlobalSilentHighlightOptions() {
 }
 
 function getSilentHighlightVisibilityKey(visibility) {
-  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}${visibility.preferShallowestExclusions ? "1" : "0"}`;
+  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
 }
 
 async function persistSilentHighlightVisibility() {
@@ -1218,8 +1215,6 @@ async function refreshUiInner() {
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
   state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
-  state.silentHighlightPreferShallowestExclusions =
-    silentHighlightOptions.preferShallowestExclusions;
   if (
     tabInScope &&
     !localMatchingBaseUrl &&
@@ -1665,8 +1660,6 @@ async function refreshUiInner() {
   nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
   nextViewState.highlightHideDuringScrollRedrawChecked =
     state.silentHighlightHideDuringScrollRedraw;
-  nextViewState.highlightPreferShallowestExclusionsChecked =
-    state.silentHighlightPreferShallowestExclusions;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlInputReadOnly = true;
   nextViewState.baseUrlSetVisible = false;
@@ -2175,14 +2168,6 @@ async function handleHighlightHideDuringScrollRedrawChange(event) {
     event,
     "silentHighlightHideDuringScrollRedraw",
     "highlightHideDuringScrollRedrawChecked"
-  );
-}
-
-async function handleHighlightPreferShallowestExclusionsChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightPreferShallowestExclusions",
-    "highlightPreferShallowestExclusionsChecked"
   );
 }
 
@@ -2933,8 +2918,6 @@ async function init() {
     onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
     onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
     onHighlightHideDuringScrollRedrawChange: handleHighlightHideDuringScrollRedrawChange,
-    onHighlightPreferShallowestExclusionsChange:
-      handleHighlightPreferShallowestExclusionsChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
     onDeviceModeChange: handleDeviceModeToggle,
     onDeviceScaleInput: handleDeviceScaleInput,

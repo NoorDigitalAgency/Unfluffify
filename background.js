@@ -1,5 +1,9 @@
 import * as utils from "./common/utilities.js";
-import {getDeviceEmulationState, updateDeviceEmulation} from "./common/emulation.js";
+import {
+  getDeviceEmulationState,
+  reconcileDeviceEmulationState,
+  updateDeviceEmulation
+} from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 import { normalizeSilentHighlightOptions } from "./common/silent-highlight-options.js";
 
@@ -138,6 +142,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch(() => {
         sendResponse({ ok: false, error: "Device emulation failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "getDeviceEmulationState") {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
+      sendResponse({ ok: false, error: "Missing tab" });
+      return;
+    }
+    reconcileDeviceEmulationState(tabId)
+      .then((deviceState) => {
+        sendResponse({ ok: true, state: deviceState });
+      })
+      .catch(() => {
+        sendResponse({ ok: false, error: "Device emulation state unavailable" });
       });
     return true;
   }

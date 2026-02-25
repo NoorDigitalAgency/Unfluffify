@@ -213,8 +213,11 @@ function matchesToggleableDefaultExcluded(el) {
   return false;
 }
 
-function isTextualContainer(el) {
-  if (!isVisible(el)) {
+function isTextualContainer(el, options = {}) {
+  const ignoreVisibilityForInclusionDetection = Boolean(
+    options && options.ignoreVisibilityForInclusionDetection
+  );
+  if (!ignoreVisibilityForInclusionDetection && !isVisible(el)) {
     return false;
   }
   if (hasDirectText(el)) {
@@ -230,7 +233,7 @@ function isTextualContainer(el) {
   return Boolean(getNormalizedElementText(el));
 }
 
-function hasTextualDescendant(el) {
+function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -249,7 +252,7 @@ function hasTextualDescendant(el) {
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
-    if (isTextualContainer(node)) {
+    if (isTextualContainer(node, options)) {
       return true;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
@@ -259,7 +262,7 @@ function hasTextualDescendant(el) {
   return false;
 }
 
-function hasTextualImmutableDescendant(el) {
+function hasTextualImmutableDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -275,7 +278,7 @@ function hasTextualImmutableDescendant(el) {
     if (isWithinConsentElement(node)) {
       continue;
     }
-    if (isWithinImmutableExcluded(node) && isTextualContainer(node)) {
+    if (isWithinImmutableExcluded(node) && isTextualContainer(node, options)) {
       return true;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
@@ -323,12 +326,21 @@ function hasExplicitlyMarkedDescendant(el) {
   return false;
 }
 
-function isSelfMarkableWithoutParentMode(el) {
-  if (!isTextualContainer(el)) {
+function isSelfMarkableWithoutParentMode(el, options = {}) {
+  if (!isTextualContainer(el, options)) {
     return false;
   }
+  // Preserve the previous shallowest-ancestor behavior: hidden responsive
+  // descendants should not suppress a visible ancestor just because preview/
+  // silent inclusion detection is configured to ignore visibility.
+  const descendantShapeOptions = options && options.ignoreVisibilityForInclusionDetection
+    ? {
+      ...options,
+      ignoreVisibilityForInclusionDetection: false
+    }
+    : options;
   const hasDirectOwnText = hasDirectText(el);
-  const hasVisibleTextualDescendant = hasTextualDescendant(el);
+  const hasVisibleTextualDescendant = hasTextualDescendant(el, descendantShapeOptions);
   if (!hasDirectOwnText && hasVisibleTextualDescendant) {
     return false;
   }
@@ -336,7 +348,7 @@ function isSelfMarkableWithoutParentMode(el) {
     if (!hasDirectOwnText && !hasVisibleTextualDescendant) {
       return false;
     }
-    if (!hasDirectOwnText && hasTextualImmutableDescendant(el)) {
+    if (!hasDirectOwnText && hasTextualImmutableDescendant(el, descendantShapeOptions)) {
       return false;
     }
     return true;
@@ -867,15 +879,23 @@ function isInclusionEligibleElement(
   el,
   excludedElements,
   includedElements,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
+  const ignoreVisibilityForInclusionDetection = Boolean(
+    options && options.ignoreVisibilityForInclusionDetection
+  );
   if (!el || el.nodeType !== 1) {
     return false;
   }
   if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
     return false;
   }
-  if (!isVisible(el) && !canUseCollapsedTextFallbackElement(el)) {
+  if (
+    !ignoreVisibilityForInclusionDetection &&
+    !isVisible(el) &&
+    !canUseCollapsedTextFallbackElement(el)
+  ) {
     return false;
   }
   if (isWithinImmutableExcluded(el)) {
@@ -922,8 +942,12 @@ function hasRenderableTextOutsideExcludedNature(
   el,
   excludedElements,
   includedElements,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
+  const ignoreVisibilityForInclusionDetection = Boolean(
+    options && options.ignoreVisibilityForInclusionDetection
+  );
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -938,6 +962,7 @@ function hasRenderableTextOutsideExcludedNature(
     }
     if (
       node !== el &&
+      !ignoreVisibilityForInclusionDetection &&
       !isVisible(node) &&
       isDefinitelyHiddenSubtreeElement(node)
     ) {
@@ -968,7 +993,8 @@ function hasRenderableTextForHighlight(
   el,
   excludedElements,
   includedElements,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -980,7 +1006,8 @@ function hasRenderableTextForHighlight(
     el,
     excludedElements,
     includedElements,
-    inclusionContextSet
+    inclusionContextSet,
+    options
   );
 }
 
@@ -1099,7 +1126,13 @@ function collectSelectorExcludedElements(
     if (isWithinElementSet(el, includedElements)) {
       continue;
     }
-    if (!hasRenderableTextForExcludedHighlight(el, includedElements, inclusionContextSet)) {
+    const isExplicitIncludedAncestor =
+      Boolean(inclusionContextSet && inclusionContextSet.has(el)) &&
+      !(includedElements && includedElements.has(el));
+    if (
+      !isExplicitIncludedAncestor &&
+      !hasRenderableTextForExcludedHighlight(el, includedElements, inclusionContextSet)
+    ) {
       continue;
     }
     marked.add(el);
@@ -1111,38 +1144,60 @@ function collectExplicitIncludedElements(
   explicitIncludedMatches,
   excludedElements,
   includedElements,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
+  const preserveExplicitIncludedDescendants = Boolean(
+    options && options.preserveExplicitIncludedDescendants
+  );
+  const includeAllExplicitMatches = Boolean(options && options.includeAllExplicitMatches);
   const selected = new Set();
-  const ordered = collapseElementsByNesting(explicitIncludedMatches, {
-    prefer: "shallowest"
-  });
+  const ordered = preserveExplicitIncludedDescendants
+    ? Array.from(new Set(explicitIncludedMatches || []))
+      .filter((el) => el && el.nodeType === 1)
+      .sort(compareDocumentOrder)
+    : collapseElementsByNesting(explicitIncludedMatches, {
+      prefer: "shallowest"
+    });
   for (const el of ordered) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-    if (!isInclusionEligibleElement(el, excludedElements, includedElements, inclusionContextSet)) {
-      continue;
-    }
-    if (!isSelfMarkableWithoutParentMode(el)) {
-      continue;
-    }
-    if (!hasRenderableTextOutsideExcludedNature(
+    if (!isInclusionEligibleElement(
       el,
       excludedElements,
       includedElements,
-      inclusionContextSet
+      inclusionContextSet,
+      options
     )) {
       continue;
     }
+    if (!includeAllExplicitMatches) {
+      if (!isSelfMarkableWithoutParentMode(el, options)) {
+        continue;
+      }
+      if (!hasRenderableTextOutsideExcludedNature(
+        el,
+        excludedElements,
+        includedElements,
+        inclusionContextSet,
+        options
+      )) {
+        continue;
+      }
+    }
     selected.add(el);
+  }
+  if (preserveExplicitIncludedDescendants) {
+    return Array.from(selected).sort(compareDocumentOrder);
   }
   return collapseElementsByNesting(selected, { prefer: "shallowest" }).filter((el) =>
     hasRenderableTextForHighlight(
       el,
       excludedElements,
       includedElements,
-      inclusionContextSet
+      inclusionContextSet,
+      options
     )
   );
 }
@@ -1151,7 +1206,8 @@ function collectImplicitIncludedElementsOutsideExplicit(
   explicitIncluded,
   excludedElements,
   includedElements,
-  inclusionContextSet
+  inclusionContextSet,
+  options = {}
 ) {
   const explicitIncludedSet = new Set(explicitIncluded || []);
   const baseSelected = new Set();
@@ -1168,7 +1224,13 @@ function collectImplicitIncludedElementsOutsideExplicit(
     ) {
       continue;
     }
-    if (!isInclusionEligibleElement(el, excludedElements, includedElements, inclusionContextSet)) {
+    if (!isInclusionEligibleElement(
+      el,
+      excludedElements,
+      includedElements,
+      inclusionContextSet,
+      options
+    )) {
       continue;
     }
     const rawSelectorExcluded = isRawSelectorExcludedElement(
@@ -1184,10 +1246,11 @@ function collectImplicitIncludedElementsOutsideExplicit(
           el,
           excludedElements,
           includedElements,
-          inclusionContextSet
+          inclusionContextSet,
+          options
         )
       );
-    const isMarkableInclusionCandidate = isSelfMarkableWithoutParentMode(el);
+    const isMarkableInclusionCandidate = isSelfMarkableWithoutParentMode(el, options);
     if (
       isMarkableInclusionCandidate &&
       (hasDirectText(el) || isAutoIncludedCollapsedText) &&
@@ -1204,12 +1267,13 @@ function collectImplicitIncludedElementsOutsideExplicit(
       el,
       excludedElements,
       includedElements,
-      inclusionContextSet
+      inclusionContextSet,
+      options
     )
   );
 }
 
-function collectIncludedElementsFromSelectorSet(selectorSet) {
+function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedElements = new Set(
     collapseElementsByNesting(collectSelectorElements(normalized.exclusionSelectors), {
@@ -1218,29 +1282,58 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
   );
   const includedElements = collectSelectorElements(normalized.inclusionSelectors);
   const inclusionContextSet = buildInclusionContextSet(includedElements);
+  const explicitBoundaryOptions = {
+    ...options,
+    preserveExplicitIncludedDescendants: false,
+    includeAllExplicitMatches: false
+  };
+  const explicitIncludedBoundary = collectExplicitIncludedElements(
+    includedElements,
+    excludedElements,
+    includedElements,
+    inclusionContextSet,
+    explicitBoundaryOptions
+  );
+  const explicitIncludedBoundarySet = new Set(explicitIncludedBoundary);
+  const explicitInclusionBoundaryContextSet = buildInclusionContextSet(
+    explicitIncludedBoundarySet
+  );
   const explicitIncluded = collectExplicitIncludedElements(
     includedElements,
     excludedElements,
     includedElements,
-    inclusionContextSet
+    inclusionContextSet,
+    options
   );
   const explicitIncludedSet = new Set(explicitIncluded);
-  const explicitInclusionContextSet = buildInclusionContextSet(explicitIncludedSet);
   const implicitIncluded = collectImplicitIncludedElementsOutsideExplicit(
-    explicitIncluded,
+    explicitIncludedBoundary,
     excludedElements,
     includedElements,
-    inclusionContextSet
+    inclusionContextSet,
+    options
   );
-  const included = collapseElementsByNesting(
-    new Set([...explicitIncluded, ...implicitIncluded]),
-    { prefer: "shallowest" }
+  const preserveExplicitIncludedDescendants = Boolean(
+    options && options.preserveExplicitIncludedDescendants
+  );
+  const included = (
+    preserveExplicitIncludedDescendants
+      ? collapseElementsByNestingPreservingExplicit(
+        [...explicitIncluded, ...implicitIncluded],
+        explicitIncludedSet
+      )
+      : collapseElementsByNesting(
+        new Set([...explicitIncluded, ...implicitIncluded]),
+        { prefer: "shallowest" }
+      )
   ).filter((el) =>
+    explicitIncludedSet.has(el) ||
     hasRenderableTextForHighlight(
       el,
       excludedElements,
       includedElements,
-      inclusionContextSet
+      inclusionContextSet,
+      options
     )
   );
   const includedScopeRootsForExcludedTraversal = collapseElementsByNesting(includedElements, {
@@ -1249,17 +1342,17 @@ function collectIncludedElementsFromSelectorSet(selectorSet) {
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     includedScopeRootsForExcludedTraversal,
     excludedElements,
-    explicitIncludedSet,
-    explicitInclusionContextSet
+    explicitIncludedBoundarySet,
+    explicitInclusionBoundaryContextSet
   );
   const selectorExcluded = collectSelectorExcludedElements(
     excludedElements,
-    explicitIncludedSet,
-    explicitInclusionContextSet
+    explicitIncludedBoundarySet,
+    explicitInclusionBoundaryContextSet
   );
   const excluded = collapseElementsByNestingWithOppositeBoundary(
     [...selectorExcluded, ...excludedDescendants],
-    explicitIncludedSet
+    explicitIncludedBoundarySet
   );
   return { included, excluded };
 }
@@ -1330,6 +1423,45 @@ export function collapseElementsByNesting(elements, options = {}) {
     if (!hasAncestor) {
       kept.push(candidate);
     }
+  }
+  kept.sort(compareDocumentOrder);
+  return kept;
+}
+
+function collapseElementsByNestingPreservingExplicit(elements, explicitElements) {
+  const explicitSet = new Set(explicitElements || []);
+  const list = Array.from(new Set(elements || [])).filter((el) => el && el.nodeType === 1);
+  list.sort((left, right) => {
+    const depthDiff = getElementDepth(left) - getElementDepth(right);
+    if (depthDiff !== 0) {
+      return depthDiff;
+    }
+    return compareDocumentOrder(left, right);
+  });
+  const kept = [];
+  const keptSet = new Set();
+  for (const candidate of list) {
+    if (explicitSet.has(candidate)) {
+      if (!keptSet.has(candidate)) {
+        kept.push(candidate);
+        keptSet.add(candidate);
+      }
+      continue;
+    }
+    let current = candidate.parentElement;
+    let suppressed = false;
+    while (current && current.nodeType === 1) {
+      if (keptSet.has(current)) {
+        suppressed = true;
+        break;
+      }
+      current = current.parentElement;
+    }
+    if (suppressed) {
+      continue;
+    }
+    kept.push(candidate);
+    keptSet.add(candidate);
   }
   kept.sort(compareDocumentOrder);
   return kept;
@@ -3930,10 +4062,14 @@ export function collectPreviewItems(selectorSet) {
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
   const includedElements = collectSelectorElements(normalized.inclusionSelectors);
   const inclusionContextSet = buildInclusionContextSet(includedElements);
-  // Preview intentionally uses pure inclusion selector matches. This mirrors the
-  // popup's "show what the selectors match" behavior instead of the stricter
-  // semantic inclusion classifier used for other flows.
-  const elements = Array.from(includedElements).sort(compareDocumentOrder);
+  // Preview mirrors silent highlighting inclusion detection: implicit
+  // non-excluded content plus explicit includes, while ignoring visibility for
+  // inclusion selection (text extraction still honors exclusions).
+  const { included: elements } = collectIncludedElementsFromSelectorSet(selectorSet, {
+    ignoreVisibilityForInclusionDetection: true,
+    preserveExplicitIncludedDescendants: true,
+    includeAllExplicitMatches: true
+  });
   const rows = [];
   for (const el of elements) {
     const text = getPreviewTextForIncludedElement(

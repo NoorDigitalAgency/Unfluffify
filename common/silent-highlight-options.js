@@ -3,8 +3,7 @@ export const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = Object.freeze({
   includedContent: true,
   excludedContent: false,
   visibleConsent: false,
-  hideDuringScrollRedraw: false,
-  preferShallowestExclusions: false
+  hideDuringScrollRedraw: true
 });
 
 export function normalizeSilentHighlightOptions(value) {
@@ -31,10 +30,6 @@ export function normalizeSilentHighlightOptions(value) {
     hideDuringScrollRedraw:
       typeof value.hideDuringScrollRedraw === "boolean"
         ? value.hideDuringScrollRedraw
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.hideDuringScrollRedraw,
-    preferShallowestExclusions:
-      typeof value.preferShallowestExclusions === "boolean"
-        ? value.preferShallowestExclusions
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.preferShallowestExclusions
+        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.hideDuringScrollRedraw
   };
 }
