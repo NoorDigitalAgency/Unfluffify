@@ -1603,7 +1603,7 @@ function collectSelectorExcludedNodes(
     }
     marked.add(node);
   }
-  return collapseToShallowest(marked);
+  return Array.from(marked).sort(compareNodeOrder);
 }
 
 function collectExplicitIncludedNodes(
@@ -1807,13 +1807,13 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     explicitIncludedBoundarySet,
     explicitInclusionBoundaryContextSet
   );
-  const combinedExcluded = Array.from(
-    new Set([...selectorExcluded, ...excludedDescendants])
-  );
-  const excluded = collapseToShallowestWithOppositeBoundary(
-    combinedExcluded,
+  const inferredExcluded = collapseToShallowestWithOppositeBoundary(
+    excludedDescendants,
     explicitIncludedBoundarySet
   );
+  const excluded = Array.from(
+    new Set([...(selectorExcluded || []), ...(inferredExcluded || [])])
+  ).sort(compareNodeOrder);
   return {
     included,
     excluded,

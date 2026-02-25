@@ -1137,7 +1137,7 @@ function collectSelectorExcludedElements(
     }
     marked.add(el);
   }
-  return collapseElementsByNesting(marked, { prefer: "shallowest" });
+  return Array.from(marked).sort(compareDocumentOrder);
 }
 
 function collectExplicitIncludedElements(
@@ -1350,10 +1350,13 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     explicitIncludedBoundarySet,
     explicitInclusionBoundaryContextSet
   );
-  const excluded = collapseElementsByNestingWithOppositeBoundary(
-    [...selectorExcluded, ...excludedDescendants],
+  const inferredExcluded = collapseElementsByNestingWithOppositeBoundary(
+    excludedDescendants,
     explicitIncludedBoundarySet
   );
+  const excluded = Array.from(
+    new Set([...(selectorExcluded || []), ...(inferredExcluded || [])])
+  ).sort(compareDocumentOrder);
   return { included, excluded };
 }
 

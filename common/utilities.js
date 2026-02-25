@@ -37,7 +37,30 @@ export async function injectContentScript(tabId) {
 export async function disableExtensionForTab(tabId) {
   const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
   const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  let preservedSilentHighlightOptions = null;
+  try {
+    const existing = await getTabState(tabId);
+    if (
+      existing &&
+      typeof existing === "object" &&
+      existing.silentHighlightOptions &&
+      typeof existing.silentHighlightOptions === "object"
+    ) {
+      preservedSilentHighlightOptions = { ...existing.silentHighlightOptions };
+    }
+  } catch {
+    preservedSilentHighlightOptions = null;
+  }
+  if (preservedSilentHighlightOptions) {
+    await setTabState(tabId, {
+      enabled: false,
+      baseUrl: "",
+      silentHighlightOptions: preservedSilentHighlightOptions
+    });
+    await storageRemove(chrome.storage.session, scriptKey);
+  } else {
+    await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  }
   await updateActionForTab(tabId);
   try {
     await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
