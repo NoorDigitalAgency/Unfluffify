@@ -3930,7 +3930,7 @@ export function collectPreviewItems(selectorSet) {
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
   const includedElements = collectSelectorElements(normalized.inclusionSelectors);
   const inclusionContextSet = buildInclusionContextSet(includedElements);
-  const { included: elements } = collectIncludedElementsFromSelectorSet(selectorSet);
+  const elements = Array.from(includedElements).sort(compareDocumentOrder);
   const rows = [];
   for (const el of elements) {
     const text = getPreviewTextForIncludedElement(
@@ -3992,9 +3992,6 @@ function getPreviewTextForIncludedElement(
     }
     if (el !== root) {
       if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-        continue;
-      }
-      if (!isVisible(el)) {
         continue;
       }
       if (

@@ -1638,6 +1638,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  const rawIncludedNodes = Array.from(includedMatches.nodes).sort(compareNodeOrder);
   const allRawExcludedNodes = Array.from(excludedMatches.nodes).sort(compareNodeOrder);
   const rawExcludedNodes = preferShallowestExclusions
     ? collapseToShallowest(excludedMatches.nodes)
@@ -1699,6 +1700,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
   return {
     included,
     excluded,
+    rawIncludedMatched: rawIncludedNodes,
     rawExcludedMatched: allRawExcludedNodes,
     inclusionSelectorByNode: includedMatches.selectorByNode,
     exclusionSelectorByNode: excludedMatches.selectorByNode
@@ -2147,16 +2149,16 @@ async function refreshSilentHighlightings() {
           : (Array.isArray(contentMarking.excluded)
             ? contentMarking.excluded
             : []);
+      const includedSourcesForSilentOverlay =
+        Array.isArray(contentMarking.rawIncludedMatched)
+          ? contentMarking.rawIncludedMatched
+          : (Array.isArray(contentMarking.included) ? contentMarking.included : []);
       if (visibility.includedContent) {
-        contentNodes = toRenderableNodeList(contentMarking.included);
-        const explicitIncludedSources = contentMarking.included.filter((node) =>
-          contentMarking.inclusionSelectorByNode instanceof Map &&
-          contentMarking.inclusionSelectorByNode.has(node)
-        );
         const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
-          explicitIncludedSources,
+          includedSourcesForSilentOverlay,
           (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
         );
+        contentNodes = explicitIncludedRenderable.nodes;
         explicitIncludeSelectorByRenderNode = explicitIncludedRenderable.selectorByNode;
       }
       if (visibility.excludedContent) {
