@@ -1128,357 +1128,11 @@ function normalizePayloadXpaths(items, options = {}) {
   return deduped.filter((item) => !redundantXpaths.has(item.xpath));
 }
 
-function isTagSelector(selector) {
-  return /^[a-z]+$/i.test(selector);
-}
-
-function selectorMatchesElement(el, selector) {
-  if (!el || el.nodeType !== 1 || !selector) {
-    return false;
-  }
-  try {
-    if (isTagSelector(selector)) {
-      return el.tagName === selector.toUpperCase();
-    }
-    return el.matches(selector);
-  } catch {
-    return false;
-  }
-}
-
-function matchesStaticImmutableExcluded(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  for (const selector of constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
-    if (selectorMatchesElement(el, selector)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function matchesStaticToggleableExcluded(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  for (const selector of constants.DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
-    if (selectorMatchesElement(el, selector)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isWithinStaticImmutableExcluded(el) {
-  let node = el;
-  while (node && node.nodeType === 1) {
-    if (matchesStaticImmutableExcluded(node)) {
-      return true;
-    }
-    node = node.parentElement;
-  }
-  return false;
-}
-
-function hasDirectStaticText(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  for (const node of Array.from(el.childNodes || [])) {
-    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function getNormalizedStaticTextContent(el) {
-  if (!el || el.nodeType !== 1) {
-    return "";
-  }
-  const chunks = [];
-  const stack = [el];
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) {
-        chunks.push(text);
-      }
-      continue;
-    }
-    if (node.nodeType !== 1) {
-      continue;
-    }
-    const tag = node.tagName;
-    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEMPLATE") {
-      continue;
-    }
-    for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
-      stack.push(node.childNodes[i]);
-    }
-  }
-  return chunks.join(" ").replace(/\s+/g, " ").trim();
-}
-
-function isStaticTextualContainer(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (hasDirectStaticText(el)) {
-    return true;
-  }
-  if (matchesStaticToggleableExcluded(el)) {
-    if (el.children.length > 0) {
-      return true;
-    }
-    return Boolean((el.textContent || "").replace(/\s+/g, " ").trim());
-  }
-  return Boolean(getNormalizedStaticTextContent(el));
-}
-
-function hasStaticTextualDescendant(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  const stack = Array.from(el.children || []);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (matchesStaticImmutableExcluded(node)) {
-      continue;
-    }
-    if (isStaticTextualContainer(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
-function hasStaticTextualImmutableDescendant(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  const stack = Array.from(el.children || []);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (matchesStaticImmutableExcluded(node) && isStaticTextualContainer(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
-function isStaticSelfMarkableWithoutParentMode(el) {
-  if (!isStaticTextualContainer(el)) {
-    return false;
-  }
-  const hasDirectOwnText = hasDirectStaticText(el);
-  const hasTextualDescendant = hasStaticTextualDescendant(el);
-  if (!hasDirectOwnText && hasTextualDescendant) {
-    return false;
-  }
-  if (!matchesStaticToggleableExcluded(el)) {
-    if (!hasDirectOwnText && !hasTextualDescendant) {
-      return false;
-    }
-    if (!hasDirectOwnText && hasStaticTextualImmutableDescendant(el)) {
-      return false;
-    }
-    return true;
-  }
-  return !hasTextualDescendant;
-}
-
-function parseInlineStyle(styleText) {
-  const styles = new Map();
-  if (typeof styleText !== "string" || !styleText) {
-    return styles;
-  }
-  styleText.split(";").forEach((chunk) => {
-    const [rawKey, ...rest] = chunk.split(":");
-    if (!rawKey || rest.length === 0) {
-      return;
-    }
-    const key = rawKey.trim().toLowerCase();
-    const value = rest.join(":").replace(/!important/gi, "").trim().toLowerCase();
-    if (!key) {
-      return;
-    }
-    styles.set(key, value);
-  });
-  return styles;
-}
-
-function parseStyleNumber(value) {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  return parsed;
-}
-
-function isHiddenByStyleMap(styles) {
-  if (!styles || styles.size === 0) {
-    return false;
-  }
-  const display = styles.get("display") || "";
-  if (display.includes("none")) {
-    return true;
-  }
-  const visibility = styles.get("visibility");
-  if (visibility === "hidden" || visibility === "collapse") {
-    return true;
-  }
-  const opacity = parseStyleNumber(styles.get("opacity") || "");
-  if (opacity !== null && opacity <= 0) {
-    return true;
-  }
-  const contentVisibility = styles.get("content-visibility") || "";
-  if (contentVisibility.includes("hidden")) {
-    return true;
-  }
-  const clip = (styles.get("clip") || "").replace(/\s+/g, "");
-  if (clip && clip !== "auto" && clip.includes("rect(")) {
-    const numbers = clip.match(/-?\d*\.?\d+/g);
-    if (numbers && numbers.length >= 4 && numbers.every((value) => Number(value) === 0)) {
-      return true;
-    }
-  }
-  const clipPath = (styles.get("clip-path") || "").replace(/\s+/g, "");
-  if (
-    clipPath &&
-    (clipPath.includes("inset(50%") ||
-      clipPath.includes("inset(100%") ||
-      clipPath.includes("circle(0") ||
-      clipPath.includes("ellipse(0"))
-  ) {
-    return true;
-  }
-  const transform = (styles.get("transform") || "").replace(/\s+/g, "");
-  if (transform && (transform.includes("scale(0") || transform.includes("scaleX(0") || transform.includes("scaleY(0"))) {
-    return true;
-  }
-  const overflow = styles.get("overflow") || "";
-  if (overflow.includes("hidden")) {
-    const width = parseStyleNumber(styles.get("width") || "");
-    const height = parseStyleNumber(styles.get("height") || "");
-    const maxWidth = parseStyleNumber(styles.get("max-width") || "");
-    const maxHeight = parseStyleNumber(styles.get("max-height") || "");
-    if (
-      (width !== null && width <= 1) ||
-      (height !== null && height <= 1) ||
-      (maxWidth !== null && maxWidth <= 1) ||
-      (maxHeight !== null && maxHeight <= 1)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function hasVisuallyHiddenClass(node) {
-  if (!node || node.nodeType !== 1) {
-    return false;
-  }
-  const className = (node.getAttribute("class") || "").toLowerCase();
-  if (!className) {
-    return false;
-  }
-  return (
-    className.includes("sr-only") ||
-    className.includes("visually-hidden") ||
-    className.includes("screen-reader")
-  );
-}
-
-function isStaticHiddenNode(node) {
-  if (!node || node.nodeType !== 1) {
-    return false;
-  }
-  if (node.hasAttribute("hidden")) {
-    return true;
-  }
-  if ((node.getAttribute("aria-hidden") || "").toLowerCase() === "true") {
-    return true;
-  }
-  if (node.tagName === "INPUT" && (node.getAttribute("type") || "").toLowerCase() === "hidden") {
-    return true;
-  }
-  if (hasVisuallyHiddenClass(node)) {
-    return true;
-  }
-  return isHiddenByStyleMap(parseInlineStyle(node.getAttribute("style") || ""));
-}
-
-function isStaticNodeOrAncestorHidden(node) {
-  let current = node;
-  while (current && current.nodeType === 1) {
-    if (isStaticHiddenNode(current)) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
-
-function getStaticXPath(el) {
-  if (!el || el.nodeType !== 1) {
-    return "";
-  }
-  const parts = [];
-  let node = el;
-  const root = node.ownerDocument && node.ownerDocument.documentElement;
-  while (node && node.nodeType === 1) {
-    const tag = node.tagName.toLowerCase();
-    let index = 1;
-    let sibling = node.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName === node.tagName) {
-        index += 1;
-      }
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${tag}[${index}]`);
-    if (root && node === root) {
-      break;
-    }
-    node = node.parentElement;
-  }
-  return `/${parts.join("/")}`;
-}
-
-function isXPathDescendant(parentXpath, childXpath) {
-  if (!parentXpath || !childXpath || parentXpath === childXpath) {
-    return false;
-  }
-  return childXpath.startsWith(`${parentXpath}/`);
-}
-
 function collectExplicitXPathSetsFromEntry(entry) {
   const explicitExcluded = new Set();
   const explicitIncluded = new Set();
-  const consentExcluded = new Set();
   if (!entry || typeof entry !== "object") {
-    return { explicitExcluded, explicitIncluded, consentExcluded };
+    return { explicitExcluded, explicitIncluded };
   }
   const normalizeXPath = (value) =>
     typeof value === "string" ? value.trim() : "";
@@ -1508,109 +1162,9 @@ function collectExplicitXPathSetsFromEntry(entry) {
     if (!normalized) {
       return;
     }
-    consentExcluded.add(normalized);
     explicitExcluded.add(normalized);
   });
-  return { explicitExcluded, explicitIncluded, consentExcluded };
-}
-
-function hasExplicitExcludedAncestor(xpath, explicitExcludedSet) {
-  if (!xpath || !explicitExcludedSet || explicitExcludedSet.size === 0) {
-    return false;
-  }
-  for (const excludedXpath of explicitExcludedSet) {
-    if (
-      excludedXpath &&
-      excludedXpath !== xpath &&
-      isXPathDescendant(excludedXpath, xpath)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry) {
-  const { explicitExcluded, explicitIncluded, consentExcluded } =
-    collectExplicitXPathSetsFromEntry(entry);
-  const rowsByXpath = new Map();
-  const upsert = (xpath, excluded) => {
-    if (typeof xpath !== "string" || !xpath) {
-      return;
-    }
-    const existing = rowsByXpath.get(xpath);
-    if (existing) {
-      if (excluded) {
-        existing.excluded = true;
-      }
-      return;
-    }
-    rowsByXpath.set(xpath, { xpath, excluded: Boolean(excluded) });
-  };
-  explicitExcluded.forEach((xpath) => upsert(xpath, true));
-  consentExcluded.forEach((xpath) => upsert(xpath, true));
-
-  if (typeof fullHTML !== "string" || !fullHTML.trim()) {
-    return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-      preserveExcludedXpaths: explicitExcluded,
-      preserveIncludedXpaths: explicitIncluded
-    });
-  }
-  let doc = null;
-  try {
-    doc = new DOMParser().parseFromString(fullHTML, "text/html");
-  } catch {
-    doc = null;
-  }
-  if (!doc || !doc.body) {
-    return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-      preserveExcludedXpaths: explicitExcluded,
-      preserveIncludedXpaths: explicitIncluded
-    });
-  }
-
-  const stack = [doc.body];
-  while (stack.length) {
-    const el = stack.pop();
-    if (!el || el.nodeType !== 1) {
-      continue;
-    }
-    for (let i = el.children.length - 1; i >= 0; i -= 1) {
-      stack.push(el.children[i]);
-    }
-    if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
-      continue;
-    }
-    if (isWithinStaticImmutableExcluded(el)) {
-      continue;
-    }
-    const xpath = getStaticXPath(el);
-    if (!xpath) {
-      continue;
-    }
-    if (explicitExcluded.has(xpath)) {
-      upsert(xpath, true);
-      continue;
-    }
-    const explicitlyIncluded = explicitIncluded.has(xpath);
-    if (hasExplicitExcludedAncestor(xpath, explicitExcluded) && !explicitlyIncluded) {
-      continue;
-    }
-    if (!isStaticSelfMarkableWithoutParentMode(el)) {
-      continue;
-    }
-    const hidden = isStaticNodeOrAncestorHidden(el);
-    if (explicitlyIncluded) {
-      // Explicit includes are user overrides and should survive hidden ancestors.
-      upsert(xpath, false);
-      continue;
-    }
-    upsert(xpath, hidden);
-  }
-  return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-    preserveExcludedXpaths: explicitExcluded,
-    preserveIncludedXpaths: explicitIncluded
-  });
+  return { explicitExcluded, explicitIncluded };
 }
 
 function areXPathRowsEqual(left, right) {
@@ -3212,130 +2766,102 @@ async function handleComputeSelectors() {
   const { endpointValue, tokenValue } = credentials;
 
   state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-
-  const pageMarkings = state.currentConfig.pageMarkings || {};
-  const pages = Object.entries(pageMarkings)
-    .map(([url, entry]) => {
-      if (!url || !entry) {
-        return null;
-      }
-      const fullHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
-      const { explicitExcluded, explicitIncluded } = collectExplicitXPathSetsFromEntry(entry);
-      const normalizedPayloadXpaths = collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry);
-      return {
-        url,
-        fullHTML,
-        xpaths: normalizedPayloadXpaths,
-        explicitExcludedXpaths: explicitExcluded,
-        explicitIncludedXpaths: explicitIncluded
-      };
-    });
-
   const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
-  if (currentPageUrl) {
-    const currentPageEntry = pages.find(
-      (entry) => entry && entry.url === currentPageUrl && Array.isArray(entry.xpaths)
-    );
-    if (currentPageEntry) {
-      const liveResponse = await messages.sendTabMessage({
-        type: "collectAiSubmissionXpaths"
-      });
-      if (liveResponse && Array.isArray(liveResponse.xpaths)) {
-        const liveXpaths = liveResponse.xpaths
-          .map((item) => {
-            if (!item || typeof item.xpath !== "string") {
-              return null;
-            }
-            const xpath = item.xpath.trim();
-            if (!xpath) {
-              return null;
-            }
-            return { xpath, excluded: Boolean(item.excluded) };
-          })
-          .filter(Boolean);
-        currentPageEntry.xpaths = normalizePayloadXpaths(liveXpaths, {
-          preserveExcludedXpaths: currentPageEntry.explicitExcludedXpaths,
-          preserveIncludedXpaths: currentPageEntry.explicitIncludedXpaths
-        });
-      }
+  if (!currentPageUrl) {
+    uiModule.showToast("Current page unavailable");
+    return;
+  }
+  const pageMarkings = state.currentConfig.pageMarkings || {};
+  const currentPageEntry = pageMarkings[currentPageUrl];
+  if (!currentPageEntry || typeof currentPageEntry !== "object") {
+    uiModule.showToast("Save the current page before computing selectors");
+    return;
+  }
+  const currentPageHtml =
+    typeof currentPageEntry.fullHTML === "string" ? currentPageEntry.fullHTML : "";
+  if (!currentPageHtml) {
+    uiModule.showToast("Save the current page before computing selectors");
+    return;
+  }
+  const {
+    explicitIncluded: currentExplicitIncludedXpaths
+  } = collectExplicitXPathSetsFromEntry(currentPageEntry);
+  let currentSubmissionXpaths = normalizePayloadXpaths(
+    Array.isArray(currentPageEntry.submissionXpaths) ? currentPageEntry.submissionXpaths : [],
+    {
+      preserveIncludedXpaths: currentExplicitIncludedXpaths
     }
+  );
+  if (!currentSubmissionXpaths.length) {
+    const injectResult = await helpers.injectContentScriptIfNeeded();
+    if (!injectResult.ok) {
+      uiModule.showToast(injectResult.error || "Unable to read current page");
+      return;
+    }
+    if (state.currentTab && state.currentTab.id) {
+      await messages.sendRuntimeMessage({
+        type: "activateContentForTab",
+        tabId: state.currentTab.id
+      });
+    }
+    const liveResponse = await messages.sendTabMessageWithRetry({
+      type: "collectAiSubmissionXpaths"
+    }, 2);
+    if (!liveResponse || !Array.isArray(liveResponse.xpaths)) {
+      uiModule.showToast("Unable to read current page");
+      return;
+    }
+    const liveXpaths = liveResponse.xpaths
+      .map((item) => {
+        if (!item || typeof item.xpath !== "string") {
+          return null;
+        }
+        const xpath = item.xpath.trim();
+        if (!xpath) {
+          return null;
+        }
+        return { xpath, excluded: Boolean(item.excluded) };
+      })
+      .filter(Boolean);
+    currentSubmissionXpaths = normalizePayloadXpaths(liveXpaths, {
+      preserveIncludedXpaths: currentExplicitIncludedXpaths
+    });
+  }
+  currentSubmissionXpaths = normalizePayloadXpaths(currentSubmissionXpaths, {
+    preserveIncludedXpaths: currentExplicitIncludedXpaths
+  });
+  if (!currentSubmissionXpaths.length) {
+    uiModule.showToast("Mark current page before computing selectors");
+    return;
   }
 
-  const persistedPages = pages.filter((entry) => {
-    if (!entry || !entry.url) {
-      return false;
-    }
-    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
-      return false;
-    }
-    return Array.isArray(entry.xpaths);
-  });
-
-  const filteredPages = pages.filter((entry) => {
-    if (!entry || !entry.url) {
-      return false;
-    }
-    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(entry.url, state.currentBaseUrl)) {
-      return false;
-    }
-    return (
-      Array.isArray(entry.xpaths) &&
-      entry.xpaths.length > 0 &&
-      entry.fullHTML
-    );
-  });
-
-  const pageSubmissionXpathsByUrl = new Map(
-    persistedPages.map((entry) => [
-      entry.url,
-      normalizePayloadXpaths(entry.xpaths, {
-        preserveExcludedXpaths: entry.explicitExcludedXpaths,
-        preserveIncludedXpaths: entry.explicitIncludedXpaths
-      })
-    ])
-  );
-  const preserveExcludedXpathsByUrl = new Map(
-    persistedPages.map((entry) => [entry.url, entry.explicitExcludedXpaths])
-  );
-  const preserveIncludedXpathsByUrl = new Map(
-    persistedPages.map((entry) => [entry.url, entry.explicitIncludedXpaths])
-  );
   state.currentConfig = await config.updateConfig(state.currentBaseUrl, (configValue) => {
     if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
       configValue.pageMarkings = {};
     }
-    pageSubmissionXpathsByUrl.forEach((nextXpaths, url) => {
-      if (!url || !Array.isArray(nextXpaths) || !configValue.pageMarkings[url]) {
-        return;
-      }
-      const pageEntry = configValue.pageMarkings[url];
-      const preserveExcludedXpaths = preserveExcludedXpathsByUrl.get(url) || new Set();
-      const preserveIncludedXpaths = preserveIncludedXpathsByUrl.get(url) || new Set();
-      const currentSubmissionXpaths = normalizePayloadXpaths(
-        Array.isArray(pageEntry.submissionXpaths) ? pageEntry.submissionXpaths : [],
-        { preserveExcludedXpaths, preserveIncludedXpaths }
-      );
-      if (areXPathRowsEqual(currentSubmissionXpaths, nextXpaths)) {
-        return;
-      }
-      pageEntry.submissionXpaths = nextXpaths;
-      configValue.pageMarkings[url] = pageEntry;
-    });
+    const pageEntry = configValue.pageMarkings[currentPageUrl];
+    if (!pageEntry) {
+      return;
+    }
+    const existingSubmissionXpaths = normalizePayloadXpaths(
+      Array.isArray(pageEntry.submissionXpaths) ? pageEntry.submissionXpaths : [],
+      { preserveIncludedXpaths: currentExplicitIncludedXpaths }
+    );
+    if (areXPathRowsEqual(existingSubmissionXpaths, currentSubmissionXpaths)) {
+      return;
+    }
+    pageEntry.submissionXpaths = currentSubmissionXpaths;
+    configValue.pageMarkings[currentPageUrl] = pageEntry;
   });
-
-  if (!filteredPages.length) {
-    uiModule.showToast("Mark pages before computing selectors");
-    return;
-  }
 
   const payload = {
     baseUrl: state.currentBaseUrl,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    pages: filteredPages.map((entry) => ({
-      url: entry.url,
-      fullHTML: entry.fullHTML,
-      xpaths: entry.xpaths
-    }))
+    pages: [{
+      url: currentPageUrl,
+      fullHTML: currentPageHtml,
+      xpaths: currentSubmissionXpaths
+    }]
   };
 
   let selectorSet = {

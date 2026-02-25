@@ -180,6 +180,7 @@ async function saveCurrentPageDraft(options) {
   entry.timestamp = config.normalizeEntryTimestamp(entry.timestamp);
   entry.fullHTML = document.documentElement.outerHTML;
   entry.title = document.title || pageUrl;
+  entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   state.config.pageMarkings[pageUrl] = entry;
   try {
     await core.saveConfig(targetBaseUrl, state.config);
