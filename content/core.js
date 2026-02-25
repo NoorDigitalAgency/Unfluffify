@@ -3930,6 +3930,9 @@ export function collectPreviewItems(selectorSet) {
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
   const includedElements = collectSelectorElements(normalized.inclusionSelectors);
   const inclusionContextSet = buildInclusionContextSet(includedElements);
+  // Preview intentionally uses pure inclusion selector matches. This mirrors the
+  // popup's "show what the selectors match" behavior instead of the stricter
+  // semantic inclusion classifier used for other flows.
   const elements = Array.from(includedElements).sort(compareDocumentOrder);
   const rows = [];
   for (const el of elements) {
@@ -3994,6 +3997,10 @@ function getPreviewTextForIncludedElement(
       if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
         continue;
       }
+      // Intentionally do not filter by visibility here: preview text should
+      // reflect the inclusion selector match subtree, even if parts are hidden.
+      // We still honor excluded/immutable subtrees so exclusions remain visible
+      // in preview output semantics.
       if (
         isExcludedNatureElement(
           el,

@@ -2660,10 +2660,16 @@ async function handleComputeSelectors() {
     Array.isArray(currentPageEntry.submissionXpaths) &&
     currentPageEntry.submissionXpaths.length > 0;
   if (!hasCurrentSubmissionXpaths) {
+    // AI compute no longer rebuilds xpaths from stored HTML. The live DOM decides
+    // visibility/hidden/excluded state when the page is saved, and that snapshot
+    // (`submissionXpaths`) becomes the source of truth for later AI requests.
     uiModule.showToast("Save the current page before computing selectors");
     return;
   }
 
+  // Build the AI payload from stored page snapshots only. We intentionally avoid
+  // any compute-time DOM/HTML reclassification here to keep AI input consistent
+  // with the last saved page state.
   const storedPages = Object.entries(pageMarkings)
     .filter(([url, entry]) => {
       if (!url || !entry || typeof entry !== "object") {
@@ -2687,6 +2693,8 @@ async function handleComputeSelectors() {
     }));
 
   if (!storedPages.some((page) => page && page.url === currentPageUrl)) {
+    // Guard against stale state where the current tab exists in `pageMarkings`
+    // but does not yet have the required saved snapshot fields.
     uiModule.showToast("Save the current page before computing selectors");
     return;
   }
@@ -2699,6 +2707,8 @@ async function handleComputeSelectors() {
   const payload = {
     baseUrl: state.currentBaseUrl,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+    // Each page contributes the exact saved HTML + saved xpath rows (`submissionXpaths`)
+    // from when that page was last saved in the extension.
     pages: storedPages
   };
 

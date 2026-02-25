@@ -1638,6 +1638,9 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  // Keep raw inclusion selector matches alongside the classified inclusion list.
+  // Silent highlighting can intentionally render "pure selector matches" (even when
+  // a node would not survive the semantic inclusion/text/visibility classifier).
   const rawIncludedNodes = Array.from(includedMatches.nodes).sort(compareNodeOrder);
   const allRawExcludedNodes = Array.from(excludedMatches.nodes).sort(compareNodeOrder);
   const rawExcludedNodes = preferShallowestExclusions
@@ -1698,8 +1701,12 @@ function collectIncludedNodesFromSelectorSet(selectorSet, options = {}) {
     ? collapseToShallowestWithOppositeBoundary(combinedExcluded, explicitIncludedSet)
     : selectorExcluded.slice().sort(compareNodeOrder);
   return {
+    // Semantic/classified inclusion/exclusion sets used by exclusion logic and
+    // other behavior that depends on renderable content semantics.
     included,
     excluded,
+    // Raw selector matches are returned separately so callers can choose pure CSS
+    // selector existence behavior (e.g. silent inclusion highlighting).
     rawIncludedMatched: rawIncludedNodes,
     rawExcludedMatched: allRawExcludedNodes,
     inclusionSelectorByNode: includedMatches.selectorByNode,
@@ -1921,6 +1928,8 @@ function collectAiSubmissionXpathsForCurrentPage() {
       ? rowIndexByXpath.get(xpath)
       : -1;
     if (existingIndex >= 0) {
+      // `excluded: true` wins for duplicate xpaths so a later hidden/excluded
+      // determination cannot be accidentally downgraded by an earlier include row.
       if (excluded) {
         rows[existingIndex] = { xpath, excluded: true };
       }
@@ -2000,6 +2009,9 @@ function collectAiSubmissionXpathsForCurrentPage() {
     }
     const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
     const insideExplicitExcludedParent = hasExplicitlyExcludedAncestor(xpath);
+    // Descendants of an explicitly excluded subtree are omitted by default to
+    // keep the saved payload shallow and stable. The only exception is an
+    // explicit include override on that descendant.
     if (insideExplicitExcludedParent && !explicitlyIncluded) {
       continue;
     }
@@ -2154,6 +2166,9 @@ async function refreshSilentHighlightings() {
           ? contentMarking.rawIncludedMatched
           : (Array.isArray(contentMarking.included) ? contentMarking.included : []);
       if (visibility.includedContent) {
+        // In silent mode, included-content highlighting is intentionally based on
+        // raw inclusion selector matches (DOM existence only), not the semantic
+        // inclusion classifier used for exclusion traversal/AI semantics.
         const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
           includedSourcesForSilentOverlay,
           (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
