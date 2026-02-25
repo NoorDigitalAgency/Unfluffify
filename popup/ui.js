@@ -86,12 +86,8 @@ const initialViewState = {
   aiControlsHidden: true,
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
-  mobileSimulationRequiredVisible: false,
-  mobileSimulationRequiredText: "",
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",
-  submitMobileSimulationRequiredVisible: false,
-  submitMobileSimulationRequiredText: "",
   computeButtonText: "Decide Content",
   computeButtonDisabled: true,
   computeButtonLoading: false,
@@ -842,16 +838,6 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
         "Preview Latest"
       ),
       h("div", { class: "section-divider", role: "separator" }),
-      view.submitMobileSimulationRequiredVisible &&
-        h(
-          "div",
-          {
-            class: "notice",
-            role: "status",
-            "aria-live": "polite"
-          },
-          view.submitMobileSimulationRequiredText
-        ),
       h(
         "button",
         {

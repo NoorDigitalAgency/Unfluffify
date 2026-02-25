@@ -22,8 +22,6 @@ const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
-const MOBILE_SIMULATION_REQUIRED_FOR_SUBMIT_MESSAGE =
-  "Mobile simulation must be enabled to submit to the server.";
 const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
@@ -124,14 +122,14 @@ function isMobileSimulationActive(deviceState) {
   return Boolean(deviceState.enabled) && deviceState.mode === "mobile";
 }
 
-function ensureMobileSimulationForActions() {
+function ensureMobileSimulationForSave() {
   if (isMobileSimulationActive({
     enabled: state.currentDeviceEmulationEnabled,
     mode: state.currentDeviceMode
   })) {
     return true;
   }
-  uiModule.showToast(MOBILE_SIMULATION_REQUIRED_MESSAGE);
+  uiModule.showToast(MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE);
   return false;
 }
 
@@ -331,6 +329,7 @@ async function resolveSiteIdFromGraphql(options = {}) {
         }
       })
     });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     let data = null;
     try {
       data = await response.json();
@@ -501,6 +500,25 @@ function createConfigSyncHeaders(token) {
   return headers;
 }
 
+async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
+  if (!response || !response.headers || typeof response.headers.get !== "function") {
+    return currentToken || "";
+  }
+  const updatedToken = (response.headers.get("x-update-token") || "").trim();
+  if (!updatedToken) {
+    return currentToken || "";
+  }
+  if (updatedToken === (currentToken || "")) {
+    return updatedToken;
+  }
+  try {
+    await utils.storageSet(chrome.storage.sync, { globalToken: updatedToken });
+  } catch {
+    // Ignore storage update errors so the calling request flow continues.
+  }
+  return updatedToken;
+}
+
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
     return new Date(value).toLocaleTimeString();
@@ -634,6 +652,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       headers: createConfigSyncHeaders(tokenValue),
       body: JSON.stringify({ siteId })
     });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     if (response.status === 404) {
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
@@ -699,17 +718,30 @@ async function syncBaseConfigToServer(options = {}) {
   const attempts = Math.max(1, Number(maxAttempts) || 1);
   let retryDelayMs = 1500;
   let lastStatus = 0;
+  let currentTokenValue = tokenValue || "";
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const allConfigs = await config.getConfigs();
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl,
       stageBase,
-      tokenValue,
+      tokenValue: currentTokenValue,
       configs: allConfigs
     });
     if (!siteIdResult.ok || !siteIdResult.siteId) {
       return { ok: false, skipped: true, reason: siteIdResult.reason || "Missing siteId" };
+    }
+    try {
+      const latestStoredToken = await utils.storageGet(chrome.storage.sync, "globalToken");
+      const refreshedToken =
+        latestStoredToken && typeof latestStoredToken.globalToken === "string"
+          ? latestStoredToken.globalToken.trim()
+          : "";
+      if (refreshedToken) {
+        currentTokenValue = refreshedToken;
+      }
+    } catch {
+      // Ignore token refresh read errors; continue with the current in-memory token.
     }
     const normalized = config.normalizeConfig(baseUrl, allConfigs[baseUrl]);
     const sourceConfig = normalized.config;
@@ -721,9 +753,13 @@ async function syncBaseConfigToServer(options = {}) {
     try {
       const response = await fetch(saveUrl, {
         method: "POST",
-        headers: createConfigSyncHeaders(tokenValue),
+        headers: createConfigSyncHeaders(currentTokenValue),
         body: JSON.stringify(payload)
       });
+      currentTokenValue = await maybeUpdateStoredTokenFromResponse(
+        response,
+        currentTokenValue
+      );
       if (!response.ok) {
         lastStatus = response.status || 0;
         if (attempt + 1 < attempts) {
@@ -835,6 +871,7 @@ async function validateStoredToken(options = {}) {
       await invalidateTokenAndLockConfiguration(showToastOnInvalid);
       return false;
     }
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     return true;
   } catch (error) {
     return true;
@@ -1989,8 +2026,7 @@ async function refreshUiInner() {
     aiBusy ||
     !aiReady ||
     !selectorsReadyForSubmit ||
-    aiBlockedByDraft ||
-    mobileSimulationBlocked;
+    aiBlockedByDraft;
   nextViewState.previewLatestButtonDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -1999,18 +2035,6 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
-  nextViewState.mobileSimulationRequiredVisible = false;
-  nextViewState.mobileSimulationRequiredText = "";
-  nextViewState.submitMobileSimulationRequiredVisible =
-    mobileSimulationBlocked &&
-    !uiDisabledForUnsupportedPage &&
-    aiControlsVisible &&
-    !aiBusy &&
-    aiReady &&
-    !aiBlockedByDraft &&
-    selectorsReadyForSubmit;
-  nextViewState.submitMobileSimulationRequiredText =
-    MOBILE_SIMULATION_REQUIRED_FOR_SUBMIT_MESSAGE;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -2867,6 +2891,7 @@ async function handleLoginAction() {
       },
       body: JSON.stringify({ email, password })
     });
+    await maybeUpdateStoredTokenFromResponse(response, "");
     let payload = null;
     try {
       payload = await response.json();
@@ -2925,7 +2950,7 @@ async function handlePageSave() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  if (!ensureMobileSimulationForActions()) {
+  if (!ensureMobileSimulationForSave()) {
     return;
   }
   const response = await messages.sendTabMessage({
@@ -3179,6 +3204,7 @@ async function handleComputeSelectors() {
       },
       body: JSON.stringify(payload)
     });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     if (!response.ok) {
       uiModule.showToast("Endpoint response error");
       return;
@@ -3227,9 +3253,6 @@ async function handleSaveExcludes() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  if (!ensureMobileSimulationForActions()) {
-    return;
-  }
   if (state.currentDraftDirty) {
     uiModule.showToast("Save the current page before using AI controls");
     return;
@@ -3273,12 +3296,17 @@ async function handleSaveExcludes() {
   }
   const includeCss = selectorSet.inclusionSelectors.join(", ");
   const excludeCss = selectorSet.exclusionSelectors.join(", ");
+  const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
+  const submitTokenValue =
+    (latestTokenStored && typeof latestTokenStored.globalToken === "string"
+      ? latestTokenStored.globalToken
+      : "") || tokenValue;
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
     const response = await fetch(graphqlEndpoint, {
       method: "POST",
-      headers: createConfigSyncHeaders(tokenValue),
+      headers: createConfigSyncHeaders(submitTokenValue),
       body: JSON.stringify({
         query: UPDATE_SCRAPING_CONDITIONS_MUTATION,
         variables: {
@@ -3288,6 +3316,7 @@ async function handleSaveExcludes() {
         }
       })
     });
+    await maybeUpdateStoredTokenFromResponse(response, submitTokenValue);
     let payload = null;
     try {
       payload = await response.json();
