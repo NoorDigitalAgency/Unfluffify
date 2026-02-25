@@ -300,7 +300,8 @@ function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
   if (!pathname) {
     pathname = "/";
   }
-  return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+  const normalized = `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+  return utils.normalizeCanonicalBaseUrl(normalized) || normalized;
 }
 
 async function resolveSiteIdFromGraphql(options = {}) {

@@ -114,12 +114,37 @@ export function normalizeBaseUrl(value) {
   if (!parsed) {
     return "";
   }
-  const hostname = (parsed.hostname || "").toLowerCase();
+  const rawHostname = (parsed.hostname || "").toLowerCase();
+  const hostname =
+    rawHostname.startsWith("www.") && rawHostname.length > 4
+      ? rawHostname.slice(4)
+      : rawHostname;
   if (!hostname) {
     return "";
   }
   const pathname = normalizePathForMatch(parsed.pathname);
   return `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+}
+
+export function normalizeCanonicalBaseUrl(value) {
+  const normalized = normalizeBaseUrl(value);
+  if (!normalized) {
+    return "";
+  }
+  const parsed = parseHttpUrl(normalized);
+  if (!parsed) {
+    return normalized;
+  }
+  const hostname = (parsed.hostname || "").toLowerCase();
+  if (!hostname) {
+    return normalized;
+  }
+  const canonicalHostname =
+    hostname.startsWith("www.") && hostname.length > 4
+      ? hostname.slice(4)
+      : hostname;
+  const pathname = normalizePathForMatch(parsed.pathname);
+  return `${parsed.protocol}//${canonicalHostname}${pathname === "/" ? "" : pathname}`;
 }
 
 function normalizeBaseMatchHostname(hostname) {

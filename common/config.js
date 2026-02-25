@@ -1,4 +1,9 @@
-import { idbGet, idbSet, normalizeBaseUrl } from "./utilities.js";
+import {
+  idbGet,
+  idbSet,
+  normalizeBaseUrl,
+  normalizeCanonicalBaseUrl
+} from "./utilities.js";
 
 const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
@@ -357,7 +362,11 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
 }
 
 export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
-  const normalizedFallbackBaseUrl = normalizeBaseUrl(fallbackBaseUrl) || fallbackBaseUrl || "";
+  const normalizedFallbackBaseUrl =
+    normalizeCanonicalBaseUrl(fallbackBaseUrl) ||
+    normalizeBaseUrl(fallbackBaseUrl) ||
+    fallbackBaseUrl ||
+    "";
   if (!payload || typeof payload !== "object") {
     return {
       version: SERVER_SYNC_VERSION,
@@ -367,6 +376,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
     };
   }
   const baseUrl =
+    normalizeCanonicalBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizeBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizedFallbackBaseUrl;
   const normalizedMarkings = normalizePageMarkings(payload.pageMarkings);
@@ -382,7 +392,10 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
 }
 
 export function createConfigSyncPayload(baseUrl, sourceConfig) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  const normalizedBaseUrl =
+    normalizeCanonicalBaseUrl(baseUrl) ||
+    normalizeBaseUrl(baseUrl) ||
+    (typeof baseUrl === "string" ? baseUrl : "");
   const normalized = normalizeConfig(normalizedBaseUrl, sourceConfig).config;
   const pageMarkings = normalized.pageMarkings || {};
   const payloadMarkings = {};
