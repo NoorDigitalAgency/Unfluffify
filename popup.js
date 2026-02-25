@@ -1059,133 +1059,6 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.lastSavedSelectors);
 }
 
-function getXPathDepth(xpath) {
-  if (typeof xpath !== "string" || !xpath) {
-    return 0;
-  }
-  return xpath.split("/").filter(Boolean).length;
-}
-
-function getNearestAncestorStatus(xpath, statusByXpath) {
-  if (!xpath || !statusByXpath || statusByXpath.size === 0) {
-    return null;
-  }
-  const parts = xpath.split("/").filter(Boolean);
-  for (let i = parts.length - 1; i > 0; i -= 1) {
-    const ancestor = `/${parts.slice(0, i).join("/")}`;
-    if (statusByXpath.has(ancestor)) {
-      return statusByXpath.get(ancestor);
-    }
-  }
-  return null;
-}
-
-function normalizePayloadXpaths(items, options = {}) {
-  const preserveIncludedXpaths =
-    options && options.preserveIncludedXpaths instanceof Set
-      ? options.preserveIncludedXpaths
-      : new Set();
-  const rawItems = Array.isArray(items) ? items : [];
-  const deduped = [];
-  const seen = new Set();
-  for (let i = rawItems.length - 1; i >= 0; i -= 1) {
-    const item = rawItems[i];
-    const xpath =
-      item && typeof item.xpath === "string" ? item.xpath.trim() : "";
-    if (!xpath || seen.has(xpath)) {
-      continue;
-    }
-    seen.add(xpath);
-    deduped.unshift({ xpath, excluded: Boolean(item.excluded) });
-  }
-
-  const sorted = deduped
-    .map((item, index) => ({ ...item, index, depth: getXPathDepth(item.xpath) }))
-    .sort((left, right) => {
-      const depthDiff = left.depth - right.depth;
-      if (depthDiff !== 0) {
-        return depthDiff;
-      }
-      return left.index - right.index;
-    });
-
-  const statusByXpath = new Map();
-  const redundantXpaths = new Set();
-  sorted.forEach((item) => {
-    const nearestAncestorStatus = getNearestAncestorStatus(item.xpath, statusByXpath);
-    // Collapse descendants under excluded ancestors.
-    // Exception: explicitly included descendants are allowed to pierce an excluded ancestor.
-    if (
-      nearestAncestorStatus === true &&
-      (item.excluded || !preserveIncludedXpaths.has(item.xpath))
-    ) {
-      redundantXpaths.add(item.xpath);
-      return;
-    }
-    statusByXpath.set(item.xpath, item.excluded);
-  });
-
-  return deduped.filter((item) => !redundantXpaths.has(item.xpath));
-}
-
-function collectExplicitXPathSetsFromEntry(entry) {
-  const explicitExcluded = new Set();
-  const explicitIncluded = new Set();
-  if (!entry || typeof entry !== "object") {
-    return { explicitExcluded, explicitIncluded };
-  }
-  const normalizeXPath = (value) =>
-    typeof value === "string" ? value.trim() : "";
-  const rows = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  rows.forEach((item) => {
-    if (!item || typeof item.xpath !== "string") {
-      return;
-    }
-    const xpath = normalizeXPath(item.xpath);
-    if (!xpath) {
-      return;
-    }
-    if (item.excluded) {
-      explicitExcluded.add(xpath);
-    }
-  });
-  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-  includeXpaths.forEach((xpath) => {
-    const normalized = normalizeXPath(xpath);
-    if (normalized) {
-      explicitIncluded.add(normalized);
-    }
-  });
-  const consentXpaths = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
-  consentXpaths.forEach((xpath) => {
-    const normalized = normalizeXPath(xpath);
-    if (!normalized) {
-      return;
-    }
-    explicitExcluded.add(normalized);
-  });
-  return { explicitExcluded, explicitIncluded };
-}
-
-function areXPathRowsEqual(left, right) {
-  const a = Array.isArray(left) ? left : [];
-  const b = Array.isArray(right) ? right : [];
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    const aItem = a[i];
-    const bItem = b[i];
-    if (!aItem || !bItem) {
-      return false;
-    }
-    if (aItem.xpath !== bItem.xpath || Boolean(aItem.excluded) !== Boolean(bItem.excluded)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function getSilentHighlightVisibility() {
   return {
     markedPages: state.silentHighlightShowMarkedPages !== false,
@@ -2783,85 +2656,50 @@ async function handleComputeSelectors() {
     uiModule.showToast("Save the current page before computing selectors");
     return;
   }
-  const {
-    explicitIncluded: currentExplicitIncludedXpaths
-  } = collectExplicitXPathSetsFromEntry(currentPageEntry);
-  let currentSubmissionXpaths = normalizePayloadXpaths(
-    Array.isArray(currentPageEntry.submissionXpaths) ? currentPageEntry.submissionXpaths : [],
-    {
-      preserveIncludedXpaths: currentExplicitIncludedXpaths
-    }
-  );
-  if (!currentSubmissionXpaths.length) {
-    const injectResult = await helpers.injectContentScriptIfNeeded();
-    if (!injectResult.ok) {
-      uiModule.showToast(injectResult.error || "Unable to read current page");
-      return;
-    }
-    if (state.currentTab && state.currentTab.id) {
-      await messages.sendRuntimeMessage({
-        type: "activateContentForTab",
-        tabId: state.currentTab.id
-      });
-    }
-    const liveResponse = await messages.sendTabMessageWithRetry({
-      type: "collectAiSubmissionXpaths"
-    }, 2);
-    if (!liveResponse || !Array.isArray(liveResponse.xpaths)) {
-      uiModule.showToast("Unable to read current page");
-      return;
-    }
-    const liveXpaths = liveResponse.xpaths
-      .map((item) => {
-        if (!item || typeof item.xpath !== "string") {
-          return null;
-        }
-        const xpath = item.xpath.trim();
-        if (!xpath) {
-          return null;
-        }
-        return { xpath, excluded: Boolean(item.excluded) };
-      })
-      .filter(Boolean);
-    currentSubmissionXpaths = normalizePayloadXpaths(liveXpaths, {
-      preserveIncludedXpaths: currentExplicitIncludedXpaths
-    });
-  }
-  currentSubmissionXpaths = normalizePayloadXpaths(currentSubmissionXpaths, {
-    preserveIncludedXpaths: currentExplicitIncludedXpaths
-  });
-  if (!currentSubmissionXpaths.length) {
-    uiModule.showToast("Mark current page before computing selectors");
+  const hasCurrentSubmissionXpaths =
+    Array.isArray(currentPageEntry.submissionXpaths) &&
+    currentPageEntry.submissionXpaths.length > 0;
+  if (!hasCurrentSubmissionXpaths) {
+    uiModule.showToast("Save the current page before computing selectors");
     return;
   }
 
-  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (configValue) => {
-    if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
-      configValue.pageMarkings = {};
-    }
-    const pageEntry = configValue.pageMarkings[currentPageUrl];
-    if (!pageEntry) {
-      return;
-    }
-    const existingSubmissionXpaths = normalizePayloadXpaths(
-      Array.isArray(pageEntry.submissionXpaths) ? pageEntry.submissionXpaths : [],
-      { preserveIncludedXpaths: currentExplicitIncludedXpaths }
-    );
-    if (areXPathRowsEqual(existingSubmissionXpaths, currentSubmissionXpaths)) {
-      return;
-    }
-    pageEntry.submissionXpaths = currentSubmissionXpaths;
-    configValue.pageMarkings[currentPageUrl] = pageEntry;
-  });
+  const storedPages = Object.entries(pageMarkings)
+    .filter(([url, entry]) => {
+      if (!url || !entry || typeof entry !== "object") {
+        return false;
+      }
+      if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
+        return false;
+      }
+      if (typeof entry.fullHTML !== "string" || !entry.fullHTML) {
+        return false;
+      }
+      if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
+        return false;
+      }
+      return true;
+    })
+    .map(([url, entry]) => ({
+      url,
+      fullHTML: entry.fullHTML,
+      xpaths: entry.submissionXpaths
+    }));
+
+  if (!storedPages.some((page) => page && page.url === currentPageUrl)) {
+    uiModule.showToast("Save the current page before computing selectors");
+    return;
+  }
+
+  if (!storedPages.length) {
+    uiModule.showToast("Save pages before computing selectors");
+    return;
+  }
 
   const payload = {
     baseUrl: state.currentBaseUrl,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    pages: [{
-      url: currentPageUrl,
-      fullHTML: currentPageHtml,
-      xpaths: currentSubmissionXpaths
-    }]
+    pages: storedPages
   };
 
   let selectorSet = {

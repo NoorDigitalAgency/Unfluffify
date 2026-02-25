@@ -164,8 +164,16 @@ async function saveCurrentPageDraft(options) {
     return { ok: false };
   }
   const pageUrl = location.href;
-  const hasSavedEntry = Boolean(core.getSavedPageEntry(pageUrl));
-  if (!core.isPageDraftDirty(pageUrl) && hasSavedEntry) {
+  const savedEntry = core.getSavedPageEntry(pageUrl);
+  const hasSavedEntry = Boolean(savedEntry);
+  const savedEntryHasAiSubmissionData = Boolean(
+    savedEntry &&
+    typeof savedEntry.fullHTML === "string" &&
+    savedEntry.fullHTML &&
+    Array.isArray(savedEntry.submissionXpaths) &&
+    savedEntry.submissionXpaths.length > 0
+  );
+  if (!core.isPageDraftDirty(pageUrl) && hasSavedEntry && savedEntryHasAiSubmissionData) {
     if (showToast) {
       showPageToast("No changes to save");
     }
