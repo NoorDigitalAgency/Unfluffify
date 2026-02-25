@@ -1543,7 +1543,21 @@ async function refreshUiInner() {
           savedEntry.consentXpaths.length > 0) ||
         (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
   );
+  const hasSavedAiSubmissionSnapshot = Boolean(
+    savedEntry &&
+      typeof savedEntry.fullHTML === "string" &&
+      savedEntry.fullHTML.length > 0 &&
+      Array.isArray(savedEntry.submissionXpaths) &&
+      savedEntry.submissionXpaths.length > 0
+  );
   const aiBlockedByDraft = state.currentDraftDirty;
+  const aiBlockedByMissingSavedSnapshot =
+    isEnabled &&
+    baseUrlReady &&
+    siteIdReady &&
+    state.currentDraftAvailable &&
+    !state.currentDraftDirty &&
+    !hasSavedAiSubmissionSnapshot;
 
   let resolvedView =
     state.currentView ||
@@ -1582,7 +1596,8 @@ async function refreshUiInner() {
     uiDisabledForUnsupportedPage ||
     aiBusy ||
     !aiReady ||
-    aiBlockedByDraft;
+    aiBlockedByDraft ||
+    aiBlockedByMissingSavedSnapshot;
   nextViewState.saveExcludesButtonDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -1647,7 +1662,7 @@ async function refreshUiInner() {
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiControlsBusy = aiBusy;
-  nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft;
+  nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
   nextViewState.cssSelectorsVisible =
     !uiDisabledForUnsupportedPage && resolvedView === uiModule.View.Marking;
   const highlightingMode =
