@@ -1930,8 +1930,6 @@ function collectAiSubmissionXpathsForCurrentPage() {
     }
     if (item.excluded) {
       explicitExcludedXpaths.add(xpath);
-    } else {
-      explicitIncludedXpaths.add(xpath);
     }
   });
   (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {

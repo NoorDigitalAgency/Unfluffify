@@ -1081,9 +1081,9 @@ function getNearestAncestorStatus(xpath, statusByXpath) {
 }
 
 function normalizePayloadXpaths(items, options = {}) {
-  const preserveExcludedXpaths =
-    options && options.preserveExcludedXpaths instanceof Set
-      ? options.preserveExcludedXpaths
+  const preserveIncludedXpaths =
+    options && options.preserveIncludedXpaths instanceof Set
+      ? options.preserveIncludedXpaths
       : new Set();
   const rawItems = Array.isArray(items) ? items : [];
   const deduped = [];
@@ -1113,12 +1113,12 @@ function normalizePayloadXpaths(items, options = {}) {
   const redundantXpaths = new Set();
   sorted.forEach((item) => {
     const nearestAncestorStatus = getNearestAncestorStatus(item.xpath, statusByXpath);
-    if (item.excluded && preserveExcludedXpaths.has(item.xpath)) {
-      statusByXpath.set(item.xpath, true);
-      return;
-    }
-    // Keep all included descendants, but collapse excluded descendants under excluded ancestors.
-    if (item.excluded && nearestAncestorStatus === true) {
+    // Collapse descendants under excluded ancestors.
+    // Exception: explicitly included descendants are allowed to pierce an excluded ancestor.
+    if (
+      nearestAncestorStatus === true &&
+      (item.excluded || !preserveIncludedXpaths.has(item.xpath))
+    ) {
       redundantXpaths.add(item.xpath);
       return;
     }
@@ -1493,8 +1493,6 @@ function collectExplicitXPathSetsFromEntry(entry) {
     }
     if (item.excluded) {
       explicitExcluded.add(xpath);
-    } else {
-      explicitIncluded.add(xpath);
     }
   });
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
@@ -1554,7 +1552,8 @@ function collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry) {
 
   if (typeof fullHTML !== "string" || !fullHTML.trim()) {
     return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-      preserveExcludedXpaths: explicitExcluded
+      preserveExcludedXpaths: explicitExcluded,
+      preserveIncludedXpaths: explicitIncluded
     });
   }
   let doc = null;
@@ -1565,7 +1564,8 @@ function collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry) {
   }
   if (!doc || !doc.body) {
     return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-      preserveExcludedXpaths: explicitExcluded
+      preserveExcludedXpaths: explicitExcluded,
+      preserveIncludedXpaths: explicitIncluded
     });
   }
 
@@ -1601,13 +1601,15 @@ function collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry) {
     }
     const hidden = isStaticNodeOrAncestorHidden(el);
     if (explicitlyIncluded) {
-      upsert(xpath, hidden);
+      // Explicit includes are user overrides and should survive hidden ancestors.
+      upsert(xpath, false);
       continue;
     }
     upsert(xpath, hidden);
   }
   return normalizePayloadXpaths(Array.from(rowsByXpath.values()), {
-    preserveExcludedXpaths: explicitExcluded
+    preserveExcludedXpaths: explicitExcluded,
+    preserveIncludedXpaths: explicitIncluded
   });
 }
 
@@ -3218,13 +3220,14 @@ async function handleComputeSelectors() {
         return null;
       }
       const fullHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
-      const { explicitExcluded } = collectExplicitXPathSetsFromEntry(entry);
+      const { explicitExcluded, explicitIncluded } = collectExplicitXPathSetsFromEntry(entry);
       const normalizedPayloadXpaths = collectAiSubmissionXpathsFromHtmlEntry(fullHTML, entry);
       return {
         url,
         fullHTML,
         xpaths: normalizedPayloadXpaths,
-        explicitExcludedXpaths: explicitExcluded
+        explicitExcludedXpaths: explicitExcluded,
+        explicitIncludedXpaths: explicitIncluded
       };
     });
 
@@ -3251,7 +3254,8 @@ async function handleComputeSelectors() {
           })
           .filter(Boolean);
         currentPageEntry.xpaths = normalizePayloadXpaths(liveXpaths, {
-          preserveExcludedXpaths: currentPageEntry.explicitExcludedXpaths
+          preserveExcludedXpaths: currentPageEntry.explicitExcludedXpaths,
+          preserveIncludedXpaths: currentPageEntry.explicitIncludedXpaths
         });
       }
     }
@@ -3285,12 +3289,16 @@ async function handleComputeSelectors() {
     persistedPages.map((entry) => [
       entry.url,
       normalizePayloadXpaths(entry.xpaths, {
-        preserveExcludedXpaths: entry.explicitExcludedXpaths
+        preserveExcludedXpaths: entry.explicitExcludedXpaths,
+        preserveIncludedXpaths: entry.explicitIncludedXpaths
       })
     ])
   );
   const preserveExcludedXpathsByUrl = new Map(
     persistedPages.map((entry) => [entry.url, entry.explicitExcludedXpaths])
+  );
+  const preserveIncludedXpathsByUrl = new Map(
+    persistedPages.map((entry) => [entry.url, entry.explicitIncludedXpaths])
   );
   state.currentConfig = await config.updateConfig(state.currentBaseUrl, (configValue) => {
     if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
@@ -3302,9 +3310,10 @@ async function handleComputeSelectors() {
       }
       const pageEntry = configValue.pageMarkings[url];
       const preserveExcludedXpaths = preserveExcludedXpathsByUrl.get(url) || new Set();
+      const preserveIncludedXpaths = preserveIncludedXpathsByUrl.get(url) || new Set();
       const currentSubmissionXpaths = normalizePayloadXpaths(
         Array.isArray(pageEntry.submissionXpaths) ? pageEntry.submissionXpaths : [],
-        { preserveExcludedXpaths }
+        { preserveExcludedXpaths, preserveIncludedXpaths }
       );
       if (areXPathRowsEqual(currentSubmissionXpaths, nextXpaths)) {
         return;
