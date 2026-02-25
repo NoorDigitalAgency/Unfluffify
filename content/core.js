@@ -4031,7 +4031,13 @@ export function handleScroll(event) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
-  const hideDuringScroll = isViewportScrollEvent(event);
+  const isViewportScroll = isViewportScrollEvent(event);
+  if (!isViewportScroll) {
+    // Nested scroll containers (carousels, internal panes) should not trigger a
+    // full overlay redraw. This avoids flicker/redraw storms unrelated to page scroll.
+    return;
+  }
+  const hideDuringScroll = isViewportScroll;
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
     state.overlay.classList.add("uf-scrolling");

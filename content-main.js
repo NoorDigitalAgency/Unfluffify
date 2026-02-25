@@ -608,6 +608,24 @@ function scheduleSilentHighlightReposition() {
   }, SILENT_SCROLL_REPOSITION_DEBOUNCE_MS);
 }
 
+function isViewportScrollEvent(event) {
+  if (!event) {
+    return true;
+  }
+  const target = event.target;
+  const currentTarget = event.currentTarget;
+  if (
+    currentTarget === window ||
+    target === window ||
+    target === document ||
+    target === document.documentElement ||
+    target === document.body
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function clearLegacySilentHighlightingAttributes() {
   if (silentHighlightLegacyAttrsCleaned) {
     return;
@@ -2840,6 +2858,9 @@ export function main() {
   const handleSilentOrMarkingScroll = (event) => {
     if (state.enabled) {
       core.handleScroll(event);
+      return;
+    }
+    if (!isViewportScrollEvent(event)) {
       return;
     }
     scheduleSilentHighlightReposition();
