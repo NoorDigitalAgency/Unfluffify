@@ -844,6 +844,178 @@ function collectSelectorElements(selectors) {
   return elements;
 }
 
+function seedMarkingsFromAiSelectorsForUnmarkedPage(
+  configValue,
+  pageUrl,
+  selectorSet,
+  immutableExcluded
+) {
+  if (!configValue || !pageUrl) {
+    return { createdEntry: false, changed: false };
+  }
+  if (hasPageMarkingEntry(configValue, pageUrl)) {
+    return { createdEntry: false, changed: false };
+  }
+  const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
+  if (combineAiSelectorSet(normalizedSelectorSet).length === 0) {
+    return { createdEntry: false, changed: false };
+  }
+
+  const entry = getPageMarkingEntry(configValue, pageUrl, { create: true, persist: true });
+  const items = Array.isArray(entry.xpaths) ? entry.xpaths.slice() : [];
+  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths.slice() : [];
+  let changed = false;
+
+  const removeItemByXpath = (xpath) => {
+    let removed = false;
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item && item.xpath === xpath) {
+        items.splice(i, 1);
+        removed = true;
+      }
+    }
+    if (removed) {
+      changed = true;
+    }
+    return removed;
+  };
+
+  const removeIncludeByXpath = (xpath) => {
+    let removed = false;
+    for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+      if (includeXpaths[i] === xpath) {
+        includeXpaths.splice(i, 1);
+        removed = true;
+      }
+    }
+    if (removed) {
+      changed = true;
+    }
+    return removed;
+  };
+
+  const removeDescendants = (xpath) => {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (!item || !item.xpath || item.xpath === xpath) {
+        continue;
+      }
+      if (isXPathDescendant(xpath, item.xpath)) {
+        items.splice(i, 1);
+        changed = true;
+      }
+    }
+    for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+      const childXpath = includeXpaths[i];
+      if (!childXpath || childXpath === xpath) {
+        continue;
+      }
+      if (isXPathDescendant(xpath, childXpath)) {
+        includeXpaths.splice(i, 1);
+        changed = true;
+      }
+    }
+  };
+
+  const getExplicitExcludeXPathSet = () =>
+    new Set(
+      items
+        .filter((item) => item && item.xpath && item.excluded)
+        .map((item) => item.xpath)
+    );
+
+  const setExplicitExclude = (xpath) => {
+    let targetItem = items.find((item) => item && item.xpath === xpath);
+    if (!targetItem) {
+      items.push({ xpath, excluded: true });
+      changed = true;
+      return;
+    }
+    if (!targetItem.excluded) {
+      targetItem.excluded = true;
+      changed = true;
+    }
+  };
+
+  const excludedMatches = Array.from(
+    collectSelectorElements(normalizedSelectorSet.exclusionSelectors)
+  )
+    .filter((el) =>
+      el &&
+      el.nodeType === 1 &&
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      !isWithinExtensionUi(el) &&
+      !isWithinElementSet(el, immutableExcluded || new Set())
+    )
+    .sort((left, right) => {
+      const depthDiff = getElementDepth(left) - getElementDepth(right);
+      if (depthDiff !== 0) {
+        return depthDiff;
+      }
+      return compareDocumentOrder(left, right);
+    });
+
+  for (const el of excludedMatches) {
+    const xpath = getXPath(el);
+    if (!xpath) {
+      continue;
+    }
+    const explicitExcludeSet = getExplicitExcludeXPathSet();
+    if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
+      continue;
+    }
+    removeIncludeByXpath(xpath);
+    removeItemByXpath(xpath);
+    removeDescendants(xpath);
+    setExplicitExclude(xpath);
+  }
+
+  const includedMatches = Array.from(
+    collectSelectorElements(normalizedSelectorSet.inclusionSelectors)
+  )
+    .filter((el) =>
+      el &&
+      el.nodeType === 1 &&
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      !isWithinExtensionUi(el) &&
+      !isWithinElementSet(el, immutableExcluded || new Set())
+    )
+    .sort(compareDocumentOrder);
+
+  for (const el of includedMatches) {
+    const xpath = getXPath(el);
+    if (!xpath) {
+      continue;
+    }
+    const entryOverride = {
+      ...entry,
+      xpaths: items,
+      includeXpaths
+    };
+    if (!canApplyExplicitInclude(el, configValue, pageUrl, entryOverride)) {
+      continue;
+    }
+    removeItemByXpath(xpath);
+    if (!includeXpaths.includes(xpath)) {
+      includeXpaths.push(xpath);
+      changed = true;
+    }
+    removeDescendants(xpath);
+  }
+
+  entry.xpaths = items;
+  entry.includeXpaths = includeXpaths;
+  normalizePageEntryXpaths(entry);
+  if (changed) {
+    touchPageEntryTimestamp(entry);
+  }
+  configValue.pageMarkings[pageUrl] = entry;
+  return { createdEntry: true, changed };
+}
+
 function isRawSelectorExcludedElement(el, excludedElements, includedElements) {
   return isWithinElementSet(el, excludedElements) && !isWithinElementSet(el, includedElements);
 }
@@ -3018,7 +3190,27 @@ function renderHighlightsInner() {
 
   const immutableExcluded = collectImmutableElements();
   const pageUrl = location.href;
-  const hasEntry = hasPageMarkingEntry(state.config, pageUrl);
+  const latestComputedSelectorSet = normalizeAiSelectorSet(state.config.latestComputedSelectors);
+  const latestCombinedSelectors = combineAiSelectorSet(latestComputedSelectorSet);
+  const storedSelectorSet = normalizeAiSelectorSet(state.config.domainAiSelectorSet);
+  const normalizedAiSelectorSet = latestCombinedSelectors.length
+    ? latestComputedSelectorSet
+    : storedSelectorSet;
+  const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
+  let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
+  let autoSeededFromAiSelectors = false;
+  if (!hasEntry && hasAiSelectors) {
+    const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
+      state.config,
+      pageUrl,
+      normalizedAiSelectorSet,
+      immutableExcluded
+    );
+    if (seeded.createdEntry) {
+      hasEntry = true;
+      autoSeededFromAiSelectors = true;
+    }
+  }
   const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
     allowCreate: hasEntry,
     persist: hasEntry
@@ -3044,12 +3236,46 @@ function renderHighlightsInner() {
   };
   let aiContent = new Set();
   let aiExcludedDescendants = new Set();
-  // Marking mode intentionally does not pre-mark from stored/calculated CSS selectors.
-  // It should only render:
-  // 1) saved markings that still resolve to live elements
-  // 2) default markable targets for the current DOM
-  // Missing saved xpaths are skipped by `syncPageMarkings`, and new elements are
-  // covered by `collectDefaultHighlightTargets`.
+  if (hasAiSelectors) {
+    const explicitIncludeXpathSet = new Set(
+      Array.isArray(entry.includeXpaths)
+        ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+        : []
+    );
+    const implicitIncludedXpaths = Array.isArray(entry.xpaths)
+      ? entry.xpaths
+        .filter(
+          (item) =>
+            item &&
+            item.xpath &&
+            item.excluded === false &&
+            !explicitIncludeXpathSet.has(item.xpath)
+        )
+        .map((item) => item.xpath)
+      : [];
+    const implicitIncludedElements = collectXPathElements(implicitIncludedXpaths);
+    for (const el of implicitIncludedElements) {
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+        continue;
+      }
+      if (isWithinElementSet(el, explicitExclude) && !isWithinExplicitInclude(el)) {
+        continue;
+      }
+      aiContent.add(el);
+    }
+    for (const el of explicitInclude) {
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+        continue;
+      }
+      aiContent.add(el);
+    }
+  }
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -3089,7 +3315,9 @@ function renderHighlightsInner() {
       filteredExplicitInclude.push(el);
     }
   }
-  const aiAnimatedExplicitIncludeElements = [];
+  const aiAnimatedExplicitIncludeElements = hasAiSelectors
+    ? filteredExplicitInclude.filter((el) => aiContent.has(el))
+    : [];
 
   const hardExcludedSet = new Set([
     ...immutableExcluded,
@@ -3123,6 +3351,11 @@ function renderHighlightsInner() {
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
+
+  if (autoSeededFromAiSelectors) {
+    scheduleSnapshotSave();
+    notifyDraftStatus(pageUrl);
+  }
 
   drawCollections(collections, getVisibleRects);
 }
@@ -4320,6 +4553,17 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       explicitExcludeSet.add(xpath);
     }
   }
+  const explicitExcludeAncestorSet = new Set();
+  for (const xpath of explicitExcludeSet) {
+    const explicitExcludedEl = getElementFromXPath(xpath);
+    let current = explicitExcludedEl && explicitExcludedEl.nodeType === 1
+      ? explicitExcludedEl.parentElement
+      : null;
+    while (current && current.nodeType === 1) {
+      explicitExcludeAncestorSet.add(current);
+      current = current.parentElement;
+    }
+  }
   const rawIncludeXpaths = Array.isArray(entry.includeXpaths)
     ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
@@ -4407,6 +4651,9 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       (isWithinExplicitInclude(el) || isWithinExplicitIncludeXpath(xpath)) &&
       !isExplicitlyMarkedXpath(xpath)
     ) {
+      continue;
+    }
+    if (!isExplicitlyMarkedXpath(xpath) && explicitExcludeAncestorSet.has(el)) {
       continue;
     }
     seen.add(xpath);
