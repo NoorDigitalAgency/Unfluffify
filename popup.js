@@ -1550,6 +1550,8 @@ async function refreshUiInner() {
       Array.isArray(savedEntry.submissionXpaths) &&
       savedEntry.submissionXpaths.length > 0
   );
+  const needsAiSnapshotBackfill =
+    hasSavedPageData && !hasSavedAiSubmissionSnapshot;
   const aiBlockedByDraft = state.currentDraftDirty;
   const aiBlockedByMissingSavedSnapshot =
     isEnabled &&
@@ -1692,7 +1694,7 @@ async function refreshUiInner() {
     !isEnabled ||
     !state.currentDraftAvailable ||
     mobileSimulationBlocked ||
-    (!state.currentDraftDirty && !canInitialPageSave);
+    (!state.currentDraftDirty && !canInitialPageSave && !needsAiSnapshotBackfill);
   nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     mobileSimulationBlocked &&
@@ -1701,7 +1703,7 @@ async function refreshUiInner() {
     siteIdReady &&
     isEnabled &&
     state.currentDraftAvailable &&
-    (state.currentDraftDirty || canInitialPageSave);
+    (state.currentDraftDirty || canInitialPageSave || needsAiSnapshotBackfill);
   nextViewState.pageSaveMobileSimulationRequiredText =
     MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE;
   nextViewState.pageRevertDisabled =
@@ -1728,6 +1730,8 @@ async function refreshUiInner() {
     nextViewState.pageDraftStatusText = "No saved data yet";
   } else if (state.currentDraftDirty) {
     nextViewState.pageDraftStatusText = "Unsaved changes";
+  } else if (needsAiSnapshotBackfill) {
+    nextViewState.pageDraftStatusText = "Save current page to refresh AI snapshot";
   } else {
     nextViewState.pageDraftStatusText = "All changes saved";
   }
