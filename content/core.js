@@ -3197,9 +3197,22 @@ function renderHighlightsInner() {
     ? latestComputedSelectorSet
     : storedSelectorSet;
   const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
+  const existingPageEntry =
+    state.config &&
+    state.config.pageMarkings &&
+    typeof state.config.pageMarkings === "object"
+      ? state.config.pageMarkings[pageUrl] || null
+      : null;
+  const hasSavedMarkingsForPage = Boolean(
+    existingPageEntry &&
+    (
+      (Array.isArray(existingPageEntry.xpaths) && existingPageEntry.xpaths.length > 0) ||
+      (Array.isArray(existingPageEntry.includeXpaths) && existingPageEntry.includeXpaths.length > 0)
+    )
+  );
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
-  if (!hasEntry && hasAiSelectors) {
+  if (!hasSavedMarkingsForPage && hasAiSelectors) {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
       pageUrl,
