@@ -263,6 +263,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (!state || !state.enabled) {
     return;
   }
+  // Navigation auto-disables the extension for the tab. Clear any active device
+  // emulation first so the debugger metrics override does not persist into the
+  // next page after the in-page cancel bar/UI disappears.
+  try {
+    await updateDeviceEmulation(tabId, { enabled: false });
+  } catch (error) {
+    // The tab may already be navigating away/closed; continue disabling the tab state.
+  }
   await utils.disableExtensionForTab(tabId);
 });
 
