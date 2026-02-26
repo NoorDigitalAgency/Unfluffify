@@ -2253,6 +2253,7 @@ function getTargetElement(x, y) {
 }
 
 function hasMultipleMarkableDescendants(el) {
+  const options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -2272,7 +2273,7 @@ function hasMultipleMarkableDescendants(el) {
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
-    if (isSelfMarkableWithoutParentMode(node)) {
+    if (isSelfMarkableWithoutParentMode(node, options)) {
       markableCount += 1;
       if (markableCount >= 1) {
         return true;
@@ -3637,13 +3638,13 @@ export function isMarkableElement(el, config, options) {
   if (options && (options.explicitlyExcluded || options.explicitlyIncluded)) {
     return true;
   }
-  if (isSelfMarkableWithoutParentMode(el)) {
+  if (isSelfMarkableWithoutParentMode(el, options || {})) {
     return true;
   }
   if (!options || !options.allowParent) {
     return false;
   }
-  return hasMultipleMarkableDescendants(el);
+  return hasMultipleMarkableDescendants(el, options || {});
 }
 
 export function canApplyExplicitInclude(

@@ -2045,6 +2045,8 @@ function collectAiSubmissionXpathsForCurrentPage() {
   const explicitIncludedXpaths = new Set();
   const consentXpaths = new Set();
   const rowIndexByXpath = new Map();
+  const excludedRowXpaths = [];
+  const excludedRowXpathSet = new Set();
   const rows = [];
   const pushRow = (xpath, excluded) => {
     if (typeof xpath !== "string" || !xpath) {
@@ -2058,11 +2060,19 @@ function collectAiSubmissionXpathsForCurrentPage() {
       // determination cannot be accidentally downgraded by an earlier include row.
       if (excluded) {
         rows[existingIndex] = { xpath, excluded: true };
+        if (!excludedRowXpathSet.has(xpath)) {
+          excludedRowXpathSet.add(xpath);
+          excludedRowXpaths.push(xpath);
+        }
       }
       return;
     }
     rowIndexByXpath.set(xpath, rows.length);
     rows.push({ xpath, excluded: Boolean(excluded) });
+    if (excluded && !excludedRowXpathSet.has(xpath)) {
+      excludedRowXpathSet.add(xpath);
+      excludedRowXpaths.push(xpath);
+    }
   };
   const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
   const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
@@ -2095,12 +2105,11 @@ function collectAiSubmissionXpathsForCurrentPage() {
   explicitExcludedXpaths.forEach((xpath) => pushRow(xpath, true));
   consentXpaths.forEach((xpath) => pushRow(xpath, true));
 
-  const excludedXPathList = Array.from(explicitExcludedXpaths);
-  const hasExplicitlyExcludedAncestor = (xpath) => {
-    if (!xpath || excludedXPathList.length === 0) {
+  const hasExcludedAncestorRow = (xpath) => {
+    if (!xpath || excludedRowXpaths.length === 0) {
       return false;
     }
-    for (const excludedXpath of excludedXPathList) {
+    for (const excludedXpath of excludedRowXpaths) {
       if (
         excludedXpath &&
         excludedXpath !== xpath &&
@@ -2134,11 +2143,12 @@ function collectAiSubmissionXpathsForCurrentPage() {
       continue;
     }
     const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
-    const insideExplicitExcludedParent = hasExplicitlyExcludedAncestor(xpath);
-    // Descendants of an explicitly excluded subtree are omitted by default to
+    const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
+    // Descendants of an excluded subtree (explicit or hidden/auto-detected)
+    // are omitted by default to keep the saved payload shallow and stable.
     // keep the saved payload shallow and stable. The only exception is an
     // explicit include override on that descendant.
-    if (insideExplicitExcludedParent && !explicitlyIncluded) {
+    if (insideExcludedAncestorRow && !explicitlyIncluded) {
       continue;
     }
     if (explicitlyIncluded) {
@@ -2146,14 +2156,17 @@ function collectAiSubmissionXpathsForCurrentPage() {
       pushRow(xpath, false);
       continue;
     }
+    const visibleToUser = core.isVisible(node);
     const isMarkableTextual = core.isMarkableElement(node, state.config, {
       allowParent: false,
-      allowImmutableChildren: false
+      allowImmutableChildren: false,
+      // Hidden subtrees can still contain meaningful text content that must be
+      // sent as excluded. We keep the snapshot shallow via ancestor-row suppression above.
+      ignoreVisibilityForInclusionDetection: !visibleToUser
     });
     if (!isMarkableTextual) {
       continue;
     }
-    const visibleToUser = core.isVisible(node);
     // Non-explicit textual elements: visible => included, hidden => excluded.
     pushRow(xpath, !visibleToUser);
   }
