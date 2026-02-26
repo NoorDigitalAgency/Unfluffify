@@ -4159,7 +4159,7 @@ function getPreviewTextForIncludedElement(
       }
     }
 
-    if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT") {
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.tagName === "NOSCRIPT" || tag === "TEMPLATE") {
       continue;
     }
     for (let i = el.childNodes.length - 1; i >= 0; i -= 1) {

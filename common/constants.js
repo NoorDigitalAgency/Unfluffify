@@ -37,6 +37,8 @@ export const DEFAULT_EXCLUDED_TAG_SELECTORS = [
   "SELECT",
   "TITLE",
   "STYLE",
+  "SCRIPT",
+  "TEMPLATE",
   "IFRAME",
   "VIDEO"
 ];
