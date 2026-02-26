@@ -251,7 +251,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   utils.storageRemove(chrome.storage.session, [key, initialKey, deviceKey, scriptKey]).then();
 });
 
-chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+async function disableExtensionAndDeviceEmulationOnTopLevelNavigation(details) {
   if (details.frameId !== 0) {
     return;
   }
@@ -272,7 +272,11 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // The tab may already be navigating away/closed; continue disabling the tab state.
   }
   await utils.disableExtensionForTab(tabId);
-});
+}
+
+chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
+chrome.webNavigation.onHistoryStateUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
+chrome.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
 
 chrome.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
