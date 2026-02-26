@@ -1035,7 +1035,12 @@ function hasDirectRenderableText(node) {
   if (!node || node.nodeType !== 1) {
     return false;
   }
-  if (node.tagName === "SCRIPT" || node.tagName === "STYLE" || node.tagName === "NOSCRIPT" || tag === "TEMPLATE") {
+  if (
+    node.tagName === "SCRIPT" ||
+    node.tagName === "STYLE" ||
+    node.tagName === "NOSCRIPT" ||
+    node.tagName === "TEMPLATE"
+  ) {
     return false;
   }
   for (const child of node.childNodes || []) {
