@@ -665,6 +665,35 @@ function collectXPathElements(xpaths) {
   return elements;
 }
 
+function hasExplicitUserMarkings(entry) {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  if (includeXpaths.some((xpath) => typeof xpath === "string" && xpath)) {
+    return true;
+  }
+  const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  for (const item of items) {
+    if (!item || typeof item.xpath !== "string" || !item.xpath) {
+      continue;
+    }
+    const el = getElementFromXPath(item.xpath);
+    if (!el) {
+      // Missing elements are typically preserved explicit markings from older snapshots.
+      return true;
+    }
+    const isDefaultExcluded = matchesToggleableDefaultExcluded(el);
+    if (item.excluded && !isDefaultExcluded) {
+      return true;
+    }
+    if (!item.excluded && isDefaultExcluded) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isWithinExcludedParents(el, excludedParents) {
   if (!el || !excludedParents || excludedParents.size === 0) {
     return false;
@@ -853,7 +882,16 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   if (!configValue || !pageUrl) {
     return { createdEntry: false, changed: false };
   }
-  if (hasPageMarkingEntry(configValue, pageUrl)) {
+  const existingEntry =
+    configValue &&
+    configValue.pageMarkings &&
+    typeof configValue.pageMarkings === "object"
+      ? configValue.pageMarkings[pageUrl] || null
+      : null;
+  const hasAnySavedMarks = hasExplicitUserMarkings(existingEntry);
+  // Allow seeding into an existing empty page entry. Only skip if the page already
+  // has real saved markings.
+  if (hasAnySavedMarks) {
     return { createdEntry: false, changed: false };
   }
   const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
@@ -3203,13 +3241,7 @@ function renderHighlightsInner() {
     typeof state.config.pageMarkings === "object"
       ? state.config.pageMarkings[pageUrl] || null
       : null;
-  const hasSavedMarkingsForPage = Boolean(
-    existingPageEntry &&
-    (
-      (Array.isArray(existingPageEntry.xpaths) && existingPageEntry.xpaths.length > 0) ||
-      (Array.isArray(existingPageEntry.includeXpaths) && existingPageEntry.includeXpaths.length > 0)
-    )
-  );
+  const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
   if (!hasSavedMarkingsForPage && hasAiSelectors) {
