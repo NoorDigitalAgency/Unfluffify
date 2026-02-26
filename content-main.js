@@ -2673,7 +2673,7 @@ export function main() {
         ok: true,
         entry: entry ? core.clonePageEntry(entry) : null,
         savedEntry,
-        dirty: !core.areEntriesEquivalent(entry, savedEntry)
+        dirty: core.isPageDraftDirty(pageUrl)
       });
       return;
     }

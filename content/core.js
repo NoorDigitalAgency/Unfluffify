@@ -54,7 +54,8 @@ export const state = {
   visibilityCache: null,
   hoverRaf: 0,
   currentPageUrl: "",
-  currentPageEntry: null
+  currentPageEntry: null,
+  autoSeededPendingSavePageUrl: ""
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
@@ -3398,6 +3399,7 @@ function renderHighlightsInner() {
   state.cachedCollections = collections;
 
   if (autoSeededFromAiSelectors) {
+    state.autoSeededPendingSavePageUrl = pageUrl;
     scheduleSnapshotSave();
     notifyDraftStatus(pageUrl);
   }
@@ -3789,6 +3791,9 @@ export function isDefaultToggleableExcludedElement(el) {
 }
 
 export function isPageDraftDirty(pageUrl) {
+  if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
+    return true;
+  }
   const draft = getDraftPageEntry(pageUrl);
   const saved = getSavedPageEntry(pageUrl);
   return !areEntriesEquivalent(draft, saved);
@@ -3828,6 +3833,9 @@ export function clonePageEntry(entry) {
 export function setSavedPageEntry(pageUrl, entry) {
   state.savedPageUrl = pageUrl || "";
   state.savedPageEntry = clonePageEntry(entry);
+  if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
+    state.autoSeededPendingSavePageUrl = "";
+  }
 }
 
 export function notifyDraftStatus(pageUrl) {
@@ -4174,6 +4182,7 @@ export function disable() {
   state.config = null;
   state.currentPageUrl = "";
   state.currentPageEntry = null;
+  state.autoSeededPendingSavePageUrl = "";
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
