@@ -2670,6 +2670,30 @@ async function handleComputeSelectors() {
   // Build the AI payload from stored page snapshots only. We intentionally avoid
   // any compute-time DOM/HTML reclassification here to keep AI input consistent
   // with the last saved page state.
+  const toAiPayloadXpaths = (entry) => {
+    const explicitIncludeXpaths = new Set(
+      Array.isArray(entry && entry.includeXpaths)
+        ? entry.includeXpaths
+          .filter((xpath) => typeof xpath === "string" && xpath)
+          .map((xpath) => xpath.trim())
+          .filter(Boolean)
+        : []
+    );
+    return (Array.isArray(entry && entry.submissionXpaths) ? entry.submissionXpaths : [])
+      .filter((item) => item && typeof item.xpath === "string" && item.xpath)
+      .map((item) => {
+        const xpath = item.xpath.trim();
+        const excluded = Boolean(item.excluded);
+        if (excluded) {
+          return { xpath, excluded: true };
+        }
+        return {
+          xpath,
+          excluded: false,
+          explicit: explicitIncludeXpaths.has(xpath)
+        };
+      });
+  };
   const storedPages = Object.entries(pageMarkings)
     .filter(([url, entry]) => {
       if (!url || !entry || typeof entry !== "object") {
@@ -2689,7 +2713,7 @@ async function handleComputeSelectors() {
     .map(([url, entry]) => ({
       url,
       fullHTML: entry.fullHTML,
-      xpaths: entry.submissionXpaths
+      xpaths: toAiPayloadXpaths(entry)
     }));
 
   if (!storedPages.some((page) => page && page.url === currentPageUrl)) {
