@@ -3031,11 +3031,6 @@ function renderHighlightsInner() {
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
-  const explicitUnexcludeOverrides = collectXPathElements(
-    (entry.xpaths || [])
-      .filter((item) => item && item.xpath && item.excluded === false)
-      .map((item) => item.xpath)
-  );
   const isWithinExplicitInclude = (el) => {
     if (!el || explicitInclude.size === 0) {
       return false;
@@ -3047,30 +3042,14 @@ function renderHighlightsInner() {
     }
     return false;
   };
-  const latestComputedSelectorSet = normalizeAiSelectorSet(state.config.latestComputedSelectors);
-  const latestCombinedSelectors = combineAiSelectorSet(latestComputedSelectorSet);
-  const storedSelectorSet = normalizeAiSelectorSet(state.config.domainAiSelectorSet);
-  const normalizedAiSelectorSet = latestCombinedSelectors.length
-    ? latestComputedSelectorSet
-    : storedSelectorSet;
-  const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
   let aiContent = new Set();
   let aiExcludedDescendants = new Set();
-  if (hasAiSelectors) {
-    const aiContentMarking = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet);
-    const isWithinExcludedContainers = (el) =>
-      isWithinElementSet(el, immutableExcluded) ||
-      isWithinElementSet(el, explicitExclude) ||
-      isWithinElementSet(el, consentExcluded);
-    aiContent = new Set(
-      (aiContentMarking.included || []).filter((el) => !isWithinExcludedContainers(el))
-    );
-    aiExcludedDescendants = new Set(
-      (aiContentMarking.excluded || []).filter(
-        (el) => !isWithinExcludedContainers(el) && !explicitUnexcludeOverrides.has(el)
-      )
-    );
-  }
+  // Marking mode intentionally does not pre-mark from stored/calculated CSS selectors.
+  // It should only render:
+  // 1) saved markings that still resolve to live elements
+  // 2) default markable targets for the current DOM
+  // Missing saved xpaths are skipped by `syncPageMarkings`, and new elements are
+  // covered by `collectDefaultHighlightTargets`.
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -3110,9 +3089,7 @@ function renderHighlightsInner() {
       filteredExplicitInclude.push(el);
     }
   }
-  const aiAnimatedExplicitIncludeElements = hasAiSelectors
-    ? filteredExplicitInclude.filter((el) => !aiContent.has(el))
-    : [];
+  const aiAnimatedExplicitIncludeElements = [];
 
   const hardExcludedSet = new Set([
     ...immutableExcluded,
