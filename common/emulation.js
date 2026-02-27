@@ -3,7 +3,7 @@ import {
   DEVICE_EMULATION_PRESETS,
   DEVICE_SCALE_DEFAULTS
 } from "./constants.js";
-import { storageGet, storageSet } from "./utilities.js";
+import { storageGet, storageSet, storageRemove } from "./utilities.js";
 
 function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";
@@ -307,4 +307,27 @@ export async function updateDeviceEmulation(tabId, updates) {
 
 export function normalizeDeviceEmulationStateForUi(value) {
   return normalizeDeviceEmulationState(value);
+}
+
+// Chrome can re-apply setDeviceMetricsOverride to a newly loaded page even after
+// clearDeviceMetricsOverride + detach. Call this after onCompleted to fix the
+// new page's renderer if emulation was previously used but is now disabled.
+export async function clearDeviceEmulationAfterNavigation(tabId) {
+  const hasState = await hasStoredDeviceEmulationState(tabId);
+  if (!hasState) {
+    return;
+  }
+  const state = await getDeviceEmulationState(tabId);
+  if (state.enabled) {
+    return;
+  }
+  const attachResult = await attachDebugger(tabId);
+  if (!attachResult.ok) {
+    return;
+  }
+  await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
+  await detachDebugger(tabId);
+  // Remove the stored state so subsequent navigations don't needlessly re-clear.
+  const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
+  await storageRemove(chrome.storage.session, key);
 }

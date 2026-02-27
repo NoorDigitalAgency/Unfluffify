@@ -1,5 +1,6 @@
 import * as utils from "./common/utilities.js";
 import {
+  clearDeviceEmulationAfterNavigation,
   getDeviceEmulationState,
   reconcileDeviceEmulationState,
   updateDeviceEmulation
@@ -332,6 +333,21 @@ async function disableExtensionAndDeviceEmulationOnTopLevelNavigation(details) {
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
+
+chrome.webNavigation.onCompleted.addListener(async (details) => {
+  if (details.frameId !== 0) {
+    return;
+  }
+  const tabId = details.tabId;
+  if (!tabId) {
+    return;
+  }
+  try {
+    await clearDeviceEmulationAfterNavigation(tabId);
+  } catch (error) {
+    // Ignore — the tab may have already navigated away or been closed.
+  }
+});
 chrome.webNavigation.onHistoryStateUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
 chrome.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
 
