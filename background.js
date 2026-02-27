@@ -403,7 +403,9 @@ chrome.action.onClicked.addListener((tab) => {
     }).then();
     chrome.sidePanel.open({tabId: tab.id}).then();
     requestContentActivation(tab.id);
-    utils.setTabState(tab.id, { active: true }, 'initial').then();
+    utils.setTabState(tab.id, { active: true }, 'initial').then(() => {
+      utils.updateActionForTab(tab.id).then();
+    });
   }
 });
 

@@ -539,9 +539,9 @@ export async function updateActionForTab(tabId) {
   if (!chrome.action || !tabId) {
     return;
   }
-  const state = await getTabState(tabId);
-  const enabled = state && state.enabled;
-  const path = enabled
+  const initialState = await getTabState(tabId, 'initial');
+  const active = initialState !== null;
+  const path = active
       ? {
         16: "icons/active/icon16.png",
         32: "icons/active/icon32.png",

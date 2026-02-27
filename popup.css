@@ -553,6 +553,9 @@ button.loading:disabled {
 }
 
 .list li button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid var(--warn);
@@ -724,6 +727,12 @@ button.loading:disabled {
   vertical-align: middle;
   margin-right: 4px;
   display: inline-block;
+  flex-shrink: 0;
+}
+
+/* In flex-button contexts (list buttons use gap instead) */
+.list li button .btn-icon {
+  margin-right: 0;
 }
 
 .row-label {
