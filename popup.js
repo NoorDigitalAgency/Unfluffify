@@ -420,6 +420,17 @@ function mergeSelectorSetForBaseUrlMigration(preferred, existing) {
   });
 }
 
+function buildSelectorSetForGraphqlSubmit(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  return normalizeAiSelectorSet({
+    exclusionSelectors: [
+      ...normalized.exclusionSelectors,
+      ...constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS
+    ],
+    inclusionSelectors: normalized.inclusionSelectors
+  });
+}
+
 function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, existingEntry) {
   const preferred = config.normalizeConfig(resolvedBaseUrl, preferredEntry).config;
   const existing = config.normalizeConfig(resolvedBaseUrl, existingEntry).config;
@@ -2848,7 +2859,8 @@ async function handleSaveExcludes() {
     return;
   }
   const includeCss = selectorSet.inclusionSelectors.join(", ");
-  const excludeCss = selectorSet.exclusionSelectors.join(", ");
+  const submitSelectorSet = buildSelectorSetForGraphqlSubmit(selectorSet);
+  const excludeCss = submitSelectorSet.exclusionSelectors.join(", ");
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
   const submitTokenValue =
     (latestTokenStored && typeof latestTokenStored.globalToken === "string"
