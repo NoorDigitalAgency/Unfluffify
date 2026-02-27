@@ -235,7 +235,7 @@ async function saveCurrentPageDraft(options) {
   core.scheduleRender();
   core.notifyDraftStatus(pageUrl);
   if (showToast) {
-    showPageToast("Page saved locally");
+    showPageToast("Page saved");
   }
   return {
     ok: true,
