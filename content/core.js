@@ -901,9 +901,14 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   }
 
   const entry = getPageMarkingEntry(configValue, pageUrl, { create: true, persist: true });
-  const items = Array.isArray(entry.xpaths) ? entry.xpaths.slice() : [];
-  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths.slice() : [];
-  let changed = false;
+  const existingItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const existingIncludeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  // This seeding path is only for pages without explicit saved marks. Reset any
+  // previously generated/default-only rows first so CSS-seeded explicit marks become
+  // the true precedence baseline for the subsequent default sync pass.
+  const items = [];
+  const includeXpaths = [];
+  let changed = existingItems.length > 0 || existingIncludeXpaths.length > 0;
 
   const removeItemByXpath = (xpath) => {
     let removed = false;
@@ -4707,7 +4712,10 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     ) {
       continue;
     }
-    if (!isExplicitlyMarkedXpath(xpath) && explicitExcludeAncestorSet.has(el)) {
+    if (
+      explicitExcludeAncestorSet.has(el) &&
+      !explicitIncludeSet.has(xpath)
+    ) {
       continue;
     }
     seen.add(xpath);
