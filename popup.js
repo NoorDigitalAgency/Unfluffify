@@ -41,6 +41,12 @@ let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = "Loading popup...";
 
+function isEditableTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
 function beginPopupBusyOverlay(message, options = {}) {
   const delayMs = Number.isFinite(options.delayMs)
     ? Math.max(0, Math.trunc(options.delayMs))
@@ -3054,14 +3060,25 @@ async function init() {
       return;
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    if (key !== "e" && key !== "s") {
+    if (key !== "e" && key !== "s" && key !== "x") {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
+    if (isEditableTarget(event.target)) {
+      return;
+    }
     const view = uiModule.getViewState();
     if (key === "e") {
       handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
+      return;
+    }
+    if (key === "x") {
+      if (!view.deviceControlsDisabled) {
+        handleDeviceEmulationEnabledToggle({
+          currentTarget: { checked: !view.deviceEmulationEnabled }
+        }).then();
+      }
       return;
     }
     if (!view.toggleEnabled || view.pageSaveDisabled) {
