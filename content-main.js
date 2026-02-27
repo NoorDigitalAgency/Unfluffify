@@ -153,6 +153,40 @@ async function isMobileSimulationActiveForCurrentTab() {
   return Boolean(response.state.enabled) && response.state.mode === "mobile";
 }
 
+async function toggleDeviceEmulationFromPage() {
+  let currentState = null;
+  try {
+    const response = await utils.sendRuntimeMessage({ type: "getDeviceEmulationState" });
+    if (response && response.ok && response.state) {
+      currentState = response.state;
+    }
+  } catch (error) {
+    currentState = null;
+  }
+
+  const currentlyEnabled = Boolean(currentState && currentState.enabled);
+  const request = currentlyEnabled
+    ? {
+      type: "updateDeviceEmulation",
+      enabled: false
+    }
+    : {
+      type: "updateDeviceEmulation",
+      enabled: true,
+      mode: "mobile"
+    };
+  const result = await utils.sendRuntimeMessage(request);
+  if (!result || !result.ok) {
+    showPageToast("Unable to update simulation mode.");
+    return;
+  }
+  if (request.enabled) {
+    showPageToast("Mobile simulation enabled.");
+  } else {
+    showPageToast("Simulation disabled.");
+  }
+}
+
 async function saveCurrentPageDraft(options) {
   const { baseUrl, showToast = false } = options || {};
   const targetBaseUrl = baseUrl || state.baseUrl || "";
@@ -2381,13 +2415,17 @@ export function main() {
       return;
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    if (key !== "e" && key !== "s") {
+    if (key !== "e" && key !== "s" && key !== "m") {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
     if (key === "e") {
       toggleEnabledFromPage().then();
+      return;
+    }
+    if (key === "m") {
+      toggleDeviceEmulationFromPage().then();
       return;
     }
     if (!state.enabled) {

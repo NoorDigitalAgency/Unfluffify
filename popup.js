@@ -3060,7 +3060,7 @@ async function init() {
       return;
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    if (key !== "e" && key !== "s" && key !== "x") {
+    if (key !== "e" && key !== "s" && key !== "m") {
       return;
     }
     event.preventDefault();
@@ -3073,11 +3073,20 @@ async function init() {
       handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
       return;
     }
-    if (key === "x") {
+    if (key === "m") {
       if (!view.deviceControlsDisabled) {
-        handleDeviceEmulationEnabledToggle({
-          currentTarget: { checked: !view.deviceEmulationEnabled }
-        }).then();
+        const nextEnabled = !view.deviceEmulationEnabled;
+        if (nextEnabled) {
+          helpers.updateDeviceEmulation({
+            enabled: true,
+            mode: "mobile",
+            scale: state.currentDeviceScale
+          }).then();
+        } else {
+          handleDeviceEmulationEnabledToggle({
+            currentTarget: { checked: false }
+          }).then();
+        }
       }
       return;
     }
