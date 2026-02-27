@@ -125,6 +125,13 @@ function renderListItems(items, emptyText, renderItem) {
   return items.map(renderItem);
 }
 
+function icon(name, extraClass = "") {
+  return h("span", {
+    class: classNames("mdi", `mdi-${name}`, "btn-icon", extraClass),
+    "aria-hidden": "true"
+  });
+}
+
 function getBlockingUiCurtainState(view) {
   if (view.isBusy) {
     return {
@@ -198,6 +205,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                 disabled: item.url === view.currentPageUrl,
                 onClick: () => handlers.onMarkedPageNavigate(item.url)
               },
+              icon("arrow-right"),
               "Navigate"
             )
           )
@@ -215,6 +223,21 @@ function App({ state: view, actions: handlers }) {
     h(
       "div",
       { class: "app" },
+      h(
+        "div",
+        { class: "close-bar" },
+        h(
+          "button",
+          {
+            id: "close-tab",
+            type: "button",
+            class: "close-button",
+            title: "Unregister current tab and reload",
+            disabled: view.unregisterCurrentTabDisabled,
+            onClick: handlers.onUnregisterCurrentTab
+          }
+        )
+      ),
       h(
         "header",
         { class: "app-header" },
@@ -237,6 +260,7 @@ function App({ state: view, actions: handlers }) {
               "aria-expanded": view.configMenuOpen ? "true" : "false",
               onClick: handlers.onConfigToggle
             },
+            icon("cog-outline"),
             "Configuration"
           ),
           h(
@@ -256,6 +280,7 @@ function App({ state: view, actions: handlers }) {
                 role: "menuitem",
                 onClick: handlers.onOpenConfiguration
               },
+              icon("tune"),
               "Open configuration view"
             ),
             h("div", { class: "config-divider", role: "separator" }),
@@ -269,20 +294,8 @@ function App({ state: view, actions: handlers }) {
                 disabled: view.clearDomainCacheDisabled,
                 onClick: handlers.onClearDomainCache
               },
+              icon("trash-can-outline"),
               "Empty cache for current domain"
-            ),
-            h("div", { class: "config-divider", role: "separator" }),
-            h(
-              "button",
-              {
-                id: "unregister-current-tab",
-                type: "button",
-                role: "menuitem",
-                class: "danger",
-                disabled: view.unregisterCurrentTabDisabled,
-                onClick: handlers.onUnregisterCurrentTab
-              },
-              "Unregister current tab and reload"
             )
           )
         )
@@ -343,7 +356,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     h(
       "label",
       {class: "row"},
-      h("span", null, "Enable simulation"),
+      h("span", {class: "row-label"}, icon("monitor-cellphone", "row-icon"), "Enable simulation"),
       h("input", {
         id: "device-emulation-enabled",
         type: "checkbox",
@@ -362,7 +375,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "label",
         {class: "row"},
-        h("span", null, "Desktop 1920x1080"),
+        h("span", {class: "row-label"}, icon("monitor", "row-icon"), "Desktop 1920x1080"),
         h("input", {
           id: "device-mode-desktop",
           type: "radio",
@@ -376,7 +389,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "label",
         {class: "row"},
-        h("span", null, "Mobile 412x960"),
+        h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Mobile 412x960"),
         h("input", {
           id: "device-mode-mobile",
           type: "radio",
@@ -457,6 +470,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           disabled: view.computeButtonDisabled,
           onClick: handlers.onCompute
         },
+        icon("auto-fix"),
         view.computeButtonText
       )
     )
@@ -498,6 +512,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           disabled: view.pageSaveDisabled,
           onClick: handlers.onPageSave
         },
+        icon("content-save"),
         "Save"
       ),
       h(
@@ -509,6 +524,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           disabled: view.pageRevertDisabled,
           onClick: handlers.onPageRevert
         },
+        icon("restore"),
         "Revert to saved"
       )
     ),
@@ -544,6 +560,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                 type: "button",
                 onClick: () => handlers.onExplicitExcludeView(item.xpath)
               },
+              icon("eye-outline"),
               "View"
             ),
             h(
@@ -552,6 +569,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                 type: "button",
                 onClick: () => handlers.onExplicitExcludeRemove(item.xpath)
               },
+              icon("delete-outline"),
               "Remove"
             )
           )
@@ -584,6 +602,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                 type: "button",
                 onClick: () => handlers.onExplicitIncludeView(item.xpath)
               },
+              icon("eye-outline"),
               "View"
             ),
             h(
@@ -592,6 +611,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                 type: "button",
                 onClick: () => handlers.onExplicitIncludeRemove(item.xpath)
               },
+              icon("delete-outline"),
               "Remove"
             )
           )
@@ -608,34 +628,17 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "label",
         {class: "field"},
-        h("span", null, "Current Page URL"),
+        h("span", null, icon("link-variant", "field-icon"), "Current Page URL"),
         h(
           "div",
-          {class: "input-row"},
-          h(
-            "div",
-            {
-              id: "current-page-url",
-              class: "readout",
-              title: view.currentPageUrlTitle
-            },
-            view.currentPageUrl
-          ),
-          h(
-            "button",
-            {
-              id: "refresh-context",
-              type: "button",
-              onClick: handlers.onRefreshContext
-            },
-            "Refresh"
-          )
+          {id: "current-page-url", class: "readout readout-full", title: view.currentPageUrlTitle},
+          view.currentPageUrl
         )
       ),
       h(
         "label",
         {class: "field"},
-        h("span", null, "Base Page URL"),
+        h("span", null, icon("home-outline", "field-icon"), "Base Page URL"),
         h(
           "div",
           {class: "input-row"},
@@ -659,6 +662,7 @@ function renderMarkingView({state: view, actions: handlers}) {
               style: {display: view.baseUrlSetVisible ? "inline-flex" : "none"},
               onClick: handlers.onBaseUrlSet
             },
+            icon("check"),
             "Set"
           ),
           h(
@@ -669,6 +673,7 @@ function renderMarkingView({state: view, actions: handlers}) {
               style: {display: view.baseUrlEditVisible ? "inline-flex" : "none"},
               onClick: handlers.onBaseUrlEditToggle
             },
+            icon("pencil-outline"),
             view.baseUrlEditText
           )
         )
@@ -713,6 +718,7 @@ function renderMarkingView({state: view, actions: handlers}) {
                       disabled: item.url === view.currentBaseUrl,
                       onClick: () => handlers.onBasePageNavigate(item.url)
                     },
+                    icon("arrow-right"),
                     "Navigate"
                   )
                 )
@@ -727,7 +733,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "label",
         {class: "row"},
-        h("span", null, "Enable Marking"),
+        h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), "Enable Marking"),
         h("input", {
           id: "toggle-enabled",
           type: "checkbox",
@@ -759,7 +765,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Marked pages (anchors)"),
+        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), "Marked pages (anchors)"),
         h("input", {
           id: "highlight-marked-pages",
           type: "checkbox",
@@ -770,7 +776,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Included content"),
+        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), "Included content"),
         h("input", {
           id: "highlight-included-content",
           type: "checkbox",
@@ -781,7 +787,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Excluded content"),
+        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), "Excluded content"),
         h("input", {
           id: "highlight-excluded-content",
           type: "checkbox",
@@ -793,7 +799,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Hide while redraw/scroll"),
+        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), "Hide while redraw/scroll"),
         h("input", {
           id: "highlight-hide-during-scroll-redraw",
           type: "checkbox",
@@ -804,7 +810,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", null, "Visible Consent"),
+        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), "Visible Consent"),
         h("input", {
           id: "highlight-visible-consent",
           type: "checkbox",
@@ -834,6 +840,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
           disabled: view.previewLatestButtonDisabled,
           onClick: handlers.onPreviewLatest
         },
+        icon("eye-outline"),
         "Preview Latest"
       ),
       h("div", { class: "section-divider", role: "separator" }),
@@ -846,6 +853,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
           disabled: view.saveExcludesButtonDisabled,
           onClick: handlers.onSaveExcludes
         },
+        icon("cloud-upload-outline"),
         view.saveExcludesButtonText
       )
     );
@@ -883,6 +891,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     onClick: handlers.onConfigurationContinue,
                     class: "full-width margin-above"
                 },
+                icon("arrow-right"),
                 "Continue to Marking"
             )
         ),
@@ -919,6 +928,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.configEndpointSetDisabled,
                             onClick: handlers.onConfigEndpointSet
                         },
+                        icon("check"),
                         "Set"
                     ),
                     h(
@@ -930,6 +940,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.configEndpointEditDisabled,
                             onClick: handlers.onConfigEndpointEditToggle
                         },
+                        icon("pencil-outline"),
                         view.configEndpointEditText
                     )
                 )
@@ -979,6 +990,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.endpointSetDisabled,
                             onClick: handlers.onEndpointSet
                         },
+                        icon("check"),
                         "Set"
                     ),
                     h(
@@ -990,6 +1002,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.endpointEditDisabled,
                             onClick: handlers.onEndpointEditToggle
                         },
+                        icon("pencil-outline"),
                         view.endpointEditText
                     )
                 )
@@ -1028,6 +1041,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.stageBaseSetDisabled,
                             onClick: handlers.onStageBaseSet
                         },
+                        icon("check"),
                         "Set"
                     ),
                     h(
@@ -1039,6 +1053,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.stageBaseEditDisabled,
                             onClick: handlers.onStageBaseEditToggle
                         },
+                        icon("pencil-outline"),
                         view.stageBaseEditText
                     )
                 )
@@ -1101,6 +1116,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.loginActionDisabled,
                             onClick: handlers.onLoginAction
                         },
+                        icon("login"),
                         "Login"
                     )
                 )

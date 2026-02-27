@@ -651,3 +651,103 @@ button.loading:disabled {
     transform: rotate(360deg);
   }
 }
+
+/* ── macOS-style close button ───────────────────────────── */
+.close-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 2px 6px 2px;
+}
+
+.close-button {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ff5f57;
+  border: 1px solid #e0443e;
+  box-shadow: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: filter 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button::before,
+.close-button::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 1.5px;
+  background: rgba(100, 20, 20, 0.7);
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.close-button::before {
+  transform: rotate(45deg);
+}
+
+.close-button::after {
+  transform: rotate(-45deg);
+}
+
+.close-button:hover::before,
+.close-button:hover::after {
+  opacity: 1;
+}
+
+.close-button:hover {
+  filter: brightness(1.1);
+}
+
+.close-button:disabled {
+  background: #c0bfbd;
+  border-color: #a8a8a8;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.close-button:disabled::before,
+.close-button:disabled::after {
+  display: none;
+}
+
+/* ── Icon helpers ────────────────────────────────────────── */
+.btn-icon {
+  font-size: 15px;
+  line-height: 1;
+  vertical-align: middle;
+  margin-right: 4px;
+  display: inline-block;
+}
+
+.row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.row-icon {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.field-icon {
+  font-size: 13px;
+  color: var(--muted);
+  vertical-align: middle;
+  margin-right: 3px;
+}
+
+/* ── Full-width readout (no refresh button) ─────────────── */
+.readout-full {
+  width: 100%;
+  display: block;
+}

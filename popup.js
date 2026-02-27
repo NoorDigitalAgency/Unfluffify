@@ -3024,7 +3024,6 @@ async function init() {
     onUnregisterCurrentTab: handleUnregisterCurrentTab,
     onBaseUrlInput: handleBaseUrlInput,
     onBaseUrlKeyDown: handleBaseUrlKeyDown,
-    onRefreshContext: handleContextRefresh,
     onBaseUrlSet: handleBaseUrlSet,
     onBaseUrlEditToggle: handleBaseUrlEditToggle,
     onPageSave: handlePageSave,
