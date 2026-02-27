@@ -141,17 +141,6 @@ function showPageToast(message) {
   }, 3000);
 }
 
-function isEditableTarget(target) {
-  if (!target) {
-    return false;
-  }
-  if (target.isContentEditable) {
-    return true;
-  }
-  const tagName = target.tagName;
-  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -2387,37 +2376,30 @@ export function main() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (
-      event.altKey &&
-      event.shiftKey &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      !event.repeat
-    ) {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-      if (event.key === "e" || event.key === "E") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleEnabledFromPage().then();
-        return;
-      }
-      if (event.key === "s" || event.key === "S") {
-        if (!state.enabled) {
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        (async () => {
-          if (!await isMobileSimulationActiveForCurrentTab()) {
-            showPageToast(PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE);
-            return;
-          }
-          saveCurrentPageDraft({ showToast: true }).then();
-        })();
-      }
+    const primaryModifier = event.ctrlKey || event.metaKey;
+    if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {
+      return;
     }
+    const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+    if (key !== "e" && key !== "s") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (key === "e") {
+      toggleEnabledFromPage().then();
+      return;
+    }
+    if (!state.enabled) {
+      return;
+    }
+    (async () => {
+      if (!await isMobileSimulationActiveForCurrentTab()) {
+        showPageToast(PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE);
+        return;
+      }
+      saveCurrentPageDraft({ showToast: true }).then();
+    })();
   }, true);
 
   document.addEventListener("click", (event) => {

@@ -1017,17 +1017,6 @@ async function clearFocusedElement() {
   await messages.sendTabMessage({ type: "clearFocus" });
 }
 
-function isEditableTarget(target) {
-  if (!target) {
-    return false;
-  }
-  if (target.isContentEditable) {
-    return true;
-  }
-  const tagName = target.tagName;
-  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
 function getEditableFieldState(options) {
   const {
     inputRef,
@@ -3060,32 +3049,25 @@ async function init() {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
     }
-    if (
-      event.altKey &&
-      event.shiftKey &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      !event.repeat
-    ) {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-      const view = uiModule.getViewState();
-      if (event.key === "e" || event.key === "E") {
-        event.preventDefault();
-        event.stopPropagation();
-        handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
-        return;
-      }
-      if (event.key === "s" || event.key === "S") {
-        if (!view.toggleEnabled || view.pageSaveDisabled) {
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        handlePageSave().then();
-      }
+    const primaryModifier = event.ctrlKey || event.metaKey;
+    if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {
+      return;
     }
+    const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+    if (key !== "e" && key !== "s") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const view = uiModule.getViewState();
+    if (key === "e") {
+      handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
+      return;
+    }
+    if (!view.toggleEnabled || view.pageSaveDisabled) {
+      return;
+    }
+    handlePageSave().then();
   });
 
   chrome.tabs.onActivated.addListener(async ({ tabId }) => {
