@@ -178,6 +178,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "unregisterTabAndReload") {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
+      sendResponse({ ok: false, error: "Missing tab" });
+      return;
+    }
+    (async () => {
+      const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
+      const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
+      const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
+      const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+
+      try {
+        await updateDeviceEmulation(tabId, { enabled: false });
+      } catch (error) {
+        // Ignore teardown failures caused by transient tab state changes.
+      }
+      try {
+        await utils.disableExtensionForTab(tabId);
+      } catch (error) {
+        // Continue with hard state cleanup below.
+      }
+      await utils.storageRemove(chrome.storage.session, [
+        tabKey,
+        initialKey,
+        deviceKey,
+        scriptKey
+      ]);
+      await utils.updateActionForTab(tabId);
+      try {
+        await chrome.sidePanel.setOptions({
+          tabId,
+          path: "popup.html",
+          enabled: false
+        });
+      } catch (error) {
+        // Side panel may already be disabled for this tab.
+      }
+      await new Promise((resolve, reject) => {
+        chrome.tabs.reload(tabId, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || "Unable to reload tab"));
+            return;
+          }
+          resolve();
+        });
+      });
+      sendResponse({ ok: true });
+    })().catch((error) => {
+      sendResponse({
+        ok: false,
+        error: (error && error.message) || "Unable to unregister current tab"
+      });
+    });
+    return true;
+  }
+
   if (message.type === "injectContentScript") {
     if (!message.tabId) {
       sendResponse({ ok: false, error: "Missing tab" });

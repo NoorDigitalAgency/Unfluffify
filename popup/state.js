@@ -32,6 +32,7 @@ export const state = {
   currentDraftAvailable: false,
   currentDraftHasEntry: false,
   clearDomainCacheDisabled: false,
+  unregisterCurrentTabDisabled: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
   silentHighlightShowMarkedPages: true,

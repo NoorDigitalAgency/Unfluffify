@@ -1668,6 +1668,8 @@ async function refreshUiInner() {
   nextViewState.endpointSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
   nextViewState.endpointEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
   nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
+  nextViewState.unregisterCurrentTabDisabled =
+    state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
   nextViewState.saveExcludesButtonText =
@@ -2353,6 +2355,43 @@ async function handleClearDomainCache() {
   }
 }
 
+async function handleUnregisterCurrentTab() {
+  uiModule.setConfigMenuOpen(false);
+  const tab = await helpers.ensureActiveTab({
+    requireId: true,
+    toastOnMissing: "No active tab to unregister"
+  });
+  if (!tab) {
+    return;
+  }
+  const confirmed = window.confirm(
+    "Unregister this tab from the extension, close the side panel, and reload the page?"
+  );
+  if (!confirmed) {
+    return;
+  }
+  beginPopupBusyOverlay("Unregistering tab and reloading page...");
+  state.unregisterCurrentTabDisabled = true;
+  uiModule.setViewState({ unregisterCurrentTabDisabled: true });
+  try {
+    const result = await messages.sendRuntimeMessage({
+      type: "unregisterTabAndReload",
+      tabId: tab.id
+    });
+    if (!result || !result.ok) {
+      uiModule.showToast(
+        (result && result.error) || "Unable to unregister current tab"
+      );
+      return;
+    }
+    window.close();
+  } finally {
+    state.unregisterCurrentTabDisabled = false;
+    uiModule.setViewState({ unregisterCurrentTabDisabled: false });
+    endPopupBusyOverlay();
+  }
+}
+
 async function handleBaseUrlSet() {
   uiModule.showToast("Base Page URL is resolved automatically from GraphQL");
 }
@@ -2982,6 +3021,7 @@ async function init() {
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,
+    onUnregisterCurrentTab: handleUnregisterCurrentTab,
     onBaseUrlInput: handleBaseUrlInput,
     onBaseUrlKeyDown: handleBaseUrlKeyDown,
     onRefreshContext: handleContextRefresh,

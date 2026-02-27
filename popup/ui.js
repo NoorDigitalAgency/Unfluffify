@@ -104,6 +104,7 @@ const initialViewState = {
   highlightHideDuringScrollRedrawChecked: true,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
+  unregisterCurrentTabDisabled: false,
   isBusy: false,
   busyMessage: "",
   toastMessage: "",
@@ -269,6 +270,19 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onClearDomainCache
               },
               "Empty cache for current domain"
+            ),
+            h("div", { class: "config-divider", role: "separator" }),
+            h(
+              "button",
+              {
+                id: "unregister-current-tab",
+                type: "button",
+                role: "menuitem",
+                class: "danger",
+                disabled: view.unregisterCurrentTabDisabled,
+                onClick: handlers.onUnregisterCurrentTab
+              },
+              "Unregister current tab and reload"
             )
           )
         )
