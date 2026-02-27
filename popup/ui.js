@@ -352,11 +352,11 @@ function renderMarkingView({state: view, actions: handlers}) {
   const deviceSection = h(
     "section",
     { class: "card margin-below", hidden: !showDeviceSection },
-    h("div", {class: "section-title"}, "Device emulation"),
+    h("div", {class: "section-title"}, "Mobile simulation"),
     h(
       "label",
       {class: "row"},
-      h("span", {class: "row-label"}, icon("monitor-cellphone", "row-icon"), "Enable simulation"),
+      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Enable mobile simulation"),
       h("input", {
         id: "device-emulation-enabled",
         type: "checkbox",
@@ -364,42 +364,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         disabled: view.deviceControlsDisabled,
         onChange: handlers.onDeviceEmulationEnabledChange
       })
-    ),
-    h(
-      "div",
-      {
-        class: "radio-group",
-        role: "radiogroup",
-        "aria-label": "Device emulation"
-      },
-      h(
-        "label",
-        {class: "row"},
-        h("span", {class: "row-label"}, icon("monitor", "row-icon"), "Desktop 1920x1080"),
-        h("input", {
-          id: "device-mode-desktop",
-          type: "radio",
-          name: "device-mode",
-          value: "desktop",
-          checked: view.deviceMode === "desktop",
-          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-          onChange: handlers.onDeviceModeChange
-        })
-      ),
-      h(
-        "label",
-        {class: "row"},
-        h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Mobile 412x960"),
-        h("input", {
-          id: "device-mode-mobile",
-          type: "radio",
-          name: "device-mode",
-          value: "mobile",
-          checked: view.deviceMode === "mobile",
-          disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-          onChange: handlers.onDeviceModeChange
-        })
-      )
     ),
     h(
       "div",

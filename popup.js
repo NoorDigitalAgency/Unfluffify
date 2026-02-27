@@ -2219,37 +2219,11 @@ async function handleDeviceEmulationEnabledToggle(event) {
   }
   await helpers.updateDeviceEmulation({
     enabled: desiredEnabled,
-    mode: state.currentDeviceMode,
+    mode: "mobile",
     scale: state.currentDeviceScale
   });
 }
 
-async function handleDeviceModeToggle(event) {
-  const desiredMode = event && event.currentTarget
-    ? event.currentTarget.value
-    : uiModule.getViewState().deviceMode;
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!state.currentDeviceEmulationEnabled) {
-    uiModule.setViewState({
-      deviceEmulationEnabled: state.currentDeviceEmulationEnabled,
-      deviceMode: state.currentDeviceMode,
-      deviceScale: state.currentDeviceScale.toFixed(2),
-      deviceScaleValue: `${Math.round(state.currentDeviceScale * 100)}%`
-    });
-    return;
-  }
-  uiModule.setViewState({ deviceMode: desiredMode });
-  if (desiredMode === state.currentDeviceMode) {
-    return;
-  }
-  await helpers.updateDeviceEmulation({
-    enabled: true,
-    mode: desiredMode,
-    scale: state.currentDeviceScale
-  });
-}
 
 function handleDeviceScaleInput(event) {
   const value = event && event.currentTarget
@@ -2294,7 +2268,7 @@ async function handleDeviceScaleChange(event) {
   }
   await helpers.updateDeviceEmulation({
     enabled: true,
-    mode: state.currentDeviceMode,
+    mode: "mobile",
     scale
   });
 }
@@ -3008,7 +2982,6 @@ async function init() {
     onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
     onHighlightHideDuringScrollRedrawChange: handleHighlightHideDuringScrollRedrawChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
-    onDeviceModeChange: handleDeviceModeToggle,
     onDeviceScaleInput: handleDeviceScaleInput,
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
