@@ -352,10 +352,10 @@ function renderMarkingView({state: view, actions: handlers}) {
   const deviceSection = h(
     "section",
     { class: "card margin-below", hidden: !showDeviceSection },
-    h("div", {class: "section-title", title: "CTRL/CMD+M"}, "Mobile simulation"),
+    h("div", {class: "section-title"}, "Mobile simulation"),
     h(
       "label",
-      {class: "row"},
+      {class: "row", title: "CTRL/CMD+M"},
       h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Enable mobile simulation"),
       h("input", {
         id: "device-emulation-enabled",
