@@ -755,6 +755,10 @@ button.loading:disabled {
   margin-right: 3px;
 }
 
+li button span.mdi::before {
+  vertical-align: text-bottom;
+}
+
 /* ── Full-width readout (no refresh button) ─────────────── */
 .readout-full {
   width: 100%;

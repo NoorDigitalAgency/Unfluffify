@@ -352,7 +352,7 @@ function renderMarkingView({state: view, actions: handlers}) {
   const deviceSection = h(
     "section",
     { class: "card margin-below", hidden: !showDeviceSection },
-    h("div", {class: "section-title"}, "Mobile simulation"),
+    h("div", {class: "section-title", title: "CTRL/CMD+M"}, "Mobile simulation"),
     h(
       "label",
       {class: "row"},
@@ -473,6 +473,7 @@ function renderMarkingView({state: view, actions: handlers}) {
         {
           id: "page-save",
           type: "button",
+          title: "CTRL/CMD+S",
           disabled: view.pageSaveDisabled,
           onClick: handlers.onPageSave
         },
@@ -696,7 +697,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       {class: "card"},
       h(
         "label",
-        {class: "row"},
+        {class: "row", title: "CTRL/CMD+E"},
         h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), "Enable Marking"),
         h("input", {
           id: "toggle-enabled",
@@ -729,7 +730,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), "Marked pages (anchors)"),
+        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), "Marked page links"),
         h("input", {
           id: "highlight-marked-pages",
           type: "checkbox",
@@ -763,7 +764,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), "Hide while redraw/scroll"),
+        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), "Hide while scrolling"),
         h("input", {
           id: "highlight-hide-during-scroll-redraw",
           type: "checkbox",
@@ -834,7 +835,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
             h(
                 "div",
                 {class: "hint"},
-                "Set endpoints, login credentials, and sign in to enable Marking features."
+                "Set endpoints, login credentials, and sign in to continue."
             ),
             h(
                 "div",
@@ -855,8 +856,8 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     onClick: handlers.onConfigurationContinue,
                     class: "full-width margin-above"
                 },
-                icon("arrow-right"),
-                "Continue to Marking"
+                icon("arrow-left"),
+                "Go Back"
             )
         ),
         h(
