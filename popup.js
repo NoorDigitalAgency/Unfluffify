@@ -2854,7 +2854,28 @@ async function handleComputeSelectors() {
       type: "showAiPreview",
       selectorSet
     });
-    uiModule.showToast("Selectors computed");
+    const submitResult = await submitSelectorSetToServer({
+      baseUrl: state.currentBaseUrl,
+      selectorSet,
+      tokenValue,
+      confirm: false
+    });
+    if (submitResult.ok) {
+      uiModule.showToast("Selectors computed and submitted");
+    } else if (
+      submitResult.skipped &&
+      submitResult.reason === "No new selectors to submit"
+    ) {
+      uiModule.showToast("Selectors computed; server already up to date");
+    } else if (submitResult.skipped && submitResult.reason) {
+      uiModule.showToast(`Selectors computed locally (${submitResult.reason})`);
+    } else {
+      uiModule.showToast(
+        submitResult.reason
+          ? `Selectors computed locally (${submitResult.reason})`
+          : "Selectors computed locally"
+      );
+    }
   } catch (error) {
     uiModule.showToast("Endpoint request failed");
   } finally {
@@ -2863,67 +2884,68 @@ async function handleComputeSelectors() {
   }
 }
 
-async function handleSaveExcludes() {
-  if (state.aiRequestInFlight) {
-    return;
-  }
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
+async function submitSelectorSetToServer(options = {}) {
+  const {
+    baseUrl = state.currentBaseUrl,
+    selectorSet = getLatestComputedSelectorsFromConfig(),
+    tokenValue = "",
+    confirm = true
+  } = options;
+
   if (state.currentDraftDirty) {
-    uiModule.showToast("Save the current page before using AI controls");
-    return;
+    return { ok: false, skipped: true, reason: "Save the current page before using AI controls" };
   }
-  const credentials = await helpers.requireAiCredentials();
-  if (!credentials) {
-    return;
+
+  const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
+  if (!combineAiSelectorSet(normalizedSelectorSet).length) {
+    return { ok: false, skipped: true, reason: "No selectors available to submit" };
   }
-  const { tokenValue } = credentials;
+
   const { stageBaseValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
-    uiModule.showToast("Set Stage Base first");
-    return;
+    return { ok: false, skipped: true, reason: "Set Stage Base first" };
   }
+
   const siteIdResult = await ensureBaseUrlSiteId({
-    baseUrl: state.currentBaseUrl,
+    baseUrl,
     stageBase: stageBaseValue,
     tokenValue
   });
   if (!siteIdResult.ok || !siteIdResult.siteId) {
-    uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
-    return;
+    return {
+      ok: false,
+      skipped: true,
+      reason: siteIdResult.reason || "No domainId exists for this base URL"
+    };
   }
-  const effectiveBaseUrl = siteIdResult.baseUrl || state.currentBaseUrl;
+
+  const effectiveBaseUrl = siteIdResult.baseUrl || baseUrl;
   state.currentBaseUrl = effectiveBaseUrl;
   state.currentConfig = siteIdResult.config || state.currentConfig;
-  const selectorSet = getLatestComputedSelectorsFromConfig();
-  const selectorCount = combineAiSelectorSet(selectorSet).length;
-  if (!selectorCount) {
-    uiModule.showToast("No selectors available to submit");
-    return;
+
+  if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
+    return { ok: false, skipped: true, reason: "No new selectors to submit" };
   }
-  if (aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig())) {
-    uiModule.showToast("No new selectors to submit");
-    return;
+
+  if (confirm) {
+    const confirmed = window.confirm(
+      "Are these the final settings for the current property for content extraction?"
+    );
+    if (!confirmed) {
+      return { ok: false, skipped: true, cancelled: true };
+    }
   }
-  const confirmed = window.confirm(
-    "Are these the final settings for the current property for content extraction?"
-  );
-  if (!confirmed) {
-    return;
-  }
-  const includeCss = selectorSet.inclusionSelectors.join(", ");
-  const submitSelectorSet = buildSelectorSetForGraphqlSubmit(selectorSet);
-  const excludeCss = submitSelectorSet.exclusionSelectors.join(", ");
+
+  const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
+  const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
+  const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
   const submitTokenValue =
     (latestTokenStored && typeof latestTokenStored.globalToken === "string"
       ? latestTokenStored.globalToken
       : "") || tokenValue;
+
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
@@ -2947,20 +2969,19 @@ async function handleSaveExcludes() {
       payload = null;
     }
     if (!response.ok) {
-      uiModule.showToast("Submit response error");
-      return;
+      return { ok: false, reason: "Submit response error" };
     }
     if (!payload || typeof payload !== "object") {
-      uiModule.showToast("Submit response format error");
-      return;
+      return { ok: false, reason: "Submit response format error" };
     }
     if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const firstError =
-        payload.errors[0] && typeof payload.errors[0].message === "string"
-          ? payload.errors[0].message
-          : "Submit response error";
-      uiModule.showToast(firstError);
-      return;
+      return {
+        ok: false,
+        reason:
+          payload.errors[0] && typeof payload.errors[0].message === "string"
+            ? payload.errors[0].message
+            : "Submit response error"
+      };
     }
     const mutationResult =
       payload.data && Object.prototype.hasOwnProperty.call(payload.data, "updateScrapingConditions")
@@ -2971,25 +2992,55 @@ async function handleSaveExcludes() {
       mutationResult === null ||
       mutationResult === false
     ) {
-      uiModule.showToast("Submit response error");
-      return;
+      return { ok: false, reason: "Submit response error" };
     }
+
     const selectorSetUpdatedAt = config.createTimestampNow();
     state.currentConfig = await config.updateConfig(effectiveBaseUrl, (config) => {
-      config.lastSavedSelectors = normalizeAiSelectorSet(selectorSet);
+      config.lastSavedSelectors = normalizeAiSelectorSet(normalizedSelectorSet);
       config.lastSavedSelectorsUpdatedAt = selectorSetUpdatedAt;
-      config.domainAiSelectorSet = normalizeAiSelectorSet(selectorSet);
+      config.domainAiSelectorSet = normalizeAiSelectorSet(normalizedSelectorSet);
       config.domainAiSelectorSetUpdatedAt = selectorSetUpdatedAt;
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
-    uiModule.showToast("Submitted to server");
+    return { ok: true, baseUrl: effectiveBaseUrl };
   } catch (error) {
-    uiModule.showToast("Submit request failed");
+    return { ok: false, reason: "Submit request failed" };
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
   }
+}
+
+async function handleSaveExcludes() {
+  if (state.aiRequestInFlight) {
+    return;
+  }
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  const credentials = await helpers.requireAiCredentials();
+  if (!credentials) {
+    return;
+  }
+  const submitResult = await submitSelectorSetToServer({
+    baseUrl: state.currentBaseUrl,
+    selectorSet: getLatestComputedSelectorsFromConfig(),
+    tokenValue: credentials.tokenValue,
+    confirm: true
+  });
+  if (submitResult.ok) {
+    uiModule.showToast("Submitted to server");
+    return;
+  }
+  if (submitResult.cancelled) {
+    return;
+  }
+  uiModule.showToast(submitResult.reason || "Submit request failed");
 }
 
 async function handlePreviewLatest() {
