@@ -405,25 +405,18 @@ async function resolveSiteIdFromGraphql(options = {}) {
   }
 }
 
-function mergeSelectorSetForBaseUrlMigration(preferred, existing) {
-  const preferredNormalized = normalizeAiSelectorSet(preferred);
-  const existingNormalized = normalizeAiSelectorSet(existing);
-  if (!combineAiSelectorSet(existingNormalized).length) {
-    return preferredNormalized;
-  }
-  if (!combineAiSelectorSet(preferredNormalized).length) {
-    return existingNormalized;
-  }
-  return normalizeAiSelectorSet({
-    exclusionSelectors: [
-      ...preferredNormalized.exclusionSelectors,
-      ...existingNormalized.exclusionSelectors
-    ],
-    inclusionSelectors: [
-      ...preferredNormalized.inclusionSelectors,
-      ...existingNormalized.inclusionSelectors
-    ]
-  });
+function mergeSelectorSetForBaseUrlMigration(
+  preferredSelectorSet,
+  preferredUpdatedAt,
+  existingSelectorSet,
+  existingUpdatedAt
+) {
+  return config.mergeSelectorSetsByTimestamp(
+    existingSelectorSet,
+    existingUpdatedAt,
+    preferredSelectorSet,
+    preferredUpdatedAt
+  );
 }
 
 function buildSelectorSetForGraphqlSubmit(selectorSet) {
@@ -444,6 +437,24 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
     existing.pageMarkings,
     preferred.pageMarkings
   ).pageMarkings;
+  const latestComputedSelectors = mergeSelectorSetForBaseUrlMigration(
+    preferred.latestComputedSelectors,
+    preferred.latestComputedSelectorsUpdatedAt,
+    existing.latestComputedSelectors,
+    existing.latestComputedSelectorsUpdatedAt
+  );
+  const lastSavedSelectors = mergeSelectorSetForBaseUrlMigration(
+    preferred.lastSavedSelectors,
+    preferred.lastSavedSelectorsUpdatedAt,
+    existing.lastSavedSelectors,
+    existing.lastSavedSelectorsUpdatedAt
+  );
+  const domainAiSelectorSet = mergeSelectorSetForBaseUrlMigration(
+    preferred.domainAiSelectorSet,
+    preferred.domainAiSelectorSetUpdatedAt,
+    existing.domainAiSelectorSet,
+    existing.domainAiSelectorSetUpdatedAt
+  );
   const merged = {
     ...existing,
     ...preferred,
@@ -452,18 +463,12 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
       normalizeSiteIdValue(existing.siteId) ||
       null,
     pageMarkings: mergedPageMarkings,
-    latestComputedSelectors: mergeSelectorSetForBaseUrlMigration(
-      preferred.latestComputedSelectors,
-      existing.latestComputedSelectors
-    ),
-    lastSavedSelectors: mergeSelectorSetForBaseUrlMigration(
-      preferred.lastSavedSelectors,
-      existing.lastSavedSelectors
-    ),
-    domainAiSelectorSet: mergeSelectorSetForBaseUrlMigration(
-      preferred.domainAiSelectorSet,
-      existing.domainAiSelectorSet
-    )
+    latestComputedSelectors: latestComputedSelectors.selectorSet,
+    latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,
+    lastSavedSelectors: lastSavedSelectors.selectorSet,
+    lastSavedSelectorsUpdatedAt: lastSavedSelectors.updatedAt,
+    domainAiSelectorSet: domainAiSelectorSet.selectorSet,
+    domainAiSelectorSetUpdatedAt: domainAiSelectorSet.updatedAt
   };
   return config.normalizeConfig(resolvedBaseUrl, merged).config;
 }
@@ -702,6 +707,32 @@ function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
+function mergeSelectorFieldIntoConfig(targetConfig, incomingConfig, selectorField) {
+  if (!targetConfig || typeof targetConfig !== "object") {
+    return false;
+  }
+  const timestampField = config.getSelectorSetTimestampFieldName(selectorField);
+  if (!timestampField) {
+    return false;
+  }
+  const merged = config.mergeSelectorSetsByTimestamp(
+    targetConfig[selectorField],
+    targetConfig[timestampField],
+    incomingConfig && typeof incomingConfig === "object" ? incomingConfig[selectorField] : null,
+    incomingConfig && typeof incomingConfig === "object" ? incomingConfig[timestampField] : null
+  );
+  const currentSelectorSet = normalizeAiSelectorSet(targetConfig[selectorField]);
+  const currentUpdatedAt = config.normalizeEntryTimestamp(targetConfig[timestampField]);
+  const didChange =
+    !aiSelectorSetsEqual(currentSelectorSet, merged.selectorSet) ||
+    currentUpdatedAt !== merged.updatedAt;
+  if (didChange) {
+    targetConfig[selectorField] = merged.selectorSet;
+    targetConfig[timestampField] = merged.updatedAt;
+  }
+  return didChange;
+}
+
 async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
   const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
@@ -728,10 +759,21 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     normalizedPayload.pageMarkings
   );
   localConfig.pageMarkings = mergeResult.pageMarkings;
+  let selectorStateChanged = false;
+  selectorStateChanged =
+    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "latestComputedSelectors") ||
+    selectorStateChanged;
+  selectorStateChanged =
+    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "lastSavedSelectors") ||
+    selectorStateChanged;
+  selectorStateChanged =
+    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "domainAiSelectorSet") ||
+    selectorStateChanged;
   const shouldSave =
     !existingRaw ||
     normalizedLocal.changed ||
     siteIdChanged ||
+    selectorStateChanged ||
     mergeResult.replacedUrls.length > 0;
   if (shouldSave) {
     allConfigs[baseUrl] = localConfig;
@@ -1063,6 +1105,10 @@ function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig
 
 function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.lastSavedSelectors);
+}
+
+function getLatestAvailableSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  return config.getNewestConfigSelectorSet(sourceConfig).selectorSet;
 }
 
 function getSilentHighlightVisibility() {
@@ -1503,6 +1549,7 @@ async function refreshUiInner() {
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
   const latestComputed = getLatestComputedSelectorsFromConfig();
+  const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
   const selectorCount = combineAiSelectorSet(latestComputed).length;
   const hasNewSelectors =
@@ -1514,7 +1561,7 @@ async function refreshUiInner() {
   }
   const selectorsReadyForSubmit = hasNewSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
-  const hasStoredSelectors = selectorCount > 0;
+  const hasStoredSelectors = combineAiSelectorSet(latestAvailableSelectors).length > 0;
   const aiControlsVisible = endpointReady && Boolean(tokenValue);
 
   state.currentDraftEntry = null;
@@ -2790,9 +2837,12 @@ async function handleComputeSelectors() {
       return;
     }
     selectorSet = normalizeAiSelectorSet(data);
+    const selectorSetUpdatedAt = config.createTimestampNow();
     state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
       config.latestComputedSelectors = normalizeAiSelectorSet(selectorSet);
+      config.latestComputedSelectorsUpdatedAt = selectorSetUpdatedAt;
       config.domainAiSelectorSet = normalizeAiSelectorSet(selectorSet);
+      config.domainAiSelectorSetUpdatedAt = selectorSetUpdatedAt;
     });
     const hasComputedNewSelectors =
       !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
@@ -2924,8 +2974,12 @@ async function handleSaveExcludes() {
       uiModule.showToast("Submit response error");
       return;
     }
+    const selectorSetUpdatedAt = config.createTimestampNow();
     state.currentConfig = await config.updateConfig(effectiveBaseUrl, (config) => {
       config.lastSavedSelectors = normalizeAiSelectorSet(selectorSet);
+      config.lastSavedSelectorsUpdatedAt = selectorSetUpdatedAt;
+      config.domainAiSelectorSet = normalizeAiSelectorSet(selectorSet);
+      config.domainAiSelectorSetUpdatedAt = selectorSetUpdatedAt;
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
@@ -2949,7 +3003,7 @@ async function handlePreviewLatest() {
     uiModule.showToast("No mapped base page URL/siteId for this page");
     return;
   }
-  const selectorSet = getLatestComputedSelectorsFromConfig();
+  const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
     uiModule.showToast("No stored selectors available");
     return;

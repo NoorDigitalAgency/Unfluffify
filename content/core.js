@@ -3234,12 +3234,7 @@ function renderHighlightsInner() {
 
   const immutableExcluded = collectImmutableElements();
   const pageUrl = location.href;
-  const latestComputedSelectorSet = normalizeAiSelectorSet(state.config.latestComputedSelectors);
-  const latestCombinedSelectors = combineAiSelectorSet(latestComputedSelectorSet);
-  const storedSelectorSet = normalizeAiSelectorSet(state.config.domainAiSelectorSet);
-  const normalizedAiSelectorSet = latestCombinedSelectors.length
-    ? latestComputedSelectorSet
-    : storedSelectorSet;
+  const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
   const existingPageEntry =
     state.config &&

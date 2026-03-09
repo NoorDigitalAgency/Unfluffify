@@ -1,4 +1,5 @@
 import {
+  arraysEqual,
   idbGet,
   idbSet,
   normalizeBaseUrl,
@@ -7,6 +8,11 @@ import {
 
 const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
+const SELECTOR_SET_TIMESTAMP_FIELDS = {
+  latestComputedSelectors: "latestComputedSelectorsUpdatedAt",
+  lastSavedSelectors: "lastSavedSelectorsUpdatedAt",
+  domainAiSelectorSet: "domainAiSelectorSetUpdatedAt"
+};
 
 function normalizeSiteIdValue(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -165,6 +171,122 @@ export function createEmptyAiSelectorSet() {
   return { exclusionSelectors: [], inclusionSelectors: [] };
 }
 
+function cloneAiSelectorSet(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet).normalized;
+  return {
+    exclusionSelectors: normalized.exclusionSelectors.slice(),
+    inclusionSelectors: normalized.inclusionSelectors.slice()
+  };
+}
+
+function hasAnySelectors(selectorSet) {
+  return Boolean(
+    selectorSet &&
+      (
+        (Array.isArray(selectorSet.exclusionSelectors) &&
+          selectorSet.exclusionSelectors.length > 0) ||
+        (Array.isArray(selectorSet.inclusionSelectors) &&
+          selectorSet.inclusionSelectors.length > 0)
+      )
+  );
+}
+
+function selectorSetsEqual(left, right) {
+  const normalizedLeft = normalizeAiSelectorSet(left).normalized;
+  const normalizedRight = normalizeAiSelectorSet(right).normalized;
+  return (
+    arraysEqual(normalizedLeft.exclusionSelectors, normalizedRight.exclusionSelectors) &&
+    arraysEqual(normalizedLeft.inclusionSelectors, normalizedRight.inclusionSelectors)
+  );
+}
+
+export function getSelectorSetTimestampFieldName(fieldName) {
+  return SELECTOR_SET_TIMESTAMP_FIELDS[fieldName] || "";
+}
+
+export function mergeSelectorSetsByTimestamp(
+  existingSet,
+  existingUpdatedAt,
+  incomingSet,
+  incomingUpdatedAt
+) {
+  const normalizedExistingSet = normalizeAiSelectorSet(existingSet).normalized;
+  const normalizedIncomingSet = normalizeAiSelectorSet(incomingSet).normalized;
+  const normalizedExistingUpdatedAt = normalizeEntryTimestamp(existingUpdatedAt);
+  const normalizedIncomingUpdatedAt = normalizeEntryTimestamp(incomingUpdatedAt);
+
+  if (isIncomingTimestampNewer(normalizedIncomingUpdatedAt, normalizedExistingUpdatedAt)) {
+    return {
+      selectorSet: cloneAiSelectorSet(normalizedIncomingSet),
+      updatedAt: normalizedIncomingUpdatedAt
+    };
+  }
+  if (isIncomingTimestampNewer(normalizedExistingUpdatedAt, normalizedIncomingUpdatedAt)) {
+    return {
+      selectorSet: cloneAiSelectorSet(normalizedExistingSet),
+      updatedAt: normalizedExistingUpdatedAt
+    };
+  }
+
+  const incomingHasSelectors = hasAnySelectors(normalizedIncomingSet);
+  const existingHasSelectors = hasAnySelectors(normalizedExistingSet);
+  if (incomingHasSelectors !== existingHasSelectors) {
+    return incomingHasSelectors
+      ? {
+        selectorSet: cloneAiSelectorSet(normalizedIncomingSet),
+        updatedAt: normalizedIncomingUpdatedAt
+      }
+      : {
+        selectorSet: cloneAiSelectorSet(normalizedExistingSet),
+        updatedAt: normalizedExistingUpdatedAt
+      };
+  }
+
+  if (!selectorSetsEqual(normalizedExistingSet, normalizedIncomingSet)) {
+    return {
+      selectorSet: cloneAiSelectorSet(normalizedIncomingSet),
+      updatedAt: normalizedIncomingUpdatedAt
+    };
+  }
+
+  return {
+    selectorSet: cloneAiSelectorSet(normalizedExistingSet),
+    updatedAt: normalizedExistingUpdatedAt
+  };
+}
+
+export function getNewestConfigSelectorSet(
+  sourceConfig,
+  fieldNames = ["latestComputedSelectors", "domainAiSelectorSet", "lastSavedSelectors"]
+) {
+  let mergedSelectorSet = createEmptyAiSelectorSet();
+  let mergedUpdatedAt = PAGE_TIMESTAMP_FALLBACK;
+
+  for (const fieldName of Array.isArray(fieldNames) ? fieldNames : []) {
+    if (typeof fieldName !== "string" || !fieldName) {
+      continue;
+    }
+    const timestampFieldName = getSelectorSetTimestampFieldName(fieldName);
+    const merged = mergeSelectorSetsByTimestamp(
+      mergedSelectorSet,
+      mergedUpdatedAt,
+      sourceConfig && typeof sourceConfig === "object" ? sourceConfig[fieldName] : null,
+      timestampFieldName &&
+        sourceConfig &&
+        typeof sourceConfig === "object"
+        ? sourceConfig[timestampFieldName]
+        : null
+    );
+    mergedSelectorSet = merged.selectorSet;
+    mergedUpdatedAt = merged.updatedAt;
+  }
+
+  return {
+    selectorSet: mergedSelectorSet,
+    updatedAt: mergedUpdatedAt
+  };
+}
+
 export function createDefaultConfig(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
   let domain = "";
@@ -179,8 +301,11 @@ export function createDefaultConfig(baseUrl) {
     siteId: null,
     pageMarkings: {},
     latestComputedSelectors: createEmptyAiSelectorSet(),
+    latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
     lastSavedSelectors: createEmptyAiSelectorSet(),
-    domainAiSelectorSet: createEmptyAiSelectorSet()
+    lastSavedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
+    domainAiSelectorSet: createEmptyAiSelectorSet(),
+    domainAiSelectorSetUpdatedAt: PAGE_TIMESTAMP_FALLBACK
   };
 }
 
@@ -327,14 +452,41 @@ export function normalizeConfig(baseUrl, incoming) {
   if (latestComputed.changed) {
     changed = true;
   }
+  normalized.latestComputedSelectorsUpdatedAt = normalizeEntryTimestamp(
+    incoming.latestComputedSelectorsUpdatedAt
+  );
+  if (
+    incoming.latestComputedSelectorsUpdatedAt !== undefined &&
+    normalized.latestComputedSelectorsUpdatedAt !== incoming.latestComputedSelectorsUpdatedAt
+  ) {
+    changed = true;
+  }
   const lastSaved = normalizeAiSelectorSet(incoming.lastSavedSelectors);
   normalized.lastSavedSelectors = lastSaved.normalized;
   if (lastSaved.changed) {
     changed = true;
   }
+  normalized.lastSavedSelectorsUpdatedAt = normalizeEntryTimestamp(
+    incoming.lastSavedSelectorsUpdatedAt
+  );
+  if (
+    incoming.lastSavedSelectorsUpdatedAt !== undefined &&
+    normalized.lastSavedSelectorsUpdatedAt !== incoming.lastSavedSelectorsUpdatedAt
+  ) {
+    changed = true;
+  }
   const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
   normalized.domainAiSelectorSet = aiSelectors.normalized;
   if (aiSelectors.changed) {
+    changed = true;
+  }
+  normalized.domainAiSelectorSetUpdatedAt = normalizeEntryTimestamp(
+    incoming.domainAiSelectorSetUpdatedAt
+  );
+  if (
+    incoming.domainAiSelectorSetUpdatedAt !== undefined &&
+    normalized.domainAiSelectorSetUpdatedAt !== incoming.domainAiSelectorSetUpdatedAt
+  ) {
     changed = true;
   }
   if (Object.prototype.hasOwnProperty.call(incoming, "aiSelectorModifiers")) {
@@ -372,7 +524,13 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
       version: SERVER_SYNC_VERSION,
       baseUrl: normalizedFallbackBaseUrl,
       siteId: null,
-      pageMarkings: {}
+      pageMarkings: {},
+      latestComputedSelectors: createEmptyAiSelectorSet(),
+      latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
+      lastSavedSelectors: createEmptyAiSelectorSet(),
+      lastSavedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
+      domainAiSelectorSet: createEmptyAiSelectorSet(),
+      domainAiSelectorSetUpdatedAt: PAGE_TIMESTAMP_FALLBACK
     };
   }
   const baseUrl =
@@ -380,6 +538,9 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
     normalizeBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizedFallbackBaseUrl;
   const normalizedMarkings = normalizePageMarkings(payload.pageMarkings);
+  const latestComputedSelectors = normalizeAiSelectorSet(payload.latestComputedSelectors).normalized;
+  const lastSavedSelectors = normalizeAiSelectorSet(payload.lastSavedSelectors).normalized;
+  const domainAiSelectorSet = normalizeAiSelectorSet(payload.domainAiSelectorSet).normalized;
   return {
     version:
       typeof payload.version === "number" && Number.isFinite(payload.version)
@@ -387,7 +548,17 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
         : SERVER_SYNC_VERSION,
     baseUrl,
     siteId: normalizeSiteIdValue(payload.siteId),
-    pageMarkings: normalizedMarkings.normalized
+    pageMarkings: normalizedMarkings.normalized,
+    latestComputedSelectors,
+    latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
+      payload.latestComputedSelectorsUpdatedAt
+    ),
+    lastSavedSelectors,
+    lastSavedSelectorsUpdatedAt: normalizeEntryTimestamp(payload.lastSavedSelectorsUpdatedAt),
+    domainAiSelectorSet,
+    domainAiSelectorSetUpdatedAt: normalizeEntryTimestamp(
+      payload.domainAiSelectorSetUpdatedAt
+    )
   };
 }
 
@@ -417,6 +588,14 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
         : [],
       includeXpaths: Array.isArray(safeEntry.includeXpaths)
         ? safeEntry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+        : [],
+      submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
+        ? safeEntry.submissionXpaths
+          .map((item) => ({
+            xpath: item && typeof item.xpath === "string" ? item.xpath : "",
+            excluded: Boolean(item && item.excluded)
+          }))
+          .filter((item) => item.xpath)
         : []
     };
   });
@@ -424,7 +603,17 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
     version: SERVER_SYNC_VERSION,
     baseUrl: normalizedBaseUrl,
     siteId: normalizeSiteIdValue(normalized.siteId),
-    pageMarkings: payloadMarkings
+    pageMarkings: payloadMarkings,
+    latestComputedSelectors: cloneAiSelectorSet(normalized.latestComputedSelectors),
+    latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
+      normalized.latestComputedSelectorsUpdatedAt
+    ),
+    lastSavedSelectors: cloneAiSelectorSet(normalized.lastSavedSelectors),
+    lastSavedSelectorsUpdatedAt: normalizeEntryTimestamp(normalized.lastSavedSelectorsUpdatedAt),
+    domainAiSelectorSet: cloneAiSelectorSet(normalized.domainAiSelectorSet),
+    domainAiSelectorSetUpdatedAt: normalizeEntryTimestamp(
+      normalized.domainAiSelectorSetUpdatedAt
+    )
   };
 }
 
@@ -435,6 +624,15 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
   const replacedUrls = [];
   const replacedExistingUrls = [];
 
+  const hasSnapshotData = (entry) =>
+    Boolean(
+      entry &&
+        (
+          (typeof entry.fullHTML === "string" && entry.fullHTML.length > 0) ||
+          (Array.isArray(entry.submissionXpaths) && entry.submissionXpaths.length > 0)
+        )
+    );
+
   Object.entries(incomingNormalized).forEach(([url, incomingEntry]) => {
     const localEntry = merged[url];
     if (!localEntry) {
@@ -442,7 +640,14 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
       replacedUrls.push(url);
       return;
     }
-    if (!isIncomingTimestampNewer(incomingEntry.timestamp, localEntry.timestamp)) {
+    const timestampsMatch =
+      normalizeEntryTimestamp(incomingEntry.timestamp) === normalizeEntryTimestamp(localEntry.timestamp);
+    const incomingHasRicherSnapshot =
+      timestampsMatch && hasSnapshotData(incomingEntry) && !hasSnapshotData(localEntry);
+    if (
+      !isIncomingTimestampNewer(incomingEntry.timestamp, localEntry.timestamp) &&
+      !incomingHasRicherSnapshot
+    ) {
       return;
     }
     merged[url] = cloneNormalizedPageEntry(incomingEntry, url);
@@ -473,28 +678,34 @@ export async function getConfigs() {
       existing.pageMarkings,
       incoming.pageMarkings
     ).pageMarkings;
+    const latestComputedSelectors = mergeSelectorSetsByTimestamp(
+      existing.latestComputedSelectors,
+      existing.latestComputedSelectorsUpdatedAt,
+      incoming.latestComputedSelectors,
+      incoming.latestComputedSelectorsUpdatedAt
+    );
+    const lastSavedSelectors = mergeSelectorSetsByTimestamp(
+      existing.lastSavedSelectors,
+      existing.lastSavedSelectorsUpdatedAt,
+      incoming.lastSavedSelectors,
+      incoming.lastSavedSelectorsUpdatedAt
+    );
+    const domainAiSelectorSet = mergeSelectorSetsByTimestamp(
+      existing.domainAiSelectorSet,
+      existing.domainAiSelectorSetUpdatedAt,
+      incoming.domainAiSelectorSet,
+      incoming.domainAiSelectorSetUpdatedAt
+    );
     normalizedConfigs[normalizedKey] = {
       ...existing,
       siteId: existing.siteId || incoming.siteId || null,
       pageMarkings: mergedPageMarkings,
-      latestComputedSelectors:
-        (incoming.latestComputedSelectors &&
-          (incoming.latestComputedSelectors.exclusionSelectors.length > 0 ||
-            incoming.latestComputedSelectors.inclusionSelectors.length > 0))
-          ? incoming.latestComputedSelectors
-          : existing.latestComputedSelectors,
-      lastSavedSelectors:
-        (incoming.lastSavedSelectors &&
-          (incoming.lastSavedSelectors.exclusionSelectors.length > 0 ||
-            incoming.lastSavedSelectors.inclusionSelectors.length > 0))
-          ? incoming.lastSavedSelectors
-          : existing.lastSavedSelectors,
-      domainAiSelectorSet:
-        (incoming.domainAiSelectorSet &&
-          (incoming.domainAiSelectorSet.exclusionSelectors.length > 0 ||
-            incoming.domainAiSelectorSet.inclusionSelectors.length > 0))
-          ? incoming.domainAiSelectorSet
-          : existing.domainAiSelectorSet
+      latestComputedSelectors: latestComputedSelectors.selectorSet,
+      latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,
+      lastSavedSelectors: lastSavedSelectors.selectorSet,
+      lastSavedSelectorsUpdatedAt: lastSavedSelectors.updatedAt,
+      domainAiSelectorSet: domainAiSelectorSet.selectorSet,
+      domainAiSelectorSetUpdatedAt: domainAiSelectorSet.updatedAt
     };
   });
   return normalizedConfigs;

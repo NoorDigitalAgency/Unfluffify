@@ -141,6 +141,28 @@ function showPageToast(message) {
   }, 3000);
 }
 
+function submissionXpathsEqual(left, right) {
+  if (left === right) {
+    return true;
+  }
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    return false;
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    const leftItem = left[i];
+    const rightItem = right[i];
+    if (
+      !leftItem ||
+      !rightItem ||
+      leftItem.xpath !== rightItem.xpath ||
+      Boolean(leftItem.excluded) !== Boolean(rightItem.excluded)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -206,7 +228,19 @@ async function saveCurrentPageDraft(options) {
     Array.isArray(savedEntry.submissionXpaths) &&
     savedEntry.submissionXpaths.length > 0
   );
-  if (!core.isPageDraftDirty(pageUrl) && hasSavedEntry && savedEntryHasAiSubmissionData) {
+  const currentFullHTML = document.documentElement.outerHTML;
+  const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+  const savedEntryMatchesCurrentSnapshot = Boolean(
+    savedEntry &&
+    savedEntry.fullHTML === currentFullHTML &&
+    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
+  );
+  if (
+    !core.isPageDraftDirty(pageUrl) &&
+    hasSavedEntry &&
+    savedEntryHasAiSubmissionData &&
+    savedEntryMatchesCurrentSnapshot
+  ) {
     if (showToast) {
       showPageToast("No changes to save");
     }
@@ -218,10 +252,10 @@ async function saveCurrentPageDraft(options) {
     persist: true
   });
   const entry = core.getPageMarkingEntry(state.config, pageUrl);
-  entry.timestamp = config.normalizeEntryTimestamp(entry.timestamp);
-  entry.fullHTML = document.documentElement.outerHTML;
+  entry.fullHTML = currentFullHTML;
   entry.title = document.title || pageUrl;
-  entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+  entry.submissionXpaths = currentSubmissionXpaths;
+  core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
   try {
     await core.saveConfig(targetBaseUrl, state.config);
@@ -982,11 +1016,7 @@ function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
   }
-  const latestComputed = normalizeAiSelectorSet(baseConfig.latestComputedSelectors);
-  if (combineAiSelectorSet(latestComputed).length) {
-    return latestComputed;
-  }
-  return normalizeAiSelectorSet(baseConfig.domainAiSelectorSet);
+  return config.getNewestConfigSelectorSet(baseConfig).selectorSet;
 }
 
 function getEffectiveAiSelectorSet(baseConfig) {
@@ -2649,6 +2679,8 @@ export function main() {
         const entry = syncResult.entry || core.getPageMarkingEntry(config, location.href);
         entry.fullHTML = document.documentElement.outerHTML;
         entry.title = document.title || location.href;
+        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+        core.touchPageEntryTimestamp(entry);
         config.pageMarkings[location.href] = entry;
 
         if (shouldPersist) {
