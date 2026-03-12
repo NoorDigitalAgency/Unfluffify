@@ -19,7 +19,7 @@ using AngleSharp.Html.Parser;
 ///    hidden or inside excluded ancestors.
 /// 3. Textual elements in neither list are implicitly included.
 /// </summary>
-public sealed class AngleSharpPreviewContentExtractor
+public sealed class ContentExtractor
 {
     private static readonly Regex InlineWhitespaceRegex = new("[ \\t\\f\\v]+", RegexOptions.Compiled);
     private static readonly Regex AroundNewlineRegex = new(" *\\n *", RegexOptions.Compiled);
