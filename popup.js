@@ -478,8 +478,10 @@ async function ensureBaseUrlSiteId(options = {}) {
     baseUrl = "",
     stageBase = "",
     tokenValue = "",
-    configs = null
+    configs = null,
+    persist = true
   } = options;
+  const shouldPersist = persist !== false;
   const requestedBaseUrl =
     utils.normalizeCanonicalBaseUrl(baseUrl) ||
     utils.normalizeBaseUrl(baseUrl) ||
@@ -499,7 +501,9 @@ async function ensureBaseUrlSiteId(options = {}) {
   );
   if (!sourceConfigs[requestedBaseUrl] || normalizedConfig.changed) {
     sourceConfigs[requestedBaseUrl] = normalizedConfig.config;
-    await config.saveConfigs(sourceConfigs);
+    if (shouldPersist) {
+      await config.saveConfigs(sourceConfigs);
+    }
   }
   const existingSiteId = normalizeSiteIdValue(sourceConfigs[requestedBaseUrl].siteId);
   if (existingSiteId) {
@@ -526,9 +530,18 @@ async function ensureBaseUrlSiteId(options = {}) {
   if (state.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
     const cached = normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(requestedBaseUrl));
     if (cached) {
-      sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target) => {
-        target.siteId = cached;
-      });
+      if (shouldPersist) {
+        sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target) => {
+          target.siteId = cached;
+        });
+      } else {
+        const normalizedCached = config.normalizeConfig(
+          requestedBaseUrl,
+          sourceConfigs[requestedBaseUrl]
+        ).config;
+        normalizedCached.siteId = cached;
+        sourceConfigs[requestedBaseUrl] = normalizedCached;
+      }
       return {
         ok: true,
         siteId: cached,
@@ -537,14 +550,8 @@ async function ensureBaseUrlSiteId(options = {}) {
         config: sourceConfigs[requestedBaseUrl]
       };
     }
-    return {
-      ok: false,
-      siteId: null,
-      baseUrl: requestedBaseUrl,
-      reason: "No domainId available for this base URL",
-      configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
-    };
+    // Cached null values should not permanently block retries.
+    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
   const lookupResult = await resolveSiteIdFromGraphql({
     stageBase: normalizedStageBase,
@@ -567,10 +574,6 @@ async function ensureBaseUrlSiteId(options = {}) {
     requestedBaseUrl;
   const resolvedSiteId = normalizeSiteIdValue(lookupResult.siteId);
   if (!resolvedSiteId) {
-    state.siteIdLookupByBaseUrl.set(requestedBaseUrl, null);
-    if (resolvedBaseUrl && resolvedBaseUrl !== requestedBaseUrl) {
-      state.siteIdLookupByBaseUrl.set(resolvedBaseUrl, null);
-    }
     return {
       ok: false,
       siteId: null,
@@ -619,7 +622,7 @@ async function ensureBaseUrlSiteId(options = {}) {
     sourceConfigs[resolvedBaseUrl] = resolvedConfig;
     didChangeConfigs = true;
   }
-  if (didChangeConfigs) {
+  if (shouldPersist && didChangeConfigs) {
     await config.saveConfigs(sourceConfigs);
   }
   return {
@@ -1232,12 +1235,24 @@ async function refreshUiInner() {
   let configs = await config.getConfigs();
   const tabState =
     (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
-  const initialTabState = currentTabId
+  let initialTabState = currentTabId
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
-  const tabInScope = Boolean(initialTabState && initialTabState.active);
+  if (
+    currentTabId &&
+    !(initialTabState && initialTabState.active) &&
+    utils.getOriginFromUrl(pageUrl)
+  ) {
+    await utils.setTabState(currentTabId, { active: true }, "initial");
+    initialTabState = { active: true };
+  }
+  const tabInScope = Boolean(
+    (initialTabState && initialTabState.active) ||
+      utils.getOriginFromUrl(pageUrl)
+  );
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
+  let discoveredBaseUrlFromGraphql = "";
   let currentSiteId = null;
   let siteIdBlockedReason = "";
   let unsupportedByGraphql = false;
@@ -1290,11 +1305,8 @@ async function refreshUiInner() {
       const discoveredSiteId = normalizeSiteIdValue(discoveryResult.siteId);
       if (discoveredSiteId) {
         state.siteIdLookupByBaseUrl.set(discoveredBaseUrl, discoveredSiteId);
-        await config.updateConfig(discoveredBaseUrl, (entry) => {
-          entry.siteId = discoveredSiteId;
-        });
-        configs = await config.getConfigs();
-        localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+        discoveredBaseUrlFromGraphql = discoveredBaseUrl;
+        localMatchingBaseUrl = discoveredBaseUrl;
         hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
       }
       if (configEndpointValue) {
@@ -1311,7 +1323,9 @@ async function refreshUiInner() {
           (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
         ) {
           configs = await config.getConfigs();
-          localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+          const persistedMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+          localMatchingBaseUrl =
+            persistedMatchingBaseUrl || discoveredBaseUrlFromGraphql || localMatchingBaseUrl;
           hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
         }
       }
@@ -1326,16 +1340,17 @@ async function refreshUiInner() {
     : "";
   if (state.currentBaseUrl) {
     const normalized = config.normalizeConfig(state.currentBaseUrl, configs[state.currentBaseUrl]);
-    if (!configs[state.currentBaseUrl] || normalized.changed) {
+    if (configs[state.currentBaseUrl] && normalized.changed) {
       configs[state.currentBaseUrl] = normalized.config;
       await config.saveConfigs(configs);
     }
-    state.currentConfig = configs[state.currentBaseUrl];
+    state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: state.currentBaseUrl,
       stageBase: normalizedStageBaseValue,
       tokenValue,
-      configs
+      configs,
+      persist: false
     });
     if (siteIdResult.ok && siteIdResult.siteId) {
       const resolvedBaseUrl = siteIdResult.baseUrl || state.currentBaseUrl;
@@ -1390,7 +1405,8 @@ async function refreshUiInner() {
     remoteLoadResult &&
     remoteLoadResult.status === "not_found" &&
     effectiveTabState.baseUrl &&
-    !hasLocalConfigForWebsite
+    !hasLocalConfigForWebsite &&
+    !currentSiteId
   ) {
     const wasEnabled = Boolean(effectiveTabState.enabled);
     effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
@@ -1412,6 +1428,44 @@ async function refreshUiInner() {
     state.currentBaseUrl = "";
     state.currentConfig = null;
     currentSiteId = null;
+  }
+  if (
+    !unsupportedByGraphql &&
+    !state.currentBaseUrl &&
+    tabInScope &&
+    currentTabId &&
+    pageUrl &&
+    normalizedStageBaseValue
+  ) {
+    const fallbackDiscoveryResult = await resolveSiteIdFromGraphql({
+      stageBase: normalizedStageBaseValue,
+      lookupUrl: pageUrl,
+      tokenValue
+    });
+    if (
+      fallbackDiscoveryResult &&
+      fallbackDiscoveryResult.ok &&
+      fallbackDiscoveryResult.siteId &&
+      fallbackDiscoveryResult.baseUrl
+    ) {
+      const fallbackBaseUrl =
+        utils.normalizeCanonicalBaseUrl(fallbackDiscoveryResult.baseUrl) ||
+        utils.normalizeBaseUrl(fallbackDiscoveryResult.baseUrl) ||
+        fallbackDiscoveryResult.baseUrl;
+      const fallbackSiteId = normalizeSiteIdValue(fallbackDiscoveryResult.siteId);
+      if (fallbackBaseUrl && fallbackSiteId) {
+        state.siteIdLookupByBaseUrl.set(fallbackBaseUrl, fallbackSiteId);
+        state.currentBaseUrl = fallbackBaseUrl;
+        currentSiteId = fallbackSiteId;
+        state.currentConfig = config.normalizeConfig(
+          fallbackBaseUrl,
+          configs[fallbackBaseUrl]
+        ).config;
+      }
+    } else if (fallbackDiscoveryResult && fallbackDiscoveryResult.ok && fallbackDiscoveryResult.notFound) {
+      unsupportedByGraphql = true;
+      siteIdBlockedReason = "No mapped base page URL/siteId was found for this page.";
+    }
   }
   if (!state.currentBaseUrl) {
     state.baseUrlEditMode = false;
@@ -1903,14 +1957,24 @@ async function refreshUiInner() {
     ? "None yet"
     : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
 
-  const basePageUrls = Object.keys(configs)
-    .filter((url) => {
+  const basePageUrlSet = new Set(
+    Object.keys(configs).filter((url) => {
       if (typeof url !== "string" || !url) {
         return false;
       }
       const normalized = config.normalizeConfig(url, configs[url]).config;
       return Boolean(normalizeSiteIdValue(normalized.siteId));
     })
+  );
+  const liveSiteId = normalizeSiteIdValue(
+    currentSiteId ||
+      (state.currentConfig && state.currentConfig.siteId) ||
+      (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
+  );
+  if (state.currentBaseUrl && liveSiteId) {
+    basePageUrlSet.add(state.currentBaseUrl);
+  }
+  const basePageUrls = Array.from(basePageUrlSet)
     .sort((left, right) => left.localeCompare(right))
     .map((url) => ({ url }));
   nextViewState.basePageUrls = basePageUrls;
@@ -2156,12 +2220,17 @@ async function handleEnableToggle(event) {
       await refreshUi();
       return;
     }
-    state.currentConfig = await config.ensureConfig(baseUrlValue);
+    {
+      const currentConfigs = await config.getConfigs();
+      const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
+      state.currentConfig = normalizedCurrent.config;
+    }
     const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: baseUrlValue,
       stageBase: stageBaseValue,
-      tokenValue
+      tokenValue,
+      persist: false
     });
     if (!siteIdResult.ok || !siteIdResult.siteId) {
       uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");

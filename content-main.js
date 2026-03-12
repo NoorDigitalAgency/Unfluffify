@@ -2776,6 +2776,7 @@ export function main() {
       core.scheduleRender();
       core.scheduleSnapshotSave();
       core.notifyDraftStatus(location.href);
+      core.scheduleDraftPersist(targetBaseUrl);
       sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
       return;
     }
@@ -2847,6 +2848,7 @@ export function main() {
       core.scheduleRender();
       core.scheduleSnapshotSave();
       core.notifyDraftStatus(location.href);
+      core.scheduleDraftPersist(targetBaseUrl);
       sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
       return;
     }

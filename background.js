@@ -434,6 +434,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: false });
     return;
   }
-  requestContentActivation(tabId);
-  sendResponse({ ok: true });
+  (async () => {
+    await utils.setTabState(tabId, { active: true }, "initial");
+    await utils.updateActionForTab(tabId);
+    requestContentActivation(tabId);
+    sendResponse({ ok: true });
+  })().catch(() => {
+    requestContentActivation(tabId);
+    sendResponse({ ok: true });
+  });
+  return true;
 });

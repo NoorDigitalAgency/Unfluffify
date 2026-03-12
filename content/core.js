@@ -40,6 +40,7 @@ export const state = {
   scrollHideTimer: 0,
   isScrolling: false,
   snapshotTimer: 0,
+  draftPersistTimer: 0,
   urlCheckTimer: 0,
   mutationObserver: null,
   savedPageEntry: null,
@@ -2806,6 +2807,7 @@ function toggleExplicitExclude(target) {
     scheduleRender();
     scheduleSnapshotSave();
     notifyDraftStatus(location.href);
+    scheduleDraftPersist(state.baseUrl);
     return;
   }
   const explicitExcludeSet = new Set(collectExcludedXPaths(items));
@@ -2854,6 +2856,7 @@ function toggleExplicitExclude(target) {
   scheduleRender();
   scheduleSnapshotSave();
   notifyDraftStatus(location.href);
+  scheduleDraftPersist(state.baseUrl);
 }
 
 function toggleExplicitInclude(target) {
@@ -2895,6 +2898,7 @@ function toggleExplicitInclude(target) {
       scheduleRender();
       scheduleSnapshotSave();
       notifyDraftStatus(location.href);
+      scheduleDraftPersist(state.baseUrl);
       return;
     }
     if (matchesToggleableDefaultExcluded(target)) {
@@ -2947,6 +2951,7 @@ function toggleExplicitInclude(target) {
   scheduleRender();
   scheduleSnapshotSave();
   notifyDraftStatus(location.href);
+  scheduleDraftPersist(state.baseUrl);
 }
 
 function handleToggleEvent(event) {
@@ -3866,6 +3871,25 @@ export function scheduleSnapshotSave() {
   }, 220);
 }
 
+export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
+  const targetBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!targetBaseUrl || !state.config) {
+    return;
+  }
+  if (state.draftPersistTimer) {
+    window.clearTimeout(state.draftPersistTimer);
+  }
+  state.draftPersistTimer = window.setTimeout(() => {
+    state.draftPersistTimer = 0;
+    if (!targetBaseUrl || !state.config) {
+      return;
+    }
+    saveConfig(targetBaseUrl, state.config).catch(() => {
+      // Keep manual marking responsive; persistence failures are non-blocking.
+    });
+  }, Math.max(0, Math.trunc(delayMs)));
+}
+
 function setAltPassThrough(enabled) {
   state.altPassThrough = enabled;
   if (!state.overlay) {
@@ -4201,6 +4225,15 @@ export function disable() {
   if (state.snapshotTimer) {
     window.clearTimeout(state.snapshotTimer);
     state.snapshotTimer = 0;
+  }
+  if (state.draftPersistTimer) {
+    window.clearTimeout(state.draftPersistTimer);
+    state.draftPersistTimer = 0;
+    if (state.baseUrl && state.config) {
+      saveConfig(state.baseUrl, state.config).catch(() => {
+        // Ignore best-effort persistence failures during teardown.
+      });
+    }
   }
   if (state.hoverRaf) {
     window.cancelAnimationFrame(state.hoverRaf);
