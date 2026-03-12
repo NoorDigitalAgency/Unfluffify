@@ -25,7 +25,7 @@ public sealed class AngleSharpPreviewContentExtractor
     private static readonly Regex AroundNewlineRegex = new(" *\\n *", RegexOptions.Compiled);
     private static readonly Regex ExcessNewlinesRegex = new("\\n{3,}", RegexOptions.Compiled);
 
-    public string[] ExtractContent(
+    public static string[] ExtractContent(
         string fullHtml,
         string exclusionCssSelectors,
         string inclusionCssSelectors)
@@ -45,8 +45,12 @@ public sealed class AngleSharpPreviewContentExtractor
         var includeSelectors = ParseSelectorList(inclusionCssSelectors);
         var excludeSelectors = ParseSelectorList(exclusionCssSelectors);
 
-        var explicitIncludedElements = CollectSelectorElements(document, includeSelectors);
         var excludedElements = CollectSelectorElements(document, excludeSelectors);
+        var explicitIncludedElementsRaw = CollectSelectorElements(document, includeSelectors);
+        // If an element is both included and excluded, exclusion wins for that exact element.
+        var explicitIncludedElements = new HashSet<IElement>(
+            explicitIncludedElementsRaw.Where(el => !excludedElements.Contains(el))
+        );
         var orderIndex = BuildDocumentOrderIndex(document.DocumentElement ?? document.Body);
 
         var implicitRoots = CollectImplicitRoots(
@@ -156,8 +160,8 @@ public sealed class AngleSharpPreviewContentExtractor
                 continue;
             }
 
-            // Explicit include roots handle this subtree.
-            if (IsWithinSet(element, explicitIncludedElements))
+            // Skip explicit roots themselves here; descendants are evaluated normally.
+            if (explicitIncludedElements.Contains(element))
             {
                 continue;
             }
@@ -270,7 +274,7 @@ public sealed class AngleSharpPreviewContentExtractor
                     continue;
                 }
 
-                var inExplicitContext = IsWithinSet(element, explicitIncludedElements);
+                var inExplicitContext = explicitIncludedElements.Contains(element);
                 if (!inExplicitContext && IsHiddenByAncestor(element))
                 {
                     continue;
@@ -306,36 +310,15 @@ public sealed class AngleSharpPreviewContentExtractor
         HashSet<IElement> excludedElements,
         HashSet<IElement> explicitIncludedElements)
     {
-        // Explicit include resets inherited exclusion context.
-        var chain = new Stack<IElement>();
-        for (IElement? current = element; current is not null; current = current.ParentElement)
+        // Only explicitly included elements themselves can bypass exclusion.
+        if (explicitIncludedElements.Contains(element))
         {
-            chain.Push(current);
+            return false;
         }
 
-        var exclusionDepth = 0;
-        while (chain.Count > 0)
+        for (IElement? current = element; current is not null; current = current.ParentElement)
         {
-            var current = chain.Pop();
             if (excludedElements.Contains(current))
-            {
-                exclusionDepth++;
-            }
-
-            if (explicitIncludedElements.Contains(current))
-            {
-                exclusionDepth = 0;
-            }
-        }
-
-        return exclusionDepth > 0;
-    }
-
-    private static bool IsWithinSet(IElement element, HashSet<IElement> set)
-    {
-        for (IElement? current = element; current is not null; current = current.ParentElement)
-        {
-            if (set.Contains(current))
             {
                 return true;
             }
