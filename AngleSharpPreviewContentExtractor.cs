@@ -74,6 +74,7 @@ public sealed class AngleSharpPreviewContentExtractor
         foreach (var root in allRoots)
         {
             var rootIsExplicit = explicitIncludedElements.Contains(root);
+            var explicitBoundary = rootIsExplicit ? root : null;
 
             // Non-explicit roots do not survive hidden/excluded boundaries.
             if (!rootIsExplicit)
@@ -93,7 +94,8 @@ public sealed class AngleSharpPreviewContentExtractor
                 root,
                 excludedElements,
                 explicitIncludedElements,
-                rootSet);
+                rootSet,
+                explicitBoundary);
 
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -122,20 +124,256 @@ public sealed class AngleSharpPreviewContentExtractor
                 continue;
             }
 
-            try
+            var matchedAny = false;
+            foreach (var candidate in BuildSelectorCandidates(selector))
             {
-                foreach (var el in document.QuerySelectorAll(selector).OfType<IElement>())
+                List<IElement> matches;
+                try
+                {
+                    matches = document.QuerySelectorAll(candidate).OfType<IElement>().ToList();
+                }
+                catch
+                {
+                    // Ignore invalid selectors.
+                    continue;
+                }
+
+                if (matches.Count == 0)
+                {
+                    continue;
+                }
+
+                foreach (var el in matches)
                 {
                     elements.Add(el);
                 }
+
+                matchedAny = true;
+                break;
             }
-            catch
+
+            if (!matchedAny)
             {
-                // Ignore invalid selectors.
+                continue;
             }
         }
 
         return elements;
+    }
+
+    private static List<string> BuildSelectorCandidates(string selector)
+    {
+        var candidates = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        static bool IsEmpty(string value) => string.IsNullOrWhiteSpace(value);
+
+        void Add(string value)
+        {
+            if (IsEmpty(value))
+            {
+                return;
+            }
+
+            var trimmed = value.Trim();
+            if (trimmed.Length == 0 || !seen.Add(trimmed))
+            {
+                return;
+            }
+
+            candidates.Add(trimmed);
+        }
+
+        var initial = selector.Trim();
+        Add(initial);
+
+        var idRelaxedVariants = new List<string>();
+        var currentIdRelaxed = initial;
+        while (true)
+        {
+            var next = RemoveFirstIdSelector(currentIdRelaxed);
+            if (string.Equals(next, currentIdRelaxed, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            Add(next);
+            idRelaxedVariants.Add(next);
+            currentIdRelaxed = next;
+        }
+
+        var nthBases = new List<string> { initial };
+        nthBases.AddRange(idRelaxedVariants);
+        foreach (var nthBase in nthBases)
+        {
+            var currentNthRelaxed = nthBase;
+            while (true)
+            {
+                var next = RemoveFirstNthPseudoSelector(currentNthRelaxed);
+                if (string.Equals(next, currentNthRelaxed, StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                Add(next);
+                currentNthRelaxed = next;
+            }
+        }
+
+        return candidates;
+    }
+
+    private static string RemoveFirstIdSelector(string selector)
+    {
+        if (string.IsNullOrEmpty(selector))
+        {
+            return selector;
+        }
+
+        var builder = new StringBuilder(selector.Length);
+        char quote = '\0';
+        var bracketDepth = 0;
+        var removed = false;
+
+        for (var i = 0; i < selector.Length; i++)
+        {
+            var ch = selector[i];
+
+            if (quote != '\0')
+            {
+                builder.Append(ch);
+                if (ch == quote && (i == 0 || selector[i - 1] != '\\'))
+                {
+                    quote = '\0';
+                }
+
+                continue;
+            }
+
+            if (ch == '"' || ch == '\'')
+            {
+                quote = ch;
+                builder.Append(ch);
+                continue;
+            }
+
+            if (ch == '[')
+            {
+                bracketDepth++;
+                builder.Append(ch);
+                continue;
+            }
+
+            if (ch == ']')
+            {
+                bracketDepth = Math.Max(0, bracketDepth - 1);
+                builder.Append(ch);
+                continue;
+            }
+
+            if (!removed && bracketDepth == 0 && ch == '#')
+            {
+                var start = i;
+                var end = i + 1;
+                while (end < selector.Length &&
+                       (char.IsLetterOrDigit(selector[end]) || selector[end] == '-' || selector[end] == '_'))
+                {
+                    end++;
+                }
+
+                if (end > start + 1)
+                {
+                    removed = true;
+                    i = end - 1;
+                    continue;
+                }
+            }
+
+            builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string RemoveFirstNthPseudoSelector(string selector)
+    {
+        if (string.IsNullOrEmpty(selector))
+        {
+            return selector;
+        }
+
+        var lower = selector.ToLowerInvariant();
+        var firstNthOfType = lower.IndexOf(":nth-of-type(", StringComparison.Ordinal);
+        var firstNthChild = lower.IndexOf(":nth-child(", StringComparison.Ordinal);
+
+        var start = -1;
+        if (firstNthOfType >= 0 && firstNthChild >= 0)
+        {
+            start = Math.Min(firstNthOfType, firstNthChild);
+        }
+        else if (firstNthOfType >= 0)
+        {
+            start = firstNthOfType;
+        }
+        else if (firstNthChild >= 0)
+        {
+            start = firstNthChild;
+        }
+
+        if (start < 0)
+        {
+            return selector;
+        }
+
+        var openParen = selector.IndexOf('(', start);
+        if (openParen < 0)
+        {
+            return selector;
+        }
+
+        var depth = 1;
+        char quote = '\0';
+        var index = openParen + 1;
+
+        while (index < selector.Length && depth > 0)
+        {
+            var ch = selector[index];
+            if (quote != '\0')
+            {
+                if (ch == quote && selector[index - 1] != '\\')
+                {
+                    quote = '\0';
+                }
+
+                index++;
+                continue;
+            }
+
+            if (ch == '"' || ch == '\'')
+            {
+                quote = ch;
+                index++;
+                continue;
+            }
+
+            if (ch == '(')
+            {
+                depth++;
+            }
+            else if (ch == ')')
+            {
+                depth--;
+            }
+
+            index++;
+        }
+
+        if (depth != 0)
+        {
+            return selector;
+        }
+
+        return string.Concat(selector.AsSpan(0, start), selector.AsSpan(index));
     }
 
     private static List<IElement> CollectImplicitRoots(
@@ -234,7 +472,8 @@ public sealed class AngleSharpPreviewContentExtractor
         IElement root,
         HashSet<IElement> excludedElements,
         HashSet<IElement> explicitIncludedElements,
-        HashSet<IElement> allRoots)
+        HashSet<IElement> allRoots,
+        IElement? explicitBoundary)
     {
         var chunks = new List<string>();
         var stack = new Stack<INode>();
@@ -245,6 +484,24 @@ public sealed class AngleSharpPreviewContentExtractor
             var node = stack.Pop();
             if (node.NodeType == NodeType.Text)
             {
+                var parentElement = node.Parent as IElement;
+                if (parentElement is not null)
+                {
+                    if (IsHiddenByAncestor(parentElement, explicitBoundary))
+                    {
+                        continue;
+                    }
+
+                    if (IsBlockedByExclusion(
+                        parentElement,
+                        excludedElements,
+                        explicitIncludedElements,
+                        explicitBoundary))
+                    {
+                        continue;
+                    }
+                }
+
                 var text = (node.TextContent ?? string.Empty).Replace('\u00A0', ' ');
                 if (!string.IsNullOrWhiteSpace(text))
                 {
@@ -274,13 +531,16 @@ public sealed class AngleSharpPreviewContentExtractor
                     continue;
                 }
 
-                var inExplicitContext = explicitIncludedElements.Contains(element);
-                if (!inExplicitContext && IsHiddenByAncestor(element))
+                if (IsHiddenByAncestor(element, explicitBoundary))
                 {
                     continue;
                 }
 
-                if (IsBlockedByExclusion(element, excludedElements, explicitIncludedElements))
+                if (IsBlockedByExclusion(
+                    element,
+                    excludedElements,
+                    explicitIncludedElements,
+                    explicitBoundary))
                 {
                     continue;
                 }
@@ -308,7 +568,8 @@ public sealed class AngleSharpPreviewContentExtractor
     private static bool IsBlockedByExclusion(
         IElement element,
         HashSet<IElement> excludedElements,
-        HashSet<IElement> explicitIncludedElements)
+        HashSet<IElement> explicitIncludedElements,
+        IElement? explicitBoundary = null)
     {
         // Only explicitly included elements themselves can bypass exclusion.
         if (explicitIncludedElements.Contains(element))
@@ -320,6 +581,12 @@ public sealed class AngleSharpPreviewContentExtractor
         {
             if (excludedElements.Contains(current))
             {
+                if (explicitBoundary is not null &&
+                    (ReferenceEquals(current, explicitBoundary) || current.Contains(explicitBoundary)))
+                {
+                    continue;
+                }
+
                 return true;
             }
         }
@@ -350,12 +617,18 @@ public sealed class AngleSharpPreviewContentExtractor
             tag.Equals("TEMPLATE", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsHiddenByAncestor(IElement element)
+    private static bool IsHiddenByAncestor(IElement element, IElement? explicitBoundary = null)
     {
         for (IElement? current = element; current is not null; current = current.ParentElement)
         {
             if (IsHiddenSelf(current))
             {
+                if (explicitBoundary is not null &&
+                    (ReferenceEquals(current, explicitBoundary) || current.Contains(explicitBoundary)))
+                {
+                    continue;
+                }
+
                 return true;
             }
         }
