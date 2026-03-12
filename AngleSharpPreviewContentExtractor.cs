@@ -8,9 +8,16 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 
 /// <summary>
-/// Stateless extractor that returns preview-style text blocks from HTML using only:
-/// - inclusion CSS selectors
-/// - exclusion CSS selectors
+/// Stateless extractor that uses only:
+/// - inclusionCssSelectors: explicit include overrides
+/// - exclusionCssSelectors: exclusion boundaries
+/// - fullHtml: source document
+///
+/// Rules:
+/// 1. Elements matched by exclusion selectors exclude their subtree text.
+/// 2. Elements matched by inclusion selectors are explicitly included even if
+///    hidden or inside excluded ancestors.
+/// 3. Textual elements in neither list are implicitly included.
 /// </summary>
 public sealed class AngleSharpPreviewContentExtractor
 {
@@ -28,14 +35,6 @@ public sealed class AngleSharpPreviewContentExtractor
             return Array.Empty<string>();
         }
 
-        var includeSelectors = ParseSelectorList(inclusionCssSelectors);
-        if (includeSelectors.Count == 0)
-        {
-            return Array.Empty<string>();
-        }
-
-        var excludeSelectors = ParseSelectorList(exclusionCssSelectors);
-
         var parser = new HtmlParser();
         var document = parser.ParseDocument(fullHtml);
         if (document.Body is null)
@@ -43,25 +42,55 @@ public sealed class AngleSharpPreviewContentExtractor
             return Array.Empty<string>();
         }
 
+        var includeSelectors = ParseSelectorList(inclusionCssSelectors);
+        var excludeSelectors = ParseSelectorList(exclusionCssSelectors);
+
+        var explicitIncludedElements = CollectSelectorElements(document, includeSelectors);
         var excludedElements = CollectSelectorElements(document, excludeSelectors);
-        var includedElements = CollectSelectorElements(document, includeSelectors);
-        if (includedElements.Count == 0)
+        var orderIndex = BuildDocumentOrderIndex(document.DocumentElement ?? document.Body);
+
+        var implicitRoots = CollectImplicitRoots(
+            orderIndex,
+            explicitIncludedElements,
+            excludedElements);
+
+        var allRoots = CollapseRootsPreservingExplicit(
+            explicitIncludedElements.Concat(implicitRoots),
+            explicitIncludedElements,
+            orderIndex);
+
+        if (allRoots.Count == 0)
         {
             return Array.Empty<string>();
         }
 
-        var orderIndex = BuildDocumentOrderIndex(document.DocumentElement ?? document.Body);
-        var includeRoots = CollapseElementsByNesting(includedElements, orderIndex);
-
+        var rootSet = new HashSet<IElement>(allRoots);
         var rows = new List<(int Order, string Text)>();
-        foreach (var root in includeRoots)
+
+        foreach (var root in allRoots)
         {
-            if (IsInsideExcluded(root, excludedElements))
+            var rootIsExplicit = explicitIncludedElements.Contains(root);
+
+            // Non-explicit roots do not survive hidden/excluded boundaries.
+            if (!rootIsExplicit)
             {
-                continue;
+                if (IsHiddenByAncestor(root))
+                {
+                    continue;
+                }
+
+                if (IsBlockedByExclusion(root, excludedElements, explicitIncludedElements))
+                {
+                    continue;
+                }
             }
 
-            var text = ExtractPreviewText(root, excludedElements);
+            var text = ExtractTextForRoot(
+                root,
+                excludedElements,
+                explicitIncludedElements,
+                rootSet);
+
             if (string.IsNullOrWhiteSpace(text))
             {
                 continue;
@@ -91,9 +120,9 @@ public sealed class AngleSharpPreviewContentExtractor
 
             try
             {
-                foreach (var element in document.QuerySelectorAll(selector).OfType<IElement>())
+                foreach (var el in document.QuerySelectorAll(selector).OfType<IElement>())
                 {
-                    elements.Add(element);
+                    elements.Add(el);
                 }
             }
             catch
@@ -105,11 +134,56 @@ public sealed class AngleSharpPreviewContentExtractor
         return elements;
     }
 
-    private static List<IElement> CollapseElementsByNesting(
-        IEnumerable<IElement> elements,
+    private static List<IElement> CollectImplicitRoots(
+        IReadOnlyDictionary<IElement, int> orderIndex,
+        HashSet<IElement> explicitIncludedElements,
+        HashSet<IElement> excludedElements)
+    {
+        var orderedElements = orderIndex
+            .OrderBy(pair => pair.Value)
+            .Select(pair => pair.Key);
+
+        var roots = new List<IElement>();
+        foreach (var element in orderedElements)
+        {
+            if (IsTextSuppressedTag(element))
+            {
+                continue;
+            }
+
+            if (!HasDirectText(element))
+            {
+                continue;
+            }
+
+            // Explicit include roots handle this subtree.
+            if (IsWithinSet(element, explicitIncludedElements))
+            {
+                continue;
+            }
+
+            if (IsHiddenByAncestor(element))
+            {
+                continue;
+            }
+
+            if (IsBlockedByExclusion(element, excludedElements, explicitIncludedElements))
+            {
+                continue;
+            }
+
+            roots.Add(element);
+        }
+
+        return roots;
+    }
+
+    private static List<IElement> CollapseRootsPreservingExplicit(
+        IEnumerable<IElement> candidates,
+        HashSet<IElement> explicitIncludedElements,
         IReadOnlyDictionary<IElement, int> orderIndex)
     {
-        var list = elements
+        var list = candidates
             .Where(el => el is not null)
             .Distinct()
             .ToList();
@@ -126,12 +200,25 @@ public sealed class AngleSharpPreviewContentExtractor
         });
 
         var kept = new List<IElement>();
+        var keptSet = new HashSet<IElement>();
+
         foreach (var candidate in list)
         {
+            if (explicitIncludedElements.Contains(candidate))
+            {
+                if (keptSet.Add(candidate))
+                {
+                    kept.Add(candidate);
+                }
+
+                continue;
+            }
+
             var hasKeptAncestor = kept.Any(ancestor => ancestor.Contains(candidate));
             if (!hasKeptAncestor)
             {
                 kept.Add(candidate);
+                keptSet.Add(candidate);
             }
         }
 
@@ -139,9 +226,11 @@ public sealed class AngleSharpPreviewContentExtractor
         return kept;
     }
 
-    private static string ExtractPreviewText(
+    private static string ExtractTextForRoot(
         IElement root,
-        HashSet<IElement> excludedElements)
+        HashSet<IElement> excludedElements,
+        HashSet<IElement> explicitIncludedElements,
+        HashSet<IElement> allRoots)
     {
         var chunks = new List<string>();
         var stack = new Stack<INode>();
@@ -173,9 +262,24 @@ public sealed class AngleSharpPreviewContentExtractor
                 continue;
             }
 
-            if (!ReferenceEquals(element, root) && IsInsideExcluded(element, excludedElements))
+            if (!ReferenceEquals(element, root))
             {
-                continue;
+                // Let separate roots render their own block to avoid duplicates.
+                if (allRoots.Contains(element))
+                {
+                    continue;
+                }
+
+                var inExplicitContext = IsWithinSet(element, explicitIncludedElements);
+                if (!inExplicitContext && IsHiddenByAncestor(element))
+                {
+                    continue;
+                }
+
+                if (IsBlockedByExclusion(element, excludedElements, explicitIncludedElements))
+                {
+                    continue;
+                }
             }
 
             if (IsTextSuppressedTag(element))
@@ -197,11 +301,54 @@ public sealed class AngleSharpPreviewContentExtractor
         return combined.Trim();
     }
 
-    private static bool IsInsideExcluded(IElement element, HashSet<IElement> excludedElements)
+    private static bool IsBlockedByExclusion(
+        IElement element,
+        HashSet<IElement> excludedElements,
+        HashSet<IElement> explicitIncludedElements)
+    {
+        // Explicit include resets inherited exclusion context.
+        var chain = new Stack<IElement>();
+        for (IElement? current = element; current is not null; current = current.ParentElement)
+        {
+            chain.Push(current);
+        }
+
+        var exclusionDepth = 0;
+        while (chain.Count > 0)
+        {
+            var current = chain.Pop();
+            if (excludedElements.Contains(current))
+            {
+                exclusionDepth++;
+            }
+
+            if (explicitIncludedElements.Contains(current))
+            {
+                exclusionDepth = 0;
+            }
+        }
+
+        return exclusionDepth > 0;
+    }
+
+    private static bool IsWithinSet(IElement element, HashSet<IElement> set)
     {
         for (IElement? current = element; current is not null; current = current.ParentElement)
         {
-            if (excludedElements.Contains(current))
+            if (set.Contains(current))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasDirectText(IElement element)
+    {
+        foreach (var node in element.ChildNodes)
+        {
+            if (node.NodeType == NodeType.Text && !string.IsNullOrWhiteSpace(node.TextContent))
             {
                 return true;
             }
@@ -218,6 +365,50 @@ public sealed class AngleSharpPreviewContentExtractor
             tag.Equals("STYLE", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("NOSCRIPT", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("TEMPLATE", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHiddenByAncestor(IElement element)
+    {
+        for (IElement? current = element; current is not null; current = current.ParentElement)
+        {
+            if (IsHiddenSelf(current))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsHiddenSelf(IElement element)
+    {
+        if (element.HasAttribute("hidden"))
+        {
+            return true;
+        }
+
+        var ariaHidden = (element.GetAttribute("aria-hidden") ?? string.Empty).Trim();
+        if (ariaHidden.Equals("true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var style = (element.GetAttribute("style") ?? string.Empty).ToLowerInvariant();
+        if (style.Length == 0)
+        {
+            return false;
+        }
+
+        // Inline style only. No computed CSS in pure backend HTML parsing.
+        var compact = style.Replace(" ", string.Empty);
+        if (compact.Contains("display:none", StringComparison.Ordinal) ||
+            compact.Contains("visibility:hidden", StringComparison.Ordinal) ||
+            compact.Contains("visibility:collapse", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static int GetElementDepth(IElement element)
