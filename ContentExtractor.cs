@@ -97,6 +97,16 @@ public sealed class ContentExtractor
                 }
             }
 
+            // Remove excluded descendants from the root so the returned element
+            // is clean and text is calculated from the pruned subtree.
+            foreach (var ex in excludedElements)
+            {
+                if (!ReferenceEquals(ex, root) && root.Contains(ex))
+                {
+                    ex.Remove();
+                }
+            }
+
             var text = ExtractTextForRoot(
                 root,
                 excludedElements,
