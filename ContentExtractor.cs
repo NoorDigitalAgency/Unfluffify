@@ -281,13 +281,6 @@ public sealed class ContentExtractor
                 continue;
             }
 
-            if (element.TagName.Equals("BR", StringComparison.OrdinalIgnoreCase) ||
-                element.TagName.Equals("WBR", StringComparison.OrdinalIgnoreCase))
-            {
-                chunks.Add("\n");
-                continue;
-            }
-
             if (!ReferenceEquals(element, root))
             {
                 // Let separate roots render their own block to avoid duplicates.
@@ -304,6 +297,13 @@ public sealed class ContentExtractor
                 {
                     continue;
                 }
+            }
+
+            if (element.TagName.Equals("BR", StringComparison.OrdinalIgnoreCase) ||
+                element.TagName.Equals("WBR", StringComparison.OrdinalIgnoreCase))
+            {
+                chunks.Add("\n");
+                continue;
             }
 
             if (IsTextSuppressedTag(element))
