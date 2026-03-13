@@ -60,11 +60,9 @@ public sealed class ContentExtractor
         var excludeSelectors = ParseSelectorList(exclusionCssSelectors);
 
         var excludedElements = CollectSelectorElements(document, excludeSelectors);
-        var explicitIncludedElementsRaw = CollectSelectorElements(document, includeSelectors);
-        // If an element is both included and excluded, exclusion wins for that exact element.
-        var explicitIncludedElements = new HashSet<IElement>(
-            explicitIncludedElementsRaw.Where(el => !excludedElements.Contains(el))
-        );
+        // Explicit inclusion always wins. Exclusions still suppress deeper descendants
+        // unless those descendants are explicitly included again.
+        var explicitIncludedElements = CollectSelectorElements(document, includeSelectors);
         var orderIndex = BuildDocumentOrderIndex(document.DocumentElement ?? document.Body);
 
         var implicitRoots = CollectImplicitRoots(
@@ -133,256 +131,24 @@ public sealed class ContentExtractor
                 continue;
             }
 
-            var matchedAny = false;
-            foreach (var candidate in BuildSelectorCandidates(selector))
+            List<IElement> matches;
+            try
             {
-                List<IElement> matches;
-                try
-                {
-                    matches = document.QuerySelectorAll(candidate).OfType<IElement>().ToList();
-                }
-                catch
-                {
-                    // Ignore invalid selectors.
-                    continue;
-                }
-
-                if (matches.Count == 0)
-                {
-                    continue;
-                }
-
-                foreach (var el in matches)
-                {
-                    elements.Add(el);
-                }
-
-                matchedAny = true;
-                break;
+                matches = document.QuerySelectorAll(selector).OfType<IElement>().ToList();
+            }
+            catch
+            {
+                // Ignore invalid selectors.
+                continue;
             }
 
-            if (!matchedAny)
+            foreach (var el in matches)
             {
-                continue;
+                elements.Add(el);
             }
         }
 
         return elements;
-    }
-
-    private static List<string> BuildSelectorCandidates(string selector)
-    {
-        var candidates = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        static bool IsEmpty(string value) => string.IsNullOrWhiteSpace(value);
-
-        void Add(string value)
-        {
-            if (IsEmpty(value))
-            {
-                return;
-            }
-
-            var trimmed = value.Trim();
-            if (trimmed.Length == 0 || !seen.Add(trimmed))
-            {
-                return;
-            }
-
-            candidates.Add(trimmed);
-        }
-
-        var initial = selector.Trim();
-        Add(initial);
-
-        var idRelaxedVariants = new List<string>();
-        var currentIdRelaxed = initial;
-        while (true)
-        {
-            var next = RemoveFirstIdSelector(currentIdRelaxed);
-            if (string.Equals(next, currentIdRelaxed, StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            Add(next);
-            idRelaxedVariants.Add(next);
-            currentIdRelaxed = next;
-        }
-
-        var nthBases = new List<string> { initial };
-        nthBases.AddRange(idRelaxedVariants);
-        foreach (var nthBase in nthBases)
-        {
-            var currentNthRelaxed = nthBase;
-            while (true)
-            {
-                var next = RemoveFirstNthPseudoSelector(currentNthRelaxed);
-                if (string.Equals(next, currentNthRelaxed, StringComparison.Ordinal))
-                {
-                    break;
-                }
-
-                Add(next);
-                currentNthRelaxed = next;
-            }
-        }
-
-        return candidates;
-    }
-
-    private static string RemoveFirstIdSelector(string selector)
-    {
-        if (string.IsNullOrEmpty(selector))
-        {
-            return selector;
-        }
-
-        var builder = new StringBuilder(selector.Length);
-        char quote = '\0';
-        var bracketDepth = 0;
-        var removed = false;
-
-        for (var i = 0; i < selector.Length; i++)
-        {
-            var ch = selector[i];
-
-            if (quote != '\0')
-            {
-                builder.Append(ch);
-                if (ch == quote && (i == 0 || selector[i - 1] != '\\'))
-                {
-                    quote = '\0';
-                }
-
-                continue;
-            }
-
-            if (ch == '"' || ch == '\'')
-            {
-                quote = ch;
-                builder.Append(ch);
-                continue;
-            }
-
-            if (ch == '[')
-            {
-                bracketDepth++;
-                builder.Append(ch);
-                continue;
-            }
-
-            if (ch == ']')
-            {
-                bracketDepth = Math.Max(0, bracketDepth - 1);
-                builder.Append(ch);
-                continue;
-            }
-
-            if (!removed && bracketDepth == 0 && ch == '#')
-            {
-                var start = i;
-                var end = i + 1;
-                while (end < selector.Length &&
-                       (char.IsLetterOrDigit(selector[end]) || selector[end] == '-' || selector[end] == '_'))
-                {
-                    end++;
-                }
-
-                if (end > start + 1)
-                {
-                    removed = true;
-                    i = end - 1;
-                    continue;
-                }
-            }
-
-            builder.Append(ch);
-        }
-
-        return builder.ToString();
-    }
-
-    private static string RemoveFirstNthPseudoSelector(string selector)
-    {
-        if (string.IsNullOrEmpty(selector))
-        {
-            return selector;
-        }
-
-        var lower = selector.ToLowerInvariant();
-        var firstNthOfType = lower.IndexOf(":nth-of-type(", StringComparison.Ordinal);
-        var firstNthChild = lower.IndexOf(":nth-child(", StringComparison.Ordinal);
-
-        var start = -1;
-        if (firstNthOfType >= 0 && firstNthChild >= 0)
-        {
-            start = Math.Min(firstNthOfType, firstNthChild);
-        }
-        else if (firstNthOfType >= 0)
-        {
-            start = firstNthOfType;
-        }
-        else if (firstNthChild >= 0)
-        {
-            start = firstNthChild;
-        }
-
-        if (start < 0)
-        {
-            return selector;
-        }
-
-        var openParen = selector.IndexOf('(', start);
-        if (openParen < 0)
-        {
-            return selector;
-        }
-
-        var depth = 1;
-        char quote = '\0';
-        var index = openParen + 1;
-
-        while (index < selector.Length && depth > 0)
-        {
-            var ch = selector[index];
-            if (quote != '\0')
-            {
-                if (ch == quote && selector[index - 1] != '\\')
-                {
-                    quote = '\0';
-                }
-
-                index++;
-                continue;
-            }
-
-            if (ch == '"' || ch == '\'')
-            {
-                quote = ch;
-                index++;
-                continue;
-            }
-
-            if (ch == '(')
-            {
-                depth++;
-            }
-            else if (ch == ')')
-            {
-                depth--;
-            }
-
-            index++;
-        }
-
-        if (depth != 0)
-        {
-            return selector;
-        }
-
-        return string.Concat(selector.AsSpan(0, start), selector.AsSpan(index));
     }
 
     private static List<IElement> CollectImplicitRoots(
