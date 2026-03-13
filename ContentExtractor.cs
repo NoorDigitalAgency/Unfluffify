@@ -16,30 +16,44 @@ using AngleSharp.Html.Parser;
 /// Rules:
 /// 1. Elements matched by exclusion selectors exclude their subtree text.
 /// 2. Elements matched by inclusion selectors are explicitly included even if
-///    hidden or inside excluded ancestors.
+///    inside excluded ancestors.
 /// 3. Textual elements in neither list are implicitly included.
+/// 4. Hidden state is ignored; CSS selectors are trusted as the source of truth.
 /// </summary>
+public sealed class ExtractedContent
+{
+    public ExtractedContent(string text, IElement shallowestElement)
+    {
+        Text = text;
+        ShallowestElement = shallowestElement;
+    }
+
+    public string Text { get; }
+
+    public IElement ShallowestElement { get; }
+}
+
 public sealed class ContentExtractor
 {
     private static readonly Regex InlineWhitespaceRegex = new("[ \\t\\f\\v]+", RegexOptions.Compiled);
     private static readonly Regex AroundNewlineRegex = new(" *\\n *", RegexOptions.Compiled);
     private static readonly Regex ExcessNewlinesRegex = new("\\n{3,}", RegexOptions.Compiled);
 
-    public static string[] ExtractContent(
+    public static ExtractedContent[] ExtractContent(
         string fullHtml,
         string exclusionCssSelectors,
         string inclusionCssSelectors)
     {
         if (string.IsNullOrWhiteSpace(fullHtml))
         {
-            return Array.Empty<string>();
+            return Array.Empty<ExtractedContent>();
         }
 
         var parser = new HtmlParser();
         var document = parser.ParseDocument(fullHtml);
         if (document.Body is null)
         {
-            return Array.Empty<string>();
+            return Array.Empty<ExtractedContent>();
         }
 
         var includeSelectors = ParseSelectorList(inclusionCssSelectors);
@@ -65,25 +79,20 @@ public sealed class ContentExtractor
 
         if (allRoots.Count == 0)
         {
-            return Array.Empty<string>();
+            return Array.Empty<ExtractedContent>();
         }
 
         var rootSet = new HashSet<IElement>(allRoots);
-        var rows = new List<(int Order, string Text)>();
+        var rows = new List<(int Order, ExtractedContent Content)>();
 
         foreach (var root in allRoots)
         {
             var rootIsExplicit = explicitIncludedElements.Contains(root);
             var explicitBoundary = rootIsExplicit ? root : null;
 
-            // Non-explicit roots do not survive hidden/excluded boundaries.
+            // Non-explicit roots do not survive excluded boundaries.
             if (!rootIsExplicit)
             {
-                if (IsHiddenByAncestor(root))
-                {
-                    continue;
-                }
-
                 if (IsBlockedByExclusion(root, excludedElements, explicitIncludedElements))
                 {
                     continue;
@@ -102,12 +111,12 @@ public sealed class ContentExtractor
                 continue;
             }
 
-            rows.Add((GetOrder(orderIndex, root), text));
+            rows.Add((GetOrder(orderIndex, root), new ExtractedContent(text, root)));
         }
 
         return rows
             .OrderBy(row => row.Order)
-            .Select(row => row.Text)
+            .Select(row => row.Content)
             .ToArray();
     }
 
@@ -404,11 +413,6 @@ public sealed class ContentExtractor
                 continue;
             }
 
-            if (IsHiddenByAncestor(element))
-            {
-                continue;
-            }
-
             if (IsBlockedByExclusion(element, excludedElements, explicitIncludedElements))
             {
                 continue;
@@ -487,11 +491,6 @@ public sealed class ContentExtractor
                 var parentElement = node.Parent as IElement;
                 if (parentElement is not null)
                 {
-                    if (IsHiddenByAncestor(parentElement, explicitBoundary))
-                    {
-                        continue;
-                    }
-
                     if (IsBlockedByExclusion(
                         parentElement,
                         excludedElements,
@@ -527,11 +526,6 @@ public sealed class ContentExtractor
             {
                 // Let separate roots render their own block to avoid duplicates.
                 if (allRoots.Contains(element))
-                {
-                    continue;
-                }
-
-                if (IsHiddenByAncestor(element, explicitBoundary))
                 {
                     continue;
                 }
@@ -615,56 +609,6 @@ public sealed class ContentExtractor
             tag.Equals("STYLE", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("NOSCRIPT", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("TEMPLATE", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsHiddenByAncestor(IElement element, IElement? explicitBoundary = null)
-    {
-        for (IElement? current = element; current is not null; current = current.ParentElement)
-        {
-            if (IsHiddenSelf(current))
-            {
-                if (explicitBoundary is not null &&
-                    (ReferenceEquals(current, explicitBoundary) || current.Contains(explicitBoundary)))
-                {
-                    continue;
-                }
-
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsHiddenSelf(IElement element)
-    {
-        if (element.HasAttribute("hidden"))
-        {
-            return true;
-        }
-
-        var ariaHidden = (element.GetAttribute("aria-hidden") ?? string.Empty).Trim();
-        if (ariaHidden.Equals("true", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var style = (element.GetAttribute("style") ?? string.Empty).ToLowerInvariant();
-        if (style.Length == 0)
-        {
-            return false;
-        }
-
-        // Inline style only. No computed CSS in pure backend HTML parsing.
-        var compact = style.Replace(" ", string.Empty);
-        if (compact.Contains("display:none", StringComparison.Ordinal) ||
-            compact.Contains("visibility:hidden", StringComparison.Ordinal) ||
-            compact.Contains("visibility:collapse", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return false;
     }
 
     private static int GetElementDepth(IElement element)
