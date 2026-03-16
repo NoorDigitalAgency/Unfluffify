@@ -6,13 +6,43 @@ import {
   normalizeCanonicalBaseUrl
 } from "./utilities.js";
 
-const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
+export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
+export const RENDER_MODE_STATIC = "static";
+export const RENDER_MODE_RENDERED = "rendered";
+export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
 const SELECTOR_SET_TIMESTAMP_FIELDS = {
   latestComputedSelectors: "latestComputedSelectorsUpdatedAt",
   lastSavedSelectors: "lastSavedSelectorsUpdatedAt",
   domainAiSelectorSet: "domainAiSelectorSetUpdatedAt"
 };
+
+export function normalizeRenderMode(value) {
+  if (typeof value !== "string") {
+    return DEFAULT_RENDER_MODE;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === RENDER_MODE_RENDERED
+    ? RENDER_MODE_RENDERED
+    : DEFAULT_RENDER_MODE;
+}
+
+export function getConfigRenderMode(sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== "object") {
+    return DEFAULT_RENDER_MODE;
+  }
+  return normalizeRenderMode(sourceConfig.renderMode);
+}
+
+export function getPageEntryRenderMode(entry, fallbackRenderMode = DEFAULT_RENDER_MODE) {
+  if (!entry || typeof entry !== "object") {
+    return normalizeRenderMode(fallbackRenderMode);
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "renderMode")) {
+    return normalizeRenderMode(entry.renderMode);
+  }
+  return normalizeRenderMode(fallbackRenderMode);
+}
 
 function normalizeSiteIdValue(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -75,6 +105,41 @@ export function normalizeEntryTimestamp(value) {
 
 export function isIncomingTimestampNewer(incomingTimestamp, localTimestamp) {
   return toTimestampMillis(incomingTimestamp) > toTimestampMillis(localTimestamp);
+}
+
+export function mergeRenderModeByTimestamp(
+  existingMode,
+  existingUpdatedAt,
+  incomingMode,
+  incomingUpdatedAt
+) {
+  const normalizedExistingMode = normalizeRenderMode(existingMode);
+  const normalizedIncomingMode = normalizeRenderMode(incomingMode);
+  const normalizedExistingUpdatedAt = normalizeEntryTimestamp(existingUpdatedAt);
+  const normalizedIncomingUpdatedAt = normalizeEntryTimestamp(incomingUpdatedAt);
+
+  if (isIncomingTimestampNewer(normalizedIncomingUpdatedAt, normalizedExistingUpdatedAt)) {
+    return {
+      renderMode: normalizedIncomingMode,
+      updatedAt: normalizedIncomingUpdatedAt
+    };
+  }
+  if (isIncomingTimestampNewer(normalizedExistingUpdatedAt, normalizedIncomingUpdatedAt)) {
+    return {
+      renderMode: normalizedExistingMode,
+      updatedAt: normalizedExistingUpdatedAt
+    };
+  }
+  if (normalizedExistingMode !== normalizedIncomingMode) {
+    return {
+      renderMode: normalizedIncomingMode,
+      updatedAt: normalizedIncomingUpdatedAt
+    };
+  }
+  return {
+    renderMode: normalizedExistingMode,
+    updatedAt: normalizedExistingUpdatedAt
+  };
 }
 
 function normalizeUniqueXpathList(list) {
@@ -204,6 +269,19 @@ export function getSelectorSetTimestampFieldName(fieldName) {
   return SELECTOR_SET_TIMESTAMP_FIELDS[fieldName] || "";
 }
 
+export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
+  if (!sourceConfig || typeof sourceConfig !== "object") {
+    return false;
+  }
+  const timestampFieldName = getSelectorSetTimestampFieldName(fieldName);
+  if (!timestampFieldName) {
+    return false;
+  }
+  const selectorUpdatedAt = normalizeEntryTimestamp(sourceConfig[timestampFieldName]);
+  const renderModeUpdatedAt = normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt);
+  return !isIncomingTimestampNewer(renderModeUpdatedAt, selectorUpdatedAt);
+}
+
 export function mergeSelectorSetsByTimestamp(
   existingSet,
   existingUpdatedAt,
@@ -267,11 +345,15 @@ export function getNewestConfigSelectorSet(
       continue;
     }
     const timestampFieldName = getSelectorSetTimestampFieldName(fieldName);
+    const selectorSetIsCurrent = isSelectorSetCurrentForRenderMode(sourceConfig, fieldName);
     const merged = mergeSelectorSetsByTimestamp(
       mergedSelectorSet,
       mergedUpdatedAt,
-      sourceConfig && typeof sourceConfig === "object" ? sourceConfig[fieldName] : null,
+      selectorSetIsCurrent && sourceConfig && typeof sourceConfig === "object"
+        ? sourceConfig[fieldName]
+        : null,
       timestampFieldName &&
+        selectorSetIsCurrent &&
         sourceConfig &&
         typeof sourceConfig === "object"
         ? sourceConfig[timestampFieldName]
@@ -299,6 +381,8 @@ export function createDefaultConfig(baseUrl) {
     baseUrl: normalizedBaseUrl,
     domain,
     siteId: null,
+    renderMode: DEFAULT_RENDER_MODE,
+    renderModeUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
     pageMarkings: {},
     latestComputedSelectors: createEmptyAiSelectorSet(),
     latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
@@ -309,9 +393,13 @@ export function createDefaultConfig(baseUrl) {
   };
 }
 
-export function normalizePageMarkings(pageMarkings) {
+export function normalizePageMarkings(
+  pageMarkings,
+  fallbackRenderMode = DEFAULT_RENDER_MODE
+) {
   const normalized = {};
   let changed = false;
+  const normalizedFallbackRenderMode = normalizeRenderMode(fallbackRenderMode);
   if (!pageMarkings || typeof pageMarkings !== "object") {
     return { normalized, changed };
   }
@@ -376,6 +464,10 @@ export function normalizePageMarkings(pageMarkings) {
     if (normalizedSubmission.changed) {
       changed = true;
     }
+    const renderMode = getPageEntryRenderMode(entry, normalizedFallbackRenderMode);
+    if (entry.renderMode !== renderMode) {
+      changed = true;
+    }
     normalized[url] = {
       url: entry.url || url,
       title: entry.title || url,
@@ -384,7 +476,8 @@ export function normalizePageMarkings(pageMarkings) {
       consentXpaths,
       includeXpaths,
       submissionXpaths,
-      fullHTML
+      fullHTML,
+      renderMode
     };
   });
   return { normalized, changed };
@@ -429,6 +522,17 @@ export function normalizeConfig(baseUrl, incoming) {
 
   if (typeof incoming.domain === "string") {
     normalized.domain = incoming.domain;
+  }
+  normalized.renderMode = normalizeRenderMode(incoming.renderMode);
+  if (incoming.renderMode !== undefined && normalized.renderMode !== incoming.renderMode) {
+    changed = true;
+  }
+  normalized.renderModeUpdatedAt = normalizeEntryTimestamp(incoming.renderModeUpdatedAt);
+  if (
+    incoming.renderModeUpdatedAt !== undefined &&
+    normalized.renderModeUpdatedAt !== incoming.renderModeUpdatedAt
+  ) {
+    changed = true;
   }
   const siteId = normalizeSiteIdValue(incoming.siteId);
   normalized.siteId = siteId;
@@ -496,10 +600,14 @@ export function normalizeConfig(baseUrl, incoming) {
   return { config: normalized, changed };
 }
 
-function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
+function cloneNormalizedPageEntry(
+  entry,
+  fallbackUrl = "",
+  fallbackRenderMode = DEFAULT_RENDER_MODE
+) {
   const normalized = normalizePageMarkings({
     [fallbackUrl || (entry && entry.url) || ""]: entry || {}
-  }).normalized;
+  }, getPageEntryRenderMode(entry, fallbackRenderMode)).normalized;
   const key = Object.keys(normalized)[0];
   return key ? normalized[key] : {
     url: fallbackUrl || "",
@@ -509,7 +617,8 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     consentXpaths: [],
     includeXpaths: [],
     submissionXpaths: [],
-    fullHTML: ""
+    fullHTML: "",
+    renderMode: DEFAULT_RENDER_MODE
   };
 }
 
@@ -524,6 +633,8 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
       version: SERVER_SYNC_VERSION,
       baseUrl: normalizedFallbackBaseUrl,
       siteId: null,
+      renderMode: DEFAULT_RENDER_MODE,
+      renderModeUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
       pageMarkings: {},
       latestComputedSelectors: createEmptyAiSelectorSet(),
       latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
@@ -537,6 +648,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
     normalizeCanonicalBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizeBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizedFallbackBaseUrl;
+  const renderMode = normalizeRenderMode(payload.renderMode);
   const normalizedMarkings = normalizePageMarkings(payload.pageMarkings);
   const latestComputedSelectors = normalizeAiSelectorSet(payload.latestComputedSelectors).normalized;
   const lastSavedSelectors = normalizeAiSelectorSet(payload.lastSavedSelectors).normalized;
@@ -548,6 +660,8 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
         : SERVER_SYNC_VERSION,
     baseUrl,
     siteId: normalizeSiteIdValue(payload.siteId),
+    renderMode,
+    renderModeUpdatedAt: normalizeEntryTimestamp(payload.renderModeUpdatedAt),
     pageMarkings: normalizedMarkings.normalized,
     latestComputedSelectors,
     latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
@@ -577,6 +691,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
       url: safeEntry.url || url,
       title: safeEntry.title || url,
       fullHtml: typeof safeEntry.fullHTML === "string" ? safeEntry.fullHTML : "",
+      renderMode: getPageEntryRenderMode(safeEntry, normalized.renderMode),
       xpaths: Array.isArray(safeEntry.xpaths)
         ? safeEntry.xpaths.map((item) => ({
           xpath: item && typeof item.xpath === "string" ? item.xpath : "",
@@ -603,6 +718,8 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
     version: SERVER_SYNC_VERSION,
     baseUrl: normalizedBaseUrl,
     siteId: normalizeSiteIdValue(normalized.siteId),
+    renderMode: getConfigRenderMode(normalized),
+    renderModeUpdatedAt: normalizeEntryTimestamp(normalized.renderModeUpdatedAt),
     pageMarkings: payloadMarkings,
     latestComputedSelectors: cloneAiSelectorSet(normalized.latestComputedSelectors),
     latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
@@ -696,9 +813,17 @@ export async function getConfigs() {
       incoming.domainAiSelectorSet,
       incoming.domainAiSelectorSetUpdatedAt
     );
+    const renderMode = mergeRenderModeByTimestamp(
+      existing.renderMode,
+      existing.renderModeUpdatedAt,
+      incoming.renderMode,
+      incoming.renderModeUpdatedAt
+    );
     normalizedConfigs[normalizedKey] = {
       ...existing,
       siteId: existing.siteId || incoming.siteId || null,
+      renderMode: renderMode.renderMode,
+      renderModeUpdatedAt: renderMode.updatedAt,
       pageMarkings: mergedPageMarkings,
       latestComputedSelectors: latestComputedSelectors.selectorSet,
       latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,

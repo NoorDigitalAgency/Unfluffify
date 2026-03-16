@@ -63,6 +63,19 @@ export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_HIDDEN_STYLE_PROPS = ["opacity", "visibility", "pointer-events"];
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SCROLL_DEBOUNCE_MS = 250;
+const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
+  "[data-uf-extension-ui=\"true\"]",
+  "[id^=\"unfluffify-\"]",
+  "#unfluffify-overlay",
+  "#unfluffify-freeze-style",
+  "#unfluffify-ai-popover-style"
+];
+const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
+  "uf-cursor-exclude",
+  "uf-cursor-include",
+  "uf-cursor-passthrough",
+  "uf-visible-consent"
+];
 
 function createCurrentTimestamp() {
   return config.createTimestampNow();
@@ -1784,7 +1797,72 @@ export function normalizePageEntryXpaths(entry) {
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
+  entry.renderMode = config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE);
   return entry;
+}
+
+export function createSanitizedPageSnapshot(options = {}) {
+  const normalizedRenderMode = config.normalizeRenderMode(options.renderMode);
+  const root = document.documentElement;
+  if (!root) {
+    return {
+      fullHTML: "",
+      renderMode: normalizedRenderMode
+    };
+  }
+
+  const clone = root.cloneNode(true);
+  const extraStripSelectors = Array.isArray(options.extraStripSelectors)
+    ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
+    : [];
+  const stripSelectors = EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
+  if (stripSelectors.length) {
+    clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
+      node.remove();
+    });
+  }
+
+  const rootClasses = EXTENSION_SNAPSHOT_ROOT_CLASSES.concat(
+    Array.isArray(options.extraRootClasses)
+      ? options.extraRootClasses.filter((value) => typeof value === "string" && value)
+      : []
+  );
+  if (clone.classList && rootClasses.length) {
+    clone.classList.remove(...rootClasses);
+  }
+
+  const titlePrefix = typeof options.titlePrefix === "string" ? options.titlePrefix : "";
+  const elements = [clone, ...clone.querySelectorAll("*")];
+  for (const element of elements) {
+    if (!element || element.nodeType !== 1) {
+      continue;
+    }
+    for (const attribute of Array.from(element.attributes || [])) {
+      const attributeName = attribute && typeof attribute.name === "string"
+        ? attribute.name
+        : "";
+      if (!attributeName) {
+        continue;
+      }
+      if (attributeName.startsWith("data-uf-")) {
+        element.removeAttribute(attributeName);
+        continue;
+      }
+      if (
+        titlePrefix &&
+        attributeName === "title" &&
+        typeof attribute.value === "string" &&
+        attribute.value.startsWith(titlePrefix)
+      ) {
+        element.removeAttribute(attributeName);
+      }
+    }
+  }
+
+  return {
+    fullHTML: clone.outerHTML,
+    renderMode: normalizedRenderMode
+  };
 }
 
 export function touchPageEntryTimestamp(entry, timestamp = null) {
@@ -2394,16 +2472,20 @@ function closeAiPopover() {
   }
 }
 
-function recordPageSnapshot(config, pageUrl) {
-  if (!config || !pageUrl) {
+function recordPageSnapshot(configValue, pageUrl) {
+  if (!configValue || !pageUrl) {
     return;
   }
   const immutableExcluded = collectImmutableElements();
-  syncPageMarkings(config, pageUrl, immutableExcluded);
-  const entry = getPageMarkingEntry(config, pageUrl);
-  entry.fullHTML = document.documentElement.outerHTML;
+  syncPageMarkings(configValue, pageUrl, immutableExcluded);
+  const entry = getPageMarkingEntry(configValue, pageUrl);
+  const snapshot = createSanitizedPageSnapshot({
+    renderMode: config.getConfigRenderMode(configValue)
+  });
+  entry.fullHTML = snapshot.fullHTML;
   entry.title = document.title || pageUrl;
-  config.pageMarkings[pageUrl] = entry;
+  entry.renderMode = snapshot.renderMode;
+  configValue.pageMarkings[pageUrl] = entry;
 }
 
 function getMarkId(el) {
@@ -3835,7 +3917,8 @@ export function clonePageEntry(entry) {
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
-    fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : ""
+    fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : "",
+    renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE)
   };
   return normalizePageEntryXpaths(cloned);
 }
@@ -4127,9 +4210,12 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
 }
 
-export function getPageMarkingEntry(config, pageUrl, options) {
+export function getPageMarkingEntry(configValue, pageUrl, options) {
   const { create = true, persist = true } = options || {};
-  if (!config) {
+  const fallbackRenderMode = configValue
+    ? config.getConfigRenderMode(configValue)
+    : config.DEFAULT_RENDER_MODE;
+  if (!configValue) {
     return {
       url: pageUrl || "",
       title: pageUrl || "",
@@ -4138,13 +4224,14 @@ export function getPageMarkingEntry(config, pageUrl, options) {
       consentXpaths: [],
       includeXpaths: [],
       submissionXpaths: [],
-      fullHTML: ""
+      fullHTML: "",
+      renderMode: fallbackRenderMode
     };
   }
-  if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
-    config.pageMarkings = {};
+  if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
+    configValue.pageMarkings = {};
   }
-  const existing = config.pageMarkings[pageUrl];
+  const existing = configValue.pageMarkings[pageUrl];
   if (existing && Array.isArray(existing.xpaths)) {
     return normalizePageEntryXpaths(existing);
   }
@@ -4156,10 +4243,11 @@ export function getPageMarkingEntry(config, pageUrl, options) {
     consentXpaths: [],
     includeXpaths: [],
     submissionXpaths: [],
-    fullHTML: ""
+    fullHTML: "",
+    renderMode: fallbackRenderMode
   };
   if (create && persist) {
-    config.pageMarkings[pageUrl] = entry;
+    configValue.pageMarkings[pageUrl] = entry;
   }
   return entry;
 }

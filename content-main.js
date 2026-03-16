@@ -163,6 +163,23 @@ function submissionXpathsEqual(left, right) {
   return true;
 }
 
+function getConfiguredRenderMode() {
+  return config.getConfigRenderMode(state.config);
+}
+
+function createCurrentPageSnapshot() {
+  return core.createSanitizedPageSnapshot({
+    renderMode: getConfiguredRenderMode(),
+    extraStripSelectors: [
+      `#${PAGE_TOAST_ID}`,
+      `#${PAGE_TOAST_STYLE_ID}`,
+      `#${SILENT_HIGHLIGHT_OVERLAY_ID}`,
+      `#${SILENT_HIGHLIGHT_STYLE_ID}`
+    ],
+    titlePrefix: SILENT_SELECTOR_TITLE_PREFIX
+  });
+}
+
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -228,12 +245,15 @@ async function saveCurrentPageDraft(options) {
     Array.isArray(savedEntry.submissionXpaths) &&
     savedEntry.submissionXpaths.length > 0
   );
-  const currentFullHTML = document.documentElement.outerHTML;
+  const currentSnapshot = createCurrentPageSnapshot();
+  const currentFullHTML = currentSnapshot.fullHTML;
+  const currentRenderMode = currentSnapshot.renderMode;
   const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   const savedEntryMatchesCurrentSnapshot = Boolean(
     savedEntry &&
     savedEntry.fullHTML === currentFullHTML &&
-    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
+    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths) &&
+    config.getPageEntryRenderMode(savedEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode
   );
   if (
     !core.isPageDraftDirty(pageUrl) &&
@@ -255,6 +275,7 @@ async function saveCurrentPageDraft(options) {
   entry.fullHTML = currentFullHTML;
   entry.title = document.title || pageUrl;
   entry.submissionXpaths = currentSubmissionXpaths;
+  entry.renderMode = currentRenderMode;
   core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
   try {
@@ -2572,10 +2593,12 @@ export function main() {
           create: false,
           persist: false
         });
+        const snapshot = createCurrentPageSnapshot();
         sendResponse({
           baseUrl: targetBaseUrl,
           pageUrl: location.href,
-          fullHTML: document.documentElement.outerHTML,
+          fullHTML: snapshot.fullHTML,
+          renderMode: snapshot.renderMode,
           immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
           xpaths: entry.xpaths || []
         });
@@ -2677,9 +2700,11 @@ export function main() {
 
         // Now capture the full HTML (after consent elements are removed)
         const entry = syncResult.entry || core.getPageMarkingEntry(config, location.href);
-        entry.fullHTML = document.documentElement.outerHTML;
+        const snapshot = createCurrentPageSnapshot();
+        entry.fullHTML = snapshot.fullHTML;
         entry.title = document.title || location.href;
         entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+        entry.renderMode = snapshot.renderMode;
         core.touchPageEntryTimestamp(entry);
         config.pageMarkings[location.href] = entry;
 

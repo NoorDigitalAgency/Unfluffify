@@ -78,6 +78,8 @@ const initialViewState = {
   stageBaseInputDisabled: false,
   stageBaseSetDisabled: false,
   stageBaseEditDisabled: false,
+  renderModeValue: "static",
+  renderModeDisabled: false,
   loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
@@ -413,6 +415,31 @@ function renderMarkingView({state: view, actions: handlers}) {
         "div",
         {class: "section-title padding-above padding-below"},
         "Selector Computation"
+      ),
+      h(
+        "label",
+        { class: "field" },
+        h("span", null, icon("monitor-dashboard", "field-icon"), "Render mode"),
+        h(
+          "div",
+          { class: "input-row" },
+          h(
+            "select",
+            {
+              id: "render-mode",
+              value: view.renderModeValue,
+              disabled: view.renderModeDisabled,
+              onChange: handlers.onRenderModeChange
+            },
+            h("option", { value: "static" }, "Static HTML"),
+            h("option", { value: "rendered" }, "Headless rendered HTML")
+          )
+        ),
+        h(
+          "div",
+          { class: "hint" },
+          "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
+        )
       ),
       h(
         "div",

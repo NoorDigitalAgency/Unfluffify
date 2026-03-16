@@ -11,7 +11,8 @@ using AngleSharp.Html.Parser;
 /// Stateless extractor that uses only:
 /// - inclusionCssSelectors: explicit include overrides
 /// - exclusionCssSelectors: exclusion boundaries
-/// - fullHtml: source document
+/// - fullHtml: source document from the configured render mode
+///   (raw fetched HTML for static mode, rendered DOM snapshot for rendered mode)
 ///
 /// Rules:
 /// 1. Elements matched by exclusion selectors exclude their subtree text.

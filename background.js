@@ -299,6 +299,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "fetchStaticPageHtml") {
+    const targetUrl = typeof message.url === "string" ? message.url.trim() : "";
+    let parsedUrl = null;
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch (error) {
+      sendResponse({ ok: false, error: "Invalid URL" });
+      return;
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      sendResponse({ ok: false, error: "Unsupported URL" });
+      return;
+    }
+    (async () => {
+      try {
+        const response = await fetch(parsedUrl.toString(), {
+          method: "GET",
+          credentials: "include",
+          redirect: "follow",
+          cache: "no-store"
+        });
+        if (!response.ok) {
+          sendResponse({
+            ok: false,
+            status: response.status || 0,
+            error: "Static HTML request failed"
+          });
+          return;
+        }
+        const html = await response.text();
+        sendResponse({
+          ok: true,
+          status: response.status || 200,
+          url: response.url || parsedUrl.toString(),
+          html
+        });
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: (error && error.message) || "Static HTML request failed"
+        });
+      }
+    })();
+    return true;
+  }
+
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

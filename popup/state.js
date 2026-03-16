@@ -47,6 +47,8 @@ export const state = {
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,
   tokenValidationTimer: 0,
+  renderModeDetectionInFlight: false,
+  renderModeDetectionKey: "",
   remoteConfigLoadKey: "",
   remoteConfigLoadResult: null,
   lastConfigLoadStatusText: "Not loaded yet",

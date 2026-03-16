@@ -31,15 +31,150 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
 }
 `;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
-mutation updateScrapingConditions($domainId: Int!, $includeCss: String, $excludeCss: String) {
-  updateScrapingConditions(domainId: $domainId, includeCss: $includeCss, excludeCss: $excludeCss)
+mutation updateScrapingConditions(
+  $domainId: Int!,
+  $includeCss: String,
+  $excludeCss: String,
+  $renderMode: String
+) {
+  updateScrapingConditions(
+    domainId: $domainId,
+    includeCss: $includeCss,
+    excludeCss: $excludeCss,
+    renderMode: $renderMode
+  )
 }
 `;
+const RENDER_MODE_DETECTION_MIN_STATIC_TEXT_LENGTH = 450;
+const RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_LENGTH = 1400;
+const RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_GAIN = 1200;
+const RENDER_MODE_DETECTION_MIN_TEXT_DELTA_RATIO = 0.38;
+const RENDER_MODE_DETECTION_MIN_RENDERED_ELEMENT_GAIN = 140;
+const RENDER_MODE_DETECTION_MIN_ELEMENT_DELTA_RATIO = 0.32;
+const RENDER_MODE_DETECTION_MIN_BLOCK_DELTA = 10;
+const RENDER_MODE_DETECTION_MAX_TOKEN_OVERLAP = 0.55;
 
 let popupBusyOverlayDepth = 0;
 let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = "Loading popup...";
+
+function normalizeComparableText(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value
+    .toLowerCase()
+    .replace(/\u00a0/g, " ")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectComparableHtmlSummary(html) {
+  const summary = {
+    textLength: 0,
+    elementCount: 0,
+    blockCount: 0,
+    tokens: new Set()
+  };
+  if (typeof html !== "string" || !html.trim()) {
+    return summary;
+  }
+
+  let document;
+  try {
+    document = new DOMParser().parseFromString(html, "text/html");
+  } catch (error) {
+    return summary;
+  }
+  if (!document || !document.body) {
+    return summary;
+  }
+
+  document.querySelectorAll("script, style, noscript, template").forEach((node) => {
+    node.remove();
+  });
+
+  const blocks = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+  while (current) {
+    const normalizedText = normalizeComparableText(current.textContent || "");
+    if (normalizedText) {
+      blocks.push(normalizedText);
+    }
+    current = walker.nextNode();
+  }
+
+  const combinedText = blocks.join(" ").trim();
+  const tokens = combinedText
+    .split(" ")
+    .filter((token) => token.length >= 3)
+    .slice(0, 4000);
+  summary.textLength = combinedText.length;
+  summary.elementCount = document.body.querySelectorAll("*").length;
+  summary.blockCount = blocks.length;
+  summary.tokens = new Set(tokens);
+  return summary;
+}
+
+function computeTokenOverlapRatio(leftTokens, rightTokens) {
+  if (!leftTokens || !rightTokens || !leftTokens.size || !rightTokens.size) {
+    return 0;
+  }
+  const smaller = leftTokens.size <= rightTokens.size ? leftTokens : rightTokens;
+  const larger = smaller === leftTokens ? rightTokens : leftTokens;
+  let shared = 0;
+  for (const token of smaller) {
+    if (larger.has(token)) {
+      shared += 1;
+    }
+  }
+  return shared / Math.max(leftTokens.size, rightTokens.size, 1);
+}
+
+function detectRenderModeFromHtmlPair(staticHtml, renderedHtml) {
+  const staticSummary = collectComparableHtmlSummary(staticHtml);
+  const renderedSummary = collectComparableHtmlSummary(renderedHtml);
+  const maxTextLength = Math.max(staticSummary.textLength, renderedSummary.textLength, 1);
+  const textDelta = renderedSummary.textLength - staticSummary.textLength;
+  const textDeltaRatio = Math.abs(textDelta) / maxTextLength;
+  const elementDeltaRatio =
+    Math.abs(renderedSummary.elementCount - staticSummary.elementCount) /
+    Math.max(renderedSummary.elementCount, staticSummary.elementCount, 1);
+  const blockDelta = Math.abs(renderedSummary.blockCount - staticSummary.blockCount);
+  const tokenOverlap = computeTokenOverlapRatio(staticSummary.tokens, renderedSummary.tokens);
+
+  const staticLooksThin =
+    staticSummary.textLength < RENDER_MODE_DETECTION_MIN_STATIC_TEXT_LENGTH &&
+    renderedSummary.textLength > RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_LENGTH;
+  const renderedTextSubstantiallyLarger =
+    textDelta > RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_GAIN &&
+    textDeltaRatio > RENDER_MODE_DETECTION_MIN_TEXT_DELTA_RATIO;
+  const renderedStructureSubstantiallyLarger =
+    renderedSummary.elementCount > staticSummary.elementCount + RENDER_MODE_DETECTION_MIN_RENDERED_ELEMENT_GAIN &&
+    elementDeltaRatio > RENDER_MODE_DETECTION_MIN_ELEMENT_DELTA_RATIO &&
+    blockDelta > RENDER_MODE_DETECTION_MIN_BLOCK_DELTA;
+  const lowTokenOverlap = tokenOverlap < RENDER_MODE_DETECTION_MAX_TOKEN_OVERLAP;
+
+  const renderMode =
+    (staticLooksThin && renderedTextSubstantiallyLarger) ||
+    (renderedTextSubstantiallyLarger && renderedStructureSubstantiallyLarger && lowTokenOverlap)
+      ? config.RENDER_MODE_RENDERED
+      : config.RENDER_MODE_STATIC;
+
+  return {
+    renderMode,
+    staticSummary,
+    renderedSummary,
+    textDelta,
+    textDeltaRatio,
+    elementDeltaRatio,
+    blockDelta,
+    tokenOverlap
+  };
+}
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -430,6 +565,82 @@ function buildSelectorSetForGraphqlSubmit(selectorSet) {
   });
 }
 
+function shouldAutoDetectRenderMode(sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== "object") {
+    return false;
+  }
+  return (
+    config.getConfigRenderMode(sourceConfig) === config.DEFAULT_RENDER_MODE &&
+    config.normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt) === config.PAGE_TIMESTAMP_FALLBACK
+  );
+}
+
+async function maybeAutoDetectRenderMode(pageUrl) {
+  if (
+    !pageUrl ||
+    !state.currentBaseUrl ||
+    !state.currentConfig ||
+    !shouldAutoDetectRenderMode(state.currentConfig)
+  ) {
+    return state.currentConfig;
+  }
+
+  const detectionKey = `${state.currentBaseUrl}|${pageUrl}`;
+  if (state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
+    return state.currentConfig;
+  }
+  if (!state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
+    return state.currentConfig;
+  }
+
+  state.renderModeDetectionInFlight = true;
+  state.renderModeDetectionKey = detectionKey;
+  try {
+    const renderedSnapshot = await messages.sendTabMessage({
+      type: "collectPageData",
+      baseUrl: state.currentBaseUrl
+    });
+    if (
+      !renderedSnapshot ||
+      typeof renderedSnapshot.fullHTML !== "string" ||
+      !renderedSnapshot.fullHTML
+    ) {
+      return state.currentConfig;
+    }
+
+    const staticResponse = await messages.sendRuntimeMessage({
+      type: "fetchStaticPageHtml",
+      url: pageUrl
+    });
+    if (!staticResponse || !staticResponse.ok || typeof staticResponse.html !== "string") {
+      return state.currentConfig;
+    }
+
+    const detection = detectRenderModeFromHtmlPair(
+      staticResponse.html,
+      renderedSnapshot.fullHTML
+    );
+    if (detection.renderMode !== config.RENDER_MODE_RENDERED) {
+      return state.currentConfig;
+    }
+
+    const renderModeUpdatedAt = config.createTimestampNow();
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+      targetConfig.renderMode = detection.renderMode;
+      targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
+    });
+    await messages.sendTabMessage({
+      type: "configUpdated",
+      baseUrl: state.currentBaseUrl
+    });
+    return state.currentConfig;
+  } catch {
+    return state.currentConfig;
+  } finally {
+    state.renderModeDetectionInFlight = false;
+  }
+}
+
 function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, existingEntry) {
   const preferred = config.normalizeConfig(resolvedBaseUrl, preferredEntry).config;
   const existing = config.normalizeConfig(resolvedBaseUrl, existingEntry).config;
@@ -455,6 +666,12 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
     existing.domainAiSelectorSet,
     existing.domainAiSelectorSetUpdatedAt
   );
+  const renderMode = config.mergeRenderModeByTimestamp(
+    preferred.renderMode,
+    preferred.renderModeUpdatedAt,
+    existing.renderMode,
+    existing.renderModeUpdatedAt
+  );
   const merged = {
     ...existing,
     ...preferred,
@@ -462,6 +679,8 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
       normalizeSiteIdValue(preferred.siteId) ||
       normalizeSiteIdValue(existing.siteId) ||
       null,
+    renderMode: renderMode.renderMode,
+    renderModeUpdatedAt: renderMode.updatedAt,
     pageMarkings: mergedPageMarkings,
     latestComputedSelectors: latestComputedSelectors.selectorSet,
     latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,
@@ -757,6 +976,19 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
   if (incomingSiteId && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId) {
     localConfig.siteId = incomingSiteId;
   }
+  const mergedRenderMode = config.mergeRenderModeByTimestamp(
+    localConfig.renderMode,
+    localConfig.renderModeUpdatedAt,
+    normalizedPayload.renderMode,
+    normalizedPayload.renderModeUpdatedAt
+  );
+  const renderModeChanged =
+    config.getConfigRenderMode(localConfig) !== mergedRenderMode.renderMode ||
+    config.normalizeEntryTimestamp(localConfig.renderModeUpdatedAt) !== mergedRenderMode.updatedAt;
+  if (renderModeChanged) {
+    localConfig.renderMode = mergedRenderMode.renderMode;
+    localConfig.renderModeUpdatedAt = mergedRenderMode.updatedAt;
+  }
   const mergeResult = config.mergePageMarkingsByTimestamp(
     localConfig.pageMarkings,
     normalizedPayload.pageMarkings
@@ -776,6 +1008,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     !existingRaw ||
     normalizedLocal.changed ||
     siteIdChanged ||
+    renderModeChanged ||
     selectorStateChanged ||
     mergeResult.replacedUrls.length > 0;
   if (shouldSave) {
@@ -1103,10 +1336,16 @@ function getEditableFieldState(options) {
 }
 
 function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "latestComputedSelectors")) {
+    return normalizeAiSelectorSet(null);
+  }
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.latestComputedSelectors);
 }
 
 function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "lastSavedSelectors")) {
+    return normalizeAiSelectorSet(null);
+  }
   return normalizeAiSelectorSet(sourceConfig && sourceConfig.lastSavedSelectors);
 }
 
@@ -1474,6 +1713,10 @@ async function refreshUiInner() {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
   }
+  if (tabInScope && state.currentBaseUrl && state.currentConfig && pageUrl) {
+    state.currentConfig = await maybeAutoDetectRenderMode(pageUrl);
+    configs = await config.getConfigs();
+  }
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
@@ -1605,6 +1848,7 @@ async function refreshUiInner() {
   const latestComputed = getLatestComputedSelectorsFromConfig();
   const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
+  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
   const selectorCount = combineAiSelectorSet(latestComputed).length;
   const hasNewSelectors =
     selectorCount > 0 &&
@@ -1641,6 +1885,10 @@ async function refreshUiInner() {
     (state.currentConfig &&
       state.currentConfig.pageMarkings &&
       state.currentConfig.pageMarkings[pageUrl]);
+  const savedEntryRenderMode = config.getPageEntryRenderMode(
+    savedEntry,
+    config.DEFAULT_RENDER_MODE
+  );
   const hasSavedPageData = Boolean(
     savedEntry &&
       ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
@@ -1655,7 +1903,8 @@ async function refreshUiInner() {
       typeof savedEntry.fullHTML === "string" &&
       savedEntry.fullHTML.length > 0 &&
       Array.isArray(savedEntry.submissionXpaths) &&
-      savedEntry.submissionXpaths.length > 0
+      savedEntry.submissionXpaths.length > 0 &&
+      savedEntryRenderMode === currentRenderMode
   );
   const needsAiSnapshotBackfill =
     hasSavedPageData && !hasSavedAiSubmissionSnapshot;
@@ -1721,6 +1970,12 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
+  nextViewState.renderModeValue = currentRenderMode;
+  nextViewState.renderModeDisabled =
+    uiDisabledForUnsupportedPage ||
+    aiBusy ||
+    !baseUrlReady ||
+    !Boolean(state.currentConfig);
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -2011,6 +2266,36 @@ function handleEndpointInput(event) {
 
 function handleStageBaseInput(event) {
   uiModule.setViewState({ stageBaseValue: event.target.value });
+}
+
+async function handleRenderModeChange(event) {
+  const nextRenderMode = config.normalizeRenderMode(
+    event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
+  );
+  uiModule.setViewState({ renderModeValue: nextRenderMode });
+  if (!state.currentBaseUrl || !state.currentConfig) {
+    return;
+  }
+  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
+  if (nextRenderMode === currentRenderMode) {
+    return;
+  }
+  const renderModeUpdatedAt = config.createTimestampNow();
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+    targetConfig.renderMode = nextRenderMode;
+    targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
+  });
+  state.renderModeDetectionKey = "";
+  await messages.sendTabMessage({
+    type: "configUpdated",
+    baseUrl: state.currentBaseUrl
+  });
+  await refreshUi();
+  uiModule.showToast(
+    nextRenderMode === config.RENDER_MODE_RENDERED
+      ? "Render mode set to headless rendered HTML"
+      : "Render mode set to static HTML"
+  );
 }
 
 function handleLoginEmailInput(event) {
@@ -2791,13 +3076,15 @@ async function handleComputeSelectors() {
   }
   const currentPageHtml =
     typeof currentPageEntry.fullHTML === "string" ? currentPageEntry.fullHTML : "";
+  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
   if (!currentPageHtml) {
     uiModule.showToast("Save the current page before computing selectors");
     return;
   }
   const hasCurrentSubmissionXpaths =
     Array.isArray(currentPageEntry.submissionXpaths) &&
-    currentPageEntry.submissionXpaths.length > 0;
+    currentPageEntry.submissionXpaths.length > 0 &&
+    config.getPageEntryRenderMode(currentPageEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode;
   if (!hasCurrentSubmissionXpaths) {
     // AI compute no longer rebuilds xpaths from stored HTML. The live DOM decides
     // visibility/hidden/excluded state when the page is saved, and that snapshot
@@ -2847,11 +3134,15 @@ async function handleComputeSelectors() {
       if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
         return false;
       }
+      if (config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE) !== currentRenderMode) {
+        return false;
+      }
       return true;
     })
     .map(([url, entry]) => ({
       url,
       fullHTML: entry.fullHTML,
+      renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE),
       xpaths: toAiPayloadXpaths(entry)
     }));
 
@@ -2869,6 +3160,7 @@ async function handleComputeSelectors() {
 
   const payload = {
     baseUrl: state.currentBaseUrl,
+    renderMode: currentRenderMode,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
     // Each page contributes the exact saved HTML + saved xpath rows (`submissionXpaths`)
     // from when that page was last saved in the extension.
@@ -3009,6 +3301,7 @@ async function submitSelectorSetToServer(options = {}) {
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
   const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
   const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
+  const renderMode = config.getConfigRenderMode(state.currentConfig);
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
   const submitTokenValue =
     (latestTokenStored && typeof latestTokenStored.globalToken === "string"
@@ -3026,7 +3319,8 @@ async function submitSelectorSetToServer(options = {}) {
         variables: {
           domainId: siteIdResult.siteId,
           includeCss,
-          excludeCss
+          excludeCss,
+          renderMode
         }
       })
     });
@@ -3179,6 +3473,7 @@ async function init() {
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
+    onRenderModeChange: handleRenderModeChange,
     onStageBaseKeyDown: handleStageBaseKeyDown,
     onStageBaseSet: handleStageBaseSet,
     onStageBaseEditToggle: handleStageBaseEditToggle,
