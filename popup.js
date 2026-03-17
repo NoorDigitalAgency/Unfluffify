@@ -565,8 +565,34 @@ function buildSelectorSetForGraphqlSubmit(selectorSet) {
   });
 }
 
+function hasStoredConfigForBaseUrl(configs, baseUrl) {
+  const normalizedBaseUrl =
+    utils.normalizeCanonicalBaseUrl(baseUrl) ||
+    utils.normalizeBaseUrl(baseUrl) ||
+    (typeof baseUrl === "string" ? baseUrl : "");
+  return Boolean(
+    normalizedBaseUrl &&
+    configs &&
+    Object.prototype.hasOwnProperty.call(configs, normalizedBaseUrl)
+  );
+}
+
+function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConfig) {
+  const suggestionKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
+  if (
+    state.renderModeSuggestedKey === suggestionKey &&
+    state.renderModeSuggestedValue
+  ) {
+    return config.normalizeRenderMode(state.renderModeSuggestedValue);
+  }
+  return config.getConfigRenderMode(sourceConfig);
+}
+
 function shouldAutoDetectRenderMode(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
+    return false;
+  }
+  if (state.currentBaseUrlHasStoredConfig) {
     return false;
   }
   return (
@@ -582,19 +608,23 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     !state.currentConfig ||
     !shouldAutoDetectRenderMode(state.currentConfig)
   ) {
-    return state.currentConfig;
+    const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = fallbackRenderMode;
+    return fallbackRenderMode;
   }
 
   const detectionKey = `${state.currentBaseUrl}|${pageUrl}`;
   if (state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
-    return state.currentConfig;
+    return getSuggestedRenderModeForPage(pageUrl);
   }
   if (!state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
-    return state.currentConfig;
+    return getSuggestedRenderModeForPage(pageUrl);
   }
 
   state.renderModeDetectionInFlight = true;
   state.renderModeDetectionKey = detectionKey;
+  state.renderModeSuggestedKey = detectionKey;
   try {
     const renderedSnapshot = await messages.sendTabMessage({
       type: "collectPageData",
@@ -605,7 +635,9 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       typeof renderedSnapshot.fullHTML !== "string" ||
       !renderedSnapshot.fullHTML
     ) {
-      return state.currentConfig;
+      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+      state.renderModeSuggestedValue = fallbackRenderMode;
+      return fallbackRenderMode;
     }
 
     const staticResponse = await messages.sendRuntimeMessage({
@@ -613,29 +645,21 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       url: pageUrl
     });
     if (!staticResponse || !staticResponse.ok || typeof staticResponse.html !== "string") {
-      return state.currentConfig;
+      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+      state.renderModeSuggestedValue = fallbackRenderMode;
+      return fallbackRenderMode;
     }
 
     const detection = detectRenderModeFromHtmlPair(
       staticResponse.html,
       renderedSnapshot.fullHTML
     );
-    if (detection.renderMode !== config.RENDER_MODE_RENDERED) {
-      return state.currentConfig;
-    }
-
-    const renderModeUpdatedAt = config.createTimestampNow();
-    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
-      targetConfig.renderMode = detection.renderMode;
-      targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
-    });
-    await messages.sendTabMessage({
-      type: "configUpdated",
-      baseUrl: state.currentBaseUrl
-    });
-    return state.currentConfig;
+    state.renderModeSuggestedValue = config.normalizeRenderMode(detection.renderMode);
+    return state.renderModeSuggestedValue;
   } catch {
-    return state.currentConfig;
+    const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+    state.renderModeSuggestedValue = fallbackRenderMode;
+    return fallbackRenderMode;
   } finally {
     state.renderModeDetectionInFlight = false;
   }
@@ -1335,6 +1359,14 @@ function getEditableFieldState(options) {
   return { isEditing, isReady: isSet && !editMode, value: nextValue, noticeText, noticeVisible };
 }
 
+function isCurrentRenderModeReady() {
+  return Boolean(
+    state.currentBaseUrl &&
+    state.currentBaseUrlHasStoredConfig &&
+    !state.renderModeEditMode
+  );
+}
+
 function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "latestComputedSelectors")) {
     return normalizeAiSelectorSet(null);
@@ -1712,10 +1744,27 @@ async function refreshUiInner() {
   if (state.currentBaseUrl !== previousBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+    state.renderModeEditMode = false;
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
   }
+  const persistedConfigs = await config.getConfigs();
+  state.currentBaseUrlHasStoredConfig = hasStoredConfigForBaseUrl(
+    persistedConfigs,
+    state.currentBaseUrl
+  );
+  let suggestedRenderMode = config.getConfigRenderMode(state.currentConfig);
   if (tabInScope && state.currentBaseUrl && state.currentConfig && pageUrl) {
-    state.currentConfig = await maybeAutoDetectRenderMode(pageUrl);
+    suggestedRenderMode = await maybeAutoDetectRenderMode(pageUrl);
     configs = await config.getConfigs();
+    state.currentBaseUrlHasStoredConfig = hasStoredConfigForBaseUrl(
+      configs,
+      state.currentBaseUrl
+    );
+  } else {
+    state.currentBaseUrlHasStoredConfig = false;
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
   }
 
   const view = uiModule.getViewState();
@@ -1812,6 +1861,10 @@ async function refreshUiInner() {
   });
   const stageBaseReady = stageBaseField.isReady;
   const loginCredentialsEnabled = stageBaseReady;
+  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
+  if (!state.currentBaseUrlHasStoredConfig) {
+    state.renderModeEditMode = false;
+  }
   const siteIdReady = Boolean(
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
   );
@@ -1822,18 +1875,52 @@ async function refreshUiInner() {
     : baseUrlReady && !siteIdReady
       ? siteIdBlockedReason || "No domainId exists for this base URL"
       : "";
+  const renderModeSet = state.currentBaseUrlHasStoredConfig;
+  const renderModeField = getEditableFieldState({
+    inputRef: refs.renderModeSelect,
+    currentValue: view.renderModeValue,
+    value: currentRenderMode,
+    isSet: renderModeSet,
+    editMode: state.renderModeEditMode,
+    suggestedValue: suggestedRenderMode,
+    noticeUnset: "Confirm Render Mode before continuing",
+    noticeEdit: "Set Render Mode to continue"
+  });
+  const renderModeRequired =
+    tabInScope &&
+    !unsupportedByGraphql &&
+    baseUrlReady &&
+    siteIdReady;
+  const renderModeReady = !renderModeRequired || renderModeField.isReady;
+  let renderModeNoticeText = renderModeField.noticeText;
+  let renderModeNoticeVisible = renderModeField.noticeVisible;
+  if (!renderModeRequired) {
+    renderModeNoticeText = !tabInScope
+      ? "Open the extension on this tab to detect Render Mode."
+      : unsupportedByGraphql
+        ? "This page is not mapped to any siteId/base page URL."
+        : !baseUrlReady || !siteIdReady
+          ? "Render Mode becomes available after the current domain resolves to a base URL and siteId."
+          : "";
+    renderModeNoticeVisible = Boolean(renderModeNoticeText);
+  }
 
   const configurationComplete =
-    configEndpointReady && endpointReady && stageBaseReady && Boolean(tokenValue);
+    configEndpointReady &&
+    endpointReady &&
+    stageBaseReady &&
+    Boolean(tokenValue) &&
+    renderModeReady;
   const aiReady =
     tabInScope &&
     !unsupportedByGraphql &&
     baseUrlReady &&
     siteIdReady &&
     endpointReady &&
-    Boolean(tokenValue);
-  isEnabled = toggleEnabled && siteIdReady;
-  if (tabInScope && toggleEnabled && !siteIdReady && currentTabId) {
+    Boolean(tokenValue) &&
+    renderModeReady;
+  isEnabled = toggleEnabled && siteIdReady && renderModeReady;
+  if (tabInScope && toggleEnabled && (!siteIdReady || !renderModeReady) && currentTabId) {
     toggleEnabled = false;
     isEnabled = false;
     state.lastPopupEnabled = null;
@@ -1848,7 +1935,6 @@ async function refreshUiInner() {
   const latestComputed = getLatestComputedSelectorsFromConfig();
   const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
-  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
   const selectorCount = combineAiSelectorSet(latestComputed).length;
   const hasNewSelectors =
     selectorCount > 0 &&
@@ -1942,14 +2028,16 @@ async function refreshUiInner() {
       ? "Open the extension on this tab to enable controls."
     : configurationComplete
       ? ""
-      : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
+      : !configEndpointReady || !endpointReady || !stageBaseReady || !tokenValue
+        ? "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue."
+        : "Confirm Render Mode to continue.";
 
   const uiDisabledForUnsupportedPage = unsupportedByGraphql || !tabInScope;
   nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
-    uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady;
+    uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady || !renderModeReady;
   nextViewState.mainUiHidden =
-    uiDisabledForUnsupportedPage || !isEnabled || !siteIdReady;
+    uiDisabledForUnsupportedPage || !isEnabled || !siteIdReady || !renderModeReady;
   nextViewState.computeButtonDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -1970,11 +2058,27 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
-  nextViewState.renderModeValue = currentRenderMode;
-  nextViewState.renderModeDisabled =
-    uiDisabledForUnsupportedPage ||
+  nextViewState.renderModeValue = renderModeField.value;
+  nextViewState.renderModeReadOnly = !renderModeField.isEditing;
+  nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
+  nextViewState.renderModeEditVisible = renderModeSet && renderModeRequired;
+  nextViewState.renderModeEditText = state.renderModeEditMode ? "Cancel" : "Change";
+  nextViewState.renderModeNoticeText = renderModeNoticeText;
+  nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
+  nextViewState.renderModeInputDisabled =
     aiBusy ||
-    !baseUrlReady ||
+    uiDisabledForUnsupportedPage ||
+    !renderModeRequired ||
+    !Boolean(state.currentConfig);
+  nextViewState.renderModeSetDisabled =
+    aiBusy ||
+    uiDisabledForUnsupportedPage ||
+    !renderModeRequired ||
+    !Boolean(state.currentConfig);
+  nextViewState.renderModeEditDisabled =
+    aiBusy ||
+    uiDisabledForUnsupportedPage ||
+    !renderModeRequired ||
     !Boolean(state.currentConfig);
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
@@ -2268,16 +2372,23 @@ function handleStageBaseInput(event) {
   uiModule.setViewState({ stageBaseValue: event.target.value });
 }
 
-async function handleRenderModeChange(event) {
+function handleRenderModeInput(event) {
   const nextRenderMode = config.normalizeRenderMode(
     event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
   );
   uiModule.setViewState({ renderModeValue: nextRenderMode });
-  if (!state.currentBaseUrl || !state.currentConfig) {
+}
+
+async function handleRenderModeSet() {
+  const nextRenderMode = config.normalizeRenderMode(uiModule.getViewState().renderModeValue);
+  if (!state.currentBaseUrl) {
+    uiModule.showToast("Render Mode is unavailable for this page");
     return;
   }
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  if (nextRenderMode === currentRenderMode) {
+  if (state.currentBaseUrlHasStoredConfig && nextRenderMode === currentRenderMode) {
+    state.renderModeEditMode = false;
+    await refreshUi();
     return;
   }
   const renderModeUpdatedAt = config.createTimestampNow();
@@ -2285,17 +2396,27 @@ async function handleRenderModeChange(event) {
     targetConfig.renderMode = nextRenderMode;
     targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
   });
+  state.currentBaseUrlHasStoredConfig = true;
+  state.renderModeEditMode = false;
+  state.renderModeSuggestedKey = "";
+  state.renderModeSuggestedValue = nextRenderMode;
   state.renderModeDetectionKey = "";
   await messages.sendTabMessage({
     type: "configUpdated",
     baseUrl: state.currentBaseUrl
   });
+  await maybeSwitchToMarkingView();
   await refreshUi();
   uiModule.showToast(
     nextRenderMode === config.RENDER_MODE_RENDERED
       ? "Render mode set to headless rendered HTML"
       : "Render mode set to static HTML"
   );
+}
+
+async function handleRenderModeEditToggle() {
+  state.renderModeEditMode = !state.renderModeEditMode;
+  await refreshUi();
 }
 
 function handleLoginEmailInput(event) {
@@ -2485,6 +2606,13 @@ async function handleEnableToggle(event) {
   if (!helpers.ensureBaseUrl("No mapped base page URL/siteId for this page")) {
     uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
+    return;
+  }
+  if (desiredEnabled && !isCurrentRenderModeReady()) {
+    uiModule.showToast("Confirm Render Mode before enabling marking");
+    uiModule.setViewState({ toggleEnabled: false });
+    state.lastPopupEnabled = null;
+    await refreshUi();
     return;
   }
   state.lastPopupEnabled = desiredEnabled;
@@ -2927,6 +3055,7 @@ async function handleContextRefresh() {
   state.stageBaseEditMode = false;
   state.endpointEditMode = false;
   state.configEndpointEditMode = false;
+  state.renderModeEditMode = false;
   if (tab && tab.id) {
     const tabState = await utils.getTabState(tab.id);
     if (tabState && tabState.enabled) {
@@ -3052,6 +3181,10 @@ async function handleComputeSelectors() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
+  if (!isCurrentRenderModeReady()) {
+    uiModule.showToast("Confirm Render Mode before using AI controls");
+    return;
+  }
   if (state.currentDraftDirty) {
     uiModule.showToast("Save the current page before using AI controls");
     return;
@@ -3120,7 +3253,7 @@ async function handleComputeSelectors() {
         };
       });
   };
-  const storedPages = Object.entries(pageMarkings)
+  const storedPageEntries = Object.entries(pageMarkings)
     .filter(([url, entry]) => {
       if (!url || !entry || typeof entry !== "object") {
         return false;
@@ -3138,32 +3271,84 @@ async function handleComputeSelectors() {
         return false;
       }
       return true;
-    })
-    .map(([url, entry]) => ({
-      url,
-      fullHTML: entry.fullHTML,
-      renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE),
-      xpaths: toAiPayloadXpaths(entry)
-    }));
+    });
 
-  if (!storedPages.some((page) => page && page.url === currentPageUrl)) {
+  if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
     // Guard against stale state where the current tab exists in `pageMarkings`
     // but does not yet have the required saved snapshot fields.
     uiModule.showToast("Save the current page before computing selectors");
     return;
   }
 
-  if (!storedPages.length) {
+  if (!storedPageEntries.length) {
     uiModule.showToast("Save pages before computing selectors");
     return;
   }
+
+  const missingRawHtmlPages = storedPageEntries.filter(([, entry]) => {
+    const rawHTML = typeof entry.rawHTML === "string" ? entry.rawHTML : "";
+    return !rawHTML;
+  });
+  const rawHtmlBackfills = new Map();
+  if (missingRawHtmlPages.length) {
+    const backfillResults = await Promise.all(
+      missingRawHtmlPages.map(async ([url]) => {
+        const response = await messages.sendRuntimeMessage({
+          type: "fetchStaticPageHtml",
+          url
+        });
+        if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
+          return null;
+        }
+        return {
+          url,
+          rawHTML: response.html
+        };
+      })
+    );
+    const successfulBackfills = backfillResults.filter(Boolean);
+    successfulBackfills.forEach((item) => {
+      rawHtmlBackfills.set(item.url, item.rawHTML);
+    });
+    if (successfulBackfills.length) {
+      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+        if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+          return;
+        }
+        successfulBackfills.forEach((item) => {
+          const targetEntry = targetConfig.pageMarkings[item.url];
+          if (!targetEntry || typeof targetEntry !== "object") {
+            return;
+          }
+          targetEntry.rawHTML = item.rawHTML;
+        });
+      });
+    }
+  }
+
+  const storedPages = storedPageEntries.map(([url, entry]) => {
+    const renderedHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
+    const rawHTML =
+      typeof entry.rawHTML === "string" && entry.rawHTML
+        ? entry.rawHTML
+        : rawHtmlBackfills.get(url) || "";
+    return {
+      url,
+      fullHTML: renderedHTML,
+      renderedHTML,
+      rawHTML,
+      rawHtml: rawHTML,
+      renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE),
+      xpaths: toAiPayloadXpaths(entry)
+    };
+  });
 
   const payload = {
     baseUrl: state.currentBaseUrl,
     renderMode: currentRenderMode,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    // Each page contributes the exact saved HTML + saved xpath rows (`submissionXpaths`)
-    // from when that page was last saved in the extension.
+    // Each page contributes the saved rendered HTML snapshot, the latest available
+    // raw source HTML, and the saved xpath rows (`submissionXpaths`).
     pages: storedPages
   };
 
@@ -3215,27 +3400,32 @@ async function handleComputeSelectors() {
       type: "showAiPreview",
       selectorSet
     });
-    const submitResult = await submitSelectorSetToServer({
+    const { configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+    const syncResult = await syncBaseConfigToServer({
       baseUrl: state.currentBaseUrl,
-      selectorSet,
+      pageUrl: currentPageUrl,
+      endpointValue: configEndpointValue,
       tokenValue,
-      confirm: false
+      stageBase: stageBaseValue,
+      alertOnCurrentReplacement: false
     });
-    if (submitResult.ok) {
-      uiModule.showToast("Selectors computed and submitted");
-    } else if (
-      submitResult.skipped &&
-      submitResult.reason === "No new selectors to submit"
-    ) {
-      uiModule.showToast("Selectors computed; server already up to date");
-    } else if (submitResult.skipped && submitResult.reason) {
-      uiModule.showToast(`Selectors computed locally (${submitResult.reason})`);
+    const syncSkipped = Boolean(syncResult && syncResult.skipped);
+    const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
+    updateLastConfigSaveStatus(
+      syncSkipped
+        ? "Selectors updated locally (sync skipped)"
+        : syncFailed
+          ? "Selectors updated locally (sync failed)"
+          : "Selectors updated and synced"
+    );
+    if (syncSkipped && syncResult.reason) {
+      uiModule.showToast(`Selectors computed locally (${syncResult.reason})`);
+    } else if (syncSkipped) {
+      uiModule.showToast("Selectors computed locally (server sync skipped)");
+    } else if (syncFailed) {
+      uiModule.showToast("Selectors computed locally (server sync failed)");
     } else {
-      uiModule.showToast(
-        submitResult.reason
-          ? `Selectors computed locally (${submitResult.reason})`
-          : "Selectors computed locally"
-      );
+      uiModule.showToast("Selectors computed and saved to config server");
     }
   } catch (error) {
     uiModule.showToast("Endpoint request failed");
@@ -3262,7 +3452,7 @@ async function submitSelectorSetToServer(options = {}) {
     return { ok: false, skipped: true, reason: "No selectors available to submit" };
   }
 
-  const { stageBaseValue } = await helpers.loadGlobalAiSettings();
+  const { stageBaseValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
     return { ok: false, skipped: true, reason: "Set Stage Base first" };
@@ -3367,7 +3557,16 @@ async function submitSelectorSetToServer(options = {}) {
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
-    return { ok: true, baseUrl: effectiveBaseUrl };
+    const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
+    const configSyncResult = await syncBaseConfigToServer({
+      baseUrl: effectiveBaseUrl,
+      pageUrl: currentPageUrl,
+      endpointValue: configEndpointValue,
+      tokenValue: submitTokenValue,
+      stageBase: stageBaseValue,
+      alertOnCurrentReplacement: false
+    });
+    return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
   } catch (error) {
     return { ok: false, reason: "Submit request failed" };
   } finally {
@@ -3386,6 +3585,10 @@ async function handleSaveExcludes() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
+  if (!isCurrentRenderModeReady()) {
+    uiModule.showToast("Confirm Render Mode before submitting selectors");
+    return;
+  }
   const credentials = await helpers.requireAiCredentials();
   if (!credentials) {
     return;
@@ -3397,6 +3600,18 @@ async function handleSaveExcludes() {
     confirm: true
   });
   if (submitResult.ok) {
+    const syncResult = submitResult.configSyncResult || null;
+    const syncSkipped = Boolean(syncResult && syncResult.skipped);
+    const syncFailed = Boolean(syncResult) && !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
+    updateLastConfigSaveStatus(
+      !syncResult
+        ? "Submitted selectors"
+        : syncSkipped
+          ? "Submitted selectors (config sync skipped)"
+          : syncFailed
+            ? "Submitted selectors (config sync failed)"
+            : "Submitted selectors and synced"
+    );
     uiModule.showToast("Submitted to server");
     return;
   }
@@ -3473,7 +3688,9 @@ async function init() {
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
-    onRenderModeChange: handleRenderModeChange,
+    onRenderModeInput: handleRenderModeInput,
+    onRenderModeSet: handleRenderModeSet,
+    onRenderModeEditToggle: handleRenderModeEditToggle,
     onStageBaseKeyDown: handleStageBaseKeyDown,
     onStageBaseSet: handleStageBaseSet,
     onStageBaseEditToggle: handleStageBaseEditToggle,

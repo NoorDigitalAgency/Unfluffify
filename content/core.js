@@ -1796,6 +1796,11 @@ export function normalizePageEntryXpaths(entry) {
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
+  entry.rawHTML = typeof entry.rawHTML === "string"
+    ? entry.rawHTML
+    : typeof entry.rawHtml === "string"
+      ? entry.rawHtml
+      : "";
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   entry.renderMode = config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE);
   return entry;
@@ -3918,6 +3923,7 @@ export function clonePageEntry(entry) {
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
     fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : "",
+    rawHTML: typeof entry.rawHTML === "string" ? entry.rawHTML : "",
     renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE)
   };
   return normalizePageEntryXpaths(cloned);
@@ -4225,6 +4231,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
       includeXpaths: [],
       submissionXpaths: [],
       fullHTML: "",
+      rawHTML: "",
       renderMode: fallbackRenderMode
     };
   }
@@ -4244,6 +4251,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     includeXpaths: [],
     submissionXpaths: [],
     fullHTML: "",
+    rawHTML: "",
     renderMode: fallbackRenderMode
   };
   if (create && persist) {
@@ -4270,6 +4278,7 @@ function cloneDraftEntryForDisableCache(entry) {
   }
   // Keep disable/enable cache small; fullHTML is not needed for draft restoration.
   cloned.fullHTML = "";
+  cloned.rawHTML = "";
   return cloned;
 }
 
@@ -4921,6 +4930,9 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   entry.title = document.title || pageUrl;
   if (!entry.fullHTML) {
     entry.fullHTML = "";
+  }
+  if (!entry.rawHTML) {
+    entry.rawHTML = "";
   }
   if (changed) {
     touchPageEntryTimestamp(entry);

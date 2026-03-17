@@ -428,10 +428,24 @@ export function normalizePageMarkings(
       : hasFullHTML
         ? entry.fullHTML
         : "";
+    const hasRawHtml = typeof entry.rawHtml === "string";
+    const hasRawHTML = typeof entry.rawHTML === "string";
+    const rawHTML = hasRawHtml
+      ? entry.rawHtml
+      : hasRawHTML
+        ? entry.rawHTML
+        : "";
     if (
       (entry.fullHTML !== undefined && typeof entry.fullHTML !== "string") ||
       (entry.fullHtml !== undefined && typeof entry.fullHtml !== "string") ||
       (hasFullHtml && hasFullHTML && entry.fullHtml !== entry.fullHTML)
+    ) {
+      changed = true;
+    }
+    if (
+      (entry.rawHTML !== undefined && typeof entry.rawHTML !== "string") ||
+      (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") ||
+      (hasRawHtml && hasRawHTML && entry.rawHtml !== entry.rawHTML)
     ) {
       changed = true;
     }
@@ -477,6 +491,7 @@ export function normalizePageMarkings(
       includeXpaths,
       submissionXpaths,
       fullHTML,
+      rawHTML,
       renderMode
     };
   });
@@ -618,6 +633,7 @@ function cloneNormalizedPageEntry(
     includeXpaths: [],
     submissionXpaths: [],
     fullHTML: "",
+    rawHTML: "",
     renderMode: DEFAULT_RENDER_MODE
   };
 }
@@ -691,6 +707,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
       url: safeEntry.url || url,
       title: safeEntry.title || url,
       fullHtml: typeof safeEntry.fullHTML === "string" ? safeEntry.fullHTML : "",
+      rawHtml: typeof safeEntry.rawHTML === "string" ? safeEntry.rawHTML : "",
       renderMode: getPageEntryRenderMode(safeEntry, normalized.renderMode),
       xpaths: Array.isArray(safeEntry.xpaths)
         ? safeEntry.xpaths.map((item) => ({
@@ -746,6 +763,7 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
       entry &&
         (
           (typeof entry.fullHTML === "string" && entry.fullHTML.length > 0) ||
+          (typeof entry.rawHTML === "string" && entry.rawHTML.length > 0) ||
           (Array.isArray(entry.submissionXpaths) && entry.submissionXpaths.length > 0)
         )
     );

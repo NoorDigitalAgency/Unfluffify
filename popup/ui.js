@@ -79,7 +79,15 @@ const initialViewState = {
   stageBaseSetDisabled: false,
   stageBaseEditDisabled: false,
   renderModeValue: "static",
-  renderModeDisabled: false,
+  renderModeReadOnly: true,
+  renderModeSetVisible: false,
+  renderModeEditVisible: false,
+  renderModeEditText: "Change",
+  renderModeNoticeText: "",
+  renderModeNoticeVisible: false,
+  renderModeInputDisabled: false,
+  renderModeSetDisabled: false,
+  renderModeEditDisabled: false,
   loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
@@ -404,10 +412,10 @@ function renderMarkingView({state: view, actions: handlers}) {
         },
         "Complete Configuration settings to enable AI controls."
       ),
-    h(
-      "div",
-      {
-        id: "ai-controls",
+      h(
+        "div",
+        {
+          id: "ai-controls",
         class: "border-above",
         "aria-busy": view.aiControlsBusy ? "true" : "false"
       },
@@ -415,31 +423,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         "div",
         {class: "section-title padding-above padding-below"},
         "Selector Computation"
-      ),
-      h(
-        "label",
-        { class: "field" },
-        h("span", null, icon("monitor-dashboard", "field-icon"), "Render mode"),
-        h(
-          "div",
-          { class: "input-row" },
-          h(
-            "select",
-            {
-              id: "render-mode",
-              value: view.renderModeValue,
-              disabled: view.renderModeDisabled,
-              onChange: handlers.onRenderModeChange
-            },
-            h("option", { value: "static" }, "Static HTML"),
-            h("option", { value: "rendered" }, "Headless rendered HTML")
-          )
-        ),
-        h(
-          "div",
-          { class: "hint" },
-          "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
-        )
       ),
       h(
         "div",
@@ -1049,17 +1032,85 @@ function renderConfigurationView({state: view, actions: handlers}) {
                         view.stageBaseEditText
                     )
                 )
-            ),
-            h(
-                "div",
-                {
-                    id: "stage-base-notice",
+        ),
+        h(
+            "div",
+            {
+                id: "stage-base-notice",
                     class: "notice",
                     role: "status",
                     "aria-live": "polite",
                     hidden: !view.stageBaseNoticeVisible
                 },
                 view.stageBaseNoticeText
+            )
+        ),
+        h(
+            "section",
+            {class: "card"},
+            h("div", {class: "section-title"}, "Render Mode"),
+            h(
+                "label",
+                {class: "field"},
+                h("span", null, "Render Mode"),
+                h(
+                    "div",
+                    {class: "input-row"},
+                    h(
+                        "select",
+                        {
+                            id: "render-mode",
+                            value: view.renderModeValue,
+                            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
+                            onChange: handlers.onRenderModeInput,
+                            ref: (el) => {
+                                refs.renderModeSelect = el;
+                            }
+                        },
+                        h("option", { value: "static" }, "Static HTML"),
+                        h("option", { value: "rendered" }, "Headless rendered HTML")
+                    ),
+                    h(
+                        "button",
+                        {
+                            id: "render-mode-set",
+                            type: "button",
+                            style: {display: view.renderModeSetVisible ? "inline-flex" : "none"},
+                            disabled: view.renderModeSetDisabled,
+                            onClick: handlers.onRenderModeSet
+                        },
+                        icon("check"),
+                        "Set"
+                    ),
+                    h(
+                        "button",
+                        {
+                            id: "render-mode-edit",
+                            type: "button",
+                            style: {display: view.renderModeEditVisible ? "inline-flex" : "none"},
+                            disabled: view.renderModeEditDisabled,
+                            onClick: handlers.onRenderModeEditToggle
+                        },
+                        icon("pencil-outline"),
+                        view.renderModeEditText
+                    )
+                )
+            ),
+            h(
+                "div",
+                {
+                    id: "render-mode-notice",
+                    class: "notice",
+                    role: "status",
+                    "aria-live": "polite",
+                    hidden: !view.renderModeNoticeVisible
+                },
+                view.renderModeNoticeText
+            ),
+            h(
+                "div",
+                {class: "hint"},
+                "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
             )
         ),
         h(

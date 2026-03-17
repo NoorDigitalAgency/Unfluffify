@@ -180,6 +180,25 @@ function createCurrentPageSnapshot() {
   });
 }
 
+async function fetchCurrentPageRawHtml(pageUrl = location.href) {
+  const targetUrl = typeof pageUrl === "string" ? pageUrl : "";
+  if (!targetUrl) {
+    return null;
+  }
+  try {
+    const response = await utils.sendRuntimeMessage({
+      type: "fetchStaticPageHtml",
+      url: targetUrl
+    });
+    if (!response || !response.ok || typeof response.html !== "string") {
+      return null;
+    }
+    return response.html;
+  } catch (error) {
+    return null;
+  }
+}
+
 function matchesActiveBaseUrl(baseUrl) {
   return Boolean(baseUrl && state.baseUrl && utils.sameBaseUrl(baseUrl, state.baseUrl));
 }
@@ -247,11 +266,16 @@ async function saveCurrentPageDraft(options) {
   );
   const currentSnapshot = createCurrentPageSnapshot();
   const currentFullHTML = currentSnapshot.fullHTML;
+  const currentRawHTML = await fetchCurrentPageRawHtml(pageUrl);
   const currentRenderMode = currentSnapshot.renderMode;
   const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   const savedEntryMatchesCurrentSnapshot = Boolean(
     savedEntry &&
     savedEntry.fullHTML === currentFullHTML &&
+    (
+      currentRawHTML === null ||
+      (typeof savedEntry.rawHTML === "string" ? savedEntry.rawHTML : "") === currentRawHTML
+    ) &&
     submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths) &&
     config.getPageEntryRenderMode(savedEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode
   );
@@ -273,6 +297,11 @@ async function saveCurrentPageDraft(options) {
   });
   const entry = core.getPageMarkingEntry(state.config, pageUrl);
   entry.fullHTML = currentFullHTML;
+  entry.rawHTML = typeof currentRawHTML === "string"
+    ? currentRawHTML
+    : typeof entry.rawHTML === "string"
+      ? entry.rawHTML
+      : "";
   entry.title = document.title || pageUrl;
   entry.submissionXpaths = currentSubmissionXpaths;
   entry.renderMode = currentRenderMode;
@@ -2598,6 +2627,7 @@ export function main() {
           baseUrl: targetBaseUrl,
           pageUrl: location.href,
           fullHTML: snapshot.fullHTML,
+          rawHTML: typeof entry.rawHTML === "string" ? entry.rawHTML : "",
           renderMode: snapshot.renderMode,
           immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
           xpaths: entry.xpaths || []
@@ -2701,7 +2731,13 @@ export function main() {
         // Now capture the full HTML (after consent elements are removed)
         const entry = syncResult.entry || core.getPageMarkingEntry(config, location.href);
         const snapshot = createCurrentPageSnapshot();
+        const rawHTML = await fetchCurrentPageRawHtml(location.href);
         entry.fullHTML = snapshot.fullHTML;
+        entry.rawHTML = typeof rawHTML === "string"
+          ? rawHTML
+          : typeof entry.rawHTML === "string"
+            ? entry.rawHTML
+            : "";
         entry.title = document.title || location.href;
         entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
         entry.renderMode = snapshot.renderMode;
