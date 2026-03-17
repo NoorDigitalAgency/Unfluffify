@@ -359,6 +359,75 @@ function renderMarkingView({state: view, actions: handlers}) {
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
   const markingMode = !view.mainUiHidden;
 
+  const renderModeSection = h(
+    "section",
+    {class: "card"},
+    h("div", {class: "section-title"}, "Render Mode"),
+    h(
+      "label",
+      {class: "field"},
+      h("span", null, icon("monitor-dashboard", "field-icon"), "Render Mode"),
+      h(
+        "div",
+        {class: "input-row"},
+        h(
+          "select",
+          {
+            id: "render-mode",
+            value: view.renderModeValue,
+            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
+            onChange: handlers.onRenderModeInput,
+            ref: (el) => {
+              refs.renderModeSelect = el;
+            }
+          },
+          h("option", { value: "static" }, "Static HTML"),
+          h("option", { value: "rendered" }, "Headless rendered HTML")
+        ),
+        h(
+          "button",
+          {
+            id: "render-mode-set",
+            type: "button",
+            style: {display: view.renderModeSetVisible ? "inline-flex" : "none"},
+            disabled: view.renderModeSetDisabled,
+            onClick: handlers.onRenderModeSet
+          },
+          icon("check"),
+          "Set"
+        ),
+        h(
+          "button",
+          {
+            id: "render-mode-edit",
+            type: "button",
+            style: {display: view.renderModeEditVisible ? "inline-flex" : "none"},
+            disabled: view.renderModeEditDisabled,
+            onClick: handlers.onRenderModeEditToggle
+          },
+          icon("pencil-outline"),
+          view.renderModeEditText
+        )
+      )
+    ),
+    h(
+      "div",
+      {
+        id: "render-mode-notice",
+        class: "notice",
+        role: "status",
+        "aria-live": "polite",
+        hidden: !view.renderModeNoticeVisible
+      },
+      view.renderModeNoticeText
+    ),
+    h(
+      "div",
+      {class: "hint"},
+      "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
+    )
+  );
+
   const deviceSection = h(
     "section",
     { class: "card margin-below", hidden: !showDeviceSection },
@@ -702,6 +771,7 @@ function renderMarkingView({state: view, actions: handlers}) {
         )
       )
     ),
+    renderModeSection,
     h(
       "section",
       {class: "card"},
@@ -1043,74 +1113,6 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     hidden: !view.stageBaseNoticeVisible
                 },
                 view.stageBaseNoticeText
-            )
-        ),
-        h(
-            "section",
-            {class: "card"},
-            h("div", {class: "section-title"}, "Render Mode"),
-            h(
-                "label",
-                {class: "field"},
-                h("span", null, "Render Mode"),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h(
-                        "select",
-                        {
-                            id: "render-mode",
-                            value: view.renderModeValue,
-                            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
-                            onChange: handlers.onRenderModeInput,
-                            ref: (el) => {
-                                refs.renderModeSelect = el;
-                            }
-                        },
-                        h("option", { value: "static" }, "Static HTML"),
-                        h("option", { value: "rendered" }, "Headless rendered HTML")
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "render-mode-set",
-                            type: "button",
-                            style: {display: view.renderModeSetVisible ? "inline-flex" : "none"},
-                            disabled: view.renderModeSetDisabled,
-                            onClick: handlers.onRenderModeSet
-                        },
-                        icon("check"),
-                        "Set"
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "render-mode-edit",
-                            type: "button",
-                            style: {display: view.renderModeEditVisible ? "inline-flex" : "none"},
-                            disabled: view.renderModeEditDisabled,
-                            onClick: handlers.onRenderModeEditToggle
-                        },
-                        icon("pencil-outline"),
-                        view.renderModeEditText
-                    )
-                )
-            ),
-            h(
-                "div",
-                {
-                    id: "render-mode-notice",
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.renderModeNoticeVisible
-                },
-                view.renderModeNoticeText
-            ),
-            h(
-                "div",
-                {class: "hint"},
-                "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
             )
         ),
         h(

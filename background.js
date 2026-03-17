@@ -410,8 +410,29 @@ chrome.debugger.onDetach.addListener(async (source) => {
   });
 });
 
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  await utils.updateActionForTab(tabId);
+async function refreshActionIconsForWindow(windowId) {
+  if (!windowId || windowId === chrome.windows.WINDOW_ID_NONE) {
+    return;
+  }
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ windowId });
+  } catch (error) {
+    tabs = [];
+  }
+  await Promise.all(
+    tabs
+      .map((tab) => (tab && tab.id ? utils.updateActionForTab(tab.id) : null))
+      .filter(Boolean)
+  );
+}
+
+chrome.tabs.onActivated.addListener(async ({ windowId }) => {
+  await refreshActionIconsForWindow(windowId);
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  await refreshActionIconsForWindow(windowId);
 });
 
 function requestContentActivation(tabId, attempt = 0) {

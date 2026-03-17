@@ -539,9 +539,25 @@ export async function updateActionForTab(tabId) {
   if (!chrome.action || !tabId) {
     return;
   }
-  const initialState = await getTabState(tabId, 'initial');
-  const active = initialState !== null;
-  const path = active
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    return;
+  }
+  const [initialState, tabState] = await Promise.all([
+    getTabState(tabId, "initial"),
+    getTabState(tabId)
+  ]);
+  const extensionActiveOnTab = Boolean(
+    tab &&
+      tab.active &&
+      (
+        (tabState && typeof tabState === "object" && tabState.enabled) ||
+        (initialState && typeof initialState === "object" && initialState.active)
+      )
+  );
+  const path = extensionActiveOnTab
       ? {
         16: "icons/active/icon16.png",
         32: "icons/active/icon32.png",

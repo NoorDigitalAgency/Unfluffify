@@ -1909,8 +1909,7 @@ async function refreshUiInner() {
     configEndpointReady &&
     endpointReady &&
     stageBaseReady &&
-    Boolean(tokenValue) &&
-    renderModeReady;
+    Boolean(tokenValue);
   const aiReady =
     tabInScope &&
     !unsupportedByGraphql &&
@@ -2028,9 +2027,7 @@ async function refreshUiInner() {
       ? "Open the extension on this tab to enable controls."
     : configurationComplete
       ? ""
-      : !configEndpointReady || !endpointReady || !stageBaseReady || !tokenValue
-        ? "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue."
-        : "Confirm Render Mode to continue.";
+      : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
 
   const uiDisabledForUnsupportedPage = unsupportedByGraphql || !tabInScope;
   nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
