@@ -421,31 +421,48 @@ export function normalizePageMarkings(
     if (entry.timestamp !== timestamp) {
       changed = true;
     }
-    const hasFullHtml = typeof entry.fullHtml === "string";
-    const hasFullHTML = typeof entry.fullHTML === "string";
-    const fullHTML = hasFullHtml
-      ? entry.fullHtml
-      : hasFullHTML
-        ? entry.fullHTML
-        : "";
+    const hasRenderedHtml = typeof entry.renderedHtml === "string";
+    const hasLegacyFullHtml = typeof entry.fullHtml === "string";
+    const hasLegacyFullHTML = typeof entry.fullHTML === "string";
+    const renderedHtml = hasRenderedHtml
+      ? entry.renderedHtml
+      : hasLegacyFullHtml
+          ? entry.fullHtml
+          : hasLegacyFullHTML
+            ? entry.fullHTML
+            : "";
+    const renderedHtmlValues = [];
+    if (hasRenderedHtml) {
+      renderedHtmlValues.push(entry.renderedHtml);
+    }
+    if (hasLegacyFullHtml) {
+      renderedHtmlValues.push(entry.fullHtml);
+    }
+    if (hasLegacyFullHTML) {
+      renderedHtmlValues.push(entry.fullHTML);
+    }
     const hasRawHtml = typeof entry.rawHtml === "string";
-    const hasRawHTML = typeof entry.rawHTML === "string";
-    const rawHTML = hasRawHtml
+    const hasLegacyRawHTML = typeof entry.rawHTML === "string";
+    const rawHtml = hasRawHtml
       ? entry.rawHtml
-      : hasRawHTML
+      : hasLegacyRawHTML
         ? entry.rawHTML
         : "";
     if (
+      (entry.renderedHtml !== undefined && typeof entry.renderedHtml !== "string") ||
+      entry.fullHtml !== undefined ||
+      entry.fullHTML !== undefined ||
       (entry.fullHTML !== undefined && typeof entry.fullHTML !== "string") ||
       (entry.fullHtml !== undefined && typeof entry.fullHtml !== "string") ||
-      (hasFullHtml && hasFullHTML && entry.fullHtml !== entry.fullHTML)
+      new Set(renderedHtmlValues).size > 1
     ) {
       changed = true;
     }
     if (
+      entry.rawHTML !== undefined ||
       (entry.rawHTML !== undefined && typeof entry.rawHTML !== "string") ||
       (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") ||
-      (hasRawHtml && hasRawHTML && entry.rawHtml !== entry.rawHTML)
+      (hasRawHtml && hasLegacyRawHTML && entry.rawHtml !== entry.rawHTML)
     ) {
       changed = true;
     }
@@ -490,8 +507,8 @@ export function normalizePageMarkings(
       consentXpaths,
       includeXpaths,
       submissionXpaths,
-      fullHTML,
-      rawHTML,
+      renderedHtml,
+      rawHtml,
       renderMode
     };
   });
@@ -639,8 +656,8 @@ function cloneNormalizedPageEntry(
     consentXpaths: [],
     includeXpaths: [],
     submissionXpaths: [],
-    fullHTML: "",
-    rawHTML: "",
+    renderedHtml: "",
+    rawHtml: "",
     renderMode: DEFAULT_RENDER_MODE
   };
 }
@@ -713,8 +730,9 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
       timestamp: normalizeEntryTimestamp(safeEntry.timestamp),
       url: safeEntry.url || url,
       title: safeEntry.title || url,
-      fullHtml: typeof safeEntry.fullHTML === "string" ? safeEntry.fullHTML : "",
-      rawHtml: typeof safeEntry.rawHTML === "string" ? safeEntry.rawHTML : "",
+      renderedHtml:
+        typeof safeEntry.renderedHtml === "string" ? safeEntry.renderedHtml : "",
+      rawHtml: typeof safeEntry.rawHtml === "string" ? safeEntry.rawHtml : "",
       renderMode: getPageEntryRenderMode(safeEntry, normalized.renderMode),
       xpaths: Array.isArray(safeEntry.xpaths)
         ? safeEntry.xpaths.map((item) => ({
@@ -769,8 +787,8 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
     Boolean(
       entry &&
         (
-          (typeof entry.fullHTML === "string" && entry.fullHTML.length > 0) ||
-          (typeof entry.rawHTML === "string" && entry.rawHTML.length > 0) ||
+          (typeof entry.renderedHtml === "string" && entry.renderedHtml.length > 0) ||
+          (typeof entry.rawHtml === "string" && entry.rawHtml.length > 0) ||
           (Array.isArray(entry.submissionXpaths) && entry.submissionXpaths.length > 0)
         )
     );

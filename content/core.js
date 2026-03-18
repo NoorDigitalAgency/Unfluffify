@@ -1796,11 +1796,22 @@ export function normalizePageEntryXpaths(entry) {
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
-  entry.rawHTML = typeof entry.rawHTML === "string"
-    ? entry.rawHTML
-    : typeof entry.rawHtml === "string"
-      ? entry.rawHtml
+  entry.renderedHtml = typeof entry.renderedHtml === "string"
+    ? entry.renderedHtml
+    : typeof entry.fullHTML === "string"
+      ? entry.fullHTML
+      : typeof entry.fullHtml === "string"
+        ? entry.fullHtml
+        : "";
+  entry.rawHtml = typeof entry.rawHtml === "string"
+    ? entry.rawHtml
+    : typeof entry.rawHTML === "string"
+      ? entry.rawHTML
       : "";
+  delete entry.fullHTML;
+  delete entry.fullHtml;
+  delete entry.renderedHTML;
+  delete entry.rawHTML;
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   entry.renderMode = config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE);
   return entry;
@@ -1811,7 +1822,7 @@ export function createSanitizedPageSnapshot(options = {}) {
   const root = document.documentElement;
   if (!root) {
     return {
-      fullHTML: "",
+      renderedHtml: "",
       renderMode: normalizedRenderMode
     };
   }
@@ -1865,7 +1876,7 @@ export function createSanitizedPageSnapshot(options = {}) {
   }
 
   return {
-    fullHTML: clone.outerHTML,
+    renderedHtml: clone.outerHTML,
     renderMode: normalizedRenderMode
   };
 }
@@ -2487,7 +2498,7 @@ function recordPageSnapshot(configValue, pageUrl) {
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
   });
-  entry.fullHTML = snapshot.fullHTML;
+  entry.renderedHtml = snapshot.renderedHtml;
   entry.title = document.title || pageUrl;
   entry.renderMode = snapshot.renderMode;
   configValue.pageMarkings[pageUrl] = entry;
@@ -3917,8 +3928,8 @@ export function clonePageEntry(entry) {
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
-    fullHTML: typeof entry.fullHTML === "string" ? entry.fullHTML : "",
-    rawHTML: typeof entry.rawHTML === "string" ? entry.rawHTML : "",
+    renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+    rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : "",
     renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE)
   };
   return normalizePageEntryXpaths(cloned);
@@ -4225,8 +4236,8 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
       consentXpaths: [],
       includeXpaths: [],
       submissionXpaths: [],
-      fullHTML: "",
-      rawHTML: "",
+      renderedHtml: "",
+      rawHtml: "",
       renderMode: fallbackRenderMode
     };
   }
@@ -4245,8 +4256,8 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     consentXpaths: [],
     includeXpaths: [],
     submissionXpaths: [],
-    fullHTML: "",
-    rawHTML: "",
+    renderedHtml: "",
+    rawHtml: "",
     renderMode: fallbackRenderMode
   };
   if (create && persist) {
@@ -4271,9 +4282,9 @@ function cloneDraftEntryForDisableCache(entry) {
   if (!cloned) {
     return null;
   }
-  // Keep disable/enable cache small; fullHTML is not needed for draft restoration.
-  cloned.fullHTML = "";
-  cloned.rawHTML = "";
+  // Keep disable/enable cache small; saved HTML is not needed for draft restoration.
+  cloned.renderedHtml = "";
+  cloned.rawHtml = "";
   return cloned;
 }
 
@@ -4594,10 +4605,10 @@ export function getElementLabel(el) {
   return text;
 }
 
-export async function saveConfig(baseUrl, config) {
+export async function saveConfig(baseUrl, configValue) {
   const result = await utils.idbGet("configs");
   const configs = result.configs || {};
-  configs[baseUrl] = config;
+  configs[baseUrl] = config.normalizeConfig(baseUrl, configValue).config;
   await utils.idbSet({ configs });
 }
 
@@ -4700,8 +4711,8 @@ export async function refreshFromTabState() {
               storedEntry.includeXpaths.length > 0) ||
             (Array.isArray(storedEntry.consentXpaths) &&
               storedEntry.consentXpaths.length > 0) ||
-            (typeof storedEntry.fullHTML === "string" &&
-              storedEntry.fullHTML.length > 0))
+            (typeof storedEntry.renderedHtml === "string" &&
+              storedEntry.renderedHtml.length > 0))
       );
       syncConsentOnEnable(pageUrl, hasSavedData);
       return;
@@ -4923,11 +4934,11 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       });
   entry.xpaths = items;
   entry.title = document.title || pageUrl;
-  if (!entry.fullHTML) {
-    entry.fullHTML = "";
+  if (!entry.renderedHtml) {
+    entry.renderedHtml = "";
   }
-  if (!entry.rawHTML) {
-    entry.rawHTML = "";
+  if (!entry.rawHtml) {
+    entry.rawHtml = "";
   }
   if (changed) {
     touchPageEntryTimestamp(entry);

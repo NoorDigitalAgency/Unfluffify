@@ -259,22 +259,22 @@ async function saveCurrentPageDraft(options) {
   const hasSavedEntry = Boolean(savedEntry);
   const savedEntryHasAiSubmissionData = Boolean(
     savedEntry &&
-    typeof savedEntry.fullHTML === "string" &&
-    savedEntry.fullHTML &&
+    typeof savedEntry.renderedHtml === "string" &&
+    savedEntry.renderedHtml &&
     Array.isArray(savedEntry.submissionXpaths) &&
     savedEntry.submissionXpaths.length > 0
   );
   const currentSnapshot = createCurrentPageSnapshot();
-  const currentFullHTML = currentSnapshot.fullHTML;
-  const currentRawHTML = await fetchCurrentPageRawHtml(pageUrl);
+  const currentRenderedHtml = currentSnapshot.renderedHtml;
+  const currentRawHtml = await fetchCurrentPageRawHtml(pageUrl);
   const currentRenderMode = currentSnapshot.renderMode;
   const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   const savedEntryMatchesCurrentSnapshot = Boolean(
     savedEntry &&
-    savedEntry.fullHTML === currentFullHTML &&
+    savedEntry.renderedHtml === currentRenderedHtml &&
     (
-      currentRawHTML === null ||
-      (typeof savedEntry.rawHTML === "string" ? savedEntry.rawHTML : "") === currentRawHTML
+      currentRawHtml === null ||
+      (typeof savedEntry.rawHtml === "string" ? savedEntry.rawHtml : "") === currentRawHtml
     ) &&
     submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths) &&
     config.getPageEntryRenderMode(savedEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode
@@ -296,11 +296,11 @@ async function saveCurrentPageDraft(options) {
     persist: true
   });
   const entry = core.getPageMarkingEntry(state.config, pageUrl);
-  entry.fullHTML = currentFullHTML;
-  entry.rawHTML = typeof currentRawHTML === "string"
-    ? currentRawHTML
-    : typeof entry.rawHTML === "string"
-      ? entry.rawHTML
+  entry.renderedHtml = currentRenderedHtml;
+  entry.rawHtml = typeof currentRawHtml === "string"
+    ? currentRawHtml
+    : typeof entry.rawHtml === "string"
+      ? entry.rawHtml
       : "";
   entry.title = document.title || pageUrl;
   entry.submissionXpaths = currentSubmissionXpaths;
@@ -2626,8 +2626,8 @@ export function main() {
         sendResponse({
           baseUrl: targetBaseUrl,
           pageUrl: location.href,
-          fullHTML: snapshot.fullHTML,
-          rawHTML: typeof entry.rawHTML === "string" ? entry.rawHTML : "",
+          renderedHtml: snapshot.renderedHtml,
+          rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : "",
           renderMode: snapshot.renderMode,
           immutableSelectors: DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS.slice(),
           xpaths: entry.xpaths || []
@@ -2731,12 +2731,12 @@ export function main() {
         // Now capture the full HTML (after consent elements are removed)
         const entry = syncResult.entry || core.getPageMarkingEntry(config, location.href);
         const snapshot = createCurrentPageSnapshot();
-        const rawHTML = await fetchCurrentPageRawHtml(location.href);
-        entry.fullHTML = snapshot.fullHTML;
-        entry.rawHTML = typeof rawHTML === "string"
-          ? rawHTML
-          : typeof entry.rawHTML === "string"
-            ? entry.rawHTML
+        const rawHtml = await fetchCurrentPageRawHtml(location.href);
+        entry.renderedHtml = snapshot.renderedHtml;
+        entry.rawHtml = typeof rawHtml === "string"
+          ? rawHtml
+          : typeof entry.rawHtml === "string"
+            ? entry.rawHtml
             : "";
         entry.title = document.title || location.href;
         entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();

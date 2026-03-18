@@ -639,8 +639,8 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     });
     if (
       !renderedSnapshot ||
-      typeof renderedSnapshot.fullHTML !== "string" ||
-      !renderedSnapshot.fullHTML
+      typeof renderedSnapshot.renderedHtml !== "string" ||
+      !renderedSnapshot.renderedHtml
     ) {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
@@ -659,7 +659,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
 
     const detection = detectRenderModeFromHtmlPair(
       staticResponse.html,
-      renderedSnapshot.fullHTML
+      renderedSnapshot.renderedHtml
     );
     state.renderModeSuggestedValue = config.normalizeRenderMode(detection.renderMode);
     return state.renderModeSuggestedValue;
@@ -1988,12 +1988,13 @@ async function refreshUiInner() {
           savedEntry.includeXpaths.length > 0) ||
         (Array.isArray(savedEntry.consentXpaths) &&
           savedEntry.consentXpaths.length > 0) ||
-        (typeof savedEntry.fullHTML === "string" && savedEntry.fullHTML.length > 0))
+        (typeof savedEntry.renderedHtml === "string" &&
+          savedEntry.renderedHtml.length > 0))
   );
   const hasSavedAiSubmissionSnapshot = Boolean(
     savedEntry &&
-      typeof savedEntry.fullHTML === "string" &&
-      savedEntry.fullHTML.length > 0 &&
+      typeof savedEntry.renderedHtml === "string" &&
+      savedEntry.renderedHtml.length > 0 &&
       Array.isArray(savedEntry.submissionXpaths) &&
       savedEntry.submissionXpaths.length > 0 &&
       savedEntryRenderMode === currentRenderMode
@@ -3218,7 +3219,7 @@ async function handleComputeSelectors() {
     return;
   }
   const currentPageHtml =
-    typeof currentPageEntry.fullHTML === "string" ? currentPageEntry.fullHTML : "";
+    typeof currentPageEntry.renderedHtml === "string" ? currentPageEntry.renderedHtml : "";
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
   if (!currentPageHtml) {
     uiModule.showToast("Save the current page before computing selectors");
@@ -3271,7 +3272,7 @@ async function handleComputeSelectors() {
       if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
         return false;
       }
-      if (typeof entry.fullHTML !== "string" || !entry.fullHTML) {
+      if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
         return false;
       }
       if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
@@ -3296,8 +3297,8 @@ async function handleComputeSelectors() {
   }
 
   const missingRawHtmlPages = storedPageEntries.filter(([, entry]) => {
-    const rawHTML = typeof entry.rawHTML === "string" ? entry.rawHTML : "";
-    return !rawHTML;
+    const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
+    return !rawHtml;
   });
   const rawHtmlBackfills = new Map();
   if (missingRawHtmlPages.length) {
@@ -3312,13 +3313,13 @@ async function handleComputeSelectors() {
         }
         return {
           url,
-          rawHTML: response.html
+          rawHtml: response.html
         };
       })
     );
     const successfulBackfills = backfillResults.filter(Boolean);
     successfulBackfills.forEach((item) => {
-      rawHtmlBackfills.set(item.url, item.rawHTML);
+      rawHtmlBackfills.set(item.url, item.rawHtml);
     });
     if (successfulBackfills.length) {
       state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
@@ -3330,24 +3331,23 @@ async function handleComputeSelectors() {
           if (!targetEntry || typeof targetEntry !== "object") {
             return;
           }
-          targetEntry.rawHTML = item.rawHTML;
+          targetEntry.rawHtml = item.rawHtml;
         });
       });
     }
   }
 
   const storedPages = storedPageEntries.map(([url, entry]) => {
-    const renderedHTML = typeof entry.fullHTML === "string" ? entry.fullHTML : "";
-    const rawHTML =
-      typeof entry.rawHTML === "string" && entry.rawHTML
-        ? entry.rawHTML
+    const renderedHtml =
+      typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
+    const rawHtml =
+      typeof entry.rawHtml === "string" && entry.rawHtml
+        ? entry.rawHtml
         : rawHtmlBackfills.get(url) || "";
     return {
       url,
-      fullHTML: renderedHTML,
-      renderedHTML,
-      rawHTML,
-      rawHtml: rawHTML,
+      renderedHtml,
+      rawHtml,
       renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE),
       xpaths: toAiPayloadXpaths(entry)
     };
@@ -3814,8 +3814,8 @@ async function init() {
                   state.currentSavedEntry.includeXpaths.length > 0) ||
                 (Array.isArray(state.currentSavedEntry.consentXpaths) &&
                   state.currentSavedEntry.consentXpaths.length > 0) ||
-                (typeof state.currentSavedEntry.fullHTML === "string" &&
-                  state.currentSavedEntry.fullHTML.length > 0))
+                (typeof state.currentSavedEntry.renderedHtml === "string" &&
+                  state.currentSavedEntry.renderedHtml.length > 0))
           );
           if (hasSavedData) {
             window.alert("Consent elements changed on this page. Save to keep the updates.");
