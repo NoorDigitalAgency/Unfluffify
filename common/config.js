@@ -34,16 +34,6 @@ export function getConfigRenderMode(sourceConfig) {
   return normalizeRenderMode(sourceConfig.renderMode);
 }
 
-export function getPageEntryRenderMode(entry, fallbackRenderMode = DEFAULT_RENDER_MODE) {
-  if (!entry || typeof entry !== "object") {
-    return normalizeRenderMode(fallbackRenderMode);
-  }
-  if (Object.prototype.hasOwnProperty.call(entry, "renderMode")) {
-    return normalizeRenderMode(entry.renderMode);
-  }
-  return normalizeRenderMode(fallbackRenderMode);
-}
-
 function normalizeSiteIdValue(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return Math.trunc(value);
@@ -399,7 +389,6 @@ export function normalizePageMarkings(
 ) {
   const normalized = {};
   let changed = false;
-  const normalizedFallbackRenderMode = normalizeRenderMode(fallbackRenderMode);
   if (!pageMarkings || typeof pageMarkings !== "object") {
     return { normalized, changed };
   }
@@ -495,8 +484,7 @@ export function normalizePageMarkings(
     if (normalizedSubmission.changed) {
       changed = true;
     }
-    const renderMode = getPageEntryRenderMode(entry, normalizedFallbackRenderMode);
-    if (entry.renderMode !== renderMode) {
+    if (entry.renderMode !== undefined) {
       changed = true;
     }
     normalized[url] = {
@@ -508,8 +496,7 @@ export function normalizePageMarkings(
       includeXpaths,
       submissionXpaths,
       renderedHtml,
-      rawHtml,
-      renderMode
+      rawHtml
     };
   });
   return { normalized, changed };
@@ -646,7 +633,7 @@ function cloneNormalizedPageEntry(
 ) {
   const normalized = normalizePageMarkings({
     [fallbackUrl || (entry && entry.url) || ""]: entry || {}
-  }, getPageEntryRenderMode(entry, fallbackRenderMode)).normalized;
+  }, fallbackRenderMode).normalized;
   const key = Object.keys(normalized)[0];
   return key ? normalized[key] : {
     url: fallbackUrl || "",
@@ -657,8 +644,7 @@ function cloneNormalizedPageEntry(
     includeXpaths: [],
     submissionXpaths: [],
     renderedHtml: "",
-    rawHtml: "",
-    renderMode: DEFAULT_RENDER_MODE
+    rawHtml: ""
   };
 }
 
@@ -733,7 +719,6 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
       renderedHtml:
         typeof safeEntry.renderedHtml === "string" ? safeEntry.renderedHtml : "",
       rawHtml: typeof safeEntry.rawHtml === "string" ? safeEntry.rawHtml : "",
-      renderMode: getPageEntryRenderMode(safeEntry, normalized.renderMode),
       xpaths: Array.isArray(safeEntry.xpaths)
         ? safeEntry.xpaths.map((item) => ({
           xpath: item && typeof item.xpath === "string" ? item.xpath : "",

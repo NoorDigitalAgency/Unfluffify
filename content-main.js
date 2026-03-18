@@ -267,7 +267,6 @@ async function saveCurrentPageDraft(options) {
   const currentSnapshot = createCurrentPageSnapshot();
   const currentRenderedHtml = currentSnapshot.renderedHtml;
   const currentRawHtml = await fetchCurrentPageRawHtml(pageUrl);
-  const currentRenderMode = currentSnapshot.renderMode;
   const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   const savedEntryMatchesCurrentSnapshot = Boolean(
     savedEntry &&
@@ -276,8 +275,7 @@ async function saveCurrentPageDraft(options) {
       currentRawHtml === null ||
       (typeof savedEntry.rawHtml === "string" ? savedEntry.rawHtml : "") === currentRawHtml
     ) &&
-    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths) &&
-    config.getPageEntryRenderMode(savedEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode
+    submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
   );
   if (
     !core.isPageDraftDirty(pageUrl) &&
@@ -304,7 +302,6 @@ async function saveCurrentPageDraft(options) {
       : "";
   entry.title = document.title || pageUrl;
   entry.submissionXpaths = currentSubmissionXpaths;
-  entry.renderMode = currentRenderMode;
   core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
   try {
@@ -2740,7 +2737,6 @@ export function main() {
             : "";
         entry.title = document.title || location.href;
         entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
-        entry.renderMode = snapshot.renderMode;
         core.touchPageEntryTimestamp(entry);
         config.pageMarkings[location.href] = entry;
 

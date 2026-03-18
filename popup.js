@@ -1977,10 +1977,6 @@ async function refreshUiInner() {
     (state.currentConfig &&
       state.currentConfig.pageMarkings &&
       state.currentConfig.pageMarkings[pageUrl]);
-  const savedEntryRenderMode = config.getPageEntryRenderMode(
-    savedEntry,
-    config.DEFAULT_RENDER_MODE
-  );
   const hasSavedPageData = Boolean(
     savedEntry &&
       ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
@@ -1996,8 +1992,7 @@ async function refreshUiInner() {
       typeof savedEntry.renderedHtml === "string" &&
       savedEntry.renderedHtml.length > 0 &&
       Array.isArray(savedEntry.submissionXpaths) &&
-      savedEntry.submissionXpaths.length > 0 &&
-      savedEntryRenderMode === currentRenderMode
+      savedEntry.submissionXpaths.length > 0
   );
   const needsAiSnapshotBackfill =
     hasSavedPageData && !hasSavedAiSubmissionSnapshot;
@@ -3227,8 +3222,7 @@ async function handleComputeSelectors() {
   }
   const hasCurrentSubmissionXpaths =
     Array.isArray(currentPageEntry.submissionXpaths) &&
-    currentPageEntry.submissionXpaths.length > 0 &&
-    config.getPageEntryRenderMode(currentPageEntry, config.DEFAULT_RENDER_MODE) === currentRenderMode;
+    currentPageEntry.submissionXpaths.length > 0;
   if (!hasCurrentSubmissionXpaths) {
     // AI compute no longer rebuilds xpaths from stored HTML. The live DOM decides
     // visibility/hidden/excluded state when the page is saved, and that snapshot
@@ -3276,9 +3270,6 @@ async function handleComputeSelectors() {
         return false;
       }
       if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
-        return false;
-      }
-      if (config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE) !== currentRenderMode) {
         return false;
       }
       return true;
@@ -3348,7 +3339,6 @@ async function handleComputeSelectors() {
       url,
       renderedHtml,
       rawHtml,
-      renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE),
       xpaths: toAiPayloadXpaths(entry)
     };
   });

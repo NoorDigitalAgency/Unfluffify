@@ -1812,8 +1812,8 @@ export function normalizePageEntryXpaths(entry) {
   delete entry.fullHtml;
   delete entry.renderedHTML;
   delete entry.rawHTML;
+  delete entry.renderMode;
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
-  entry.renderMode = config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE);
   return entry;
 }
 
@@ -2500,7 +2500,6 @@ function recordPageSnapshot(configValue, pageUrl) {
   });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = document.title || pageUrl;
-  entry.renderMode = snapshot.renderMode;
   configValue.pageMarkings[pageUrl] = entry;
 }
 
@@ -3929,8 +3928,7 @@ export function clonePageEntry(entry) {
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
     renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
-    rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : "",
-    renderMode: config.getPageEntryRenderMode(entry, config.DEFAULT_RENDER_MODE)
+    rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : ""
   };
   return normalizePageEntryXpaths(cloned);
 }
@@ -4237,8 +4235,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
       includeXpaths: [],
       submissionXpaths: [],
       renderedHtml: "",
-      rawHtml: "",
-      renderMode: fallbackRenderMode
+      rawHtml: ""
     };
   }
   if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
@@ -4257,8 +4254,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     includeXpaths: [],
     submissionXpaths: [],
     renderedHtml: "",
-    rawHtml: "",
-    renderMode: fallbackRenderMode
+    rawHtml: ""
   };
   if (create && persist) {
     configValue.pageMarkings[pageUrl] = entry;
