@@ -2813,7 +2813,7 @@ function refreshHoverHighlight() {
     return;
   }
   const mode = getMarkMode();
-  const allowExcludedParentChildren = false;
+  const allowExcludedParentChildren = mode === "include";
   const allowImmutableChildren = false;
   const allowParent = shouldAllowParentMarking(mode, state.shiftHeld);
   updateHoverHighlight(
@@ -2845,7 +2845,7 @@ function handleMouseMove(event) {
       return;
     }
     const mode = getMarkModeFromEvent(event);
-    const allowExcludedParentChildren = false;
+    const allowExcludedParentChildren = mode === "include";
     const allowImmutableChildren = false;
     const allowParent = shouldAllowParentMarking(mode, state.lastPointer.shiftKey);
     updateHoverHighlight(
@@ -2964,11 +2964,6 @@ function toggleExplicitInclude(target) {
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  const explicitExcludeSet = new Set(collectExcludedXPaths(items));
-  if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
-    showToast("Cannot explicitly include inside an excluded branch");
-    return;
-  }
   const targetItemIndex = items.findIndex((item) => item && item.xpath === xpath);
   const targetItem = targetItemIndex >= 0 ? items[targetItemIndex] : null;
   let convertedFromExcluded = false;
@@ -3061,7 +3056,7 @@ function handleToggleEvent(event) {
     }
   }
   const allowParent = shouldAllowParentMarking(mode, event.shiftKey);
-  const allowExcludedParentChildren = false;
+  const allowExcludedParentChildren = mode === "include";
   const allowImmutableChildren = false;
   const explicitParentSet = getExcludedXPathSet(state.config, location.href);
   const excludedSet =

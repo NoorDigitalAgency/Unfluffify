@@ -85,6 +85,7 @@ const initialViewState = {
   renderModeEditText: "Change",
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
+  renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
@@ -356,6 +357,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     "margin-above",
     view.computeButtonLoading && "loading"
   );
+  const postRenderModeControlsVisible = view.renderModeReady;
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
   const markingMode = !view.mainUiHidden;
 
@@ -772,33 +774,38 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     ),
     renderModeSection,
-    h(
-      "section",
-      {class: "card"},
+    postRenderModeControlsVisible &&
       h(
-        "label",
-        {class: "row", title: "CTRL/CMD+E"},
-        h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), "Enable Marking"),
-        h("input", {
-          id: "toggle-enabled",
-          type: "checkbox",
-          checked: view.toggleEnabled,
-          disabled: view.toggleEnabledDisabled,
-          onChange: handlers.onToggleEnabled
-        })
+        "section",
+        {class: "card"},
+        h(
+          "label",
+          {class: "row", title: "CTRL/CMD+E"},
+          h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), "Enable Marking"),
+          h("input", {
+            id: "toggle-enabled",
+            type: "checkbox",
+            checked: view.toggleEnabled,
+            disabled: view.toggleEnabledDisabled,
+            onChange: handlers.onToggleEnabled
+          })
+        )
       )
-    ),
-    view.highlightingOptionsVisible &&
+    ,
+    postRenderModeControlsVisible &&
+      view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
-    deviceSection,
-    markingMode && aiControlsSection,
-    view.cssSelectorsVisible &&
+    postRenderModeControlsVisible && deviceSection,
+    postRenderModeControlsVisible && markingMode && aiControlsSection,
+    postRenderModeControlsVisible &&
+      view.cssSelectorsVisible &&
       renderCssSelectorsSection({ state: view, actions: handlers }),
-    markingMode && pageDataSection,
-    (markingMode || view.highlightingOptionsVisible) &&
+    postRenderModeControlsVisible && markingMode && pageDataSection,
+    postRenderModeControlsVisible &&
+      (markingMode || view.highlightingOptionsVisible) &&
       renderMarkedPagesSection(view, handlers),
-    markingMode && explicitExcludesSection,
-    markingMode && explicitIncludesSection
+    postRenderModeControlsVisible && markingMode && explicitExcludesSection,
+    postRenderModeControlsVisible && markingMode && explicitIncludesSection
   );
 }
 

@@ -615,6 +615,13 @@ export function normalizeConfig(baseUrl, incoming) {
   return { config: normalized, changed };
 }
 
+export function isRenderModeConfirmed(sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== "object") {
+    return false;
+  }
+  return normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt) !== PAGE_TIMESTAMP_FALLBACK;
+}
+
 function cloneNormalizedPageEntry(
   entry,
   fallbackUrl = "",

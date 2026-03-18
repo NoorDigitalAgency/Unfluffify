@@ -52,7 +52,7 @@ export const state = {
   renderModeDetectionKey: "",
   renderModeSuggestedKey: "",
   renderModeSuggestedValue: "static",
-  currentBaseUrlHasStoredConfig: false,
+  currentBaseUrlHasConfirmedRenderMode: false,
   remoteConfigLoadKey: "",
   remoteConfigLoadResult: null,
   lastConfigLoadStatusText: "Not loaded yet",

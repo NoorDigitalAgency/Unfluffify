@@ -565,16 +565,23 @@ function buildSelectorSetForGraphqlSubmit(selectorSet) {
   });
 }
 
-function hasStoredConfigForBaseUrl(configs, baseUrl) {
+function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
   const normalizedBaseUrl =
     utils.normalizeCanonicalBaseUrl(baseUrl) ||
     utils.normalizeBaseUrl(baseUrl) ||
     (typeof baseUrl === "string" ? baseUrl : "");
-  return Boolean(
-    normalizedBaseUrl &&
-    configs &&
-    Object.prototype.hasOwnProperty.call(configs, normalizedBaseUrl)
-  );
+  if (
+    !normalizedBaseUrl ||
+    !configs ||
+    !Object.prototype.hasOwnProperty.call(configs, normalizedBaseUrl)
+  ) {
+    return false;
+  }
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    configs[normalizedBaseUrl]
+  ).config;
+  return config.isRenderModeConfirmed(normalizedConfig);
 }
 
 function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConfig) {
@@ -592,7 +599,7 @@ function shouldAutoDetectRenderMode(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return false;
   }
-  if (state.currentBaseUrlHasStoredConfig) {
+  if (state.currentBaseUrlHasConfirmedRenderMode) {
     return false;
   }
   return (
@@ -1362,7 +1369,7 @@ function getEditableFieldState(options) {
 function isCurrentRenderModeReady() {
   return Boolean(
     state.currentBaseUrl &&
-    state.currentBaseUrlHasStoredConfig &&
+    state.currentBaseUrlHasConfirmedRenderMode &&
     !state.renderModeEditMode
   );
 }
@@ -1749,7 +1756,7 @@ async function refreshUiInner() {
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
   }
   const persistedConfigs = await config.getConfigs();
-  state.currentBaseUrlHasStoredConfig = hasStoredConfigForBaseUrl(
+  state.currentBaseUrlHasConfirmedRenderMode = hasConfirmedRenderModeForBaseUrl(
     persistedConfigs,
     state.currentBaseUrl
   );
@@ -1757,12 +1764,12 @@ async function refreshUiInner() {
   if (tabInScope && state.currentBaseUrl && state.currentConfig && pageUrl) {
     suggestedRenderMode = await maybeAutoDetectRenderMode(pageUrl);
     configs = await config.getConfigs();
-    state.currentBaseUrlHasStoredConfig = hasStoredConfigForBaseUrl(
+    state.currentBaseUrlHasConfirmedRenderMode = hasConfirmedRenderModeForBaseUrl(
       configs,
       state.currentBaseUrl
     );
   } else {
-    state.currentBaseUrlHasStoredConfig = false;
+    state.currentBaseUrlHasConfirmedRenderMode = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
   }
@@ -1862,7 +1869,7 @@ async function refreshUiInner() {
   const stageBaseReady = stageBaseField.isReady;
   const loginCredentialsEnabled = stageBaseReady;
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  if (!state.currentBaseUrlHasStoredConfig) {
+  if (!state.currentBaseUrlHasConfirmedRenderMode) {
     state.renderModeEditMode = false;
   }
   const siteIdReady = Boolean(
@@ -1875,7 +1882,7 @@ async function refreshUiInner() {
     : baseUrlReady && !siteIdReady
       ? siteIdBlockedReason || "No domainId exists for this base URL"
       : "";
-  const renderModeSet = state.currentBaseUrlHasStoredConfig;
+  const renderModeSet = state.currentBaseUrlHasConfirmedRenderMode;
   const renderModeField = getEditableFieldState({
     inputRef: refs.renderModeSelect,
     currentValue: view.renderModeValue,
@@ -2055,6 +2062,7 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
+  nextViewState.renderModeReady = renderModeRequired && renderModeField.isReady;
   nextViewState.renderModeValue = renderModeField.value;
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
@@ -2131,11 +2139,13 @@ async function refreshUiInner() {
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
   nextViewState.cssSelectorsVisible =
-    !uiDisabledForUnsupportedPage && resolvedView === uiModule.View.Marking;
+    !uiDisabledForUnsupportedPage &&
+    resolvedView === uiModule.View.Marking &&
+    renderModeReady;
   const highlightingMode =
     resolvedView === uiModule.View.Marking && !isEnabled;
   nextViewState.highlightingOptionsVisible =
-    !uiDisabledForUnsupportedPage && highlightingMode;
+    !uiDisabledForUnsupportedPage && highlightingMode && renderModeReady;
   nextViewState.highlightMarkedPagesChecked = state.silentHighlightShowMarkedPages;
   nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
   nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
@@ -2383,7 +2393,10 @@ async function handleRenderModeSet() {
     return;
   }
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  if (state.currentBaseUrlHasStoredConfig && nextRenderMode === currentRenderMode) {
+  if (
+    state.currentBaseUrlHasConfirmedRenderMode &&
+    nextRenderMode === currentRenderMode
+  ) {
     state.renderModeEditMode = false;
     await refreshUi();
     return;
@@ -2393,7 +2406,7 @@ async function handleRenderModeSet() {
     targetConfig.renderMode = nextRenderMode;
     targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
   });
-  state.currentBaseUrlHasStoredConfig = true;
+  state.currentBaseUrlHasConfirmedRenderMode = true;
   state.renderModeEditMode = false;
   state.renderModeSuggestedKey = "";
   state.renderModeSuggestedValue = nextRenderMode;
