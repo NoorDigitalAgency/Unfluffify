@@ -3081,48 +3081,50 @@ async function handlePageSave() {
   if (!ensureMobileSimulationForSave()) {
     return;
   }
-  const response = await messages.sendTabMessage({
-    type: "savePageDraft",
-    baseUrl: state.currentBaseUrl
-  });
-  if (!response || !response.ok) {
-    updateLastConfigSaveStatus("Save failed");
-    uiModule.showToast("Unable to save page");
-    return;
-  }
-  if (response.saved) {
-    const pageUrl = (state.currentTab && state.currentTab.url) || "";
-    const { tokenValue, configEndpointValue, stageBaseValue } =
-      await helpers.loadGlobalAiSettings();
-    const syncResult = await syncBaseConfigToServer({
-      baseUrl: state.currentBaseUrl,
-      pageUrl,
-      endpointValue: configEndpointValue,
-      tokenValue,
-      stageBase: stageBaseValue,
-      alertOnCurrentReplacement: true
+  await runWithPopupBusyOverlay("Saving page...", async () => {
+    const response = await messages.sendTabMessage({
+      type: "savePageDraft",
+      baseUrl: state.currentBaseUrl
     });
-    const syncSkipped = Boolean(syncResult && syncResult.skipped);
-    const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
-    updateLastConfigSaveStatus(
-      syncSkipped
-        ? "Saved locally (sync skipped)"
-        : syncFailed
-        ? "Saved locally (sync failed)"
-        : "Saved and synced"
-    );
-    uiModule.showToast(
-      syncSkipped
-        ? "Page saved locally (server sync skipped)"
-        : syncFailed
-        ? "Page saved locally (server sync failed)"
-        : "Page saved"
-    );
-  } else {
-    updateLastConfigSaveStatus("No local changes to save");
-    uiModule.showToast("No changes to save");
-  }
-  await refreshUi();
+    if (!response || !response.ok) {
+      updateLastConfigSaveStatus("Save failed");
+      uiModule.showToast("Unable to save page");
+      return;
+    }
+    if (response.saved) {
+      const pageUrl = (state.currentTab && state.currentTab.url) || "";
+      const { tokenValue, configEndpointValue, stageBaseValue } =
+        await helpers.loadGlobalAiSettings();
+      const syncResult = await syncBaseConfigToServer({
+        baseUrl: state.currentBaseUrl,
+        pageUrl,
+        endpointValue: configEndpointValue,
+        tokenValue,
+        stageBase: stageBaseValue,
+        alertOnCurrentReplacement: true
+      });
+      const syncSkipped = Boolean(syncResult && syncResult.skipped);
+      const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
+      updateLastConfigSaveStatus(
+        syncSkipped
+          ? "Saved locally (sync skipped)"
+          : syncFailed
+          ? "Saved locally (sync failed)"
+          : "Saved and synced"
+      );
+      uiModule.showToast(
+        syncSkipped
+          ? "Page saved locally (server sync skipped)"
+          : syncFailed
+          ? "Page saved locally (server sync failed)"
+          : "Page saved"
+      );
+    } else {
+      updateLastConfigSaveStatus("No local changes to save");
+      uiModule.showToast("No changes to save");
+    }
+    await refreshUi();
+  });
 }
 
 async function handlePageRevert() {
@@ -3138,43 +3140,45 @@ async function handlePageRevert() {
   if (!confirmed) {
     return;
   }
-  const response = await messages.sendTabMessage({
-    type: "revertPageDraft",
-    baseUrl: state.currentBaseUrl
+  await runWithPopupBusyOverlay("Reverting page...", async () => {
+    const response = await messages.sendTabMessage({
+      type: "revertPageDraft",
+      baseUrl: state.currentBaseUrl
+    });
+    if (!response || !response.ok) {
+      updateLastConfigSaveStatus("Revert failed");
+      uiModule.showToast("Unable to revert page");
+      return;
+    }
+    const pageUrl = (state.currentTab && state.currentTab.url) || "";
+    const { tokenValue, configEndpointValue, stageBaseValue } =
+      await helpers.loadGlobalAiSettings();
+    const syncResult = await syncBaseConfigToServer({
+      baseUrl: state.currentBaseUrl,
+      pageUrl,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      stageBase: stageBaseValue,
+      alertOnCurrentReplacement: true
+    });
+    const syncSkipped = Boolean(syncResult && syncResult.skipped);
+    const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
+    updateLastConfigSaveStatus(
+      syncSkipped
+        ? "Reverted locally (sync skipped)"
+        : syncFailed
+        ? "Reverted locally (sync failed)"
+        : "Reverted and synced"
+    );
+    uiModule.showToast(
+      syncSkipped
+        ? "Reverted locally (server sync skipped)"
+        : syncFailed
+        ? "Reverted locally (server sync failed)"
+        : "Reverted to last saved"
+    );
+    await refreshUi();
   });
-  if (!response || !response.ok) {
-    updateLastConfigSaveStatus("Revert failed");
-    uiModule.showToast("Unable to revert page");
-    return;
-  }
-  const pageUrl = (state.currentTab && state.currentTab.url) || "";
-  const { tokenValue, configEndpointValue, stageBaseValue } =
-    await helpers.loadGlobalAiSettings();
-  const syncResult = await syncBaseConfigToServer({
-    baseUrl: state.currentBaseUrl,
-    pageUrl,
-    endpointValue: configEndpointValue,
-    tokenValue,
-    stageBase: stageBaseValue,
-    alertOnCurrentReplacement: true
-  });
-  const syncSkipped = Boolean(syncResult && syncResult.skipped);
-  const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
-  updateLastConfigSaveStatus(
-    syncSkipped
-      ? "Reverted locally (sync skipped)"
-      : syncFailed
-      ? "Reverted locally (sync failed)"
-      : "Reverted and synced"
-  );
-  uiModule.showToast(
-    syncSkipped
-      ? "Reverted locally (server sync skipped)"
-      : syncFailed
-      ? "Reverted locally (server sync failed)"
-      : "Reverted to last saved"
-  );
-  await refreshUi();
 }
 
 async function handleComputeSelectors() {
