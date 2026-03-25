@@ -3360,7 +3360,6 @@ async function handleComputeSelectors() {
     pages: storedPages
   };
 
-  debugger;
   let selectorSet = {
     exclusionSelectors: [],
     inclusionSelectors: []
