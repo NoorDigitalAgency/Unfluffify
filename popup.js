@@ -8,6 +8,9 @@ import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
 import * as stateModule from "./popup/state.js";
 import {
+  refineXPathEntries
+} from "./common/xpath-utilities.js";
+import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
   aiSelectorSetsEqual
@@ -3339,11 +3342,14 @@ async function handleComputeSelectors() {
       typeof entry.rawHtml === "string" && entry.rawHtml
         ? entry.rawHtml
         : rawHtmlBackfills.get(url) || "";
+    const isStatic = currentRenderMode === "static";
+    const renderedXPaths = toAiPayloadXpaths(entry);
     return {
       url,
       renderedHtml,
-      rawHtml,
-      xpaths: toAiPayloadXpaths(entry)
+      rawHtml: isStatic ? rawHtml : undefined,
+      renderedXpaths: renderedXPaths,
+      rawXPaths: isStatic ? refineXPathEntries(renderedHtml, rawHtml, renderedXPaths) : undefined
     };
   });
 
@@ -3351,11 +3357,10 @@ async function handleComputeSelectors() {
     baseUrl: state.currentBaseUrl,
     renderMode: currentRenderMode,
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    // Each page contributes the saved rendered HTML snapshot, the latest available
-    // raw source HTML, and the saved xpath rows (`submissionXpaths`).
     pages: storedPages
   };
 
+  debugger;
   let selectorSet = {
     exclusionSelectors: [],
     inclusionSelectors: []
