@@ -568,6 +568,12 @@ function buildSelectorSetForGraphqlSubmit(selectorSet) {
   });
 }
 
+function buildGraphqlRenderModeValue(renderMode) {
+  return config.normalizeRenderMode(renderMode) === config.RENDER_MODE_RENDERED
+    ? "RENDERED"
+    : "STATIC";
+}
+
 function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
   const normalizedBaseUrl =
     utils.normalizeCanonicalBaseUrl(baseUrl) ||
@@ -3499,7 +3505,9 @@ async function submitSelectorSetToServer(options = {}) {
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
   const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
   const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
-  const renderMode = config.getConfigRenderMode(state.currentConfig);
+  const renderMode = buildGraphqlRenderModeValue(
+    config.getConfigRenderMode(state.currentConfig)
+  );
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
   const submitTokenValue =
     (latestTokenStored && typeof latestTokenStored.globalToken === "string"
