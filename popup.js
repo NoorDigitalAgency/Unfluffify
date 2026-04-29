@@ -3505,7 +3505,7 @@ async function submitSelectorSetToServer(options = {}) {
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
   const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
   const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
-  const renderMode = buildGraphqlRenderModeValue(
+  const renderingMode = buildGraphqlRenderModeValue(
     config.getConfigRenderMode(state.currentConfig)
   );
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
@@ -3526,7 +3526,7 @@ async function submitSelectorSetToServer(options = {}) {
           domainId: siteIdResult.siteId,
           includeCss,
           excludeCss,
-          renderMode
+          renderingMode
         }
       })
     });
