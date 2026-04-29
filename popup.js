@@ -38,7 +38,7 @@ mutation updateScrapingConditions(
   $domainId: Int!,
   $includeCss: String,
   $excludeCss: String,
-  $renderingMode: String
+  $renderingMode: DomainRenderMode
 ) {
   updateScrapingConditions(
     domainId: $domainId,
