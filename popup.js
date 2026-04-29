@@ -38,13 +38,13 @@ mutation updateScrapingConditions(
   $domainId: Int!,
   $includeCss: String,
   $excludeCss: String,
-  $renderMode: String
+  $renderingMode: String
 ) {
   updateScrapingConditions(
     domainId: $domainId,
     includeCss: $includeCss,
     excludeCss: $excludeCss,
-    renderMode: $renderMode
+    renderingMode: $renderingMode
   )
 }
 `;
@@ -3505,7 +3505,7 @@ async function submitSelectorSetToServer(options = {}) {
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
   const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
   const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
-  const renderingMode = buildGraphqlRenderModeValue(
+  const renderMode = buildGraphqlRenderModeValue(
     config.getConfigRenderMode(state.currentConfig)
   );
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
@@ -3526,7 +3526,7 @@ async function submitSelectorSetToServer(options = {}) {
           domainId: siteIdResult.siteId,
           includeCss,
           excludeCss,
-          renderingMode
+          renderingMode: renderMode
         }
       })
     });
