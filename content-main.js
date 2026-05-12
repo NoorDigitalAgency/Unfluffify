@@ -960,6 +960,26 @@ function shouldRefreshForSilentMutation(mutation) {
   return false;
 }
 
+function mutationTargetTouchesSilentCollections(target) {
+  if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
+    return false;
+  }
+  const trackedNodes = [
+    ...(silentHighlightCollections.contentNodes || []),
+    ...(silentHighlightCollections.anchors || []),
+    ...(silentHighlightCollections.excludedNodes || [])
+  ];
+  for (const tracked of trackedNodes) {
+    if (!tracked || tracked.nodeType !== 1) {
+      continue;
+    }
+    if (tracked === target || tracked.contains(target) || target.contains(tracked)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function startSilentHighlightingObserver() {
   if (silentHighlightingObserver) {
     return;
@@ -972,22 +992,32 @@ function startSilentHighlightingObserver() {
     if (!Array.isArray(mutations) || mutations.length === 0) {
       return;
     }
-    let needsRefresh = false;
+    let needsFullRefresh = false;
+    let needsPositionRefresh = false;
     for (const mutation of mutations) {
       if (!shouldRefreshForSilentMutation(mutation)) {
         continue;
       }
-      needsRefresh = true;
-      if (
-        mutation.type === "attributes" &&
-        SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(mutation.attributeName || "")
-      ) {
-        silentHighlightingPositionRefreshPending = true;
+      if (mutation.type === "attributes") {
+        const attributeName = mutation.attributeName || "";
+        if (SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(attributeName)) {
+          if (mutationTargetTouchesSilentCollections(mutation.target)) {
+            needsPositionRefresh = true;
+          }
+          continue;
+        }
       }
+      needsFullRefresh = true;
       break;
     }
-    if (needsRefresh) {
+
+    if (needsFullRefresh) {
       scheduleSilentHighlightingsRefresh();
+      return;
+    }
+    if (needsPositionRefresh) {
+      silentHighlightingPositionRefreshPending = true;
+      scheduleSilentHighlightReposition();
     }
   });
   silentHighlightingObserver.observe(root, {
