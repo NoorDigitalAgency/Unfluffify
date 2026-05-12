@@ -23,6 +23,7 @@ const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
+const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
@@ -668,13 +669,17 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       return fallbackRenderMode;
     }
 
-    const detectionResult = await detectRenderModeViaEndpoint({
-      endpointValue: configEndpointValue,
-      tokenValue,
-      pageUrl,
-      fetchedHtml: staticResponse.html,
-      renderedHtml: renderedSnapshot.renderedHtml
-    });
+    const detectionResult = await runWithPopupBusyOverlay(
+      "Detecting render mode...",
+      () => detectRenderModeViaEndpoint({
+        endpointValue: configEndpointValue,
+        tokenValue,
+        pageUrl,
+        fetchedHtml: staticResponse.html,
+        renderedHtml: renderedSnapshot.renderedHtml
+      }),
+      { delayMs: 0 }
+    );
     if (!detectionResult.ok) {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
@@ -1033,40 +1038,55 @@ async function detectRenderModeViaEndpoint(options = {}) {
   if (!detectUrl) {
     return { ok: false, result: "" };
   }
-  try {
-    const response = await fetch(detectUrl, {
-      method: "POST",
-      headers: createConfigSyncHeaders(tokenValue),
-      body: JSON.stringify({
-        url: pageUrl,
-        fetchedHtml,
-        renderedHtml
-      })
-    });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    if (!response.ok) {
-      return { ok: false, result: "" };
-    }
-    let payload = null;
+  for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
     try {
-      payload = await response.json();
+      const response = await fetch(detectUrl, {
+        method: "POST",
+        headers: createConfigSyncHeaders(tokenValue),
+        body: JSON.stringify({
+          url: pageUrl,
+          fetchedHtml,
+          renderedHtml
+        })
+      });
+      await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+      if (!response.ok) {
+        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
+          await waitForRetryDelay(450);
+          continue;
+        }
+        return { ok: false, result: "" };
+      }
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = null;
+      }
+      const result = normalizeRenderModeDetectionResult(
+        (payload && payload.result) ||
+        (payload && payload.mode) ||
+        (payload && payload.renderMode) ||
+        (payload && payload.detectionResult) ||
+        ""
+      );
+      if (!result) {
+        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
+          await waitForRetryDelay(450);
+          continue;
+        }
+        return { ok: false, result: "" };
+      }
+      return { ok: true, result };
     } catch (error) {
-      payload = null;
-    }
-    const result = normalizeRenderModeDetectionResult(
-      (payload && payload.result) ||
-      (payload && payload.mode) ||
-      (payload && payload.renderMode) ||
-      (payload && payload.detectionResult) ||
-      ""
-    );
-    if (!result) {
+      if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
+        await waitForRetryDelay(450);
+        continue;
+      }
       return { ok: false, result: "" };
     }
-    return { ok: true, result };
-  } catch (error) {
-    return { ok: false, result: "" };
   }
+  return { ok: false, result: "" };
 }
 
 function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
@@ -2033,6 +2053,9 @@ async function refreshUiInner() {
           ? "Render Mode becomes available after the current domain resolves to a base URL and siteId."
           : "";
     renderModeNoticeVisible = Boolean(renderModeNoticeText);
+  } else if (state.renderModeDetectionInFlight) {
+    renderModeNoticeText = "Detecting Render Mode...";
+    renderModeNoticeVisible = true;
   }
 
   const configurationComplete =
