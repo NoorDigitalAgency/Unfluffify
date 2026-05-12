@@ -50,6 +50,7 @@ export const state = {
   tokenValidationTimer: 0,
   renderModeDetectionInFlight: false,
   renderModeDetectionKey: "",
+  renderModeDetectionUnsure: false,
   renderModeSuggestedKey: "",
   renderModeSuggestedValue: "static",
   currentBaseUrlHasConfirmedRenderMode: false,

@@ -85,6 +85,7 @@ const initialViewState = {
   renderModeEditText: "Change",
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
+  renderModeManualGuidanceVisible: false,
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeSetDisabled: false,
@@ -422,6 +423,19 @@ function renderMarkingView({state: view, actions: handlers}) {
         hidden: !view.renderModeNoticeVisible
       },
       view.renderModeNoticeText
+    ),
+    h(
+      "div",
+      {
+        class: "warning-panel",
+        hidden: !view.renderModeManualGuidanceVisible
+      },
+      h("div", { class: "warning-panel-title" }, "Auto-detection was unsure"),
+      h(
+        "div",
+        { class: "warning-panel-body" },
+        "Choose the Render Mode manually before continuing. Open DevTools with F12, open the command palette with F1, run Disable JavaScript, then refresh the page. If the meaningful content is still visible, choose Static HTML. If the meaningful content disappears, choose Headless rendered HTML. Re-enable JavaScript before continuing with the extension."
+      )
     ),
     h(
       "div",

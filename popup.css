@@ -263,6 +263,33 @@ button.button-small {
   background: rgba(197, 84, 0, 0.08);
 }
 
+.warning-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(197, 84, 0, 0.75);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(197, 84, 0, 0.16), rgba(197, 84, 0, 0.08));
+}
+
+.warning-panel[hidden] {
+  display: none;
+}
+
+.warning-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #8a3b00;
+}
+
+.warning-panel-body {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
 .hint {
   font-size: 11px;
   color: var(--muted);

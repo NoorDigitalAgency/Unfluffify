@@ -24,6 +24,7 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
@@ -629,6 +630,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = fallbackRenderMode;
+    state.renderModeDetectionUnsure = false;
     return fallbackRenderMode;
   }
 
@@ -643,6 +645,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeDetectionInFlight = true;
   state.renderModeDetectionKey = detectionKey;
   state.renderModeSuggestedKey = detectionKey;
+  state.renderModeDetectionUnsure = false;
   try {
     const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
     const renderedSnapshot = await messages.sendTabMessage({
@@ -656,6 +659,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     ) {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
+      state.renderModeDetectionUnsure = false;
       return fallbackRenderMode;
     }
 
@@ -666,6 +670,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     if (!staticResponse || !staticResponse.ok || typeof staticResponse.html !== "string") {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
+      state.renderModeDetectionUnsure = false;
       return fallbackRenderMode;
     }
 
@@ -683,18 +688,22 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     if (!detectionResult.ok) {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
+      state.renderModeDetectionUnsure = false;
       return fallbackRenderMode;
     }
     if (detectionResult.result === "unsure") {
       const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
       state.renderModeSuggestedValue = fallbackRenderMode;
+      state.renderModeDetectionUnsure = true;
       return fallbackRenderMode;
     }
+    state.renderModeDetectionUnsure = false;
     state.renderModeSuggestedValue = config.normalizeRenderMode(detectionResult.result);
     return state.renderModeSuggestedValue;
   } catch {
     const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
     state.renderModeSuggestedValue = fallbackRenderMode;
+    state.renderModeDetectionUnsure = false;
     return fallbackRenderMode;
   } finally {
     state.renderModeDetectionInFlight = false;
@@ -985,6 +994,20 @@ function waitForRetryDelay(delayMs) {
   });
 }
 
+function isRetryableHttpStatus(status) {
+  if (!Number.isFinite(status) || status <= 0) {
+    return true;
+  }
+  return RETRYABLE_HTTP_STATUSES.has(status);
+}
+
+function getRetryDelayMs(attempt, baseDelayMs = 450, maxDelayMs = 10000) {
+  const boundedAttempt = Math.max(0, Number(attempt) || 0);
+  const exponentialDelay = Math.min(baseDelayMs * (2 ** boundedAttempt), maxDelayMs);
+  const jitter = Math.round(exponentialDelay * (0.1 + (Math.random() * 0.2)));
+  return Math.min(exponentialDelay + jitter, maxDelayMs);
+}
+
 function clearRemoteConfigRetryTimer() {
   if (!state.remoteConfigConnectionRetryTimer) {
     return;
@@ -1051,8 +1074,11 @@ async function detectRenderModeViaEndpoint(options = {}) {
       });
       await maybeUpdateStoredTokenFromResponse(response, tokenValue);
       if (!response.ok) {
-        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
-          await waitForRetryDelay(450);
+        if (
+          attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS &&
+          isRetryableHttpStatus(response.status)
+        ) {
+          await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
           continue;
         }
         return { ok: false, result: "" };
@@ -1071,16 +1097,12 @@ async function detectRenderModeViaEndpoint(options = {}) {
         ""
       );
       if (!result) {
-        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
-          await waitForRetryDelay(450);
-          continue;
-        }
         return { ok: false, result: "" };
       }
       return { ok: true, result };
     } catch (error) {
       if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
-        await waitForRetryDelay(450);
+        await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
         continue;
       }
       return { ok: false, result: "" };
@@ -1342,7 +1364,7 @@ async function syncBaseConfigToServer(options = {}) {
       );
       if (!response.ok) {
         lastStatus = response.status || 0;
-        if (attempt + 1 < attempts) {
+        if (attempt + 1 < attempts && isRetryableHttpStatus(lastStatus)) {
           await waitForRetryDelay(retryDelayMs);
           retryDelayMs = Math.min(retryDelayMs * 2, 10000);
           continue;
@@ -1362,11 +1384,6 @@ async function syncBaseConfigToServer(options = {}) {
 
       const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl);
       if (!mergeResult.ok) {
-        if (attempt + 1 < attempts) {
-          await waitForRetryDelay(retryDelayMs);
-          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
-          continue;
-        }
         return { ok: false };
       }
       if (mergeResult.changed && mergeResult.baseUrl) {
@@ -2056,6 +2073,9 @@ async function refreshUiInner() {
   } else if (state.renderModeDetectionInFlight) {
     renderModeNoticeText = "Detecting Render Mode...";
     renderModeNoticeVisible = true;
+  } else if (state.renderModeDetectionUnsure) {
+    renderModeNoticeText = "We could not detect the Render Mode automatically.";
+    renderModeNoticeVisible = true;
   }
 
   const configurationComplete =
@@ -2220,6 +2240,10 @@ async function refreshUiInner() {
   nextViewState.renderModeEditText = state.renderModeEditMode ? "Cancel" : "Change";
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
+  nextViewState.renderModeManualGuidanceVisible =
+    renderModeRequired &&
+    !state.currentBaseUrlHasConfirmedRenderMode &&
+    state.renderModeDetectionUnsure;
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     uiDisabledForUnsupportedPage ||
@@ -2548,41 +2572,45 @@ function handleRenderModeInput(event) {
 }
 
 async function handleRenderModeSet() {
-  const nextRenderMode = config.normalizeRenderMode(uiModule.getViewState().renderModeValue);
-  if (!state.currentBaseUrl) {
-    uiModule.showToast("Render Mode is unavailable for this page");
-    return;
-  }
-  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  if (
-    state.currentBaseUrlHasConfirmedRenderMode &&
-    nextRenderMode === currentRenderMode
-  ) {
+  await runWithPopupBusyOverlay("Saving render mode...", async () => {
+    const nextRenderMode = config.normalizeRenderMode(uiModule.getViewState().renderModeValue);
+    if (!state.currentBaseUrl) {
+      uiModule.showToast("Render Mode is unavailable for this page");
+      return;
+    }
+    const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
+    if (
+      state.currentBaseUrlHasConfirmedRenderMode &&
+      nextRenderMode === currentRenderMode
+    ) {
+      state.renderModeEditMode = false;
+      state.renderModeDetectionUnsure = false;
+      await refreshUi();
+      return;
+    }
+    const renderModeUpdatedAt = config.createTimestampNow();
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+      targetConfig.renderMode = nextRenderMode;
+      targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
+    });
+    state.currentBaseUrlHasConfirmedRenderMode = true;
     state.renderModeEditMode = false;
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = nextRenderMode;
+    state.renderModeDetectionKey = "";
+    state.renderModeDetectionUnsure = false;
+    await messages.sendTabMessage({
+      type: "configUpdated",
+      baseUrl: state.currentBaseUrl
+    });
+    await maybeSwitchToMarkingView();
     await refreshUi();
-    return;
-  }
-  const renderModeUpdatedAt = config.createTimestampNow();
-  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
-    targetConfig.renderMode = nextRenderMode;
-    targetConfig.renderModeUpdatedAt = renderModeUpdatedAt;
+    uiModule.showToast(
+      nextRenderMode === config.RENDER_MODE_RENDERED
+        ? "Render mode set to headless rendered HTML"
+        : "Render mode set to static HTML"
+    );
   });
-  state.currentBaseUrlHasConfirmedRenderMode = true;
-  state.renderModeEditMode = false;
-  state.renderModeSuggestedKey = "";
-  state.renderModeSuggestedValue = nextRenderMode;
-  state.renderModeDetectionKey = "";
-  await messages.sendTabMessage({
-    type: "configUpdated",
-    baseUrl: state.currentBaseUrl
-  });
-  await maybeSwitchToMarkingView();
-  await refreshUi();
-  uiModule.showToast(
-    nextRenderMode === config.RENDER_MODE_RENDERED
-      ? "Render mode set to headless rendered HTML"
-      : "Render mode set to static HTML"
-  );
 }
 
 async function handleRenderModeEditToggle() {
@@ -2690,59 +2718,67 @@ async function handleConfigurationContinue() {
 }
 
 async function handleExplicitExcludeView(xpath) {
-  const response = await messages.sendTabMessage({
-    type: "focusElement",
-    xpath
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to focus element");
-  }
+  await runWithPopupBusyOverlay("Locating element...", async () => {
+    const response = await messages.sendTabMessage({
+      type: "focusElement",
+      xpath
+    });
+    if (!response || !response.ok) {
+      uiModule.showToast("Unable to focus element");
+    }
+  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
 async function handleExplicitExcludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
   }
-  await clearFocusedElement();
-  const response = await messages.sendTabMessage({
-    type: "setExplicitExclude",
-    baseUrl: state.currentBaseUrl,
-    xpath,
-    excluded: false
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to update exclude");
-    return;
-  }
-  refreshUi();
+  await runWithPopupBusyOverlay("Updating exclusion...", async () => {
+    await clearFocusedElement();
+    const response = await messages.sendTabMessage({
+      type: "setExplicitExclude",
+      baseUrl: state.currentBaseUrl,
+      xpath,
+      excluded: false
+    });
+    if (!response || !response.ok) {
+      uiModule.showToast("Unable to update exclude");
+      return;
+    }
+    await refreshUi();
+  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
 async function handleExplicitIncludeView(xpath) {
-  const response = await messages.sendTabMessage({
-    type: "focusElement",
-    xpath
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to focus element");
-  }
+  await runWithPopupBusyOverlay("Locating element...", async () => {
+    const response = await messages.sendTabMessage({
+      type: "focusElement",
+      xpath
+    });
+    if (!response || !response.ok) {
+      uiModule.showToast("Unable to focus element");
+    }
+  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
 async function handleExplicitIncludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
   }
-  await clearFocusedElement();
-  const response = await messages.sendTabMessage({
-    type: "setExplicitInclude",
-    baseUrl: state.currentBaseUrl,
-    xpath,
-    included: false
-  });
-  if (!response || !response.ok) {
-    uiModule.showToast("Unable to update include");
-    return;
-  }
-  refreshUi();
+  await runWithPopupBusyOverlay("Updating inclusion...", async () => {
+    await clearFocusedElement();
+    const response = await messages.sendTabMessage({
+      type: "setExplicitInclude",
+      baseUrl: state.currentBaseUrl,
+      xpath,
+      included: false
+    });
+    if (!response || !response.ok) {
+      uiModule.showToast("Unable to update include");
+      return;
+    }
+    await refreshUi();
+  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
 async function handleMarkedPageNavigate(url) {
@@ -2788,74 +2824,79 @@ async function handleEnableToggle(event) {
   }
   state.lastPopupEnabled = desiredEnabled;
   const baseUrlValue = state.currentBaseUrl;
-  if (desiredEnabled) {
-    const parsed = utils.parseBaseUrl(baseUrlValue);
-    if (!parsed) {
-      uiModule.showToast("Enter a valid Base Page URL");
-      uiModule.setViewState({ toggleEnabled: false });
-      state.lastPopupEnabled = null;
+  await runWithPopupBusyOverlay(
+    desiredEnabled ? "Enabling marking..." : "Disabling marking...",
+    async () => {
+      if (desiredEnabled) {
+        const parsed = utils.parseBaseUrl(baseUrlValue);
+        if (!parsed) {
+          uiModule.showToast("Enter a valid Base Page URL");
+          uiModule.setViewState({ toggleEnabled: false });
+          state.lastPopupEnabled = null;
+          await refreshUi();
+          return;
+        }
+        if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
+          uiModule.showToast("Current page is outside the Base Page URL");
+          uiModule.setViewState({ toggleEnabled: false });
+          state.lastPopupEnabled = null;
+          await refreshUi();
+          return;
+        }
+        {
+          const currentConfigs = await config.getConfigs();
+          const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
+          state.currentConfig = normalizedCurrent.config;
+        }
+        const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
+        const siteIdResult = await ensureBaseUrlSiteId({
+          baseUrl: baseUrlValue,
+          stageBase: stageBaseValue,
+          tokenValue,
+          persist: false
+        });
+        if (!siteIdResult.ok || !siteIdResult.siteId) {
+          uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+          uiModule.setViewState({ toggleEnabled: false });
+          state.lastPopupEnabled = null;
+          await refreshUi();
+          return;
+        }
+        const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
+        state.currentBaseUrl = effectiveBaseUrl;
+        state.currentConfig = siteIdResult.config || state.currentConfig;
+        const injectResult = await helpers.injectContentScriptIfNeeded();
+        if (!injectResult.ok) {
+          uiModule.showToast(injectResult.error || "Unable to activate on this page");
+          uiModule.setViewState({ toggleEnabled: false });
+          state.lastPopupEnabled = null;
+          await refreshUi();
+          return;
+        }
+        await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
+        await utils.setTabState(tab.id, {
+          enabled: true,
+          baseUrl: effectiveBaseUrl,
+          silentHighlightOptions: getSilentHighlightVisibility()
+        });
+        await messages.sendTabMessageWithRetry({
+          type: "setEnabled",
+          enabled: true,
+          baseUrl: effectiveBaseUrl
+        });
+        await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
+      } else {
+        await utils.setTabState(tab.id, {
+          enabled: false,
+          baseUrl: baseUrlValue,
+          silentHighlightOptions: getSilentHighlightVisibility()
+        });
+        await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+      }
       await refreshUi();
-      return;
-    }
-    if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
-      uiModule.showToast("Current page is outside the Base Page URL");
-      uiModule.setViewState({ toggleEnabled: false });
-      state.lastPopupEnabled = null;
-      await refreshUi();
-      return;
-    }
-    {
-      const currentConfigs = await config.getConfigs();
-      const normalizedCurrent = config.normalizeConfig(baseUrlValue, currentConfigs[baseUrlValue]);
-      state.currentConfig = normalizedCurrent.config;
-    }
-    const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
-    const siteIdResult = await ensureBaseUrlSiteId({
-      baseUrl: baseUrlValue,
-      stageBase: stageBaseValue,
-      tokenValue,
-      persist: false
-    });
-    if (!siteIdResult.ok || !siteIdResult.siteId) {
-      uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
-      uiModule.setViewState({ toggleEnabled: false });
-      state.lastPopupEnabled = null;
-      await refreshUi();
-      return;
-    }
-    const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
-    state.currentBaseUrl = effectiveBaseUrl;
-    state.currentConfig = siteIdResult.config || state.currentConfig;
-    // Inject content script first
-    const injectResult = await helpers.injectContentScriptIfNeeded();
-    if (!injectResult.ok) {
-      uiModule.showToast(injectResult.error || "Unable to activate on this page");
-      uiModule.setViewState({ toggleEnabled: false });
-      state.lastPopupEnabled = null;
-      await refreshUi();
-      return;
-    }
-    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
-    await utils.setTabState(tab.id, {
-      enabled: true,
-      baseUrl: effectiveBaseUrl,
-      silentHighlightOptions: getSilentHighlightVisibility()
-    });
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: true,
-      baseUrl: effectiveBaseUrl
-    });
-    await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-  } else {
-    await utils.setTabState(tab.id, {
-      enabled: false,
-      baseUrl: baseUrlValue,
-      silentHighlightOptions: getSilentHighlightVisibility()
-    });
-    await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
-  }
-  await refreshUi();
+    },
+    { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
+  );
 }
 
 async function handleHighlightMarkedPagesChange(event) {
