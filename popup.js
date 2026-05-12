@@ -22,6 +22,7 @@ import {
 const { state } = stateModule;
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
+const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
@@ -642,6 +643,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeDetectionKey = detectionKey;
   state.renderModeSuggestedKey = detectionKey;
   try {
+    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
     const renderedSnapshot = await messages.sendTabMessage({
       type: "collectPageData",
       baseUrl: state.currentBaseUrl
@@ -666,11 +668,24 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       return fallbackRenderMode;
     }
 
-    const detection = detectRenderModeFromHtmlPair(
-      staticResponse.html,
-      renderedSnapshot.renderedHtml
-    );
-    state.renderModeSuggestedValue = config.normalizeRenderMode(detection.renderMode);
+    const detectionResult = await detectRenderModeViaEndpoint({
+      endpointValue: configEndpointValue,
+      tokenValue,
+      pageUrl,
+      fetchedHtml: staticResponse.html,
+      renderedHtml: renderedSnapshot.renderedHtml
+    });
+    if (!detectionResult.ok) {
+      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+      state.renderModeSuggestedValue = fallbackRenderMode;
+      return fallbackRenderMode;
+    }
+    if (detectionResult.result === "unsure") {
+      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
+      state.renderModeSuggestedValue = fallbackRenderMode;
+      return fallbackRenderMode;
+    }
+    state.renderModeSuggestedValue = config.normalizeRenderMode(detectionResult.result);
     return state.renderModeSuggestedValue;
   } catch {
     const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
@@ -963,6 +978,95 @@ function waitForRetryDelay(delayMs) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
+}
+
+function clearRemoteConfigRetryTimer() {
+  if (!state.remoteConfigConnectionRetryTimer) {
+    return;
+  }
+  window.clearTimeout(state.remoteConfigConnectionRetryTimer);
+  state.remoteConfigConnectionRetryTimer = 0;
+}
+
+function setRemoteConfigConnectionIssue(active) {
+  const nextActive = Boolean(active);
+  state.remoteConfigConnectionIssue = nextActive;
+  if (!nextActive) {
+    clearRemoteConfigRetryTimer();
+  }
+}
+
+function scheduleRemoteConfigRetry() {
+  if (state.remoteConfigConnectionRetryTimer) {
+    return;
+  }
+  state.remoteConfigConnectionRetryTimer = window.setTimeout(async () => {
+    state.remoteConfigConnectionRetryTimer = 0;
+    await helpers.ensureActiveTab();
+    await refreshUi();
+  }, REMOTE_CONFIG_RETRY_DELAY_MS);
+}
+
+function normalizeRenderModeDetectionResult(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "rendered" || normalized === "static" || normalized === "unsure") {
+    return normalized;
+  }
+  return "";
+}
+
+async function detectRenderModeViaEndpoint(options = {}) {
+  const {
+    endpointValue = "",
+    tokenValue = "",
+    pageUrl = "",
+    fetchedHtml = "",
+    renderedHtml = ""
+  } = options;
+  if (!endpointValue || !pageUrl || !fetchedHtml || !renderedHtml) {
+    return { ok: false, result: "" };
+  }
+  const detectUrl = resolveRelativeEndpoint(endpointValue, "/detect-render-mode");
+  if (!detectUrl) {
+    return { ok: false, result: "" };
+  }
+  try {
+    const response = await fetch(detectUrl, {
+      method: "POST",
+      headers: createConfigSyncHeaders(tokenValue),
+      body: JSON.stringify({
+        url: pageUrl,
+        fetchedHtml,
+        renderedHtml
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      return { ok: false, result: "" };
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+    const result = normalizeRenderModeDetectionResult(
+      (payload && payload.result) ||
+      (payload && payload.mode) ||
+      (payload && payload.renderMode) ||
+      (payload && payload.detectionResult) ||
+      ""
+    );
+    if (!result) {
+      return { ok: false, result: "" };
+    }
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, result: "" };
+  }
 }
 
 function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
@@ -1688,6 +1792,16 @@ async function refreshUiInner() {
   } else {
     state.currentConfig = null;
   }
+  const remoteConfigConnectionIssue = Boolean(
+    configEndpointValue &&
+      state.currentBaseUrl &&
+      remoteLoadResult &&
+      remoteLoadResult.status === "error"
+  );
+  setRemoteConfigConnectionIssue(remoteConfigConnectionIssue);
+  if (remoteConfigConnectionIssue) {
+    scheduleRemoteConfigRetry();
+  }
   if (
     remoteLoadResult &&
     remoteLoadResult.status === "not_found" &&
@@ -2032,8 +2146,13 @@ async function refreshUiInner() {
   nextViewState.configurationContinueDisabled =
     !tabInScope || !configurationComplete || unsupportedByGraphql;
   nextViewState.configurationNoticeVisible =
-    !tabInScope || !configurationComplete || unsupportedByGraphql;
-  nextViewState.configurationNoticeText = unsupportedByGraphql
+    !tabInScope ||
+    !configurationComplete ||
+    unsupportedByGraphql ||
+    state.remoteConfigConnectionIssue;
+  nextViewState.configurationNoticeText = state.remoteConfigConnectionIssue
+    ? "Problem connecting to the configuration server. Retrying..."
+    : unsupportedByGraphql
     ? "This page is not mapped to any siteId/base page URL. Extension UI is disabled."
     : !tabInScope
       ? "Open the extension on this tab to enable controls."
@@ -2041,7 +2160,10 @@ async function refreshUiInner() {
       ? ""
       : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
 
-  const uiDisabledForUnsupportedPage = unsupportedByGraphql || !tabInScope;
+  const uiDisabledForUnsupportedPage =
+    unsupportedByGraphql ||
+    !tabInScope ||
+    state.remoteConfigConnectionIssue;
   nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
     uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady || !renderModeReady;
@@ -2163,9 +2285,13 @@ async function refreshUiInner() {
   nextViewState.baseUrlEditVisible = false;
   nextViewState.baseUrlEditText = "Change";
   nextViewState.baseUrlNoticeText =
-    effectiveSiteIdBlockedReason || baseField.noticeText;
+    state.remoteConfigConnectionIssue
+      ? "Problem connecting to the configuration server. Retrying..."
+      : effectiveSiteIdBlockedReason || baseField.noticeText;
   nextViewState.baseUrlNoticeVisible =
-    Boolean(effectiveSiteIdBlockedReason) || baseField.noticeVisible;
+    state.remoteConfigConnectionIssue ||
+    Boolean(effectiveSiteIdBlockedReason) ||
+    baseField.noticeVisible;
   const canInitialPageSave = !hasSavedPageData;
   const pageSaveDisabled =
     uiDisabledForUnsupportedPage ||
@@ -2196,6 +2322,9 @@ async function refreshUiInner() {
     !state.currentDraftDirty;
   if (!baseUrlReady) {
     nextViewState.pageDraftStatusText = "Base Page URL is resolved automatically.";
+  } else if (state.remoteConfigConnectionIssue) {
+    nextViewState.pageDraftStatusText =
+      "Problem connecting to the configuration server. Retrying...";
   } else if (uiDisabledForUnsupportedPage) {
     nextViewState.pageDraftStatusText =
       "This page has no mapped siteId/base page URL.";
@@ -2217,6 +2346,10 @@ async function refreshUiInner() {
   }
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || "Not loaded yet";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || "No save sent yet";
+  nextViewState.isBusy = state.remoteConfigConnectionIssue;
+  nextViewState.busyMessage = state.remoteConfigConnectionIssue
+    ? "Problem connecting to server. Retrying..."
+    : "";
   nextViewState.pageDataNewNoticeHidden =
     uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
@@ -3014,52 +3147,58 @@ async function handleLoginAction() {
 
   state.aiRequestInFlight = "login";
   await refreshUi();
+  let loginSucceeded = false;
+  let loginFailureMessage = "";
   try {
     const loginUrl = buildLoginEndpointFromStageBase(stageBase);
     if (!loginUrl) {
-      uiModule.showToast("Set a valid Stage Base first");
-      return;
-    }
-    const response = await fetch(loginUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ email, password })
-    });
-    await maybeUpdateStoredTokenFromResponse(response, "");
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      payload = null;
-    }
+      loginFailureMessage = "Set a valid Stage Base first";
+    } else {
+      const response = await fetch(loginUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email, password })
+      });
+      await maybeUpdateStoredTokenFromResponse(response, "");
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = null;
+      }
 
-    if (!response.ok) {
-      const errorText =
-        (payload && typeof payload.error === "string" && payload.error) ||
-        (payload && typeof payload.message === "string" && payload.message) ||
-        `Login failed (${response.status})`;
-      uiModule.showToast(errorText);
-      return;
+      if (!response.ok) {
+        loginFailureMessage =
+          (payload && typeof payload.error === "string" && payload.error) ||
+          (payload && typeof payload.message === "string" && payload.message) ||
+          `Login failed (${response.status})`;
+      } else {
+        const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
+        if (!token) {
+          loginFailureMessage = "Login response did not include token";
+        } else {
+          await utils.storageSet(chrome.storage.sync, {
+            globalStageBase: stageBase,
+            globalToken: token
+          });
+          uiModule.setViewState({ loginPasswordValue: "" });
+          loginSucceeded = true;
+        }
+      }
     }
-    const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
-    if (!token) {
-      uiModule.showToast("Login response did not include token");
-      return;
-    }
-
-    await utils.storageSet(chrome.storage.sync, {
-      globalStageBase: stageBase,
-      globalToken: token
-    });
-    uiModule.setViewState({ loginPasswordValue: "" });
-    uiModule.showToast("Login successful");
   } catch (error) {
-    uiModule.showToast("Login request failed");
+    loginFailureMessage = "Login request failed";
   } finally {
     state.aiRequestInFlight = null;
+    await refreshUi();
   }
+  if (!loginSucceeded) {
+    uiModule.showToast(loginFailureMessage || "Login failed");
+    return;
+  }
+  uiModule.showToast("Login successful");
   await maybeSwitchToMarkingView();
   await refreshUi();
 }

@@ -55,6 +55,8 @@ export const state = {
   currentBaseUrlHasConfirmedRenderMode: false,
   remoteConfigLoadKey: "",
   remoteConfigLoadResult: null,
+  remoteConfigConnectionIssue: false,
+  remoteConfigConnectionRetryTimer: 0,
   lastConfigLoadStatusText: "Not loaded yet",
   lastConfigSaveStatusText: "No save sent yet",
   mobileAutoAppliedTabIds: new Set(),
