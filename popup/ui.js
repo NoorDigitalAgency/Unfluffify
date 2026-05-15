@@ -716,7 +716,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           checked: view.renderModeWarningAcknowledgeChecked,
           onChange: handlers.onRenderModeWarningAcknowledgeChange
         }),
-        h("span", null, "I have determined the render mode and I'm ready to choose")
+        h("span", null, "I have determined and ready to choose the render mode")
       ),
       h(
         "button",
