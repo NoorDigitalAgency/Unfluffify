@@ -24,6 +24,7 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
+const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
@@ -588,6 +589,27 @@ function buildGraphqlRenderModeValue(renderMode) {
     : "STATIC";
 }
 
+function isUndeterminedRenderMode(value) {
+  return typeof value === "string" && value.trim().toLowerCase() === RENDER_MODE_UNDETERMINED;
+}
+
+function normalizeUiRenderModeValue(value, fallback = config.DEFAULT_RENDER_MODE) {
+  if (isUndeterminedRenderMode(value)) {
+    return RENDER_MODE_UNDETERMINED;
+  }
+  return config.normalizeRenderMode(typeof value === "string" ? value : fallback);
+}
+
+function markRenderModeUndetermined(detectionKey) {
+  state.renderModeSuggestedValue = RENDER_MODE_UNDETERMINED;
+  state.renderModeDetectionUnsure = true;
+  if (state.renderModeUndeterminedNoticeKey === detectionKey) {
+    return;
+  }
+  state.renderModeUndeterminedNoticeKey = detectionKey;
+  uiModule.showToast("Render Mode is undetermined. Please choose it manually.");
+}
+
 function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
   const normalizedBaseUrl =
     utils.normalizeCanonicalBaseUrl(baseUrl) ||
@@ -613,7 +635,10 @@ function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConf
     state.renderModeSuggestedKey === suggestionKey &&
     state.renderModeSuggestedValue
   ) {
-    return config.normalizeRenderMode(state.renderModeSuggestedValue);
+    return normalizeUiRenderModeValue(state.renderModeSuggestedValue);
+  }
+  if (shouldAutoDetectRenderMode(sourceConfig)) {
+    return RENDER_MODE_UNDETERMINED;
   }
   return config.getConfigRenderMode(sourceConfig);
 }
@@ -657,6 +682,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeDetectionKey = detectionKey;
   state.renderModeSuggestedKey = detectionKey;
   state.renderModeDetectionUnsure = false;
+  state.renderModeUndeterminedNoticeKey = "";
   try {
     const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
     const renderedSnapshot = await messages.sendTabMessage({
@@ -668,10 +694,8 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       typeof renderedSnapshot.renderedHtml !== "string" ||
       !renderedSnapshot.renderedHtml
     ) {
-      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-      state.renderModeSuggestedValue = fallbackRenderMode;
-      state.renderModeDetectionUnsure = false;
-      return fallbackRenderMode;
+      markRenderModeUndetermined(detectionKey);
+      return RENDER_MODE_UNDETERMINED;
     }
 
     const staticResponse = await messages.sendRuntimeMessage({
@@ -679,10 +703,8 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       url: pageUrl
     });
     if (!staticResponse || !staticResponse.ok || typeof staticResponse.html !== "string") {
-      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-      state.renderModeSuggestedValue = fallbackRenderMode;
-      state.renderModeDetectionUnsure = false;
-      return fallbackRenderMode;
+      markRenderModeUndetermined(detectionKey);
+      return RENDER_MODE_UNDETERMINED;
     }
 
     const detectionResult = await runWithPopupBusyOverlay(
@@ -697,25 +719,20 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       { delayMs: 0 }
     );
     if (!detectionResult.ok) {
-      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-      state.renderModeSuggestedValue = fallbackRenderMode;
-      state.renderModeDetectionUnsure = false;
-      return fallbackRenderMode;
+      markRenderModeUndetermined(detectionKey);
+      return RENDER_MODE_UNDETERMINED;
     }
     if (detectionResult.result === "unsure") {
-      const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-      state.renderModeSuggestedValue = fallbackRenderMode;
-      state.renderModeDetectionUnsure = true;
-      return fallbackRenderMode;
+      markRenderModeUndetermined(detectionKey);
+      return RENDER_MODE_UNDETERMINED;
     }
     state.renderModeDetectionUnsure = false;
+    state.renderModeUndeterminedNoticeKey = "";
     state.renderModeSuggestedValue = config.normalizeRenderMode(detectionResult.result);
     return state.renderModeSuggestedValue;
   } catch {
-    const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-    state.renderModeSuggestedValue = fallbackRenderMode;
-    state.renderModeDetectionUnsure = false;
-    return fallbackRenderMode;
+    markRenderModeUndetermined(detectionKey);
+    return RENDER_MODE_UNDETERMINED;
   } finally {
     state.renderModeDetectionInFlight = false;
   }
@@ -1934,6 +1951,8 @@ async function refreshUiInner() {
     state.renderModeEditMode = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
+    state.renderModeUndeterminedNoticeKey = "";
+    state.renderModeWarningDismissedKey = "";
   }
   const persistedConfigs = await config.getConfigs();
   state.currentBaseUrlHasConfirmedRenderMode = hasConfirmedRenderModeForBaseUrl(
@@ -1952,6 +1971,7 @@ async function refreshUiInner() {
     state.currentBaseUrlHasConfirmedRenderMode = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
+    state.renderModeUndeterminedNoticeKey = "";
   }
 
   const view = uiModule.getViewState();
@@ -2078,6 +2098,13 @@ async function refreshUiInner() {
     !unsupportedByGraphql &&
     baseUrlReady &&
     siteIdReady;
+  const renderModeWarningKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
+  const renderModeWarningVisible =
+    renderModeRequired &&
+    !state.currentBaseUrlHasConfirmedRenderMode &&
+    state.renderModeDetectionUnsure &&
+    state.renderModeWarningDismissedKey !== renderModeWarningKey;
+  const renderModeValueUndetermined = isUndeterminedRenderMode(renderModeField.value);
   const renderModeReady = !renderModeRequired || renderModeField.isReady;
   let renderModeNoticeText = renderModeField.noticeText;
   let renderModeNoticeVisible = renderModeField.noticeVisible;
@@ -2260,10 +2287,17 @@ async function refreshUiInner() {
   nextViewState.renderModeEditText = state.renderModeEditMode ? "Cancel" : "Change";
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
+  nextViewState.renderModeUndeterminedVisible =
+    renderModeValueUndetermined || state.renderModeDetectionUnsure;
   nextViewState.renderModeManualGuidanceVisible =
     renderModeRequired &&
     !state.currentBaseUrlHasConfirmedRenderMode &&
     state.renderModeDetectionUnsure;
+  nextViewState.renderModeWarningVisible = renderModeWarningVisible;
+  nextViewState.renderModeWarningAcknowledgeChecked =
+    renderModeWarningVisible ? Boolean(view.renderModeWarningAcknowledgeChecked) : false;
+  nextViewState.renderModeWarningOkDisabled =
+    !nextViewState.renderModeWarningAcknowledgeChecked;
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     uiDisabledForUnsupportedPage ||
@@ -2273,6 +2307,8 @@ async function refreshUiInner() {
     aiBusy ||
     uiDisabledForUnsupportedPage ||
     !renderModeRequired ||
+    state.renderModeDetectionInFlight ||
+    renderModeValueUndetermined ||
     !Boolean(state.currentConfig);
   nextViewState.renderModeEditDisabled =
     aiBusy ||
@@ -2585,15 +2621,46 @@ function handleStageBaseInput(event) {
 }
 
 function handleRenderModeInput(event) {
-  const nextRenderMode = config.normalizeRenderMode(
+  const nextRenderMode = normalizeUiRenderModeValue(
     event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
   );
   uiModule.setViewState({ renderModeValue: nextRenderMode });
 }
 
+function handleRenderModeWarningAcknowledgeChange(event) {
+  const checked = Boolean(
+    event &&
+      (event.currentTarget || event.target) &&
+      (event.currentTarget || event.target).checked
+  );
+  uiModule.setViewState({
+    renderModeWarningAcknowledgeChecked: checked,
+    renderModeWarningOkDisabled: !checked
+  });
+}
+
+async function handleRenderModeWarningConfirm() {
+  const view = uiModule.getViewState();
+  if (!view.renderModeWarningAcknowledgeChecked) {
+    uiModule.showToast("Confirm understanding before continuing.");
+    return;
+  }
+  const warningKey = `${state.currentBaseUrl || ""}|${(state.currentTab && state.currentTab.url) || ""}`;
+  state.renderModeWarningDismissedKey = warningKey;
+  uiModule.setViewState({
+    renderModeWarningVisible: false,
+    renderModeWarningAcknowledgeChecked: false,
+    renderModeWarningOkDisabled: true
+  });
+}
+
 async function handleRenderModeSet() {
   await runWithPopupBusyOverlay("Saving render mode...", async () => {
-    const nextRenderMode = config.normalizeRenderMode(uiModule.getViewState().renderModeValue);
+    const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
+    if (isUndeterminedRenderMode(nextRenderMode)) {
+      uiModule.showToast("Render Mode is undetermined and cannot be set.");
+      return;
+    }
     if (!state.currentBaseUrl) {
       uiModule.showToast("Render Mode is unavailable for this page");
       return;
@@ -3971,6 +4038,8 @@ async function init() {
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
     onRenderModeInput: handleRenderModeInput,
+    onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
+    onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
     onStageBaseKeyDown: handleStageBaseKeyDown,

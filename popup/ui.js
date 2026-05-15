@@ -78,14 +78,18 @@ const initialViewState = {
   stageBaseInputDisabled: false,
   stageBaseSetDisabled: false,
   stageBaseEditDisabled: false,
-  renderModeValue: "static",
+  renderModeValue: "undetermined",
   renderModeReadOnly: true,
   renderModeSetVisible: false,
   renderModeEditVisible: false,
   renderModeEditText: "Change",
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
+  renderModeUndeterminedVisible: true,
   renderModeManualGuidanceVisible: false,
+  renderModeWarningVisible: false,
+  renderModeWarningAcknowledgeChecked: false,
+  renderModeWarningOkDisabled: true,
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeSetDisabled: false,
@@ -125,6 +129,18 @@ const initialViewState = {
 
 let viewState = { ...initialViewState };
 let actions = {};
+
+const renderModeWarningBodyHtml = `
+  <p>
+    Choose the Render Mode manually before continuing. Open DevTools with F12,
+    open the command palette with F1, run Disable JavaScript, then refresh the page.
+  </p>
+  <p>
+    If the meaningful content is still visible, choose Static HTML. If the meaningful
+    content disappears, choose Headless rendered HTML. Re-enable JavaScript before
+    continuing with the extension.
+  </p>
+`;
 
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
@@ -385,7 +401,10 @@ function renderMarkingView({state: view, actions: handlers}) {
             }
           },
           h("option", { value: "static" }, "Static HTML"),
-          h("option", { value: "rendered" }, "Headless rendered HTML")
+          h("option", { value: "rendered" }, "Headless rendered HTML"),
+          view.renderModeUndeterminedVisible
+            ? h("option", { value: "undetermined", disabled: true }, "Undetermined")
+            : null
         ),
         h(
           "button",
@@ -423,19 +442,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         hidden: !view.renderModeNoticeVisible
       },
       view.renderModeNoticeText
-    ),
-    h(
-      "div",
-      {
-        class: "warning-panel",
-        hidden: !view.renderModeManualGuidanceVisible
-      },
-      h("div", { class: "warning-panel-title" }, "Auto-detection was unsure"),
-      h(
-        "div",
-        { class: "warning-panel-body" },
-        "Choose the Render Mode manually before continuing. Open DevTools with F12, open the command palette with F1, run Disable JavaScript, then refresh the page. If the meaningful content is still visible, choose Static HTML. If the meaningful content disappears, choose Headless rendered HTML. Re-enable JavaScript before continuing with the extension."
-      )
     ),
     h(
       "div",
@@ -679,6 +685,53 @@ function renderMarkingView({state: view, actions: handlers}) {
     )
   );
 
+  const renderModeWarningPopover = h(
+    "div",
+    {
+      class: "warning-popover",
+      hidden: !view.renderModeWarningVisible,
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "render-mode-warning-title"
+    },
+    h(
+      "div",
+      { class: "warning-popover__card" },
+      h("div", { id: "render-mode-warning-title", class: "warning-popover__title" }, "Render Mode Could Not Be Determined"),
+      h(
+        "div",
+        {
+          class: "warning-popover__body",
+          dangerouslySetInnerHTML: {
+            __html: renderModeWarningBodyHtml
+          }
+        }
+      ),
+      h(
+        "label",
+        { class: "warning-popover__ack" },
+        h("input", {
+          id: "render-mode-warning-ack",
+          type: "checkbox",
+          checked: view.renderModeWarningAcknowledgeChecked,
+          onChange: handlers.onRenderModeWarningAcknowledgeChange
+        }),
+        h("span", null, "I have determined the render mode and I'm ready to choose")
+      ),
+      h(
+        "button",
+        {
+          id: "render-mode-warning-ok",
+          type: "button",
+          class: "warning-popover__ok",
+          disabled: view.renderModeWarningOkDisabled,
+          onClick: handlers.onRenderModeWarningConfirm
+        },
+        "OK"
+      )
+    )
+  );
+
   return h(
     Fragment,
     null,
@@ -819,7 +872,8 @@ function renderMarkingView({state: view, actions: handlers}) {
       (markingMode || view.highlightingOptionsVisible) &&
       renderMarkedPagesSection(view, handlers),
     postRenderModeControlsVisible && markingMode && explicitExcludesSection,
-    postRenderModeControlsVisible && markingMode && explicitIncludesSection
+    postRenderModeControlsVisible && markingMode && explicitIncludesSection,
+    renderModeWarningPopover
   );
 }
 
