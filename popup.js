@@ -346,6 +346,17 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
+function getEndpointOrigin(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  try {
+    return new URL(value).origin.toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
 function normalizeStageBase(value) {
   if (typeof value !== "string") {
     return "";
@@ -965,6 +976,8 @@ function updateLastConfigLoadStatus(result) {
     label = baseUrl ? `Synced (${baseUrl})` : "Synced";
   } else if (status === "not_found") {
     label = "No remote data (404)";
+  } else if (status === "auth_error") {
+    label = "Login required";
   } else if (status === "skipped") {
     label = "Skipped";
   } else if (status === "error") {
@@ -1218,7 +1231,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     tokenValue = "",
     force = false
   } = options;
-  if (!tabId || !siteId || !endpointValue) {
+  if (!tabId || !siteId || !endpointValue || !tokenValue) {
     const result = { status: "skipped", baseUrl: "" };
     state.remoteConfigLoadResult = result;
     updateLastConfigLoadStatus(result);
@@ -1251,6 +1264,13 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       body: JSON.stringify({ siteId })
     });
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 401 || response.status === 403) {
+      await invalidateTokenAndLockConfiguration(true);
+      const result = { status: "auth_error", baseUrl: "" };
+      state.remoteConfigLoadResult = result;
+      updateLastConfigLoadStatus(result);
+      return result;
+    }
     if (response.status === 404) {
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
@@ -3122,9 +3142,30 @@ async function handleConfigEndpointSet() {
     uiModule.showToast("Enter a valid Configuration Endpoint URL");
     return;
   }
+  const stored = await utils.storageGet(chrome.storage.sync, [
+    "globalConfigEndpoint",
+    "globalToken"
+  ]);
+  const previousEndpoint =
+    stored && typeof stored.globalConfigEndpoint === "string"
+      ? stored.globalConfigEndpoint.trim()
+      : "";
+  const hadToken = Boolean(stored && stored.globalToken);
+  const endpointOriginChanged =
+    getEndpointOrigin(previousEndpoint) &&
+    getEndpointOrigin(endpointValue) &&
+    getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(endpointValue);
+  const shouldResetToken = hadToken && endpointOriginChanged;
   await utils.storageSet(chrome.storage.sync, {
-    globalConfigEndpoint: endpointValue
+    globalConfigEndpoint: endpointValue,
+    globalToken: shouldResetToken ? "" : (stored.globalToken || "")
   });
+  if (shouldResetToken) {
+    state.lastTokenValidationAt = 0;
+    state.siteIdLookupByBaseUrl.clear();
+    setRemoteConfigConnectionIssue(false);
+    uiModule.showToast("Configuration endpoint changed. Login required.");
+  }
   state.configEndpointEditMode = false;
   await maybeSwitchToMarkingView();
   await refreshUi();
@@ -3147,7 +3188,29 @@ async function handleEndpointSet() {
     uiModule.showToast("Enter a valid Endpoint URL");
     return;
   }
-  await utils.storageSet(chrome.storage.sync, { globalEndpoint: endpointValue });
+  const stored = await utils.storageGet(chrome.storage.sync, [
+    "globalEndpoint",
+    "globalToken"
+  ]);
+  const previousEndpoint =
+    stored && typeof stored.globalEndpoint === "string"
+      ? stored.globalEndpoint.trim()
+      : "";
+  const hadToken = Boolean(stored && stored.globalToken);
+  const endpointOriginChanged =
+    getEndpointOrigin(previousEndpoint) &&
+    getEndpointOrigin(endpointValue) &&
+    getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(endpointValue);
+  const shouldResetToken = hadToken && endpointOriginChanged;
+  await utils.storageSet(chrome.storage.sync, {
+    globalEndpoint: endpointValue,
+    globalToken: shouldResetToken ? "" : (stored.globalToken || "")
+  });
+  if (shouldResetToken) {
+    state.lastTokenValidationAt = 0;
+    setRemoteConfigConnectionIssue(false);
+    uiModule.showToast("Endpoint changed. Login required.");
+  }
   state.endpointEditMode = false;
   await maybeSwitchToMarkingView();
   await refreshUi();
