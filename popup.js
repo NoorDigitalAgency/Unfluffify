@@ -2307,7 +2307,6 @@ async function refreshUiInner() {
     aiBusy ||
     uiDisabledForUnsupportedPage ||
     !renderModeRequired ||
-    state.renderModeDetectionInFlight ||
     renderModeValueUndetermined ||
     !Boolean(state.currentConfig);
   nextViewState.renderModeEditDisabled =
@@ -2624,7 +2623,16 @@ function handleRenderModeInput(event) {
   const nextRenderMode = normalizeUiRenderModeValue(
     event && event.target ? event.target.value : uiModule.getViewState().renderModeValue
   );
-  uiModule.setViewState({ renderModeValue: nextRenderMode });
+  const view = uiModule.getViewState();
+  const renderModeSetDisabled = Boolean(
+    view.renderModeInputDisabled ||
+      !view.renderModeSetVisible ||
+      isUndeterminedRenderMode(nextRenderMode)
+  );
+  uiModule.setViewState({
+    renderModeValue: nextRenderMode,
+    renderModeSetDisabled
+  });
 }
 
 function handleRenderModeWarningAcknowledgeChange(event) {

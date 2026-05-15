@@ -406,7 +406,7 @@ function renderMarkingView({state: view, actions: handlers}) {
             }
           },
           h("option", { value: "static" }, "Static HTML"),
-          h("option", { value: "rendered" }, "Headless rendered HTML"),
+          h("option", { value: "rendered" }, "Rendered HTML"),
           view.renderModeUndeterminedVisible
             ? h("option", { value: "undetermined", disabled: true }, "Undetermined")
             : null
