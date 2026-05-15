@@ -132,14 +132,19 @@ let actions = {};
 
 const renderModeWarningBodyHtml = `
   <p>
-    Choose the Render Mode manually before continuing. Open DevTools with F12,
-    open the command palette with F1, run Disable JavaScript, then refresh the page.
+    You must choose the Render Mode manually before continuing:
   </p>
-  <p>
-    If the meaningful content is still visible, choose Static HTML. If the meaningful
-    content disappears, choose Headless rendered HTML. Re-enable JavaScript before
-    continuing with the extension.
-  </p>
+  <ol>
+    <li>Click somewhere inside the page first.</li>
+    <li>Open the Chrome DevTools with F12.</li>
+    <li>Open Preferences with F1.</li>
+    <li>From the Debugger section check Disable JavaScript.</li>
+    <li>Reload the page with DevTools still open.</li>
+    <li>See if the meaningful content is still visible. If it is, choose "Static HTML".</li>
+    <li>If the meaningful content disappears, choose "Rendered HTML".</li>
+    <li>From the Debugger section, uncheck Disable JavaScript.</li>
+    <li>Reload the page again and continue in Unfluffify.</li>
+  </ol>
 `;
 
 function classNames(...values) {
