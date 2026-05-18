@@ -628,7 +628,14 @@ function getNthOfTypeIndex(el) {
   return index;
 }
 
-export function buildCssSelectorPath(el) {
+/**
+ * Builds a CSS selector path for an element, including class selectors or nth-of-type.
+ * Used primarily for debugging or advanced element targeting.
+ * @private
+ * @param {Element} el - The element to build a selector path for
+ * @returns {string} A CSS selector path from body to the element
+ */
+function buildCssSelectorPath(el) {
   if (!el || el.nodeType !== 1) {
     return "";
   }
@@ -1614,6 +1621,15 @@ function compareDocumentOrder(left, right) {
   return 0;
 }
 
+/**
+ * Collapses a collection of elements, removing nested or descendant elements.
+ * Useful for deduplicating element selections based on DOM hierarchy.
+ * @param {Element[]|NodeList} elements - The elements to collapse
+ * @param {Object} [options={}] - Options for collapsing
+ * @param {boolean} [options.onlyVisible=false] - Only include visible elements
+ * @param {string} [options.prefer='shallowest'] - 'shallowest' to keep ancestors or 'deepest' to keep descendants
+ * @returns {Element[]} Collapsed array of elements
+ */
 export function collapseElementsByNesting(elements, options = {}) {
   const { onlyVisible = false, prefer = "shallowest" } = options;
   const list = Array.from(elements || []).filter((el) => {
@@ -3888,7 +3904,13 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
 // Public API
 // ====================================================================
 
-export function isDefaultToggleableExcludedElement(el) {
+/**
+ * Checks if an element is a default toggleable excluded element (e.g., header, footer, nav).
+ * @private
+ * @param {Element} el - The element to check
+ * @returns {boolean} True if the element matches a toggleable default exclusion
+ */
+function isDefaultToggleableExcludedElement(el) {
   return matchesToggleableDefaultExcluded(el);
 }
 

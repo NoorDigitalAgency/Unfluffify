@@ -22,7 +22,11 @@ export const DEVICE_EMULATION_PRESETS = {
   }
 };
 
-export const DEFAULT_EXCLUDED_TAG_SELECTORS = [
+/**
+ * Tags that are excluded by default and cannot be toggled by users.
+ * @private
+ */
+const DEFAULT_EXCLUDED_TAG_SELECTORS = [
   "IMG",
   "FOOTER",
   "FORM",
@@ -43,6 +47,10 @@ export const DEFAULT_EXCLUDED_TAG_SELECTORS = [
   "VIDEO"
 ];
 
+/**
+ * Tags that can be toggled between excluded and included by users.
+ * @type {string[]}
+ */
 export const DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS = [
   "FOOTER",
   "FORM",
@@ -53,6 +61,11 @@ export const DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS = [
   "ASIDE"
 ];
 
+/**
+ * Tags that are immutably excluded (cannot be toggled).
+ * Computed as the difference between all default excluded tags and toggleable selectors.
+ * @type {string[]}
+ */
 export const DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS = DEFAULT_EXCLUDED_TAG_SELECTORS.filter(
   (selector) => !DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS.includes(selector)
 );

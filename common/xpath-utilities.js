@@ -3,8 +3,11 @@
 /**
  * Browser friendly HTML parser.
  * In Node, use refineXPathEntriesFromDocuments with prebuilt documents.
+ * @private
+ * @param {string} html - HTML string to parse
+ * @returns {Document} Parsed HTML document
  */
-export function parseHTML(html) {
+function parseHTML(html) {
   if (typeof DOMParser === "undefined") {
     throw new Error(
       "DOMParser is not available in this environment. " +
@@ -18,8 +21,12 @@ export function parseHTML(html) {
 /**
  * Resolve the first node for an XPath.
  * If the XPath points to a text node, return its parent element.
+ * @private
+ * @param {Document} doc - The document to query
+ * @param {string} xpath - The XPath expression
+ * @returns {Element|null} The first matching element or null
  */
-export function evaluateXPathFirst(doc, xpath) {
+function evaluateXPathFirst(doc, xpath) {
   try {
     const result = doc.evaluate(
       xpath,
@@ -268,8 +275,11 @@ function getElementIndexAmongSameTag(el) {
 /**
  * Build a plain absolute indexed XPath.
  * Example: /html[1]/body[1]/main[1]/a[1]
+ * @private
+ * @param {Element} el - The element to build the XPath for
+ * @returns {string} The absolute indexed XPath
  */
-export function buildAbsoluteIndexedXPath(el) {
+function buildAbsoluteIndexedXPath(el) {
   const parts = [];
   let cur = el;
 
@@ -300,8 +310,9 @@ export function buildAbsoluteIndexedXPath(el) {
  *   - keepOriginalOnNoMatch: boolean, default true
  *   - skipExcluded: boolean, default false
  *   - includeMeta: boolean, default false
+ * @private
  */
-export function refineXPathEntriesFromDocuments(
+function refineXPathEntriesFromDocuments(
   oldDoc,
   newDoc,
   items,

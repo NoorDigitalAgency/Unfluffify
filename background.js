@@ -1,3 +1,30 @@
+/**
+ * @fileoverview Background service worker for the Unfluffify extension.
+ * 
+ * This service worker manages:
+ * - Tab state persistence and retrieval
+ * - Device emulation configuration and updates
+ * - Content script injection
+ * - IndexedDB operations for data storage
+ * - Tab lifecycle events and cleanup
+ * - Extension action icon updates
+ * - Silent highlight synchronization across pages
+ * 
+ * Messages handled:
+ * - getTabState: Retrieve extension state for a tab
+ * - setTabState: Save extension state for a tab
+ * - setSilentHighlightOptions: Update silent highlight options
+ * - setDeviceEmulation: Enable/disable device emulation for a tab
+ * - updateDeviceEmulation: Modify device emulation parameters
+ * - getDeviceEmulationState: Get current device emulation state
+ * - clearTabState: Clear all state for a tab
+ * - unregisterTabAndReload: Disable extension and reload tab
+ * - injectContentScript: Inject content script into a tab
+ * - isScriptInjected: Check if content script is loaded
+ * - idbGet/idbSet/idbRemove: IndexedDB operations
+ * - fetchStaticPageHtml: Fetch HTML from external URLs
+ */
+
 import * as utils from "./common/utilities.js";
 import {
   clearDeviceEmulationAfterNavigation,

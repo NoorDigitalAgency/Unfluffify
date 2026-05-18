@@ -6,10 +6,14 @@ import {
   normalizeCanonicalBaseUrl
 } from "./utilities.js";
 
+/** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
 const SERVER_SYNC_VERSION = 1;
+/** Render mode for static HTML content */
 export const RENDER_MODE_STATIC = "static";
+/** Render mode for rendered/JavaScript content */
 export const RENDER_MODE_RENDERED = "rendered";
+/** Default render mode is static */
 export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
 const SELECTOR_SET_TIMESTAMP_FIELDS = {
   latestComputedSelectors: "latestComputedSelectorsUpdatedAt",
@@ -17,6 +21,11 @@ const SELECTOR_SET_TIMESTAMP_FIELDS = {
   domainAiSelectorSet: "domainAiSelectorSetUpdatedAt"
 };
 
+/**
+ * Normalizes a render mode value to either 'static' or 'rendered'.
+ * @param {string} value - The render mode value to normalize
+ * @returns {string} Either RENDER_MODE_STATIC or RENDER_MODE_RENDERED
+ */
 export function normalizeRenderMode(value) {
   if (typeof value !== "string") {
     return DEFAULT_RENDER_MODE;
@@ -27,6 +36,11 @@ export function normalizeRenderMode(value) {
     : DEFAULT_RENDER_MODE;
 }
 
+/**
+ * Gets the render mode from a source config object.
+ * @param {Object} sourceConfig - The configuration object
+ * @returns {string} The render mode from the config or DEFAULT_RENDER_MODE
+ */
 export function getConfigRenderMode(sourceConfig) {
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return DEFAULT_RENDER_MODE;
@@ -81,10 +95,20 @@ function toUtcTimestampString(value) {
   return `${date.toISOString().slice(0, 19)}Z`;
 }
 
+/**
+ * Creates a timestamp string for the current time in UTC format (YYYY-MM-DDTHH:mm:ssZ).
+ * @returns {string} Current timestamp in UTC format
+ */
 export function createTimestampNow() {
   return toUtcTimestampString(new Date());
 }
 
+/**
+ * Normalizes an entry timestamp to a standard UTC format.
+ * If the timestamp is invalid, returns the fallback timestamp.
+ * @param {string|Date|number} value - The timestamp value to normalize
+ * @returns {string} Normalized timestamp in UTC format (YYYY-MM-DDTHH:mm:ssZ)
+ */
 export function normalizeEntryTimestamp(value) {
   const parsed = parseTimestampMillis(value);
   if (!Number.isFinite(parsed)) {
@@ -93,6 +117,12 @@ export function normalizeEntryTimestamp(value) {
   return toUtcTimestampString(parsed);
 }
 
+/**
+ * Checks if an incoming timestamp is newer than a local timestamp.
+ * @param {string|Date|number} incomingTimestamp - The incoming timestamp
+ * @param {string|Date|number} localTimestamp - The local timestamp to compare
+ * @returns {boolean} True if incomingTimestamp is newer than localTimestamp
+ */
 export function isIncomingTimestampNewer(incomingTimestamp, localTimestamp) {
   return toTimestampMillis(incomingTimestamp) > toTimestampMillis(localTimestamp);
 }

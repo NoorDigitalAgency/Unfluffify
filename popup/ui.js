@@ -1272,7 +1272,12 @@ export function setViewState(patch) {
   renderApp();
 }
 
-export function updateViewState(updater) {
+/**
+ * Updates the view state using an updater function and re-renders the app.
+ * @private
+ * @param {Function} updater - Function that receives current state and returns updated state
+ */
+function updateViewState(updater) {
   viewState = updater(viewState);
   renderApp();
 }

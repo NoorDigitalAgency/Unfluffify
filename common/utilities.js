@@ -1,13 +1,26 @@
 import {SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./constants.js";
 
-// Scripting utilities
+/**
+ * Checks if the content script has been injected into a specific tab.
+ * @async
+ * @param {number} tabId - The Chrome tab ID to check
+ * @returns {Promise<boolean>} True if the script is injected, false otherwise
+ */
 export async function isScriptInjected(tabId) {
   const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
   const result = await storageGet(chrome.storage.session, key);
   return Boolean(result[key]);
 }
 
-export async function setScriptInjected(tabId, injected) {
+/**
+ * Marks a tab as having the content script injected (internal use only).
+ * @async
+ * @private
+ * @param {number} tabId - The Chrome tab ID
+ * @param {boolean} injected - Whether the script is injected
+ * @returns {Promise<void>}
+ */
+async function setScriptInjected(tabId, injected) {
   const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
   if (injected) {
     await storageSet(chrome.storage.session, { [key]: true });
@@ -16,6 +29,12 @@ export async function setScriptInjected(tabId, injected) {
   }
 }
 
+/**
+ * Injects the content script into a specific tab. Checks if it's already injected to avoid duplicates.
+ * @async
+ * @param {number} tabId - The Chrome tab ID to inject the script into
+ * @returns {Promise<{ok: boolean, alreadyInjected?: boolean, error?: string}>} Result of injection attempt
+ */
 export async function injectContentScript(tabId) {
   const alreadyInjected = await isScriptInjected(tabId);
   if (alreadyInjected) {

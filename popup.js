@@ -1,3 +1,23 @@
+/**
+ * @fileoverview Main popup interface for the Unfluffify extension.
+ * 
+ * This is the entry point for the popup UI. It handles:
+ * - Rendering the popup interface with Preact
+ * - Managing tab state (enabled/disabled status, base URLs, etc.)
+ * - Sending and receiving messages from the content script
+ * - Managing AI selector configuration and computation
+ * - Handling device emulation/simulation settings
+ * - Syncing page markings and exclusions
+ * - Caching and persistence of user preferences
+ * - API interactions for remote configuration
+ * 
+ * The UI is built using Preact and manages view states for:
+ * - Marking: Main content exclusion/inclusion interface
+ * - Configuration: AI selector and rendering mode settings
+ * - Consent: Cookie/consent banner detection settings
+ * - Silent Highlight: Visual overlay and highlighting modes
+ */
+
 import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";

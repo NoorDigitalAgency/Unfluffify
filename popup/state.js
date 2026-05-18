@@ -1,6 +1,10 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
 
-export const DEVICE_SCALE_LIMITS = {
+/**
+ * Device scale limits for the simulator.
+ * @private
+ */
+const DEVICE_SCALE_LIMITS = {
   min: 0.25,
   max: 1,
   step: 0.01
