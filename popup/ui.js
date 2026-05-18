@@ -171,41 +171,48 @@ function getBlockingUiCurtainState(view) {
   if (view.previewBlocked) {
     return {
       visible: true,
+      mode: "preview",
       message: view.previewBlockedMessage || "Preview is in progress..."
     };
   }
   if (view.isBusy) {
     return {
       visible: true,
+      mode: "busy",
       message: view.busyMessage || "Loading popup..."
     };
   }
   if (view.computeButtonLoading) {
     return {
       visible: true,
+      mode: "busy",
       message: "Computing selectors..."
     };
   }
   if (view.saveExcludesButtonLoading) {
     return {
       visible: true,
+      mode: "busy",
       message: "Submitting selectors..."
     };
   }
   if (view.aiControlsBusy) {
     return {
       visible: true,
+      mode: "busy",
       message: "Working with AI..."
     };
   }
   if (view.deviceControlsDisabled) {
     return {
       visible: true,
+      mode: "busy",
       message: "Applying device emulation..."
     };
   }
   return {
     visible: false,
+    mode: "busy",
     message: ""
   };
 }
@@ -257,6 +264,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
 
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
+  const previewCurtainVisible = curtain.mode === "preview";
 
   return h(
     Fragment,
@@ -368,16 +376,38 @@ function App({ state: view, actions: handlers }) {
       },
       h(
         "div",
-        { class: "ui-curtain__content" },
-        h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
+        {
+          class: classNames(
+            "ui-curtain__content",
+            previewCurtainVisible && "ui-curtain__content--preview"
+          )
+        },
+        previewCurtainVisible
+          ? h(
+              "div",
+              { class: "ui-curtain__preview-badge", "aria-hidden": "true" },
+              h("span", { class: "mdi mdi-eye-outline" })
+            )
+          : h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
         h("div", { class: "ui-curtain__title" }, curtain.message || "Please wait..."),
         h(
           "div",
           { class: "ui-curtain__hint" },
           view.previewBlocked
-            ? "Close the preview to continue."
+            ? "The page is in preview mode. Exit preview to resume editing and settings changes."
             : "Working... controls are temporarily blocked."
-        )
+        ),
+        previewCurtainVisible
+          ? h(
+              "button",
+              {
+                type: "button",
+                class: "ui-curtain__action",
+                onClick: handlers.onExitPreviewMode
+              },
+              "Exit Preview"
+            )
+          : null
       )
     )
   );

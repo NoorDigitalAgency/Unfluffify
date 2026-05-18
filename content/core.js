@@ -25,6 +25,8 @@ export const state = {
   focusElement: null,
   aiPopover: null,
   aiPopoverCollapsed: false,
+  aiPopoverOnClose: null,
+  aiPopoverOnCollapsedChange: null,
   toast: null,
   toastHideTimer: 0,
   altPassThrough: false,
@@ -2409,73 +2411,98 @@ function ensureAiPopoverStyle() {
       .uf-ai-popover {
         position: fixed;
         inset: 0;
-        background: transparent;
         z-index: 2147483647;
-        overflow: hidden;
+        pointer-events: none;
       }
       .uf-ai-popover-backdrop {
         position: absolute;
         inset: 0;
-        background: rgba(26, 22, 18, 0.45);
+        background: rgba(26, 22, 18, 0.42);
         opacity: 1;
-        transition: opacity 0.25s ease;
+        transition: opacity 0.26s ease;
+        pointer-events: auto;
       }
       .uf-ai-popover-stage {
         position: absolute;
         inset: 0;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
-        padding: 28px;
+        padding: 20px;
         overflow: auto;
-        transition: transform 0.32s ease, opacity 0.25s ease;
+        opacity: 1;
+        transform: translateX(0);
+        transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
+        pointer-events: auto;
       }
       .uf-ai-popover-modal {
-        background: #ffffff;
+        margin-top: max(24px, 5vh);
+        background: linear-gradient(180deg, #fffaf2 0%, #fffdf8 100%);
         color: #2f2a24;
         width: min(720px, 100%);
-        max-height: min(80vh, 720px);
+        max-height: min(82vh, 720px);
+        border: 1px solid #eadccc;
         border-radius: 18px;
-        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
         display: flex;
         flex-direction: column;
         overflow: hidden;
       }
       .uf-ai-popover-toggle {
-        position: fixed;
-        left: 0;
-        top: 50%;
-        width: 30px;
-        height: 48px;
+        appearance: none;
+        -webkit-appearance: none;
+        width: 36px;
+        height: 36px;
         padding: 0;
         margin: 0;
-        border: 1px solid #8a6f52;
-        border-left: 0;
-        border-radius: 0 12px 12px 0;
-        background: #f8e9d5;
+        border: 1px solid #dcc9ae;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #fff8ef 0%, #f6ead9 100%);
         color: #6c4c2b;
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        font-size: 18px;
-        font-weight: 700;
-        font-family: Arial, sans-serif;
         line-height: 1;
-        z-index: 2147483647;
-        transform: translateY(-50%);
-        pointer-events: auto;
+        box-shadow: none;
+        transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
       }
-      .uf-ai-popover-toggle:focus-visible {
+      .uf-ai-popover-toggle:hover,
+      .uf-ai-popover-close:hover {
+        background: linear-gradient(180deg, #fffdf8 0%, #f7efe3 100%);
+      }
+      .uf-ai-popover-toggle:focus-visible,
+      .uf-ai-popover-close:focus-visible {
         outline: 2px solid #6c4c2b;
         outline-offset: 2px;
       }
+      .uf-ai-popover-toggle:active,
+      .uf-ai-popover-close:active {
+        transform: translateY(1px);
+      }
+      .uf-ai-popover-icon {
+        width: 18px;
+        height: 18px;
+        display: block;
+      }
       .uf-ai-popover-toggle--restore {
-        display: none;
+        position: fixed;
+        left: -16px;
+        top: 50%;
+        width: 40px;
+        height: 40px;
+        opacity: 0;
+        transform: translateY(-50%) translateX(-18px);
+        transition: opacity 0.22s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.2s ease, left 0.2s ease;
+        pointer-events: none;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+      }
+      .uf-ai-popover-toggle--restore:hover {
+        left: 0;
       }
       .uf-ai-popover--collapsed {
-        background: transparent;
         pointer-events: none;
       }
       .uf-ai-popover--collapsed .uf-ai-popover-backdrop {
@@ -2484,21 +2511,20 @@ function ensureAiPopoverStyle() {
       }
       .uf-ai-popover--collapsed .uf-ai-popover-stage {
         opacity: 0;
-        transform: translateX(-110vw);
+        transform: translateX(calc(-100% - 48px));
         pointer-events: none;
       }
-      .uf-ai-popover--collapsed .uf-ai-popover-toggle--collapse {
-        display: none;
-      }
       .uf-ai-popover--collapsed .uf-ai-popover-toggle--restore {
-        display: inline-flex;
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+        pointer-events: auto;
       }
       .uf-ai-popover-header {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
         align-items: center;
-        justify-content: space-between;
         gap: 12px;
-        padding: 16px 20px 12px;
+        padding: 16px 18px 12px;
         border-bottom: 1px solid #eadccc;
       }
       .uf-ai-popover-title {
@@ -2507,21 +2533,22 @@ function ensureAiPopoverStyle() {
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #6c4c2b;
+        text-align: center;
       }
       .uf-ai-popover-close {
         appearance: none;
         -webkit-appearance: none;
-        border: 1px solid #8a6f52;
-        background: #f8e9d5;
+        border: 1px solid #dcc9ae;
+        background: linear-gradient(180deg, #fff8ef 0%, #f6ead9 100%);
         color: #6c4c2b;
         border-radius: 999px;
-        width: 32px;
-        height: 32px;
-        min-width: 32px;
-        min-height: 32px;
+        width: 34px;
+        height: 34px;
+        min-width: 34px;
+        min-height: 34px;
         padding: 0;
         margin: 0;
-        flex: 0 0 32px;
+        flex: 0 0 34px;
         cursor: pointer;
         font-size: 16px;
         font-weight: 700;
@@ -2534,13 +2561,11 @@ function ensureAiPopoverStyle() {
         text-indent: 0;
         box-shadow: none;
         overflow: hidden;
-      }
-      .uf-ai-popover-close:focus-visible {
-        outline: 2px solid #6c4c2b;
-        outline-offset: 2px;
+        transition: transform 0.2s ease, background 0.2s ease;
+        visibility: hidden;
       }
       .uf-ai-popover-body {
-        padding: 14px 22px 20px;
+        padding: 14px 22px 22px;
         overflow: auto;
         min-height: 0;
       }
@@ -2563,17 +2588,75 @@ function ensureAiPopoverStyle() {
   document.documentElement.appendChild(style);
 }
 
+function createAiPopoverPanelIcon(direction) {
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", "0 0 18 18");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("class", "uf-ai-popover-icon");
+
+  const frame = document.createElementNS(svgNs, "rect");
+  frame.setAttribute("x", "1.5");
+  frame.setAttribute("y", "2.5");
+  frame.setAttribute("width", "15");
+  frame.setAttribute("height", "13");
+  frame.setAttribute("rx", "2.5");
+  frame.setAttribute("fill", "none");
+  frame.setAttribute("stroke", "currentColor");
+  frame.setAttribute("stroke-width", "1.4");
+
+  const divider = document.createElementNS(svgNs, "line");
+  divider.setAttribute("x1", "5.2");
+  divider.setAttribute("y1", "3.6");
+  divider.setAttribute("x2", "5.2");
+  divider.setAttribute("y2", "14.4");
+  divider.setAttribute("stroke", "currentColor");
+  divider.setAttribute("stroke-width", "1.4");
+  divider.setAttribute("stroke-linecap", "round");
+
+  const arrow = document.createElementNS(svgNs, "path");
+  const pathValue = direction === "right"
+    ? "M7.2 9h5.2M10.7 6.2l2.6 2.8-2.6 2.8"
+    : "M12.4 9H7.2M8.9 6.2 6.3 9l2.6 2.8";
+  arrow.setAttribute("d", pathValue);
+  arrow.setAttribute("fill", "none");
+  arrow.setAttribute("stroke", "currentColor");
+  arrow.setAttribute("stroke-width", "1.6");
+  arrow.setAttribute("stroke-linecap", "round");
+  arrow.setAttribute("stroke-linejoin", "round");
+
+  svg.appendChild(frame);
+  svg.appendChild(divider);
+  svg.appendChild(arrow);
+  return svg;
+}
+
 function closeAiPopover(options = {}) {
   const notify = options.notify !== false;
+  const suppressCallback = options.suppressCallback === true;
   if (!state.aiPopover) {
     return;
   }
-  state.aiPopover.remove();
+  const popover = state.aiPopover;
+  const onClose = state.aiPopoverOnClose;
+  state.aiPopoverOnClose = null;
+  state.aiPopoverOnCollapsedChange = null;
+  popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
+  const afterClose = !suppressCallback && typeof onClose === "function"
+    ? Promise.resolve()
+        .then(() => onClose())
+        .catch(() => {
+          // Ignore preview restore callback failures during teardown.
+        })
+    : Promise.resolve();
   if (notify) {
-    chrome.runtime.sendMessage({ type: "aiPreviewClosed" }).then().catch(() => {
-      // Ignore notification failures during teardown.
+    afterClose.finally(() => {
+      chrome.runtime.sendMessage({ type: "aiPreviewClosed" }).then().catch(() => {
+        // Ignore notification failures during teardown.
+      });
     });
   }
 }
@@ -2584,6 +2667,21 @@ function setAiPopoverCollapsed(collapsed) {
   }
   state.aiPopoverCollapsed = Boolean(collapsed);
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
+  if (typeof state.aiPopoverOnCollapsedChange === "function") {
+    try {
+      state.aiPopoverOnCollapsedChange(state.aiPopoverCollapsed);
+    } catch {
+      // Ignore preview collapse state sync failures.
+    }
+  }
+}
+
+export function hasAiPopover() {
+  return Boolean(state.aiPopover);
+}
+
+export function requestAiPopoverClose(options = {}) {
+  closeAiPopover(options);
 }
 
 function recordPageSnapshot(configValue, pageUrl) {
@@ -4712,9 +4810,9 @@ export async function saveConfig(baseUrl, configValue) {
   await utils.idbSet({ configs });
 }
 
-export function showAiPopover(items) {
+export function showAiPopover(items, options = {}) {
   ensureAiPopoverStyle();
-  closeAiPopover({ notify: false });
+  closeAiPopover({ notify: false, suppressCallback: true });
   const popover = document.createElement("div");
   popover.className = "uf-ai-popover";
   popover.setAttribute("data-uf-extension-ui", "true");
@@ -4728,29 +4826,30 @@ export function showAiPopover(items) {
   modal.className = "uf-ai-popover-modal";
   const header = document.createElement("div");
   header.className = "uf-ai-popover-header";
-  const title = document.createElement("div");
-  title.className = "uf-ai-popover-title";
-  title.textContent = "Computed Content";
   const collapse = document.createElement("button");
   collapse.className = "uf-ai-popover-toggle uf-ai-popover-toggle--collapse";
   collapse.type = "button";
-  collapse.textContent = "\u2190";
-  collapse.setAttribute("aria-label", "Minimize preview");
+  collapse.setAttribute("aria-label", "Hide preview");
+  collapse.appendChild(createAiPopoverPanelIcon("left"));
   collapse.addEventListener("click", () => setAiPopoverCollapsed(true));
-  const restore = document.createElement("button");
-  restore.className = "uf-ai-popover-toggle uf-ai-popover-toggle--restore";
-  restore.type = "button";
-  restore.textContent = "\u2192";
-  restore.setAttribute("aria-label", "Restore preview");
-  restore.addEventListener("click", () => setAiPopoverCollapsed(false));
+  const title = document.createElement("div");
+  title.className = "uf-ai-popover-title";
+  title.textContent = "Computed Content";
   const close = document.createElement("button");
   close.className = "uf-ai-popover-close";
   close.type = "button";
   close.textContent = "\u00D7";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", () => closeAiPopover());
+  header.appendChild(collapse);
   header.appendChild(title);
   header.appendChild(close);
+  const restore = document.createElement("button");
+  restore.className = "uf-ai-popover-toggle uf-ai-popover-toggle--restore";
+  restore.type = "button";
+  restore.setAttribute("aria-label", "Show preview");
+  restore.appendChild(createAiPopoverPanelIcon("right"));
+  restore.addEventListener("click", () => setAiPopoverCollapsed(false));
   const body = document.createElement("div");
   body.className = "uf-ai-popover-body";
   const list = document.createElement("ul");
@@ -4772,10 +4871,12 @@ export function showAiPopover(items) {
   stage.appendChild(modal);
   popover.appendChild(backdrop);
   popover.appendChild(stage);
-  popover.appendChild(collapse);
   popover.appendChild(restore);
   document.documentElement.appendChild(popover);
   state.aiPopover = popover;
+  state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
+  state.aiPopoverOnCollapsedChange =
+    typeof options.onCollapsedChange === "function" ? options.onCollapsedChange : null;
   state.aiPopoverCollapsed = false;
   setAiPopoverCollapsed(false);
 }

@@ -77,6 +77,20 @@ let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
 const silentSelectorOriginalTitles = new WeakMap();
 
+function createAiPreviewState() {
+  return {
+    active: false,
+    collapsed: false,
+    previousEnabled: false,
+    previousBaseUrl: "",
+    previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
+      SILENT_HIGHLIGHT_OPTIONS_DEFAULTS
+    )
+  };
+}
+
+let aiPreviewState = createAiPreviewState();
+
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
   SILENT_CONTENT_HIGHLIGHTING_ATTR,
@@ -1055,6 +1069,81 @@ function applyVisibleConsentVisibility(visibility) {
   }
 }
 
+function resetAiPreviewState() {
+  aiPreviewState = createAiPreviewState();
+}
+
+function clearAiPreviewState() {
+  if (!aiPreviewState.active) {
+    return false;
+  }
+  silentHighlightVisibility = normalizeSilentHighlightOptions(
+    aiPreviewState.previousSilentHighlightVisibility
+  );
+  applyVisibleConsentVisibility(silentHighlightVisibility);
+  resetAiPreviewState();
+  return true;
+}
+
+function getAiPreviewSilentHighlightVisibility(sourceVisibility) {
+  const baseVisibility = normalizeSilentHighlightOptions(sourceVisibility);
+  return normalizeSilentHighlightOptions({
+    ...baseVisibility,
+    includedContent: true,
+    excludedContent: true
+  });
+}
+
+async function enterAiPreviewMode() {
+  if (!aiPreviewState.active) {
+    aiPreviewState = {
+      active: true,
+      collapsed: false,
+      previousEnabled: Boolean(state.enabled),
+      previousBaseUrl: state.baseUrl || "",
+      previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
+        silentHighlightVisibility
+      )
+    };
+  } else {
+    aiPreviewState.collapsed = false;
+  }
+
+  if (aiPreviewState.previousEnabled && state.enabled) {
+    core.disable();
+  }
+
+  silentHighlightVisibility = getAiPreviewSilentHighlightVisibility(
+    aiPreviewState.previousSilentHighlightVisibility
+  );
+  applyVisibleConsentVisibility(silentHighlightVisibility);
+  await refreshSilentHighlightings();
+}
+
+async function exitAiPreviewMode() {
+  if (!aiPreviewState.active) {
+    return;
+  }
+
+  const restoreState = aiPreviewState;
+  resetAiPreviewState();
+  silentHighlightVisibility = normalizeSilentHighlightOptions(
+    restoreState.previousSilentHighlightVisibility
+  );
+  applyVisibleConsentVisibility(silentHighlightVisibility);
+
+  if (restoreState.previousEnabled && restoreState.previousBaseUrl) {
+    stopSilentHighlightingObserver();
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
+    await core.enableForBaseUrl(restoreState.previousBaseUrl);
+    refreshEnabledAiHighlights();
+    return;
+  }
+
+  await refreshSilentHighlightings();
+}
+
 async function syncSilentHighlightVisibilityFromTabState() {
   try {
     const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
@@ -1062,6 +1151,7 @@ async function syncSilentHighlightVisibilityFromTabState() {
       tabState && tabState.silentHighlightOptions
     );
   } catch {
+      clearAiPreviewState();
     silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
   }
   applyVisibleConsentVisibility(silentHighlightVisibility);
@@ -2571,6 +2661,7 @@ export function main() {
         sendResponse({ ok: true });
         return;
       }
+      clearAiPreviewState();
       core.disable();
       refreshSilentHighlightings().then(() => {
         sendResponse({ ok: true });
@@ -2583,6 +2674,33 @@ export function main() {
       applyVisibleConsentVisibility(silentHighlightVisibility);
       refreshSilentHighlightings().then(() => {
         sendResponse({ ok: true });
+      });
+      return true;
+    }
+
+    if (message.type === "getAiPreviewState") {
+      sendResponse({
+        ok: true,
+        active: aiPreviewState.active,
+        collapsed: aiPreviewState.collapsed
+      });
+      return;
+    }
+
+    if (message.type === "closeAiPreview") {
+      if (!aiPreviewState.active) {
+        sendResponse({ ok: true, active: false });
+        return;
+      }
+      if (core.hasAiPopover()) {
+        core.requestAiPopoverClose();
+        sendResponse({ ok: true, active: false });
+        return;
+      }
+      exitAiPreviewMode().then(() => {
+        sendResponse({ ok: true, active: false });
+      }).catch(() => {
+        sendResponse({ ok: false });
       });
       return true;
     }
@@ -2621,6 +2739,7 @@ export function main() {
           }
         });
       } else {
+        clearAiPreviewState();
         core.disable();
         refreshSilentHighlightings().then();
       }
@@ -2990,15 +3109,26 @@ export function main() {
     }
 
     if (message.type === "showAiPreview") {
-      const selectorSet = normalizeAiSelectorSet(message.selectorSet);
-      let items = [];
-      try {
-        items = core.collectPreviewItems(selectorSet);
-      } catch {
-        items = [];
-      }
-      core.showAiPopover(items);
-      sendResponse({ ok: true, count: items.length });
+      (async () => {
+        const selectorSet = normalizeAiSelectorSet(message.selectorSet);
+        let items = [];
+        try {
+          items = core.collectPreviewItems(selectorSet);
+        } catch {
+          items = [];
+        }
+        await enterAiPreviewMode();
+        core.showAiPopover(items, {
+          onClose: () => exitAiPreviewMode(),
+          onCollapsedChange: (collapsed) => {
+            aiPreviewState.collapsed = Boolean(collapsed);
+          }
+        });
+        sendResponse({ ok: true, count: items.length });
+      })().catch(() => {
+        sendResponse({ ok: false });
+      });
+      return true;
     }
   });
 

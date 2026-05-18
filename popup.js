@@ -1078,34 +1078,6 @@ function setPreviewBlocked(active, message = "Preview is in progress...") {
   uiModule.setPreviewBlocked(active, message);
 }
 
-async function restorePreviewMode() {
-  const shouldRestoreEnabled = Boolean(state.previewRestoreEnabled);
-  const restoreTabId = state.previewTabId || (state.currentTab && state.currentTab.id) || null;
-  const restoreBaseUrl = state.previewBaseUrl || state.currentBaseUrl || "";
-  state.previewRestoreEnabled = null;
-  state.previewTabId = null;
-  state.previewBaseUrl = "";
-  state.lastPopupEnabled = null;
-  if (!restoreTabId) {
-    return;
-  }
-  if (shouldRestoreEnabled) {
-    if (restoreBaseUrl) {
-      await utils.setTabState(restoreTabId, {
-        enabled: true,
-        baseUrl: restoreBaseUrl,
-        silentHighlightOptions: getSilentHighlightVisibility()
-      });
-      await messages.sendTabMessageToTab(restoreTabId, {
-        type: "setEnabled",
-        enabled: true,
-        baseUrl: restoreBaseUrl
-      });
-      await messages.sendTabMessageToTab(restoreTabId, { type: "forceRefresh" });
-    }
-  }
-}
-
 function scheduleRemoteConfigRetry() {
   if (state.remoteConfigConnectionRetryTimer) {
     return;
@@ -1767,6 +1739,11 @@ async function refreshUiInner() {
     (initialTabState && initialTabState.active) ||
       utils.getOriginFromUrl(pageUrl)
   );
+  const previewState = tabInScope
+    ? await messages.sendTabMessage({ type: "getAiPreviewState" })
+    : null;
+  const previewActive = Boolean(previewState && previewState.active);
+  const previewCollapsed = Boolean(previewState && previewState.collapsed);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let discoveredBaseUrlFromGraphql = "";
@@ -2032,7 +2009,13 @@ async function refreshUiInner() {
     currentPageUrl: pageUrl || "Unavailable",
     currentPageUrlTitle: pageUrl || "Unavailable",
     currentBaseUrl: state.currentBaseUrl,
-    configMenuOpen: state.configMenuOpen
+    configMenuOpen: state.configMenuOpen,
+    previewBlocked: previewActive,
+    previewBlockedMessage: previewActive
+      ? previewCollapsed
+        ? "Preview mode is active. The page popover is hidden."
+        : "Preview mode is active on this page."
+      : "Preview is in progress..."
   };
   const baseUrlReady = Boolean(state.currentBaseUrl);
   const baseField = {
@@ -2639,7 +2622,7 @@ async function refreshUiInner() {
   nextViewState.basePageUrlsEmptyText = "No base URLs with domainId";
 
   uiModule.setViewState(nextViewState);
-  if (tabInScope && resolvedView === uiModule.View.Marking) {
+  if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
     await applySilentHighlightVisibility();
   }
 }
@@ -4050,29 +4033,12 @@ async function handlePreviewLatest() {
   if (view.previewBlocked) {
     return;
   }
-  state.previewRestoreEnabled = Boolean(view.toggleEnabled);
-  state.previewTabId = state.currentTab.id;
-  state.previewBaseUrl = state.currentBaseUrl || "";
-  state.lastPopupEnabled = false;
-  setPreviewBlocked(true, "Preview is in progress...");
+  state.previewRestoreEnabled = null;
+  state.previewTabId = null;
+  state.previewBaseUrl = "";
+  state.lastPopupEnabled = null;
+  setPreviewBlocked(true, "Preview mode is active on this page.");
   try {
-    if (state.previewRestoreEnabled) {
-      if (!state.currentTab || !state.currentTab.id) {
-        throw new Error("Missing active tab");
-      }
-      await utils.setTabState(state.currentTab.id, {
-        enabled: false,
-        baseUrl: state.previewBaseUrl || state.currentBaseUrl || "",
-        silentHighlightOptions: getSilentHighlightVisibility()
-      });
-      const disableResponse = await messages.sendTabMessageWithRetry({
-        type: "setEnabled",
-        enabled: false
-      });
-      if (!disableResponse || !disableResponse.ok) {
-        throw new Error("Unable to switch preview mode");
-      }
-    }
     const response = await messages.sendTabMessage({
       type: "showAiPreview",
       selectorSet
@@ -4082,10 +4048,19 @@ async function handlePreviewLatest() {
     }
     await refreshUi();
   } catch (error) {
-    await restorePreviewMode();
     setPreviewBlocked(false);
     uiModule.showToast((error && error.message) || "Unable to open preview");
     await refreshUi();
+  }
+}
+
+async function handleExitPreviewMode() {
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  const response = await messages.sendTabMessage({ type: "closeAiPreview" });
+  if (!response || !response.ok) {
+    uiModule.showToast("Unable to exit preview");
   }
 }
 
@@ -4149,6 +4124,7 @@ async function init() {
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
+    onExitPreviewMode: handleExitPreviewMode,
     onExplicitExcludeView: handleExplicitExcludeView,
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
@@ -4245,7 +4221,6 @@ async function init() {
       (async () => {
         try {
           setPreviewBlocked(false);
-          await restorePreviewMode();
           await refreshUi();
         } catch {
           setPreviewBlocked(false);
