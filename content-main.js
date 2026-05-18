@@ -2566,14 +2566,16 @@ export function main() {
         setSilentHighlightingsActive(false);
         core.enableForBaseUrl(message.baseUrl)
           .then(() => {
-            refreshEnabledAiHighlights();
-          });
-      } else {
-        core.disable();
-        refreshSilentHighlightings().then();
+          refreshEnabledAiHighlights();
+        });
+        sendResponse({ ok: true });
+        return;
       }
-      sendResponse({ ok: true });
-      return;
+      core.disable();
+      refreshSilentHighlightings().then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
     }
 
     if (message.type === "setSilentHighlightVisibility") {
@@ -2619,6 +2621,7 @@ export function main() {
           }
         });
       } else {
+        core.disable();
         refreshSilentHighlightings().then();
       }
       sendResponse({ ok: true });

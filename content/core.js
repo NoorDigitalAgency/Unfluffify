@@ -24,6 +24,7 @@ export const state = {
   focusBox: null,
   focusElement: null,
   aiPopover: null,
+  aiPopoverCollapsed: false,
   toast: null,
   toastHideTimer: 0,
   altPassThrough: false,
@@ -2408,13 +2409,26 @@ function ensureAiPopoverStyle() {
       .uf-ai-popover {
         position: fixed;
         inset: 0;
-        background: rgba(26, 22, 18, 0.45);
+        background: transparent;
         z-index: 2147483647;
+        overflow: hidden;
+      }
+      .uf-ai-popover-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(26, 22, 18, 0.45);
+        opacity: 1;
+        transition: opacity 0.25s ease;
+      }
+      .uf-ai-popover-stage {
+        position: absolute;
+        inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 28px;
         overflow: auto;
+        transition: transform 0.32s ease, opacity 0.25s ease;
       }
       .uf-ai-popover-modal {
         background: #ffffff;
@@ -2426,6 +2440,58 @@ function ensureAiPopoverStyle() {
         display: flex;
         flex-direction: column;
         overflow: hidden;
+      }
+      .uf-ai-popover-toggle {
+        position: fixed;
+        left: 0;
+        top: 50%;
+        width: 30px;
+        height: 48px;
+        padding: 0;
+        margin: 0;
+        border: 1px solid #8a6f52;
+        border-left: 0;
+        border-radius: 0 12px 12px 0;
+        background: #f8e9d5;
+        color: #6c4c2b;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: Arial, sans-serif;
+        line-height: 1;
+        z-index: 2147483647;
+        transform: translateY(-50%);
+        pointer-events: auto;
+      }
+      .uf-ai-popover-toggle:focus-visible {
+        outline: 2px solid #6c4c2b;
+        outline-offset: 2px;
+      }
+      .uf-ai-popover-toggle--restore {
+        display: none;
+      }
+      .uf-ai-popover--collapsed {
+        background: transparent;
+        pointer-events: none;
+      }
+      .uf-ai-popover--collapsed .uf-ai-popover-backdrop {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .uf-ai-popover--collapsed .uf-ai-popover-stage {
+        opacity: 0;
+        transform: translateX(-110vw);
+        pointer-events: none;
+      }
+      .uf-ai-popover--collapsed .uf-ai-popover-toggle--collapse {
+        display: none;
+      }
+      .uf-ai-popover--collapsed .uf-ai-popover-toggle--restore {
+        display: inline-flex;
       }
       .uf-ai-popover-header {
         display: flex;
@@ -2497,11 +2563,27 @@ function ensureAiPopoverStyle() {
   document.documentElement.appendChild(style);
 }
 
-function closeAiPopover() {
-  if (state.aiPopover) {
-    state.aiPopover.remove();
-    state.aiPopover = null;
+function closeAiPopover(options = {}) {
+  const notify = options.notify !== false;
+  if (!state.aiPopover) {
+    return;
   }
+  state.aiPopover.remove();
+  state.aiPopover = null;
+  state.aiPopoverCollapsed = false;
+  if (notify) {
+    chrome.runtime.sendMessage({ type: "aiPreviewClosed" }).then().catch(() => {
+      // Ignore notification failures during teardown.
+    });
+  }
+}
+
+function setAiPopoverCollapsed(collapsed) {
+  if (!state.aiPopover) {
+    return;
+  }
+  state.aiPopoverCollapsed = Boolean(collapsed);
+  state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
 }
 
 function recordPageSnapshot(configValue, pageUrl) {
@@ -4632,10 +4714,16 @@ export async function saveConfig(baseUrl, configValue) {
 
 export function showAiPopover(items) {
   ensureAiPopoverStyle();
-  closeAiPopover();
+  closeAiPopover({ notify: false });
   const popover = document.createElement("div");
   popover.className = "uf-ai-popover";
   popover.setAttribute("data-uf-extension-ui", "true");
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-modal", "true");
+  const backdrop = document.createElement("div");
+  backdrop.className = "uf-ai-popover-backdrop";
+  const stage = document.createElement("div");
+  stage.className = "uf-ai-popover-stage";
   const modal = document.createElement("div");
   modal.className = "uf-ai-popover-modal";
   const header = document.createElement("div");
@@ -4643,6 +4731,18 @@ export function showAiPopover(items) {
   const title = document.createElement("div");
   title.className = "uf-ai-popover-title";
   title.textContent = "Computed Content";
+  const collapse = document.createElement("button");
+  collapse.className = "uf-ai-popover-toggle uf-ai-popover-toggle--collapse";
+  collapse.type = "button";
+  collapse.textContent = "\u2190";
+  collapse.setAttribute("aria-label", "Minimize preview");
+  collapse.addEventListener("click", () => setAiPopoverCollapsed(true));
+  const restore = document.createElement("button");
+  restore.className = "uf-ai-popover-toggle uf-ai-popover-toggle--restore";
+  restore.type = "button";
+  restore.textContent = "\u2192";
+  restore.setAttribute("aria-label", "Restore preview");
+  restore.addEventListener("click", () => setAiPopoverCollapsed(false));
   const close = document.createElement("button");
   close.className = "uf-ai-popover-close";
   close.type = "button";
@@ -4669,9 +4769,15 @@ export function showAiPopover(items) {
   body.appendChild(list);
   modal.appendChild(header);
   modal.appendChild(body);
-  popover.appendChild(modal);
+  stage.appendChild(modal);
+  popover.appendChild(backdrop);
+  popover.appendChild(stage);
+  popover.appendChild(collapse);
+  popover.appendChild(restore);
   document.documentElement.appendChild(popover);
   state.aiPopover = popover;
+  state.aiPopoverCollapsed = false;
+  setAiPopoverCollapsed(false);
 }
 
 export function getDraftPageEntry(pageUrl) {

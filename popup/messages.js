@@ -25,6 +25,22 @@ export function sendTabMessage(message) {
   });
 }
 
+export function sendTabMessageToTab(tabId, message) {
+  return new Promise((resolve) => {
+    if (!tabId) {
+      resolve(null);
+      return;
+    }
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
 export async function sendTabMessageWithRetry(message, attempts = 3) {
   for (let i = 0; i < attempts; i += 1) {
     const response = await sendTabMessage(message);

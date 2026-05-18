@@ -113,6 +113,8 @@ const initialViewState = {
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
   highlightingOptionsVisible: false,
+  previewBlocked: false,
+  previewBlockedMessage: "Preview is in progress...",
   highlightMarkedPagesChecked: true,
   highlightIncludedContentChecked: true,
   highlightExcludedContentChecked: false,
@@ -166,6 +168,12 @@ function icon(name, extraClass = "") {
 }
 
 function getBlockingUiCurtainState(view) {
+  if (view.previewBlocked) {
+    return {
+      visible: true,
+      message: view.previewBlockedMessage || "Preview is in progress..."
+    };
+  }
   if (view.isBusy) {
     return {
       visible: true,
@@ -366,7 +374,9 @@ function App({ state: view, actions: handlers }) {
         h(
           "div",
           { class: "ui-curtain__hint" },
-          "Working... controls are temporarily blocked."
+          view.previewBlocked
+            ? "Close the preview to continue."
+            : "Working... controls are temporarily blocked."
         )
       )
     )
@@ -1302,6 +1312,13 @@ export function setUiBusy(isBusy, message = "") {
   setViewState({
     isBusy: Boolean(isBusy),
     busyMessage: isBusy ? (message || "Please wait...") : ""
+  });
+}
+
+export function setPreviewBlocked(isBlocked, message = "Preview is in progress...") {
+  setViewState({
+    previewBlocked: Boolean(isBlocked),
+    previewBlockedMessage: isBlocked ? (message || "Preview is in progress...") : "Preview is in progress..."
   });
 }
 

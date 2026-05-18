@@ -1074,6 +1074,38 @@ function setRemoteConfigConnectionIssue(active) {
   }
 }
 
+function setPreviewBlocked(active, message = "Preview is in progress...") {
+  uiModule.setPreviewBlocked(active, message);
+}
+
+async function restorePreviewMode() {
+  const shouldRestoreEnabled = Boolean(state.previewRestoreEnabled);
+  const restoreTabId = state.previewTabId || (state.currentTab && state.currentTab.id) || null;
+  const restoreBaseUrl = state.previewBaseUrl || state.currentBaseUrl || "";
+  state.previewRestoreEnabled = null;
+  state.previewTabId = null;
+  state.previewBaseUrl = "";
+  state.lastPopupEnabled = null;
+  if (!restoreTabId) {
+    return;
+  }
+  if (shouldRestoreEnabled) {
+    if (restoreBaseUrl) {
+      await utils.setTabState(restoreTabId, {
+        enabled: true,
+        baseUrl: restoreBaseUrl,
+        silentHighlightOptions: getSilentHighlightVisibility()
+      });
+      await messages.sendTabMessageToTab(restoreTabId, {
+        type: "setEnabled",
+        enabled: true,
+        baseUrl: restoreBaseUrl
+      });
+      await messages.sendTabMessageToTab(restoreTabId, { type: "forceRefresh" });
+    }
+  }
+}
+
 function scheduleRemoteConfigRetry() {
   if (state.remoteConfigConnectionRetryTimer) {
     return;
@@ -4014,10 +4046,47 @@ async function handlePreviewLatest() {
     uiModule.showToast("No stored selectors available");
     return;
   }
-  await messages.sendTabMessage({
-    type: "showAiPreview",
-    selectorSet
-  });
+  const view = uiModule.getViewState();
+  if (view.previewBlocked) {
+    return;
+  }
+  state.previewRestoreEnabled = Boolean(view.toggleEnabled);
+  state.previewTabId = state.currentTab.id;
+  state.previewBaseUrl = state.currentBaseUrl || "";
+  state.lastPopupEnabled = false;
+  setPreviewBlocked(true, "Preview is in progress...");
+  try {
+    if (state.previewRestoreEnabled) {
+      if (!state.currentTab || !state.currentTab.id) {
+        throw new Error("Missing active tab");
+      }
+      await utils.setTabState(state.currentTab.id, {
+        enabled: false,
+        baseUrl: state.previewBaseUrl || state.currentBaseUrl || "",
+        silentHighlightOptions: getSilentHighlightVisibility()
+      });
+      const disableResponse = await messages.sendTabMessageWithRetry({
+        type: "setEnabled",
+        enabled: false
+      });
+      if (!disableResponse || !disableResponse.ok) {
+        throw new Error("Unable to switch preview mode");
+      }
+    }
+    const response = await messages.sendTabMessage({
+      type: "showAiPreview",
+      selectorSet
+    });
+    if (!response || !response.ok) {
+      throw new Error("Unable to open preview");
+    }
+    await refreshUi();
+  } catch (error) {
+    await restorePreviewMode();
+    setPreviewBlocked(false);
+    uiModule.showToast((error && error.message) || "Unable to open preview");
+    await refreshUi();
+  }
 }
 
 function scheduleRefresh() {
@@ -4172,6 +4241,18 @@ async function init() {
   });
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.type === "aiPreviewClosed") {
+      (async () => {
+        try {
+          setPreviewBlocked(false);
+          await restorePreviewMode();
+          await refreshUi();
+        } catch {
+          setPreviewBlocked(false);
+        }
+      })();
+      return;
+    }
     if (!message || message.type !== "pageDraftChanged") {
       if (message && message.type === "consentXpathsChanged") {
         if (state.currentBaseUrl && utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)) {
