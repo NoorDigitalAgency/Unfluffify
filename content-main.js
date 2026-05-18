@@ -2832,9 +2832,7 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      state.focusElement = target;
-      target.scrollIntoView({ block: "center", inline: "center" });
-      core.scheduleRender();
+      core.focusPreviewElement(target);
       sendResponse({ ok: true });
       return;
     }

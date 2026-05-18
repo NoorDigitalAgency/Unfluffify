@@ -71,7 +71,8 @@ const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[id^=\"unfluffify-\"]",
   "#unfluffify-overlay",
   "#unfluffify-freeze-style",
-  "#unfluffify-ai-popover-style"
+  "#unfluffify-ai-popover-style",
+  "#unfluffify-ai-preview-focus-style"
 ];
 const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-exclude",
@@ -79,6 +80,10 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-passthrough",
   "uf-visible-consent"
 ];
+const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
+const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
+
+let aiPreviewFocusElement = null;
 
 function createCurrentTimestamp() {
   return config.createTimestampNow();
@@ -2380,13 +2385,16 @@ function handleVisibilityChange() {
 function updateFocusHighlight() {
   const layerFocus = state.layers["focus"];
   if (!layerFocus) {
+    syncAiPreviewFocusElement(state.focusElement);
     return;
   }
   const layerState = beginLayerRender(layerFocus);
   if (!state.focusElement) {
+    clearAiPreviewFocusElement();
     finalizeLayerRender(layerState);
     return;
   }
+  syncAiPreviewFocusElement(state.focusElement);
   const rects = getVisibleRects(state.focusElement);
   if (rects.length > 0) {
     drawMultiRectReuse(
@@ -2584,6 +2592,26 @@ function ensureAiPopoverStyle() {
         color: #2f2a24;
         white-space: pre-line;
       }
+      .uf-ai-popover-item-button {
+        appearance: none;
+        -webkit-appearance: none;
+        display: block;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        line-height: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .uf-ai-popover-item-button:hover,
+      .uf-ai-popover-item-button:focus-visible {
+        color: #6c4c2b;
+        text-decoration: underline;
+      }
     `;
   document.documentElement.appendChild(style);
 }
@@ -2632,6 +2660,41 @@ function createAiPopoverPanelIcon(direction) {
   return svg;
 }
 
+function ensureAiPreviewFocusStyle() {
+  if (document.getElementById(AI_PREVIEW_FOCUS_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = AI_PREVIEW_FOCUS_STYLE_ID;
+  style.textContent = `
+      .${AI_PREVIEW_FOCUS_CLASS} {
+        background: rgba(255, 236, 153, 0.72) !important;
+        box-shadow: 0 0 0 2px rgba(164, 118, 37, 0.28) inset !important;
+        border-radius: 6px !important;
+        scroll-margin: 24vh !important;
+      }
+    `;
+  document.documentElement.appendChild(style);
+}
+
+function clearAiPreviewFocusElement() {
+  if (aiPreviewFocusElement && aiPreviewFocusElement.classList) {
+    aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
+  }
+  aiPreviewFocusElement = null;
+}
+
+function syncAiPreviewFocusElement(target) {
+  ensureAiPreviewFocusStyle();
+  if (aiPreviewFocusElement && aiPreviewFocusElement !== target && aiPreviewFocusElement.classList) {
+    aiPreviewFocusElement.classList.remove(AI_PREVIEW_FOCUS_CLASS);
+  }
+  aiPreviewFocusElement = target || null;
+  if (aiPreviewFocusElement && aiPreviewFocusElement.classList) {
+    aiPreviewFocusElement.classList.add(AI_PREVIEW_FOCUS_CLASS);
+  }
+}
+
 function closeAiPopover(options = {}) {
   const notify = options.notify !== false;
   const suppressCallback = options.suppressCallback === true;
@@ -2642,6 +2705,7 @@ function closeAiPopover(options = {}) {
   const onClose = state.aiPopoverOnClose;
   state.aiPopoverOnClose = null;
   state.aiPopoverOnCollapsedChange = null;
+  clearFocusHighlight();
   popover.remove();
   state.aiPopover = null;
   state.aiPopoverCollapsed = false;
@@ -2665,6 +2729,9 @@ function setAiPopoverCollapsed(collapsed) {
   if (!state.aiPopover) {
     return;
   }
+  if (!collapsed) {
+    clearFocusHighlight();
+  }
   state.aiPopoverCollapsed = Boolean(collapsed);
   state.aiPopover.classList.toggle("uf-ai-popover--collapsed", state.aiPopoverCollapsed);
   if (typeof state.aiPopoverOnCollapsedChange === "function") {
@@ -2682,6 +2749,19 @@ export function hasAiPopover() {
 
 export function requestAiPopoverClose(options = {}) {
   closeAiPopover(options);
+}
+
+export function focusPreviewElement(target, options = {}) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+  state.focusElement = target;
+  syncAiPreviewFocusElement(target);
+  if (options.center !== false && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ block: "center", inline: "center" });
+  }
+  updateFocusHighlight();
+  return true;
 }
 
 function recordPageSnapshot(configValue, pageUrl) {
@@ -4278,9 +4358,11 @@ export function canApplyExplicitInclude(
 
 export function clearFocusHighlight() {
   if (!state.focusElement) {
+    clearAiPreviewFocusElement();
     return;
   }
   state.focusElement = null;
+  clearAiPreviewFocusElement();
   updateFocusHighlight();
 }
 
@@ -4696,6 +4778,7 @@ export function collectPreviewItems(selectorSet) {
     }
     const rect = el.getBoundingClientRect();
     rows.push({
+      xpath: getXPath(el),
       text,
       top: rect.top + window.scrollY,
       left: rect.left + window.scrollX
@@ -4707,7 +4790,9 @@ export function collectPreviewItems(selectorSet) {
     }
     return a.top - b.top;
   });
-  return rows.map((row) => row.text);
+  return rows
+    .filter((row) => typeof row.xpath === "string" && row.xpath)
+    .map((row) => ({ xpath: row.xpath, text: row.text }));
 }
 
 function getPreviewTextForIncludedElement(
@@ -4812,6 +4897,7 @@ export async function saveConfig(baseUrl, configValue) {
 
 export function showAiPopover(items, options = {}) {
   ensureAiPopoverStyle();
+  clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
   const popover = document.createElement("div");
   popover.className = "uf-ai-popover";
@@ -4859,9 +4945,24 @@ export function showAiPopover(items, options = {}) {
     empty.textContent = "No content found";
     list.appendChild(empty);
   } else {
-    items.forEach((text) => {
+    items.forEach((item) => {
       const li = document.createElement("li");
-      li.textContent = text;
+      if (item && typeof item === "object" && typeof item.text === "string") {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "uf-ai-popover-item-button";
+        button.textContent = item.text;
+        button.addEventListener("click", () => {
+          const target = item.xpath ? getElementFromXPath(item.xpath) : null;
+          setAiPopoverCollapsed(true);
+          if (target) {
+            focusPreviewElement(target);
+          }
+        });
+        li.appendChild(button);
+      } else {
+        li.textContent = typeof item === "string" ? item : "";
+      }
       list.appendChild(li);
     });
   }
