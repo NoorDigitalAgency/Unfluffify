@@ -190,7 +190,7 @@ export const PopupText = Object.freeze({
     <li>Reload the page with <em>DevTools still open.</em></li>
     <li>See if the meaningful content is still visible. If it is, choose <b>Static</b>.</li>
     <li>If the meaningful content disappears, choose <b>JavaScript</b>.</li>
-    <li>From the Debugger section, uncheck <b>Disable JavaScript</b>.</li>
+    <li>From the Debugger section, uncheck <b>Disable JavaScript</b>, and close the DevTools window.</li>
     <li>Reload the page again and continue in <b>Unfluffify</b>.</li>
   </ol>
 `, // HTML body for the manual render-mode instructions popover.
