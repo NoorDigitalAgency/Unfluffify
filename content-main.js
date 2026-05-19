@@ -1361,19 +1361,35 @@ function isWithinImmutableDefaultNode(node) {
   return false;
 }
 
+function isToggleableDefaultExcludedNode(node, includedNodes) {
+  return matchesToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
+}
+
+function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
+  if (isWithinNodeSet(node, includedNodes)) {
+    return false;
+  }
+  let current = node;
+  while (current && current.nodeType === 1) {
+    if (isToggleableDefaultExcludedNode(current, includedNodes)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
 function isRawSelectorExcludedNode(node, excludedNodes, includedNodes) {
   return isWithinNodeSet(node, excludedNodes) && !isWithinNodeSet(node, includedNodes);
 }
 
 function isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet) {
-  if (!isRawSelectorExcludedNode(node, excludedNodes, includedNodes)) {
-    return false;
-  }
-  return !(inclusionContextSet && inclusionContextSet.has(node));
+  return isRawSelectorExcludedNode(node, excludedNodes, includedNodes);
 }
 
 function isExcludedNatureNode(node, excludedNodes, includedNodes, inclusionContextSet) {
   return matchesImmutableDefaultSelector(node) ||
+    isToggleableDefaultExcludedNode(node, includedNodes) ||
     isSelectorExcludedNode(node, excludedNodes, includedNodes, inclusionContextSet);
 }
 
@@ -1404,6 +1420,9 @@ function isInclusionEligibleNode(
     return false;
   }
   if (isWithinImmutableDefaultNode(node)) {
+    return false;
+  }
+  if (isWithinToggleableDefaultExcludedNode(node, includedNodes)) {
     return false;
   }
   return !isWithinNodeSet(node, excludedNodes) ||
@@ -1624,10 +1643,7 @@ function hasRenderableTextForExcludedHighlight(
     }
     if (
       current !== node &&
-      (
-        isWithinNodeSet(current, includedNodes) ||
-        Boolean(inclusionContextSet && inclusionContextSet.has(current))
-      )
+      isWithinNodeSet(current, includedNodes)
     ) {
       continue;
     }
@@ -1844,22 +1860,43 @@ function collectSelectorExcludedNodes(
     if (isWithinNodeSet(node, includedNodes)) {
       continue;
     }
-    const isExplicitIncludedAncestor =
-      Boolean(inclusionContextSet && inclusionContextSet.has(node)) &&
-      !(includedNodes && includedNodes.has(node));
-    if (
-      !isExplicitIncludedAncestor &&
-      !hasRenderableTextForExcludedHighlight(
-        node,
-        includedNodes,
-        inclusionContextSet
-      )
-    ) {
+    if (!hasRenderableTextForExcludedHighlight(node, includedNodes, inclusionContextSet)) {
       continue;
     }
     marked.add(node);
   }
   return Array.from(marked).sort(compareNodeOrder);
+}
+
+function collectToggleableDefaultExcludedNodes(includedNodes) {
+  if (!document.body) {
+    return [];
+  }
+  const results = [];
+  const stack = [document.body];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
+      continue;
+    }
+    if (isWithinNodeSet(node, includedNodes)) {
+      continue;
+    }
+    if (matchesImmutableDefaultSelector(node)) {
+      continue;
+    }
+    if (matchesToggleableDefaultSelector(node)) {
+      results.push(node);
+      continue;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return results.sort(compareNodeOrder);
 }
 
 function collectExplicitIncludedNodes(
@@ -1998,10 +2035,6 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     preserveNestedExplicitIncludedDescendants: true,
     keepAllExplicitMatches: true
   };
-  // Exclusion opposite-boundary behavior should stay on the historical
-  // explicit-inclusion semantics (do not reuse the broad "all explicit matches"
-  // set here or exclusions can disappear).
-  const explicitBoundaryOptions = {};
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
@@ -2023,17 +2056,6 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   const excludedNodes = new Set(rawExcludedNodes);
   const includedNodes = filteredIncludedNodes;
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
-  const explicitIncludedBoundary = collectExplicitIncludedNodes(
-    includedNodes,
-    excludedNodes,
-    includedNodes,
-    inclusionContextSet,
-    explicitBoundaryOptions
-  );
-  const explicitIncludedBoundarySet = new Set(explicitIncludedBoundary);
-  const explicitInclusionBoundaryContextSet = buildInclusionContextSet(
-    explicitIncludedBoundarySet
-  );
   const explicitIncluded = collectExplicitIncludedNodes(
     includedNodes,
     excludedNodes,
@@ -2042,8 +2064,14 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     inclusionSelectionOptions
   );
   const explicitIncludedSet = new Set(explicitIncluded);
+  const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
+  const toggleableDefaultExcluded = collectToggleableDefaultExcludedNodes(explicitIncludedSet);
+  const excludedBoundaryNodes = new Set([
+    ...Array.from(excludedNodes),
+    ...toggleableDefaultExcluded
+  ]);
   const implicitIncluded = collectImplicitIncludedNodesOutsideExplicit(
-    explicitIncludedBoundary,
+    explicitIncluded,
     excludedNodes,
     includedNodes,
     inclusionContextSet,
@@ -2066,17 +2094,17 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     includedScopeRootsForExcludedTraversal,
     excludedNodes,
-    explicitIncludedBoundarySet,
-    explicitInclusionBoundaryContextSet
+    explicitIncludedSet,
+    explicitIncludedContextSet
   );
   const selectorExcluded = collectSelectorExcludedNodes(
-    excludedNodes,
-    explicitIncludedBoundarySet,
-    explicitInclusionBoundaryContextSet
+    excludedBoundaryNodes,
+    explicitIncludedSet,
+    explicitIncludedContextSet
   );
   const inferredExcluded = collapseToShallowestWithOppositeBoundary(
     excludedDescendants,
-    explicitIncludedBoundarySet
+    explicitIncludedSet
   );
   const excluded = Array.from(
     new Set([...(selectorExcluded || []), ...(inferredExcluded || [])])

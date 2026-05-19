@@ -410,6 +410,24 @@ function isWithinImmutableExcluded(el) {
   return false;
 }
 
+function isToggleableDefaultExcludedElement(el, includedElements) {
+  return matchesToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
+}
+
+function isWithinToggleableDefaultExcludedElement(el, includedElements) {
+  if (isWithinElementSet(el, includedElements)) {
+    return false;
+  }
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (isToggleableDefaultExcludedElement(node, includedElements)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
 function isWithinAiPopover(el) {
   return Boolean(
       state.aiPopover &&
@@ -1099,10 +1117,7 @@ function isSelectorExcludedElement(
   includedElements,
   inclusionContextSet
 ) {
-  if (!isRawSelectorExcludedElement(el, excludedElements, includedElements)) {
-    return false;
-  }
-  return !(inclusionContextSet && inclusionContextSet.has(el));
+  return isRawSelectorExcludedElement(el, excludedElements, includedElements);
 }
 
 function isExcludedNatureElement(
@@ -1112,6 +1127,7 @@ function isExcludedNatureElement(
   inclusionContextSet
 ) {
   return matchesImmutableExcluded(el) ||
+    isToggleableDefaultExcludedElement(el, includedElements) ||
     isSelectorExcludedElement(
       el,
       excludedElements,
@@ -1144,6 +1160,9 @@ function isInclusionEligibleElement(
     return false;
   }
   if (isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (isWithinToggleableDefaultExcludedElement(el, includedElements)) {
     return false;
   }
   return !isWithinElementSet(el, excludedElements) ||
@@ -1285,10 +1304,7 @@ function hasRenderableTextForExcludedHighlight(
     }
     if (
       node !== el &&
-      (
-        isWithinElementSet(node, includedElements) ||
-        Boolean(inclusionContextSet && inclusionContextSet.has(node))
-      )
+      isWithinElementSet(node, includedElements)
     ) {
       continue;
     }
@@ -1371,18 +1387,43 @@ function collectSelectorExcludedElements(
     if (isWithinElementSet(el, includedElements)) {
       continue;
     }
-    const isExplicitIncludedAncestor =
-      Boolean(inclusionContextSet && inclusionContextSet.has(el)) &&
-      !(includedElements && includedElements.has(el));
-    if (
-      !isExplicitIncludedAncestor &&
-      !hasRenderableTextForExcludedHighlight(el, includedElements, inclusionContextSet)
-    ) {
+    if (!hasRenderableTextForExcludedHighlight(el, includedElements, inclusionContextSet)) {
       continue;
     }
     marked.add(el);
   }
   return Array.from(marked).sort(compareDocumentOrder);
+}
+
+function collectToggleableDefaultExcludedElements(includedElements) {
+  if (!document.body) {
+    return [];
+  }
+  const results = [];
+  const stack = [document.body];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
+      continue;
+    }
+    if (isWithinElementSet(el, includedElements)) {
+      continue;
+    }
+    if (matchesImmutableExcluded(el)) {
+      continue;
+    }
+    if (matchesToggleableDefaultExcluded(el)) {
+      results.push(el);
+      continue;
+    }
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      stack.push(el.children[i]);
+    }
+  }
+  return results.sort(compareDocumentOrder);
 }
 
 function collectExplicitIncludedElements(
@@ -1525,24 +1566,14 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
       prefer: "shallowest"
     })
   );
-  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const rawIncludedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const includedElements = new Set();
+  rawIncludedElements.forEach((el) => {
+    if (el && el.nodeType === 1 && !isWithinConsentElement(el)) {
+      includedElements.add(el);
+    }
+  });
   const inclusionContextSet = buildInclusionContextSet(includedElements);
-  const explicitBoundaryOptions = {
-    ...options,
-    preserveExplicitIncludedDescendants: false,
-    includeAllExplicitMatches: false
-  };
-  const explicitIncludedBoundary = collectExplicitIncludedElements(
-    includedElements,
-    excludedElements,
-    includedElements,
-    inclusionContextSet,
-    explicitBoundaryOptions
-  );
-  const explicitIncludedBoundarySet = new Set(explicitIncludedBoundary);
-  const explicitInclusionBoundaryContextSet = buildInclusionContextSet(
-    explicitIncludedBoundarySet
-  );
   const explicitIncluded = collectExplicitIncludedElements(
     includedElements,
     excludedElements,
@@ -1551,8 +1582,14 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
     options
   );
   const explicitIncludedSet = new Set(explicitIncluded);
+  const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
+  const toggleableDefaultExcluded = collectToggleableDefaultExcludedElements(explicitIncludedSet);
+  const excludedBoundaryElements = new Set([
+    ...Array.from(excludedElements),
+    ...toggleableDefaultExcluded
+  ]);
   const implicitIncluded = collectImplicitIncludedElementsOutsideExplicit(
-    explicitIncludedBoundary,
+    explicitIncluded,
     excludedElements,
     includedElements,
     inclusionContextSet,
@@ -1587,17 +1624,17 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const excludedDescendants = collectExcludedChildrenInsideIncludedParents(
     includedScopeRootsForExcludedTraversal,
     excludedElements,
-    explicitIncludedBoundarySet,
-    explicitInclusionBoundaryContextSet
+    explicitIncludedSet,
+    explicitIncludedContextSet
   );
   const selectorExcluded = collectSelectorExcludedElements(
-    excludedElements,
-    explicitIncludedBoundarySet,
-    explicitInclusionBoundaryContextSet
+    excludedBoundaryElements,
+    explicitIncludedSet,
+    explicitIncludedContextSet
   );
   const inferredExcluded = collapseElementsByNestingWithOppositeBoundary(
     excludedDescendants,
-    explicitIncludedBoundarySet
+    explicitIncludedSet
   );
   const excluded = Array.from(
     new Set([...(selectorExcluded || []), ...(inferredExcluded || [])])
@@ -4755,7 +4792,12 @@ export function handleScroll(event) {
 export function collectPreviewItems(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedElements = collectSelectorElements(normalized.exclusionSelectors);
-  const includedElements = collectSelectorElements(normalized.inclusionSelectors);
+  const includedElements = new Set();
+  collectSelectorElements(normalized.inclusionSelectors).forEach((el) => {
+    if (el && el.nodeType === 1 && !isWithinConsentElement(el)) {
+      includedElements.add(el);
+    }
+  });
   const inclusionContextSet = buildInclusionContextSet(includedElements);
   // Preview mirrors silent highlighting inclusion detection: implicit
   // non-excluded content plus explicit includes, while ignoring visibility for
