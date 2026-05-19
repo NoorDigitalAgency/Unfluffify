@@ -27,6 +27,8 @@ export const state = {
   aiSelectorsComputedSinceLastSubmit: false,
   aiSelectorsComputedBaseUrl: "",
   configMenuOpen: false,
+  basePageMenuOpen: false,
+  renderModeSummaryOpen: false,
   currentDeviceMode: "mobile",
   currentDeviceScale: DEVICE_SCALE_DEFAULTS.mobile,
   currentDeviceEmulationEnabled: false,

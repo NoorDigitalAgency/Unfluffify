@@ -150,7 +150,6 @@ body.is-busy {
   display: grid;
   gap: 10px;
   max-width: 100%;
-  overflow: hidden;
 }
 
 .radio-group {
@@ -529,6 +528,93 @@ button.loading:disabled {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--muted);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.section-menu-button {
+  min-width: 32px;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.section-menu-button .btn-icon {
+  margin-right: 0;
+}
+
+.section-menu {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  min-width: 240px;
+  max-width: calc(100vw - 48px);
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(47, 42, 36, 0.14);
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+  z-index: 12;
+}
+
+.section-menu[hidden] {
+  display: none;
+}
+
+.section-menu button {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: #f6efe6;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-menu button:hover {
+  background: #efe3d4;
+}
+
+.section-menu__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.section-menu__status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.section-menu__empty {
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  background: #f6efe6;
 }
 
 .collapsible {

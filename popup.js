@@ -1977,7 +1977,9 @@ async function refreshUiInner() {
   if (state.currentBaseUrl !== previousBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+    state.basePageMenuOpen = false;
     state.renderModeEditMode = false;
+    state.renderModeSummaryOpen = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
     state.renderModeUndeterminedNoticeKey = "";
@@ -2010,6 +2012,7 @@ async function refreshUiInner() {
     currentPageUrlTitle: pageUrl || "Unavailable",
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen,
+    basePageMenuOpen: state.basePageMenuOpen,
     previewBlocked: previewActive,
     previewBlockedMessage: previewActive
       ? previewCollapsed
@@ -2349,6 +2352,14 @@ async function refreshUiInner() {
     uiDisabledForUnsupportedPage ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
+  nextViewState.renderModeSummaryTitle =
+    renderModeSet
+      ? currentRenderMode === config.RENDER_MODE_RENDERED
+        ? "Rendered HTML mode"
+        : "Static HTML mode"
+      : "Render Mode";
+  nextViewState.renderModeSummaryOpen =
+    !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -2499,66 +2510,6 @@ async function refreshUiInner() {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
-
-  const pageEntry =
-    state.currentDraftEntry ||
-    (state.currentConfig &&
-      state.currentConfig.pageMarkings &&
-      state.currentConfig.pageMarkings[pageUrl]);
-  const explicitExclude = (pageEntry && pageEntry.xpaths) || [];
-  const explicitIncludeXPaths =
-    pageEntry && Array.isArray(pageEntry.includeXpaths) ? pageEntry.includeXpaths : [];
-  const excludedXPaths = explicitExclude
-    .filter(
-      (item) =>
-        item &&
-        item.excluded &&
-        item.xpath
-    )
-    .map((item) => item.xpath);
-  let pageExplicitExclude = excludedXPaths.map((xpath) => ({
-    xpath,
-    text: xpath
-  }));
-  if (state.currentBaseUrl) {
-    const response = await messages.sendTabMessage({
-      type: "describeXPathsOnPage",
-      xpaths: excludedXPaths
-    });
-    if (response && Array.isArray(response.items)) {
-      pageExplicitExclude = response.items;
-    }
-  }
-
-  const filteredExplicitIncludeXPaths = explicitIncludeXPaths.filter((xpath) => xpath);
-  let pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
-    xpath,
-    text: xpath
-  }));
-  if (state.currentBaseUrl && filteredExplicitIncludeXPaths.length) {
-    const response = await messages.sendTabMessage({
-      type: "describeXPathsOnPage",
-      xpaths: filteredExplicitIncludeXPaths
-    });
-    if (response && Array.isArray(response.items)) {
-      const labelMap = new Map(
-        response.items.map((item) => [item.xpath, item.text || item.xpath])
-      );
-      pageExplicitInclude = filteredExplicitIncludeXPaths.map((xpath) => ({
-        xpath,
-        text: labelMap.get(xpath) || xpath
-      }));
-    }
-  }
-
-  nextViewState.explicitExcludes = pageExplicitExclude;
-  nextViewState.explicitExcludesEmptyText = baseUrlReady
-    ? "None yet"
-    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
-  nextViewState.explicitIncludes = pageExplicitInclude;
-  nextViewState.explicitIncludesEmptyText = baseUrlReady
-    ? "None yet"
-    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
 
   const markedPages = [];
   const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
@@ -2725,6 +2676,7 @@ async function handleRenderModeSet() {
     });
     state.currentBaseUrlHasConfirmedRenderMode = true;
     state.renderModeEditMode = false;
+    state.renderModeSummaryOpen = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = nextRenderMode;
     state.renderModeDetectionKey = "";
@@ -2745,7 +2697,21 @@ async function handleRenderModeSet() {
 
 async function handleRenderModeEditToggle() {
   state.renderModeEditMode = !state.renderModeEditMode;
+  if (state.renderModeEditMode) {
+    state.renderModeSummaryOpen = true;
+  }
   await refreshUi();
+}
+
+function handleRenderModeSummaryToggle(event) {
+  const target = event && event.currentTarget;
+  const nextOpen = Boolean(target && target.open);
+  const resolvedOpen =
+    !state.currentBaseUrlHasConfirmedRenderMode || state.renderModeEditMode
+      ? true
+      : nextOpen;
+  state.renderModeSummaryOpen = resolvedOpen;
+  uiModule.setViewState({ renderModeSummaryOpen: resolvedOpen });
 }
 
 function handleLoginEmailInput(event) {
@@ -2808,6 +2774,7 @@ function handleLoginPasswordKeyDown(event) {
 
 function handleConfigToggle(event) {
   event.stopPropagation();
+  uiModule.setBasePageMenuOpen(false);
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
 }
 
@@ -2815,8 +2782,19 @@ function handleConfigMenuClick(event) {
   event.stopPropagation();
 }
 
+function handleBasePageMenuToggle(event) {
+  event.stopPropagation();
+  uiModule.setConfigMenuOpen(false);
+  uiModule.setBasePageMenuOpen(!state.basePageMenuOpen);
+}
+
+function handleBasePageMenuClick(event) {
+  event.stopPropagation();
+}
+
 async function handleOpenConfigurationView() {
   uiModule.setConfigMenuOpen(false);
+  uiModule.setBasePageMenuOpen(false);
   state.currentView = uiModule.View.Configuration;
   uiModule.setViewState({ currentView: state.currentView });
   await refreshUi();
@@ -2922,6 +2900,7 @@ async function handleMarkedPageNavigate(url) {
 }
 
 async function handleBasePageNavigate(url) {
+  uiModule.setBasePageMenuOpen(false);
   const tab = await helpers.ensureActiveTab({ requireId: true });
   if (!tab) {
     return;
@@ -4090,6 +4069,8 @@ async function init() {
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
     onConfigMenuClick: handleConfigMenuClick,
+    onBasePageMenuToggle: handleBasePageMenuToggle,
+    onBasePageMenuClick: handleBasePageMenuClick,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,
@@ -4110,6 +4091,7 @@ async function init() {
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
     onRenderModeInput: handleRenderModeInput,
+    onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
     onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
     onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
     onRenderModeSet: handleRenderModeSet,
@@ -4133,10 +4115,14 @@ async function init() {
     onBasePageNavigate: handleBasePageNavigate
   });
 
-  document.addEventListener("click", () => uiModule.setConfigMenuOpen(false));
+  document.addEventListener("click", () => {
+    uiModule.setConfigMenuOpen(false);
+    uiModule.setBasePageMenuOpen(false);
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
+      uiModule.setBasePageMenuOpen(false);
     }
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {

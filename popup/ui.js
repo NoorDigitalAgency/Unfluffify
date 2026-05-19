@@ -48,6 +48,7 @@ const initialViewState = {
   markedPagesEmptyText: "No mapped base page URL/siteId for this page",
   basePageUrls: [],
   basePageUrlsEmptyText: "No base URLs saved",
+  basePageMenuOpen: false,
   endpointUrlValue: "",
   endpointUrlReadOnly: true,
   endpointSetVisible: true,
@@ -94,6 +95,8 @@ const initialViewState = {
   renderModeInputDisabled: false,
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
+  renderModeSummaryOpen: false,
+  renderModeSummaryTitle: "Render Mode",
   loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
@@ -217,11 +220,147 @@ function getBlockingUiCurtainState(view) {
   };
 }
 
+function renderBasePageMenu(view, handlers) {
+  return h(
+    "div",
+    {
+      class: "section-menu",
+      role: "menu",
+      hidden: !view.basePageMenuOpen,
+      onClick: handlers.onBasePageMenuClick
+    },
+    view.basePageUrls.length
+      ? view.basePageUrls.map((item) =>
+          h(
+            "button",
+            {
+              key: item.url,
+              type: "button",
+              role: "menuitem",
+              disabled: item.url === view.currentBaseUrl,
+              onClick: (event) => {
+                event.stopPropagation();
+                handlers.onBasePageNavigate(item.url);
+              }
+            },
+            h(
+              "span",
+              { class: "section-menu__label", title: item.url },
+              item.url
+            ),
+            item.url === view.currentBaseUrl
+              ? h("span", { class: "section-menu__status" }, "Current")
+              : icon("arrow-right")
+          )
+        )
+      : h(
+          "div",
+          { class: "section-menu__empty" },
+          view.basePageUrlsEmptyText
+        )
+  );
+}
+
+function renderRenderModeEditor(view, handlers) {
+  return h(
+    Fragment,
+    null,
+    h(
+      "label",
+      {class: "field"},
+      h("span", null, icon("monitor-dashboard", "field-icon"), "Render Mode"),
+      h(
+        "div",
+        {class: "input-row"},
+        h(
+          "select",
+          {
+            id: "render-mode",
+            value: view.renderModeValue,
+            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
+            onChange: handlers.onRenderModeInput,
+            ref: (el) => {
+              refs.renderModeSelect = el;
+            }
+          },
+          h("option", { value: "static" }, "Static HTML"),
+          h("option", { value: "rendered" }, "Rendered HTML"),
+          view.renderModeUndeterminedVisible
+            ? h("option", { value: "undetermined", disabled: true }, "Undetermined")
+            : null
+        ),
+        h(
+          "button",
+          {
+            id: "render-mode-set",
+            type: "button",
+            style: {display: view.renderModeSetVisible ? "inline-flex" : "none"},
+            disabled: view.renderModeSetDisabled,
+            onClick: handlers.onRenderModeSet
+          },
+          icon("check"),
+          "Set"
+        ),
+        h(
+          "button",
+          {
+            id: "render-mode-edit",
+            type: "button",
+            style: {display: view.renderModeEditVisible ? "inline-flex" : "none"},
+            disabled: view.renderModeEditDisabled,
+            onClick: handlers.onRenderModeEditToggle
+          },
+          icon("pencil-outline"),
+          view.renderModeEditText
+        )
+      )
+    ),
+    h(
+      "div",
+      {
+        id: "render-mode-notice",
+        class: "notice",
+        role: "status",
+        "aria-live": "polite",
+        hidden: !view.renderModeNoticeVisible
+      },
+      view.renderModeNoticeText
+    ),
+    h(
+      "div",
+      {class: "hint"},
+      "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
+    )
+  );
+}
+
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   return h(
     "section",
     {class: classNames("card", "margin-above", "margin-below", extraClassName)},
-    h("div", {class: "padding-below section-title"}, "Marked Pages"),
+    h(
+      "div",
+      { class: "section-header" },
+      h("div", {class: "section-title"}, "Marked Pages"),
+      h(
+        "div",
+        { class: "section-header-actions" },
+        h(
+          "button",
+          {
+            id: "base-page-menu-toggle",
+            type: "button",
+            class: "section-menu-button button-secondary",
+            "aria-haspopup": "menu",
+            "aria-expanded": view.basePageMenuOpen ? "true" : "false",
+            title: "Base page URLs",
+            onClick: handlers.onBasePageMenuToggle
+          },
+          icon("menu")
+        ),
+        renderBasePageMenu(view, handlers)
+      )
+    ),
     h(
       "ul",
       {id: "marked-pages", class: "list"},
@@ -423,117 +562,6 @@ function renderMarkingView({state: view, actions: handlers}) {
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
   const markingMode = !view.mainUiHidden;
 
-  const renderModeSection = h(
-    "section",
-    {class: "card"},
-    h("div", {class: "section-title"}, "Render Mode"),
-    h(
-      "label",
-      {class: "field"},
-      h("span", null, icon("monitor-dashboard", "field-icon"), "Render Mode"),
-      h(
-        "div",
-        {class: "input-row"},
-        h(
-          "select",
-          {
-            id: "render-mode",
-            value: view.renderModeValue,
-            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
-            onChange: handlers.onRenderModeInput,
-            ref: (el) => {
-              refs.renderModeSelect = el;
-            }
-          },
-          h("option", { value: "static" }, "Static HTML"),
-          h("option", { value: "rendered" }, "Rendered HTML"),
-          view.renderModeUndeterminedVisible
-            ? h("option", { value: "undetermined", disabled: true }, "Undetermined")
-            : null
-        ),
-        h(
-          "button",
-          {
-            id: "render-mode-set",
-            type: "button",
-            style: {display: view.renderModeSetVisible ? "inline-flex" : "none"},
-            disabled: view.renderModeSetDisabled,
-            onClick: handlers.onRenderModeSet
-          },
-          icon("check"),
-          "Set"
-        ),
-        h(
-          "button",
-          {
-            id: "render-mode-edit",
-            type: "button",
-            style: {display: view.renderModeEditVisible ? "inline-flex" : "none"},
-            disabled: view.renderModeEditDisabled,
-            onClick: handlers.onRenderModeEditToggle
-          },
-          icon("pencil-outline"),
-          view.renderModeEditText
-        )
-      )
-    ),
-    h(
-      "div",
-      {
-        id: "render-mode-notice",
-        class: "notice",
-        role: "status",
-        "aria-live": "polite",
-        hidden: !view.renderModeNoticeVisible
-      },
-      view.renderModeNoticeText
-    ),
-    h(
-      "div",
-      {class: "hint"},
-      "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
-    )
-  );
-
-  const deviceSection = h(
-    "section",
-    { class: "card margin-below", hidden: !showDeviceSection },
-    h("div", {class: "section-title"}, "Mobile simulation"),
-    h(
-      "label",
-      {class: "row", title: "CTRL/CMD+M"},
-      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Enable mobile simulation"),
-      h("input", {
-        id: "device-emulation-enabled",
-        type: "checkbox",
-        checked: view.deviceEmulationEnabled,
-        disabled: view.deviceControlsDisabled,
-        onChange: handlers.onDeviceEmulationEnabledChange
-      })
-    ),
-    h(
-      "div",
-      {class: "scale-control"},
-      h(
-        "div",
-        {class: "row"},
-        h("span", null, "Scale"),
-        h("span", {id: "device-scale-value", class: "scale-value"}, view.deviceScaleValue)
-      ),
-      h("input", {
-        id: "device-scale",
-        type: "range",
-        min: "0.25",
-        max: "1",
-        step: "0.01",
-        value: view.deviceScale,
-        disabled: view.deviceControlsDisabled || !view.deviceEmulationEnabled,
-        onInput: handlers.onDeviceScaleInput,
-        onChange: handlers.onDeviceScaleChange
-      })
-    )
-  );
-
   const aiControlsSection = h(
     "section",
     {class: "card margin-above"},
@@ -586,11 +614,25 @@ function renderMarkingView({state: view, actions: handlers}) {
     )
   );
 
-  const pageDataSection = h(
+  const pageControlsSection = h(
     "section",
-    {class: "card"},
-    h("div", {class: "section-title"}, "Page data"),
-    view.pageSaveMobileSimulationRequiredVisible &&
+    {class: "card margin-below", hidden: !showDeviceSection},
+    h("div", {class: "section-title"}, markingMode ? "Page data" : "Mobile simulation"),
+    h(
+      "label",
+      {class: "row", title: "CTRL/CMD+M"},
+      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Enable mobile simulation"),
+      h("input", {
+        id: "device-emulation-enabled",
+        type: "checkbox",
+        checked: view.deviceEmulationEnabled,
+        disabled: view.deviceControlsDisabled,
+        onChange: handlers.onDeviceEmulationEnabledChange
+      })
+    ),
+    h("div", {class: "hint"}, "Scale is applied automatically."),
+    markingMode &&
+      view.pageSaveMobileSimulationRequiredVisible &&
       h(
         "div",
         {
@@ -600,134 +642,52 @@ function renderMarkingView({state: view, actions: handlers}) {
         },
         view.pageSaveMobileSimulationRequiredText
       ),
-    h(
-      "div",
-      {
-        id: "page-data-new-notice",
-        class: "notice",
-        role: "status",
-        "aria-live": "polite",
-        hidden: view.pageDataNewNoticeHidden
-      },
-      "No saved data for this page yet. Save to store it."
-    ),
-    h(
-      "div",
-      {class: "button-row"},
+    markingMode &&
       h(
-        "button",
+        "div",
         {
-          id: "page-save",
-          type: "button",
-          title: "CTRL/CMD+S",
-          disabled: view.pageSaveDisabled,
-          onClick: handlers.onPageSave
+          id: "page-data-new-notice",
+          class: "notice",
+          role: "status",
+          "aria-live": "polite",
+          hidden: view.pageDataNewNoticeHidden
         },
-        icon("content-save"),
-        "Save"
+        "No saved data for this page yet. Save to store it."
       ),
+    markingMode &&
       h(
-        "button",
-        {
-          id: "page-revert",
-          type: "button",
-          class: "button-secondary",
-          disabled: view.pageRevertDisabled,
-          onClick: handlers.onPageRevert
-        },
-        icon("restore"),
-        "Revert to saved"
-      )
-    ),
-    h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
-    h("div", { class: "section-divider", role: "separator" }),
-    h("div", { class: "section-title" }, "Server Sync"),
-    h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
-    h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
-  );
-
-  const explicitExcludesSection = h(
-    "section",
-    {class: "card"},
-    h("div", {class: "section-title"}, "Explicit excludes"),
-    h(
-      "ul",
-      {id: "explicit-excludes", class: "list"},
-      renderListItems(
-        view.explicitExcludes,
-        view.explicitExcludesEmptyText,
-        (item) =>
-          h(
-            "li",
-            {key: item.xpath},
-            h(
-              "span",
-              {title: item.text || item.xpath},
-              item.text || item.xpath
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                onClick: () => handlers.onExplicitExcludeView(item.xpath)
-              },
-              icon("eye-outline"),
-              "View"
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                onClick: () => handlers.onExplicitExcludeRemove(item.xpath)
-              },
-              icon("delete-outline"),
-              "Remove"
-            )
-          )
-      )
-    )
-  );
-
-  const explicitIncludesSection = h(
-    "section",
-    {class: "card"},
-    h("div", {class: "section-title"}, "Explicit includes"),
-    h(
-      "ul",
-      {id: "explicit-includes", class: "list"},
-      renderListItems(
-        view.explicitIncludes,
-        view.explicitIncludesEmptyText,
-        (item) =>
-          h(
-            "li",
-            {key: item.xpath},
-            h(
-              "span",
-              {title: item.text || item.xpath},
-              item.text || item.xpath
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                onClick: () => handlers.onExplicitIncludeView(item.xpath)
-              },
-              icon("eye-outline"),
-              "View"
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                onClick: () => handlers.onExplicitIncludeRemove(item.xpath)
-              },
-              icon("delete-outline"),
-              "Remove"
-            )
-          )
-      )
-    )
+        "div",
+        {class: "button-row"},
+        h(
+          "button",
+          {
+            id: "page-save",
+            type: "button",
+            title: "CTRL/CMD+S",
+            disabled: view.pageSaveDisabled,
+            onClick: handlers.onPageSave
+          },
+          icon("content-save"),
+          "Save"
+        ),
+        h(
+          "button",
+          {
+            id: "page-revert",
+            type: "button",
+            class: "button-secondary",
+            disabled: view.pageRevertDisabled,
+            onClick: handlers.onPageRevert
+          },
+          icon("restore"),
+          "Revert to saved"
+        )
+      ),
+    markingMode && h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
+    markingMode && h("div", { class: "section-divider", role: "separator" }),
+    markingMode && h("div", { class: "section-title" }, "Server Sync"),
+    markingMode && h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
+    markingMode && h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
   );
 
   const renderModeWarningPopover = h(
@@ -750,7 +710,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           dangerouslySetInnerHTML: {
             __html: renderModeWarningBodyHtml
           }
-        }
+        },
       ),
       h(
         "label",
@@ -783,16 +743,6 @@ function renderMarkingView({state: view, actions: handlers}) {
     h(
       "section",
       {class: "card"},
-      h(
-        "label",
-        {class: "field"},
-        h("span", null, icon("link-variant", "field-icon"), "Current Page URL"),
-        h(
-          "div",
-          {id: "current-page-url", class: "readout readout-full", title: view.currentPageUrlTitle},
-          view.currentPageUrl
-        )
-      ),
       h(
         "label",
         {class: "field"},
@@ -849,43 +799,19 @@ function renderMarkingView({state: view, actions: handlers}) {
       ),
       h(
         "details",
-        {class: "collapsible"},
-        h("summary", null, "Base Page URLs"),
+        {
+          class: "collapsible",
+          open: view.renderModeSummaryOpen,
+          onToggle: handlers.onRenderModeSummaryToggle
+        },
+        h("summary", null, view.renderModeSummaryTitle),
         h(
           "div",
           {class: "collapsible-body"},
-          h(
-            "ul",
-            {id: "base-page-urls", class: "list"},
-            renderListItems(
-              view.basePageUrls,
-              view.basePageUrlsEmptyText,
-              (item) =>
-                h(
-                  "li",
-                  {key: item.url},
-                  h(
-                    "span",
-                    {class: "page-title", title: item.url},
-                    item.url
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      disabled: item.url === view.currentBaseUrl,
-                      onClick: () => handlers.onBasePageNavigate(item.url)
-                    },
-                    icon("arrow-right"),
-                    "Navigate"
-                  )
-                )
-            )
-          )
+          renderRenderModeEditor(view, handlers)
         )
       )
     ),
-    renderModeSection,
     postRenderModeControlsVisible &&
       h(
         "section",
@@ -907,17 +833,14 @@ function renderMarkingView({state: view, actions: handlers}) {
     postRenderModeControlsVisible &&
       view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
-    postRenderModeControlsVisible && deviceSection,
+    postRenderModeControlsVisible && pageControlsSection,
     postRenderModeControlsVisible && markingMode && aiControlsSection,
     postRenderModeControlsVisible &&
       view.cssSelectorsVisible &&
       renderCssSelectorsSection({ state: view, actions: handlers }),
-    postRenderModeControlsVisible && markingMode && pageDataSection,
     postRenderModeControlsVisible &&
       (markingMode || view.highlightingOptionsVisible) &&
       renderMarkedPagesSection(view, handlers),
-    postRenderModeControlsVisible && markingMode && explicitExcludesSection,
-    postRenderModeControlsVisible && markingMode && explicitIncludesSection,
     renderModeWarningPopover
   );
 }
@@ -1358,4 +1281,12 @@ export function setConfigMenuOpen(open) {
   }
   state.configMenuOpen = open;
   setViewState({ configMenuOpen: open });
+}
+
+export function setBasePageMenuOpen(open) {
+  if (state.basePageMenuOpen === open) {
+    return;
+  }
+  state.basePageMenuOpen = open;
+  setViewState({ basePageMenuOpen: open });
 }
