@@ -330,6 +330,10 @@ button.button-small {
   color: #3d352d;
 }
 
+.warning-popover__body ol {
+  padding: 0 0 0 1rem;
+}
+
 .warning-popover__ack {
   display: inline-flex;
   align-items: center;
