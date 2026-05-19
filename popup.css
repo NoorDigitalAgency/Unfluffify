@@ -277,9 +277,10 @@ button.button-small {
   background: none;
   color: var(--accent-dark);
   font: inherit;
-  font-weight: 700;
+  font-weight: 500;
   text-decoration: underline;
   cursor: pointer;
+  margin-left: auto;
 }
 
 .notice__action:hover {
