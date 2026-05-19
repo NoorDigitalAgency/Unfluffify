@@ -827,7 +827,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: "",
-      reason: "No mapped base page URL/siteId for this page"
+      reason: uiModule.ViewText.noMappedBaseUrlOrSiteId
     };
   }
   const sourceConfigs = configs || await config.getConfigs();
@@ -914,7 +914,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: resolvedBaseUrl,
-      reason: "No domainId exists for this base URL",
+      reason: uiModule.ViewText.noDomainIdForBaseUrl,
       configs: sourceConfigs,
       config: sourceConfigs[requestedBaseUrl]
     };
@@ -1074,7 +1074,7 @@ function setRemoteConfigConnectionIssue(active) {
   }
 }
 
-function setPreviewBlocked(active, message = "Preview is in progress...") {
+function setPreviewBlocked(active, message = uiModule.ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
 }
 
@@ -2008,8 +2008,7 @@ async function refreshUiInner() {
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
   const nextViewState = {
-    currentPageUrl: pageUrl || "Unavailable",
-    currentPageUrlTitle: pageUrl || "Unavailable",
+    currentPageUrl: pageUrl || uiModule.ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen,
     basePageMenuOpen: state.basePageMenuOpen,
@@ -2018,7 +2017,7 @@ async function refreshUiInner() {
       ? previewCollapsed
         ? "Preview mode is active. The page popover is hidden."
         : "Preview mode is active on this page."
-      : "Preview is in progress..."
+      : uiModule.ViewText.previewBlockedDefault
   };
   const baseUrlReady = Boolean(state.currentBaseUrl);
   const baseField = {
@@ -2026,11 +2025,11 @@ async function refreshUiInner() {
     isEditing: false,
     noticeText: baseUrlReady
       ? ""
-      : "Base Page URL is resolved automatically from GraphQL.",
+      : uiModule.ViewText.baseUrlAutoResolvedNotice,
     noticeVisible: !baseUrlReady
   };
   if (!tabInScope) {
-    baseField.noticeText = "Open the extension on this tab to enable controls.";
+    baseField.noticeText = uiModule.ViewText.openOnCurrentTabNotice;
     baseField.noticeVisible = true;
   }
   const extensionEnabledForTab = Boolean(
@@ -2116,9 +2115,9 @@ async function refreshUiInner() {
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
     ? siteIdBlockedReason || "No mapped base page URL/siteId was found for this page."
     : !tabInScope
-      ? "Open the extension on this tab to enable controls."
+      ? uiModule.ViewText.openOnCurrentTabNotice
     : baseUrlReady && !siteIdReady
-      ? siteIdBlockedReason || "No domainId exists for this base URL"
+      ? siteIdBlockedReason || uiModule.ViewText.noDomainIdForBaseUrl
       : "";
   const renderModeSet = state.currentBaseUrlHasConfirmedRenderMode;
   const renderModeField = getEditableFieldState({
@@ -2283,7 +2282,7 @@ async function refreshUiInner() {
     : unsupportedByGraphql
     ? "This page is not mapped to any siteId/base page URL. Extension UI is disabled."
     : !tabInScope
-      ? "Open the extension on this tab to enable controls."
+      ? uiModule.ViewText.openOnCurrentTabNotice
     : configurationComplete
       ? ""
       : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
@@ -2322,7 +2321,9 @@ async function refreshUiInner() {
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
   nextViewState.renderModeEditVisible = renderModeSet && renderModeRequired;
-  nextViewState.renderModeEditText = state.renderModeEditMode ? "Cancel" : "Change";
+  nextViewState.renderModeEditText = state.renderModeEditMode
+    ? uiModule.ViewText.cancelAction
+    : uiModule.ViewText.changeAction;
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
   nextViewState.renderModeUndeterminedVisible =
@@ -2364,7 +2365,9 @@ async function refreshUiInner() {
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
   nextViewState.stageBaseEditVisible = stageBaseSet;
-  nextViewState.stageBaseEditText = state.stageBaseEditMode ? "Cancel" : "Change";
+  nextViewState.stageBaseEditText = state.stageBaseEditMode
+    ? uiModule.ViewText.cancelAction
+    : uiModule.ViewText.changeAction;
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
   nextViewState.stageBaseInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2385,7 +2388,9 @@ async function refreshUiInner() {
   nextViewState.configEndpointUrlReadOnly = !configEndpointField.isEditing;
   nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
   nextViewState.configEndpointEditVisible = configEndpointSet;
-  nextViewState.configEndpointEditText = state.configEndpointEditMode ? "Cancel" : "Change";
+  nextViewState.configEndpointEditText = state.configEndpointEditMode
+    ? uiModule.ViewText.cancelAction
+    : uiModule.ViewText.changeAction;
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
   nextViewState.configEndpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2396,7 +2401,9 @@ async function refreshUiInner() {
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
   nextViewState.endpointSetVisible = endpointField.isEditing;
   nextViewState.endpointEditVisible = endpointSet;
-  nextViewState.endpointEditText = state.endpointEditMode ? "Cancel" : "Change";
+  nextViewState.endpointEditText = state.endpointEditMode
+    ? uiModule.ViewText.cancelAction
+    : uiModule.ViewText.changeAction;
   nextViewState.endpointNoticeText = endpointField.noticeText;
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
   nextViewState.endpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2406,9 +2413,13 @@ async function refreshUiInner() {
   nextViewState.unregisterCurrentTabDisabled =
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
   nextViewState.computeButtonText =
-    state.aiRequestInFlight === "compute" ? "Computing..." : "Decide Content";
+    state.aiRequestInFlight === "compute"
+      ? uiModule.ViewText.computeButtonBusy
+      : uiModule.ViewText.computeButtonIdle;
   nextViewState.saveExcludesButtonText =
-    state.aiRequestInFlight === "save" ? "Submitting..." : "Submit to the server";
+    state.aiRequestInFlight === "save"
+      ? uiModule.ViewText.saveExcludesBusy
+      : uiModule.ViewText.saveExcludesIdle;
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiControlsBusy = aiBusy;
@@ -2431,7 +2442,7 @@ async function refreshUiInner() {
   nextViewState.baseUrlInputReadOnly = true;
   nextViewState.baseUrlSetVisible = false;
   nextViewState.baseUrlEditVisible = false;
-  nextViewState.baseUrlEditText = "Change";
+  nextViewState.baseUrlEditText = uiModule.ViewText.changeAction;
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
       ? "Problem connecting to the configuration server. Retrying..."
@@ -2478,7 +2489,7 @@ async function refreshUiInner() {
       "This page has no mapped siteId/base page URL.";
   } else if (!siteIdReady) {
     nextViewState.pageDraftStatusText =
-      effectiveSiteIdBlockedReason || "No domainId exists for this base URL";
+      effectiveSiteIdBlockedReason || uiModule.ViewText.noDomainIdForBaseUrl;
   } else if (!isEnabled) {
     nextViewState.pageDraftStatusText = "Enable marking to edit this page";
   } else if (!state.currentDraftAvailable) {
@@ -2492,8 +2503,8 @@ async function refreshUiInner() {
   } else {
     nextViewState.pageDraftStatusText = "All changes saved";
   }
-  nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || "Not loaded yet";
-  nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || "No save sent yet";
+  nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || uiModule.ViewText.syncLoadIdle;
+  nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || uiModule.ViewText.syncSaveIdle;
   nextViewState.isBusy = state.remoteConfigConnectionIssue;
   nextViewState.busyMessage = state.remoteConfigConnectionIssue
     ? "Problem connecting to server. Retrying..."
@@ -2546,8 +2557,8 @@ async function refreshUiInner() {
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
   nextViewState.markedPages = markedPages;
   nextViewState.markedPagesEmptyText = baseUrlReady
-    ? "None yet"
-    : effectiveSiteIdBlockedReason || "No mapped base page URL/siteId for this page";
+    ? uiModule.ViewText.markedPagesEmpty
+    : effectiveSiteIdBlockedReason || uiModule.ViewText.noMappedBaseUrlOrSiteId;
 
   const basePageUrlSet = new Set(
     Object.keys(configs).filter((url) => {
@@ -2570,7 +2581,7 @@ async function refreshUiInner() {
     .sort((left, right) => left.localeCompare(right))
     .map((url) => ({ url }));
   nextViewState.basePageUrls = basePageUrls;
-  nextViewState.basePageUrlsEmptyText = "No base URLs with domainId";
+  nextViewState.basePageUrlsEmptyText = uiModule.ViewText.basePageUrlsEmpty;
 
   uiModule.setViewState(nextViewState);
   if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
@@ -2919,7 +2930,7 @@ async function handleEnableToggle(event) {
     return;
   }
   uiModule.setViewState({ toggleEnabled: desiredEnabled });
-  if (!helpers.ensureBaseUrl("No mapped base page URL/siteId for this page")) {
+  if (!helpers.ensureBaseUrl(uiModule.ViewText.noMappedBaseUrlOrSiteId)) {
     uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
     return;
@@ -2965,7 +2976,7 @@ async function handleEnableToggle(event) {
           persist: false
         });
         if (!siteIdResult.ok || !siteIdResult.siteId) {
-          uiModule.showToast(siteIdResult.reason || "No domainId exists for this base URL");
+          uiModule.showToast(siteIdResult.reason || uiModule.ViewText.noDomainIdForBaseUrl);
           uiModule.setViewState({ toggleEnabled: false });
           state.lastPopupEnabled = null;
           await refreshUi();
@@ -3212,11 +3223,11 @@ async function handleUnregisterCurrentTab() {
 }
 
 async function handleBaseUrlSet() {
-  uiModule.showToast("Base Page URL is resolved automatically from GraphQL");
+  uiModule.showToast(uiModule.ViewText.baseUrlAutoResolvedNotice);
 }
 
 async function handleBaseUrlEditToggle() {
-  uiModule.showToast("Base Page URL is resolved automatically from GraphQL");
+  uiModule.showToast(uiModule.ViewText.baseUrlAutoResolvedNotice);
 }
 
 async function handleConfigEndpointSet() {
@@ -3836,7 +3847,7 @@ async function submitSelectorSetToServer(options = {}) {
     return {
       ok: false,
       skipped: true,
-      reason: siteIdResult.reason || "No domainId exists for this base URL"
+      reason: siteIdResult.reason || uiModule.ViewText.noDomainIdForBaseUrl
     };
   }
 
@@ -4000,7 +4011,7 @@ async function handlePreviewLatest() {
     return;
   }
   if (!state.currentConfig) {
-    uiModule.showToast("No mapped base page URL/siteId for this page");
+    uiModule.showToast(uiModule.ViewText.noMappedBaseUrlOrSiteId);
     return;
   }
   const selectorSet = getLatestAvailableSelectorsFromConfig();

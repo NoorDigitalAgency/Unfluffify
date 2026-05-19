@@ -10,20 +10,38 @@ export const View = {
     Marking: 'Marking'
 }
 
+export const ViewText = Object.freeze({
+  unavailable: "Unavailable",
+  changeAction: "Change",
+  cancelAction: "Cancel",
+  previewBlockedDefault: "Preview is in progress...",
+  openOnCurrentTabNotice: "Open the extension on this tab to enable controls.",
+  syncLoadIdle: "Not loaded yet",
+  syncSaveIdle: "No save sent yet",
+  markedPagesEmpty: "None yet",
+  basePageUrlsEmpty: "No base URLs with domainId",
+  computeButtonIdle: "Decide Content",
+  computeButtonBusy: "Computing...",
+  saveExcludesIdle: "Submit to the server",
+  saveExcludesBusy: "Submitting...",
+  baseUrlAutoResolvedNotice: "Base Page URL is resolved automatically from GraphQL.",
+  noMappedBaseUrlOrSiteId: "No mapped base page URL/siteId for this page",
+  noDomainIdForBaseUrl: "No domainId exists for this base URL"
+});
+
 const initialViewState = {
   currentView: View.Configuration,
   configurationComplete: false,
   configurationContinueDisabled: true,
   configurationNoticeText: "",
   configurationNoticeVisible: false,
-  currentPageUrl: "Unavailable",
-  currentPageUrlTitle: "Unavailable",
+  currentPageUrl: ViewText.unavailable,
   currentBaseUrl: "",
   baseUrlInputValue: "",
   baseUrlInputReadOnly: true,
   baseUrlSetVisible: false,
   baseUrlEditVisible: false,
-  baseUrlEditText: "Change",
+  baseUrlEditText: ViewText.changeAction,
   baseUrlNoticeText: "",
   baseUrlNoticeVisible: false,
   toggleEnabled: false,
@@ -38,22 +56,18 @@ const initialViewState = {
   pageSaveDisabled: true,
   pageRevertDisabled: true,
   pageDraftStatusText: "",
-  syncLoadStatusText: "Not loaded yet",
-  syncSaveStatusText: "No save sent yet",
-  explicitExcludes: [],
-  explicitExcludesEmptyText: "No mapped base page URL/siteId for this page",
-  explicitIncludes: [],
-  explicitIncludesEmptyText: "No mapped base page URL/siteId for this page",
+  syncLoadStatusText: ViewText.syncLoadIdle,
+  syncSaveStatusText: ViewText.syncSaveIdle,
   markedPages: [],
-  markedPagesEmptyText: "No mapped base page URL/siteId for this page",
+  markedPagesEmptyText: ViewText.markedPagesEmpty,
   basePageUrls: [],
-  basePageUrlsEmptyText: "No base URLs saved",
+  basePageUrlsEmptyText: ViewText.basePageUrlsEmpty,
   basePageMenuOpen: false,
   endpointUrlValue: "",
   endpointUrlReadOnly: true,
   endpointSetVisible: true,
   endpointEditVisible: false,
-  endpointEditText: "Change",
+  endpointEditText: ViewText.changeAction,
   endpointNoticeText: "",
   endpointNoticeVisible: false,
   endpointInputDisabled: false,
@@ -63,7 +77,7 @@ const initialViewState = {
   configEndpointUrlReadOnly: true,
   configEndpointSetVisible: true,
   configEndpointEditVisible: false,
-  configEndpointEditText: "Change",
+  configEndpointEditText: ViewText.changeAction,
   configEndpointNoticeText: "",
   configEndpointNoticeVisible: false,
   configEndpointInputDisabled: false,
@@ -73,7 +87,7 @@ const initialViewState = {
   stageBaseReadOnly: true,
   stageBaseSetVisible: true,
   stageBaseEditVisible: false,
-  stageBaseEditText: "Change",
+  stageBaseEditText: ViewText.changeAction,
   stageBaseNoticeText: "",
   stageBaseNoticeVisible: false,
   stageBaseInputDisabled: false,
@@ -83,7 +97,7 @@ const initialViewState = {
   renderModeReadOnly: true,
   renderModeSetVisible: false,
   renderModeEditVisible: false,
-  renderModeEditText: "Change",
+  renderModeEditText: ViewText.changeAction,
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
   renderModeUndeterminedVisible: true,
@@ -107,17 +121,17 @@ const initialViewState = {
   aiDirtyNoticeVisible: false,
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",
-  computeButtonText: "Decide Content",
+  computeButtonText: ViewText.computeButtonIdle,
   computeButtonDisabled: true,
   computeButtonLoading: false,
-  saveExcludesButtonText: "Submit to the server",
+  saveExcludesButtonText: ViewText.saveExcludesIdle,
   saveExcludesButtonDisabled: true,
   saveExcludesButtonLoading: false,
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
   highlightingOptionsVisible: false,
   previewBlocked: false,
-  previewBlockedMessage: "Preview is in progress...",
+  previewBlockedMessage: ViewText.previewBlockedDefault,
   highlightMarkedPagesChecked: true,
   highlightIncludedContentChecked: true,
   highlightExcludedContentChecked: false,
@@ -175,7 +189,7 @@ function getBlockingUiCurtainState(view) {
     return {
       visible: true,
       mode: "preview",
-      message: view.previewBlockedMessage || "Preview is in progress..."
+      message: view.previewBlockedMessage || ViewText.previewBlockedDefault
     };
   }
   if (view.isBusy) {
@@ -1298,10 +1312,12 @@ export function setUiBusy(isBusy, message = "") {
   });
 }
 
-export function setPreviewBlocked(isBlocked, message = "Preview is in progress...") {
+export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDefault) {
   setViewState({
     previewBlocked: Boolean(isBlocked),
-    previewBlockedMessage: isBlocked ? (message || "Preview is in progress...") : "Preview is in progress..."
+    previewBlockedMessage: isBlocked
+      ? (message || ViewText.previewBlockedDefault)
+      : ViewText.previewBlockedDefault
   });
 }
 
