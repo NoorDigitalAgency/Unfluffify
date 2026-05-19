@@ -1,7 +1,7 @@
 import * as emulation from "./emulation.js";
 import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
-import { PopupText, ViewText, formatScalePercent } from "./text.js";
+import { PopupText, ViewText, formatScalePercent } from "../common/text.js";
 import * as uiModule from "./ui.js";
 import * as utils from "../common/utilities.js";
 

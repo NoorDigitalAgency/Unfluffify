@@ -32,7 +32,7 @@ import {
   formatScalePercent,
   formatSelectorsComputedLocally,
   formatTimestampedStatus
-} from "./popup/text.js";
+} from "./common/text.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";

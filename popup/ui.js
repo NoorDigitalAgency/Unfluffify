@@ -7,9 +7,9 @@ import {
   formatScalePercent,
   formatSyncLoadSummary,
   formatSyncSaveSummary
-} from "./text.js";
+} from "../common/text.js";
 
-export { ViewText } from "./text.js";
+export { ViewText } from "../common/text.js";
 
 const { state } = stateModule;
 

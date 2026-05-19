@@ -101,6 +101,23 @@ export function formatLoginFailedStatus(status) {
   return `Login failed (${status})`;
 }
 
+export const ContentText = Object.freeze({
+  marking: Object.freeze({
+    immutableOverrideBlocked: "Default exclusions cannot be overridden", // Toast shown when a user tries to toggle an immutable default exclusion.
+    altIncludeParentHint: "Use Alt include to override an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
+    explicitIncludeBlocked: "Element cannot be explicitly included" // Toast shown when an element fails the explicit-include eligibility rules.
+  }),
+
+  preview: Object.freeze({
+    collapseAriaLabel: "Hide preview", // Aria label for the on-page preview collapse button.
+    title: "Computed Content", // Title shown at the top of the on-page preview popover.
+    closeGlyph: "\u00D7", // Text glyph shown inside the preview close button.
+    closeAriaLabel: "Close", // Aria label for the on-page preview close button.
+    restoreAriaLabel: "Show preview", // Aria label for the collapsed preview restore button.
+    emptyState: "No content found" // Empty-state text when preview has no included content rows to show.
+  })
+});
+
 export const PopupText = Object.freeze({
   view: ViewText,
 

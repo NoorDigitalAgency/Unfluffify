@@ -4,6 +4,7 @@ import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
 } from "../common/constants.js";
+import { ContentText } from "../common/text.js";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
 import {
   normalizeAiSelectorSet,
@@ -3186,7 +3187,7 @@ function toggleExplicitExclude(target) {
     return;
   }
   if (isWithinImmutableExcluded(target)) {
-    showToast("Default exclusions cannot be overridden");
+    showToast(ContentText.marking.immutableOverrideBlocked);
     return;
   }
 
@@ -3222,7 +3223,7 @@ function toggleExplicitExclude(target) {
   }
   const explicitExcludeSet = new Set(collectExcludedXPaths(items));
   if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
-    showToast("Use Alt include to override an excluded parent");
+    showToast(ContentText.marking.altIncludeParentHint);
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -3274,7 +3275,7 @@ function toggleExplicitInclude(target) {
     return;
   }
   if (matchesImmutableExcluded(target)) {
-    showToast("Default exclusions cannot be overridden");
+    showToast(ContentText.marking.immutableOverrideBlocked);
     return;
   }
 
@@ -3323,7 +3324,7 @@ function toggleExplicitInclude(target) {
     includeXpaths.splice(existingIndex, 1);
   } else {
     if (!canApplyExplicitInclude(target, state.config, location.href, entry)) {
-      showToast("Element cannot be explicitly included");
+      showToast(ContentText.marking.explicitIncludeBlocked);
       return;
     }
     includeXpaths.push(xpath);
@@ -4957,17 +4958,17 @@ export function showAiPopover(items, options = {}) {
   const collapse = document.createElement("button");
   collapse.className = "uf-ai-popover-toggle uf-ai-popover-toggle--collapse";
   collapse.type = "button";
-  collapse.setAttribute("aria-label", "Hide preview");
+  collapse.setAttribute("aria-label", ContentText.preview.collapseAriaLabel);
   collapse.appendChild(createAiPopoverPanelIcon("left"));
   collapse.addEventListener("click", () => setAiPopoverCollapsed(true));
   const title = document.createElement("div");
   title.className = "uf-ai-popover-title";
-  title.textContent = "Computed Content";
+  title.textContent = ContentText.preview.title;
   const close = document.createElement("button");
   close.className = "uf-ai-popover-close";
   close.type = "button";
-  close.textContent = "\u00D7";
-  close.setAttribute("aria-label", "Close");
+  close.textContent = ContentText.preview.closeGlyph;
+  close.setAttribute("aria-label", ContentText.preview.closeAriaLabel);
   close.addEventListener("click", () => closeAiPopover());
   header.appendChild(collapse);
   header.appendChild(title);
@@ -4975,7 +4976,7 @@ export function showAiPopover(items, options = {}) {
   const restore = document.createElement("button");
   restore.className = "uf-ai-popover-toggle uf-ai-popover-toggle--restore";
   restore.type = "button";
-  restore.setAttribute("aria-label", "Show preview");
+  restore.setAttribute("aria-label", ContentText.preview.restoreAriaLabel);
   restore.appendChild(createAiPopoverPanelIcon("right"));
   restore.addEventListener("click", () => setAiPopoverCollapsed(false));
   const body = document.createElement("div");
@@ -4984,7 +4985,7 @@ export function showAiPopover(items, options = {}) {
   list.className = "uf-ai-popover-list";
   if (!items.length) {
     const empty = document.createElement("li");
-    empty.textContent = "No content found";
+    empty.textContent = ContentText.preview.emptyState;
     list.appendChild(empty);
   } else {
     items.forEach((item) => {
