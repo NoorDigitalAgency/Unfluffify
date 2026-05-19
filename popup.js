@@ -1765,9 +1765,6 @@ async function refreshUiInner() {
       remoteLoadResult.status === "error"
   );
   setRemoteConfigConnectionIssue(remoteConfigConnectionIssue);
-  if (remoteConfigConnectionIssue) {
-    scheduleRemoteConfigRetry();
-  }
   if (
     remoteLoadResult &&
     remoteLoadResult.status === "not_found" &&
@@ -2131,12 +2128,20 @@ async function refreshUiInner() {
   }
   state.currentView = resolvedView;
 
+  const remoteConfigRetryBlocked =
+    state.remoteConfigConnectionIssue && resolvedView !== uiModule.View.Configuration;
+  if (remoteConfigRetryBlocked) {
+    scheduleRemoteConfigRetry();
+  } else {
+    clearRemoteConfigRetryTimer();
+  }
+
   nextViewState.currentView = resolvedView;
   nextViewState.configurationContinueDisabled = !configurationComplete;
   nextViewState.configurationNoticeVisible =
     !configurationComplete ||
-    state.remoteConfigConnectionIssue;
-  nextViewState.configurationNoticeText = state.remoteConfigConnectionIssue
+    remoteConfigRetryBlocked;
+  nextViewState.configurationNoticeText = remoteConfigRetryBlocked
     ? PopupText.configuration.remoteConfigRetryNotice
     : configurationComplete
       ? ""
@@ -2145,8 +2150,8 @@ async function refreshUiInner() {
   const pageScopedUiDisabled =
     unsupportedByGraphql ||
     !tabInScope ||
-    state.remoteConfigConnectionIssue;
-  const configurationUiDisabled = aiBusy || state.remoteConfigConnectionIssue;
+    remoteConfigRetryBlocked;
+  const configurationUiDisabled = aiBusy;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
     pageScopedUiDisabled || !baseUrlReady || !siteIdReady || !renderModeReady;
@@ -2344,8 +2349,8 @@ async function refreshUiInner() {
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
-  nextViewState.isBusy = state.remoteConfigConnectionIssue;
-  nextViewState.busyMessage = state.remoteConfigConnectionIssue
+  nextViewState.isBusy = remoteConfigRetryBlocked;
+  nextViewState.busyMessage = remoteConfigRetryBlocked
     ? PopupText.status.remoteServerRetryNotice
     : "";
   nextViewState.pageDataNewNoticeHidden =
@@ -2630,6 +2635,7 @@ function handleBasePageMenuClick(event) {
 async function handleOpenConfigurationView() {
   uiModule.setConfigMenuOpen(false);
   uiModule.setBasePageMenuOpen(false);
+  clearRemoteConfigRetryTimer();
   state.currentView = uiModule.View.Configuration;
   uiModule.setViewState({ currentView: state.currentView });
   await refreshUi();
