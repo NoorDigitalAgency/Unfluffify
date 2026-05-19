@@ -919,269 +919,250 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     );
 }
 
+  function renderEditableConfigurationField(options) {
+    const {
+      inputId,
+      noticeId,
+      label,
+      placeholder,
+      readOnly,
+      value,
+      disabled,
+      onInput,
+      onKeyDown,
+      inputRef,
+      setVisible,
+      setDisabled,
+      onSet,
+      editVisible,
+      editDisabled,
+      onEditToggle,
+      editText,
+      noticeVisible,
+      noticeText
+    } = options;
+
+    return h(
+      Fragment,
+      null,
+      h(
+        "label",
+        { class: "field" },
+        h("span", null, label),
+        h(
+          "div",
+          { class: "input-row" },
+          h("input", {
+            id: inputId,
+            type: "text",
+            placeholder,
+            readOnly,
+            value,
+            disabled,
+            onInput,
+            onKeyDown,
+            ref: inputRef
+          }),
+          h(
+            "button",
+            {
+              id: `${inputId}-set`,
+              type: "button",
+              style: { display: setVisible ? "inline-flex" : "none" },
+              disabled: setDisabled,
+              onClick: onSet
+            },
+            icon("check"),
+            PopupText.actions.set
+          ),
+          h(
+            "button",
+            {
+              id: `${inputId}-edit`,
+              type: "button",
+              style: { display: editVisible ? "inline-flex" : "none" },
+              disabled: editDisabled,
+              onClick: onEditToggle
+            },
+            icon(editToggleIcon(editText)),
+            editText
+          )
+        )
+      ),
+      h(
+        "div",
+        {
+          id: noticeId,
+          class: "notice",
+          role: "status",
+          "aria-live": "polite",
+          hidden: !noticeVisible
+        },
+        noticeText
+      )
+    );
+  }
+
 function renderConfigurationView({state: view, actions: handlers}) {
     return h(
-        Fragment,
-        null,
+      Fragment,
+      null,
+      h(
+        "section",
+        { class: "card" },
+        h("div", { class: "section-title" }, PopupText.configuration.title),
+        h("div", { class: "hint" }, PopupText.configuration.setupHint),
         h(
-            "section",
-            {class: "card"},
-      h("div", {class: "section-title"}, PopupText.configuration.title),
-            h(
-                "div",
-                {class: "hint"},
-        PopupText.configuration.setupHint
-            ),
-            h(
-                "div",
-                {
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.configurationNoticeVisible
-                },
-                view.configurationNoticeText
-            ),
-            h(
-                "button",
-                {
-                    id: "config-continue",
-                    type: "button",
-                    disabled: view.configurationContinueDisabled,
-                    onClick: handlers.onConfigurationContinue,
-                    class: "full-width margin-above"
-                },
-                icon("arrow-left"),
-                  PopupText.actions.goBack
-            )
+          "div",
+          {
+            class: "notice",
+            role: "status",
+            "aria-live": "polite",
+            hidden: !view.configurationNoticeVisible
+          },
+          view.configurationNoticeText
         ),
         h(
-            "section",
-            {class: "card"},
-                h("div", {class: "section-title"}, PopupText.configuration.endpointSectionTitle),
-            h(
-                "label",
-                {class: "field"},
-                  h("span", null, PopupText.configuration.endpointFieldLabel),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h("input", {
-                        id: "config-endpoint-url",
-                        type: "text",
-                      placeholder: PopupText.configuration.endpointPlaceholder,
-                        readOnly: view.configEndpointUrlReadOnly,
-                        value: view.configEndpointUrlValue,
-                        disabled: view.configEndpointInputDisabled,
-                        onInput: handlers.onConfigEndpointInput,
-                        onKeyDown: handlers.onConfigEndpointKeyDown,
-                        ref: (el) => {
-                            refs.configEndpointUrlInput = el;
-                        }
-                    }),
-                    h(
-                        "button",
-                        {
-                            id: "config-endpoint-url-set",
-                            type: "button",
-                            style: {display: view.configEndpointSetVisible ? "inline-flex" : "none"},
-                            disabled: view.configEndpointSetDisabled,
-                            onClick: handlers.onConfigEndpointSet
-                        },
-                        icon("check"),
-                          PopupText.actions.set
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "config-endpoint-url-edit",
-                            type: "button",
-                            style: {display: view.configEndpointEditVisible ? "inline-flex" : "none"},
-                            disabled: view.configEndpointEditDisabled,
-                            onClick: handlers.onConfigEndpointEditToggle
-                        },
-                      icon(editToggleIcon(view.configEndpointEditText)),
-                        view.configEndpointEditText
-                    )
-                )
-            ),
-            h(
-                "div",
-                {
-                    id: "config-endpoint-notice",
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.configEndpointNoticeVisible
-                },
-                view.configEndpointNoticeText
-            )
-        ),
-        h(
-            "section",
-            {class: "card"},
-          h("div", {class: "section-title"}, PopupText.configuration.aiSettingsTitle),
-            h(
-                "label",
-                {class: "field"},
-            h("span", null, PopupText.configuration.aiEndpointFieldLabel),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h("input", {
-                        id: "endpoint-url",
-                        type: "text",
-                placeholder: PopupText.configuration.aiEndpointPlaceholder,
-                        readOnly: view.endpointUrlReadOnly,
-                        value: view.endpointUrlValue,
-                        disabled: view.endpointInputDisabled,
-                        onInput: handlers.onEndpointInput,
-                        onKeyDown: handlers.onEndpointKeyDown,
-                        ref: (el) => {
-                            refs.endpointUrlInput = el;
-                        }
-                    }),
-                    h(
-                        "button",
-                        {
-                            id: "endpoint-url-set",
-                            type: "button",
-                            style: {display: view.endpointSetVisible ? "inline-flex" : "none"},
-                            disabled: view.endpointSetDisabled,
-                            onClick: handlers.onEndpointSet
-                        },
-                        icon("check"),
-                          PopupText.actions.set
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "endpoint-url-edit",
-                            type: "button",
-                            style: {display: view.endpointEditVisible ? "inline-flex" : "none"},
-                            disabled: view.endpointEditDisabled,
-                            onClick: handlers.onEndpointEditToggle
-                        },
-                      icon(editToggleIcon(view.endpointEditText)),
-                        view.endpointEditText
-                    )
-                )
-            ),
-        ),
-        h(
-            "section",
-            {class: "card"},
-          h("div", {class: "section-title"}, PopupText.configuration.stageBaseTitle),
-            h(
-                "label",
-                {class: "field"},
-            h("span", null, PopupText.configuration.stageBaseFieldLabel),
-                h(
-                    "div",
-                    {class: "input-row"},
-                    h("input", {
-                        id: "stage-base",
-                        type: "text",
-                placeholder: PopupText.configuration.stageBasePlaceholder,
-                        readOnly: view.stageBaseReadOnly,
-                        value: view.stageBaseValue,
-                        disabled: view.stageBaseInputDisabled,
-                        onInput: handlers.onStageBaseInput,
-                        onKeyDown: handlers.onStageBaseKeyDown,
-                        ref: (el) => {
-                            refs.stageBaseInput = el;
-                        }
-                    }),
-                    h(
-                        "button",
-                        {
-                            id: "stage-base-set",
-                            type: "button",
-                            style: {display: view.stageBaseSetVisible ? "inline-flex" : "none"},
-                            disabled: view.stageBaseSetDisabled,
-                            onClick: handlers.onStageBaseSet
-                        },
-                        icon("check"),
-                          PopupText.actions.set
-                    ),
-                    h(
-                        "button",
-                        {
-                            id: "stage-base-edit",
-                            type: "button",
-                            style: {display: view.stageBaseEditVisible ? "inline-flex" : "none"},
-                            disabled: view.stageBaseEditDisabled,
-                            onClick: handlers.onStageBaseEditToggle
-                        },
-                      icon(editToggleIcon(view.stageBaseEditText)),
-                        view.stageBaseEditText
-                    )
-                )
-        ),
-        h(
-            "div",
-            {
-                id: "stage-base-notice",
-                    class: "notice",
-                    role: "status",
-                    "aria-live": "polite",
-                    hidden: !view.stageBaseNoticeVisible
-                },
-                view.stageBaseNoticeText
-            )
-        ),
-        h(
-            "section",
-            {class: "card"},
-          h("div", {class: "section-title"}, PopupText.authentication.title),
-            h(
-                Fragment,
-                null,
-                h(
-                    "label",
-                    {class: "field"},
-              h("span", null, PopupText.authentication.emailLabel),
-                    h("input", {
-                        id: "login-email",
-                        type: "email",
-                placeholder: PopupText.authentication.emailPlaceholder,
-                        value: view.loginEmailValue,
-                        disabled: view.loginCredentialsDisabled,
-                        onInput: handlers.onLoginEmailInput
-                    })
-                ),
-                h(
-                    "label",
-                    {class: "field"},
-                  h("span", null, PopupText.authentication.passwordLabel),
-                    h("input", {
-                        id: "login-password",
-                        type: "password",
-                    placeholder: PopupText.authentication.passwordPlaceholder,
-                        value: view.loginPasswordValue,
-                        disabled: view.loginCredentialsDisabled,
-                        onInput: handlers.onLoginPasswordInput,
-                        onKeyDown: handlers.onLoginPasswordKeyDown
-                    })
-                ),
-                h(
-                    "div",
-                    {class: "token-row"},
-                    h("span", {id: "token-status", class: "token-status"}, view.loginStatusText),
-                    h(
-                        "button",
-                        {
-                            id: "login-action",
-                            type: "button",
-                            disabled: view.loginActionDisabled,
-                            onClick: handlers.onLoginAction
-                        },
-                        icon("login"),
-                          PopupText.actions.login
-                    )
-                )
-            )
+          "button",
+          {
+            id: "config-continue",
+            type: "button",
+            disabled: view.configurationContinueDisabled,
+            onClick: handlers.onConfigurationContinue,
+            class: "full-width margin-above"
+          },
+          icon("arrow-left"),
+          PopupText.actions.goBack
         )
+      ),
+      h(
+        "section",
+        { class: "card" },
+        h("div", { class: "section-title" }, PopupText.configuration.endpointSectionTitle),
+        renderEditableConfigurationField({
+          inputId: "config-endpoint-url",
+          noticeId: "config-endpoint-notice",
+          label: PopupText.configuration.endpointFieldLabel,
+          placeholder: PopupText.configuration.endpointPlaceholder,
+          readOnly: view.configEndpointUrlReadOnly,
+          value: view.configEndpointUrlValue,
+          disabled: view.configEndpointInputDisabled,
+          onInput: handlers.onConfigEndpointInput,
+          onKeyDown: handlers.onConfigEndpointKeyDown,
+          inputRef: (el) => {
+            refs.configEndpointUrlInput = el;
+          },
+          setVisible: view.configEndpointSetVisible,
+          setDisabled: view.configEndpointSetDisabled,
+          onSet: handlers.onConfigEndpointSet,
+          editVisible: view.configEndpointEditVisible,
+          editDisabled: view.configEndpointEditDisabled,
+          onEditToggle: handlers.onConfigEndpointEditToggle,
+          editText: view.configEndpointEditText,
+          noticeVisible: view.configEndpointNoticeVisible,
+          noticeText: view.configEndpointNoticeText
+        }),
+        h("div", { class: "section-divider", role: "separator" }),
+        renderEditableConfigurationField({
+          inputId: "endpoint-url",
+          noticeId: "endpoint-notice",
+          label: PopupText.configuration.aiEndpointFieldLabel,
+          placeholder: PopupText.configuration.aiEndpointPlaceholder,
+          readOnly: view.endpointUrlReadOnly,
+          value: view.endpointUrlValue,
+          disabled: view.endpointInputDisabled,
+          onInput: handlers.onEndpointInput,
+          onKeyDown: handlers.onEndpointKeyDown,
+          inputRef: (el) => {
+            refs.endpointUrlInput = el;
+          },
+          setVisible: view.endpointSetVisible,
+          setDisabled: view.endpointSetDisabled,
+          onSet: handlers.onEndpointSet,
+          editVisible: view.endpointEditVisible,
+          editDisabled: view.endpointEditDisabled,
+          onEditToggle: handlers.onEndpointEditToggle,
+          editText: view.endpointEditText,
+          noticeVisible: view.endpointNoticeVisible,
+          noticeText: view.endpointNoticeText
+        }),
+        h("div", { class: "section-divider", role: "separator" }),
+        renderEditableConfigurationField({
+          inputId: "stage-base",
+          noticeId: "stage-base-notice",
+          label: PopupText.configuration.stageBaseFieldLabel,
+          placeholder: PopupText.configuration.stageBasePlaceholder,
+          readOnly: view.stageBaseReadOnly,
+          value: view.stageBaseValue,
+          disabled: view.stageBaseInputDisabled,
+          onInput: handlers.onStageBaseInput,
+          onKeyDown: handlers.onStageBaseKeyDown,
+          inputRef: (el) => {
+            refs.stageBaseInput = el;
+          },
+          setVisible: view.stageBaseSetVisible,
+          setDisabled: view.stageBaseSetDisabled,
+          onSet: handlers.onStageBaseSet,
+          editVisible: view.stageBaseEditVisible,
+          editDisabled: view.stageBaseEditDisabled,
+          onEditToggle: handlers.onStageBaseEditToggle,
+          editText: view.stageBaseEditText,
+          noticeVisible: view.stageBaseNoticeVisible,
+          noticeText: view.stageBaseNoticeText
+        })
+      ),
+      h(
+        "section",
+        { class: "card" },
+        h("div", { class: "section-title" }, PopupText.authentication.title),
+        h(
+          Fragment,
+          null,
+          h(
+            "label",
+            { class: "field" },
+            h("span", null, PopupText.authentication.emailLabel),
+            h("input", {
+              id: "login-email",
+              type: "email",
+              placeholder: PopupText.authentication.emailPlaceholder,
+              value: view.loginEmailValue,
+              disabled: view.loginCredentialsDisabled,
+              onInput: handlers.onLoginEmailInput
+            })
+          ),
+          h(
+            "label",
+            { class: "field" },
+            h("span", null, PopupText.authentication.passwordLabel),
+            h("input", {
+              id: "login-password",
+              type: "password",
+              placeholder: PopupText.authentication.passwordPlaceholder,
+              value: view.loginPasswordValue,
+              disabled: view.loginCredentialsDisabled,
+              onInput: handlers.onLoginPasswordInput,
+              onKeyDown: handlers.onLoginPasswordKeyDown
+            })
+          ),
+          h(
+            "div",
+            { class: "token-row" },
+            h("span", { id: "token-status", class: "token-status" }, view.loginStatusText),
+            h(
+              "button",
+              {
+                id: "login-action",
+                type: "button",
+                disabled: view.loginActionDisabled,
+                onClick: handlers.onLoginAction
+              },
+              icon("login"),
+              PopupText.actions.login
+            )
+          )
+        )
+      )
     );
 }
 

@@ -321,7 +321,7 @@ export const PopupText = Object.freeze({
     continueSetupNotice: "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.", // Notice shown when configuration is incomplete.
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
     unsupportedPageNotice: "This page is not mapped to any siteId/base page URL. Extension UI is disabled.", // Notice shown when the popup is opened on an unmapped page.
-    endpointSectionTitle: "Configuration endpoint", // Section title for the remote configuration endpoint field.
+    endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint URL", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.
     endpointNoticeUnset: "Set Configuration Endpoint before continuing", // Notice shown before the configuration endpoint is set.

@@ -1362,6 +1362,7 @@ function getEditableFieldState(options) {
     isSet,
     editMode,
     suggestedValue,
+    preserveCurrentValueWhileEditing = false,
     noticeUnset,
     noticeEdit
   } = options;
@@ -1371,7 +1372,7 @@ function getEditableFieldState(options) {
 
   if (!isEditing) {
     nextValue = value || "";
-  } else if (!isFocused) {
+  } else if (!preserveCurrentValueWhileEditing && !isFocused) {
     nextValue = isSet ? value || "" : suggestedValue || "";
   }
 
@@ -1883,6 +1884,7 @@ async function refreshUiInner() {
     isSet: configEndpointSet,
     editMode: state.configEndpointEditMode,
     suggestedValue: configEndpointValue,
+    preserveCurrentValueWhileEditing: true,
     noticeUnset: PopupText.configuration.endpointNoticeUnset,
     noticeEdit: PopupText.configuration.endpointNoticeEdit
   });
@@ -1895,6 +1897,7 @@ async function refreshUiInner() {
     isSet: endpointSet,
     editMode: state.endpointEditMode,
     suggestedValue: endpointValue,
+    preserveCurrentValueWhileEditing: true,
     noticeUnset: PopupText.configuration.aiEndpointNoticeUnset,
     noticeEdit: PopupText.configuration.aiEndpointNoticeEdit
   });
@@ -1907,6 +1910,7 @@ async function refreshUiInner() {
     isSet: stageBaseSet,
     editMode: state.stageBaseEditMode,
     suggestedValue: normalizedStageBaseValue,
+    preserveCurrentValueWhileEditing: true,
     noticeUnset: PopupText.configuration.stageBaseNoticeUnset,
     noticeEdit: PopupText.configuration.stageBaseNoticeEdit
   });
