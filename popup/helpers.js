@@ -1,6 +1,7 @@
 import * as emulation from "./emulation.js";
 import * as messages from "./messages.js";
 import * as stateModule from "./state.js";
+import { PopupText, ViewText, formatScalePercent } from "./text.js";
 import * as uiModule from "./ui.js";
 import * as utils from "../common/utilities.js";
 
@@ -19,7 +20,7 @@ export async function ensureActiveTab(options = {}) {
   return tab;
 }
 
-export function ensureBaseUrl(message = "No mapped base page URL/siteId for this page") {
+export function ensureBaseUrl(message = ViewText.noMappedBaseUrlOrSiteId) {
   if (!state.currentBaseUrl) {
     uiModule.showToast(message);
     return false;
@@ -29,13 +30,13 @@ export function ensureBaseUrl(message = "No mapped base page URL/siteId for this
 
 export async function injectContentScriptIfNeeded() {
   if (!state.currentTab || !state.currentTab.id) {
-    return { ok: false, error: "No active tab" };
+    return { ok: false, error: PopupText.helper.injectNoActiveTab };
   }
   const response = await messages.sendRuntimeMessage({
     type: "injectContentScript",
     tabId: state.currentTab.id
   });
-  return response || { ok: false, error: "Injection failed" };
+  return response || { ok: false, error: PopupText.helper.injectFailed };
 }
 
 export async function updateDeviceEmulation({
@@ -49,7 +50,7 @@ export async function updateDeviceEmulation({
   }
   const supportedUrl = utils.getOriginFromUrl(state.currentTab.url || "");
   if (enabled && !supportedUrl) {
-    uiModule.showToast("Device simulation is only available on http(s) pages");
+    uiModule.showToast(PopupText.device.unsupportedToast);
     const normalized = emulation.syncDeviceEmulationState({
       enabled: false,
       mode: state.currentDeviceMode,
@@ -59,7 +60,7 @@ export async function updateDeviceEmulation({
       deviceEmulationEnabled: normalized.enabled,
       deviceMode: normalized.mode,
       deviceScale: normalized.scale.toFixed(2),
-      deviceScaleValue: `${Math.round(normalized.scale * 100)}%`
+      deviceScaleValue: formatScalePercent(normalized.scale)
     });
     return null;
   }
@@ -68,7 +69,7 @@ export async function updateDeviceEmulation({
       deviceEmulationEnabled: normalized.enabled,
       deviceMode: normalized.mode,
       deviceScale: normalized.scale.toFixed(2),
-      deviceScaleValue: `${Math.round(normalized.scale * 100)}%`
+      deviceScaleValue: formatScalePercent(normalized.scale)
     });
   };
   emulation.setDeviceControlsDisabled(true);
@@ -82,7 +83,7 @@ export async function updateDeviceEmulation({
   });
   emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
-    uiModule.showToast((response && response.error) || "Device emulation failed");
+    uiModule.showToast((response && response.error) || PopupText.device.emulationFailed);
     const reconciledState = state.currentTab && state.currentTab.id
       ? await emulation.reconcileDeviceEmulationState(state.currentTab.id)
       : {
@@ -102,11 +103,11 @@ export async function updateDeviceEmulation({
 export async function loadGlobalAiSettings() {
   const [tokenResult, endpointResult, configEndpointResult, stageBaseResult] =
     await Promise.all([
-    utils.storageGet(chrome.storage.sync, "globalToken"),
-    utils.storageGet(chrome.storage.sync, "globalEndpoint"),
-    utils.storageGet(chrome.storage.sync, "globalConfigEndpoint"),
-    utils.storageGet(chrome.storage.sync, "globalStageBase")
-  ]);
+      utils.storageGet(chrome.storage.sync, "globalToken"),
+      utils.storageGet(chrome.storage.sync, "globalEndpoint"),
+      utils.storageGet(chrome.storage.sync, "globalConfigEndpoint"),
+      utils.storageGet(chrome.storage.sync, "globalStageBase")
+    ]);
   return {
     tokenValue: (tokenResult && tokenResult.globalToken) || "",
     endpointValue: (endpointResult && endpointResult.globalEndpoint) || "",
@@ -120,11 +121,11 @@ export async function loadGlobalAiSettings() {
 export async function requireAiCredentials() {
   const { tokenValue, endpointValue } = await loadGlobalAiSettings();
   if (!endpointValue) {
-    uiModule.showToast("Set Endpoint URL first");
+    uiModule.showToast(PopupText.helper.setEndpointFirst);
     return null;
   }
   if (!tokenValue) {
-    uiModule.showToast("Login first");
+    uiModule.showToast(PopupText.helper.loginFirst);
     return null;
   }
   return { tokenValue, endpointValue };

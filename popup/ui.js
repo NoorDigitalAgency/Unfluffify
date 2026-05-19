@@ -1,5 +1,15 @@
 import { h, render, Fragment } from "./vendor/preact/dist/preact.module.js";
 import * as stateModule from "./state.js";
+import {
+  PopupText,
+  ViewText,
+  formatMarkedPageCount,
+  formatScalePercent,
+  formatSyncLoadSummary,
+  formatSyncSaveSummary
+} from "./text.js";
+
+export { ViewText } from "./text.js";
 
 const { state } = stateModule;
 
@@ -9,25 +19,6 @@ export const View = {
     Configuration: 'Configuration',
     Marking: 'Marking'
 }
-
-export const ViewText = Object.freeze({
-  unavailable: "Unavailable",
-  changeAction: "Change",
-  cancelAction: "Cancel",
-  previewBlockedDefault: "Preview is in progress...",
-  openOnCurrentTabNotice: "Open the extension on this tab to enable controls.",
-  syncLoadIdle: "Not loaded yet",
-  syncSaveIdle: "No save sent yet",
-  markedPagesEmpty: "None yet",
-  basePageUrlsEmpty: "No base URLs with domainId",
-  computeButtonIdle: "Decide Content",
-  computeButtonBusy: "Computing...",
-  saveExcludesIdle: "Submit to the server",
-  saveExcludesBusy: "Submitting...",
-  baseUrlAutoResolvedNotice: "Base Page URL is resolved automatically from GraphQL.",
-  noMappedBaseUrlOrSiteId: "No mapped base page URL/siteId for this page",
-  noDomainIdForBaseUrl: "No domainId exists for this base URL"
-});
 
 const initialViewState = {
   currentView: View.Configuration,
@@ -50,7 +41,7 @@ const initialViewState = {
   deviceEmulationEnabled: false,
   deviceMode: "mobile",
   deviceScale: 0.85,
-  deviceScaleValue: "85%",
+  deviceScaleValue: formatScalePercent(0.85),
   deviceControlsDisabled: false,
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
@@ -110,7 +101,7 @@ const initialViewState = {
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
   renderModeSummaryOpen: false,
-  renderModeSummaryTitle: "Render Mode",
+  renderModeSummaryTitle: PopupText.renderMode.title,
   loginEmailValue: "",
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
@@ -149,23 +140,6 @@ const initialViewState = {
 let viewState = { ...initialViewState };
 let actions = {};
 
-const renderModeWarningBodyHtml = `
-  <p>
-    You must choose the Render Mode manually before continuing:
-  </p>
-  <ol>
-    <li>Click somewhere inside the page first.</li>
-    <li>Open the Chrome DevTools with F12.</li>
-    <li>Open Preferences with F1.</li>
-    <li>From the Debugger section check Disable JavaScript.</li>
-    <li>Reload the page with DevTools still open.</li>
-    <li>See if the meaningful content is still visible. If it is, choose "Static HTML".</li>
-    <li>If the meaningful content disappears, choose "Rendered HTML".</li>
-    <li>From the Debugger section, uncheck Disable JavaScript.</li>
-    <li>Reload the page again and continue in Unfluffify.</li>
-  </ol>
-`;
-
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
 }
@@ -196,35 +170,35 @@ function getBlockingUiCurtainState(view) {
     return {
       visible: true,
       mode: "busy",
-      message: view.busyMessage || "Loading popup..."
+      message: view.busyMessage || PopupText.overlay.loadingPopup
     };
   }
   if (view.computeButtonLoading) {
     return {
       visible: true,
       mode: "busy",
-      message: "Computing selectors..."
+      message: PopupText.overlay.computingSelectors
     };
   }
   if (view.saveExcludesButtonLoading) {
     return {
       visible: true,
       mode: "busy",
-      message: "Submitting selectors..."
+      message: PopupText.overlay.submittingSelectors
     };
   }
   if (view.aiControlsBusy) {
     return {
       visible: true,
       mode: "busy",
-      message: "Working with AI..."
+      message: PopupText.overlay.workingWithAi
     };
   }
   if (view.deviceControlsDisabled) {
     return {
       visible: true,
       mode: "busy",
-      message: "Applying device emulation..."
+      message: PopupText.overlay.applyingDeviceEmulation
     };
   }
   return {
@@ -263,7 +237,7 @@ function renderBasePageMenu(view, handlers) {
               item.url
             ),
             item.url === view.currentBaseUrl
-              ? h("span", { class: "section-menu__status" }, "Current")
+              ? h("span", { class: "section-menu__status" }, PopupText.markedPages.currentBadge)
               : icon("arrow-right")
           )
         )
@@ -282,7 +256,7 @@ function renderRenderModeEditor(view, handlers) {
     h(
       "label",
       {class: "field"},
-      h("span", null, icon("monitor-dashboard", "field-icon"), "Render Mode"),
+      h("span", null, icon("monitor-dashboard", "field-icon"), PopupText.renderMode.title),
       h(
         "div",
         {class: "input-row"},
@@ -297,10 +271,10 @@ function renderRenderModeEditor(view, handlers) {
               refs.renderModeSelect = el;
             }
           },
-          h("option", { value: "static" }, "Static HTML"),
-          h("option", { value: "rendered" }, "Rendered HTML"),
+          h("option", { value: "static" }, PopupText.renderMode.optionStatic),
+          h("option", { value: "rendered" }, PopupText.renderMode.optionRendered),
           view.renderModeUndeterminedVisible
-            ? h("option", { value: "undetermined", disabled: true }, "Undetermined")
+            ? h("option", { value: "undetermined", disabled: true }, PopupText.renderMode.optionUndetermined)
             : null
         ),
         h(
@@ -313,7 +287,7 @@ function renderRenderModeEditor(view, handlers) {
             onClick: handlers.onRenderModeSet
           },
           icon("check"),
-          "Set"
+          PopupText.actions.set
         ),
         h(
           "button",
@@ -343,7 +317,7 @@ function renderRenderModeEditor(view, handlers) {
     h(
       "div",
       {class: "hint"},
-      "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML."
+      PopupText.renderMode.manualHint
     )
   );
 }
@@ -355,7 +329,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
     h(
       "div",
       { class: "section-header" },
-      h("div", {class: "section-title"}, "Marked Pages"),
+      h("div", {class: "section-title"}, PopupText.markedPages.title),
       h(
         "div",
         { class: "section-header-actions" },
@@ -367,7 +341,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
             class: "section-menu-button button-secondary",
             "aria-haspopup": "menu",
             "aria-expanded": view.basePageMenuOpen ? "true" : "false",
-            title: "Base page URLs",
+            title: PopupText.tooltips.basePageUrls,
             onClick: handlers.onBasePageMenuToggle
           },
           icon("menu")
@@ -393,11 +367,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
             h(
               "span",
               {class: "count"},
-              item.count === 0
-                ? "No marks"
-                : item.count === 1
-                  ? "1 mark"
-                  : `${item.count} marks`
+              formatMarkedPageCount(item.count)
             ),
             h(
               "button",
@@ -407,7 +377,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                 onClick: () => handlers.onMarkedPageNavigate(item.url)
               },
               icon("arrow-right"),
-              "Navigate"
+              PopupText.actions.navigate
             )
           )
       )
@@ -434,7 +404,7 @@ function App({ state: view, actions: handlers }) {
             id: "close-tab",
             type: "button",
             class: "close-button",
-            title: "Unregister current tab and reload",
+            title: PopupText.unregister.closeButtonTitle,
             disabled: view.unregisterCurrentTabDisabled,
             onClick: handlers.onUnregisterCurrentTab
           }
@@ -446,8 +416,8 @@ function App({ state: view, actions: handlers }) {
         h(
           "div",
           { class: "header-text" },
-          h("img", { src: "logo.png", alt: "Unfluffify", class: "header-logo" }),
-          h("div", { class: "subtitle" }, "Tell AI what's not content")
+          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" }),
+          h("div", { class: "subtitle" }, PopupText.branding.subtitle)
         ),
         h(
           "div",
@@ -463,7 +433,7 @@ function App({ state: view, actions: handlers }) {
               onClick: handlers.onConfigToggle
             },
             icon("cog-outline"),
-            "Configuration"
+            PopupText.configuration.title
           ),
           h(
             "div",
@@ -483,7 +453,7 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onOpenConfiguration
               },
               icon("tune"),
-              "Open configuration view"
+              PopupText.configuration.openViewAction
             ),
             h("div", { class: "config-divider", role: "separator" }),
             h(
@@ -497,7 +467,7 @@ function App({ state: view, actions: handlers }) {
                 onClick: handlers.onClearDomainCache
               },
               icon("trash-can-outline"),
-              "Empty cache for current domain"
+              PopupText.cache.menuAction
             )
           )
         )
@@ -542,13 +512,13 @@ function App({ state: view, actions: handlers }) {
               h("span", { class: "mdi mdi-eye-outline" })
             )
           : h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
-        h("div", { class: "ui-curtain__title" }, curtain.message || "Please wait..."),
+        h("div", { class: "ui-curtain__title" }, curtain.message || PopupText.overlay.pleaseWait),
         h(
           "div",
           { class: "ui-curtain__hint" },
           view.previewBlocked
-            ? "The page is in preview mode. Exit preview to resume editing and settings changes."
-            : "Working... controls are temporarily blocked."
+            ? PopupText.overlay.previewHint
+            : PopupText.overlay.busyHint
         ),
         previewCurtainVisible
           ? h(
@@ -558,7 +528,7 @@ function App({ state: view, actions: handlers }) {
                 class: "ui-curtain__action",
                 onClick: handlers.onExitPreviewMode
               },
-              "Exit Preview"
+              PopupText.actions.exitPreview
             )
           : null
       )
@@ -576,7 +546,7 @@ function renderAiControlsContent(view, handlers) {
   return h(
     Fragment,
     null,
-    h("div", {class: "section-title"}, "AI controls"),
+    h("div", {class: "section-title"}, PopupText.ai.sectionTitle),
     !view.configurationComplete &&
       h(
         "div",
@@ -585,7 +555,7 @@ function renderAiControlsContent(view, handlers) {
           role: "status",
           "aria-live": "polite"
         },
-        "Complete Configuration settings to enable AI controls."
+        PopupText.ai.configurationRequiredNotice
       ),
     h(
       "div",
@@ -596,7 +566,7 @@ function renderAiControlsContent(view, handlers) {
       h(
         "div",
         {class: "section-title padding-below"},
-        "Selector Computation"
+        PopupText.ai.subsectionTitle
       ),
       h(
         "div",
@@ -607,7 +577,7 @@ function renderAiControlsContent(view, handlers) {
           "aria-live": "polite",
           style: {display: view.aiDirtyNoticeVisible ? "block" : "none"}
         },
-        "Save the current page before using AI controls"
+        PopupText.ai.dirtyNotice
       ),
       h(
         "button",
@@ -630,11 +600,11 @@ function renderMarkingView({state: view, actions: handlers}) {
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
   const markingMode = !view.mainUiHidden;
   const mergedControlsSectionChildren = [
-    h("div", {class: "section-title"}, "Mobile simulation"),
+    h("div", {class: "section-title"}, PopupText.device.sectionTitle),
     h(
       "label",
-      {class: "row", title: "CTRL/CMD+M"},
-      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), "Enable mobile simulation"),
+      {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
+      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
       h("input", {
         id: "device-emulation-enabled",
         type: "checkbox",
@@ -643,13 +613,13 @@ function renderMarkingView({state: view, actions: handlers}) {
         onChange: handlers.onDeviceEmulationEnabledChange
       })
     ),
-    h("div", {class: "hint"}, "Scale is applied automatically.")
+    h("div", {class: "hint"}, PopupText.device.scaleHint)
   ];
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
       h("div", { class: "section-divider", role: "separator" }),
-      h("div", {class: "section-title"}, "Page data"),
+      h("div", {class: "section-title"}, PopupText.page.title),
       view.pageSaveMobileSimulationRequiredVisible
         ? h(
             "div",
@@ -670,7 +640,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           "aria-live": "polite",
           hidden: view.pageDataNewNoticeHidden
         },
-        "No saved data for this page yet. Save to store it."
+        PopupText.page.noSavedDataNotice
       ),
       h(
         "div",
@@ -680,12 +650,12 @@ function renderMarkingView({state: view, actions: handlers}) {
           {
             id: "page-save",
             type: "button",
-            title: "CTRL/CMD+S",
+            title: PopupText.tooltips.pageSaveHotkey,
             disabled: view.pageSaveDisabled,
             onClick: handlers.onPageSave
           },
           icon("content-save"),
-          "Save"
+          PopupText.actions.save
         ),
         h(
           "button",
@@ -697,19 +667,19 @@ function renderMarkingView({state: view, actions: handlers}) {
             onClick: handlers.onPageRevert
           },
           icon("restore"),
-          "Revert to saved"
+          PopupText.actions.revertToSaved
         )
       ),
       h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
       h(
         "details",
         { class: "collapsible" },
-        h("summary", null, "Server Sync"),
+        h("summary", null, PopupText.page.serverSyncTitle),
         h(
           "div",
           { class: "collapsible-body" },
-          h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
-          h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
+          h("div", { class: "hint", id: "sync-load-status" }, formatSyncLoadSummary(view.syncLoadStatusText)),
+          h("div", { class: "hint", id: "sync-save-status" }, formatSyncSaveSummary(view.syncSaveStatusText))
         )
       )
     );
@@ -750,13 +720,13 @@ function renderMarkingView({state: view, actions: handlers}) {
     h(
       "div",
       { class: "warning-popover__card" },
-      h("div", { id: "render-mode-warning-title", class: "warning-popover__title" }, "Render Mode Could Not Be Determined"),
+      h("div", { id: "render-mode-warning-title", class: "warning-popover__title" }, PopupText.renderMode.warningTitle),
       h(
         "div",
         {
           class: "warning-popover__body",
           dangerouslySetInnerHTML: {
-            __html: renderModeWarningBodyHtml
+            __html: PopupText.renderMode.warningBodyHtml
           }
         },
       ),
@@ -769,7 +739,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           checked: view.renderModeWarningAcknowledgeChecked,
           onChange: handlers.onRenderModeWarningAcknowledgeChange
         }),
-        h("span", null, "I have determined and ready to choose the render mode")
+        h("span", null, PopupText.renderMode.warningAcknowledge)
       ),
       h(
         "button",
@@ -780,7 +750,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           disabled: view.renderModeWarningOkDisabled,
           onClick: handlers.onRenderModeWarningConfirm
         },
-        "OK"
+        PopupText.actions.ok
       )
     )
   );
@@ -794,14 +764,14 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "label",
         {class: "field"},
-        h("span", null, icon("home-outline", "field-icon"), "Base Page URL"),
+        h("span", null, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
         h(
           "div",
           {class: "input-row"},
           h("input", {
             id: "base-url",
             type: "text",
-            placeholder: "Resolved automatically",
+            placeholder: PopupText.baseUrl.placeholder,
             readOnly: view.baseUrlInputReadOnly,
             value: view.baseUrlInputValue,
             onInput: handlers.onBaseUrlInput,
@@ -819,7 +789,7 @@ function renderMarkingView({state: view, actions: handlers}) {
               onClick: handlers.onBaseUrlSet
             },
             icon("check"),
-            "Set"
+            PopupText.actions.set
           ),
           h(
             "button",
@@ -866,8 +836,8 @@ function renderMarkingView({state: view, actions: handlers}) {
         {class: "card"},
         h(
           "label",
-          {class: "row", title: "CTRL/CMD+E"},
-          h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), "Enable Marking"),
+          {class: "row", title: PopupText.tooltips.enableMarkingHotkey},
+          h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), PopupText.actions.enableMarking),
           h("input", {
             id: "toggle-enabled",
             type: "checkbox",
@@ -893,11 +863,11 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
     return h(
       "section",
       { class: "card" },
-      h("div", { class: "section-title" }, "Highlighting"),
+      h("div", { class: "section-title" }, PopupText.highlighting.sectionTitle),
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), "Marked page links"),
+        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), PopupText.highlighting.markedPages),
         h("input", {
           id: "highlight-marked-pages",
           type: "checkbox",
@@ -908,7 +878,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), "Included content"),
+        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
         h("input", {
           id: "highlight-included-content",
           type: "checkbox",
@@ -919,7 +889,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), "Excluded content"),
+        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
         h("input", {
           id: "highlight-excluded-content",
           type: "checkbox",
@@ -931,7 +901,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), "Hide while scrolling"),
+        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
         h("input", {
           id: "highlight-hide-during-scroll-redraw",
           type: "checkbox",
@@ -942,7 +912,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "row" },
-        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), "Visible Consent"),
+        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
         h("input", {
           id: "highlight-visible-consent",
           type: "checkbox",
@@ -962,7 +932,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     return h(
       Fragment,
       null,
-      h("div", { class: "section-title" }, "CSS Selectors"),
+      h("div", { class: "section-title" }, PopupText.selectors.sectionTitle),
       h(
         "button",
         {
@@ -973,7 +943,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
           onClick: handlers.onPreviewLatest
         },
         icon("eye-outline"),
-        "Preview Latest"
+        PopupText.actions.previewLatest
       ),
       h("div", { class: "section-divider", role: "separator" }),
       h(
@@ -998,11 +968,11 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "Configuration"),
+      h("div", {class: "section-title"}, PopupText.configuration.title),
             h(
                 "div",
                 {class: "hint"},
-                "Set endpoints, login credentials, and sign in to continue."
+        PopupText.configuration.setupHint
             ),
             h(
                 "div",
@@ -1024,24 +994,24 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     class: "full-width margin-above"
                 },
                 icon("arrow-left"),
-                "Go Back"
+                  PopupText.actions.goBack
             )
         ),
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "Configuration endpoint"),
+                h("div", {class: "section-title"}, PopupText.configuration.endpointSectionTitle),
             h(
                 "label",
                 {class: "field"},
-                h("span", null, "Configuration Endpoint URL"),
+                  h("span", null, PopupText.configuration.endpointFieldLabel),
                 h(
                     "div",
                     {class: "input-row"},
                     h("input", {
                         id: "config-endpoint-url",
                         type: "text",
-                        placeholder: "https://example.com",
+                      placeholder: PopupText.configuration.endpointPlaceholder,
                         readOnly: view.configEndpointUrlReadOnly,
                         value: view.configEndpointUrlValue,
                         disabled: view.configEndpointInputDisabled,
@@ -1061,7 +1031,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             onClick: handlers.onConfigEndpointSet
                         },
                         icon("check"),
-                        "Set"
+                          PopupText.actions.set
                     ),
                     h(
                         "button",
@@ -1092,18 +1062,18 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "AI settings"),
+          h("div", {class: "section-title"}, PopupText.configuration.aiSettingsTitle),
             h(
                 "label",
                 {class: "field"},
-                h("span", null, "AI Endpoint URL"),
+            h("span", null, PopupText.configuration.aiEndpointFieldLabel),
                 h(
                     "div",
                     {class: "input-row"},
                     h("input", {
                         id: "endpoint-url",
                         type: "text",
-                        placeholder: "https://example.com",
+                placeholder: PopupText.configuration.aiEndpointPlaceholder,
                         readOnly: view.endpointUrlReadOnly,
                         value: view.endpointUrlValue,
                         disabled: view.endpointInputDisabled,
@@ -1123,7 +1093,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             onClick: handlers.onEndpointSet
                         },
                         icon("check"),
-                        "Set"
+                          PopupText.actions.set
                     ),
                     h(
                         "button",
@@ -1143,18 +1113,18 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "Stage Base"),
+          h("div", {class: "section-title"}, PopupText.configuration.stageBaseTitle),
             h(
                 "label",
                 {class: "field"},
-                h("span", null, "Stage Base"),
+            h("span", null, PopupText.configuration.stageBaseFieldLabel),
                 h(
                     "div",
                     {class: "input-row"},
                     h("input", {
                         id: "stage-base",
                         type: "text",
-                        placeholder: "noorlynx.com",
+                placeholder: PopupText.configuration.stageBasePlaceholder,
                         readOnly: view.stageBaseReadOnly,
                         value: view.stageBaseValue,
                         disabled: view.stageBaseInputDisabled,
@@ -1174,7 +1144,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             onClick: handlers.onStageBaseSet
                         },
                         icon("check"),
-                        "Set"
+                          PopupText.actions.set
                     ),
                     h(
                         "button",
@@ -1205,18 +1175,18 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
             "section",
             {class: "card"},
-            h("div", {class: "section-title"}, "Authentication"),
+          h("div", {class: "section-title"}, PopupText.authentication.title),
             h(
                 Fragment,
                 null,
                 h(
                     "label",
                     {class: "field"},
-                    h("span", null, "Email"),
+              h("span", null, PopupText.authentication.emailLabel),
                     h("input", {
                         id: "login-email",
                         type: "email",
-                        placeholder: "name@example.com",
+                placeholder: PopupText.authentication.emailPlaceholder,
                         value: view.loginEmailValue,
                         disabled: view.loginCredentialsDisabled,
                         onInput: handlers.onLoginEmailInput
@@ -1225,11 +1195,11 @@ function renderConfigurationView({state: view, actions: handlers}) {
                 h(
                     "label",
                     {class: "field"},
-                    h("span", null, "Password"),
+                  h("span", null, PopupText.authentication.passwordLabel),
                     h("input", {
                         id: "login-password",
                         type: "password",
-                        placeholder: "password",
+                    placeholder: PopupText.authentication.passwordPlaceholder,
                         value: view.loginPasswordValue,
                         disabled: view.loginCredentialsDisabled,
                         onInput: handlers.onLoginPasswordInput,
@@ -1249,7 +1219,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             onClick: handlers.onLoginAction
                         },
                         icon("login"),
-                        "Login"
+                          PopupText.actions.login
                     )
                 )
             )
@@ -1308,7 +1278,7 @@ export function showToast(message) {
 export function setUiBusy(isBusy, message = "") {
   setViewState({
     isBusy: Boolean(isBusy),
-    busyMessage: isBusy ? (message || "Please wait...") : ""
+    busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : ""
   });
 }
 

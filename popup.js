@@ -23,6 +23,16 @@ import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
+import {
+  PopupText,
+  ViewText,
+  formatClearDomainCacheConfirm,
+  formatConfigLoadStatusLabel,
+  formatLoginFailedStatus,
+  formatScalePercent,
+  formatSelectorsComputedLocally,
+  formatTimestampedStatus
+} from "./popup/text.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
@@ -47,8 +57,6 @@ const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE =
-  "Mobile simulation must be enabled to save markings.";
 const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
@@ -84,7 +92,7 @@ const RENDER_MODE_DETECTION_MAX_TOKEN_OVERLAP = 0.55;
 let popupBusyOverlayDepth = 0;
 let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
-let popupBusyOverlayMessage = "Loading popup...";
+let popupBusyOverlayMessage = PopupText.overlay.loadingPopup;
 
 function normalizeComparableText(value) {
   if (typeof value !== "string") {
@@ -297,7 +305,7 @@ function ensureMobileSimulationForSave() {
   })) {
     return true;
   }
-  uiModule.showToast(MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE);
+  uiModule.showToast(PopupText.page.mobileSimulationRequired);
   return false;
 }
 
@@ -627,7 +635,7 @@ function markRenderModeUndetermined(detectionKey) {
     return;
   }
   state.renderModeUndeterminedNoticeKey = detectionKey;
-  uiModule.showToast("Render Mode is undetermined. Please choose it manually.");
+  uiModule.showToast(PopupText.renderMode.toastUndeterminedManual);
 }
 
 function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
@@ -728,7 +736,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     }
 
     const detectionResult = await runWithPopupBusyOverlay(
-      "Detecting render mode...",
+      PopupText.overlay.detectingRenderMode,
       () => detectRenderModeViaEndpoint({
         endpointValue: configEndpointValue,
         tokenValue,
@@ -827,7 +835,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: "",
-      reason: uiModule.ViewText.noMappedBaseUrlOrSiteId
+      reason: ViewText.noMappedBaseUrlOrSiteId
     };
   }
   const sourceConfigs = configs || await config.getConfigs();
@@ -858,7 +866,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: requestedBaseUrl,
-      reason: "Set Stage Base before continuing",
+      reason: PopupText.configuration.stageBaseRequiredBeforeContinuing,
       configs: sourceConfigs,
       config: sourceConfigs[requestedBaseUrl]
     };
@@ -899,7 +907,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: requestedBaseUrl,
-      reason: "Unable to resolve domainId right now",
+      reason: PopupText.status.unableToResolveDomainId,
       configs: sourceConfigs,
       config: sourceConfigs[requestedBaseUrl]
     };
@@ -914,7 +922,7 @@ async function ensureBaseUrlSiteId(options = {}) {
       ok: false,
       siteId: null,
       baseUrl: resolvedBaseUrl,
-      reason: uiModule.ViewText.noDomainIdForBaseUrl,
+      reason: ViewText.noDomainIdForBaseUrl,
       configs: sourceConfigs,
       config: sourceConfigs[requestedBaseUrl]
     };
@@ -1008,30 +1016,19 @@ function formatSyncStatusTimestamp(value = Date.now()) {
 function updateLastConfigLoadStatus(result) {
   const status = result && typeof result.status === "string" ? result.status : "";
   const baseUrl = result && typeof result.baseUrl === "string" ? result.baseUrl : "";
-  let label = "Unknown";
-  if (status === "ok") {
-    label = baseUrl ? `Synced (${baseUrl})` : "Synced";
-  } else if (status === "not_found") {
-    label = "No remote data (404)";
-  } else if (status === "auth_error") {
-    label = "Login required";
-  } else if (status === "skipped") {
-    label = "Skipped";
-  } else if (status === "error") {
-    label = "Failed";
-  }
+  const label = formatConfigLoadStatusLabel(status, baseUrl);
   if (status === "skipped") {
     state.lastConfigLoadStatusText = label;
     return;
   }
   const at = formatSyncStatusTimestamp();
-  state.lastConfigLoadStatusText = at ? `${label} at ${at}` : label;
+  state.lastConfigLoadStatusText = formatTimestampedStatus(label, at);
 }
 
 function updateLastConfigSaveStatus(label) {
-  const safeLabel = typeof label === "string" && label ? label : "Unknown";
+  const safeLabel = typeof label === "string" && label ? label : PopupText.sync.unknown;
   const at = formatSyncStatusTimestamp();
-  state.lastConfigSaveStatusText = at ? `${safeLabel} at ${at}` : safeLabel;
+  state.lastConfigSaveStatusText = formatTimestampedStatus(safeLabel, at);
 }
 
 function isSuccessfulConfigSyncResult(syncResult) {
@@ -1074,7 +1071,7 @@ function setRemoteConfigConnectionIssue(active) {
   }
 }
 
-function setPreviewBlocked(active, message = uiModule.ViewText.previewBlockedDefault) {
+function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
 }
 
@@ -1340,7 +1337,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       }, 2);
     }
     if (mergeResult.replacedCurrentPage) {
-      window.alert("Newer data for this page was found and replaced your local changes.");
+      window.alert(PopupText.alerts.newerRemoteDataReplacedLocal);
     }
     const result = {
       status: "ok",
@@ -1389,7 +1386,7 @@ async function syncBaseConfigToServer(options = {}) {
       configs: allConfigs
     });
     if (!siteIdResult.ok || !siteIdResult.siteId) {
-      return { ok: false, skipped: true, reason: siteIdResult.reason || "Missing siteId" };
+      return { ok: false, skipped: true, reason: siteIdResult.reason || PopupText.status.missingSiteId };
     }
     const resolvedBaseUrl = siteIdResult.baseUrl || baseUrl;
     currentBaseUrl = resolvedBaseUrl;
@@ -1455,7 +1452,7 @@ async function syncBaseConfigToServer(options = {}) {
         }, 2);
       }
       if (mergeResult.replacedCurrentPage && alertOnCurrentReplacement) {
-        window.alert("Newer data for this page was found and replaced your local changes.");
+        window.alert(PopupText.alerts.newerRemoteDataReplacedLocal);
       }
       return {
         ok: true,
@@ -1498,10 +1495,10 @@ async function invalidateTokenAndLockConfiguration(showToast = true) {
   state.configViewLocked = true;
   uiModule.setViewState({
     currentView: state.currentView,
-    loginStatusText: "Login required"
+    loginStatusText: PopupText.authentication.statusLoginRequired
   });
   if (showToast) {
-    uiModule.showToast("Login expired. Please log in again.");
+    uiModule.showToast(PopupText.authentication.toastExpired);
   }
 }
 
@@ -1825,7 +1822,7 @@ async function refreshUiInner() {
       }
     } else if (discoveryResult && discoveryResult.ok && discoveryResult.notFound) {
       unsupportedByGraphql = true;
-      siteIdBlockedReason = "No mapped base page URL/siteId was found for this page.";
+      siteIdBlockedReason = PopupText.status.noMappedBaseUrlFound;
     }
   }
   const fallbackBaseUrl = tabInScope ? localMatchingBaseUrl : "";
@@ -1968,7 +1965,7 @@ async function refreshUiInner() {
       }
     } else if (fallbackDiscoveryResult && fallbackDiscoveryResult.ok && fallbackDiscoveryResult.notFound) {
       unsupportedByGraphql = true;
-      siteIdBlockedReason = "No mapped base page URL/siteId was found for this page.";
+      siteIdBlockedReason = PopupText.status.noMappedBaseUrlFound;
     }
   }
   if (!state.currentBaseUrl) {
@@ -2008,16 +2005,16 @@ async function refreshUiInner() {
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
   const nextViewState = {
-    currentPageUrl: pageUrl || uiModule.ViewText.unavailable,
+    currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen,
     basePageMenuOpen: state.basePageMenuOpen,
     previewBlocked: previewActive,
     previewBlockedMessage: previewActive
       ? previewCollapsed
-        ? "Preview mode is active. The page popover is hidden."
-        : "Preview mode is active on this page."
-      : uiModule.ViewText.previewBlockedDefault
+        ? PopupText.preview.blockedHidden
+        : PopupText.preview.blockedActive
+      : ViewText.previewBlockedDefault
   };
   const baseUrlReady = Boolean(state.currentBaseUrl);
   const baseField = {
@@ -2025,11 +2022,11 @@ async function refreshUiInner() {
     isEditing: false,
     noticeText: baseUrlReady
       ? ""
-      : uiModule.ViewText.baseUrlAutoResolvedNotice,
+      : ViewText.baseUrlAutoResolvedNotice,
     noticeVisible: !baseUrlReady
   };
   if (!tabInScope) {
-    baseField.noticeText = uiModule.ViewText.openOnCurrentTabNotice;
+    baseField.noticeText = ViewText.openOnCurrentTabNotice;
     baseField.noticeVisible = true;
   }
   const extensionEnabledForTab = Boolean(
@@ -2076,8 +2073,8 @@ async function refreshUiInner() {
     isSet: configEndpointSet,
     editMode: state.configEndpointEditMode,
     suggestedValue: configEndpointValue,
-    noticeUnset: "Set Configuration Endpoint before continuing",
-    noticeEdit: "Set Configuration Endpoint to continue"
+    noticeUnset: PopupText.configuration.endpointNoticeUnset,
+    noticeEdit: PopupText.configuration.endpointNoticeEdit
   });
   const configEndpointReady = configEndpointField.isReady;
   const endpointSet = Boolean(endpointValue);
@@ -2088,8 +2085,8 @@ async function refreshUiInner() {
     isSet: endpointSet,
     editMode: state.endpointEditMode,
     suggestedValue: endpointValue,
-    noticeUnset: "Set Endpoint URL before using AI",
-    noticeEdit: "Set Endpoint URL to continue"
+    noticeUnset: PopupText.configuration.aiEndpointNoticeUnset,
+    noticeEdit: PopupText.configuration.aiEndpointNoticeEdit
   });
   const endpointReady = endpointField.isReady;
   const stageBaseSet = Boolean(normalizedStageBaseValue);
@@ -2100,8 +2097,8 @@ async function refreshUiInner() {
     isSet: stageBaseSet,
     editMode: state.stageBaseEditMode,
     suggestedValue: normalizedStageBaseValue,
-    noticeUnset: "Set Stage Base before signing in",
-    noticeEdit: "Set Stage Base to continue"
+    noticeUnset: PopupText.configuration.stageBaseNoticeUnset,
+    noticeEdit: PopupText.configuration.stageBaseNoticeEdit
   });
   const stageBaseReady = stageBaseField.isReady;
   const loginCredentialsEnabled = stageBaseReady;
@@ -2113,11 +2110,11 @@ async function refreshUiInner() {
     currentSiteId || normalizeSiteIdValue(state.currentConfig && state.currentConfig.siteId)
   );
   const effectiveSiteIdBlockedReason = unsupportedByGraphql
-    ? siteIdBlockedReason || "No mapped base page URL/siteId was found for this page."
+    ? siteIdBlockedReason || PopupText.status.noMappedBaseUrlFound
     : !tabInScope
-      ? uiModule.ViewText.openOnCurrentTabNotice
+      ? ViewText.openOnCurrentTabNotice
     : baseUrlReady && !siteIdReady
-      ? siteIdBlockedReason || uiModule.ViewText.noDomainIdForBaseUrl
+      ? siteIdBlockedReason || ViewText.noDomainIdForBaseUrl
       : "";
   const renderModeSet = state.currentBaseUrlHasConfirmedRenderMode;
   const renderModeField = getEditableFieldState({
@@ -2127,8 +2124,8 @@ async function refreshUiInner() {
     isSet: renderModeSet,
     editMode: state.renderModeEditMode,
     suggestedValue: suggestedRenderMode,
-    noticeUnset: "Confirm Render Mode before continuing",
-    noticeEdit: "Set Render Mode to continue"
+    noticeUnset: PopupText.renderMode.noticeUnset,
+    noticeEdit: PopupText.renderMode.noticeEdit
   });
   const renderModeRequired =
     tabInScope &&
@@ -2147,18 +2144,18 @@ async function refreshUiInner() {
   let renderModeNoticeVisible = renderModeField.noticeVisible;
   if (!renderModeRequired) {
     renderModeNoticeText = !tabInScope
-      ? "Open the extension on this tab to detect Render Mode."
+      ? PopupText.renderMode.noticeOpenOnCurrentTab
       : unsupportedByGraphql
-        ? "This page is not mapped to any siteId/base page URL."
+        ? PopupText.renderMode.noticeUnmappedPage
         : !baseUrlReady || !siteIdReady
-          ? "Render Mode becomes available after the current domain resolves to a base URL and siteId."
+          ? PopupText.renderMode.noticeRequiresSiteMapping
           : "";
     renderModeNoticeVisible = Boolean(renderModeNoticeText);
   } else if (state.renderModeDetectionInFlight) {
-    renderModeNoticeText = "Detecting Render Mode...";
+    renderModeNoticeText = PopupText.renderMode.noticeDetecting;
     renderModeNoticeVisible = true;
   } else if (state.renderModeDetectionUnsure) {
-    renderModeNoticeText = "We could not detect the Render Mode automatically.";
+    renderModeNoticeText = PopupText.renderMode.noticeAutoDetectFailed;
     renderModeNoticeVisible = true;
   }
 
@@ -2278,14 +2275,14 @@ async function refreshUiInner() {
     unsupportedByGraphql ||
     state.remoteConfigConnectionIssue;
   nextViewState.configurationNoticeText = state.remoteConfigConnectionIssue
-    ? "Problem connecting to the configuration server. Retrying..."
+    ? PopupText.configuration.remoteConfigRetryNotice
     : unsupportedByGraphql
-    ? "This page is not mapped to any siteId/base page URL. Extension UI is disabled."
+    ? PopupText.configuration.unsupportedPageNotice
     : !tabInScope
-      ? uiModule.ViewText.openOnCurrentTabNotice
+      ? ViewText.openOnCurrentTabNotice
     : configurationComplete
       ? ""
-      : "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.";
+      : PopupText.configuration.continueSetupNotice;
 
   const uiDisabledForUnsupportedPage =
     unsupportedByGraphql ||
@@ -2322,8 +2319,8 @@ async function refreshUiInner() {
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
   nextViewState.renderModeEditVisible = renderModeSet && renderModeRequired;
   nextViewState.renderModeEditText = state.renderModeEditMode
-    ? uiModule.ViewText.cancelAction
-    : uiModule.ViewText.changeAction;
+    ? ViewText.cancelAction
+    : ViewText.changeAction;
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
   nextViewState.renderModeUndeterminedVisible =
@@ -2356,9 +2353,9 @@ async function refreshUiInner() {
   nextViewState.renderModeSummaryTitle =
     renderModeSet
       ? currentRenderMode === config.RENDER_MODE_RENDERED
-        ? "Rendered HTML mode"
-        : "Static HTML mode"
-      : "Render Mode";
+        ? PopupText.renderMode.summaryTitleRendered
+        : PopupText.renderMode.summaryTitleStatic
+      : PopupText.renderMode.title;
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
   nextViewState.stageBaseValue = stageBaseField.value;
@@ -2366,8 +2363,8 @@ async function refreshUiInner() {
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
   nextViewState.stageBaseEditVisible = stageBaseSet;
   nextViewState.stageBaseEditText = state.stageBaseEditMode
-    ? uiModule.ViewText.cancelAction
-    : uiModule.ViewText.changeAction;
+    ? ViewText.cancelAction
+    : ViewText.changeAction;
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
   nextViewState.stageBaseInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2377,7 +2374,9 @@ async function refreshUiInner() {
   nextViewState.loginPasswordValue = loginPasswordValue;
   nextViewState.loginCredentialsDisabled =
     aiBusy || uiDisabledForUnsupportedPage || !loginCredentialsEnabled;
-  nextViewState.loginStatusText = tokenValue ? "Token saved" : "Login required";
+  nextViewState.loginStatusText = tokenValue
+    ? PopupText.authentication.statusTokenSaved
+    : PopupText.authentication.statusLoginRequired;
   nextViewState.loginActionDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -2389,8 +2388,8 @@ async function refreshUiInner() {
   nextViewState.configEndpointSetVisible = configEndpointField.isEditing;
   nextViewState.configEndpointEditVisible = configEndpointSet;
   nextViewState.configEndpointEditText = state.configEndpointEditMode
-    ? uiModule.ViewText.cancelAction
-    : uiModule.ViewText.changeAction;
+    ? ViewText.cancelAction
+    : ViewText.changeAction;
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
   nextViewState.configEndpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2402,8 +2401,8 @@ async function refreshUiInner() {
   nextViewState.endpointSetVisible = endpointField.isEditing;
   nextViewState.endpointEditVisible = endpointSet;
   nextViewState.endpointEditText = state.endpointEditMode
-    ? uiModule.ViewText.cancelAction
-    : uiModule.ViewText.changeAction;
+    ? ViewText.cancelAction
+    : ViewText.changeAction;
   nextViewState.endpointNoticeText = endpointField.noticeText;
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
   nextViewState.endpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
@@ -2414,12 +2413,12 @@ async function refreshUiInner() {
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute"
-      ? uiModule.ViewText.computeButtonBusy
-      : uiModule.ViewText.computeButtonIdle;
+      ? ViewText.computeButtonBusy
+      : ViewText.computeButtonIdle;
   nextViewState.saveExcludesButtonText =
     state.aiRequestInFlight === "save"
-      ? uiModule.ViewText.saveExcludesBusy
-      : uiModule.ViewText.saveExcludesIdle;
+      ? ViewText.saveExcludesBusy
+      : ViewText.saveExcludesIdle;
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiControlsBusy = aiBusy;
@@ -2442,10 +2441,10 @@ async function refreshUiInner() {
   nextViewState.baseUrlInputReadOnly = true;
   nextViewState.baseUrlSetVisible = false;
   nextViewState.baseUrlEditVisible = false;
-  nextViewState.baseUrlEditText = uiModule.ViewText.changeAction;
+  nextViewState.baseUrlEditText = ViewText.changeAction;
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
-      ? "Problem connecting to the configuration server. Retrying..."
+      ? PopupText.status.remoteConfigRetryNotice
       : effectiveSiteIdBlockedReason || baseField.noticeText;
   nextViewState.baseUrlNoticeVisible =
     state.remoteConfigConnectionIssue ||
@@ -2470,7 +2469,7 @@ async function refreshUiInner() {
     state.currentDraftAvailable &&
     (state.currentDraftDirty || canInitialPageSave || needsAiSnapshotBackfill);
   nextViewState.pageSaveMobileSimulationRequiredText =
-    MOBILE_SIMULATION_REQUIRED_FOR_SAVE_MESSAGE;
+    PopupText.page.mobileSimulationRequired;
   nextViewState.pageRevertDisabled =
     uiDisabledForUnsupportedPage ||
     !baseUrlReady ||
@@ -2480,34 +2479,32 @@ async function refreshUiInner() {
     !hasSavedPageData ||
     !state.currentDraftDirty;
   if (!baseUrlReady) {
-    nextViewState.pageDraftStatusText = "Base Page URL is resolved automatically.";
+    nextViewState.pageDraftStatusText = PopupText.page.statusBaseUrlAutoResolved;
   } else if (state.remoteConfigConnectionIssue) {
-    nextViewState.pageDraftStatusText =
-      "Problem connecting to the configuration server. Retrying...";
+    nextViewState.pageDraftStatusText = PopupText.status.remoteConfigRetryNotice;
   } else if (uiDisabledForUnsupportedPage) {
-    nextViewState.pageDraftStatusText =
-      "This page has no mapped siteId/base page URL.";
+    nextViewState.pageDraftStatusText = PopupText.page.statusUnsupportedPage;
   } else if (!siteIdReady) {
     nextViewState.pageDraftStatusText =
-      effectiveSiteIdBlockedReason || uiModule.ViewText.noDomainIdForBaseUrl;
+      effectiveSiteIdBlockedReason || ViewText.noDomainIdForBaseUrl;
   } else if (!isEnabled) {
-    nextViewState.pageDraftStatusText = "Enable marking to edit this page";
+    nextViewState.pageDraftStatusText = PopupText.page.statusEnableMarking;
   } else if (!state.currentDraftAvailable) {
-    nextViewState.pageDraftStatusText = "Draft unavailable";
+    nextViewState.pageDraftStatusText = PopupText.page.statusDraftUnavailable;
   } else if (!hasSavedPageData) {
-    nextViewState.pageDraftStatusText = "No saved data yet";
+    nextViewState.pageDraftStatusText = PopupText.page.statusNoSavedData;
   } else if (state.currentDraftDirty) {
-    nextViewState.pageDraftStatusText = "Unsaved changes";
+    nextViewState.pageDraftStatusText = PopupText.page.statusUnsavedChanges;
   } else if (needsAiSnapshotBackfill) {
-    nextViewState.pageDraftStatusText = "Save current page to refresh AI snapshot";
+    nextViewState.pageDraftStatusText = PopupText.page.statusNeedsAiSnapshot;
   } else {
-    nextViewState.pageDraftStatusText = "All changes saved";
+    nextViewState.pageDraftStatusText = PopupText.page.statusAllChangesSaved;
   }
-  nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || uiModule.ViewText.syncLoadIdle;
-  nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || uiModule.ViewText.syncSaveIdle;
+  nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
+  nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.isBusy = state.remoteConfigConnectionIssue;
   nextViewState.busyMessage = state.remoteConfigConnectionIssue
-    ? "Problem connecting to server. Retrying..."
+    ? PopupText.status.remoteServerRetryNotice
     : "";
   nextViewState.pageDataNewNoticeHidden =
     uiDisabledForUnsupportedPage ||
@@ -2519,7 +2516,7 @@ async function refreshUiInner() {
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
-  nextViewState.deviceScaleValue = `${Math.round(normalizedDeviceState.scale * 100)}%`;
+  nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
 
   const markedPages = [];
@@ -2557,8 +2554,8 @@ async function refreshUiInner() {
   markedPages.sort((a, b) => a.title.localeCompare(b.title));
   nextViewState.markedPages = markedPages;
   nextViewState.markedPagesEmptyText = baseUrlReady
-    ? uiModule.ViewText.markedPagesEmpty
-    : effectiveSiteIdBlockedReason || uiModule.ViewText.noMappedBaseUrlOrSiteId;
+    ? ViewText.markedPagesEmpty
+    : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
 
   const basePageUrlSet = new Set(
     Object.keys(configs).filter((url) => {
@@ -2581,7 +2578,7 @@ async function refreshUiInner() {
     .sort((left, right) => left.localeCompare(right))
     .map((url) => ({ url }));
   nextViewState.basePageUrls = basePageUrls;
-  nextViewState.basePageUrlsEmptyText = uiModule.ViewText.basePageUrlsEmpty;
+  nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
   uiModule.setViewState(nextViewState);
   if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
@@ -2591,7 +2588,7 @@ async function refreshUiInner() {
 
 async function refreshUi() {
   return runWithPopupBusyOverlay(
-    "Loading and preparing popup...",
+    PopupText.overlay.loadingPopupAndPreparing,
     () => refreshUiInner(),
     {
       delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
@@ -2647,7 +2644,7 @@ function handleRenderModeWarningAcknowledgeChange(event) {
 async function handleRenderModeWarningConfirm() {
   const view = uiModule.getViewState();
   if (!view.renderModeWarningAcknowledgeChecked) {
-    uiModule.showToast("Confirm understanding before continuing.");
+    uiModule.showToast(PopupText.renderMode.warningConfirmToast);
     return;
   }
   const warningKey = `${state.currentBaseUrl || ""}|${(state.currentTab && state.currentTab.url) || ""}`;
@@ -2660,14 +2657,14 @@ async function handleRenderModeWarningConfirm() {
 }
 
 async function handleRenderModeSet() {
-  await runWithPopupBusyOverlay("Saving render mode...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.savingRenderMode, async () => {
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
     if (isUndeterminedRenderMode(nextRenderMode)) {
-      uiModule.showToast("Render Mode is undetermined and cannot be set.");
+      uiModule.showToast(PopupText.renderMode.toastUndeterminedCannotSet);
       return;
     }
     if (!state.currentBaseUrl) {
-      uiModule.showToast("Render Mode is unavailable for this page");
+      uiModule.showToast(PopupText.renderMode.toastUnavailable);
       return;
     }
     const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
@@ -2700,8 +2697,8 @@ async function handleRenderModeSet() {
     await refreshUi();
     uiModule.showToast(
       nextRenderMode === config.RENDER_MODE_RENDERED
-        ? "Render mode set to headless rendered HTML"
-        : "Render mode set to static HTML"
+        ? PopupText.renderMode.toastSetRendered
+        : PopupText.renderMode.toastSetStatic
     );
   });
 }
@@ -2837,13 +2834,13 @@ async function handleConfigurationContinue() {
 }
 
 async function handleExplicitExcludeView(xpath) {
-  await runWithPopupBusyOverlay("Locating element...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
       xpath
     });
     if (!response || !response.ok) {
-      uiModule.showToast("Unable to focus element");
+      uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
   }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
@@ -2852,7 +2849,7 @@ async function handleExplicitExcludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
   }
-  await runWithPopupBusyOverlay("Updating exclusion...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.updatingExclusion, async () => {
     await clearFocusedElement();
     const response = await messages.sendTabMessage({
       type: "setExplicitExclude",
@@ -2861,7 +2858,7 @@ async function handleExplicitExcludeRemove(xpath) {
       excluded: false
     });
     if (!response || !response.ok) {
-      uiModule.showToast("Unable to update exclude");
+      uiModule.showToast(PopupText.explicitSelection.excludeUpdateFailed);
       return;
     }
     await refreshUi();
@@ -2869,13 +2866,13 @@ async function handleExplicitExcludeRemove(xpath) {
 }
 
 async function handleExplicitIncludeView(xpath) {
-  await runWithPopupBusyOverlay("Locating element...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.locatingElement, async () => {
     const response = await messages.sendTabMessage({
       type: "focusElement",
       xpath
     });
     if (!response || !response.ok) {
-      uiModule.showToast("Unable to focus element");
+      uiModule.showToast(PopupText.explicitSelection.focusFailed);
     }
   }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
@@ -2884,7 +2881,7 @@ async function handleExplicitIncludeRemove(xpath) {
   if (!state.currentBaseUrl) {
     return;
   }
-  await runWithPopupBusyOverlay("Updating inclusion...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.updatingInclusion, async () => {
     await clearFocusedElement();
     const response = await messages.sendTabMessage({
       type: "setExplicitInclude",
@@ -2893,7 +2890,7 @@ async function handleExplicitIncludeRemove(xpath) {
       included: false
     });
     if (!response || !response.ok) {
-      uiModule.showToast("Unable to update include");
+      uiModule.showToast(PopupText.explicitSelection.includeUpdateFailed);
       return;
     }
     await refreshUi();
@@ -2930,13 +2927,13 @@ async function handleEnableToggle(event) {
     return;
   }
   uiModule.setViewState({ toggleEnabled: desiredEnabled });
-  if (!helpers.ensureBaseUrl(uiModule.ViewText.noMappedBaseUrlOrSiteId)) {
+  if (!helpers.ensureBaseUrl(ViewText.noMappedBaseUrlOrSiteId)) {
     uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
     return;
   }
   if (desiredEnabled && !isCurrentRenderModeReady()) {
-    uiModule.showToast("Confirm Render Mode before enabling marking");
+    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeEnabling);
     uiModule.setViewState({ toggleEnabled: false });
     state.lastPopupEnabled = null;
     await refreshUi();
@@ -2945,19 +2942,19 @@ async function handleEnableToggle(event) {
   state.lastPopupEnabled = desiredEnabled;
   const baseUrlValue = state.currentBaseUrl;
   await runWithPopupBusyOverlay(
-    desiredEnabled ? "Enabling marking..." : "Disabling marking...",
+    desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
     async () => {
       if (desiredEnabled) {
         const parsed = utils.parseBaseUrl(baseUrlValue);
         if (!parsed) {
-          uiModule.showToast("Enter a valid Base Page URL");
+          uiModule.showToast(PopupText.baseUrl.toastInvalid);
           uiModule.setViewState({ toggleEnabled: false });
           state.lastPopupEnabled = null;
           await refreshUi();
           return;
         }
         if (!utils.isPageWithinBaseUrl(tab.url, baseUrlValue)) {
-          uiModule.showToast("Current page is outside the Base Page URL");
+          uiModule.showToast(PopupText.baseUrl.toastOutsideCurrentPage);
           uiModule.setViewState({ toggleEnabled: false });
           state.lastPopupEnabled = null;
           await refreshUi();
@@ -2976,7 +2973,7 @@ async function handleEnableToggle(event) {
           persist: false
         });
         if (!siteIdResult.ok || !siteIdResult.siteId) {
-          uiModule.showToast(siteIdResult.reason || uiModule.ViewText.noDomainIdForBaseUrl);
+          uiModule.showToast(siteIdResult.reason || ViewText.noDomainIdForBaseUrl);
           uiModule.setViewState({ toggleEnabled: false });
           state.lastPopupEnabled = null;
           await refreshUi();
@@ -2987,7 +2984,7 @@ async function handleEnableToggle(event) {
         state.currentConfig = siteIdResult.config || state.currentConfig;
         const injectResult = await helpers.injectContentScriptIfNeeded();
         if (!injectResult.ok) {
-          uiModule.showToast(injectResult.error || "Unable to activate on this page");
+          uiModule.showToast(injectResult.error || PopupText.helper.activateFailedOnPage);
           uiModule.setViewState({ toggleEnabled: false });
           state.lastPopupEnabled = null;
           await refreshUi();
@@ -3096,7 +3093,7 @@ function handleDeviceScaleInput(event) {
   }
   uiModule.setViewState({
     deviceScale: value,
-    deviceScaleValue: `${Math.round(scale * 100)}%`
+    deviceScaleValue: formatScalePercent(scale)
   });
 }
 
@@ -3116,13 +3113,13 @@ async function handleDeviceScaleChange(event) {
       deviceEmulationEnabled: state.currentDeviceEmulationEnabled,
       deviceMode: state.currentDeviceMode,
       deviceScale: state.currentDeviceScale.toFixed(2),
-      deviceScaleValue: `${Math.round(state.currentDeviceScale * 100)}%`
+      deviceScaleValue: formatScalePercent(state.currentDeviceScale)
     });
     return;
   }
   uiModule.setViewState({
     deviceScale: value,
-    deviceScaleValue: `${Math.round(scale * 100)}%`
+    deviceScaleValue: formatScalePercent(scale)
   });
   if (scale === state.currentDeviceScale) {
     return;
@@ -3138,14 +3135,14 @@ async function handleClearDomainCache() {
   uiModule.setConfigMenuOpen(false);
   const tab = await helpers.ensureActiveTab({
     requireUrl: true,
-    toastOnMissing: "No active tab to clear"
+    toastOnMissing: PopupText.cache.toastNoActiveTab
   });
   if (!tab) {
     return;
   }
   const origin = utils.getOriginFromUrl(tab.url);
   if (!origin) {
-    uiModule.showToast("Unsupported page for cache clearing");
+    uiModule.showToast(PopupText.cache.toastUnsupportedPage);
     return;
   }
   let hostname = origin;
@@ -3154,29 +3151,27 @@ async function handleClearDomainCache() {
   } catch (error) {
     hostname = origin;
   }
-  const confirmed = window.confirm(
-    `Clear cookies, local storage, and cached files for ${hostname}?`
-  );
+  const confirmed = window.confirm(formatClearDomainCacheConfirm(hostname));
   if (!confirmed) {
     return;
   }
-  beginPopupBusyOverlay("Clearing cache and reloading page...");
+  beginPopupBusyOverlay(PopupText.overlay.clearingCacheAndReloading);
   state.clearDomainCacheDisabled = true;
   uiModule.setViewState({ clearDomainCacheDisabled: true });
   try {
     const result = await chromeHelpers.clearBrowsingDataForOrigin(origin);
     if (!result.ok) {
-      uiModule.showToast(result.error || "Unable to clear cache");
+      uiModule.showToast(result.error || PopupText.cache.toastClearFailed);
       return;
     }
-    uiModule.showToast("Domain cache cleared");
+    uiModule.showToast(PopupText.cache.toastCleared);
     const reloadResult = await chromeHelpers.reloadTab(tab.id);
     if (!reloadResult.ok) {
-      uiModule.showToast(reloadResult.error || "Unable to reload tab");
+      uiModule.showToast(reloadResult.error || PopupText.cache.toastReloadFailed);
     }
   } catch (error) {
     uiModule.showToast(
-      (error && error.message) || "Unable to clear cache"
+      (error && error.message) || PopupText.cache.toastClearFailed
     );
   } finally {
     state.clearDomainCacheDisabled = false;
@@ -3189,18 +3184,16 @@ async function handleUnregisterCurrentTab() {
   uiModule.setConfigMenuOpen(false);
   const tab = await helpers.ensureActiveTab({
     requireId: true,
-    toastOnMissing: "No active tab to unregister"
+    toastOnMissing: PopupText.unregister.toastNoActiveTab
   });
   if (!tab) {
     return;
   }
-  const confirmed = window.confirm(
-    "Unregister this tab from the extension, close the side panel, and reload the page?"
-  );
+  const confirmed = window.confirm(PopupText.unregister.confirm);
   if (!confirmed) {
     return;
   }
-  beginPopupBusyOverlay("Unregistering tab and reloading page...");
+  beginPopupBusyOverlay(PopupText.overlay.unregisteringTabAndReloading);
   state.unregisterCurrentTabDisabled = true;
   uiModule.setViewState({ unregisterCurrentTabDisabled: true });
   try {
@@ -3210,7 +3203,7 @@ async function handleUnregisterCurrentTab() {
     });
     if (!result || !result.ok) {
       uiModule.showToast(
-        (result && result.error) || "Unable to unregister current tab"
+        (result && result.error) || PopupText.unregister.toastFailed
       );
       return;
     }
@@ -3223,23 +3216,23 @@ async function handleUnregisterCurrentTab() {
 }
 
 async function handleBaseUrlSet() {
-  uiModule.showToast(uiModule.ViewText.baseUrlAutoResolvedNotice);
+  uiModule.showToast(ViewText.baseUrlAutoResolvedNotice);
 }
 
 async function handleBaseUrlEditToggle() {
-  uiModule.showToast(uiModule.ViewText.baseUrlAutoResolvedNotice);
+  uiModule.showToast(ViewText.baseUrlAutoResolvedNotice);
 }
 
 async function handleConfigEndpointSet() {
   const endpointValue = uiModule.getViewState().configEndpointUrlValue.trim();
   if (!endpointValue) {
-    uiModule.showToast("Enter a Configuration Endpoint URL");
+    uiModule.showToast(PopupText.configuration.endpointEnter);
     return;
   }
   try {
     new URL(endpointValue);
   } catch (error) {
-    uiModule.showToast("Enter a valid Configuration Endpoint URL");
+    uiModule.showToast(PopupText.configuration.endpointEnterValid);
     return;
   }
   const stored = await utils.storageGet(chrome.storage.sync, [
@@ -3264,7 +3257,7 @@ async function handleConfigEndpointSet() {
     state.lastTokenValidationAt = 0;
     state.siteIdLookupByBaseUrl.clear();
     setRemoteConfigConnectionIssue(false);
-    uiModule.showToast("Configuration endpoint changed. Login required.");
+    uiModule.showToast(PopupText.configuration.endpointChangedLoginRequired);
   }
   state.configEndpointEditMode = false;
   await maybeSwitchToMarkingView();
@@ -3279,13 +3272,13 @@ async function handleConfigEndpointEditToggle() {
 async function handleEndpointSet() {
   const endpointValue = uiModule.getViewState().endpointUrlValue.trim();
   if (!endpointValue) {
-    uiModule.showToast("Enter an Endpoint URL");
+    uiModule.showToast(PopupText.configuration.aiEndpointEnter);
     return;
   }
   try {
     new URL(endpointValue);
   } catch (error) {
-    uiModule.showToast("Enter a valid Endpoint URL");
+    uiModule.showToast(PopupText.configuration.aiEndpointEnterValid);
     return;
   }
   const stored = await utils.storageGet(chrome.storage.sync, [
@@ -3309,7 +3302,7 @@ async function handleEndpointSet() {
   if (shouldResetToken) {
     state.lastTokenValidationAt = 0;
     setRemoteConfigConnectionIssue(false);
-    uiModule.showToast("Endpoint changed. Login required.");
+    uiModule.showToast(PopupText.configuration.aiEndpointChangedLoginRequired);
   }
   state.endpointEditMode = false;
   await maybeSwitchToMarkingView();
@@ -3325,7 +3318,7 @@ async function handleStageBaseSet() {
   const inputValue = uiModule.getViewState().stageBaseValue.trim();
   const normalized = normalizeStageBase(inputValue);
   if (!normalized) {
-    uiModule.showToast("Enter a valid Stage Base");
+    uiModule.showToast(PopupText.configuration.stageBaseEnterValid);
     return;
   }
   const stored = await utils.storageGet(chrome.storage.sync, [
@@ -3342,7 +3335,7 @@ async function handleStageBaseSet() {
   state.stageBaseEditMode = false;
   state.siteIdLookupByBaseUrl.clear();
   if (previousStageBase !== normalized && hasToken) {
-    uiModule.showToast("Stage Base changed. Login required");
+    uiModule.showToast(PopupText.configuration.stageBaseChangedLoginRequired);
   }
   await maybeSwitchToMarkingView();
   await refreshUi();
@@ -3360,15 +3353,15 @@ async function handleLoginAction() {
   const password = view.loginPasswordValue;
 
   if (!stageBase) {
-    uiModule.showToast("Set Stage Base first");
+    uiModule.showToast(PopupText.authentication.toastSetStageBaseFirst);
     return;
   }
   if (!isValidEmail(email)) {
-    uiModule.showToast("Enter a valid email");
+    uiModule.showToast(PopupText.authentication.toastEnterValidEmail);
     return;
   }
   if (!password.trim()) {
-    uiModule.showToast("Enter password");
+    uiModule.showToast(PopupText.authentication.toastEnterPassword);
     return;
   }
 
@@ -3379,7 +3372,7 @@ async function handleLoginAction() {
   try {
     const loginUrl = buildLoginEndpointFromStageBase(stageBase);
     if (!loginUrl) {
-      loginFailureMessage = "Set a valid Stage Base first";
+      loginFailureMessage = PopupText.authentication.toastSetValidStageBaseFirst;
     } else {
       const response = await fetch(loginUrl, {
         method: "POST",
@@ -3400,11 +3393,11 @@ async function handleLoginAction() {
         loginFailureMessage =
           (payload && typeof payload.error === "string" && payload.error) ||
           (payload && typeof payload.message === "string" && payload.message) ||
-          `Login failed (${response.status})`;
+          formatLoginFailedStatus(response.status);
       } else {
         const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
         if (!token) {
-          loginFailureMessage = "Login response did not include token";
+          loginFailureMessage = PopupText.authentication.toastResponseMissingToken;
         } else {
           await utils.storageSet(chrome.storage.sync, {
             globalStageBase: stageBase,
@@ -3416,16 +3409,16 @@ async function handleLoginAction() {
       }
     }
   } catch (error) {
-    loginFailureMessage = "Login request failed";
+    loginFailureMessage = PopupText.authentication.toastRequestFailed;
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
   }
   if (!loginSucceeded) {
-    uiModule.showToast(loginFailureMessage || "Login failed");
+    uiModule.showToast(loginFailureMessage || PopupText.authentication.toastFailed);
     return;
   }
-  uiModule.showToast("Login successful");
+  uiModule.showToast(PopupText.authentication.toastSuccess);
   await maybeSwitchToMarkingView();
   await refreshUi();
 }
@@ -3456,14 +3449,14 @@ async function handlePageSave() {
   if (!ensureMobileSimulationForSave()) {
     return;
   }
-  await runWithPopupBusyOverlay("Saving page...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.savingPage, async () => {
     const response = await messages.sendTabMessage({
       type: "savePageDraft",
       baseUrl: state.currentBaseUrl
     });
     if (!response || !response.ok) {
-      updateLastConfigSaveStatus("Save failed");
-      uiModule.showToast("Unable to save page");
+      updateLastConfigSaveStatus(PopupText.page.saveFailed);
+      uiModule.showToast(PopupText.page.saveFailedToast);
       return;
     }
     if (response.saved) {
@@ -3482,21 +3475,21 @@ async function handlePageSave() {
       const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
       updateLastConfigSaveStatus(
         syncSkipped
-          ? "Saved locally (sync skipped)"
+          ? PopupText.page.savedLocallySyncSkipped
           : syncFailed
-          ? "Saved locally (sync failed)"
-          : "Saved and synced"
+          ? PopupText.page.savedLocallySyncFailed
+          : PopupText.page.savedAndSynced
       );
       uiModule.showToast(
         syncSkipped
-          ? "Page saved locally (server sync skipped)"
+          ? PopupText.page.pageSavedLocallySyncSkipped
           : syncFailed
-          ? "Page saved locally (server sync failed)"
-          : "Page saved"
+          ? PopupText.page.pageSavedLocallySyncFailed
+          : PopupText.page.pageSaved
       );
     } else {
-      updateLastConfigSaveStatus("No local changes to save");
-      uiModule.showToast("No changes to save");
+      updateLastConfigSaveStatus(PopupText.page.noLocalChangesToSave);
+      uiModule.showToast(PopupText.page.noChangesToSave);
     }
     await refreshUi();
   });
@@ -3509,20 +3502,18 @@ async function handlePageRevert() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  const confirmed = window.confirm(
-    "Revert to the last saved version? Unsaved changes will be lost."
-  );
+  const confirmed = window.confirm(PopupText.page.revertConfirm);
   if (!confirmed) {
     return;
   }
-  await runWithPopupBusyOverlay("Reverting page...", async () => {
+  await runWithPopupBusyOverlay(PopupText.overlay.revertingPage, async () => {
     const response = await messages.sendTabMessage({
       type: "revertPageDraft",
       baseUrl: state.currentBaseUrl
     });
     if (!response || !response.ok) {
-      updateLastConfigSaveStatus("Revert failed");
-      uiModule.showToast("Unable to revert page");
+      updateLastConfigSaveStatus(PopupText.page.revertFailed);
+      uiModule.showToast(PopupText.page.revertFailedToast);
       return;
     }
     const pageUrl = (state.currentTab && state.currentTab.url) || "";
@@ -3540,17 +3531,17 @@ async function handlePageRevert() {
     const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
     updateLastConfigSaveStatus(
       syncSkipped
-        ? "Reverted locally (sync skipped)"
+        ? PopupText.page.revertedLocallySyncSkipped
         : syncFailed
-        ? "Reverted locally (sync failed)"
-        : "Reverted and synced"
+        ? PopupText.page.revertedLocallySyncFailed
+        : PopupText.page.revertedAndSynced
     );
     uiModule.showToast(
       syncSkipped
-        ? "Reverted locally (server sync skipped)"
+        ? PopupText.page.revertedLocallyServerSyncSkipped
         : syncFailed
-        ? "Reverted locally (server sync failed)"
-        : "Reverted to last saved"
+        ? PopupText.page.revertedLocallyServerSyncFailed
+        : PopupText.page.revertedToLastSaved
     );
     await refreshUi();
   });
@@ -3567,11 +3558,11 @@ async function handleComputeSelectors() {
     return;
   }
   if (!isCurrentRenderModeReady()) {
-    uiModule.showToast("Confirm Render Mode before using AI controls");
+    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeUsingAi);
     return;
   }
   if (state.currentDraftDirty) {
-    uiModule.showToast("Save the current page before using AI controls");
+    uiModule.showToast(PopupText.ai.dirtyNotice);
     return;
   }
   const credentials = await helpers.requireAiCredentials();
@@ -3583,20 +3574,20 @@ async function handleComputeSelectors() {
   state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
   const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
   if (!currentPageUrl) {
-    uiModule.showToast("Current page unavailable");
+    uiModule.showToast(PopupText.ai.currentPageUnavailable);
     return;
   }
   const pageMarkings = state.currentConfig.pageMarkings || {};
   const currentPageEntry = pageMarkings[currentPageUrl];
   if (!currentPageEntry || typeof currentPageEntry !== "object") {
-    uiModule.showToast("Save the current page before computing selectors");
+    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
     return;
   }
   const currentPageHtml =
     typeof currentPageEntry.renderedHtml === "string" ? currentPageEntry.renderedHtml : "";
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
   if (!currentPageHtml) {
-    uiModule.showToast("Save the current page before computing selectors");
+    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
     return;
   }
   const hasCurrentSubmissionXpaths =
@@ -3606,7 +3597,7 @@ async function handleComputeSelectors() {
     // AI compute no longer rebuilds xpaths from stored HTML. The live DOM decides
     // visibility/hidden/excluded state when the page is saved, and that snapshot
     // (`submissionXpaths`) becomes the source of truth for later AI requests.
-    uiModule.showToast("Save the current page before computing selectors");
+    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
     return;
   }
 
@@ -3657,12 +3648,12 @@ async function handleComputeSelectors() {
   if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
     // Guard against stale state where the current tab exists in `pageMarkings`
     // but does not yet have the required saved snapshot fields.
-    uiModule.showToast("Save the current page before computing selectors");
+    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
     return;
   }
 
   if (!storedPageEntries.length) {
-    uiModule.showToast("Save pages before computing selectors");
+    uiModule.showToast(PopupText.ai.savePagesBeforeComputing);
     return;
   }
 
@@ -3749,7 +3740,7 @@ async function handleComputeSelectors() {
     });
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     if (!response.ok) {
-      uiModule.showToast("Endpoint response error");
+      uiModule.showToast(PopupText.ai.endpointResponseError);
       return;
     }
     const data = await response.json();
@@ -3759,7 +3750,7 @@ async function handleComputeSelectors() {
       !Array.isArray(data.exclusionSelectors) ||
       !Array.isArray(data.inclusionSelectors)
     ) {
-      uiModule.showToast("Endpoint response format error");
+      uiModule.showToast(PopupText.ai.endpointResponseFormatError);
       return;
     }
     selectorSet = normalizeAiSelectorSet(data);
@@ -3793,22 +3784,22 @@ async function handleComputeSelectors() {
     const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
     updateLastConfigSaveStatus(
       syncSkipped
-        ? "Selectors updated locally (sync skipped)"
+        ? PopupText.ai.selectorsUpdatedLocallySyncSkipped
         : syncFailed
-          ? "Selectors updated locally (sync failed)"
-          : "Selectors updated and synced"
+          ? PopupText.ai.selectorsUpdatedLocallySyncFailed
+          : PopupText.ai.selectorsUpdatedAndSynced
     );
     if (syncSkipped && syncResult.reason) {
-      uiModule.showToast(`Selectors computed locally (${syncResult.reason})`);
+      uiModule.showToast(formatSelectorsComputedLocally(syncResult.reason));
     } else if (syncSkipped) {
-      uiModule.showToast("Selectors computed locally (server sync skipped)");
+      uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncSkipped);
     } else if (syncFailed) {
-      uiModule.showToast("Selectors computed locally (server sync failed)");
+      uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncFailed);
     } else {
-      uiModule.showToast("Selectors computed and saved to config server");
+      uiModule.showToast(PopupText.ai.selectorsComputedAndSaved);
     }
   } catch (error) {
-    uiModule.showToast("Endpoint request failed");
+    uiModule.showToast(PopupText.ai.endpointRequestFailed);
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
@@ -3824,18 +3815,18 @@ async function submitSelectorSetToServer(options = {}) {
   } = options;
 
   if (state.currentDraftDirty) {
-    return { ok: false, skipped: true, reason: "Save the current page before using AI controls" };
+    return { ok: false, skipped: true, reason: PopupText.ai.dirtyNotice };
   }
 
   const normalizedSelectorSet = normalizeAiSelectorSet(selectorSet);
   if (!combineAiSelectorSet(normalizedSelectorSet).length) {
-    return { ok: false, skipped: true, reason: "No selectors available to submit" };
+    return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
   }
 
   const { stageBaseValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
-    return { ok: false, skipped: true, reason: "Set Stage Base first" };
+    return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
   }
 
   const siteIdResult = await ensureBaseUrlSiteId({
@@ -3847,7 +3838,7 @@ async function submitSelectorSetToServer(options = {}) {
     return {
       ok: false,
       skipped: true,
-      reason: siteIdResult.reason || uiModule.ViewText.noDomainIdForBaseUrl
+      reason: siteIdResult.reason || ViewText.noDomainIdForBaseUrl
     };
   }
 
@@ -3856,13 +3847,11 @@ async function submitSelectorSetToServer(options = {}) {
   state.currentConfig = siteIdResult.config || state.currentConfig;
 
   if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
-    return { ok: false, skipped: true, reason: "No new selectors to submit" };
+    return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
   }
 
   if (confirm) {
-    const confirmed = window.confirm(
-      "Are these the final settings for the current property for content extraction?"
-    );
+    const confirmed = window.confirm(PopupText.ai.submitConfirm);
     if (!confirmed) {
       return { ok: false, skipped: true, cancelled: true };
     }
@@ -3904,10 +3893,10 @@ async function submitSelectorSetToServer(options = {}) {
       payload = null;
     }
     if (!response.ok) {
-      return { ok: false, reason: "Submit response error" };
+      return { ok: false, reason: PopupText.ai.submitResponseError };
     }
     if (!payload || typeof payload !== "object") {
-      return { ok: false, reason: "Submit response format error" };
+      return { ok: false, reason: PopupText.ai.submitResponseFormatError };
     }
     if (Array.isArray(payload.errors) && payload.errors.length > 0) {
       return {
@@ -3915,7 +3904,7 @@ async function submitSelectorSetToServer(options = {}) {
         reason:
           payload.errors[0] && typeof payload.errors[0].message === "string"
             ? payload.errors[0].message
-            : "Submit response error"
+            : PopupText.ai.submitResponseError
       };
     }
     const mutationResult =
@@ -3927,7 +3916,7 @@ async function submitSelectorSetToServer(options = {}) {
       mutationResult === null ||
       mutationResult === false
     ) {
-      return { ok: false, reason: "Submit response error" };
+      return { ok: false, reason: PopupText.ai.submitResponseError };
     }
 
     const selectorSetUpdatedAt = config.createTimestampNow();
@@ -3950,7 +3939,7 @@ async function submitSelectorSetToServer(options = {}) {
     });
     return { ok: true, baseUrl: effectiveBaseUrl, configSyncResult };
   } catch (error) {
-    return { ok: false, reason: "Submit request failed" };
+    return { ok: false, reason: PopupText.ai.submitRequestFailed };
   } finally {
     state.aiRequestInFlight = null;
     await refreshUi();
@@ -3968,7 +3957,7 @@ async function handleSaveExcludes() {
     return;
   }
   if (!isCurrentRenderModeReady()) {
-    uiModule.showToast("Confirm Render Mode before submitting selectors");
+    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
     return;
   }
   const credentials = await helpers.requireAiCredentials();
@@ -3987,20 +3976,20 @@ async function handleSaveExcludes() {
     const syncFailed = Boolean(syncResult) && !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
     updateLastConfigSaveStatus(
       !syncResult
-        ? "Submitted selectors"
+        ? PopupText.ai.submittedSelectors
         : syncSkipped
-          ? "Submitted selectors (config sync skipped)"
+          ? PopupText.ai.submittedSelectorsSyncSkipped
           : syncFailed
-            ? "Submitted selectors (config sync failed)"
-            : "Submitted selectors and synced"
+            ? PopupText.ai.submittedSelectorsSyncFailed
+            : PopupText.ai.submittedSelectorsAndSynced
     );
-    uiModule.showToast("Submitted to server");
+    uiModule.showToast(PopupText.ai.submittedToServer);
     return;
   }
   if (submitResult.cancelled) {
     return;
   }
-  uiModule.showToast(submitResult.reason || "Submit request failed");
+  uiModule.showToast(submitResult.reason || PopupText.ai.submitRequestFailed);
 }
 
 async function handlePreviewLatest() {
@@ -4011,12 +4000,12 @@ async function handlePreviewLatest() {
     return;
   }
   if (!state.currentConfig) {
-    uiModule.showToast(uiModule.ViewText.noMappedBaseUrlOrSiteId);
+    uiModule.showToast(ViewText.noMappedBaseUrlOrSiteId);
     return;
   }
   const selectorSet = getLatestAvailableSelectorsFromConfig();
   if (!combineAiSelectorSet(selectorSet).length) {
-    uiModule.showToast("No stored selectors available");
+    uiModule.showToast(PopupText.preview.noStoredSelectors);
     return;
   }
   const view = uiModule.getViewState();
@@ -4027,19 +4016,19 @@ async function handlePreviewLatest() {
   state.previewTabId = null;
   state.previewBaseUrl = "";
   state.lastPopupEnabled = null;
-  setPreviewBlocked(true, "Preview mode is active on this page.");
+  setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const response = await messages.sendTabMessage({
       type: "showAiPreview",
       selectorSet
     });
     if (!response || !response.ok) {
-      throw new Error("Unable to open preview");
+      throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
   } catch (error) {
     setPreviewBlocked(false);
-    uiModule.showToast((error && error.message) || "Unable to open preview");
+    uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
     await refreshUi();
   }
 }
@@ -4050,7 +4039,7 @@ async function handleExitPreviewMode() {
   }
   const response = await messages.sendTabMessage({ type: "closeAiPreview" });
   if (!response || !response.ok) {
-    uiModule.showToast("Unable to exit preview");
+    uiModule.showToast(PopupText.preview.exitFailed);
   }
 }
 
@@ -4240,7 +4229,7 @@ async function init() {
                   state.currentSavedEntry.renderedHtml.length > 0))
           );
           if (hasSavedData) {
-            window.alert("Consent elements changed on this page. Save to keep the updates.");
+            window.alert(PopupText.consent.changedAlert);
           }
           scheduleRefresh();
         }
