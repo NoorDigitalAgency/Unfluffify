@@ -369,7 +369,7 @@ export const PopupText = Object.freeze({
 
   baseUrl: Object.freeze({
     fieldLabel: "Property URL", // Label for the resolved base-page URL field.
-    placeholder: "Will be automatically detected", // Placeholder for the read-only base-page URL field.
+    placeholder: "Property not found", // Placeholder for the read-only base-page URL field.
     toastInvalid: "Enter a valid Property URL", // Toast shown when an invalid base URL is encountered.
     toastOutsideCurrentPage: "Current page is outside the Property URL" // Toast shown when the current tab is outside the resolved base URL.
   }),
