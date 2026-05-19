@@ -10,7 +10,7 @@ export const ViewText = Object.freeze({
   basePageUrlsEmpty: "No base URLs with domainId", // Empty-state text for the discovered base-page URL menu.
   computeButtonIdle: "Decide Content", // Idle label for the AI selector-compute button.
   computeButtonBusy: "Computing...", // Busy label for the AI selector-compute button.
-  saveExcludesIdle: "Submit to the server", // Idle label for the selector-submit button.
+  saveExcludesIdle: "Send to Lynx", // Idle label for the selector-submit button.
   saveExcludesBusy: "Submitting...", // Busy label for the selector-submit button.
   baseUrlAutoResolvedNotice: "Base Page URL is resolved automatically from GraphQL.", // Notice and toast explaining that base URLs are not manually edited.
   noMappedBaseUrlOrSiteId: "No mapped base page URL/siteId for this page", // Fallback error when the current page cannot be mapped to a configured site.
@@ -132,7 +132,7 @@ export const PopupText = Object.freeze({
     goBack: "Go Back", // Configuration-view action that returns to the marking view.
     login: "Login", // Authentication form submit label.
     ok: "OK", // Confirmation label inside the render-mode warning popover.
-    previewLatest: "Preview Latest", // Selector action that previews the latest stored selector set.
+    previewLatest: "Show Content List", // Selector action that previews the latest stored selector set.
     exitPreview: "Exit Preview", // Curtain action that closes page preview mode.
     revertToSaved: "Revert to saved", // Page-data action that restores the last saved draft.
     enableMarking: "Enable Marking" // Toggle label that enables page-marking mode.
@@ -171,10 +171,10 @@ export const PopupText = Object.freeze({
 
   renderMode: Object.freeze({
     title: "Render Mode", // Field label and default collapsible title for render-mode controls.
-    summaryTitleRendered: "Rendered HTML mode", // Collapsible title when the resolved render mode is rendered HTML.
-    summaryTitleStatic: "Static HTML mode", // Collapsible title when the resolved render mode is static HTML.
-    optionStatic: "Static HTML", // Select-option label for static HTML mode.
-    optionRendered: "Rendered HTML", // Select-option label for rendered HTML mode.
+    summaryTitleRendered: "Render Mode: JavaScript", // Collapsible title when the resolved render mode is rendered HTML.
+    summaryTitleStatic: "Render Mode: Static", // Collapsible title when the resolved render mode is static HTML.
+    optionStatic: "Static", // Select-option label for static HTML mode.
+    optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
     manualHint: "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML.", // Helper text beneath the render-mode editor.
     warningTitle: "Render Mode Could Not Be Determined", // Title for the manual render-mode confirmation popover.
@@ -269,7 +269,7 @@ export const PopupText = Object.freeze({
 
   page: Object.freeze({
     title: "Page data", // Section title for page save/revert controls and draft status.
-    noSavedDataNotice: "No saved data for this page yet. Save to store it.", // Notice shown before the page has ever been saved.
+    noSavedDataNotice: "This page has not been marked before.<br />You can save to store your markings.", // Notice shown before the page has ever been saved.
     serverSyncTitle: "Server Sync", // Collapsible summary title for remote load/save status.
     statusBaseUrlAutoResolved: "Base Page URL is resolved automatically.", // Draft-status text before any base URL has been resolved.
     statusUnsupportedPage: "This page has no mapped siteId/base page URL.", // Draft-status text when the current page cannot be mapped.

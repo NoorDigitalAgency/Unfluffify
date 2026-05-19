@@ -252,7 +252,6 @@ function renderRenderModeEditor(view, handlers) {
     h(
       "label",
       {class: "field"},
-      h("span", null, icon("monitor-dashboard", "field-icon"), PopupText.renderMode.title),
       h(
         "div",
         {class: "input-row"},
@@ -309,11 +308,6 @@ function renderRenderModeEditor(view, handlers) {
         hidden: !view.renderModeNoticeVisible
       },
       view.renderModeNoticeText
-    ),
-    h(
-      "div",
-      {class: "hint"},
-      PopupText.renderMode.manualHint
     )
   );
 }
@@ -594,8 +588,30 @@ function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
   const markingMode = !view.mainUiHidden;
+  const pageSaveNotice = view.pageSaveMobileSimulationRequiredVisible
+    ? h(
+        "div",
+        {
+          class: "notice",
+          role: "status",
+          "aria-live": "polite"
+        },
+        view.pageSaveMobileSimulationRequiredText
+      )
+    : h(
+        "div",
+        {
+          id: "page-data-new-notice",
+          class: "notice",
+          role: "status",
+          "aria-live": "polite",
+          hidden: view.pageDataNewNoticeHidden,
+          dangerouslySetInnerHTML: {
+            __html: PopupText.page.noSavedDataNotice
+          }
+        }
+      );
   const mergedControlsSectionChildren = [
-    h("div", {class: "section-title"}, PopupText.device.sectionTitle),
     h(
       "label",
       {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
@@ -607,36 +623,13 @@ function renderMarkingView({state: view, actions: handlers}) {
         disabled: view.deviceControlsDisabled,
         onChange: handlers.onDeviceEmulationEnabledChange
       })
-    ),
-    h("div", {class: "hint"}, PopupText.device.scaleHint)
+    )
   ];
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
       h("div", { class: "section-divider", role: "separator" }),
-      h("div", {class: "section-title"}, PopupText.page.title),
-      view.pageSaveMobileSimulationRequiredVisible
-        ? h(
-            "div",
-            {
-              class: "notice",
-              role: "status",
-              "aria-live": "polite"
-            },
-            view.pageSaveMobileSimulationRequiredText
-          )
-        : null,
-      h(
-        "div",
-        {
-          id: "page-data-new-notice",
-          class: "notice",
-          role: "status",
-          "aria-live": "polite",
-          hidden: view.pageDataNewNoticeHidden
-        },
-        PopupText.page.noSavedDataNotice
-      ),
+      pageSaveNotice,
       h(
         "div",
         {class: "button-row"},
@@ -790,7 +783,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           open: view.renderModeSummaryOpen,
           onToggle: handlers.onRenderModeSummaryToggle
         },
-        h("summary", null, view.renderModeSummaryTitle),
+        h("summary", null, icon("monitor-dashboard", "field-icon"), view.renderModeSummaryTitle),
         h(
           "div",
           {class: "collapsible-body"},
@@ -892,7 +885,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
 }
 
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
-    const previewClass = classNames("full-width", "margin-above");
+    const previewClass = classNames("full-width");
     const submitClass = classNames(
       "full-width",
       view.saveExcludesButtonLoading && "loading"
@@ -900,7 +893,6 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
     return h(
       Fragment,
       null,
-      h("div", { class: "section-title" }, PopupText.selectors.sectionTitle),
       h(
         "button",
         {
