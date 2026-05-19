@@ -375,7 +375,7 @@ export const PopupText = Object.freeze({
   }),
 
   status: Object.freeze({
-    noMappedBaseUrlFound: "No mapped base page URL/siteId was found for this page.", // Explanation shown when GraphQL cannot resolve a base URL/site mapping.
+    noMappedBaseUrlFound: "Property not found.", // Explanation shown when GraphQL cannot resolve a base URL/site mapping.
     unableToResolveDomainId: "Unable to resolve domainId right now", // Fallback reason when a domainId lookup fails unexpectedly.
     missingSiteId: "Missing siteId", // Fallback reason when sync cannot proceed because no site/domain id is available.
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Shared notice while remote configuration retries are happening.
