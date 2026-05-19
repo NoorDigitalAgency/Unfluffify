@@ -154,6 +154,10 @@ function icon(name, extraClass = "") {
   });
 }
 
+function editToggleIcon(actionText) {
+  return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
+}
+
 function getBlockingUiCurtainState(view) {
   if (view.previewBlocked) {
     return {
@@ -293,7 +297,7 @@ function renderRenderModeEditor(view, handlers) {
             disabled: view.renderModeEditDisabled,
             onClick: handlers.onRenderModeEditToggle
           },
-          icon("pencil-outline"),
+          icon(editToggleIcon(view.renderModeEditText)),
           view.renderModeEditText
         )
       )
@@ -996,7 +1000,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.configEndpointEditDisabled,
                             onClick: handlers.onConfigEndpointEditToggle
                         },
-                        icon("pencil-outline"),
+                      icon(editToggleIcon(view.configEndpointEditText)),
                         view.configEndpointEditText
                     )
                 )
@@ -1058,7 +1062,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.endpointEditDisabled,
                             onClick: handlers.onEndpointEditToggle
                         },
-                        icon("pencil-outline"),
+                      icon(editToggleIcon(view.endpointEditText)),
                         view.endpointEditText
                     )
                 )
@@ -1109,7 +1113,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                             disabled: view.stageBaseEditDisabled,
                             onClick: handlers.onStageBaseEditToggle
                         },
-                        icon("pencil-outline"),
+                      icon(editToggleIcon(view.stageBaseEditText)),
                         view.stageBaseEditText
                     )
                 )
