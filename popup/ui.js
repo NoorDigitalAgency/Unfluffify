@@ -535,7 +535,6 @@ function renderAiControlsContent(view, handlers) {
   return h(
     Fragment,
     null,
-    h("div", {class: "section-title"}, PopupText.ai.sectionTitle),
     !view.configurationComplete &&
       h(
         "div",
@@ -552,11 +551,6 @@ function renderAiControlsContent(view, handlers) {
         id: "ai-controls",
         "aria-busy": view.aiControlsBusy ? "true" : "false"
       },
-      h(
-        "div",
-        {class: "section-title padding-below"},
-        PopupText.ai.subsectionTitle
-      ),
       h(
         "div",
         {

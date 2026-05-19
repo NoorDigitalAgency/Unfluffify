@@ -7,8 +7,8 @@ export const ViewText = Object.freeze({
   syncLoadIdle: "Not loaded yet", // Default remote-load summary before any configuration load runs.
   syncSaveIdle: "No save sent yet", // Default remote-save summary before any configuration save runs.
   markedPagesEmpty: "None yet", // Empty-state text for the marked-pages list when a base URL exists.
-  basePageUrlsEmpty: "No base URLs with domainId", // Empty-state text for the discovered base-page URL menu.
-  computeButtonIdle: "Decide Content", // Idle label for the AI selector-compute button.
+  basePageUrlsEmpty: "Property not found", // Empty-state text for the discovered base-page URL menu.
+  computeButtonIdle: "Run Content Detection AI", // Idle label for the AI selector-compute button.
   computeButtonBusy: "Computing...", // Busy label for the AI selector-compute button.
   saveExcludesIdle: "Send to Lynx", // Idle label for the selector-submit button.
   saveExcludesBusy: "Submitting...", // Busy label for the selector-submit button.
@@ -233,7 +233,7 @@ export const PopupText = Object.freeze({
     sectionTitle: "AI controls", // Section title for AI-related actions in marking view.
     subsectionTitle: "Selector Computation", // Subsection title above the AI compute button.
     configurationRequiredNotice: "Complete Configuration settings to enable AI controls.", // Notice shown when AI controls are locked by missing configuration.
-    dirtyNotice: "Save the current page before using AI controls", // Notice shown when AI actions are blocked by unsaved page changes.
+    dirtyNotice: "Save before you can run the AI", // Notice shown when AI actions are blocked by unsaved page changes.
     currentPageUnavailable: "Current page unavailable", // Toast shown when AI computation runs without a current page URL.
     saveCurrentPageBeforeComputing: "Save the current page before computing selectors", // Guard toast while required saved page snapshots are missing.
     savePagesBeforeComputing: "Save pages before computing selectors", // Guard toast while no saved page snapshots exist at all.
@@ -248,7 +248,7 @@ export const PopupText = Object.freeze({
     selectorsComputedAndSaved: "Selectors computed and saved to config server", // Toast shown when compute and server sync both succeed.
     noSelectorsToSubmit: "No selectors available to submit", // Submission guard reason when the selector set is empty.
     noNewSelectorsToSubmit: "No new selectors to submit", // Submission guard reason when nothing changed since the last submit.
-    submitConfirm: "Are these the final settings for the current property for content extraction?", // Confirmation dialog before selectors are submitted upstream.
+    submitConfirm: "This will send the final CSS Selectors to Lynx to be used in content detection.\nDo you want to continue?", // Confirmation dialog before selectors are submitted upstream.
     submitResponseError: "Submit response error", // Submission failure reason when the upstream response is not successful.
     submitResponseFormatError: "Submit response format error", // Submission failure reason when the upstream response payload is invalid.
     submitRequestFailed: "Submit request failed", // Submission failure reason when the request throws.
