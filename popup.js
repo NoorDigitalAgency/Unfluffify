@@ -529,7 +529,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeDetectionUnsure = false;
   state.renderModeUndeterminedNoticeKey = "";
   try {
-    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+    const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
     const renderedSnapshot = await messages.sendTabMessage({
       type: "collectPageData",
       baseUrl: state.currentBaseUrl
@@ -555,7 +555,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     const detectionResult = await runWithPopupBusyOverlay(
       PopupText.overlay.detectingRenderMode,
       () => detectRenderModeViaEndpoint({
-        endpointValue: configEndpointValue,
+        endpointValue,
         tokenValue,
         rawHtml: staticResponse.html,
         renderedHtml: renderedSnapshot.renderedHtml
@@ -1561,6 +1561,13 @@ async function refreshUiInner() {
   if (pageUrl !== state.lastPopupPageUrl) {
     state.remoteConfigLoadKey = "";
     state.remoteConfigLoadResult = null;
+    state.renderModeDetectionInFlight = false;
+    state.renderModeDetectionKey = "";
+    state.renderModeDetectionUnsure = false;
+    state.renderModeSuggestedKey = "";
+    state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
+    state.renderModeUndeterminedNoticeKey = "";
+    state.renderModeWarningDismissedKey = "";
   }
   state.lastPopupPageUrl = pageUrl;
   if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
@@ -1833,6 +1840,9 @@ async function refreshUiInner() {
     state.basePageMenuOpen = false;
     state.renderModeEditMode = false;
     state.renderModeSummaryOpen = false;
+    state.renderModeDetectionInFlight = false;
+    state.renderModeDetectionKey = "";
+    state.renderModeDetectionUnsure = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
     state.renderModeUndeterminedNoticeKey = "";
