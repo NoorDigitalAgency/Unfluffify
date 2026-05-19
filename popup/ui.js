@@ -89,6 +89,8 @@ const initialViewState = {
   renderModeEditText: ViewText.changeAction,
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
+  renderModeNoticeActionVisible: false,
+  renderModeNoticeActionText: "",
   renderModeUndeterminedVisible: true,
   renderModeWarningVisible: false,
   renderModeWarningAcknowledgeChecked: false,
@@ -315,12 +317,24 @@ function renderRenderModeEditor(view, handlers) {
       "div",
       {
         id: "render-mode-notice",
-        class: "notice",
+        class: classNames("notice", view.renderModeNoticeActionVisible && "notice--actionable"),
         role: "status",
         "aria-live": "polite",
         hidden: !view.renderModeNoticeVisible
       },
-      view.renderModeNoticeText
+      h("span", null, view.renderModeNoticeText),
+      view.renderModeNoticeActionVisible
+        ? h(
+            "button",
+            {
+              id: "render-mode-notice-action",
+              type: "button",
+              class: "notice__action",
+              onClick: handlers.onRenderModeNoticeAction
+            },
+            view.renderModeNoticeActionText
+          )
+        : null
     )
   );
 }

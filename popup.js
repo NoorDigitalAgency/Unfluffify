@@ -55,6 +55,7 @@ const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
 const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.8;
+const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.98;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -448,11 +449,18 @@ function normalizeUiRenderModeValue(value, fallback = config.DEFAULT_RENDER_MODE
 function markRenderModeUndetermined(detectionKey) {
   state.renderModeSuggestedValue = RENDER_MODE_UNDETERMINED;
   state.renderModeDetectionUnsure = true;
+  state.renderModeDetectionAccuracy = Number.NaN;
   if (state.renderModeUndeterminedNoticeKey === detectionKey) {
     return;
   }
   state.renderModeUndeterminedNoticeKey = detectionKey;
   uiModule.showToast(PopupText.renderMode.toastUndeterminedManual);
+}
+
+function isRenderModeDetectionLowConfidence(accuracy) {
+  return Number.isFinite(accuracy) &&
+    accuracy >= RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY &&
+    accuracy < RENDER_MODE_DETECTION_REVIEW_ACCURACY;
 }
 
 function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
@@ -512,6 +520,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = fallbackRenderMode;
     state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
     return fallbackRenderMode;
   }
 
@@ -527,6 +536,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeDetectionKey = detectionKey;
   state.renderModeSuggestedKey = detectionKey;
   state.renderModeDetectionUnsure = false;
+  state.renderModeDetectionAccuracy = Number.NaN;
   state.renderModeUndeterminedNoticeKey = "";
   try {
     const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
@@ -571,6 +581,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       return RENDER_MODE_UNDETERMINED;
     }
     state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = detectionResult.accuracy;
     state.renderModeUndeterminedNoticeKey = "";
     state.renderModeSuggestedValue = config.normalizeRenderMode(detectionResult.result);
     return state.renderModeSuggestedValue;
@@ -948,19 +959,22 @@ function scheduleRemoteConfigRetry() {
 
 function normalizeRenderModeDetectionResult(payload) {
   if (!payload || typeof payload !== "object") {
-    return "";
+    return { result: "", accuracy: Number.NaN };
   }
   const accuracy = Number(payload.accuracy);
   if (!Number.isFinite(accuracy)) {
-    return "";
+    return { result: "", accuracy: Number.NaN };
   }
   if (accuracy < RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY) {
-    return "unsure";
+    return { result: "unsure", accuracy };
   }
   if (typeof payload.rendered !== "boolean") {
-    return "";
+    return { result: "", accuracy };
   }
-  return payload.rendered ? "rendered" : "static";
+  return {
+    result: payload.rendered ? "rendered" : "static",
+    accuracy
+  };
 }
 
 async function detectRenderModeViaEndpoint(options = {}) {
@@ -971,11 +985,11 @@ async function detectRenderModeViaEndpoint(options = {}) {
     renderedHtml = ""
   } = options;
   if (!endpointValue || !rawHtml || !renderedHtml) {
-    return { ok: false, result: "" };
+    return { ok: false, result: "", accuracy: Number.NaN };
   }
   const detectUrl = resolveRelativeEndpoint(endpointValue, "/is_js_rendered");
   if (!detectUrl) {
-    return { ok: false, result: "" };
+    return { ok: false, result: "", accuracy: Number.NaN };
   }
   for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -996,7 +1010,7 @@ async function detectRenderModeViaEndpoint(options = {}) {
           await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
           continue;
         }
-        return { ok: false, result: "" };
+        return { ok: false, result: "", accuracy: Number.NaN };
       }
       let payload = null;
       try {
@@ -1004,20 +1018,20 @@ async function detectRenderModeViaEndpoint(options = {}) {
       } catch (error) {
         payload = null;
       }
-      const result = normalizeRenderModeDetectionResult(payload);
-      if (!result) {
-        return { ok: false, result: "" };
+      const normalizedResult = normalizeRenderModeDetectionResult(payload);
+      if (!normalizedResult.result) {
+        return { ok: false, result: "", accuracy: Number.NaN };
       }
-      return { ok: true, result };
+      return { ok: true, ...normalizedResult };
     } catch (error) {
       if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
         await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
         continue;
       }
-      return { ok: false, result: "" };
+      return { ok: false, result: "", accuracy: Number.NaN };
     }
   }
-  return { ok: false, result: "" };
+  return { ok: false, result: "", accuracy: Number.NaN };
 }
 
 function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
@@ -1564,10 +1578,12 @@ async function refreshUiInner() {
     state.renderModeDetectionInFlight = false;
     state.renderModeDetectionKey = "";
     state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
     state.renderModeUndeterminedNoticeKey = "";
     state.renderModeWarningDismissedKey = "";
+    state.renderModeManualStepsVisible = false;
   }
   state.lastPopupPageUrl = pageUrl;
   if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
@@ -1840,10 +1856,12 @@ async function refreshUiInner() {
     state.renderModeDetectionInFlight = false;
     state.renderModeDetectionKey = "";
     state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
     state.renderModeUndeterminedNoticeKey = "";
     state.renderModeWarningDismissedKey = "";
+    state.renderModeManualStepsVisible = false;
   }
   const persistedConfigs = await config.getConfigs();
   state.currentBaseUrlHasConfirmedRenderMode = hasConfirmedRenderModeForBaseUrl(
@@ -1862,7 +1880,9 @@ async function refreshUiInner() {
     state.currentBaseUrlHasConfirmedRenderMode = false;
     state.renderModeSuggestedKey = "";
     state.renderModeSuggestedValue = config.DEFAULT_RENDER_MODE;
+    state.renderModeDetectionAccuracy = Number.NaN;
     state.renderModeUndeterminedNoticeKey = "";
+    state.renderModeWarningDismissedKey = "";
   }
 
   const view = uiModule.getViewState();
@@ -1998,16 +2018,22 @@ async function refreshUiInner() {
     !unsupportedByGraphql &&
     baseUrlReady &&
     siteIdReady;
-  const renderModeWarningKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
-  const renderModeWarningVisible =
+  const renderModeLowConfidence =
     renderModeRequired &&
     !state.currentBaseUrlHasConfirmedRenderMode &&
-    state.renderModeDetectionUnsure &&
+    isRenderModeDetectionLowConfidence(state.renderModeDetectionAccuracy);
+  const renderModeWarningKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
+  const renderModeWarningAutoVisible =
+    (state.renderModeDetectionUnsure || renderModeLowConfidence) &&
     state.renderModeWarningDismissedKey !== renderModeWarningKey;
+  const renderModeWarningVisible = Boolean(
+    state.renderModeManualStepsVisible || renderModeWarningAutoVisible
+  );
   const renderModeValueUndetermined = isUndeterminedRenderMode(renderModeField.value);
   const renderModeReady = !renderModeRequired || renderModeField.isReady;
   let renderModeNoticeText = renderModeField.noticeText;
   let renderModeNoticeVisible = renderModeField.noticeVisible;
+  let renderModeNoticeActionVisible = false;
   if (!renderModeRequired) {
     renderModeNoticeText = !tabInScope
       ? PopupText.renderMode.noticeOpenOnCurrentTab
@@ -2023,6 +2049,11 @@ async function refreshUiInner() {
   } else if (state.renderModeDetectionUnsure) {
     renderModeNoticeText = PopupText.renderMode.noticeAutoDetectFailed;
     renderModeNoticeVisible = true;
+    renderModeNoticeActionVisible = true;
+  } else if (renderModeLowConfidence) {
+    renderModeNoticeText = PopupText.renderMode.noticeLowConfidence;
+    renderModeNoticeVisible = true;
+    renderModeNoticeActionVisible = true;
   }
 
   const configurationComplete =
@@ -2186,6 +2217,10 @@ async function refreshUiInner() {
     : ViewText.changeAction;
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
+  nextViewState.renderModeNoticeActionVisible = renderModeNoticeActionVisible;
+  nextViewState.renderModeNoticeActionText = renderModeNoticeActionVisible
+    ? PopupText.renderMode.noticeShowStepsAction
+    : "";
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
   nextViewState.renderModeWarningVisible = renderModeWarningVisible;
@@ -2481,14 +2516,24 @@ function handleRenderModeWarningAcknowledgeChange(event) {
   });
 }
 
+function handleRenderModeNoticeAction() {
+  state.renderModeManualStepsVisible = true;
+  uiModule.setViewState({
+    renderModeWarningVisible: true,
+    renderModeWarningAcknowledgeChecked: false,
+    renderModeWarningOkDisabled: true
+  });
+}
+
 async function handleRenderModeWarningConfirm() {
   const view = uiModule.getViewState();
   if (!view.renderModeWarningAcknowledgeChecked) {
     uiModule.showToast(PopupText.renderMode.warningConfirmToast);
     return;
   }
-  const warningKey = `${state.currentBaseUrl || ""}|${(state.currentTab && state.currentTab.url) || ""}`;
-  state.renderModeWarningDismissedKey = warningKey;
+  state.renderModeWarningDismissedKey =
+    `${state.currentBaseUrl || ""}|${(state.currentTab && state.currentTab.url) || ""}`;
+  state.renderModeManualStepsVisible = false;
   uiModule.setViewState({
     renderModeWarningVisible: false,
     renderModeWarningAcknowledgeChecked: false,
@@ -2514,6 +2559,9 @@ async function handleRenderModeSet() {
     ) {
       state.renderModeEditMode = false;
       state.renderModeDetectionUnsure = false;
+      state.renderModeDetectionAccuracy = Number.NaN;
+      state.renderModeWarningDismissedKey = "";
+      state.renderModeManualStepsVisible = false;
       await refreshUi();
       return;
     }
@@ -2529,6 +2577,9 @@ async function handleRenderModeSet() {
     state.renderModeSuggestedValue = nextRenderMode;
     state.renderModeDetectionKey = "";
     state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
+    state.renderModeWarningDismissedKey = "";
+    state.renderModeManualStepsVisible = false;
     await messages.sendTabMessage({
       type: "configUpdated",
       baseUrl: state.currentBaseUrl
@@ -3896,6 +3947,7 @@ async function init() {
     onStageBaseInput: handleStageBaseInput,
     onRenderModeInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
+    onRenderModeNoticeAction: handleRenderModeNoticeAction,
     onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
     onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
     onRenderModeSet: handleRenderModeSet,

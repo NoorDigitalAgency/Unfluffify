@@ -201,6 +201,8 @@ export const PopupText = Object.freeze({
     noticeRequiresSiteMapping: "Render Mode will only be enabled for known properties.", // Notice shown when base URL or siteId is still unresolved.
     noticeDetecting: "Detecting Render Mode...", // Notice shown while auto-detect is in flight.
     noticeAutoDetectFailed: "We could not detect the Render Mode automatically.", // Notice shown when auto-detect finishes without a definitive result.
+    noticeLowConfidence: "Render Mode was detected automatically, but it is recommended to double-check it manually before continuing.", // Notice shown when auto-detect resolves a mode but with low endpoint confidence.
+    noticeShowStepsAction: "Show manual steps", // Action label that opens the manual render-mode instructions popover from a notice.
     toastUndeterminedManual: "Render Mode is undetermined. Please choose it manually.", // Toast shown when auto-detect cannot determine a render mode.
     toastUndeterminedCannotSet: "Render Mode is undetermined and cannot be set.", // Toast shown if the user tries to submit an undetermined render mode.
     toastUnavailable: "Render Mode is unavailable for this page", // Toast shown if render mode is changed before a base URL is available.

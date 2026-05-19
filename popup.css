@@ -265,6 +265,33 @@ button.button-small {
   line-height: 1.5;
 }
 
+.notice--actionable {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.notice__action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-dark);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.notice__action:hover {
+  color: var(--accent);
+}
+
+.notice__action:focus-visible {
+  outline: 2px solid rgba(11, 110, 110, 0.35);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .warning-panel {
   display: grid;
   gap: 8px;
