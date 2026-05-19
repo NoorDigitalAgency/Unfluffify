@@ -81,136 +81,10 @@ mutation updateScrapingConditions(
   )
 }
 `;
-const RENDER_MODE_DETECTION_MIN_STATIC_TEXT_LENGTH = 450;
-const RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_LENGTH = 1400;
-const RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_GAIN = 1200;
-const RENDER_MODE_DETECTION_MIN_TEXT_DELTA_RATIO = 0.38;
-const RENDER_MODE_DETECTION_MIN_RENDERED_ELEMENT_GAIN = 140;
-const RENDER_MODE_DETECTION_MIN_ELEMENT_DELTA_RATIO = 0.32;
-const RENDER_MODE_DETECTION_MIN_BLOCK_DELTA = 10;
-const RENDER_MODE_DETECTION_MAX_TOKEN_OVERLAP = 0.55;
-
 let popupBusyOverlayDepth = 0;
 let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = PopupText.overlay.loadingPopup;
-
-function normalizeComparableText(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value
-    .toLowerCase()
-    .replace(/\u00a0/g, " ")
-    .replace(/[^a-z0-9]+/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function collectComparableHtmlSummary(html) {
-  const summary = {
-    textLength: 0,
-    elementCount: 0,
-    blockCount: 0,
-    tokens: new Set()
-  };
-  if (typeof html !== "string" || !html.trim()) {
-    return summary;
-  }
-
-  let document;
-  try {
-    document = new DOMParser().parseFromString(html, "text/html");
-  } catch (error) {
-    return summary;
-  }
-  if (!document || !document.body) {
-    return summary;
-  }
-
-  document.querySelectorAll("script, style, noscript, template").forEach((node) => {
-    node.remove();
-  });
-
-  const blocks = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let current = walker.nextNode();
-  while (current) {
-    const normalizedText = normalizeComparableText(current.textContent || "");
-    if (normalizedText) {
-      blocks.push(normalizedText);
-    }
-    current = walker.nextNode();
-  }
-
-  const combinedText = blocks.join(" ").trim();
-  const tokens = combinedText
-    .split(" ")
-    .filter((token) => token.length >= 3)
-    .slice(0, 4000);
-  summary.textLength = combinedText.length;
-  summary.elementCount = document.body.querySelectorAll("*").length;
-  summary.blockCount = blocks.length;
-  summary.tokens = new Set(tokens);
-  return summary;
-}
-
-function computeTokenOverlapRatio(leftTokens, rightTokens) {
-  if (!leftTokens || !rightTokens || !leftTokens.size || !rightTokens.size) {
-    return 0;
-  }
-  const smaller = leftTokens.size <= rightTokens.size ? leftTokens : rightTokens;
-  const larger = smaller === leftTokens ? rightTokens : leftTokens;
-  let shared = 0;
-  for (const token of smaller) {
-    if (larger.has(token)) {
-      shared += 1;
-    }
-  }
-  return shared / Math.max(leftTokens.size, rightTokens.size, 1);
-}
-
-function detectRenderModeFromHtmlPair(staticHtml, renderedHtml) {
-  const staticSummary = collectComparableHtmlSummary(staticHtml);
-  const renderedSummary = collectComparableHtmlSummary(renderedHtml);
-  const maxTextLength = Math.max(staticSummary.textLength, renderedSummary.textLength, 1);
-  const textDelta = renderedSummary.textLength - staticSummary.textLength;
-  const textDeltaRatio = Math.abs(textDelta) / maxTextLength;
-  const elementDeltaRatio =
-    Math.abs(renderedSummary.elementCount - staticSummary.elementCount) /
-    Math.max(renderedSummary.elementCount, staticSummary.elementCount, 1);
-  const blockDelta = Math.abs(renderedSummary.blockCount - staticSummary.blockCount);
-  const tokenOverlap = computeTokenOverlapRatio(staticSummary.tokens, renderedSummary.tokens);
-
-  const staticLooksThin =
-    staticSummary.textLength < RENDER_MODE_DETECTION_MIN_STATIC_TEXT_LENGTH &&
-    renderedSummary.textLength > RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_LENGTH;
-  const renderedTextSubstantiallyLarger =
-    textDelta > RENDER_MODE_DETECTION_MIN_RENDERED_TEXT_GAIN &&
-    textDeltaRatio > RENDER_MODE_DETECTION_MIN_TEXT_DELTA_RATIO;
-  const renderedStructureSubstantiallyLarger =
-    renderedSummary.elementCount > staticSummary.elementCount + RENDER_MODE_DETECTION_MIN_RENDERED_ELEMENT_GAIN &&
-    elementDeltaRatio > RENDER_MODE_DETECTION_MIN_ELEMENT_DELTA_RATIO &&
-    blockDelta > RENDER_MODE_DETECTION_MIN_BLOCK_DELTA;
-  const lowTokenOverlap = tokenOverlap < RENDER_MODE_DETECTION_MAX_TOKEN_OVERLAP;
-
-  const renderMode =
-    (staticLooksThin && renderedTextSubstantiallyLarger) ||
-    (renderedTextSubstantiallyLarger && renderedStructureSubstantiallyLarger && lowTokenOverlap)
-      ? config.RENDER_MODE_RENDERED
-      : config.RENDER_MODE_STATIC;
-
-  return {
-    renderMode,
-    staticSummary,
-    renderedSummary,
-    textDelta,
-    textDeltaRatio,
-    elementDeltaRatio,
-    blockDelta,
-    tokenOverlap
-  };
-}
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -308,64 +182,6 @@ function ensureMobileSimulationForSave() {
   }
   uiModule.showToast(PopupText.page.mobileSimulationRequired);
   return false;
-}
-
-async function ensureMobileSimulationForSidebar(tabId) {
-  if (!tabId) {
-    return emulation.syncDeviceEmulationState({
-      enabled: state.currentDeviceEmulationEnabled,
-      mode: state.currentDeviceMode,
-      scale: state.currentDeviceScale
-    });
-  }
-  const storedDeviceState = await emulation.getDeviceEmulationState(tabId);
-  let normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  const desiredEnabled = true;
-  const desiredMode = normalizedDeviceState.enabled
-    ? normalizedDeviceState.mode
-    : "desktop";
-  const response = await messages.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    tabId,
-    enabled: desiredEnabled,
-    mode: desiredMode,
-    scale: normalizedDeviceState.scale,
-    recalculateScale: true
-  });
-  if (response && response.ok && response.state) {
-    normalizedDeviceState = emulation.syncDeviceEmulationState(response.state);
-  }
-  return normalizedDeviceState;
-}
-
-function scheduleSidebarScaleRefit(tabId) {
-  if (!tabId || state.sidebarScaleRefitScheduledTabIds.has(tabId)) {
-    return;
-  }
-  state.sidebarScaleRefitScheduledTabIds.add(tabId);
-  window.setTimeout(async () => {
-    state.sidebarScaleRefitScheduledTabIds.delete(tabId);
-    if (!state.currentTab || state.currentTab.id !== tabId) {
-      return;
-    }
-    try {
-      const storedDeviceState = await emulation.getDeviceEmulationState(tabId);
-      if (!storedDeviceState || !storedDeviceState.enabled) {
-        return;
-      }
-      await messages.sendRuntimeMessage({
-        type: "updateDeviceEmulation",
-        tabId,
-        enabled: true,
-        mode: storedDeviceState.mode,
-        scale: storedDeviceState.scale,
-        recalculateScale: true
-      });
-      scheduleRefresh();
-    } catch (error) {
-      // Ignore transient refit failures.
-    }
-  }, 280);
 }
 
 function resolveRelativeEndpoint(baseUrl, path) {
@@ -3388,21 +3204,6 @@ async function handleLoginAction() {
   }
   uiModule.showToast(PopupText.authentication.toastSuccess);
   await maybeSwitchToMarkingView();
-  await refreshUi();
-}
-
-async function handleContextRefresh() {
-  const tab = await helpers.ensureActiveTab();
-  state.stageBaseEditMode = false;
-  state.endpointEditMode = false;
-  state.configEndpointEditMode = false;
-  state.renderModeEditMode = false;
-  if (tab && tab.id) {
-    const tabState = await utils.getTabState(tab.id);
-    if (tabState && tabState.enabled) {
-      await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
-    }
-  }
   await refreshUi();
 }
 

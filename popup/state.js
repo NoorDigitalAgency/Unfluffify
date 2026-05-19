@@ -1,15 +1,5 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
 
-/**
- * Device scale limits for the simulator.
- * @private
- */
-const DEVICE_SCALE_LIMITS = {
-  min: 0.25,
-  max: 1,
-  step: 0.01
-};
-
 export const state = {
   currentView: "Marking",
   currentTab: null,
@@ -66,7 +56,5 @@ export const state = {
   remoteConfigConnectionRetryTimer: 0,
   lastConfigLoadStatusText: "Not loaded yet",
   lastConfigSaveStatusText: "No save sent yet",
-  mobileAutoAppliedTabIds: new Set(),
-  sidebarScaleRefitScheduledTabIds: new Set(),
   siteIdLookupByBaseUrl: new Map()
 };
