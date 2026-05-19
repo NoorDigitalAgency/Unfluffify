@@ -54,6 +54,7 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
+const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.8;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -740,8 +741,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       () => detectRenderModeViaEndpoint({
         endpointValue: configEndpointValue,
         tokenValue,
-        pageUrl,
-        fetchedHtml: staticResponse.html,
+        rawHtml: staticResponse.html,
         renderedHtml: renderedSnapshot.renderedHtml
       }),
       { delayMs: 0 }
@@ -1086,29 +1086,34 @@ function scheduleRemoteConfigRetry() {
   }, REMOTE_CONFIG_RETRY_DELAY_MS);
 }
 
-function normalizeRenderModeDetectionResult(value) {
-  if (typeof value !== "string") {
+function normalizeRenderModeDetectionResult(payload) {
+  if (!payload || typeof payload !== "object") {
     return "";
   }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "rendered" || normalized === "static" || normalized === "unsure") {
-    return normalized;
+  const accuracy = Number(payload.accuracy);
+  if (!Number.isFinite(accuracy)) {
+    return "";
   }
-  return "";
+  if (accuracy < RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY) {
+    return "unsure";
+  }
+  if (typeof payload.rendered !== "boolean") {
+    return "";
+  }
+  return payload.rendered ? "rendered" : "static";
 }
 
 async function detectRenderModeViaEndpoint(options = {}) {
   const {
     endpointValue = "",
     tokenValue = "",
-    pageUrl = "",
-    fetchedHtml = "",
+    rawHtml = "",
     renderedHtml = ""
   } = options;
-  if (!endpointValue || !pageUrl || !fetchedHtml || !renderedHtml) {
+  if (!endpointValue || !rawHtml || !renderedHtml) {
     return { ok: false, result: "" };
   }
-  const detectUrl = resolveRelativeEndpoint(endpointValue, "/detect-render-mode");
+  const detectUrl = resolveRelativeEndpoint(endpointValue, "/is_js_rendered");
   if (!detectUrl) {
     return { ok: false, result: "" };
   }
@@ -1118,8 +1123,7 @@ async function detectRenderModeViaEndpoint(options = {}) {
         method: "POST",
         headers: createConfigSyncHeaders(tokenValue),
         body: JSON.stringify({
-          url: pageUrl,
-          fetchedHtml,
+          rawHtml,
           renderedHtml
         })
       });
@@ -1140,13 +1144,7 @@ async function detectRenderModeViaEndpoint(options = {}) {
       } catch (error) {
         payload = null;
       }
-      const result = normalizeRenderModeDetectionResult(
-        (payload && payload.result) ||
-        (payload && payload.mode) ||
-        (payload && payload.renderMode) ||
-        (payload && payload.detectionResult) ||
-        ""
-      );
+      const result = normalizeRenderModeDetectionResult(payload);
       if (!result) {
         return { ok: false, result: "" };
       }
@@ -3696,15 +3694,17 @@ async function handleComputeSelectors() {
     exclusionSelectors: [],
     inclusionSelectors: []
   };
+  const computeSelectorsUrl = resolveRelativeEndpoint(endpointValue, "/get_selectors");
+  if (!computeSelectorsUrl) {
+    uiModule.showToast(PopupText.ai.endpointRequestFailed);
+    return;
+  }
   state.aiRequestInFlight = "compute";
   await refreshUi();
   try {
-    const response = await fetch(endpointValue, {
+    const response = await fetch(computeSelectorsUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${tokenValue}`
-      },
+      headers: createConfigSyncHeaders(tokenValue),
       body: JSON.stringify(payload)
     });
     await maybeUpdateStoredTokenFromResponse(response, tokenValue);

@@ -412,8 +412,7 @@ function App({ state: view, actions: handlers }) {
         h(
           "div",
           { class: "header-text" },
-          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" }),
-          h("div", { class: "subtitle" }, PopupText.branding.subtitle)
+          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
         ),
         h(
           "div",

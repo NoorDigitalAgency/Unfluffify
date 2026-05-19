@@ -122,8 +122,7 @@ export const PopupText = Object.freeze({
   view: ViewText,
 
   branding: Object.freeze({
-    logoAlt: "Unfluffify", // Alt text for the popup logo image.
-    subtitle: "Tell AI what's not content" // Product subtitle beneath the popup logo.
+    logoAlt: "Unfluffify" // Alt text for the popup logo image.
   }),
 
   actions: Object.freeze({
@@ -369,10 +368,10 @@ export const PopupText = Object.freeze({
   }),
 
   baseUrl: Object.freeze({
-    fieldLabel: "Base Page URL", // Label for the resolved base-page URL field.
-    placeholder: "Resolved automatically", // Placeholder for the read-only base-page URL field.
-    toastInvalid: "Enter a valid Base Page URL", // Toast shown when an invalid base URL is encountered.
-    toastOutsideCurrentPage: "Current page is outside the Base Page URL" // Toast shown when the current tab is outside the resolved base URL.
+    fieldLabel: "Property URL", // Label for the resolved base-page URL field.
+    placeholder: "Will be automatically detected", // Placeholder for the read-only base-page URL field.
+    toastInvalid: "Enter a valid Property URL", // Toast shown when an invalid base URL is encountered.
+    toastOutsideCurrentPage: "Current page is outside the Property URL" // Toast shown when the current tab is outside the resolved base URL.
   }),
 
   status: Object.freeze({
