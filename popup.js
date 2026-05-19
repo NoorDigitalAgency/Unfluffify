@@ -2058,7 +2058,6 @@ async function refreshUiInner() {
   const selectorsReadyForSubmit = hasNewSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = combineAiSelectorSet(latestAvailableSelectors).length > 0;
-  const aiControlsVisible = endpointReady && Boolean(tokenValue);
 
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
@@ -2123,53 +2122,45 @@ async function refreshUiInner() {
   state.currentView = resolvedView;
 
   nextViewState.currentView = resolvedView;
-  nextViewState.configurationComplete = configurationComplete;
-  nextViewState.configurationContinueDisabled =
-    !tabInScope || !configurationComplete || unsupportedByGraphql;
+  nextViewState.configurationContinueDisabled = !configurationComplete;
   nextViewState.configurationNoticeVisible =
-    !tabInScope ||
     !configurationComplete ||
-    unsupportedByGraphql ||
     state.remoteConfigConnectionIssue;
   nextViewState.configurationNoticeText = state.remoteConfigConnectionIssue
     ? PopupText.configuration.remoteConfigRetryNotice
-    : unsupportedByGraphql
-    ? PopupText.configuration.unsupportedPageNotice
-    : !tabInScope
-      ? ViewText.openOnCurrentTabNotice
     : configurationComplete
       ? ""
       : PopupText.configuration.continueSetupNotice;
 
-  const uiDisabledForUnsupportedPage =
+  const pageScopedUiDisabled =
     unsupportedByGraphql ||
     !tabInScope ||
     state.remoteConfigConnectionIssue;
-  nextViewState.toggleEnabled = uiDisabledForUnsupportedPage ? false : isEnabled;
+  const configurationUiDisabled = aiBusy || state.remoteConfigConnectionIssue;
+  nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
-    uiDisabledForUnsupportedPage || !baseUrlReady || !siteIdReady || !renderModeReady;
+    pageScopedUiDisabled || !baseUrlReady || !siteIdReady || !renderModeReady;
   nextViewState.mainUiHidden =
-    uiDisabledForUnsupportedPage || !isEnabled || !siteIdReady || !renderModeReady;
+    pageScopedUiDisabled || !isEnabled || !siteIdReady || !renderModeReady;
   nextViewState.computeButtonDisabled =
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     aiBusy ||
     !aiReady ||
     aiBlockedByDraft ||
     aiBlockedByMissingSavedSnapshot;
   nextViewState.saveExcludesButtonDisabled =
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     aiBusy ||
     !aiReady ||
     !selectorsReadyForSubmit ||
     aiBlockedByDraft;
   nextViewState.previewLatestButtonDisabled =
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady ||
     !hasStoredSelectors ||
     aiBlockedByDraft;
-  nextViewState.aiControlsHidden = uiDisabledForUnsupportedPage || !aiControlsVisible;
   nextViewState.renderModeReady = renderModeRequired && renderModeField.isReady;
   nextViewState.renderModeValue = renderModeField.value;
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
@@ -2182,10 +2173,6 @@ async function refreshUiInner() {
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
-  nextViewState.renderModeManualGuidanceVisible =
-    renderModeRequired &&
-    !state.currentBaseUrlHasConfirmedRenderMode &&
-    state.renderModeDetectionUnsure;
   nextViewState.renderModeWarningVisible = renderModeWarningVisible;
   nextViewState.renderModeWarningAcknowledgeChecked =
     renderModeWarningVisible ? Boolean(view.renderModeWarningAcknowledgeChecked) : false;
@@ -2193,18 +2180,18 @@ async function refreshUiInner() {
     !nextViewState.renderModeWarningAcknowledgeChecked;
   nextViewState.renderModeInputDisabled =
     aiBusy ||
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
   nextViewState.renderModeSetDisabled =
     aiBusy ||
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     !renderModeRequired ||
     renderModeValueUndetermined ||
     !Boolean(state.currentConfig);
   nextViewState.renderModeEditDisabled =
     aiBusy ||
-    uiDisabledForUnsupportedPage ||
+    pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
   nextViewState.renderModeSummaryTitle =
@@ -2224,20 +2211,19 @@ async function refreshUiInner() {
     : ViewText.changeAction;
   nextViewState.stageBaseNoticeText = stageBaseField.noticeText;
   nextViewState.stageBaseNoticeVisible = stageBaseField.noticeVisible;
-  nextViewState.stageBaseInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.stageBaseSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.stageBaseEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.stageBaseInputDisabled = configurationUiDisabled;
+  nextViewState.stageBaseSetDisabled = configurationUiDisabled;
+  nextViewState.stageBaseEditDisabled = configurationUiDisabled;
   nextViewState.loginEmailValue = loginEmailValue;
   nextViewState.loginPasswordValue = loginPasswordValue;
   nextViewState.loginCredentialsDisabled =
-    aiBusy || uiDisabledForUnsupportedPage || !loginCredentialsEnabled;
+    configurationUiDisabled || !loginCredentialsEnabled;
   nextViewState.loginStatusText = tokenValue
     ? PopupText.authentication.statusTokenSaved
     : PopupText.authentication.statusLoginRequired;
   nextViewState.loginStatusTone = tokenValue ? "success" : "warning";
   nextViewState.loginActionDisabled =
-    uiDisabledForUnsupportedPage ||
-    aiBusy ||
+    configurationUiDisabled ||
     !loginCredentialsEnabled ||
     !isValidEmail(loginEmailValue.trim()) ||
     !loginPasswordValue.trim();
@@ -2250,9 +2236,9 @@ async function refreshUiInner() {
     : ViewText.changeAction;
   nextViewState.configEndpointNoticeText = configEndpointField.noticeText;
   nextViewState.configEndpointNoticeVisible = configEndpointField.noticeVisible;
-  nextViewState.configEndpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.configEndpointSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.configEndpointEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.configEndpointInputDisabled = configurationUiDisabled;
+  nextViewState.configEndpointSetDisabled = configurationUiDisabled;
+  nextViewState.configEndpointEditDisabled = configurationUiDisabled;
 
   nextViewState.endpointUrlValue = endpointField.value;
   nextViewState.endpointUrlReadOnly = !endpointField.isEditing;
@@ -2263,9 +2249,9 @@ async function refreshUiInner() {
     : ViewText.changeAction;
   nextViewState.endpointNoticeText = endpointField.noticeText;
   nextViewState.endpointNoticeVisible = endpointField.noticeVisible;
-  nextViewState.endpointInputDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.endpointSetDisabled = aiBusy || uiDisabledForUnsupportedPage;
-  nextViewState.endpointEditDisabled = aiBusy || uiDisabledForUnsupportedPage;
+  nextViewState.endpointInputDisabled = configurationUiDisabled;
+  nextViewState.endpointSetDisabled = configurationUiDisabled;
+  nextViewState.endpointEditDisabled = configurationUiDisabled;
   nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
   nextViewState.unregisterCurrentTabDisabled =
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
@@ -2282,13 +2268,13 @@ async function refreshUiInner() {
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
   nextViewState.cssSelectorsVisible =
-    !uiDisabledForUnsupportedPage &&
+    !pageScopedUiDisabled &&
     resolvedView === uiModule.View.Marking &&
     renderModeReady;
   const highlightingMode =
     resolvedView === uiModule.View.Marking && !isEnabled;
   nextViewState.highlightingOptionsVisible =
-    !uiDisabledForUnsupportedPage && highlightingMode && renderModeReady;
+    !pageScopedUiDisabled && highlightingMode && renderModeReady;
   nextViewState.highlightMarkedPagesChecked = state.silentHighlightShowMarkedPages;
   nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
   nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
@@ -2304,51 +2290,29 @@ async function refreshUiInner() {
     state.remoteConfigConnectionIssue ||
     Boolean(effectiveSiteIdBlockedReason) ||
     baseField.noticeVisible;
+  const pageControlsVisible = !nextViewState.mainUiHidden && nextViewState.renderModeReady;
   const canInitialPageSave = !hasSavedPageData;
   const pageSaveDisabled =
-    uiDisabledForUnsupportedPage ||
-    !baseUrlReady ||
-    !siteIdReady ||
-    !isEnabled ||
+    !pageControlsVisible ||
     !state.currentDraftAvailable ||
     mobileSimulationBlocked ||
     (!state.currentDraftDirty && !canInitialPageSave && !needsAiSnapshotBackfill);
   nextViewState.pageSaveDisabled = pageSaveDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
+    pageControlsVisible &&
     mobileSimulationBlocked &&
-    !uiDisabledForUnsupportedPage &&
-    baseUrlReady &&
-    siteIdReady &&
-    isEnabled &&
     state.currentDraftAvailable &&
     (state.currentDraftDirty || canInitialPageSave || needsAiSnapshotBackfill);
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
   nextViewState.pageRevertDisabled =
-    uiDisabledForUnsupportedPage ||
-    !baseUrlReady ||
-    !siteIdReady ||
-    !isEnabled ||
+    !pageControlsVisible ||
     !state.currentDraftAvailable ||
     !hasSavedPageData ||
     !state.currentDraftDirty;
   let pageDraftStatusTone = "muted";
-  if (!baseUrlReady) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusBaseUrlAutoResolved;
-    pageDraftStatusTone = "muted";
-  } else if (state.remoteConfigConnectionIssue) {
-    nextViewState.pageDraftStatusText = PopupText.status.remoteConfigRetryNotice;
-    pageDraftStatusTone = "warning";
-  } else if (uiDisabledForUnsupportedPage) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusUnsupportedPage;
-    pageDraftStatusTone = "warning";
-  } else if (!siteIdReady) {
-    nextViewState.pageDraftStatusText =
-      effectiveSiteIdBlockedReason || ViewText.noDomainIdForBaseUrl;
-    pageDraftStatusTone = "warning";
-  } else if (!isEnabled) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusEnableMarking;
-    pageDraftStatusTone = "muted";
+  if (!pageControlsVisible) {
+    nextViewState.pageDraftStatusText = "";
   } else if (!state.currentDraftAvailable) {
     nextViewState.pageDraftStatusText = PopupText.page.statusDraftUnavailable;
     pageDraftStatusTone = "warning";
@@ -2375,10 +2339,7 @@ async function refreshUiInner() {
     ? PopupText.status.remoteServerRetryNotice
     : "";
   nextViewState.pageDataNewNoticeHidden =
-    uiDisabledForUnsupportedPage ||
-    !baseUrlReady ||
-    !siteIdReady ||
-    !isEnabled ||
+    !pageControlsVisible ||
     !state.currentDraftAvailable ||
     hasSavedPageData;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;

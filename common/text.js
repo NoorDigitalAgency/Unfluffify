@@ -140,7 +140,6 @@ export const PopupText = Object.freeze({
 
   tooltips: Object.freeze({
     basePageUrls: "Properties", // Tooltip on the base-page URL menu button.
-    unregisterCurrentTab: "Unregister current tab and reload", // Tooltip on the popup close/unregister button.
     mobileSimulationHotkey: "CTRL/CMD+M", // Shortcut hint for the mobile-simulation toggle row.
     pageSaveHotkey: "CTRL/CMD+S", // Shortcut hint for the page-save button.
     enableMarkingHotkey: "CTRL/CMD+E" // Shortcut hint for the marking toggle row.
@@ -176,7 +175,6 @@ export const PopupText = Object.freeze({
     optionStatic: "Static", // Select-option label for static HTML mode.
     optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
-    manualHint: "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML.", // Helper text beneath the render-mode editor.
     warningTitle: "Render Mode Could Not Be Determined", // Title for the manual render-mode confirmation popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
     warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.
@@ -230,9 +228,6 @@ export const PopupText = Object.freeze({
   }),
 
   ai: Object.freeze({
-    sectionTitle: "AI controls", // Section title for AI-related actions in marking view.
-    subsectionTitle: "Selector Computation", // Subsection title above the AI compute button.
-    configurationRequiredNotice: "Complete Configuration settings to enable AI controls.", // Notice shown when AI controls are locked by missing configuration.
     dirtyNotice: "Save before you can run the AI", // Notice shown when AI actions are blocked by unsaved page changes.
     currentPageUnavailable: "Current page unavailable", // Toast shown when AI computation runs without a current page URL.
     saveCurrentPageBeforeComputing: "Save the current page before computing selectors", // Guard toast while required saved page snapshots are missing.
@@ -260,20 +255,14 @@ export const PopupText = Object.freeze({
   }),
 
   device: Object.freeze({
-    sectionTitle: "Mobile simulation", // Section title for device emulation controls.
     enableLabel: "Enable mobile simulation", // Toggle label for mobile emulation.
-    scaleHint: "Scale is applied automatically.", // Helper text beneath the mobile-emulation toggle.
     unsupportedToast: "Device simulation is only available on http(s) pages", // Toast shown when emulation is requested on unsupported URLs.
     emulationFailed: "Device emulation failed" // Fallback toast when emulation could not be applied.
   }),
 
   page: Object.freeze({
-    title: "Page data", // Section title for page save/revert controls and draft status.
     noSavedDataNotice: "This page has not been marked before.<br />You can save to store your markings.", // Notice shown before the page has ever been saved.
     serverSyncTitle: "Server Sync", // Collapsible summary title for remote load/save status.
-    statusBaseUrlAutoResolved: "Base Page URL is resolved automatically.", // Draft-status text before any base URL has been resolved.
-    statusUnsupportedPage: "This page has no mapped siteId/base page URL.", // Draft-status text when the current page cannot be mapped.
-    statusEnableMarking: "Enable marking to edit this page", // Draft-status text while marking is disabled.
     statusDraftUnavailable: "Draft unavailable", // Draft-status text when the page draft could not be loaded.
     statusNoSavedData: "No saved data yet", // Draft-status text when there is still no saved snapshot for the page.
     statusUnsavedChanges: "Unsaved changes", // Draft-status text while the live draft differs from saved data.
@@ -310,17 +299,12 @@ export const PopupText = Object.freeze({
     visibleConsent: "Visible Consent" // Toggle label for showing visible consent exclusions.
   }),
 
-  selectors: Object.freeze({
-    sectionTitle: "CSS Selectors" // Section title for selector preview and submit actions.
-  }),
-
   configuration: Object.freeze({
     title: "Configuration", // Section title and header button label for configuration controls.
     openViewAction: "Open configuration view", // Menu action that switches the popup into configuration view.
     setupHint: "Set endpoints, login credentials, and sign in to continue.", // Helper text at the top of configuration view.
     continueSetupNotice: "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.", // Notice shown when configuration is incomplete.
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
-    unsupportedPageNotice: "This page is not mapped to any siteId/base page URL. Extension UI is disabled.", // Notice shown when the popup is opened on an unmapped page.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.
@@ -329,7 +313,6 @@ export const PopupText = Object.freeze({
     endpointEnter: "Enter a Configuration Endpoint", // Toast shown when the configuration endpoint field is submitted empty.
     endpointEnterValid: "Enter a valid Configuration Endpoint", // Toast shown when the configuration endpoint input is not a valid URL.
     endpointChangedLoginRequired: "Configuration endpoint changed. Login required.", // Toast shown when changing the configuration endpoint invalidates the token.
-    aiSettingsTitle: "AI settings", // Section title for the AI endpoint field.
     aiEndpointFieldLabel: "AI Endpoint", // Label for the AI endpoint input.
     aiEndpointPlaceholder: "https://example.com", // Placeholder for AI endpoint input.
     aiEndpointNoticeUnset: "Set Endpoint before using AI", // Notice shown before the AI endpoint is set.
@@ -337,15 +320,13 @@ export const PopupText = Object.freeze({
     aiEndpointEnter: "Enter an Endpoint", // Toast shown when the AI endpoint field is submitted empty.
     aiEndpointEnterValid: "Enter a valid Endpoint", // Toast shown when the AI endpoint input is not a valid URL.
     aiEndpointChangedLoginRequired: "Endpoint changed. Login required.", // Toast shown when changing the AI endpoint invalidates the token.
-    stageBaseTitle: "Stage Base", // Section title for the Stage Base field.
     stageBaseFieldLabel: "Stage Base", // Label for the Stage Base input.
     stageBasePlaceholder: "noorlynx.com", // Placeholder for the Stage Base input.
     stageBaseNoticeUnset: "Set Stage Base before signing in", // Notice shown before Stage Base is set.
     stageBaseNoticeEdit: "Set Stage Base to continue", // Notice shown while editing Stage Base.
     stageBaseRequiredBeforeContinuing: "Set Stage Base before continuing", // Reason shown when a siteId lookup needs Stage Base but configuration is incomplete.
     stageBaseEnterValid: "Enter a valid Stage Base", // Toast shown when Stage Base input is invalid.
-    stageBaseChangedLoginRequired: "Stage Base changed. Login required", // Toast shown when changing Stage Base invalidates the token.
-    continueButton: "Go Back" // Button label that returns from configuration view to marking view.
+    stageBaseChangedLoginRequired: "Stage Base changed. Login required" // Toast shown when changing Stage Base invalidates the token.
   }),
 
   authentication: Object.freeze({

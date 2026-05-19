@@ -22,7 +22,6 @@ export const View = {
 
 const initialViewState = {
   currentView: View.Configuration,
-  configurationComplete: false,
   configurationContinueDisabled: true,
   configurationNoticeText: "",
   configurationNoticeVisible: false,
@@ -91,7 +90,6 @@ const initialViewState = {
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
   renderModeUndeterminedVisible: true,
-  renderModeManualGuidanceVisible: false,
   renderModeWarningVisible: false,
   renderModeWarningAcknowledgeChecked: false,
   renderModeWarningOkDisabled: true,
@@ -107,7 +105,6 @@ const initialViewState = {
   loginStatusText: "",
   loginStatusTone: "muted",
   loginActionDisabled: false,
-  aiControlsHidden: true,
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
   pageSaveMobileSimulationRequiredVisible: false,
@@ -551,16 +548,6 @@ function renderAiControlsContent(view, handlers) {
   return h(
     Fragment,
     null,
-    !view.configurationComplete &&
-      h(
-        "div",
-        {
-          class: "notice",
-          role: "status",
-          "aria-live": "polite"
-        },
-        PopupText.ai.configurationRequiredNotice
-      ),
     h(
       "div",
       {
