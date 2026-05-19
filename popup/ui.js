@@ -337,7 +337,7 @@ function renderRenderModeEditor(view, handlers) {
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   return h(
     "section",
-    {class: classNames("card", "margin-above", "margin-below", extraClassName)},
+    {class: classNames("card", extraClassName)},
     h(
       "div",
       { class: "section-header" },
@@ -552,19 +552,16 @@ function App({ state: view, actions: handlers }) {
   );
 }
 
-function renderMarkingView({state: view, actions: handlers}) {
+function renderAiControlsContent(view, handlers) {
   const computeButtonClass = classNames(
     "full-width",
     "margin-above",
     view.computeButtonLoading && "loading"
   );
-  const postRenderModeControlsVisible = view.renderModeReady;
-  const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
-  const markingMode = !view.mainUiHidden;
 
-  const aiControlsSection = h(
-    "section",
-    {class: "card margin-above"},
+  return h(
+    Fragment,
+    null,
     h("div", {class: "section-title"}, "AI controls"),
     !view.configurationComplete &&
       h(
@@ -576,16 +573,15 @@ function renderMarkingView({state: view, actions: handlers}) {
         },
         "Complete Configuration settings to enable AI controls."
       ),
-      h(
-        "div",
-        {
-          id: "ai-controls",
-        class: "border-above",
+    h(
+      "div",
+      {
+        id: "ai-controls",
         "aria-busy": view.aiControlsBusy ? "true" : "false"
       },
       h(
         "div",
-        {class: "section-title padding-above padding-below"},
+        {class: "section-title padding-below"},
         "Selector Computation"
       ),
       h(
@@ -613,11 +609,14 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     )
   );
+}
 
-  const pageControlsSection = h(
-    "section",
-    {class: "card margin-below", hidden: !showDeviceSection},
-    h("div", {class: "section-title"}, markingMode ? "Page data" : "Mobile simulation"),
+function renderMarkingView({state: view, actions: handlers}) {
+  const postRenderModeControlsVisible = view.renderModeReady;
+  const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
+  const markingMode = !view.mainUiHidden;
+  const mergedControlsSectionChildren = [
+    h("div", {class: "section-title"}, "Mobile simulation"),
     h(
       "label",
       {class: "row", title: "CTRL/CMD+M"},
@@ -630,19 +629,24 @@ function renderMarkingView({state: view, actions: handlers}) {
         onChange: handlers.onDeviceEmulationEnabledChange
       })
     ),
-    h("div", {class: "hint"}, "Scale is applied automatically."),
-    markingMode &&
-      view.pageSaveMobileSimulationRequiredVisible &&
-      h(
-        "div",
-        {
-          class: "notice",
-          role: "status",
-          "aria-live": "polite"
-        },
-        view.pageSaveMobileSimulationRequiredText
-      ),
-    markingMode &&
+    h("div", {class: "hint"}, "Scale is applied automatically.")
+  ];
+
+  if (markingMode) {
+    mergedControlsSectionChildren.push(
+      h("div", { class: "section-divider", role: "separator" }),
+      h("div", {class: "section-title"}, "Page data"),
+      view.pageSaveMobileSimulationRequiredVisible
+        ? h(
+            "div",
+            {
+              class: "notice",
+              role: "status",
+              "aria-live": "polite"
+            },
+            view.pageSaveMobileSimulationRequiredText
+          )
+        : null,
       h(
         "div",
         {
@@ -654,7 +658,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         },
         "No saved data for this page yet. Save to store it."
       ),
-    markingMode &&
       h(
         "div",
         {class: "button-row"},
@@ -683,11 +686,42 @@ function renderMarkingView({state: view, actions: handlers}) {
           "Revert to saved"
         )
       ),
-    markingMode && h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
-    markingMode && h("div", { class: "section-divider", role: "separator" }),
-    markingMode && h("div", { class: "section-title" }, "Server Sync"),
-    markingMode && h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
-    markingMode && h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
+      h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
+      h(
+        "details",
+        { class: "collapsible" },
+        h("summary", null, "Server Sync"),
+        h(
+          "div",
+          { class: "collapsible-body" },
+          h("div", { class: "hint", id: "sync-load-status" }, `Latest loaded: ${view.syncLoadStatusText}`),
+          h("div", { class: "hint", id: "sync-save-status" }, `Latest saved: ${view.syncSaveStatusText}`)
+        )
+      )
+    );
+  }
+
+  if (markingMode) {
+    mergedControlsSectionChildren.push(
+      h("div", { class: "section-divider", role: "separator" }),
+      renderAiControlsContent(view, handlers)
+    );
+  }
+
+  if (view.cssSelectorsVisible) {
+    mergedControlsSectionChildren.push(
+      h("div", { class: "section-divider", role: "separator" }),
+      renderCssSelectorsSection({ state: view, actions: handlers })
+    );
+  }
+
+  const mergedControlsSection = h(
+    "section",
+    {
+      class: "card",
+      hidden: !showDeviceSection && !view.cssSelectorsVisible
+    },
+    ...mergedControlsSectionChildren
   );
 
   const renderModeWarningPopover = h(
@@ -833,11 +867,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     postRenderModeControlsVisible &&
       view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
-    postRenderModeControlsVisible && pageControlsSection,
-    postRenderModeControlsVisible && markingMode && aiControlsSection,
-    postRenderModeControlsVisible &&
-      view.cssSelectorsVisible &&
-      renderCssSelectorsSection({ state: view, actions: handlers }),
+    postRenderModeControlsVisible && mergedControlsSection,
     postRenderModeControlsVisible &&
       (markingMode || view.highlightingOptionsVisible) &&
       renderMarkedPagesSection(view, handlers),
@@ -916,8 +946,8 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
       view.saveExcludesButtonLoading && "loading"
     );
     return h(
-      "section",
-      { class: "card" },
+      Fragment,
+      null,
       h("div", { class: "section-title" }, "CSS Selectors"),
       h(
         "button",

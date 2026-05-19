@@ -534,7 +534,7 @@ function isWithinConsentElement(el) {
   return el.hasAttribute(CONSENT_HIDDEN_ATTR);
 }
 
-function collectConsentExcludedElements() {
+export function collectConsentExcludedElements() {
   const elements = new Set();
   const roots = state.consentRootElements;
   if (roots && roots.size) {

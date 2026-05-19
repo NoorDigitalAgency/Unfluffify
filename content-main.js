@@ -50,6 +50,7 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "aria-hidden",
   "open"
 ]);
+const CONSENT_EXCLUDED_OVERLAY_LABEL = "Hidden consent UI";
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "class",
   "style",
@@ -1251,6 +1252,15 @@ function isWithinExcludedNode(node, excluded) {
   return false;
 }
 
+function isWithinConsentBoundary(node) {
+  return Boolean(
+    node &&
+    node.nodeType === 1 &&
+    typeof node.closest === "function" &&
+    node.closest(`[${core.CONSENT_HIDDEN_ATTR}]`)
+  );
+}
+
 function hasDirectRenderableText(node) {
   if (!node || node.nodeType !== 1) {
     return false;
@@ -1381,6 +1391,9 @@ function isInclusionEligibleNode(
     return false;
   }
   if (isExtensionUiNode(node)) {
+    return false;
+  }
+  if (isWithinConsentBoundary(node)) {
     return false;
   }
   if (
@@ -1992,12 +2005,23 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
   const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  const filteredIncludedNodes = new Set();
+  const filteredInclusionSelectorByNode = new Map();
+  for (const node of includedMatches.nodes || []) {
+    if (!node || isWithinConsentBoundary(node)) {
+      continue;
+    }
+    filteredIncludedNodes.add(node);
+    if (includedMatches.selectorByNode.has(node)) {
+      filteredInclusionSelectorByNode.set(node, includedMatches.selectorByNode.get(node));
+    }
+  }
   const rawExcludedNodes = collapseToShallowest(excludedMatches.nodes);
   // Collapse raw exclusion matches first so descendants under an excluded
   // ancestor are treated as one region unless an opposite marking reintroduces
   // them through the existing boundary rules.
   const excludedNodes = new Set(rawExcludedNodes);
-  const includedNodes = includedMatches.nodes;
+  const includedNodes = filteredIncludedNodes;
   const inclusionContextSet = buildInclusionContextSet(includedNodes);
   const explicitIncludedBoundary = collectExplicitIncludedNodes(
     includedNodes,
@@ -2061,7 +2085,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     included,
     excluded,
     explicitIncluded,
-    inclusionSelectorByNode: includedMatches.selectorByNode,
+    inclusionSelectorByNode: filteredInclusionSelectorByNode,
     exclusionSelectorByNode: excludedMatches.selectorByNode
   };
 }
@@ -2362,6 +2386,12 @@ function collectAiSubmissionXpathsForCurrentPage() {
     if (!xpath) {
       continue;
     }
+    if (isWithinConsentBoundary(node)) {
+      if (node.hasAttribute(core.CONSENT_HIDDEN_ATTR) && !hasExcludedAncestorRow(xpath)) {
+        pushRow(xpath, true);
+      }
+      continue;
+    }
     const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
     if (explicitlyExcluded) {
       pushRow(xpath, true);
@@ -2544,6 +2574,39 @@ async function refreshSilentHighlightings() {
       explicitIncludeSelectorByRenderNode = new Map();
       excludedSelectorByRenderNode = new Map();
     }
+  }
+  if (visibility.visibleConsent && hasHiddenConsent) {
+    const consentExcludedRenderable = toRenderableNodeListWithSelectors(
+      Array.from(core.collectConsentExcludedElements()),
+      () => CONSENT_EXCLUDED_OVERLAY_LABEL,
+      { dedupeTargets: true }
+    );
+    const seenExcludedNodes = new Set(excludedNodes);
+    consentExcludedRenderable.nodes.forEach((node) => {
+      if (!node || seenExcludedNodes.has(node)) {
+        return;
+      }
+      seenExcludedNodes.add(node);
+      excludedNodes.push(node);
+    });
+    consentExcludedRenderable.selectorByNode.forEach((selector, node) => {
+      if (!node || !selector) {
+        return;
+      }
+      const existing = excludedSelectorByRenderNode.get(node);
+      if (!existing) {
+        excludedSelectorByRenderNode.set(node, selector);
+        return;
+      }
+      const parts = String(existing)
+        .split("\n")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (!parts.includes(selector)) {
+        parts.push(selector);
+        excludedSelectorByRenderNode.set(node, parts.join("\n"));
+      }
+    });
   }
   const shouldBeActive =
     anchors.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0;
