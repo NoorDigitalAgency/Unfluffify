@@ -43,8 +43,11 @@ const initialViewState = {
   pageSaveDisabled: true,
   pageRevertDisabled: true,
   pageDraftStatusText: "",
+  pageDraftStatusTone: "muted",
   syncLoadStatusText: ViewText.syncLoadIdle,
+  syncLoadStatusTone: "muted",
   syncSaveStatusText: ViewText.syncSaveIdle,
+  syncSaveStatusTone: "muted",
   markedPages: [],
   markedPagesEmptyText: ViewText.markedPagesEmpty,
   basePageUrls: [],
@@ -102,6 +105,7 @@ const initialViewState = {
   loginPasswordValue: "",
   loginCredentialsDisabled: true,
   loginStatusText: "",
+  loginStatusTone: "muted",
   loginActionDisabled: false,
   aiControlsHidden: true,
   aiControlsBusy: false,
@@ -156,6 +160,14 @@ function icon(name, extraClass = "") {
 
 function editToggleIcon(actionText) {
   return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
+}
+
+function statusToneClass(tone) {
+  const normalizedTone =
+    tone === "success" || tone === "warning" || tone === "danger"
+      ? tone
+      : "muted";
+  return classNames("status-text", `status-text--${normalizedTone}`);
 }
 
 function getBlockingUiCurtainState(view) {
@@ -656,7 +668,14 @@ function renderMarkingView({state: view, actions: handlers}) {
           PopupText.actions.revertToSaved
         )
       ),
-      h("div", {id: "page-draft-status", class: "hint"}, view.pageDraftStatusText),
+      h(
+        "div",
+        {
+          id: "page-draft-status",
+          class: classNames("hint", statusToneClass(view.pageDraftStatusTone))
+        },
+        view.pageDraftStatusText
+      ),
       h(
         "details",
         { class: "collapsible" },
@@ -664,8 +683,22 @@ function renderMarkingView({state: view, actions: handlers}) {
         h(
           "div",
           { class: "collapsible-body" },
-          h("div", { class: "hint", id: "sync-load-status" }, formatSyncLoadSummary(view.syncLoadStatusText)),
-          h("div", { class: "hint", id: "sync-save-status" }, formatSyncSaveSummary(view.syncSaveStatusText))
+          h(
+            "div",
+            {
+              class: classNames("hint", statusToneClass(view.syncLoadStatusTone)),
+              id: "sync-load-status"
+            },
+            formatSyncLoadSummary(view.syncLoadStatusText)
+          ),
+          h(
+            "div",
+            {
+              class: classNames("hint", statusToneClass(view.syncSaveStatusTone)),
+              id: "sync-save-status"
+            },
+            formatSyncSaveSummary(view.syncSaveStatusText)
+          )
         )
       )
     );
@@ -1148,7 +1181,14 @@ function renderConfigurationView({state: view, actions: handlers}) {
           h(
             "div",
             { class: "token-row" },
-            h("span", { id: "token-status", class: "token-status" }, view.loginStatusText),
+            h(
+              "span",
+              {
+                id: "token-status",
+                class: classNames("token-status", statusToneClass(view.loginStatusTone))
+              },
+              view.loginStatusText
+            ),
             h(
               "button",
               {

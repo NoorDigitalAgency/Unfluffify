@@ -4,6 +4,8 @@
   --card: #fff8ef;
   --ink: #2f2a24;
   --muted: #6b5f53;
+  --success: #2f7a46;
+  --danger: #a13c2c;
   --line: #e2d2ba;
   --accent: #0b6e6e;
   --accent-dark: #084c4c;
@@ -363,6 +365,26 @@ button.button-small {
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+}
+
+.status-text {
+  transition: color 120ms ease;
+}
+
+.status-text--muted {
+  color: var(--muted);
+}
+
+.status-text--success {
+  color: var(--success);
+}
+
+.status-text--warning {
+  color: var(--warn);
+}
+
+.status-text--danger {
+  color: var(--danger);
 }
 
 .endpoint-row {

@@ -8,13 +8,13 @@ export const ViewText = Object.freeze({
   syncSaveIdle: "No save sent yet", // Default remote-save summary before any configuration save runs.
   markedPagesEmpty: "None yet", // Empty-state text for the marked-pages list when a base URL exists.
   basePageUrlsEmpty: "Property not found", // Empty-state text for the discovered base-page URL menu.
-  computeButtonIdle: "Run Content Detection AI", // Idle label for the AI selector-compute button.
-  computeButtonBusy: "Computing...", // Busy label for the AI selector-compute button.
+  computeButtonIdle: "Run AI content detection", // Idle label for the AI selector-compute button.
+  computeButtonBusy: "AI is working...", // Busy label for the AI selector-compute button.
   saveExcludesIdle: "Send to Lynx", // Idle label for the selector-submit button.
-  saveExcludesBusy: "Submitting...", // Busy label for the selector-submit button.
-  baseUrlAutoResolvedNotice: "Base Page URL is resolved automatically from GraphQL.", // Notice and toast explaining that base URLs are not manually edited.
-  noMappedBaseUrlOrSiteId: "No mapped base page URL/siteId for this page", // Fallback error when the current page cannot be mapped to a configured site.
-  noDomainIdForBaseUrl: "No domainId exists for this base URL" // Error shown when a base URL exists locally but still lacks a resolved domain/site id.
+  saveExcludesBusy: "Sending to Lynx...", // Busy label for the selector-submit button.
+  baseUrlAutoResolvedNotice: "Property will be detected automatically", // Notice and toast explaining that base URLs are not manually edited.
+  noMappedBaseUrlOrSiteId: "Property not found", // Fallback error when the current page cannot be mapped to a configured site.
+  noDomainIdForBaseUrl: "Property not found" // Error shown when a base URL exists locally but still lacks a resolved domain/site id.
 });
 
 const markCountText = Object.freeze({
@@ -93,7 +93,7 @@ export function formatClearDomainCacheConfirm(hostname) {
 
 export function formatSelectorsComputedLocally(reason) {
   // Builds the AI compute toast when selectors were stored locally but remote sync was skipped for a reason.
-  return `Selectors computed locally (${reason})`;
+  return `CSS Selectors stored locally (${reason})`;
 }
 
 export function formatLoginFailedStatus(status) {
@@ -104,17 +104,17 @@ export function formatLoginFailedStatus(status) {
 export const ContentText = Object.freeze({
   marking: Object.freeze({
     immutableOverrideBlocked: "Default exclusions cannot be overridden", // Toast shown when a user tries to toggle an immutable default exclusion.
-    altIncludeParentHint: "Use Alt include to override an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
+    altIncludeParentHint: "Use ALT-click to inclusion to override decendents of an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
     explicitIncludeBlocked: "Element cannot be explicitly included" // Toast shown when an element fails the explicit-include eligibility rules.
   }),
 
   preview: Object.freeze({
     collapseAriaLabel: "Hide preview", // Aria label for the on-page preview collapse button.
-    title: "Computed Content", // Title shown at the top of the on-page preview popover.
+    title: "Detected Content", // Title shown at the top of the on-page preview popover.
     closeGlyph: "\u00D7", // Text glyph shown inside the preview close button.
     closeAriaLabel: "Close", // Aria label for the on-page preview close button.
     restoreAriaLabel: "Show preview", // Aria label for the collapsed preview restore button.
-    emptyState: "No content found" // Empty-state text when preview has no included content rows to show.
+    emptyState: "No content detected" // Empty-state text when preview has no included content rows to show.
   })
 });
 
@@ -139,7 +139,7 @@ export const PopupText = Object.freeze({
   }),
 
   tooltips: Object.freeze({
-    basePageUrls: "Base page URLs", // Tooltip on the base-page URL menu button.
+    basePageUrls: "Properties", // Tooltip on the base-page URL menu button.
     unregisterCurrentTab: "Unregister current tab and reload", // Tooltip on the popup close/unregister button.
     mobileSimulationHotkey: "CTRL/CMD+M", // Shortcut hint for the mobile-simulation toggle row.
     pageSaveHotkey: "CTRL/CMD+S", // Shortcut hint for the page-save button.
@@ -150,10 +150,10 @@ export const PopupText = Object.freeze({
     loadingPopup: "Loading popup...", // Default busy-curtain message while the popup bootstraps.
     loadingPopupAndPreparing: "Loading and preparing popup...", // Busy-curtain message used during full popup refresh.
     pleaseWait: "Please wait...", // Generic fallback curtain title when no more specific progress text exists.
-    previewHint: "The page is in preview mode. Exit preview to resume editing and settings changes.", // Curtain hint shown while preview mode blocks the popup.
+    previewHint: "The page is in preview mode. Exit preview to resume editing.", // Curtain hint shown while preview mode blocks the popup.
     busyHint: "Working... controls are temporarily blocked.", // Curtain hint shown for non-preview busy states.
-    computingSelectors: "Computing selectors...", // Busy-curtain message while the AI compute request is running.
-    submittingSelectors: "Submitting selectors...", // Busy-curtain message while selectors are being submitted.
+    computingSelectors: "Detecting contents...", // Busy-curtain message while the AI compute request is running.
+    submittingSelectors: "Sending to Lynx...", // Busy-curtain message while selectors are being submitted.
     workingWithAi: "Working with AI...", // Busy-curtain message for other AI-related actions.
     applyingDeviceEmulation: "Applying device emulation...", // Busy-curtain message while device emulation is being applied.
     detectingRenderMode: "Detecting render mode...", // Busy message while render-mode auto detection runs.
@@ -179,38 +179,38 @@ export const PopupText = Object.freeze({
     manualHint: "Auto-detect only promotes a site to rendered mode when the live DOM diverges substantially from the fetched source HTML.", // Helper text beneath the render-mode editor.
     warningTitle: "Render Mode Could Not Be Determined", // Title for the manual render-mode confirmation popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
-    warningConfirmToast: "Confirm understanding before continuing.", // Toast shown when the warning popover is confirmed without acknowledgement.
+    warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.
     warningBodyHtml: `
   <p>
-    You must choose the Render Mode manually before continuing:
+    <b>You must choose the Render Mode manually before continuing:</b>
   </p>
   <ol>
     <li>Click somewhere inside the page first.</li>
-    <li>Open the Chrome DevTools with F12.</li>
-    <li>Open Preferences with F1.</li>
-    <li>From the Debugger section check Disable JavaScript.</li>
-    <li>Reload the page with DevTools still open.</li>
-    <li>See if the meaningful content is still visible. If it is, choose "Static HTML".</li>
-    <li>If the meaningful content disappears, choose "Rendered HTML".</li>
-    <li>From the Debugger section, uncheck Disable JavaScript.</li>
-    <li>Reload the page again and continue in Unfluffify.</li>
+    <li>Open the Chrome DevTools with <b>F12</b>.</li>
+    <li>Open Preferences with <b>F1</b>.</li>
+    <li>From the Debugger section check <b>Disable JavaScript</b>.</li>
+    <li>Reload the page with <em>DevTools still open.</em></li>
+    <li>See if the meaningful content is still visible. If it is, choose <b>Static</b>.</li>
+    <li>If the meaningful content disappears, choose <b>JavaScript</b>.</li>
+    <li>From the Debugger section, uncheck <b>Disable JavaScript</b>.</li>
+    <li>Reload the page again and continue in <b>Unfluffify</b>.</li>
   </ol>
 `, // HTML body for the manual render-mode instructions popover.
     noticeUnset: "Confirm Render Mode before continuing", // Notice shown before a render mode has been confirmed.
     noticeEdit: "Set Render Mode to continue", // Notice shown while render mode is in edit mode.
     noticeOpenOnCurrentTab: "Open the extension on this tab to detect Render Mode.", // Notice shown when render-mode detection is unavailable off-tab.
-    noticeUnmappedPage: "This page is not mapped to any siteId/base page URL.", // Notice shown when render mode cannot resolve because the page is unmapped.
-    noticeRequiresSiteMapping: "Render Mode becomes available after the current domain resolves to a base URL and siteId.", // Notice shown when base URL or siteId is still unresolved.
+    noticeUnmappedPage: "Property not found.", // Notice shown when render mode cannot resolve because the page is unmapped.
+    noticeRequiresSiteMapping: "Render Mode will only be enabled for known properties.", // Notice shown when base URL or siteId is still unresolved.
     noticeDetecting: "Detecting Render Mode...", // Notice shown while auto-detect is in flight.
     noticeAutoDetectFailed: "We could not detect the Render Mode automatically.", // Notice shown when auto-detect finishes without a definitive result.
     toastUndeterminedManual: "Render Mode is undetermined. Please choose it manually.", // Toast shown when auto-detect cannot determine a render mode.
     toastUndeterminedCannotSet: "Render Mode is undetermined and cannot be set.", // Toast shown if the user tries to submit an undetermined render mode.
     toastUnavailable: "Render Mode is unavailable for this page", // Toast shown if render mode is changed before a base URL is available.
-    toastSetRendered: "Render mode set to headless rendered HTML", // Confirmation toast after choosing rendered mode.
-    toastSetStatic: "Render mode set to static HTML", // Confirmation toast after choosing static mode.
+    toastSetRendered: "Render mode set to JavaScript", // Confirmation toast after choosing rendered mode.
+    toastSetStatic: "Render mode set to Static", // Confirmation toast after choosing static mode.
     toastConfirmBeforeEnabling: "Confirm Render Mode before enabling marking", // Guard toast before enabling page marking.
-    toastConfirmBeforeUsingAi: "Confirm Render Mode before using AI controls", // Guard toast before computing selectors.
-    toastConfirmBeforeSubmitting: "Confirm Render Mode before submitting selectors" // Guard toast before submitting selectors.
+    toastConfirmBeforeUsingAi: "Confirm Render Mode before continuing", // Guard toast before computing selectors.
+    toastConfirmBeforeSubmitting: "Confirm Render Mode before sending to Lynx" // Guard toast before submitting selectors.
   }),
 
   markedPages: Object.freeze({
@@ -322,20 +322,20 @@ export const PopupText = Object.freeze({
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
     unsupportedPageNotice: "This page is not mapped to any siteId/base page URL. Extension UI is disabled.", // Notice shown when the popup is opened on an unmapped page.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
-    endpointFieldLabel: "Configuration Endpoint URL", // Label for the remote configuration endpoint input.
+    endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.
     endpointNoticeUnset: "Set Configuration Endpoint before continuing", // Notice shown before the configuration endpoint is set.
     endpointNoticeEdit: "Set Configuration Endpoint to continue", // Notice shown while editing the configuration endpoint.
-    endpointEnter: "Enter a Configuration Endpoint URL", // Toast shown when the configuration endpoint field is submitted empty.
-    endpointEnterValid: "Enter a valid Configuration Endpoint URL", // Toast shown when the configuration endpoint input is not a valid URL.
+    endpointEnter: "Enter a Configuration Endpoint", // Toast shown when the configuration endpoint field is submitted empty.
+    endpointEnterValid: "Enter a valid Configuration Endpoint", // Toast shown when the configuration endpoint input is not a valid URL.
     endpointChangedLoginRequired: "Configuration endpoint changed. Login required.", // Toast shown when changing the configuration endpoint invalidates the token.
     aiSettingsTitle: "AI settings", // Section title for the AI endpoint field.
-    aiEndpointFieldLabel: "AI Endpoint URL", // Label for the AI endpoint input.
+    aiEndpointFieldLabel: "AI Endpoint", // Label for the AI endpoint input.
     aiEndpointPlaceholder: "https://example.com", // Placeholder for AI endpoint input.
-    aiEndpointNoticeUnset: "Set Endpoint URL before using AI", // Notice shown before the AI endpoint is set.
-    aiEndpointNoticeEdit: "Set Endpoint URL to continue", // Notice shown while editing the AI endpoint.
-    aiEndpointEnter: "Enter an Endpoint URL", // Toast shown when the AI endpoint field is submitted empty.
-    aiEndpointEnterValid: "Enter a valid Endpoint URL", // Toast shown when the AI endpoint input is not a valid URL.
+    aiEndpointNoticeUnset: "Set Endpoint before using AI", // Notice shown before the AI endpoint is set.
+    aiEndpointNoticeEdit: "Set Endpoint to continue", // Notice shown while editing the AI endpoint.
+    aiEndpointEnter: "Enter an Endpoint", // Toast shown when the AI endpoint field is submitted empty.
+    aiEndpointEnterValid: "Enter a valid Endpoint", // Toast shown when the AI endpoint input is not a valid URL.
     aiEndpointChangedLoginRequired: "Endpoint changed. Login required.", // Toast shown when changing the AI endpoint invalidates the token.
     stageBaseTitle: "Stage Base", // Section title for the Stage Base field.
     stageBaseFieldLabel: "Stage Base", // Label for the Stage Base input.

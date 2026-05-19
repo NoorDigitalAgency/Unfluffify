@@ -829,10 +829,53 @@ function formatSyncStatusTimestamp(value = Date.now()) {
   }
 }
 
+function getConfigLoadStatusTone(status) {
+  switch (status) {
+    case "ok":
+      return "success";
+    case "not_found":
+    case "auth_error":
+      return "warning";
+    case "error":
+      return "danger";
+    case "skipped":
+    default:
+      return "muted";
+  }
+}
+
+function getConfigSaveStatusTone(label) {
+  switch (label) {
+    case PopupText.page.savedAndSynced:
+    case PopupText.page.revertedAndSynced:
+    case PopupText.ai.selectorsUpdatedAndSynced:
+    case PopupText.ai.submittedSelectors:
+    case PopupText.ai.submittedSelectorsAndSynced:
+      return "success";
+    case PopupText.page.savedLocallySyncSkipped:
+    case PopupText.page.revertedLocallySyncSkipped:
+    case PopupText.ai.selectorsUpdatedLocallySyncSkipped:
+    case PopupText.ai.submittedSelectorsSyncSkipped:
+      return "warning";
+    case PopupText.page.saveFailed:
+    case PopupText.page.revertFailed:
+    case PopupText.page.savedLocallySyncFailed:
+    case PopupText.page.revertedLocallySyncFailed:
+    case PopupText.ai.selectorsUpdatedLocallySyncFailed:
+    case PopupText.ai.submittedSelectorsSyncFailed:
+      return "danger";
+    case PopupText.page.noLocalChangesToSave:
+    case PopupText.sync.unknown:
+    default:
+      return "muted";
+  }
+}
+
 function updateLastConfigLoadStatus(result) {
   const status = result && typeof result.status === "string" ? result.status : "";
   const baseUrl = result && typeof result.baseUrl === "string" ? result.baseUrl : "";
   const label = formatConfigLoadStatusLabel(status, baseUrl);
+  state.lastConfigLoadStatusTone = getConfigLoadStatusTone(status);
   if (status === "skipped") {
     state.lastConfigLoadStatusText = label;
     return;
@@ -843,6 +886,7 @@ function updateLastConfigLoadStatus(result) {
 
 function updateLastConfigSaveStatus(label) {
   const safeLabel = typeof label === "string" && label ? label : PopupText.sync.unknown;
+  state.lastConfigSaveStatusTone = getConfigSaveStatusTone(safeLabel);
   const at = formatSyncStatusTimestamp();
   state.lastConfigSaveStatusText = formatTimestampedStatus(safeLabel, at);
 }
@@ -1309,7 +1353,8 @@ async function invalidateTokenAndLockConfiguration(showToast = true) {
   state.configViewLocked = true;
   uiModule.setViewState({
     currentView: state.currentView,
-    loginStatusText: PopupText.authentication.statusLoginRequired
+    loginStatusText: PopupText.authentication.statusLoginRequired,
+    loginStatusTone: "warning"
   });
   if (showToast) {
     uiModule.showToast(PopupText.authentication.toastExpired);
@@ -2189,6 +2234,7 @@ async function refreshUiInner() {
   nextViewState.loginStatusText = tokenValue
     ? PopupText.authentication.statusTokenSaved
     : PopupText.authentication.statusLoginRequired;
+  nextViewState.loginStatusTone = tokenValue ? "success" : "warning";
   nextViewState.loginActionDisabled =
     uiDisabledForUnsupportedPage ||
     aiBusy ||
@@ -2286,30 +2332,44 @@ async function refreshUiInner() {
     !state.currentDraftAvailable ||
     !hasSavedPageData ||
     !state.currentDraftDirty;
+  let pageDraftStatusTone = "muted";
   if (!baseUrlReady) {
     nextViewState.pageDraftStatusText = PopupText.page.statusBaseUrlAutoResolved;
+    pageDraftStatusTone = "muted";
   } else if (state.remoteConfigConnectionIssue) {
     nextViewState.pageDraftStatusText = PopupText.status.remoteConfigRetryNotice;
+    pageDraftStatusTone = "warning";
   } else if (uiDisabledForUnsupportedPage) {
     nextViewState.pageDraftStatusText = PopupText.page.statusUnsupportedPage;
+    pageDraftStatusTone = "warning";
   } else if (!siteIdReady) {
     nextViewState.pageDraftStatusText =
       effectiveSiteIdBlockedReason || ViewText.noDomainIdForBaseUrl;
+    pageDraftStatusTone = "warning";
   } else if (!isEnabled) {
     nextViewState.pageDraftStatusText = PopupText.page.statusEnableMarking;
+    pageDraftStatusTone = "muted";
   } else if (!state.currentDraftAvailable) {
     nextViewState.pageDraftStatusText = PopupText.page.statusDraftUnavailable;
+    pageDraftStatusTone = "warning";
   } else if (!hasSavedPageData) {
     nextViewState.pageDraftStatusText = PopupText.page.statusNoSavedData;
+    pageDraftStatusTone = "muted";
   } else if (state.currentDraftDirty) {
     nextViewState.pageDraftStatusText = PopupText.page.statusUnsavedChanges;
+    pageDraftStatusTone = "warning";
   } else if (needsAiSnapshotBackfill) {
     nextViewState.pageDraftStatusText = PopupText.page.statusNeedsAiSnapshot;
+    pageDraftStatusTone = "warning";
   } else {
     nextViewState.pageDraftStatusText = PopupText.page.statusAllChangesSaved;
+    pageDraftStatusTone = "success";
   }
+  nextViewState.pageDraftStatusTone = pageDraftStatusTone;
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
+  nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
+  nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
   nextViewState.isBusy = state.remoteConfigConnectionIssue;
   nextViewState.busyMessage = state.remoteConfigConnectionIssue
     ? PopupText.status.remoteServerRetryNotice

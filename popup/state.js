@@ -55,6 +55,8 @@ export const state = {
   remoteConfigConnectionIssue: false,
   remoteConfigConnectionRetryTimer: 0,
   lastConfigLoadStatusText: "Not loaded yet",
+  lastConfigLoadStatusTone: "muted",
   lastConfigSaveStatusText: "No save sent yet",
+  lastConfigSaveStatusTone: "muted",
   siteIdLookupByBaseUrl: new Map()
 };
