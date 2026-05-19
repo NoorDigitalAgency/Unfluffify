@@ -1691,7 +1691,6 @@ async function refreshUiInner() {
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
   if (tabChanged) {
-    state.baseUrlEditMode = false;
     state.stageBaseEditMode = false;
     state.endpointEditMode = false;
     state.configEndpointEditMode = false;
@@ -1968,9 +1967,6 @@ async function refreshUiInner() {
       siteIdBlockedReason = PopupText.status.noMappedBaseUrlFound;
     }
   }
-  if (!state.currentBaseUrl) {
-    state.baseUrlEditMode = false;
-  }
   if (state.currentBaseUrl !== previousBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
@@ -2205,7 +2201,6 @@ async function refreshUiInner() {
   state.currentSavedEntry = null;
   state.currentDraftDirty = false;
   state.currentDraftAvailable = false;
-  state.currentDraftHasEntry = false;
   if (state.currentBaseUrl && isEnabled) {
     const draftStatus = await messages.sendTabMessage({
       type: "getPageDraftStatus",
@@ -2216,7 +2211,6 @@ async function refreshUiInner() {
       state.currentSavedEntry = draftStatus.savedEntry || null;
       state.currentDraftDirty = Boolean(draftStatus.dirty);
       state.currentDraftAvailable = true;
-      state.currentDraftHasEntry = Boolean(state.currentDraftEntry);
     }
   }
   const savedEntry =
@@ -2438,10 +2432,6 @@ async function refreshUiInner() {
   nextViewState.highlightHideDuringScrollRedrawChecked =
     state.silentHighlightHideDuringScrollRedraw;
   nextViewState.baseUrlInputValue = baseField.value;
-  nextViewState.baseUrlInputReadOnly = true;
-  nextViewState.baseUrlSetVisible = false;
-  nextViewState.baseUrlEditVisible = false;
-  nextViewState.baseUrlEditText = ViewText.changeAction;
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
       ? PopupText.status.remoteConfigRetryNotice
@@ -2597,10 +2587,6 @@ async function refreshUi() {
   );
 }
 
-function handleBaseUrlInput(event) {
-  uiModule.setViewState({ baseUrlInputValue: (event && event.target && event.target.value) || "" });
-}
-
 function handleConfigEndpointInput(event) {
   uiModule.setViewState({ configEndpointUrlValue: event.target.value });
 }
@@ -2738,14 +2724,6 @@ function handleEnterKeyDown(event, shouldHandle, handler) {
     return;
   }
   handler();
-}
-
-function handleBaseUrlKeyDown(event) {
-  handleEnterKeyDown(
-    event,
-    () => !uiModule.getViewState().baseUrlInputReadOnly,
-    handleBaseUrlSet
-  );
 }
 
 function handleConfigEndpointKeyDown(event) {
@@ -3215,14 +3193,6 @@ async function handleUnregisterCurrentTab() {
   }
 }
 
-async function handleBaseUrlSet() {
-  uiModule.showToast(ViewText.baseUrlAutoResolvedNotice);
-}
-
-async function handleBaseUrlEditToggle() {
-  uiModule.showToast(ViewText.baseUrlAutoResolvedNotice);
-}
-
 async function handleConfigEndpointSet() {
   const endpointValue = uiModule.getViewState().configEndpointUrlValue.trim();
   if (!endpointValue) {
@@ -3425,7 +3395,6 @@ async function handleLoginAction() {
 
 async function handleContextRefresh() {
   const tab = await helpers.ensureActiveTab();
-  state.baseUrlEditMode = false;
   state.stageBaseEditMode = false;
   state.endpointEditMode = false;
   state.configEndpointEditMode = false;
@@ -4012,9 +3981,6 @@ async function handlePreviewLatest() {
   if (view.previewBlocked) {
     return;
   }
-  state.previewRestoreEnabled = null;
-  state.previewTabId = null;
-  state.previewBaseUrl = "";
   state.lastPopupEnabled = null;
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
@@ -4075,10 +4041,6 @@ async function init() {
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,
     onUnregisterCurrentTab: handleUnregisterCurrentTab,
-    onBaseUrlInput: handleBaseUrlInput,
-    onBaseUrlKeyDown: handleBaseUrlKeyDown,
-    onBaseUrlSet: handleBaseUrlSet,
-    onBaseUrlEditToggle: handleBaseUrlEditToggle,
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
     onConfigEndpointInput: handleConfigEndpointInput,

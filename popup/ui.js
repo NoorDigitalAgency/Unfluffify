@@ -29,10 +29,6 @@ const initialViewState = {
   currentPageUrl: ViewText.unavailable,
   currentBaseUrl: "",
   baseUrlInputValue: "",
-  baseUrlInputReadOnly: true,
-  baseUrlSetVisible: false,
-  baseUrlEditVisible: false,
-  baseUrlEditText: ViewText.changeAction,
   baseUrlNoticeText: "",
   baseUrlNoticeVisible: false,
   toggleEnabled: false,
@@ -772,36 +768,9 @@ function renderMarkingView({state: view, actions: handlers}) {
             id: "base-url",
             type: "text",
             placeholder: PopupText.baseUrl.placeholder,
-            readOnly: view.baseUrlInputReadOnly,
-            value: view.baseUrlInputValue,
-            onInput: handlers.onBaseUrlInput,
-            onKeyDown: handlers.onBaseUrlKeyDown,
-            ref: (el) => {
-              refs.baseUrlInput = el;
-            }
-          }),
-          h(
-            "button",
-            {
-              id: "base-url-set",
-              type: "button",
-              style: {display: view.baseUrlSetVisible ? "inline-flex" : "none"},
-              onClick: handlers.onBaseUrlSet
-            },
-            icon("check"),
-            PopupText.actions.set
-          ),
-          h(
-            "button",
-            {
-              id: "base-url-edit",
-              type: "button",
-              style: {display: view.baseUrlEditVisible ? "inline-flex" : "none"},
-              onClick: handlers.onBaseUrlEditToggle
-            },
-            icon("pencil-outline"),
-            view.baseUrlEditText
-          )
+            readOnly: true,
+            value: view.baseUrlInputValue
+          })
         )
       ),
       h(
