@@ -2668,8 +2668,8 @@ function ensureAiPreviewFocusStyle() {
   style.id = AI_PREVIEW_FOCUS_STYLE_ID;
   style.textContent = `
       .${AI_PREVIEW_FOCUS_CLASS} {
-        background: rgba(255, 236, 153, 0.72) !important;
-        box-shadow: 0 0 0 2px rgba(164, 118, 37, 0.28) inset !important;
+        background: rgb(255, 255, 0) !important;
+        color: rgb(0, 0, 0) !important;
         border-radius: 6px !important;
         scroll-margin: 24vh !important;
       }
