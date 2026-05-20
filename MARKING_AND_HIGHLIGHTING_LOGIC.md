@@ -245,6 +245,8 @@ An element is eligible for AI inclusion when it is:
 
 Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
 
+AI preview is read-only. Opening or closing the AI preview popover must not create or dirty a page draft by itself, even when the normal marking overlay would auto-seed an unmarked page from stored AI selectors. Preview restore suppresses that one auto-seed pass so the pre-preview draft state is preserved.
+
 Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position.
 
 An active full silent-highlight refresh always repaints the overlay, even if the tracked node set and selector maps are unchanged. This prevents delayed visibility or render-box changes from being missed just because the render key stayed stable.
@@ -256,6 +258,7 @@ Silent exclusion source selection is visibility-agnostic. Selector-excluded and 
 The pure decision rules that are most likely to regress are covered by Node tests:
 
 - `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
+- `tests/marking-rules.test.js` also locks in the one-shot suppression rule that keeps AI preview restore from auto-seeding a new draft.
 - `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that temporarily hidden excluded nodes must remain collectable as silent-highlight sources.

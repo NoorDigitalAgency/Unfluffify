@@ -16,6 +16,7 @@ import {
 } from "./shared-inclusion.js";
 import {
   chooseExcludeParentBoundaryTarget,
+  shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
 
@@ -64,7 +65,8 @@ export const state = {
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null,
-  autoSeededPendingSavePageUrl: ""
+  autoSeededPendingSavePageUrl: "",
+  suppressNextAutoSeedFromAiSelectors: false
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
@@ -3954,7 +3956,15 @@ function renderHighlightsInner() {
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
-  if (!hasSavedMarkingsForPage && hasAiSelectors) {
+  const suppressAutoSeedFromAiSelectors = Boolean(
+    state.suppressNextAutoSeedFromAiSelectors
+  );
+  state.suppressNextAutoSeedFromAiSelectors = false;
+  if (shouldAutoSeedMarkingsFromAiSelectors({
+    hasAiSelectors,
+    hasSavedMarkingsForPage,
+    suppressAutoSeed: suppressAutoSeedFromAiSelectors
+  })) {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
       pageUrl,
@@ -4926,6 +4936,7 @@ export function disable() {
   state.currentPageUrl = "";
   state.currentPageEntry = null;
   state.autoSeededPendingSavePageUrl = "";
+  state.suppressNextAutoSeedFromAiSelectors = false;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {

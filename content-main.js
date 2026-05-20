@@ -102,6 +102,10 @@ function createAiPreviewState() {
     collapsed: false,
     previousEnabled: false,
     previousBaseUrl: "",
+    previousPageUrl: "",
+    previousDraftEntry: null,
+    previousSavedEntry: null,
+    previousAutoSeededPendingSavePageUrl: "",
     previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
       SILENT_HIGHLIGHT_OPTIONS_DEFAULTS
     )
@@ -1285,13 +1289,41 @@ function getAiPreviewSilentHighlightVisibility(sourceVisibility) {
   });
 }
 
+function restoreAiPreviewDraftState(restoreState) {
+  if (!restoreState || !restoreState.previousEnabled || !state.config) {
+    return;
+  }
+  const pageUrl = restoreState.previousPageUrl || "";
+  if (!pageUrl || location.href !== pageUrl) {
+    return;
+  }
+  if (!state.config.pageMarkings || typeof state.config.pageMarkings !== "object") {
+    state.config.pageMarkings = {};
+  }
+  const previousDraftEntry = core.clonePageEntry(restoreState.previousDraftEntry);
+  if (previousDraftEntry) {
+    state.config.pageMarkings[pageUrl] = previousDraftEntry;
+  } else {
+    delete state.config.pageMarkings[pageUrl];
+  }
+  core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
+  state.autoSeededPendingSavePageUrl =
+    restoreState.previousAutoSeededPendingSavePageUrl || "";
+  state.suppressNextAutoSeedFromAiSelectors = true;
+}
+
 async function enterAiPreviewMode() {
   if (!aiPreviewState.active) {
+    const previousPageUrl = location.href;
     aiPreviewState = {
       active: true,
       collapsed: false,
       previousEnabled: Boolean(state.enabled),
       previousBaseUrl: state.baseUrl || "",
+      previousPageUrl,
+      previousDraftEntry: core.clonePageEntry(core.getDraftPageEntry(previousPageUrl)),
+      previousSavedEntry: core.getSavedPageEntry(previousPageUrl),
+      previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || "",
       previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
         silentHighlightVisibility
       )
@@ -1328,6 +1360,7 @@ async function exitAiPreviewMode() {
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     await core.enableForBaseUrl(restoreState.previousBaseUrl);
+    restoreAiPreviewDraftState(restoreState);
     refreshEnabledAiHighlights();
     return;
   }

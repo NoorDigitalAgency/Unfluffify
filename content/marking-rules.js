@@ -8,6 +8,14 @@ export function shouldSelfMarkToggleableDefaultBoundary(options = {}) {
   return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant;
 }
 
+export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
+  return Boolean(
+    options.hasAiSelectors &&
+    !options.hasSavedMarkingsForPage &&
+    !options.suppressAutoSeed
+  );
+}
+
 export function chooseExcludeParentBoundaryTarget(options = {}) {
   const selfValue = Object.prototype.hasOwnProperty.call(options, "selfValue")
     ? options.selfValue

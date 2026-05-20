@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   chooseExcludeParentBoundaryTarget,
+  shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
 
@@ -34,6 +35,28 @@ test("toggleable defaults without descendants can self-mark", () => {
       hasDirectOwnText: false,
       hasVisibleTextualDescendant: false,
       hasExplicitlyMarkedDescendant: false
+    }),
+    true
+  );
+});
+
+test("preview restore suppresses one-shot AI auto-seeding for unmarked pages", () => {
+  assert.equal(
+    shouldAutoSeedMarkingsFromAiSelectors({
+      hasAiSelectors: true,
+      hasSavedMarkingsForPage: false,
+      suppressAutoSeed: true
+    }),
+    false
+  );
+});
+
+test("AI auto-seeding still runs for unmarked pages outside preview restore", () => {
+  assert.equal(
+    shouldAutoSeedMarkingsFromAiSelectors({
+      hasAiSelectors: true,
+      hasSavedMarkingsForPage: false,
+      suppressAutoSeed: false
     }),
     true
   );
