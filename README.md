@@ -2,6 +2,8 @@
 
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
+The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md).
+
 ## Features
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, etc.)

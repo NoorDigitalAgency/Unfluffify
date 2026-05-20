@@ -248,6 +248,19 @@ function matchesToggleableDefaultExcluded(el) {
   return false;
 }
 
+function matchesAutoToggleableDefaultExcluded(el) {
+  if (!matchesToggleableDefaultExcluded(el)) {
+    return false;
+  }
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (el.tagName !== "HEADER") {
+    return true;
+  }
+  return !hasTextualDescendant(el);
+}
+
 function isTextualContainer(el, options = {}) {
   const ignoreVisibilityForInclusionDetection = Boolean(
     options && options.ignoreVisibilityForInclusionDetection
@@ -391,6 +404,19 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
   return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant(el);
 }
 
+function isExplicitIncludeBoundaryCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (isSelfMarkableWithoutParentMode(el, options)) {
+    return true;
+  }
+  return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
+}
+
 function matchesImmutableExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -423,7 +449,7 @@ function isWithinImmutableExcluded(el) {
 }
 
 function isToggleableDefaultExcludedElement(el, includedElements) {
-  return matchesToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
+  return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
 }
 
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
@@ -830,7 +856,7 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (
       !isWithinImmutableExcluded(node) &&
       (
-        (matchesToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
+        (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
         isSelfMarkableWithoutParentMode(node)
       )
     ) {
@@ -1427,7 +1453,7 @@ function collectToggleableDefaultExcludedElements(includedElements) {
     if (matchesImmutableExcluded(el)) {
       continue;
     }
-    if (matchesToggleableDefaultExcluded(el)) {
+    if (matchesAutoToggleableDefaultExcluded(el)) {
       results.push(el);
       continue;
     }
@@ -2961,7 +2987,7 @@ function createExcludedAncestorChecker(options = {}) {
         node = node.parentElement;
         continue;
       }
-      if (matchesImmutableExcluded(node) || matchesToggleableDefaultExcluded(node)) {
+      if (matchesImmutableExcluded(node) || matchesAutoToggleableDefaultExcluded(node)) {
         return true;
       }
       node = node.parentElement;
@@ -2971,7 +2997,64 @@ function createExcludedAncestorChecker(options = {}) {
 }
 
 function resolveMarkableElement(el, config, options) {
-  if (!isMarkableElement(el, config, options)) {
+  if (!el || el.nodeType !== 1) {
+    return null;
+  }
+
+  const currentOptions = {
+    ...(options || {})
+  };
+  const ancestorOptions = {
+    ...currentOptions,
+    allowParent: false,
+    explicitlyExcluded: false,
+    explicitlyIncluded: false,
+    preferMixedTextAncestor: false
+  };
+
+  if (currentOptions.allowParent) {
+    let preferredAncestor = null;
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (ancestor === document.documentElement || ancestor === document.body) {
+        break;
+      }
+      if (!isWithinAiPopover(ancestor) && !isWithinConsentElement(ancestor)) {
+        if (
+          isMarkableElement(ancestor, config, ancestorOptions) ||
+          (matchesToggleableDefaultExcluded(ancestor) && isTextualContainer(ancestor))
+        ) {
+          preferredAncestor = ancestor;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (preferredAncestor) {
+      return preferredAncestor;
+    }
+  }
+
+  if (currentOptions.preferMixedTextAncestor) {
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (ancestor === document.documentElement || ancestor === document.body) {
+        break;
+      }
+      if (
+        !isWithinAiPopover(ancestor) &&
+        !isWithinConsentElement(ancestor) &&
+        isExplicitIncludeBoundaryCandidate(ancestor, ancestorOptions)
+      ) {
+        return ancestor;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (isExplicitIncludeBoundaryCandidate(el, ancestorOptions)) {
+      return el;
+    }
+  }
+
+  if (!isMarkableElement(el, config, currentOptions)) {
     return null;
   }
   return el;
@@ -2980,6 +3063,8 @@ function resolveMarkableElement(el, config, options) {
 function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
+  const preferExplicitTarget = !options || options.preferExplicitTarget !== false;
+  const preferMixedTextAncestor = Boolean(options && options.preferMixedTextAncestor);
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
   const explicitParentSet = options && options.explicitParentSet;
@@ -2992,6 +3077,7 @@ function getMarkableTarget(x, y, options) {
   const elements = document.elementsFromPoint(x, y);
   if (
     allowExplicitTarget &&
+    preferExplicitTarget &&
     ((excludedSet && excludedSet.size > 0) || (includeSet && includeSet.size > 0))
   ) {
     for (const el of elements) {
@@ -3045,12 +3131,6 @@ function getMarkableTarget(x, y, options) {
     if (isWithinConsentElement(el)) {
       continue;
     }
-    if (!allowExcludedParentChildren && explicitParentSet && explicitParentSet.size > 0) {
-      const xpath = getXPath(el);
-      if (xpath && isWithinExplicitExcludedXpath(xpath, explicitParentSet)) {
-        continue;
-      }
-    }
     const explicitlyExcluded =
         allowExplicitTarget && isExplicitlyExcludedElement(el, excludedSet);
     const explicitlyIncluded =
@@ -3068,7 +3148,8 @@ function getMarkableTarget(x, y, options) {
       allowParent,
       explicitlyExcluded,
       explicitlyIncluded,
-      allowImmutableChildren
+      allowImmutableChildren,
+      preferMixedTextAncestor
     });
     if (resolved) {
       return resolved;
@@ -3099,6 +3180,8 @@ function updateHoverHighlight(
   const target = getMarkableTarget(x, y, {
     allowParent,
     allowExplicitTarget: true,
+    preferExplicitTarget: allowExcludedParentChildren,
+    preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -3216,11 +3299,6 @@ function toggleExplicitExclude(target) {
     scheduleDraftPersist(state.baseUrl);
     return;
   }
-  const explicitExcludeSet = new Set(collectExcludedXPaths(items));
-  if (isWithinExplicitExcludedXpath(xpath, explicitExcludeSet)) {
-    showToast(ContentText.marking.altIncludeParentHint);
-    return;
-  }
   const cleanupHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -3231,6 +3309,57 @@ function toggleExplicitExclude(target) {
       if (
         (existingEl && target.contains(existingEl)) ||
         (!existingEl && isXPathDescendant(currentXPath, item.xpath))
+      ) {
+        items.splice(i, 1);
+      }
+    }
+  };
+  const cleanupAncestorHierarchy = (currentXPath) => {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (!item || !item.xpath || item.xpath === currentXPath || !item.excluded) {
+        continue;
+      }
+      const existingEl = getElementFromXPath(item.xpath);
+      if (
+        (existingEl && existingEl.contains(target)) ||
+        (!existingEl && isXPathDescendant(item.xpath, currentXPath))
+      ) {
+        items.splice(i, 1);
+      }
+    }
+  };
+  const cleanupIncludeHierarchy = (currentXPath) => {
+    for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+      const includeXPath = includeXpaths[i];
+      if (!includeXPath) {
+        continue;
+      }
+      const includeEl = getElementFromXPath(includeXPath);
+      if (
+        includeXPath === currentXPath ||
+        (includeEl && (includeEl.contains(target) || target.contains(includeEl))) ||
+        (!includeEl && (
+          isXPathDescendant(includeXPath, currentXPath) ||
+          isXPathDescendant(currentXPath, includeXPath)
+        ))
+      ) {
+        includeXpaths.splice(i, 1);
+      }
+    }
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (!item || !item.xpath || item.excluded) {
+        continue;
+      }
+      const itemEl = getElementFromXPath(item.xpath);
+      if (
+        item.xpath === currentXPath ||
+        (itemEl && (itemEl.contains(target) || target.contains(itemEl))) ||
+        (!itemEl && (
+          isXPathDescendant(item.xpath, currentXPath) ||
+          isXPathDescendant(currentXPath, item.xpath)
+        ))
       ) {
         items.splice(i, 1);
       }
@@ -3249,6 +3378,8 @@ function toggleExplicitExclude(target) {
   }
   if (addedExclude) {
     cleanupHierarchy(xpath);
+    cleanupAncestorHierarchy(xpath);
+    cleanupIncludeHierarchy(xpath);
     if (Array.isArray(entry.includeXpaths)) {
       entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
     }
@@ -3384,6 +3515,8 @@ function handleToggleEvent(event) {
   const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
     allowExplicitTarget: true,
+    preferExplicitTarget: mode === "include",
+    preferMixedTextAncestor: mode === "include" && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -4352,6 +4485,12 @@ export function canApplyExplicitInclude(
   pageUrl = location.href,
   entryOverride = null
 ) {
+  if (isExplicitIncludeBoundaryCandidate(el, {
+    allowParent: false,
+    allowImmutableChildren: false
+  })) {
+    return true;
+  }
   if (isMarkableElement(el, configValue, {
     allowParent: false,
     allowImmutableChildren: false
