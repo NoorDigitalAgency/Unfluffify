@@ -192,6 +192,15 @@ Reason:
 - exclusion and inclusion boundaries must not overlap in contradictory ways,
 - clicking a descendant inside an explicit include should immediately convert that part of the subtree back into excluded content.
 
+### Descendant include cleanup during exclusion removal
+
+If an excluded boundary is unmarked, any descendant explicit include overrides beneath that boundary are removed as well.
+
+Reason:
+
+- once the parent exclusion is gone, descendant explicit includes that only existed to punch holes through that exclusion become redundant,
+- the subtree should return to its default state instead of preserving stale include overrides.
+
 ## Explicit Include Rules
 
 Explicit includes are stored separately in `includeXpaths`.
