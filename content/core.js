@@ -466,25 +466,23 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
 }
 
-function isActionLikeMarkingChild(el) {
+function isGroupedBoundaryChildCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  const role = (el.getAttribute("role") || "").toLowerCase();
-  if (role === "button" || role === "link") {
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (!isTextualContainer(el, options)) {
+    return false;
+  }
+  if (isSelfMarkableWithoutParentMode(el, options)) {
     return true;
   }
-  if (el.tagName === "BUTTON") {
-    return true;
-  }
-  if (el.tagName === "A") {
-    const href = el.getAttribute("href");
-    return typeof href === "string";
-  }
-  return false;
+  return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
 }
 
-function isGroupedActionExclusionCandidate(el, options = {}) {
+function isStructuredGroupExclusionCandidate(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
@@ -501,6 +499,9 @@ function isGroupedActionExclusionCandidate(el, options = {}) {
     if (!child || child.nodeType !== 1) {
       return false;
     }
+    if (isWithinAiPopover(child)) {
+      return false;
+    }
     if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
       return false;
     }
@@ -509,9 +510,7 @@ function isGroupedActionExclusionCandidate(el, options = {}) {
   if (children.length < 2) {
     return false;
   }
-  return children.every((child) =>
-    isActionLikeMarkingChild(child) && isTextualContainer(child, options)
-  );
+  return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
 function matchesImmutableExcluded(el) {
@@ -3117,6 +3116,9 @@ function resolveMarkableElement(el, config, options) {
         break;
       }
       if (!isWithinAiPopover(ancestor) && !isWithinConsentElement(ancestor)) {
+        if (isStructuredGroupExclusionCandidate(ancestor, ancestorOptions)) {
+          return ancestor;
+        }
         if (
           isMarkableElement(ancestor, config, ancestorOptions) ||
           (matchesToggleableDefaultExcluded(ancestor) && isTextualContainer(ancestor))
@@ -3147,26 +3149,6 @@ function resolveMarkableElement(el, config, options) {
       ancestor = ancestor.parentElement;
     }
     if (isExplicitIncludeBoundaryCandidate(el, ancestorOptions)) {
-      return el;
-    }
-  }
-
-  if (currentOptions.preferGroupedActionAncestor) {
-    let ancestor = el.parentElement;
-    while (ancestor && ancestor.nodeType === 1) {
-      if (ancestor === document.documentElement || ancestor === document.body) {
-        break;
-      }
-      if (
-        !isWithinAiPopover(ancestor) &&
-        !isWithinConsentElement(ancestor) &&
-        isGroupedActionExclusionCandidate(ancestor, ancestorOptions)
-      ) {
-        return ancestor;
-      }
-      ancestor = ancestor.parentElement;
-    }
-    if (isGroupedActionExclusionCandidate(el, ancestorOptions)) {
       return el;
     }
   }
@@ -3299,7 +3281,6 @@ function updateHoverHighlight(
     allowExplicitTarget: true,
     preferExplicitTarget: allowExcludedParentChildren,
     preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
-    preferGroupedActionAncestor: !allowExcludedParentChildren && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -3665,7 +3646,6 @@ function handleToggleEvent(event) {
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
     preferMixedTextAncestor: mode === "include" && !allowParent,
-    preferGroupedActionAncestor: mode !== "include" && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -5425,6 +5405,24 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   }
   const explicitIncludeSet = new Set(filteredIncludeXpaths);
   entry.includeXpaths = filteredIncludeXpaths;
+  const explicitMarkedAncestorSet = new Set();
+  const explicitMarkedXpaths = new Set([
+    ...Array.from(excludedLookup.keys()),
+    ...filteredIncludeXpaths
+  ]);
+  for (const xpath of explicitMarkedXpaths) {
+    if (typeof xpath !== "string" || !xpath) {
+      continue;
+    }
+    const explicitMarkedEl = getElementFromXPath(xpath);
+    let current = explicitMarkedEl && explicitMarkedEl.nodeType === 1
+      ? explicitMarkedEl.parentElement
+      : null;
+    while (current && current.nodeType === 1) {
+      explicitMarkedAncestorSet.add(current);
+      current = current.parentElement;
+    }
+  }
   const isExplicitlyMarkedXpath = (xpath) => {
     if (!xpath) {
       return false;
@@ -5472,6 +5470,14 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   for (const el of candidates) {
     const xpath = getXPath(el);
     if (!xpath || seen.has(xpath)) {
+      continue;
+    }
+    const autoToggleableDefault = matchesAutoToggleableDefaultExcluded(el);
+    if (
+      autoToggleableDefault &&
+      explicitMarkedAncestorSet.has(el) &&
+      !isExplicitlyMarkedXpath(xpath)
+    ) {
       continue;
     }
     if (

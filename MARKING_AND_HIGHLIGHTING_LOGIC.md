@@ -57,7 +57,7 @@ Current default toggleable tags:
 - `DIALOG`
 - `ASIDE`
 
-Toggleable defaults still remain toggleable, but auto-applied default exclusion now uses a structural rule instead of a tag-specific one. A toggleable wrapper is not auto-applied as an excluded boundary when it contains meaningful text descendants, has no nested toggleable default-excluded descendant inside it, and also carries a visible immutable descendant such as stretched hero media. That keeps content wrappers user-toggleable without letting decorative background media suppress inclusion and highlighting inside them.
+Toggleable defaults still remain toggleable, but auto-applied default exclusion now uses structural rules instead of tag-specific exceptions. Content wrappers are not auto-applied as excluded boundaries when they contain meaningful text descendants and visible immutable media such as stretched hero images. Separately, once a descendant inside a toggleable default subtree has any explicit user marking, broader auto-default ancestors above that descendant are suppressed so the user can clear the subtree level by level without the ancestor snapping back in automatically.
 
 ## Stored Per-Page Markings
 
@@ -124,9 +124,11 @@ Here the `span` has no own text, so the `strong` remains the appropriate target.
 
 ### Parent selection with Shift
 
-In exclude mode, `Shift+Click` means “choose the broadest eligible ancestor instead of the deepest eligible descendant under the pointer.”
+In exclude mode, `Shift+Click` means “choose a broader eligible ancestor instead of the deepest eligible descendant under the pointer.”
 
 This is how users intentionally move back up to a broader boundary such as a form or sidebar container.
+
+For structured non-text wrappers whose direct children are the separate textual boundaries the user sees, `Shift+Click` prefers the nearest such grouping ancestor. This is what allows containers like button groups and list wrappers to be excluded as one logical block.
 
 Without `Shift`, exclude mode prefers drilling down.
 
@@ -329,7 +331,8 @@ The rebuild is intentionally idempotent:
 
 ### If the user excludes with Shift
 
-- choose the nearest eligible ancestor,
+- choose a broader eligible ancestor on purpose,
+- prefer the nearest structured grouping ancestor when the wrapper itself has no direct text but its direct children are the separate textual items,
 - use this when moving back up to a broader container.
 
 ### If the user includes
