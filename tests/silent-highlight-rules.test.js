@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
+  shouldCollectSilentExcludedSource,
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
 } from "../content/silent-highlight-rules.js";
@@ -68,6 +69,30 @@ test("inactive silent highlight refresh does not repaint the overlay", () => {
       positionRefreshPending: true,
       hasOverlay: true,
       isFullRefresh: true
+    }),
+    false
+  );
+});
+
+test("silent excluded sources remain collectable while temporarily hidden", () => {
+  assert.equal(
+    shouldCollectSilentExcludedSource({
+      isWithinIncluded: false,
+      hasRenderableText: true,
+      visibleToUser: false,
+      definitelyHiddenSubtree: true
+    }),
+    true
+  );
+});
+
+test("silent excluded sources still respect explicit include boundaries", () => {
+  assert.equal(
+    shouldCollectSilentExcludedSource({
+      isWithinIncluded: true,
+      hasRenderableText: true,
+      visibleToUser: true,
+      definitelyHiddenSubtree: false
     }),
     false
   );

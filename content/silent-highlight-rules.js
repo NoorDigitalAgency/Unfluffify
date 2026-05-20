@@ -16,6 +16,13 @@ export function shouldRenderSilentHighlightOverlay(options = {}) {
   );
 }
 
+export function shouldCollectSilentExcludedSource(options = {}) {
+  return Boolean(
+    !options.isWithinIncluded &&
+    options.hasRenderableText
+  );
+}
+
 export function sampleSettledSilentHighlightPosition(
   previousState = {},
   signature = "",

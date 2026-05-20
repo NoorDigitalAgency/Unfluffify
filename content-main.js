@@ -20,6 +20,7 @@ import {
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
+  shouldCollectSilentExcludedSource,
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
 } from "./content/silent-highlight-rules.js";
@@ -2064,9 +2065,6 @@ function collectExcludedChildrenInsideIncludedParents(
       if (isExtensionUiNode(node)) {
         continue;
       }
-      if (!core.isVisible(node) && isDefinitelyHiddenSubtreeNode(node)) {
-        continue;
-      }
       const excludedNature = isExcludedNatureNode(
         node,
         excludedNodes,
@@ -2074,11 +2072,14 @@ function collectExcludedChildrenInsideIncludedParents(
         inclusionContextSet
       );
       if (excludedNature) {
-        if (!seen.has(node) && hasRenderableTextForExcludedHighlight(
-          node,
-          includedNodes,
-          inclusionContextSet
-        )) {
+        if (!seen.has(node) && shouldCollectSilentExcludedSource({
+          isWithinIncluded: false,
+          hasRenderableText: hasRenderableTextForExcludedHighlight(
+            node,
+            includedNodes,
+            inclusionContextSet
+          )
+        })) {
           seen.add(node);
           marked.push(node);
         }
@@ -2105,13 +2106,14 @@ function collectSelectorExcludedNodes(
     if (isExtensionUiNode(node)) {
       continue;
     }
-    if (!core.isVisible(node) && isDefinitelyHiddenSubtreeNode(node)) {
-      continue;
-    }
-    if (isWithinNodeSet(node, includedNodes)) {
-      continue;
-    }
-    if (!hasRenderableTextForExcludedHighlight(node, includedNodes, inclusionContextSet)) {
+    if (!shouldCollectSilentExcludedSource({
+      isWithinIncluded: isWithinNodeSet(node, includedNodes),
+      hasRenderableText: hasRenderableTextForExcludedHighlight(
+        node,
+        includedNodes,
+        inclusionContextSet
+      )
+    })) {
       continue;
     }
     marked.add(node);

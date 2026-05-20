@@ -249,6 +249,8 @@ Silent highlight overlay positions are refreshed not only on scroll and relevant
 
 An active full silent-highlight refresh always repaints the overlay, even if the tracked node set and selector maps are unchanged. This prevents delayed visibility or render-box changes from being missed just because the render key stayed stable.
 
+Silent exclusion source selection is visibility-agnostic. Selector-excluded and inferred excluded boundaries stay in the silent-highlight source set even when they are temporarily non-drawable, such as Webflow-style `opacity: 0` fade-ins. Current visibility only affects whether rects are drawn at that moment, not whether the exclusion boundary is tracked.
+
 ## Regression Coverage
 
 The pure decision rules that are most likely to regress are covered by Node tests:
@@ -256,6 +258,7 @@ The pure decision rules that are most likely to regress are covered by Node test
 - `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
 - `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
+- `tests/silent-highlight-rules.test.js` also locks in the rule that temporarily hidden excluded nodes must remain collectable as silent-highlight sources.
 
 Run `npm test` from the repository root to execute the regression suite.
 
