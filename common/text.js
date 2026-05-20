@@ -175,7 +175,7 @@ export const PopupText = Object.freeze({
     optionStatic: "Static", // Select-option label for static HTML mode.
     optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
-    warningTitle: "Render Mode Could Not Be Determined", // Title for the manual render-mode confirmation popover.
+    warningTitle: "How to Verify the Render Mode Manually", // Title for the manual render-mode instructions popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
     warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.
     warningBodyHtml: `

@@ -54,7 +54,7 @@ const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
-const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.5;
+const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.65;
 const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.95;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -2017,7 +2017,7 @@ async function refreshUiInner() {
     isRenderModeDetectionLowConfidence(state.renderModeDetectionAccuracy);
   const renderModeWarningKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
   const renderModeWarningAutoVisible =
-    (state.renderModeDetectionUnsure || renderModeLowConfidence) &&
+    state.renderModeDetectionUnsure &&
     state.renderModeWarningDismissedKey !== renderModeWarningKey;
   const renderModeWarningVisible = Boolean(
     state.renderModeManualStepsVisible || renderModeWarningAutoVisible
