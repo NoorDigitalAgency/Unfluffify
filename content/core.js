@@ -450,6 +450,9 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     }
     return true;
   }
+  if (hasDirectOwnText) {
+    return true;
+  }
   return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant(el);
 }
 
@@ -3109,6 +3112,14 @@ function resolveMarkableElement(el, config, options) {
   };
 
   if (currentOptions.allowParent) {
+    if (
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      matchesToggleableDefaultExcluded(el) &&
+      isTextualContainer(el, ancestorOptions)
+    ) {
+      return el;
+    }
     let preferredAncestor = null;
     let ancestor = el.parentElement;
     while (ancestor && ancestor.nodeType === 1) {
@@ -3413,6 +3424,37 @@ function toggleExplicitExclude(target) {
       }
     }
   };
+  const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
+    const boundaryTarget = currentTarget && currentTarget.nodeType === 1
+      ? currentTarget
+      : getElementFromXPath(currentXPath);
+    for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+      const includeXPath = includeXpaths[i];
+      if (!includeXPath || includeXPath === currentXPath) {
+        continue;
+      }
+      const includeEl = getElementFromXPath(includeXPath);
+      if (
+        (boundaryTarget && includeEl && boundaryTarget.contains(includeEl)) ||
+        (!includeEl && isXPathDescendant(currentXPath, includeXPath))
+      ) {
+        includeXpaths.splice(i, 1);
+      }
+    }
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (!item || !item.xpath || item.excluded || item.xpath === currentXPath) {
+        continue;
+      }
+      const itemEl = getElementFromXPath(item.xpath);
+      if (
+        (boundaryTarget && itemEl && boundaryTarget.contains(itemEl)) ||
+        (!itemEl && isXPathDescendant(currentXPath, item.xpath))
+      ) {
+        items.splice(i, 1);
+      }
+    }
+  };
   const cleanupAncestorHierarchy = (currentXPath) => {
     for (let i = items.length - 1; i >= 0; i -= 1) {
       const item = items[i];
@@ -3424,6 +3466,7 @@ function toggleExplicitExclude(target) {
         (existingEl && existingEl.contains(target)) ||
         (!existingEl && isXPathDescendant(item.xpath, currentXPath))
       ) {
+        cleanupDescendantIncludeOverrides(item.xpath, existingEl);
         items.splice(i, 1);
       }
     }
@@ -3464,34 +3507,6 @@ function toggleExplicitExclude(target) {
       }
     }
   };
-  const cleanupDescendantIncludeOverrides = (currentXPath) => {
-    for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
-      const includeXPath = includeXpaths[i];
-      if (!includeXPath || includeXPath === currentXPath) {
-        continue;
-      }
-      const includeEl = getElementFromXPath(includeXPath);
-      if (
-        (includeEl && target.contains(includeEl)) ||
-        (!includeEl && isXPathDescendant(currentXPath, includeXPath))
-      ) {
-        includeXpaths.splice(i, 1);
-      }
-    }
-    for (let i = items.length - 1; i >= 0; i -= 1) {
-      const item = items[i];
-      if (!item || !item.xpath || item.excluded || item.xpath === currentXPath) {
-        continue;
-      }
-      const itemEl = getElementFromXPath(item.xpath);
-      if (
-        (itemEl && target.contains(itemEl)) ||
-        (!itemEl && isXPathDescendant(currentXPath, item.xpath))
-      ) {
-        items.splice(i, 1);
-      }
-    }
-  };
 
   let addedExclude;
   let targetItem = items.find((item) => item && item.xpath === xpath);
@@ -3511,7 +3526,7 @@ function toggleExplicitExclude(target) {
       entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
     }
   } else if (targetItem && !targetItem.excluded) {
-    cleanupDescendantIncludeOverrides(xpath);
+    cleanupDescendantIncludeOverrides(xpath, target);
   }
 
   entry.xpaths = items;

@@ -40,6 +40,8 @@ const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
+const SILENT_HIGHLIGHTING_INTERACTION_DEBOUNCE_MS = 140;
+const SILENT_HIGHLIGHTING_INTERACTION_MIN_INTERVAL_MS = 180;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "class",
   "id",
@@ -62,6 +64,7 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingRefreshTimer = 0;
+let silentHighlightingRefreshDueAt = 0;
 let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
@@ -913,28 +916,50 @@ function stopSilentHighlightingObserver() {
     window.clearTimeout(silentHighlightingRefreshTimer);
     silentHighlightingRefreshTimer = 0;
   }
+  silentHighlightingRefreshDueAt = 0;
   clearSilentHighlightRepositionTimers();
 }
 
-function scheduleSilentHighlightingsRefresh() {
-  if (silentHighlightingRefreshTimer) {
-    return;
-  }
+function scheduleSilentHighlightingsRefresh(options = {}) {
+  const debounceMs = Number.isFinite(options && options.debounceMs)
+    ? Math.max(0, Math.trunc(options.debounceMs))
+    : SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS;
+  const minIntervalMs = Number.isFinite(options && options.minIntervalMs)
+    ? Math.max(0, Math.trunc(options.minIntervalMs))
+    : SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS;
   const now = Date.now();
   const sinceLast = now - lastSilentHighlightingRefreshAt;
   const waitForMinInterval =
-    sinceLast < SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS
-      ? SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS - sinceLast
+    sinceLast < minIntervalMs
+      ? minIntervalMs - sinceLast
       : 0;
-  const delay = Math.max(
-    SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS,
-    waitForMinInterval
-  );
+  const delay = Math.max(debounceMs, waitForMinInterval);
+  const dueAt = now + delay;
+  if (
+    silentHighlightingRefreshTimer &&
+    silentHighlightingRefreshDueAt &&
+    silentHighlightingRefreshDueAt <= dueAt
+  ) {
+    return;
+  }
+  if (silentHighlightingRefreshTimer) {
+    window.clearTimeout(silentHighlightingRefreshTimer);
+    silentHighlightingRefreshTimer = 0;
+  }
+  silentHighlightingRefreshDueAt = dueAt;
   silentHighlightingRefreshTimer = window.setTimeout(() => {
     silentHighlightingRefreshTimer = 0;
+    silentHighlightingRefreshDueAt = 0;
     lastSilentHighlightingRefreshAt = Date.now();
     refreshSilentHighlightings().then();
   }, delay);
+}
+
+function scheduleInteractiveSilentHighlightingsRefresh() {
+  scheduleSilentHighlightingsRefresh({
+    debounceMs: SILENT_HIGHLIGHTING_INTERACTION_DEBOUNCE_MS,
+    minIntervalMs: SILENT_HIGHLIGHTING_INTERACTION_MIN_INTERVAL_MS
+  });
 }
 
 function isExtensionUiNode(node) {
@@ -2542,6 +2567,11 @@ function refreshEnabledAiHighlights() {
 }
 
 async function refreshSilentHighlightings() {
+  if (silentHighlightingRefreshTimer) {
+    window.clearTimeout(silentHighlightingRefreshTimer);
+    silentHighlightingRefreshTimer = 0;
+  }
+  silentHighlightingRefreshDueAt = 0;
   lastSilentHighlightingRefreshAt = Date.now();
   if (state.enabled) {
     stopSilentHighlightingObserver();
@@ -2800,6 +2830,7 @@ export function main() {
       return;
     }
     handleSilentSelectorClickCopy(event);
+    scheduleInteractiveSilentHighlightingsRefresh();
   }, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -3109,6 +3140,7 @@ export function main() {
       const excluded = Boolean(message.excluded);
       const entry = core.getPageMarkingEntry(state.config, location.href);
       const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+      const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
       let targetItem = items.find((item) => item && item.xpath === xpath);
       if (!targetItem) {
         targetItem = { xpath, excluded };
@@ -3117,6 +3149,37 @@ export function main() {
         targetItem.excluded = excluded;
       }
       const target = core.getElementFromXPath(xpath);
+      const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
+        const boundaryTarget = currentTarget && currentTarget.nodeType === 1
+          ? currentTarget
+          : core.getElementFromXPath(currentXPath);
+        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+          const includeXPath = includeXpaths[i];
+          if (!includeXPath || includeXPath === currentXPath) {
+            continue;
+          }
+          const includeEl = core.getElementFromXPath(includeXPath);
+          if (
+            (boundaryTarget && includeEl && boundaryTarget.contains(includeEl)) ||
+            (!includeEl && core.isXPathDescendant(currentXPath, includeXPath))
+          ) {
+            includeXpaths.splice(i, 1);
+          }
+        }
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (!item || !item.xpath || item.excluded || item.xpath === currentXPath) {
+            continue;
+          }
+          const itemEl = core.getElementFromXPath(item.xpath);
+          if (
+            (boundaryTarget && itemEl && boundaryTarget.contains(itemEl)) ||
+            (!itemEl && core.isXPathDescendant(currentXPath, item.xpath))
+          ) {
+            items.splice(i, 1);
+          }
+        }
+      };
       if (excluded) {
         for (let i = items.length - 1; i >= 0; i -= 1) {
           const item = items[i];
@@ -3130,10 +3193,40 @@ export function main() {
             items.splice(i, 1);
           }
         }
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (!item || !item.xpath || item.xpath === xpath || !item.excluded) {
+            continue;
+          }
+          const existingEl = core.getElementFromXPath(item.xpath);
+          const containsTarget =
+            existingEl && target ? existingEl.contains(target) : core.isXPathDescendant(item.xpath, xpath);
+          if (containsTarget) {
+            cleanupDescendantIncludeOverrides(item.xpath, existingEl);
+            items.splice(i, 1);
+          }
+        }
+        for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
+          const includeXPath = includeXpaths[i];
+          if (!includeXPath) {
+            continue;
+          }
+          const includeEl = core.getElementFromXPath(includeXPath);
+          if (
+            includeXPath === xpath ||
+            (includeEl && target && (includeEl.contains(target) || target.contains(includeEl))) ||
+            (!includeEl && (
+              core.isXPathDescendant(includeXPath, xpath) ||
+              core.isXPathDescendant(xpath, includeXPath)
+            ))
+          ) {
+            includeXpaths.splice(i, 1);
+          }
+        }
+      } else if (targetItem && !targetItem.excluded) {
+        cleanupDescendantIncludeOverrides(xpath, target);
       }
-      if (excluded && Array.isArray(entry.includeXpaths)) {
-        entry.includeXpaths = entry.includeXpaths.filter((value) => value !== xpath);
-      }
+      entry.includeXpaths = includeXpaths;
       entry.xpaths = items;
       core.touchPageEntryTimestamp(entry);
       core.normalizePageEntryXpaths(entry);

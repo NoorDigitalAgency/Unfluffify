@@ -93,6 +93,8 @@ The important distinction is between:
 
 Direct text means actual text-node content owned by the element itself, not only text inherited from descendants.
 
+For toggleable default exclusions, direct text keeps the boundary self-markable even when the element also contains nested textual descendants. This is what allows labels, buttons, and similar toggleable boundaries to stay targetable as their own unit instead of collapsing entirely to the nested child nodes.
+
 Examples:
 
 - `<span>Hello <strong>world</strong></span>`: the `span` has direct text and a descendant.
@@ -149,6 +151,7 @@ The effective rules are:
 
 - explicit exclude ancestors are not force-selected first,
 - direct clicks on the currently excluded element itself still resolve to that exact element,
+- direct clicks on a toggleable default boundary itself still resolve to that exact boundary when the user is intentionally selecting ancestors with `Shift`,
 - descendants inside excluded parents are still inspectable,
 - the default behavior is to drill down,
 - `Shift` is required to select a broader ancestor on purpose.
@@ -197,6 +200,8 @@ Reason:
 ### Descendant include cleanup during exclusion removal
 
 If an excluded boundary is unmarked, any descendant explicit include overrides beneath that boundary are removed as well.
+
+The same cleanup also runs when a broader excluded ancestor is removed indirectly because the user refined the exclusion to a narrower descendant.
 
 Reason:
 
