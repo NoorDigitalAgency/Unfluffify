@@ -14,6 +14,10 @@ import {
   getNormalizedTextContent as getNormalizedElementText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
 } from "./shared-inclusion.js";
+import {
+  chooseExcludeParentBoundaryTarget,
+  shouldSelfMarkToggleableDefaultBoundary
+} from "./marking-rules.js";
 
 export const state = {
   enabled: false,
@@ -450,10 +454,11 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     }
     return true;
   }
-  if (hasDirectOwnText) {
-    return true;
-  }
-  return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant(el);
+  return shouldSelfMarkToggleableDefaultBoundary({
+    hasDirectOwnText,
+    hasVisibleTextualDescendant,
+    hasExplicitlyMarkedDescendant: hasExplicitlyMarkedDescendant(el)
+  });
 }
 
 function isExplicitIncludeBoundaryCandidate(el, options = {}) {
@@ -3112,47 +3117,51 @@ function resolveMarkableElement(el, config, options) {
   };
 
   if (currentOptions.allowParent) {
-    if (
+    const selfStructuredGroup =
       !isWithinAiPopover(el) &&
       !isWithinConsentElement(el) &&
-      isStructuredGroupExclusionCandidate(el, ancestorOptions)
-    ) {
-      return el;
-    }
-    if (
+      isStructuredGroupExclusionCandidate(el, ancestorOptions);
+    const selfToggleableBoundary =
       !isWithinAiPopover(el) &&
       !isWithinConsentElement(el) &&
       matchesToggleableDefaultExcluded(el) &&
-      isTextualContainer(el, ancestorOptions)
-    ) {
-      return el;
-    }
-    let preferredAncestor = null;
-    let nearestToggleableAncestor = null;
+      isTextualContainer(el, ancestorOptions);
+    const ancestorCandidates = [];
     let ancestor = el.parentElement;
     while (ancestor && ancestor.nodeType === 1) {
       if (ancestor === document.documentElement || ancestor === document.body) {
         break;
       }
       if (!isWithinAiPopover(ancestor) && !isWithinConsentElement(ancestor)) {
-        if (isStructuredGroupExclusionCandidate(ancestor, ancestorOptions)) {
-          return ancestor;
-        }
-        if (matchesToggleableDefaultExcluded(ancestor) && isTextualContainer(ancestor)) {
-          if (!nearestToggleableAncestor) {
-            nearestToggleableAncestor = ancestor;
-          }
-        } else if (isMarkableElement(ancestor, config, ancestorOptions)) {
-          preferredAncestor = ancestor;
-        }
+        const structuredGroupBoundary = isStructuredGroupExclusionCandidate(
+          ancestor,
+          ancestorOptions
+        );
+        const toggleableBoundary =
+          !structuredGroupBoundary &&
+          matchesToggleableDefaultExcluded(ancestor) &&
+          isTextualContainer(ancestor);
+        const markableBoundary =
+          !structuredGroupBoundary &&
+          !toggleableBoundary &&
+          isMarkableElement(ancestor, config, ancestorOptions);
+        ancestorCandidates.push({
+          value: ancestor,
+          isStructuredGroup: structuredGroupBoundary,
+          isToggleableBoundary: toggleableBoundary,
+          isMarkable: markableBoundary
+        });
       }
       ancestor = ancestor.parentElement;
     }
-    if (nearestToggleableAncestor) {
-      return nearestToggleableAncestor;
-    }
-    if (preferredAncestor) {
-      return preferredAncestor;
+    const preferredBoundary = chooseExcludeParentBoundaryTarget({
+      selfValue: el,
+      selfStructuredGroup,
+      selfToggleableBoundary,
+      ancestors: ancestorCandidates
+    });
+    if (preferredBoundary) {
+      return preferredBoundary;
     }
   }
 

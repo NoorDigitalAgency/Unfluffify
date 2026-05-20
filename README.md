@@ -22,6 +22,16 @@ The detailed source of truth for marking and highlighting behavior is documented
 3. Click **Load unpacked** and select the project folder
 4. Pin the extension for easy access
 
+## Testing
+
+Run the regression suite from the repository root:
+
+```bash
+npm test
+```
+
+The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
+
 ## Project Structure
 
 ### Core Entry Points
@@ -44,8 +54,15 @@ The detailed source of truth for marking and highlighting behavior is documented
 ### Content Scripts (`/content`)
 
 - **`core.js`** - Main content script logic (3900+ lines): DOM manipulation, element selection, overlay rendering
+- **`marking-rules.js`** - Shared pure rules for toggleable markability and exclude parent-boundary selection
 - **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
+- **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
 - **`constants.js`** - Content script constants (removable element selectors, etc.)
+
+### Regression Tests (`/tests`)
+
+- **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability and parent-boundary selection
+- **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 
 ### Popup UI (`/popup`)
 

@@ -247,6 +247,18 @@ Because auto-applied toggleable default exclusion is now structural, text inside
 
 Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position.
 
+An active full silent-highlight refresh always repaints the overlay, even if the tracked node set and selector maps are unchanged. This prevents delayed visibility or render-box changes from being missed just because the render key stayed stable.
+
+## Regression Coverage
+
+The pure decision rules that are most likely to regress are covered by Node tests:
+
+- `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
+- `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
+- `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
+
+Run `npm test` from the repository root to execute the regression suite.
+
 ## Highlight Collections
 
 The rendered overlay is split into these logical collections:

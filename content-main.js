@@ -17,6 +17,12 @@ import {
   SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
+import {
+  DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
+  DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
+  shouldRenderSilentHighlightOverlay,
+  sampleSettledSilentHighlightPosition
+} from "./content/silent-highlight-rules.js";
 
 const { state } = core;
 
@@ -39,8 +45,10 @@ const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_SETTLE_REPOSITION_SAMPLE_MS = 120;
-const SILENT_SETTLE_REPOSITION_STABLE_SAMPLES = 3;
-const SILENT_SETTLE_REPOSITION_MAX_MS = 2600;
+const SILENT_SETTLE_REPOSITION_STABLE_SAMPLES =
+  DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES;
+const SILENT_SETTLE_REPOSITION_MAX_MS =
+  DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
@@ -779,19 +787,24 @@ function runSilentHighlightSettledRepositionSample() {
     return;
   }
   const signature = buildSilentHighlightPositionSignature();
-  if (signature && signature === silentHighlightLastPositionSignature) {
-    silentHighlightSettleStableSamples += 1;
-  } else {
-    silentHighlightLastPositionSignature = signature;
-    silentHighlightSettleStableSamples = 0;
-  }
   const elapsed = silentHighlightSettleStartedAt
     ? Date.now() - silentHighlightSettleStartedAt
     : 0;
-  if (
-    (signature && silentHighlightSettleStableSamples >= SILENT_SETTLE_REPOSITION_STABLE_SAMPLES) ||
-    elapsed >= SILENT_SETTLE_REPOSITION_MAX_MS
-  ) {
+  const settleState = sampleSettledSilentHighlightPosition(
+    {
+      lastSignature: silentHighlightLastPositionSignature,
+      stableSamples: silentHighlightSettleStableSamples
+    },
+    signature,
+    elapsed,
+    {
+      requiredStableSamples: SILENT_SETTLE_REPOSITION_STABLE_SAMPLES,
+      maxWaitMs: SILENT_SETTLE_REPOSITION_MAX_MS
+    }
+  );
+  silentHighlightLastPositionSignature = settleState.lastSignature;
+  silentHighlightSettleStableSamples = settleState.stableSamples;
+  if (settleState.shouldFinalize) {
     resetSilentHighlightSettleTracking();
     if (silentHighlightRepositionRaf) {
       return;
@@ -2892,28 +2905,14 @@ async function refreshSilentHighlightings() {
   const renderChanged =
     renderKey !== lastSilentHighlightingRenderKey ||
     shouldBeActive !== lastSilentHighlightingsActive;
-  if (renderChanged) {
-    if (shouldBeActive) {
-      renderSilentHighlightOverlay({
-        anchors,
-        contentNodes,
-        excludedNodes,
-        explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
-        excludedSelectorByNode: excludedSelectorByRenderNode
-      });
-    } else {
-      clearSilentHighlightOverlay();
-    }
-    lastSilentHighlightingRenderKey = renderKey;
-    lastSilentHighlightingsActive = shouldBeActive;
-  }
-  if (
-    shouldBeActive &&
-    (
-      silentHighlightingPositionRefreshPending ||
-      !silentHighlightOverlay
-    )
-  ) {
+  const shouldRenderOverlay = shouldRenderSilentHighlightOverlay({
+    shouldBeActive,
+    renderChanged,
+    positionRefreshPending: silentHighlightingPositionRefreshPending,
+    hasOverlay: Boolean(silentHighlightOverlay),
+    isFullRefresh: true
+  });
+  if (shouldRenderOverlay) {
     renderSilentHighlightOverlay({
       anchors,
       contentNodes,
@@ -2921,6 +2920,12 @@ async function refreshSilentHighlightings() {
       explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
       excludedSelectorByNode: excludedSelectorByRenderNode
     });
+  } else if (renderChanged) {
+    clearSilentHighlightOverlay();
+  }
+  if (renderChanged) {
+    lastSilentHighlightingRenderKey = renderKey;
+    lastSilentHighlightingsActive = shouldBeActive;
   }
   silentHighlightingPositionRefreshPending = false;
   setSilentHighlightingsActive(shouldBeActive);
