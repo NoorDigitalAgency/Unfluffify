@@ -40,8 +40,6 @@ const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
-const SILENT_HIGHLIGHTING_INTERACTION_DEBOUNCE_MS = 140;
-const SILENT_HIGHLIGHTING_INTERACTION_MIN_INTERVAL_MS = 180;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "class",
   "id",
@@ -63,6 +61,7 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
 
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
+let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
 let lastSilentHighlightingRefreshAt = 0;
@@ -912,6 +911,10 @@ function stopSilentHighlightingObserver() {
     silentHighlightingObserver.disconnect();
     silentHighlightingObserver = null;
   }
+  if (silentHighlightingLayoutShiftObserver) {
+    silentHighlightingLayoutShiftObserver.disconnect();
+    silentHighlightingLayoutShiftObserver = null;
+  }
   if (silentHighlightingRefreshTimer) {
     window.clearTimeout(silentHighlightingRefreshTimer);
     silentHighlightingRefreshTimer = 0;
@@ -953,13 +956,6 @@ function scheduleSilentHighlightingsRefresh(options = {}) {
     lastSilentHighlightingRefreshAt = Date.now();
     refreshSilentHighlightings().then();
   }, delay);
-}
-
-function scheduleInteractiveSilentHighlightingsRefresh() {
-  scheduleSilentHighlightingsRefresh({
-    debounceMs: SILENT_HIGHLIGHTING_INTERACTION_DEBOUNCE_MS,
-    minIntervalMs: SILENT_HIGHLIGHTING_INTERACTION_MIN_INTERVAL_MS
-  });
 }
 
 function isExtensionUiNode(node) {
@@ -1071,6 +1067,46 @@ function startSilentHighlightingObserver() {
     attributes: true,
     attributeFilter: Array.from(SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS)
   });
+  if (
+    typeof PerformanceObserver === "function" &&
+    Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+    PerformanceObserver.supportedEntryTypes.includes("layout-shift")
+  ) {
+    try {
+      silentHighlightingLayoutShiftObserver = new PerformanceObserver((list) => {
+        if (
+          !list ||
+          state.enabled ||
+          !lastSilentHighlightingsActive ||
+          !silentHighlightCollections
+        ) {
+          return;
+        }
+        const entries = typeof list.getEntries === "function"
+          ? list.getEntries()
+          : [];
+        if (!Array.isArray(entries) || entries.length === 0) {
+          return;
+        }
+        const hasLayoutShift = entries.some((entry) =>
+          entry && typeof entry.value === "number"
+            ? entry.value > 0
+            : Boolean(entry)
+        );
+        if (!hasLayoutShift) {
+          return;
+        }
+        silentHighlightingPositionRefreshPending = true;
+        scheduleSilentHighlightReposition();
+      });
+      silentHighlightingLayoutShiftObserver.observe({ type: "layout-shift" });
+    } catch {
+      if (silentHighlightingLayoutShiftObserver) {
+        silentHighlightingLayoutShiftObserver.disconnect();
+        silentHighlightingLayoutShiftObserver = null;
+      }
+    }
+  }
 }
 
 function startSilentHighlightingUrlWatcher() {
@@ -2830,7 +2866,6 @@ export function main() {
       return;
     }
     handleSilentSelectorClickCopy(event);
-    scheduleInteractiveSilentHighlightingsRefresh();
   }, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

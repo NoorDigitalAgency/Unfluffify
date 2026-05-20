@@ -3115,12 +3115,20 @@ function resolveMarkableElement(el, config, options) {
     if (
       !isWithinAiPopover(el) &&
       !isWithinConsentElement(el) &&
+      isStructuredGroupExclusionCandidate(el, ancestorOptions)
+    ) {
+      return el;
+    }
+    if (
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
       matchesToggleableDefaultExcluded(el) &&
       isTextualContainer(el, ancestorOptions)
     ) {
       return el;
     }
     let preferredAncestor = null;
+    let nearestToggleableAncestor = null;
     let ancestor = el.parentElement;
     while (ancestor && ancestor.nodeType === 1) {
       if (ancestor === document.documentElement || ancestor === document.body) {
@@ -3130,14 +3138,18 @@ function resolveMarkableElement(el, config, options) {
         if (isStructuredGroupExclusionCandidate(ancestor, ancestorOptions)) {
           return ancestor;
         }
-        if (
-          isMarkableElement(ancestor, config, ancestorOptions) ||
-          (matchesToggleableDefaultExcluded(ancestor) && isTextualContainer(ancestor))
-        ) {
+        if (matchesToggleableDefaultExcluded(ancestor) && isTextualContainer(ancestor)) {
+          if (!nearestToggleableAncestor) {
+            nearestToggleableAncestor = ancestor;
+          }
+        } else if (isMarkableElement(ancestor, config, ancestorOptions)) {
           preferredAncestor = ancestor;
         }
       }
       ancestor = ancestor.parentElement;
+    }
+    if (nearestToggleableAncestor) {
+      return nearestToggleableAncestor;
     }
     if (preferredAncestor) {
       return preferredAncestor;

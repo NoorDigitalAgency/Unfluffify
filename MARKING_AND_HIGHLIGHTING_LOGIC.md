@@ -132,6 +132,8 @@ This is how users intentionally move back up to a broader boundary such as a for
 
 For structured non-text wrappers whose direct children are the separate textual boundaries the user sees, `Shift+Click` prefers the nearest such grouping ancestor. This is what allows containers like button groups and list wrappers to be excluded as one logical block.
 
+When multiple toggleable default exclusions are nested, `Shift+Click` prefers the nearest toggleable default ancestor in the clicked subtree rather than jumping straight to the broadest one. That keeps intermediate boundaries such as `FORM` inside `ASIDE` and `NAV` inside `HEADER` reachable.
+
 Without `Shift`, exclude mode prefers drilling down.
 
 ## Pointer Target Resolution
@@ -242,6 +244,8 @@ An element is eligible for AI inclusion when it is:
 - not inside a selector-excluded boundary unless explicitly included.
 
 Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
+
+Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts so repaints that move tracked elements can redraw the overlay without relying on a page click.
 
 ## Highlight Collections
 
