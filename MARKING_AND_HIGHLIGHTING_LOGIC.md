@@ -57,7 +57,7 @@ Current default toggleable tags:
 - `DIALOG`
 - `ASIDE`
 
-`HEADER` remains part of the toggleable default category, but contentful wrapper headers are not auto-applied as default excluded boundaries. In practice, semantic headers often wrap hero or article content through descendant headings, paragraphs, and decorative background media. Those headers must still be user-toggleable, but they should not be auto-classified as excluded when the meaningful content lives in descendants.
+Toggleable defaults still remain toggleable, but auto-applied default exclusion now uses a structural rule instead of a tag-specific one. A toggleable wrapper is not auto-applied as an excluded boundary when it contains meaningful text descendants, has no nested toggleable default-excluded descendant inside it, and also carries a visible immutable descendant such as stretched hero media. That keeps content wrappers user-toggleable without letting decorative background media suppress inclusion and highlighting inside them.
 
 ## Stored Per-Page Markings
 
@@ -234,7 +234,7 @@ An element is eligible for AI inclusion when it is:
 - not inside consent or extension UI,
 - not inside a selector-excluded boundary unless explicitly included.
 
-Since `HEADER` is no longer a default toggleable exclusion, text content inside semantic headers can now participate in implicit inclusion and highlighting normally.
+Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
 
 ## Highlight Collections
 

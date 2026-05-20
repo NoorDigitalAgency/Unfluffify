@@ -248,6 +248,52 @@ function matchesToggleableDefaultExcluded(el) {
   return false;
 }
 
+function hasNestedToggleableDefaultExcludedDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
+      continue;
+    }
+    if (matchesToggleableDefaultExcluded(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function hasVisibleImmutableDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
+      continue;
+    }
+    if (matchesImmutableExcluded(node) && isVisible(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function matchesAutoToggleableDefaultExcluded(el) {
   if (!matchesToggleableDefaultExcluded(el)) {
     return false;
@@ -255,10 +301,13 @@ function matchesAutoToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  if (el.tagName !== "HEADER") {
+  if (!hasTextualDescendant(el)) {
     return true;
   }
-  return !hasTextualDescendant(el);
+  if (hasNestedToggleableDefaultExcludedDescendant(el)) {
+    return true;
+  }
+  return !hasVisibleImmutableDescendant(el);
 }
 
 function isTextualContainer(el, options = {}) {
@@ -415,6 +464,54 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
     return true;
   }
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
+}
+
+function isActionLikeMarkingChild(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const role = (el.getAttribute("role") || "").toLowerCase();
+  if (role === "button" || role === "link") {
+    return true;
+  }
+  if (el.tagName === "BUTTON") {
+    return true;
+  }
+  if (el.tagName === "A") {
+    const href = el.getAttribute("href");
+    return typeof href === "string";
+  }
+  return false;
+}
+
+function isGroupedActionExclusionCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (matchesToggleableDefaultExcluded(el) || hasDirectText(el)) {
+    return false;
+  }
+  if (!isTextualContainer(el, options)) {
+    return false;
+  }
+  const children = Array.from(el.children || []).filter((child) => {
+    if (!child || child.nodeType !== 1) {
+      return false;
+    }
+    if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
+      return false;
+    }
+    return true;
+  });
+  if (children.length < 2) {
+    return false;
+  }
+  return children.every((child) =>
+    isActionLikeMarkingChild(child) && isTextualContainer(child, options)
+  );
 }
 
 function matchesImmutableExcluded(el) {
@@ -3054,6 +3151,26 @@ function resolveMarkableElement(el, config, options) {
     }
   }
 
+  if (currentOptions.preferGroupedActionAncestor) {
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (ancestor === document.documentElement || ancestor === document.body) {
+        break;
+      }
+      if (
+        !isWithinAiPopover(ancestor) &&
+        !isWithinConsentElement(ancestor) &&
+        isGroupedActionExclusionCandidate(ancestor, ancestorOptions)
+      ) {
+        return ancestor;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (isGroupedActionExclusionCandidate(el, ancestorOptions)) {
+      return el;
+    }
+  }
+
   if (!isMarkableElement(el, config, currentOptions)) {
     return null;
   }
@@ -3182,6 +3299,7 @@ function updateHoverHighlight(
     allowExplicitTarget: true,
     preferExplicitTarget: allowExcludedParentChildren,
     preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
+    preferGroupedActionAncestor: !allowExcludedParentChildren && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -3547,6 +3665,7 @@ function handleToggleEvent(event) {
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
     preferMixedTextAncestor: mode === "include" && !allowParent,
+    preferGroupedActionAncestor: mode !== "include" && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,

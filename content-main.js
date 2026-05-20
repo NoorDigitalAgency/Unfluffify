@@ -1355,6 +1355,68 @@ function matchesToggleableDefaultSelector(node) {
   return false;
 }
 
+function hasNestedToggleableDefaultExcludedDescendant(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(node.children || []);
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || current.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
+      continue;
+    }
+    if (matchesToggleableDefaultSelector(current)) {
+      return true;
+    }
+    for (let i = current.children.length - 1; i >= 0; i -= 1) {
+      stack.push(current.children[i]);
+    }
+  }
+  return false;
+}
+
+function hasVisibleImmutableDescendant(node) {
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(node.children || []);
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || current.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(current) || isWithinConsentBoundary(current)) {
+      continue;
+    }
+    if (matchesImmutableDefaultSelector(current) && core.isVisible(current)) {
+      return true;
+    }
+    for (let i = current.children.length - 1; i >= 0; i -= 1) {
+      stack.push(current.children[i]);
+    }
+  }
+  return false;
+}
+
+function matchesAutoToggleableDefaultSelector(node) {
+  if (!matchesToggleableDefaultSelector(node)) {
+    return false;
+  }
+  if (!node || node.nodeType !== 1) {
+    return false;
+  }
+  if (!hasTextualDescendantForInclusion(node)) {
+    return true;
+  }
+  if (hasNestedToggleableDefaultExcludedDescendant(node)) {
+    return true;
+  }
+  return !hasVisibleImmutableDescendant(node);
+}
+
 function isWithinImmutableDefaultNode(node) {
   let current = node;
   while (current && current.nodeType === 1) {
@@ -1367,7 +1429,7 @@ function isWithinImmutableDefaultNode(node) {
 }
 
 function isToggleableDefaultExcludedNode(node, includedNodes) {
-  return matchesToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
+  return matchesAutoToggleableDefaultSelector(node) && !isWithinNodeSet(node, includedNodes);
 }
 
 function isWithinToggleableDefaultExcludedNode(node, includedNodes) {
@@ -1893,7 +1955,7 @@ function collectToggleableDefaultExcludedNodes(includedNodes) {
     if (matchesImmutableDefaultSelector(node)) {
       continue;
     }
-    if (matchesToggleableDefaultSelector(node)) {
+    if (matchesAutoToggleableDefaultSelector(node)) {
       results.push(node);
       continue;
     }
