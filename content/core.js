@@ -2077,10 +2077,6 @@ function createOverlay() {
   const excludeCursorUrl = chrome.runtime.getURL("cursors/exclude.svg");
   const includeCursorUrl = chrome.runtime.getURL("cursors/include.svg");
   style.textContent = `
-      * {
-        animation: none !important;
-        transition: none !important;
-      }
       html {
         scroll-behavior: auto !important;
       }
