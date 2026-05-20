@@ -8,18 +8,16 @@ import {
 
 /** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
-const SERVER_SYNC_VERSION = 1;
+const SERVER_SYNC_VERSION = 3;
 /** Render mode for static HTML content */
 export const RENDER_MODE_STATIC = "static";
 /** Render mode for rendered/JavaScript content */
 export const RENDER_MODE_RENDERED = "rendered";
 /** Default render mode is static */
 export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
-const SELECTOR_SET_TIMESTAMP_FIELDS = {
-  latestComputedSelectors: "latestComputedSelectorsUpdatedAt",
-  lastSavedSelectors: "lastSavedSelectorsUpdatedAt",
-  domainAiSelectorSet: "domainAiSelectorSetUpdatedAt"
-};
+const SELECTOR_SET_FIELD = "selectors";
+const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
+const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 
 /**
  * Normalizes a render mode value to either 'static' or 'rendered'.
@@ -189,6 +187,17 @@ function normalizeUniqueXpathList(list) {
   return { values, changed };
 }
 
+function normalizeStoredPageTitle(value, fallbackUrl = "") {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === fallbackUrl) {
+    return "";
+  }
+  return trimmed;
+}
+
 function normalizeXpathItems(rawXpaths) {
   const parsed = [];
   let changed = false;
@@ -285,8 +294,23 @@ function selectorSetsEqual(left, right) {
   );
 }
 
+function createAiSelectorSetFingerprint(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet).normalized;
+  return hasAnySelectors(normalized) ? JSON.stringify(normalized) : "";
+}
+
+function normalizeSubmittedSelectorsFingerprint(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isSelectorTimestampCurrent(selectorUpdatedAt, renderModeUpdatedAt) {
+  const normalizedSelectorUpdatedAt = normalizeEntryTimestamp(selectorUpdatedAt);
+  const normalizedRenderModeUpdatedAt = normalizeEntryTimestamp(renderModeUpdatedAt);
+  return !isIncomingTimestampNewer(normalizedRenderModeUpdatedAt, normalizedSelectorUpdatedAt);
+}
+
 export function getSelectorSetTimestampFieldName(fieldName) {
-  return SELECTOR_SET_TIMESTAMP_FIELDS[fieldName] || "";
+  return fieldName === SELECTOR_SET_FIELD ? SELECTOR_SET_UPDATED_AT_FIELD : "";
 }
 
 export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
@@ -297,9 +321,10 @@ export function isSelectorSetCurrentForRenderMode(sourceConfig, fieldName) {
   if (!timestampFieldName) {
     return false;
   }
-  const selectorUpdatedAt = normalizeEntryTimestamp(sourceConfig[timestampFieldName]);
-  const renderModeUpdatedAt = normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt);
-  return !isIncomingTimestampNewer(renderModeUpdatedAt, selectorUpdatedAt);
+  return isSelectorTimestampCurrent(
+    sourceConfig[timestampFieldName],
+    sourceConfig.renderModeUpdatedAt
+  );
 }
 
 export function mergeSelectorSetsByTimestamp(
@@ -353,9 +378,56 @@ export function mergeSelectorSetsByTimestamp(
   };
 }
 
+export function mergeConfigSelectorStateByTimestamp(
+  existingSelectors,
+  existingUpdatedAt,
+  existingSubmittedFingerprint,
+  incomingSelectors,
+  incomingUpdatedAt,
+  incomingSubmittedFingerprint
+) {
+  const mergedSelectors = mergeSelectorSetsByTimestamp(
+    existingSelectors,
+    existingUpdatedAt,
+    incomingSelectors,
+    incomingUpdatedAt
+  );
+  const mergedFingerprint = createAiSelectorSetFingerprint(mergedSelectors.selectorSet);
+  const normalizedExistingSubmitted = normalizeSubmittedSelectorsFingerprint(
+    existingSubmittedFingerprint
+  );
+  const normalizedIncomingSubmitted = normalizeSubmittedSelectorsFingerprint(
+    incomingSubmittedFingerprint
+  );
+  const submittedFingerprint =
+    normalizedExistingSubmitted === mergedFingerprint ||
+    normalizedIncomingSubmitted === mergedFingerprint
+      ? mergedFingerprint
+      : "";
+
+  return {
+    selectorSet: mergedSelectors.selectorSet,
+    updatedAt: mergedSelectors.updatedAt,
+    submittedFingerprint
+  };
+}
+
+export function areCurrentSelectorsSubmitted(sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== "object") {
+    return true;
+  }
+  const currentFingerprint = createAiSelectorSetFingerprint(sourceConfig[SELECTOR_SET_FIELD]);
+  if (!currentFingerprint) {
+    return true;
+  }
+  return currentFingerprint === normalizeSubmittedSelectorsFingerprint(
+    sourceConfig[SUBMITTED_SELECTORS_FINGERPRINT_FIELD]
+  );
+}
+
 export function getNewestConfigSelectorSet(
   sourceConfig,
-  fieldNames = ["latestComputedSelectors", "domainAiSelectorSet", "lastSavedSelectors"]
+  fieldNames = [SELECTOR_SET_FIELD]
 ) {
   let mergedSelectorSet = createEmptyAiSelectorSet();
   let mergedUpdatedAt = PAGE_TIMESTAMP_FALLBACK;
@@ -404,19 +476,13 @@ export function createDefaultConfig(baseUrl) {
     renderMode: DEFAULT_RENDER_MODE,
     renderModeUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
     pageMarkings: {},
-    latestComputedSelectors: createEmptyAiSelectorSet(),
-    latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
-    lastSavedSelectors: createEmptyAiSelectorSet(),
-    lastSavedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
-    domainAiSelectorSet: createEmptyAiSelectorSet(),
-    domainAiSelectorSetUpdatedAt: PAGE_TIMESTAMP_FALLBACK
+    selectors: createEmptyAiSelectorSet(),
+    selectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
+    submittedSelectorsFingerprint: ""
   };
 }
 
-export function normalizePageMarkings(
-  pageMarkings,
-  fallbackRenderMode = DEFAULT_RENDER_MODE
-) {
+export function normalizePageMarkings(pageMarkings) {
   const normalized = {};
   let changed = false;
   if (!pageMarkings || typeof pageMarkings !== "object") {
@@ -440,49 +506,12 @@ export function normalizePageMarkings(
     if (entry.timestamp !== timestamp) {
       changed = true;
     }
-    const hasRenderedHtml = typeof entry.renderedHtml === "string";
-    const hasLegacyFullHtml = typeof entry.fullHtml === "string";
-    const hasLegacyFullHTML = typeof entry.fullHTML === "string";
-    const renderedHtml = hasRenderedHtml
-      ? entry.renderedHtml
-      : hasLegacyFullHtml
-          ? entry.fullHtml
-          : hasLegacyFullHTML
-            ? entry.fullHTML
-            : "";
-    const renderedHtmlValues = [];
-    if (hasRenderedHtml) {
-      renderedHtmlValues.push(entry.renderedHtml);
-    }
-    if (hasLegacyFullHtml) {
-      renderedHtmlValues.push(entry.fullHtml);
-    }
-    if (hasLegacyFullHTML) {
-      renderedHtmlValues.push(entry.fullHTML);
-    }
-    const hasRawHtml = typeof entry.rawHtml === "string";
-    const hasLegacyRawHTML = typeof entry.rawHTML === "string";
-    const rawHtml = hasRawHtml
-      ? entry.rawHtml
-      : hasLegacyRawHTML
-        ? entry.rawHTML
-        : "";
-    if (
-      (entry.renderedHtml !== undefined && typeof entry.renderedHtml !== "string") ||
-      entry.fullHtml !== undefined ||
-      entry.fullHTML !== undefined ||
-      (entry.fullHTML !== undefined && typeof entry.fullHTML !== "string") ||
-      (entry.fullHtml !== undefined && typeof entry.fullHtml !== "string") ||
-      new Set(renderedHtmlValues).size > 1
-    ) {
+    const renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
+    if (entry.renderedHtml !== undefined && typeof entry.renderedHtml !== "string") {
       changed = true;
     }
-    if (
-      entry.rawHTML !== undefined ||
-      (entry.rawHTML !== undefined && typeof entry.rawHTML !== "string") ||
-      (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") ||
-      (hasRawHtml && hasLegacyRawHTML && entry.rawHtml !== entry.rawHTML)
-    ) {
+    const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
+    if (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") {
       changed = true;
     }
     if (!Array.isArray(entry.consentXpaths) && entry.consentXpaths !== undefined) {
@@ -514,12 +543,20 @@ export function normalizePageMarkings(
     if (normalizedSubmission.changed) {
       changed = true;
     }
+    const title = normalizeStoredPageTitle(entry.title, url);
+    if (Object.prototype.hasOwnProperty.call(entry, "url")) {
+      changed = true;
+    }
+    if (
+      entry.title !== undefined &&
+      title !== entry.title
+    ) {
+      changed = true;
+    }
     if (entry.renderMode !== undefined) {
       changed = true;
     }
-    normalized[url] = {
-      url: entry.url || url,
-      title: entry.title || url,
+    const normalizedEntry = {
       timestamp,
       xpaths,
       consentXpaths,
@@ -528,6 +565,10 @@ export function normalizePageMarkings(
       renderedHtml,
       rawHtml
     };
+    if (title) {
+      normalizedEntry.title = title;
+    }
+    normalized[url] = normalizedEntry;
   });
   return { normalized, changed };
 }
@@ -600,45 +641,27 @@ export function normalizeConfig(baseUrl, incoming) {
   } else if (incoming.pageMarkings !== undefined) {
     changed = true;
   }
-  const latestComputed = normalizeAiSelectorSet(incoming.latestComputedSelectors);
-  normalized.latestComputedSelectors = latestComputed.normalized;
-  if (latestComputed.changed) {
+  const selectors = normalizeAiSelectorSet(incoming[SELECTOR_SET_FIELD]);
+  normalized.selectors = selectors.normalized;
+  if (selectors.changed) {
     changed = true;
   }
-  normalized.latestComputedSelectorsUpdatedAt = normalizeEntryTimestamp(
-    incoming.latestComputedSelectorsUpdatedAt
+  normalized.selectorsUpdatedAt = normalizeEntryTimestamp(
+    incoming[SELECTOR_SET_UPDATED_AT_FIELD]
   );
   if (
-    incoming.latestComputedSelectorsUpdatedAt !== undefined &&
-    normalized.latestComputedSelectorsUpdatedAt !== incoming.latestComputedSelectorsUpdatedAt
+    incoming[SELECTOR_SET_UPDATED_AT_FIELD] !== undefined &&
+    normalized.selectorsUpdatedAt !== incoming[SELECTOR_SET_UPDATED_AT_FIELD]
   ) {
     changed = true;
   }
-  const lastSaved = normalizeAiSelectorSet(incoming.lastSavedSelectors);
-  normalized.lastSavedSelectors = lastSaved.normalized;
-  if (lastSaved.changed) {
-    changed = true;
-  }
-  normalized.lastSavedSelectorsUpdatedAt = normalizeEntryTimestamp(
-    incoming.lastSavedSelectorsUpdatedAt
+  normalized.submittedSelectorsFingerprint = normalizeSubmittedSelectorsFingerprint(
+    incoming[SUBMITTED_SELECTORS_FINGERPRINT_FIELD]
   );
   if (
-    incoming.lastSavedSelectorsUpdatedAt !== undefined &&
-    normalized.lastSavedSelectorsUpdatedAt !== incoming.lastSavedSelectorsUpdatedAt
-  ) {
-    changed = true;
-  }
-  const aiSelectors = normalizeAiSelectorSet(incoming.domainAiSelectorSet);
-  normalized.domainAiSelectorSet = aiSelectors.normalized;
-  if (aiSelectors.changed) {
-    changed = true;
-  }
-  normalized.domainAiSelectorSetUpdatedAt = normalizeEntryTimestamp(
-    incoming.domainAiSelectorSetUpdatedAt
-  );
-  if (
-    incoming.domainAiSelectorSetUpdatedAt !== undefined &&
-    normalized.domainAiSelectorSetUpdatedAt !== incoming.domainAiSelectorSetUpdatedAt
+    incoming[SUBMITTED_SELECTORS_FINGERPRINT_FIELD] !== undefined &&
+    normalized.submittedSelectorsFingerprint !==
+      incoming[SUBMITTED_SELECTORS_FINGERPRINT_FIELD]
   ) {
     changed = true;
   }
@@ -656,18 +679,13 @@ export function isRenderModeConfirmed(sourceConfig) {
   return normalizeEntryTimestamp(sourceConfig.renderModeUpdatedAt) !== PAGE_TIMESTAMP_FALLBACK;
 }
 
-function cloneNormalizedPageEntry(
-  entry,
-  fallbackUrl = "",
-  fallbackRenderMode = DEFAULT_RENDER_MODE
-) {
+function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
   const normalized = normalizePageMarkings({
-    [fallbackUrl || (entry && entry.url) || ""]: entry || {}
-  }, fallbackRenderMode).normalized;
+    [fallbackUrl || ""]: entry || {}
+  }).normalized;
   const key = Object.keys(normalized)[0];
   return key ? normalized[key] : {
-    url: fallbackUrl || "",
-    title: fallbackUrl || "",
+    title: "",
     timestamp: PAGE_TIMESTAMP_FALLBACK,
     xpaths: [],
     consentXpaths: [],
@@ -692,42 +710,30 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
       renderMode: DEFAULT_RENDER_MODE,
       renderModeUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
       pageMarkings: {},
-      latestComputedSelectors: createEmptyAiSelectorSet(),
-      latestComputedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
-      lastSavedSelectors: createEmptyAiSelectorSet(),
-      lastSavedSelectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
-      domainAiSelectorSet: createEmptyAiSelectorSet(),
-      domainAiSelectorSetUpdatedAt: PAGE_TIMESTAMP_FALLBACK
+      selectors: createEmptyAiSelectorSet(),
+      selectorsUpdatedAt: PAGE_TIMESTAMP_FALLBACK,
+      submittedSelectorsFingerprint: ""
     };
   }
   const baseUrl =
     normalizeCanonicalBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizeBaseUrl(typeof payload.baseUrl === "string" ? payload.baseUrl : "") ||
     normalizedFallbackBaseUrl;
-  const renderMode = normalizeRenderMode(payload.renderMode);
-  const normalizedMarkings = normalizePageMarkings(payload.pageMarkings);
-  const latestComputedSelectors = normalizeAiSelectorSet(payload.latestComputedSelectors).normalized;
-  const lastSavedSelectors = normalizeAiSelectorSet(payload.lastSavedSelectors).normalized;
-  const domainAiSelectorSet = normalizeAiSelectorSet(payload.domainAiSelectorSet).normalized;
+  const normalizedConfig = normalizeConfig(baseUrl, payload).config;
   return {
     version:
       typeof payload.version === "number" && Number.isFinite(payload.version)
         ? payload.version
         : SERVER_SYNC_VERSION,
     baseUrl,
-    siteId: normalizeSiteIdValue(payload.siteId),
-    renderMode,
-    renderModeUpdatedAt: normalizeEntryTimestamp(payload.renderModeUpdatedAt),
-    pageMarkings: normalizedMarkings.normalized,
-    latestComputedSelectors,
-    latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
-      payload.latestComputedSelectorsUpdatedAt
-    ),
-    lastSavedSelectors,
-    lastSavedSelectorsUpdatedAt: normalizeEntryTimestamp(payload.lastSavedSelectorsUpdatedAt),
-    domainAiSelectorSet,
-    domainAiSelectorSetUpdatedAt: normalizeEntryTimestamp(
-      payload.domainAiSelectorSetUpdatedAt
+    siteId: normalizeSiteIdValue(normalizedConfig.siteId),
+    renderMode: getConfigRenderMode(normalizedConfig),
+    renderModeUpdatedAt: normalizeEntryTimestamp(normalizedConfig.renderModeUpdatedAt),
+    pageMarkings: normalizedConfig.pageMarkings || {},
+    selectors: cloneAiSelectorSet(normalizedConfig.selectors),
+    selectorsUpdatedAt: normalizeEntryTimestamp(normalizedConfig.selectorsUpdatedAt),
+    submittedSelectorsFingerprint: normalizeSubmittedSelectorsFingerprint(
+      normalizedConfig.submittedSelectorsFingerprint
     )
   };
 }
@@ -744,8 +750,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
     const safeEntry = cloneNormalizedPageEntry(entry, url);
     payloadMarkings[url] = {
       timestamp: normalizeEntryTimestamp(safeEntry.timestamp),
-      url: safeEntry.url || url,
-      title: safeEntry.title || url,
+      title: safeEntry.title || undefined,
       renderedHtml:
         typeof safeEntry.renderedHtml === "string" ? safeEntry.renderedHtml : "",
       rawHtml: typeof safeEntry.rawHtml === "string" ? safeEntry.rawHtml : "",
@@ -778,15 +783,10 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
     renderMode: getConfigRenderMode(normalized),
     renderModeUpdatedAt: normalizeEntryTimestamp(normalized.renderModeUpdatedAt),
     pageMarkings: payloadMarkings,
-    latestComputedSelectors: cloneAiSelectorSet(normalized.latestComputedSelectors),
-    latestComputedSelectorsUpdatedAt: normalizeEntryTimestamp(
-      normalized.latestComputedSelectorsUpdatedAt
-    ),
-    lastSavedSelectors: cloneAiSelectorSet(normalized.lastSavedSelectors),
-    lastSavedSelectorsUpdatedAt: normalizeEntryTimestamp(normalized.lastSavedSelectorsUpdatedAt),
-    domainAiSelectorSet: cloneAiSelectorSet(normalized.domainAiSelectorSet),
-    domainAiSelectorSetUpdatedAt: normalizeEntryTimestamp(
-      normalized.domainAiSelectorSetUpdatedAt
+    selectors: cloneAiSelectorSet(normalized.selectors),
+    selectorsUpdatedAt: normalizeEntryTimestamp(normalized.selectorsUpdatedAt),
+    submittedSelectorsFingerprint: normalizeSubmittedSelectorsFingerprint(
+      normalized.submittedSelectorsFingerprint
     )
   };
 }
@@ -853,23 +853,13 @@ export async function getConfigs() {
       existing.pageMarkings,
       incoming.pageMarkings
     ).pageMarkings;
-    const latestComputedSelectors = mergeSelectorSetsByTimestamp(
-      existing.latestComputedSelectors,
-      existing.latestComputedSelectorsUpdatedAt,
-      incoming.latestComputedSelectors,
-      incoming.latestComputedSelectorsUpdatedAt
-    );
-    const lastSavedSelectors = mergeSelectorSetsByTimestamp(
-      existing.lastSavedSelectors,
-      existing.lastSavedSelectorsUpdatedAt,
-      incoming.lastSavedSelectors,
-      incoming.lastSavedSelectorsUpdatedAt
-    );
-    const domainAiSelectorSet = mergeSelectorSetsByTimestamp(
-      existing.domainAiSelectorSet,
-      existing.domainAiSelectorSetUpdatedAt,
-      incoming.domainAiSelectorSet,
-      incoming.domainAiSelectorSetUpdatedAt
+    const selectors = mergeConfigSelectorStateByTimestamp(
+      existing.selectors,
+      existing.selectorsUpdatedAt,
+      existing.submittedSelectorsFingerprint,
+      incoming.selectors,
+      incoming.selectorsUpdatedAt,
+      incoming.submittedSelectorsFingerprint
     );
     const renderMode = mergeRenderModeByTimestamp(
       existing.renderMode,
@@ -883,12 +873,9 @@ export async function getConfigs() {
       renderMode: renderMode.renderMode,
       renderModeUpdatedAt: renderMode.updatedAt,
       pageMarkings: mergedPageMarkings,
-      latestComputedSelectors: latestComputedSelectors.selectorSet,
-      latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,
-      lastSavedSelectors: lastSavedSelectors.selectorSet,
-      lastSavedSelectorsUpdatedAt: lastSavedSelectors.updatedAt,
-      domainAiSelectorSet: domainAiSelectorSet.selectorSet,
-      domainAiSelectorSetUpdatedAt: domainAiSelectorSet.updatedAt
+      selectors: selectors.selectorSet,
+      selectorsUpdatedAt: selectors.updatedAt,
+      submittedSelectorsFingerprint: selectors.submittedFingerprint
     };
   });
   return normalizedConfigs;

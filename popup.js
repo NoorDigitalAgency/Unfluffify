@@ -418,6 +418,11 @@ function mergeSelectorSetForBaseUrlMigration(
   );
 }
 
+function getSelectorSetFingerprint(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  return combineAiSelectorSet(normalized).length ? JSON.stringify(normalized) : "";
+}
+
 function buildSelectorSetForGraphqlSubmit(selectorSet) {
   const normalized = normalizeAiSelectorSet(selectorSet);
   return normalizeAiSelectorSet({
@@ -600,23 +605,13 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
     existing.pageMarkings,
     preferred.pageMarkings
   ).pageMarkings;
-  const latestComputedSelectors = mergeSelectorSetForBaseUrlMigration(
-    preferred.latestComputedSelectors,
-    preferred.latestComputedSelectorsUpdatedAt,
-    existing.latestComputedSelectors,
-    existing.latestComputedSelectorsUpdatedAt
-  );
-  const lastSavedSelectors = mergeSelectorSetForBaseUrlMigration(
-    preferred.lastSavedSelectors,
-    preferred.lastSavedSelectorsUpdatedAt,
-    existing.lastSavedSelectors,
-    existing.lastSavedSelectorsUpdatedAt
-  );
-  const domainAiSelectorSet = mergeSelectorSetForBaseUrlMigration(
-    preferred.domainAiSelectorSet,
-    preferred.domainAiSelectorSetUpdatedAt,
-    existing.domainAiSelectorSet,
-    existing.domainAiSelectorSetUpdatedAt
+  const selectors = config.mergeConfigSelectorStateByTimestamp(
+    existing.selectors,
+    existing.selectorsUpdatedAt,
+    existing.submittedSelectorsFingerprint,
+    preferred.selectors,
+    preferred.selectorsUpdatedAt,
+    preferred.submittedSelectorsFingerprint
   );
   const renderMode = config.mergeRenderModeByTimestamp(
     preferred.renderMode,
@@ -634,12 +629,9 @@ function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, e
     renderMode: renderMode.renderMode,
     renderModeUpdatedAt: renderMode.updatedAt,
     pageMarkings: mergedPageMarkings,
-    latestComputedSelectors: latestComputedSelectors.selectorSet,
-    latestComputedSelectorsUpdatedAt: latestComputedSelectors.updatedAt,
-    lastSavedSelectors: lastSavedSelectors.selectorSet,
-    lastSavedSelectorsUpdatedAt: lastSavedSelectors.updatedAt,
-    domainAiSelectorSet: domainAiSelectorSet.selectorSet,
-    domainAiSelectorSetUpdatedAt: domainAiSelectorSet.updatedAt
+    selectors: selectors.selectorSet,
+    selectorsUpdatedAt: selectors.updatedAt,
+    submittedSelectorsFingerprint: selectors.submittedFingerprint
   };
   return config.normalizeConfig(resolvedBaseUrl, merged).config;
 }
@@ -1038,28 +1030,36 @@ function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
-function mergeSelectorFieldIntoConfig(targetConfig, incomingConfig, selectorField) {
+function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   if (!targetConfig || typeof targetConfig !== "object") {
     return false;
   }
-  const timestampField = config.getSelectorSetTimestampFieldName(selectorField);
-  if (!timestampField) {
-    return false;
-  }
-  const merged = config.mergeSelectorSetsByTimestamp(
-    targetConfig[selectorField],
-    targetConfig[timestampField],
-    incomingConfig && typeof incomingConfig === "object" ? incomingConfig[selectorField] : null,
-    incomingConfig && typeof incomingConfig === "object" ? incomingConfig[timestampField] : null
+  const merged = config.mergeConfigSelectorStateByTimestamp(
+    targetConfig.selectors,
+    targetConfig.selectorsUpdatedAt,
+    targetConfig.submittedSelectorsFingerprint,
+    incomingConfig && typeof incomingConfig === "object" ? incomingConfig.selectors : null,
+    incomingConfig && typeof incomingConfig === "object"
+      ? incomingConfig.selectorsUpdatedAt
+      : null,
+    incomingConfig && typeof incomingConfig === "object"
+      ? incomingConfig.submittedSelectorsFingerprint
+      : ""
   );
-  const currentSelectorSet = normalizeAiSelectorSet(targetConfig[selectorField]);
-  const currentUpdatedAt = config.normalizeEntryTimestamp(targetConfig[timestampField]);
+  const currentSelectorSet = normalizeAiSelectorSet(targetConfig.selectors);
+  const currentUpdatedAt = config.normalizeEntryTimestamp(targetConfig.selectorsUpdatedAt);
+  const currentSubmittedFingerprint =
+    typeof targetConfig.submittedSelectorsFingerprint === "string"
+      ? targetConfig.submittedSelectorsFingerprint.trim()
+      : "";
   const didChange =
     !aiSelectorSetsEqual(currentSelectorSet, merged.selectorSet) ||
-    currentUpdatedAt !== merged.updatedAt;
+    currentUpdatedAt !== merged.updatedAt ||
+    currentSubmittedFingerprint !== merged.submittedFingerprint;
   if (didChange) {
-    targetConfig[selectorField] = merged.selectorSet;
-    targetConfig[timestampField] = merged.updatedAt;
+    targetConfig.selectors = merged.selectorSet;
+    targetConfig.selectorsUpdatedAt = merged.updatedAt;
+    targetConfig.submittedSelectorsFingerprint = merged.submittedFingerprint;
   }
   return didChange;
 }
@@ -1103,16 +1103,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     normalizedPayload.pageMarkings
   );
   localConfig.pageMarkings = mergeResult.pageMarkings;
-  let selectorStateChanged = false;
-  selectorStateChanged =
-    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "latestComputedSelectors") ||
-    selectorStateChanged;
-  selectorStateChanged =
-    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "lastSavedSelectors") ||
-    selectorStateChanged;
-  selectorStateChanged =
-    mergeSelectorFieldIntoConfig(localConfig, normalizedPayload, "domainAiSelectorSet") ||
-    selectorStateChanged;
+  const selectorStateChanged = mergeSelectorsIntoConfig(localConfig, normalizedPayload);
   const shouldSave =
     !existingRaw ||
     normalizedLocal.changed ||
@@ -1456,18 +1447,20 @@ function isCurrentRenderModeReady() {
   );
 }
 
-function getLatestComputedSelectorsFromConfig(sourceConfig = state.currentConfig) {
-  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "latestComputedSelectors")) {
+function getCurrentSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
     return normalizeAiSelectorSet(null);
   }
-  return normalizeAiSelectorSet(sourceConfig && sourceConfig.latestComputedSelectors);
+  return normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors);
 }
 
 function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig) {
-  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "lastSavedSelectors")) {
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
     return normalizeAiSelectorSet(null);
   }
-  return normalizeAiSelectorSet(sourceConfig && sourceConfig.lastSavedSelectors);
+  return config.areCurrentSelectorsSubmitted(sourceConfig)
+    ? normalizeAiSelectorSet(sourceConfig && sourceConfig.selectors)
+    : normalizeAiSelectorSet(null);
 }
 
 function getLatestAvailableSelectorsFromConfig(sourceConfig = state.currentConfig) {
@@ -2082,13 +2075,13 @@ async function refreshUiInner() {
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
-  const latestComputed = getLatestComputedSelectorsFromConfig();
+  const currentSelectors = getCurrentSelectorsFromConfig();
   const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
-  const selectorCount = combineAiSelectorSet(latestComputed).length;
+  const selectorCount = combineAiSelectorSet(currentSelectors).length;
   const hasNewSelectors =
     selectorCount > 0 &&
-    !aiSelectorSetsEqual(latestComputed, lastSaved);
+    !aiSelectorSetsEqual(currentSelectors, lastSaved);
   if (!hasNewSelectors && state.aiSelectorsComputedBaseUrl === state.currentBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
@@ -3616,12 +3609,20 @@ async function handleComputeSelectors() {
       return;
     }
     selectorSet = normalizeAiSelectorSet(data);
-    const selectorSetUpdatedAt = config.createTimestampNow();
-    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (config) => {
-      config.latestComputedSelectors = normalizeAiSelectorSet(selectorSet);
-      config.latestComputedSelectorsUpdatedAt = selectorSetUpdatedAt;
-      config.domainAiSelectorSet = normalizeAiSelectorSet(selectorSet);
-      config.domainAiSelectorSetUpdatedAt = selectorSetUpdatedAt;
+    const selectorsChanged =
+      !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
+      !aiSelectorSetsEqual(
+        selectorSet,
+        state.currentConfig && state.currentConfig.selectors
+      );
+    const selectorSetUpdatedAt = selectorsChanged
+      ? config.createTimestampNow()
+      : config.normalizeEntryTimestamp(
+          state.currentConfig && state.currentConfig.selectorsUpdatedAt
+        );
+    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+      targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
+      targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
     });
     const hasComputedNewSelectors =
       !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
@@ -3671,7 +3672,7 @@ async function handleComputeSelectors() {
 async function submitSelectorSetToServer(options = {}) {
   const {
     baseUrl = state.currentBaseUrl,
-    selectorSet = getLatestComputedSelectorsFromConfig(),
+    selectorSet = getCurrentSelectorsFromConfig(),
     tokenValue = "",
     confirm = true
   } = options;
@@ -3781,12 +3782,22 @@ async function submitSelectorSetToServer(options = {}) {
       return { ok: false, reason: PopupText.ai.submitResponseError };
     }
 
-    const selectorSetUpdatedAt = config.createTimestampNow();
-    state.currentConfig = await config.updateConfig(effectiveBaseUrl, (config) => {
-      config.lastSavedSelectors = normalizeAiSelectorSet(normalizedSelectorSet);
-      config.lastSavedSelectorsUpdatedAt = selectorSetUpdatedAt;
-      config.domainAiSelectorSet = normalizeAiSelectorSet(normalizedSelectorSet);
-      config.domainAiSelectorSetUpdatedAt = selectorSetUpdatedAt;
+    const selectorsNeedRefresh =
+      !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
+      !aiSelectorSetsEqual(
+        normalizedSelectorSet,
+        state.currentConfig && state.currentConfig.selectors
+      );
+    const selectorSetUpdatedAt = selectorsNeedRefresh
+      ? config.createTimestampNow()
+      : config.normalizeEntryTimestamp(
+          state.currentConfig && state.currentConfig.selectorsUpdatedAt
+        );
+    const submittedSelectorsFingerprint = getSelectorSetFingerprint(normalizedSelectorSet);
+    state.currentConfig = await config.updateConfig(effectiveBaseUrl, (targetConfig) => {
+      targetConfig.selectors = normalizeAiSelectorSet(normalizedSelectorSet);
+      targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
+      targetConfig.submittedSelectorsFingerprint = submittedSelectorsFingerprint;
     });
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
@@ -3828,7 +3839,7 @@ async function handleSaveExcludes() {
   }
   const submitResult = await submitSelectorSetToServer({
     baseUrl: state.currentBaseUrl,
-    selectorSet: getLatestComputedSelectorsFromConfig(),
+    selectorSet: getCurrentSelectorsFromConfig(),
     tokenValue: credentials.tokenValue,
     confirm: true
   });

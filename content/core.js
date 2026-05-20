@@ -94,6 +94,17 @@ function normalizeEntryTimestampValue(value) {
   return config.normalizeEntryTimestamp(value);
 }
 
+function normalizePageEntryTitle(value, fallbackUrl = "") {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === fallbackUrl) {
+    return "";
+  }
+  return trimmed;
+}
+
 function isTagSelector (selector){
   return /^[a-z]+$/i.test(selector);
 }
@@ -1854,27 +1865,15 @@ export function normalizePageEntryXpaths(entry) {
   if (!entry || typeof entry !== "object") {
     return entry;
   }
+  entry.title = normalizePageEntryTitle(entry.title);
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
-  entry.renderedHtml = typeof entry.renderedHtml === "string"
-    ? entry.renderedHtml
-    : typeof entry.fullHTML === "string"
-      ? entry.fullHTML
-      : typeof entry.fullHtml === "string"
-        ? entry.fullHtml
-        : "";
-  entry.rawHtml = typeof entry.rawHtml === "string"
-    ? entry.rawHtml
-    : typeof entry.rawHTML === "string"
-      ? entry.rawHTML
-      : "";
-  delete entry.fullHTML;
-  delete entry.fullHtml;
-  delete entry.renderedHTML;
-  delete entry.rawHTML;
+  entry.renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
+  entry.rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
   delete entry.renderMode;
+  delete entry.url;
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   return entry;
 }
@@ -2813,7 +2812,7 @@ function recordPageSnapshot(configValue, pageUrl) {
     renderMode: config.getConfigRenderMode(configValue)
   });
   entry.renderedHtml = snapshot.renderedHtml;
-  entry.title = document.title || pageUrl;
+  entry.title = normalizePageEntryTitle(document.title, pageUrl);
   configValue.pageMarkings[pageUrl] = entry;
 }
 
@@ -4240,8 +4239,7 @@ export function clonePageEntry(entry) {
     return null;
   }
   const cloned = {
-    url: entry.url || "",
-    title: entry.title || "",
+    title: normalizePageEntryTitle(entry.title),
     timestamp: normalizeEntryTimestampValue(entry.timestamp),
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
@@ -4544,13 +4542,9 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
 
 export function getPageMarkingEntry(configValue, pageUrl, options) {
   const { create = true, persist = true } = options || {};
-  const fallbackRenderMode = configValue
-    ? config.getConfigRenderMode(configValue)
-    : config.DEFAULT_RENDER_MODE;
   if (!configValue) {
     return {
-      url: pageUrl || "",
-      title: pageUrl || "",
+      title: "",
       timestamp: createCurrentTimestamp(),
       xpaths: [],
       consentXpaths: [],
@@ -4568,8 +4562,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     return normalizePageEntryXpaths(existing);
   }
   const entry = {
-    url: pageUrl || "",
-    title: document.title || pageUrl || "",
+    title: normalizePageEntryTitle(document.title, pageUrl || ""),
     timestamp: createCurrentTimestamp(),
     xpaths: [],
     consentXpaths: [],
@@ -5302,7 +5295,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
         );
       });
   entry.xpaths = items;
-  entry.title = document.title || pageUrl;
+  entry.title = normalizePageEntryTitle(document.title, pageUrl);
   if (!entry.renderedHtml) {
     entry.renderedHtml = "";
   }

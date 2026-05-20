@@ -315,7 +315,12 @@ async function saveCurrentPageDraft(options) {
     : typeof entry.rawHtml === "string"
       ? entry.rawHtml
       : "";
-  entry.title = document.title || pageUrl;
+  entry.title =
+    typeof document.title === "string" &&
+    document.title.trim() &&
+    document.title.trim() !== pageUrl
+      ? document.title.trim()
+      : "";
   entry.submissionXpaths = currentSubmissionXpaths;
   core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
@@ -2464,13 +2469,13 @@ function refreshEnabledAiHighlights() {
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
   const selectorSet = getEffectiveAiSelectorSet(state.config);
-  if (!state.config.domainAiSelectorSet || typeof state.config.domainAiSelectorSet !== "object") {
-    state.config.domainAiSelectorSet = {
+  if (!state.config.selectors || typeof state.config.selectors !== "object") {
+    state.config.selectors = {
       exclusionSelectors: [],
       inclusionSelectors: []
     };
   }
-  state.config.domainAiSelectorSet = selectorSet;
+  state.config.selectors = selectorSet;
   core.scheduleRender();
 }
 
@@ -2499,12 +2504,12 @@ async function refreshSilentHighlightings() {
     await config.saveConfigs(configs);
   }
   const pageMarkings = baseConfig.pageMarkings || {};
-  const latestComputedSelectors = getStoredAiSelectorSet(baseConfig);
+  const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
   const visibility = normalizeSilentHighlightOptions(silentHighlightVisibility);
   ensureSilentHighlightingStyles();
   clearLegacySilentHighlightingAttributes();
-  const hasSelectorHighlights = combineAiSelectorSet(latestComputedSelectors).length > 0;
+  const hasSelectorHighlights = combineAiSelectorSet(storedSelectors).length > 0;
   const savedUrls = new Set();
   const savedLooseUrls = new Set();
   Object.keys(pageMarkings).forEach((url) => {
