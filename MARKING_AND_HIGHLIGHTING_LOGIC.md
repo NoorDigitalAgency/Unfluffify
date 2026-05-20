@@ -245,7 +245,7 @@ An element is eligible for AI inclusion when it is:
 
 Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
 
-Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts so repaints that move tracked elements can redraw the overlay without relying on a page click.
+Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position.
 
 ## Highlight Collections
 

@@ -38,6 +38,9 @@ const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
+const SILENT_SETTLE_REPOSITION_SAMPLE_MS = 120;
+const SILENT_SETTLE_REPOSITION_STABLE_SAMPLES = 3;
+const SILENT_SETTLE_REPOSITION_MAX_MS = 2600;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
@@ -75,6 +78,10 @@ let silentHighlightLayerBoxes = {};
 let silentHighlightCollections = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
+let silentHighlightSettleTimer = 0;
+let silentHighlightSettleStartedAt = 0;
+let silentHighlightSettleStableSamples = 0;
+let silentHighlightLastPositionSignature = "";
 let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
@@ -530,11 +537,25 @@ function scheduleSilentHighlightOverlayReveal() {
   }
   silentHighlightRevealRaf = window.requestAnimationFrame(() => {
     silentHighlightRevealRaf = 0;
-    if (silentHighlightScrollTimer || silentHighlightRepositionRaf) {
+    if (
+      silentHighlightScrollTimer ||
+      silentHighlightRepositionRaf ||
+      silentHighlightSettleTimer
+    ) {
       return;
     }
     setSilentHighlightOverlayHidden(false);
   });
+}
+
+function resetSilentHighlightSettleTracking() {
+  if (silentHighlightSettleTimer) {
+    window.clearTimeout(silentHighlightSettleTimer);
+    silentHighlightSettleTimer = 0;
+  }
+  silentHighlightSettleStartedAt = 0;
+  silentHighlightSettleStableSamples = 0;
+  silentHighlightLastPositionSignature = "";
 }
 
 function clearSilentHighlightRepositionTimers() {
@@ -542,6 +563,7 @@ function clearSilentHighlightRepositionTimers() {
     window.clearTimeout(silentHighlightScrollTimer);
     silentHighlightScrollTimer = 0;
   }
+  resetSilentHighlightSettleTracking();
   if (silentHighlightRepositionRaf) {
     window.cancelAnimationFrame(silentHighlightRepositionRaf);
     silentHighlightRepositionRaf = 0;
@@ -714,11 +736,99 @@ function repositionSilentHighlightOverlay() {
   renderSilentHighlightOverlay(silentHighlightCollections);
 }
 
-function scheduleSilentHighlightReposition() {
+function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
+  if (!collections) {
+    return "";
+  }
+  const entries = [];
+  const appendNodes = (nodes, prefix) => {
+    (nodes || []).forEach((node, nodeIndex) => {
+      const targets = collectSilentHighlightRenderTargets(node, {
+        keepShallowestOnly: true
+      });
+      const renderTargets = targets.length > 0 ? targets : [node];
+      renderTargets.forEach((target, targetIndex) => {
+        if (!target || target.nodeType !== 1) {
+          return;
+        }
+        const rect = target.getBoundingClientRect();
+        entries.push([
+          prefix,
+          nodeIndex,
+          targetIndex,
+          getSilentRenderNodeId(target),
+          Math.round(rect.top),
+          Math.round(rect.left),
+          Math.round(rect.width),
+          Math.round(rect.height)
+        ].join(":"));
+      });
+    });
+  };
+  appendNodes(collections.anchors, "anchor");
+  appendNodes(collections.contentNodes, "content");
+  appendNodes(collections.excludedNodes, "excluded");
+  entries.sort();
+  return entries.join("|");
+}
+
+function runSilentHighlightSettledRepositionSample() {
+  silentHighlightSettleTimer = 0;
+  if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
+    resetSilentHighlightSettleTracking();
+    return;
+  }
+  const signature = buildSilentHighlightPositionSignature();
+  if (signature && signature === silentHighlightLastPositionSignature) {
+    silentHighlightSettleStableSamples += 1;
+  } else {
+    silentHighlightLastPositionSignature = signature;
+    silentHighlightSettleStableSamples = 0;
+  }
+  const elapsed = silentHighlightSettleStartedAt
+    ? Date.now() - silentHighlightSettleStartedAt
+    : 0;
+  if (
+    (signature && silentHighlightSettleStableSamples >= SILENT_SETTLE_REPOSITION_STABLE_SAMPLES) ||
+    elapsed >= SILENT_SETTLE_REPOSITION_MAX_MS
+  ) {
+    resetSilentHighlightSettleTracking();
+    if (silentHighlightRepositionRaf) {
+      return;
+    }
+    silentHighlightRepositionRaf = window.requestAnimationFrame(() => {
+      silentHighlightRepositionRaf = 0;
+      repositionSilentHighlightOverlay();
+    });
+    return;
+  }
+  silentHighlightSettleTimer = window.setTimeout(
+    runSilentHighlightSettledRepositionSample,
+    SILENT_SETTLE_REPOSITION_SAMPLE_MS
+  );
+}
+
+function scheduleSilentHighlightReposition(options = {}) {
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
   setSilentHighlightOverlayHidden(true);
+  if (options && options.waitForSettle) {
+    if (!silentHighlightSettleStartedAt) {
+      silentHighlightSettleStartedAt = Date.now();
+      silentHighlightSettleStableSamples = 0;
+      silentHighlightLastPositionSignature = "";
+    }
+    if (silentHighlightSettleTimer) {
+      window.clearTimeout(silentHighlightSettleTimer);
+    }
+    silentHighlightSettleTimer = window.setTimeout(
+      runSilentHighlightSettledRepositionSample,
+      SILENT_SETTLE_REPOSITION_SAMPLE_MS
+    );
+    return;
+  }
+  resetSilentHighlightSettleTracking();
   if (silentHighlightScrollTimer) {
     window.clearTimeout(silentHighlightScrollTimer);
   }
@@ -1058,7 +1168,7 @@ function startSilentHighlightingObserver() {
     }
     if (needsPositionRefresh) {
       silentHighlightingPositionRefreshPending = true;
-      scheduleSilentHighlightReposition();
+      scheduleSilentHighlightReposition({ waitForSettle: true });
     }
   });
   silentHighlightingObserver.observe(root, {
@@ -1097,7 +1207,7 @@ function startSilentHighlightingObserver() {
           return;
         }
         silentHighlightingPositionRefreshPending = true;
-        scheduleSilentHighlightReposition();
+        scheduleSilentHighlightReposition({ waitForSettle: true });
       });
       silentHighlightingLayoutShiftObserver.observe({ type: "layout-shift" });
     } catch {
