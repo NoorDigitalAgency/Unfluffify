@@ -829,6 +829,13 @@ async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
   return updatedToken;
 }
 
+async function getStoredGlobalToken(options = {}) {
+  const { trim = false } = options;
+  const stored = await utils.storageGet(chrome.storage.sync, "globalToken");
+  const token = stored && typeof stored.globalToken === "string" ? stored.globalToken : "";
+  return trim ? token.trim() : token;
+}
+
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
     return new Date(value).toLocaleTimeString();
@@ -1260,11 +1267,7 @@ async function syncBaseConfigToServer(options = {}) {
     currentBaseUrl = resolvedBaseUrl;
     const workingConfigs = siteIdResult.configs || allConfigs;
     try {
-      const latestStoredToken = await utils.storageGet(chrome.storage.sync, "globalToken");
-      const refreshedToken =
-        latestStoredToken && typeof latestStoredToken.globalToken === "string"
-          ? latestStoredToken.globalToken.trim()
-          : "";
+      const refreshedToken = await getStoredGlobalToken({ trim: true });
       if (refreshedToken) {
         currentTokenValue = refreshedToken;
       }
@@ -3603,12 +3606,7 @@ async function handleComputeSelectors() {
   );
 
   const storedPages = storedPageEntries.map(([url, entry]) => {
-    const renderedHtml =
-      typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
-    const rawHtml =
-      typeof entry.rawHtml === "string" && entry.rawHtml
-        ? entry.rawHtml
-        : rawHtmlBackfills.get(url) || "";
+    const { renderedHtml, rawHtml } = getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills);
     const isStatic = currentRenderMode === "static";
     const renderedXPaths = toAiPayloadXpaths(entry);
     return {
@@ -3766,6 +3764,16 @@ async function backfillRawHtmlForPages(baseUrl, urls, pageMarkings) {
   return rawHtmlBackfills;
 }
 
+function getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills) {
+  return {
+    renderedHtml: entry && typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+    rawHtml:
+      entry && typeof entry.rawHtml === "string" && entry.rawHtml
+        ? entry.rawHtml
+        : rawHtmlBackfills.get(url) || ""
+  };
+}
+
 async function postAssignedPageTypesToAiServer(options = {}) {
   const {
     endpointValue = "",
@@ -3792,16 +3800,15 @@ async function postAssignedPageTypesToAiServer(options = {}) {
     );
     const payload = assignments.map((item) => {
       const entry = pageMarkings[item.url];
+      const { rawHtml, renderedHtml } = getStoredPageHtmlSnapshot(
+        entry,
+        item.url,
+        rawHtmlBackfills
+      );
       return {
         url: item.url,
-        rawHtml:
-          entry && typeof entry.rawHtml === "string" && entry.rawHtml
-            ? entry.rawHtml
-            : rawHtmlBackfills.get(item.url) || "",
-        renderedHtml:
-          entry && typeof entry.renderedHtml === "string"
-            ? entry.renderedHtml
-            : "",
+        rawHtml,
+        renderedHtml,
         pageType: item.pageType
       };
     });
@@ -3868,11 +3875,7 @@ async function submitSelectorSetToServer(options = {}) {
   const renderMode = buildGraphqlRenderModeValue(
     config.getConfigRenderMode(state.currentConfig)
   );
-  const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
-  let submitTokenValue =
-    (latestTokenStored && typeof latestTokenStored.globalToken === "string"
-      ? latestTokenStored.globalToken
-      : "") || tokenValue;
+  let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
 
   state.aiRequestInFlight = "save";
   await refreshUi();
@@ -3884,11 +3887,7 @@ async function submitSelectorSetToServer(options = {}) {
       pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
       checklistPageTypes: state.lynxChecklistPageTypes
     });
-    const refreshedTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
-    submitTokenValue =
-      (refreshedTokenStored && typeof refreshedTokenStored.globalToken === "string"
-        ? refreshedTokenStored.globalToken
-        : "") || submitTokenValue;
+    submitTokenValue = (await getStoredGlobalToken()) || submitTokenValue;
     const response = await fetch(graphqlEndpoint, {
       method: "POST",
       headers: createConfigSyncHeaders(submitTokenValue),
