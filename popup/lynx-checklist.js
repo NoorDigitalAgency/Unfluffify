@@ -10,7 +10,7 @@ export const LYNX_CHECKLIST_PAGE_TYPES = Object.freeze([
   Object.freeze({ key: "utilityPage", title: "Utility page" })
 ]);
 
-export const LYNX_CHECKLIST_PAGE_TYPE_API_VALUES = Object.freeze({
+export const LYNX_CHECKLIST_PAGE_TYPE_TO_API_VALUE = Object.freeze({
   homepage: "homepage",
   articlePage: "article",
   listingPage: "listing",
@@ -165,7 +165,7 @@ export function buildLynxChecklistAssignments(value = {}) {
     result.push({
       key,
       url: entry.selectedPageUrl,
-      pageType: LYNX_CHECKLIST_PAGE_TYPE_API_VALUES[key] || ""
+      pageType: LYNX_CHECKLIST_PAGE_TYPE_TO_API_VALUE[key] || ""
     });
     return result;
   }, []);

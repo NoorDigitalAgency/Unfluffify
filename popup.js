@@ -3774,7 +3774,7 @@ function getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills) {
   };
 }
 
-async function postAssignedPageTypesToAiServer(options = {}) {
+async function postPageTypeAssignmentsToAiServer(options = {}) {
   const {
     endpointValue = "",
     tokenValue = "",
@@ -3880,7 +3880,7 @@ async function submitSelectorSetToServer(options = {}) {
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
-    await postAssignedPageTypesToAiServer({
+    await postPageTypeAssignmentsToAiServer({
       endpointValue,
       tokenValue: submitTokenValue,
       baseUrl: effectiveBaseUrl,
