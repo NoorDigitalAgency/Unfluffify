@@ -375,6 +375,80 @@ button.button-small {
   min-width: 88px;
 }
 
+.lynx-checklist-popover__card {
+  gap: 14px;
+}
+
+.lynx-checklist-popover__section {
+  display: grid;
+  gap: 10px;
+}
+
+.lynx-checklist-popover__question {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2f2a24;
+}
+
+.lynx-checklist-popover__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lynx-checklist-popover__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff8ef;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.lynx-checklist-popover__choice--disabled {
+  opacity: 0.6;
+}
+
+.lynx-checklist-popover__choice input {
+  flex-shrink: 0;
+}
+
+.lynx-checklist-popover__page-types {
+  display: grid;
+  gap: 10px;
+}
+
+.lynx-checklist-popover__page-type {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #ebe4d8;
+  border-radius: 12px;
+  background: #fffaf4;
+}
+
+.lynx-checklist-popover__page-type--disabled {
+  opacity: 0.7;
+}
+
+.lynx-checklist-popover__page-type-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2f2a24;
+}
+
+.lynx-checklist-popover__select {
+  width: 100%;
+}
+
+.lynx-checklist-popover__actions {
+  align-items: center;
+}
+
 .hint {
   font-size: 11px;
   color: var(--muted);

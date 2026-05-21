@@ -24,6 +24,11 @@ import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
+  buildLynxChecklistAssignments,
+  buildLynxChecklistViewModel,
+  createInitialLynxChecklistState
+} from "./popup/lynx-checklist.js";
+import {
   PopupText,
   ViewText,
   formatClearDomainCacheConfirm,
@@ -824,6 +829,13 @@ async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
   return updatedToken;
 }
 
+async function getStoredGlobalToken(options = {}) {
+  const { trim = false } = options;
+  const stored = await utils.storageGet(chrome.storage.sync, "globalToken");
+  const token = stored && typeof stored.globalToken === "string" ? stored.globalToken : "";
+  return trim ? token.trim() : token;
+}
+
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
     return new Date(value).toLocaleTimeString();
@@ -1255,11 +1267,7 @@ async function syncBaseConfigToServer(options = {}) {
     currentBaseUrl = resolvedBaseUrl;
     const workingConfigs = siteIdResult.configs || allConfigs;
     try {
-      const latestStoredToken = await utils.storageGet(chrome.storage.sync, "globalToken");
-      const refreshedToken =
-        latestStoredToken && typeof latestStoredToken.globalToken === "string"
-          ? latestStoredToken.globalToken.trim()
-          : "";
+      const refreshedToken = await getStoredGlobalToken({ trim: true });
       if (refreshedToken) {
         currentTokenValue = refreshedToken;
       }
@@ -2221,6 +2229,9 @@ async function refreshUiInner() {
     renderModeWarningVisible ? Boolean(view.renderModeWarningAcknowledgeChecked) : false;
   nextViewState.renderModeWarningOkDisabled =
     !nextViewState.renderModeWarningAcknowledgeChecked;
+  nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
+  nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
+  nextViewState.lynxChecklistPageTypes = state.lynxChecklistPageTypes || {};
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -2532,6 +2543,84 @@ async function handleRenderModeWarningConfirm() {
     renderModeWarningAcknowledgeChecked: false,
     renderModeWarningOkDisabled: true
   });
+}
+
+function setLynxChecklistViewState() {
+  uiModule.setViewState({
+    lynxChecklistVisible: Boolean(state.lynxChecklistVisible),
+    lynxChecklistAiAnswer: state.lynxChecklistAiAnswer || "",
+    lynxChecklistPageTypes: state.lynxChecklistPageTypes || {}
+  });
+}
+
+function resetLynxChecklistState() {
+  const initial = createInitialLynxChecklistState();
+  state.lynxChecklistAiAnswer = initial.aiAnswer;
+  state.lynxChecklistPageTypes = initial.pageTypes;
+}
+
+function openLynxChecklistPopover() {
+  resetLynxChecklistState();
+  state.lynxChecklistVisible = true;
+  setLynxChecklistViewState();
+}
+
+function closeLynxChecklistPopover() {
+  state.lynxChecklistVisible = false;
+  resetLynxChecklistState();
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistAiAnswerChange(event) {
+  const nextValue =
+    event && event.currentTarget && event.currentTarget.value === "no" ? "no" : "yes";
+  state.lynxChecklistAiAnswer = nextValue;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistPageTypeDecisionChange(pageTypeKey, event) {
+  const nextValue =
+    event && event.currentTarget && typeof event.currentTarget.value === "string"
+      ? event.currentTarget.value
+      : "";
+  const normalized = createInitialLynxChecklistState().pageTypes;
+  const nextPageTypes = {
+    ...normalized,
+    ...(state.lynxChecklistPageTypes || {})
+  };
+  const currentEntry = nextPageTypes[pageTypeKey] || normalized[pageTypeKey];
+  nextPageTypes[pageTypeKey] = {
+    decision:
+      nextValue === "yes" || nextValue === "no" || nextValue === "not_applicable"
+        ? nextValue
+        : "",
+    selectedPageUrl: nextValue === "yes" ? currentEntry.selectedPageUrl || "" : ""
+  };
+  state.lynxChecklistPageTypes = nextPageTypes;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistPageTypePageChange(pageTypeKey, event) {
+  const nextValue =
+    event && event.currentTarget && typeof event.currentTarget.value === "string"
+      ? event.currentTarget.value
+      : "";
+  const initialPageTypes = createInitialLynxChecklistState().pageTypes;
+  const nextPageTypes = {
+    ...initialPageTypes,
+    ...(state.lynxChecklistPageTypes || {})
+  };
+  const currentEntry = nextPageTypes[pageTypeKey] || initialPageTypes[pageTypeKey];
+  nextPageTypes[pageTypeKey] = {
+    decision: currentEntry.decision,
+    selectedPageUrl: nextValue
+  };
+  state.lynxChecklistPageTypes = nextPageTypes;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistCancel() {
+  closeLynxChecklistPopover();
 }
 
 async function handleRenderModeSet() {
@@ -3510,54 +3599,14 @@ async function handleComputeSelectors() {
     return;
   }
 
-  const missingRawHtmlPages = storedPageEntries.filter(([, entry]) => {
-    const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
-    return !rawHtml;
-  });
-  const rawHtmlBackfills = new Map();
-  if (missingRawHtmlPages.length) {
-    const backfillResults = await Promise.all(
-      missingRawHtmlPages.map(async ([url]) => {
-        const response = await messages.sendRuntimeMessage({
-          type: "fetchStaticPageHtml",
-          url
-        });
-        if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
-          return null;
-        }
-        return {
-          url,
-          rawHtml: response.html
-        };
-      })
-    );
-    const successfulBackfills = backfillResults.filter(Boolean);
-    successfulBackfills.forEach((item) => {
-      rawHtmlBackfills.set(item.url, item.rawHtml);
-    });
-    if (successfulBackfills.length) {
-      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
-        if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
-          return;
-        }
-        successfulBackfills.forEach((item) => {
-          const targetEntry = targetConfig.pageMarkings[item.url];
-          if (!targetEntry || typeof targetEntry !== "object") {
-            return;
-          }
-          targetEntry.rawHtml = item.rawHtml;
-        });
-      });
-    }
-  }
+  const rawHtmlBackfills = await backfillRawHtmlForPages(
+    state.currentBaseUrl,
+    storedPageEntries.map(([url]) => url),
+    pageMarkings
+  );
 
   const storedPages = storedPageEntries.map(([url, entry]) => {
-    const renderedHtml =
-      typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
-    const rawHtml =
-      typeof entry.rawHtml === "string" && entry.rawHtml
-        ? entry.rawHtml
-        : rawHtmlBackfills.get(url) || "";
+    const { renderedHtml, rawHtml } = getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills);
     const isStatic = currentRenderMode === "static";
     const renderedXPaths = toAiPayloadXpaths(entry);
     return {
@@ -3669,12 +3718,119 @@ async function handleComputeSelectors() {
   }
 }
 
+async function backfillRawHtmlForPages(baseUrl, urls, pageMarkings) {
+  const urlsMissingRawHtml = urls
+    .filter((url) => {
+      const entry = pageMarkings[url];
+      return !entry || typeof entry.rawHtml !== "string" || !entry.rawHtml;
+    });
+  if (!urlsMissingRawHtml.length) {
+    return new Map();
+  }
+  const backfillResults = await Promise.all(
+    urlsMissingRawHtml.map(async (url) => {
+      const response = await messages.sendRuntimeMessage({
+        type: "fetchStaticPageHtml",
+        url
+      });
+      if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
+        return null;
+      }
+      return {
+        url,
+        rawHtml: response.html
+      };
+    })
+  );
+  const rawHtmlBackfills = new Map();
+  const successfulBackfills = backfillResults.filter(Boolean);
+  successfulBackfills.forEach((item) => {
+    rawHtmlBackfills.set(item.url, item.rawHtml);
+  });
+  if (successfulBackfills.length && baseUrl) {
+    state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
+      if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+        return;
+      }
+      successfulBackfills.forEach((item) => {
+        const targetEntry = targetConfig.pageMarkings[item.url];
+        if (!targetEntry || typeof targetEntry !== "object") {
+          return;
+        }
+        targetEntry.rawHtml = item.rawHtml;
+      });
+    });
+  }
+  return rawHtmlBackfills;
+}
+
+function getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills) {
+  return {
+    renderedHtml: entry && typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+    rawHtml:
+      entry && typeof entry.rawHtml === "string" && entry.rawHtml
+        ? entry.rawHtml
+        : rawHtmlBackfills.get(url) || ""
+  };
+}
+
+async function postPageTypeAssignmentsToAiServer(options = {}) {
+  const {
+    endpointValue = "",
+    tokenValue = "",
+    baseUrl = state.currentBaseUrl,
+    pageMarkings = {},
+    checklistPageTypes = state.lynxChecklistPageTypes
+  } = options;
+  try {
+    const assignPageTypesUrl = resolveRelativeEndpoint(endpointValue, "/assign_page_types");
+    if (!assignPageTypesUrl) {
+      return;
+    }
+    const assignments = buildLynxChecklistAssignments({
+      pageTypes: checklistPageTypes
+    });
+    if (!assignments.length) {
+      return;
+    }
+    const rawHtmlBackfills = await backfillRawHtmlForPages(
+      baseUrl,
+      assignments.map((item) => item.url),
+      pageMarkings
+    );
+    const payload = assignments.map((item) => {
+      const entry = pageMarkings[item.url];
+      const { rawHtml, renderedHtml } = getStoredPageHtmlSnapshot(
+        entry,
+        item.url,
+        rawHtmlBackfills
+      );
+      return {
+        url: item.url,
+        rawHtml,
+        renderedHtml,
+        pageType: item.pageType
+      };
+    });
+    const response = await fetch(assignPageTypesUrl, {
+      method: "POST",
+      headers: createConfigSyncHeaders(tokenValue),
+      body: JSON.stringify(payload)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+  } catch (error) {
+    console.warn("Unable to assign page types to AI server.", error);
+  }
+}
+
 async function submitSelectorSetToServer(options = {}) {
   const {
     baseUrl = state.currentBaseUrl,
     selectorSet = getCurrentSelectorsFromConfig(),
-    tokenValue = "",
-    confirm = true
+    tokenValue = ""
   } = options;
 
   if (state.currentDraftDirty) {
@@ -3686,7 +3842,7 @@ async function submitSelectorSetToServer(options = {}) {
     return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
   }
 
-  const { stageBaseValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+  const { stageBaseValue, configEndpointValue, endpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
     return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
@@ -3713,28 +3869,25 @@ async function submitSelectorSetToServer(options = {}) {
     return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
   }
 
-  if (confirm) {
-    const confirmed = window.confirm(PopupText.ai.submitConfirm);
-    if (!confirmed) {
-      return { ok: false, skipped: true, cancelled: true };
-    }
-  }
-
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
   const selectorSetForSubmit = buildSelectorSetForGraphqlSubmit(normalizedSelectorSet);
   const excludeCss = selectorSetForSubmit.exclusionSelectors.join(", ");
   const renderMode = buildGraphqlRenderModeValue(
     config.getConfigRenderMode(state.currentConfig)
   );
-  const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const submitTokenValue =
-    (latestTokenStored && typeof latestTokenStored.globalToken === "string"
-      ? latestTokenStored.globalToken
-      : "") || tokenValue;
+  let submitTokenValue = (await getStoredGlobalToken()) || tokenValue;
 
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
+    await postPageTypeAssignmentsToAiServer({
+      endpointValue,
+      tokenValue: submitTokenValue,
+      baseUrl: effectiveBaseUrl,
+      pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
+      checklistPageTypes: state.lynxChecklistPageTypes
+    });
+    submitTokenValue = (await getStoredGlobalToken()) || submitTokenValue;
     const response = await fetch(graphqlEndpoint, {
       method: "POST",
       headers: createConfigSyncHeaders(submitTokenValue),
@@ -3819,29 +3972,25 @@ async function submitSelectorSetToServer(options = {}) {
   }
 }
 
-async function handleSaveExcludes() {
-  if (state.aiRequestInFlight) {
-    return;
-  }
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!isCurrentRenderModeReady()) {
-    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
+async function handleLynxChecklistSend() {
+  const checklist = buildLynxChecklistViewModel({
+    aiAnswer: state.lynxChecklistAiAnswer,
+    pageTypes: state.lynxChecklistPageTypes,
+    markedPages: uiModule.getViewState().markedPages
+  });
+  if (!checklist.canSend) {
+    setLynxChecklistViewState();
     return;
   }
   const credentials = await helpers.requireAiCredentials();
   if (!credentials) {
     return;
   }
+  closeLynxChecklistPopover();
   const submitResult = await submitSelectorSetToServer({
     baseUrl: state.currentBaseUrl,
     selectorSet: getCurrentSelectorsFromConfig(),
-    tokenValue: credentials.tokenValue,
-    confirm: true
+    tokenValue: credentials.tokenValue
   });
   if (submitResult.ok) {
     const syncResult = submitResult.configSyncResult || null;
@@ -3859,10 +4008,24 @@ async function handleSaveExcludes() {
     uiModule.showToast(PopupText.ai.submittedToServer);
     return;
   }
-  if (submitResult.cancelled) {
+  uiModule.showToast(submitResult.reason || PopupText.ai.submitRequestFailed);
+}
+
+async function handleSaveExcludes() {
+  if (state.aiRequestInFlight) {
     return;
   }
-  uiModule.showToast(submitResult.reason || PopupText.ai.submitRequestFailed);
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!isCurrentRenderModeReady()) {
+    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
+    return;
+  }
+  openLynxChecklistPopover();
 }
 
 async function handlePreviewLatest() {
@@ -3961,6 +4124,11 @@ async function init() {
     onRenderModeNoticeAction: handleRenderModeNoticeAction,
     onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
     onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
+    onLynxChecklistAiAnswerChange: handleLynxChecklistAiAnswerChange,
+    onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
+    onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,
+    onLynxChecklistCancel: handleLynxChecklistCancel,
+    onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
     onStageBaseKeyDown: handleStageBaseKeyDown,

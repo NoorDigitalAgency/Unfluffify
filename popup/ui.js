@@ -8,12 +8,17 @@ import {
   formatSyncLoadSummary,
   formatSyncSaveSummary
 } from "../common/text.js";
+import {
+  buildLynxChecklistViewModel,
+  createInitialLynxChecklistState
+} from "./lynx-checklist.js";
 
 export { ViewText } from "../common/text.js";
 
 const { state } = stateModule;
 
 const refs = {};
+const initialLynxChecklistState = createInitialLynxChecklistState();
 
 export const View = {
     Configuration: 'Configuration',
@@ -95,6 +100,9 @@ const initialViewState = {
   renderModeWarningVisible: false,
   renderModeWarningAcknowledgeChecked: false,
   renderModeWarningOkDisabled: true,
+  lynxChecklistVisible: false,
+  lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
+  lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeSetDisabled: false,
@@ -595,6 +603,230 @@ function renderAiControlsContent(view, handlers) {
   );
 }
 
+function getLynxChecklistNoticeText(checklist) {
+  const { blockingReason } = checklist;
+  const pageTypeTitle =
+    blockingReason.pageTypeKey
+      ? (
+          checklist.pageTypes.find((item) => item.key === blockingReason.pageTypeKey) || {}
+        ).title || ""
+      : "";
+
+  if (blockingReason.code === "ai_no") {
+    return PopupText.lynxChecklist.noticeAiNo;
+  }
+  if (blockingReason.code === "ai_unanswered") {
+    return PopupText.lynxChecklist.noticeAiUnanswered;
+  }
+  if (blockingReason.code === "page_type_selection_required") {
+    return `${PopupText.lynxChecklist.noticeSelectionRequiredPrefix}${pageTypeTitle}${PopupText.lynxChecklist.noticeSelectionRequiredSuffix}`;
+  }
+  if (blockingReason.code === "page_type_no_options") {
+    return `${PopupText.lynxChecklist.noticeNoOptionsPrefix}${pageTypeTitle}${PopupText.lynxChecklist.noticeNoOptionsSuffix}`;
+  }
+  if (blockingReason.code === "page_type_no") {
+    return PopupText.lynxChecklist.noticePageTypeNo;
+  }
+  if (blockingReason.code === "page_type_unanswered") {
+    return PopupText.lynxChecklist.noticePageTypeUnanswered;
+  }
+  if (blockingReason.code === "no_page_types_selected") {
+    return PopupText.lynxChecklist.noticeNoPageTypesSelected;
+  }
+  return "";
+}
+
+function renderLynxChecklistRadioOption({
+  name,
+  value,
+  checked,
+  disabled,
+  label,
+  onChange
+}) {
+  return h(
+    "label",
+    {
+      class: classNames(
+        "lynx-checklist-popover__choice",
+        disabled && "lynx-checklist-popover__choice--disabled"
+      )
+    },
+    h("input", {
+      type: "radio",
+      name,
+      value,
+      checked,
+      disabled,
+      onChange
+    }),
+    h("span", null, label)
+  );
+}
+
+function renderLynxChecklistPopover(view, handlers) {
+  const checklist = buildLynxChecklistViewModel({
+    aiAnswer: view.lynxChecklistAiAnswer,
+    pageTypes: view.lynxChecklistPageTypes,
+    markedPages: view.markedPages
+  });
+  const noticeText = getLynxChecklistNoticeText(checklist);
+
+  return h(
+    "div",
+    {
+      class: "warning-popover lynx-checklist-popover",
+      hidden: !view.lynxChecklistVisible,
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "lynx-checklist-title"
+    },
+    h(
+      "div",
+      { class: "warning-popover__card lynx-checklist-popover__card" },
+      h("div", { id: "lynx-checklist-title", class: "warning-popover__title" }, PopupText.lynxChecklist.title),
+      h(
+        "section",
+        { class: "lynx-checklist-popover__section" },
+        h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.aiQuestion),
+        h(
+          "div",
+          {
+            class: "lynx-checklist-popover__choices",
+            role: "radiogroup",
+            "aria-label": PopupText.lynxChecklist.aiQuestion
+          },
+          renderLynxChecklistRadioOption({
+            name: "lynx-checklist-ai",
+            value: "yes",
+            checked: checklist.aiAnswer === "yes",
+            disabled: checklist.aiQuestionDisabled,
+            label: ViewText.yes,
+            onChange: handlers.onLynxChecklistAiAnswerChange
+          }),
+          renderLynxChecklistRadioOption({
+            name: "lynx-checklist-ai",
+            value: "no",
+            checked: checklist.aiAnswer === "no",
+            disabled: checklist.aiQuestionDisabled,
+            label: ViewText.no,
+            onChange: handlers.onLynxChecklistAiAnswerChange
+          })
+        )
+      ),
+      h(
+        "section",
+        { class: "lynx-checklist-popover__section" },
+        h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.pageTypesTitle),
+        h(
+          "div",
+          { class: "lynx-checklist-popover__page-types" },
+          checklist.pageTypes.map((item) =>
+            h(
+              "div",
+              {
+                key: item.key,
+                class: classNames(
+                  "lynx-checklist-popover__page-type",
+                  item.inputsDisabled && "lynx-checklist-popover__page-type--disabled"
+                )
+              },
+              h("div", { class: "lynx-checklist-popover__page-type-title" }, item.title),
+              h(
+                "div",
+                {
+                  class: "lynx-checklist-popover__choices",
+                  role: "radiogroup",
+                  "aria-label": item.title
+                },
+                renderLynxChecklistRadioOption({
+                  name: `lynx-checklist-${item.key}`,
+                  value: "yes",
+                  checked: item.decision === "yes",
+                  disabled: item.inputsDisabled,
+                  label: ViewText.yes,
+                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
+                }),
+                renderLynxChecklistRadioOption({
+                  name: `lynx-checklist-${item.key}`,
+                  value: "no",
+                  checked: item.decision === "no",
+                  disabled: item.inputsDisabled,
+                  label: ViewText.no,
+                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
+                }),
+                renderLynxChecklistRadioOption({
+                  name: `lynx-checklist-${item.key}`,
+                  value: "not_applicable",
+                  checked: item.decision === "not_applicable",
+                  disabled: item.inputsDisabled,
+                  label: ViewText.notApplicable,
+                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
+                })
+              ),
+              item.showSelect &&
+                h(
+                  "select",
+                  {
+                    class: "lynx-checklist-popover__select",
+                    value: item.selectedPageUrl,
+                    disabled: item.inputsDisabled,
+                    onChange: (event) => handlers.onLynxChecklistPageTypePageChange(item.key, event)
+                  },
+                  h("option", { value: "" }, PopupText.lynxChecklist.chooseMarkedPage),
+                  item.availableOptions.map((option) =>
+                    h(
+                      "option",
+                      {
+                        key: option.url,
+                        value: option.url
+                      },
+                      option.title
+                    )
+                  )
+                )
+            )
+          )
+        )
+      ),
+      noticeText &&
+        h(
+          "div",
+          {
+            class: "notice",
+            role: "status",
+            "aria-live": "polite"
+          },
+          noticeText
+        ),
+      h(
+        "div",
+        { class: "button-row lynx-checklist-popover__actions" },
+        h(
+          "button",
+          {
+            id: "lynx-checklist-cancel",
+            type: "button",
+            class: "button-secondary",
+            onClick: handlers.onLynxChecklistCancel
+          },
+          PopupText.actions.cancel
+        ),
+        h(
+          "button",
+          {
+            id: "lynx-checklist-send",
+            type: "button",
+            disabled: !checklist.canSend,
+            onClick: handlers.onLynxChecklistSend
+          },
+          PopupText.actions.sendToLynx
+        )
+      )
+    )
+  );
+}
+
 function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
@@ -774,6 +1006,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     )
   );
+  const lynxChecklistPopover = renderLynxChecklistPopover(view, handlers);
 
   return h(
     Fragment,
@@ -848,7 +1081,8 @@ function renderMarkingView({state: view, actions: handlers}) {
     postRenderModeControlsVisible &&
       (markingMode || view.highlightingOptionsVisible) &&
       renderMarkedPagesSection(view, handlers),
-    renderModeWarningPopover
+    renderModeWarningPopover,
+    lynxChecklistPopover
   );
 }
 
