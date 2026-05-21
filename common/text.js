@@ -250,7 +250,6 @@ export const PopupText = Object.freeze({
     selectorsComputedAndSaved: "Selectors computed and saved to config server", // Toast shown when compute and server sync both succeed.
     noSelectorsToSubmit: "No selectors available to submit", // Submission guard reason when the selector set is empty.
     noNewSelectorsToSubmit: "No new selectors to submit", // Submission guard reason when nothing changed since the last submit.
-    submitConfirm: "This will send the final CSS Selectors to Lynx to be used in content detection.\nDo you want to continue?", // Confirmation dialog before selectors are submitted upstream.
     submitResponseError: "Submit response error", // Submission failure reason when the upstream response is not successful.
     submitResponseFormatError: "Submit response format error", // Submission failure reason when the upstream response payload is invalid.
     submitRequestFailed: "Submit request failed", // Submission failure reason when the request throws.

@@ -3859,8 +3859,7 @@ async function submitSelectorSetToServer(options = {}) {
   const {
     baseUrl = state.currentBaseUrl,
     selectorSet = getCurrentSelectorsFromConfig(),
-    tokenValue = "",
-    confirm = true
+    tokenValue = ""
   } = options;
 
   if (state.currentDraftDirty) {
@@ -3897,13 +3896,6 @@ async function submitSelectorSetToServer(options = {}) {
 
   if (aiSelectorSetsEqual(normalizedSelectorSet, getLastSubmittedSelectorsFromConfig())) {
     return { ok: false, skipped: true, reason: PopupText.ai.noNewSelectorsToSubmit };
-  }
-
-  if (confirm) {
-    const confirmed = window.confirm(PopupText.ai.submitConfirm);
-    if (!confirmed) {
-      return { ok: false, skipped: true, cancelled: true };
-    }
   }
 
   const includeCss = normalizedSelectorSet.inclusionSelectors.join(", ");
@@ -4030,8 +4022,7 @@ async function handleLynxChecklistSend() {
   const submitResult = await submitSelectorSetToServer({
     baseUrl: state.currentBaseUrl,
     selectorSet: getCurrentSelectorsFromConfig(),
-    tokenValue: credentials.tokenValue,
-    confirm: false
+    tokenValue: credentials.tokenValue
   });
   if (submitResult.ok) {
     const syncResult = submitResult.configSyncResult || null;
@@ -4047,9 +4038,6 @@ async function handleLynxChecklistSend() {
             : PopupText.ai.submittedSelectorsAndSynced
     );
     uiModule.showToast(PopupText.ai.submittedToServer);
-    return;
-  }
-  if (submitResult.cancelled) {
     return;
   }
   uiModule.showToast(submitResult.reason || PopupText.ai.submitRequestFailed);
