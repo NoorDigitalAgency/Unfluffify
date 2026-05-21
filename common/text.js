@@ -268,13 +268,13 @@ export const PopupText = Object.freeze({
     chooseMarkedPage: "Choose a marked page", // Placeholder option for page-type dropdowns.
     noticeAiUnanswered: "Please answer the AI content check before sending.", // Notice shown before the first checklist question is answered.
     noticeAiNo: "Please run the AI content detection one last time and confirm it looks good before sending.", // Notice shown while the AI confirmation is set to No.
-    noticePageTypeNo: "Change any No answers to Yes or Not applicable before sending.", // Notice shown when a page type is explicitly marked No.
-    noticePageTypeUnanswered: "Answer each page type before sending.", // Notice shown while any page type still has no answer.
-    noticeNoPageTypesSelected: "Choose at least one page type and marked page before sending.", // Notice shown when every page type is marked Not applicable.
+    noticePageTypeNo: "If the website has any page types marked No, mark at least one page for each missing type before sending. Use Not applicable only when that page type does not exist on the website.", // Notice shown when a page type is explicitly marked No.
+    noticePageTypeUnanswered: "Answer each page type before sending. If the website has that page type, mark at least one page of that type first.", // Notice shown while any page type still has no answer.
+    noticeNoPageTypesSelected: "If the website has any applicable page types, mark at least one page for each missing type before sending. Use Not applicable only when none of those page types exist on the website.", // Notice shown when every page type is marked Not applicable.
     noticeSelectionRequiredPrefix: "Choose a marked page for ", // Prefix for the notice shown when a Yes answer still needs a dropdown choice.
     noticeSelectionRequiredSuffix: " before sending.", // Suffix for the notice shown when a Yes answer still needs a dropdown choice.
     noticeNoOptionsPrefix: "No marked pages are left for ", // Prefix for the notice shown when no unassigned marked pages remain for a page type.
-    noticeNoOptionsSuffix: ". Choose Not applicable or change another selection." // Suffix for the notice shown when no unassigned marked pages remain for a page type.
+    noticeNoOptionsSuffix: ". If the website has this page type, mark another page of that type before sending, or use Not applicable only if it does not exist on the website." // Suffix for the notice shown when no unassigned marked pages remain for a page type.
   }),
 
   device: Object.freeze({
