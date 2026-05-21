@@ -1,4 +1,7 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
+import { createInitialLynxChecklistState } from "./lynx-checklist.js";
+
+const initialLynxChecklistState = createInitialLynxChecklistState();
 
 export const state = {
   currentView: "Marking",
@@ -60,5 +63,8 @@ export const state = {
   lastConfigLoadStatusTone: "muted",
   lastConfigSaveStatusText: "No save sent yet",
   lastConfigSaveStatusTone: "muted",
-  siteIdLookupByBaseUrl: new Map()
+  siteIdLookupByBaseUrl: new Map(),
+  lynxChecklistVisible: false,
+  lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
+  lynxChecklistPageTypes: initialLynxChecklistState.pageTypes
 };

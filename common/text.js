@@ -12,6 +12,9 @@ export const ViewText = Object.freeze({
   computeButtonBusy: "AI is working...", // Busy label for the AI selector-compute button.
   saveExcludesIdle: "Send to Lynx", // Idle label for the selector-submit button.
   saveExcludesBusy: "Sending to Lynx...", // Busy label for the selector-submit button.
+  yes: "Yes", // Shared affirmative label for radio-button choices.
+  no: "No", // Shared negative label for radio-button choices.
+  notApplicable: "Not applicable", // Shared label when an option does not apply.
   baseUrlAutoResolvedNotice: "Property will be detected automatically", // Notice and toast explaining that base URLs are not manually edited.
   noMappedBaseUrlOrSiteId: "Property not found", // Fallback error when the current page cannot be mapped to a configured site.
   noDomainIdForBaseUrl: "Property not found" // Error shown when a base URL exists locally but still lacks a resolved domain/site id.
@@ -132,6 +135,8 @@ export const PopupText = Object.freeze({
     goBack: "Go Back", // Configuration-view action that returns to the marking view.
     login: "Login", // Authentication form submit label.
     ok: "OK", // Confirmation label inside the render-mode warning popover.
+    cancel: "Cancel", // Secondary dismissal label for transient popovers and dialogs.
+    sendToLynx: "Send to Lynx", // Final confirmation label inside the Lynx checklist popover.
     previewLatest: "Show Content List", // Selector action that previews the latest stored selector set.
     exitPreview: "Exit Preview", // Curtain action that closes page preview mode.
     revertToSaved: "Revert to saved", // Page-data action that restores the last saved draft.
@@ -254,6 +259,22 @@ export const PopupText = Object.freeze({
     submittedSelectorsSyncSkipped: "Submitted selectors (config sync skipped)", // Save-status label when selector submission succeeded but config sync was skipped.
     submittedSelectorsSyncFailed: "Submitted selectors (config sync failed)", // Save-status label when selector submission succeeded but config sync failed.
     submittedSelectorsAndSynced: "Submitted selectors and synced" // Save-status label when selector submission and config sync both succeed.
+  }),
+
+  lynxChecklist: Object.freeze({
+    title: "Checklist for sending to Lynx:", // Title shown at the top of the Lynx submission checklist popover.
+    aiQuestion: "I have run the AI content detection a final time and the content looks good:", // Required confirmation question before Lynx submission.
+    pageTypesTitle: "Choose one corresponding page per applicable page type:", // Helper text above the page-type checklist grid.
+    chooseMarkedPage: "Choose a marked page", // Placeholder option for page-type dropdowns.
+    noticeAiUnanswered: "Please answer the AI content check before sending.", // Notice shown before the first checklist question is answered.
+    noticeAiNo: "Please run the AI content detection one last time and confirm it looks good before sending.", // Notice shown while the AI confirmation is set to No.
+    noticePageTypeNo: "Change any No answers to Yes or Not applicable before sending.", // Notice shown when a page type is explicitly marked No.
+    noticePageTypeUnanswered: "Answer each page type before sending.", // Notice shown while any page type still has no answer.
+    noticeNoPageTypesSelected: "Choose at least one page type and marked page before sending.", // Notice shown when every page type is marked Not applicable.
+    noticeSelectionRequiredPrefix: "Choose a marked page for ", // Prefix for the notice shown when a Yes answer still needs a dropdown choice.
+    noticeSelectionRequiredSuffix: " before sending.", // Suffix for the notice shown when a Yes answer still needs a dropdown choice.
+    noticeNoOptionsPrefix: "No marked pages are left for ", // Prefix for the notice shown when no unassigned marked pages remain for a page type.
+    noticeNoOptionsSuffix: ". Choose Not applicable or change another selection." // Suffix for the notice shown when no unassigned marked pages remain for a page type.
   }),
 
   device: Object.freeze({

@@ -24,6 +24,10 @@ import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
+  buildLynxChecklistViewModel,
+  createInitialLynxChecklistState
+} from "./popup/lynx-checklist.js";
+import {
   PopupText,
   ViewText,
   formatClearDomainCacheConfirm,
@@ -2221,6 +2225,9 @@ async function refreshUiInner() {
     renderModeWarningVisible ? Boolean(view.renderModeWarningAcknowledgeChecked) : false;
   nextViewState.renderModeWarningOkDisabled =
     !nextViewState.renderModeWarningAcknowledgeChecked;
+  nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
+  nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
+  nextViewState.lynxChecklistPageTypes = state.lynxChecklistPageTypes || {};
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -2532,6 +2539,84 @@ async function handleRenderModeWarningConfirm() {
     renderModeWarningAcknowledgeChecked: false,
     renderModeWarningOkDisabled: true
   });
+}
+
+function setLynxChecklistViewState() {
+  uiModule.setViewState({
+    lynxChecklistVisible: Boolean(state.lynxChecklistVisible),
+    lynxChecklistAiAnswer: state.lynxChecklistAiAnswer || "",
+    lynxChecklistPageTypes: state.lynxChecklistPageTypes || {}
+  });
+}
+
+function resetLynxChecklistState() {
+  const initial = createInitialLynxChecklistState();
+  state.lynxChecklistAiAnswer = initial.aiAnswer;
+  state.lynxChecklistPageTypes = initial.pageTypes;
+}
+
+function openLynxChecklistPopover() {
+  resetLynxChecklistState();
+  state.lynxChecklistVisible = true;
+  setLynxChecklistViewState();
+}
+
+function closeLynxChecklistPopover() {
+  state.lynxChecklistVisible = false;
+  resetLynxChecklistState();
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistAiAnswerChange(event) {
+  const nextValue =
+    event && event.currentTarget && event.currentTarget.value === "no" ? "no" : "yes";
+  state.lynxChecklistAiAnswer = nextValue;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistPageTypeDecisionChange(pageTypeKey, event) {
+  const nextValue =
+    event && event.currentTarget && typeof event.currentTarget.value === "string"
+      ? event.currentTarget.value
+      : "";
+  const normalized = createInitialLynxChecklistState().pageTypes;
+  const nextPageTypes = {
+    ...normalized,
+    ...(state.lynxChecklistPageTypes || {})
+  };
+  const currentEntry = nextPageTypes[pageTypeKey] || normalized[pageTypeKey];
+  nextPageTypes[pageTypeKey] = {
+    decision:
+      nextValue === "yes" || nextValue === "no" || nextValue === "not_applicable"
+        ? nextValue
+        : "",
+    selectedPageUrl: nextValue === "yes" ? currentEntry.selectedPageUrl || "" : ""
+  };
+  state.lynxChecklistPageTypes = nextPageTypes;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistPageTypePageChange(pageTypeKey, event) {
+  const nextValue =
+    event && event.currentTarget && typeof event.currentTarget.value === "string"
+      ? event.currentTarget.value
+      : "";
+  const initialPageTypes = createInitialLynxChecklistState().pageTypes;
+  const nextPageTypes = {
+    ...initialPageTypes,
+    ...(state.lynxChecklistPageTypes || {})
+  };
+  const currentEntry = nextPageTypes[pageTypeKey] || initialPageTypes[pageTypeKey];
+  nextPageTypes[pageTypeKey] = {
+    decision: currentEntry.decision,
+    selectedPageUrl: nextValue
+  };
+  state.lynxChecklistPageTypes = nextPageTypes;
+  setLynxChecklistViewState();
+}
+
+function handleLynxChecklistCancel() {
+  closeLynxChecklistPopover();
 }
 
 async function handleRenderModeSet() {
@@ -3819,29 +3904,26 @@ async function submitSelectorSetToServer(options = {}) {
   }
 }
 
-async function handleSaveExcludes() {
-  if (state.aiRequestInFlight) {
-    return;
-  }
-  if (!await helpers.ensureActiveTab({ requireId: true })) {
-    return;
-  }
-  if (!helpers.ensureBaseUrl()) {
-    return;
-  }
-  if (!isCurrentRenderModeReady()) {
-    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
+async function handleLynxChecklistSend() {
+  const checklist = buildLynxChecklistViewModel({
+    aiAnswer: state.lynxChecklistAiAnswer,
+    pageTypes: state.lynxChecklistPageTypes,
+    markedPages: uiModule.getViewState().markedPages
+  });
+  if (!checklist.canSend) {
+    setLynxChecklistViewState();
     return;
   }
   const credentials = await helpers.requireAiCredentials();
   if (!credentials) {
     return;
   }
+  closeLynxChecklistPopover();
   const submitResult = await submitSelectorSetToServer({
     baseUrl: state.currentBaseUrl,
     selectorSet: getCurrentSelectorsFromConfig(),
     tokenValue: credentials.tokenValue,
-    confirm: true
+    confirm: false
   });
   if (submitResult.ok) {
     const syncResult = submitResult.configSyncResult || null;
@@ -3863,6 +3945,23 @@ async function handleSaveExcludes() {
     return;
   }
   uiModule.showToast(submitResult.reason || PopupText.ai.submitRequestFailed);
+}
+
+async function handleSaveExcludes() {
+  if (state.aiRequestInFlight) {
+    return;
+  }
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!isCurrentRenderModeReady()) {
+    uiModule.showToast(PopupText.renderMode.toastConfirmBeforeSubmitting);
+    return;
+  }
+  openLynxChecklistPopover();
 }
 
 async function handlePreviewLatest() {
@@ -3961,6 +4060,11 @@ async function init() {
     onRenderModeNoticeAction: handleRenderModeNoticeAction,
     onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
     onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
+    onLynxChecklistAiAnswerChange: handleLynxChecklistAiAnswerChange,
+    onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
+    onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,
+    onLynxChecklistCancel: handleLynxChecklistCancel,
+    onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
     onStageBaseKeyDown: handleStageBaseKeyDown,
