@@ -10,6 +10,18 @@ export const LYNX_CHECKLIST_PAGE_TYPES = Object.freeze([
   Object.freeze({ key: "utilityPage", title: "Utility page" })
 ]);
 
+export const LYNX_CHECKLIST_PAGE_TYPE_API_VALUES = Object.freeze({
+  homepage: "homepage",
+  articlePage: "article",
+  listingPage: "listing",
+  categoryPage: "category",
+  productPage: "product",
+  servicePage: "service_page",
+  companyPage: "company",
+  landingPage: "landing_page",
+  utilityPage: "utility"
+});
+
 function normalizeDecision(value) {
   return value === "yes" || value === "no" || value === "not_applicable" ? value : "";
 }
@@ -141,4 +153,20 @@ export function buildLynxChecklistViewModel(options = {}) {
     canSend: blockingReason.code === "",
     blockingReason
   };
+}
+
+export function buildLynxChecklistAssignments(value = {}) {
+  const normalized = normalizeLynxChecklistState(value);
+  return LYNX_CHECKLIST_PAGE_TYPES.reduce((result, { key }) => {
+    const entry = normalized.pageTypes[key];
+    if (entry.decision !== "yes" || !entry.selectedPageUrl) {
+      return result;
+    }
+    result.push({
+      key,
+      url: entry.selectedPageUrl,
+      pageType: LYNX_CHECKLIST_PAGE_TYPE_API_VALUES[key] || ""
+    });
+    return result;
+  }, []);
 }

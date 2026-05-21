@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildLynxChecklistAssignments,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../popup/lynx-checklist.js";
@@ -90,4 +91,33 @@ test("allows sending only when AI is confirmed and every page type is yes-with-p
 
   assert.equal(checklist.canSend, true);
   assert.deepEqual(checklist.blockingReason, { code: "" });
+});
+
+test("maps selected page types to the AI assignment payload values", () => {
+  const initial = createInitialLynxChecklistState();
+  initial.pageTypes.homepage = {
+    decision: "yes",
+    selectedPageUrl: "https://example.com/"
+  };
+  initial.pageTypes.servicePage = {
+    decision: "yes",
+    selectedPageUrl: "https://example.com/service"
+  };
+  initial.pageTypes.utilityPage = {
+    decision: "not_applicable",
+    selectedPageUrl: ""
+  };
+
+  assert.deepEqual(buildLynxChecklistAssignments(initial), [
+    {
+      key: "homepage",
+      url: "https://example.com/",
+      pageType: "homepage"
+    },
+    {
+      key: "servicePage",
+      url: "https://example.com/service",
+      pageType: "service_page"
+    }
+  ]);
 });

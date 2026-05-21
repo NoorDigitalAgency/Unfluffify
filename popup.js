@@ -24,6 +24,7 @@ import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
+  buildLynxChecklistAssignments,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "./popup/lynx-checklist.js";
@@ -3754,6 +3755,106 @@ async function handleComputeSelectors() {
   }
 }
 
+async function backfillRawHtmlForPageTypeAssignments(baseUrl, assignments, pageMarkings) {
+  const urlsMissingRawHtml = assignments
+    .map((item) => item.url)
+    .filter((url) => {
+      const entry = pageMarkings[url];
+      return !entry || typeof entry.rawHtml !== "string" || !entry.rawHtml;
+    });
+  if (!urlsMissingRawHtml.length) {
+    return new Map();
+  }
+  const backfillResults = await Promise.all(
+    urlsMissingRawHtml.map(async (url) => {
+      const response = await messages.sendRuntimeMessage({
+        type: "fetchStaticPageHtml",
+        url
+      });
+      if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
+        return null;
+      }
+      return {
+        url,
+        rawHtml: response.html
+      };
+    })
+  );
+  const rawHtmlBackfills = new Map();
+  const successfulBackfills = backfillResults.filter(Boolean);
+  successfulBackfills.forEach((item) => {
+    rawHtmlBackfills.set(item.url, item.rawHtml);
+  });
+  if (successfulBackfills.length && baseUrl) {
+    state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
+      if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+        return;
+      }
+      successfulBackfills.forEach((item) => {
+        const targetEntry = targetConfig.pageMarkings[item.url];
+        if (!targetEntry || typeof targetEntry !== "object") {
+          return;
+        }
+        targetEntry.rawHtml = item.rawHtml;
+      });
+    });
+  }
+  return rawHtmlBackfills;
+}
+
+async function postAssignedPageTypesToAiServer(options = {}) {
+  const {
+    endpointValue = "",
+    tokenValue = "",
+    baseUrl = state.currentBaseUrl,
+    pageMarkings = {},
+    checklistPageTypes = state.lynxChecklistPageTypes
+  } = options;
+  try {
+    const assignPageTypesUrl = resolveRelativeEndpoint(endpointValue, "/assign_page_types");
+    if (!assignPageTypesUrl) {
+      return;
+    }
+    const assignments = buildLynxChecklistAssignments({
+      pageTypes: checklistPageTypes
+    });
+    if (!assignments.length) {
+      return;
+    }
+    const rawHtmlBackfills = await backfillRawHtmlForPageTypeAssignments(
+      baseUrl,
+      assignments,
+      pageMarkings
+    );
+    const payload = assignments.map((item) => {
+      const entry = pageMarkings[item.url];
+      return {
+        url: item.url,
+        rawHtml:
+          entry && typeof entry.rawHtml === "string" && entry.rawHtml
+            ? entry.rawHtml
+            : rawHtmlBackfills.get(item.url) || "",
+        renderedHtml:
+          entry && typeof entry.renderedHtml === "string"
+            ? entry.renderedHtml
+            : "",
+        pageType: item.pageType
+      };
+    });
+    const response = await fetch(assignPageTypesUrl, {
+      method: "POST",
+      headers: createConfigSyncHeaders(tokenValue),
+      body: JSON.stringify(payload)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+  } catch (error) {
+    console.warn("Unable to assign page types to AI server.", error);
+  }
+}
+
 async function submitSelectorSetToServer(options = {}) {
   const {
     baseUrl = state.currentBaseUrl,
@@ -3771,7 +3872,7 @@ async function submitSelectorSetToServer(options = {}) {
     return { ok: false, skipped: true, reason: PopupText.ai.noSelectorsToSubmit };
   }
 
-  const { stageBaseValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+  const { stageBaseValue, configEndpointValue, endpointValue } = await helpers.loadGlobalAiSettings();
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   if (!graphqlEndpoint) {
     return { ok: false, skipped: true, reason: PopupText.authentication.toastSetStageBaseFirst };
@@ -3820,6 +3921,13 @@ async function submitSelectorSetToServer(options = {}) {
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
+    void postAssignedPageTypesToAiServer({
+      endpointValue,
+      tokenValue: submitTokenValue,
+      baseUrl: effectiveBaseUrl,
+      pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
+      checklistPageTypes: state.lynxChecklistPageTypes
+    });
     const response = await fetch(graphqlEndpoint, {
       method: "POST",
       headers: createConfigSyncHeaders(submitTokenValue),
