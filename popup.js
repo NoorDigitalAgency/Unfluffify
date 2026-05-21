@@ -3596,46 +3596,11 @@ async function handleComputeSelectors() {
     return;
   }
 
-  const missingRawHtmlPages = storedPageEntries.filter(([, entry]) => {
-    const rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
-    return !rawHtml;
-  });
-  const rawHtmlBackfills = new Map();
-  if (missingRawHtmlPages.length) {
-    const backfillResults = await Promise.all(
-      missingRawHtmlPages.map(async ([url]) => {
-        const response = await messages.sendRuntimeMessage({
-          type: "fetchStaticPageHtml",
-          url
-        });
-        if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
-          return null;
-        }
-        return {
-          url,
-          rawHtml: response.html
-        };
-      })
-    );
-    const successfulBackfills = backfillResults.filter(Boolean);
-    successfulBackfills.forEach((item) => {
-      rawHtmlBackfills.set(item.url, item.rawHtml);
-    });
-    if (successfulBackfills.length) {
-      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
-        if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
-          return;
-        }
-        successfulBackfills.forEach((item) => {
-          const targetEntry = targetConfig.pageMarkings[item.url];
-          if (!targetEntry || typeof targetEntry !== "object") {
-            return;
-          }
-          targetEntry.rawHtml = item.rawHtml;
-        });
-      });
-    }
-  }
+  const rawHtmlBackfills = await backfillRawHtmlForPages(
+    state.currentBaseUrl,
+    storedPageEntries.map(([url]) => url),
+    pageMarkings
+  );
 
   const storedPages = storedPageEntries.map(([url, entry]) => {
     const renderedHtml =
@@ -3755,9 +3720,8 @@ async function handleComputeSelectors() {
   }
 }
 
-async function backfillRawHtmlForPageTypeAssignments(baseUrl, assignments, pageMarkings) {
-  const urlsMissingRawHtml = assignments
-    .map((item) => item.url)
+async function backfillRawHtmlForPages(baseUrl, urls, pageMarkings) {
+  const urlsMissingRawHtml = urls
     .filter((url) => {
       const entry = pageMarkings[url];
       return !entry || typeof entry.rawHtml !== "string" || !entry.rawHtml;
@@ -3821,9 +3785,9 @@ async function postAssignedPageTypesToAiServer(options = {}) {
     if (!assignments.length) {
       return;
     }
-    const rawHtmlBackfills = await backfillRawHtmlForPageTypeAssignments(
+    const rawHtmlBackfills = await backfillRawHtmlForPages(
       baseUrl,
-      assignments,
+      assignments.map((item) => item.url),
       pageMarkings
     );
     const payload = assignments.map((item) => {
@@ -3905,7 +3869,7 @@ async function submitSelectorSetToServer(options = {}) {
     config.getConfigRenderMode(state.currentConfig)
   );
   const latestTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const submitTokenValue =
+  let submitTokenValue =
     (latestTokenStored && typeof latestTokenStored.globalToken === "string"
       ? latestTokenStored.globalToken
       : "") || tokenValue;
@@ -3913,13 +3877,18 @@ async function submitSelectorSetToServer(options = {}) {
   state.aiRequestInFlight = "save";
   await refreshUi();
   try {
-    void postAssignedPageTypesToAiServer({
+    await postAssignedPageTypesToAiServer({
       endpointValue,
       tokenValue: submitTokenValue,
       baseUrl: effectiveBaseUrl,
       pageMarkings: (state.currentConfig && state.currentConfig.pageMarkings) || {},
       checklistPageTypes: state.lynxChecklistPageTypes
     });
+    const refreshedTokenStored = await utils.storageGet(chrome.storage.sync, "globalToken");
+    submitTokenValue =
+      (refreshedTokenStored && typeof refreshedTokenStored.globalToken === "string"
+        ? refreshedTokenStored.globalToken
+        : "") || submitTokenValue;
     const response = await fetch(graphqlEndpoint, {
       method: "POST",
       headers: createConfigSyncHeaders(submitTokenValue),
