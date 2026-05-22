@@ -58,6 +58,10 @@ const initialViewState = {
   pageTypeGroupsEmptyText: PopupText.pageTypes.emptyState,
   pageTypeNoticeText: "",
   pageTypeNoticeVisible: false,
+  todoSectionExpanded: false,
+  todoSubsectionsExpanded: {},
+  todoAutoCollapse: true,
+  todoListVisible: false,
   basePageUrls: [],
   basePageUrlsEmptyText: ViewText.basePageUrlsEmpty,
   basePageMenuOpen: false,
@@ -352,14 +356,68 @@ function renderRenderModeEditor(view, handlers) {
   );
 }
 
+function getTodoProgress(view) {
+  const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
+  const total = pageTypeGroups.length;
+  const completed = pageTypeGroups.reduce(
+    (count, group) => count + (group && group.markedCount > 0 ? 1 : 0),
+    0
+  );
+  return {
+    total,
+    completed,
+    done: total > 0 && completed === total
+  };
+}
+
+function renderTodoIndicator(iconName, done = false, extraClassName = "") {
+  return icon(
+    iconName,
+    classNames(
+      "todo-indicator",
+      done ? "todo-indicator--done" : "todo-indicator--pending",
+      extraClassName
+    )
+  );
+}
+
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
+  const progress = getTodoProgress(view);
+  const sectionExpanded = Boolean(view.todoSectionExpanded);
+
   return h(
     "section",
-    {class: classNames("card", extraClassName)},
+    {
+      class: classNames("card", "todo-section", extraClassName),
+      hidden: !view.todoListVisible
+    },
     h(
       "div",
       { class: "section-header" },
-      h("div", {class: "section-title"}, PopupText.pageTypes.title),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "todo-header",
+          "aria-expanded": sectionExpanded ? "true" : "false",
+          onClick: handlers.onTodoSectionToggle
+        },
+        h("span", { class: "section-title" }, PopupText.pageTypes.title),
+        h(
+          "span",
+          {
+            class: classNames(
+              "todo-status-line",
+              progress.done ? "status-text--success" : "status-text--muted"
+            )
+          },
+          renderTodoIndicator(
+            progress.done ? "checkbox-marked-outline" : "checkbox-blank-outline",
+            progress.done
+          ),
+          h("span", null, `${progress.completed}/${progress.total}`)
+        )
+      ),
       h(
         "div",
         { class: "section-header-actions" },
@@ -379,136 +437,168 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         renderBasePageMenu(view, handlers)
       )
     ),
-    h("div", { class: "hint" }, PopupText.pageTypes.hint),
-    h(
-      "div",
-      {
-        class: "notice",
-        role: "status",
-        "aria-live": "polite",
-        hidden: !view.pageTypeNoticeVisible
-      },
-      view.pageTypeNoticeText
-    ),
-    view.pageTypeGroups.length
+    view.pageTypeNoticeVisible
       ? h(
           "div",
-          { class: "page-types" },
-          view.pageTypeGroups.map((group) =>
-            h(
-              "section",
-              {
-                key: group.key,
-                class: classNames("page-types__group", group.missing && "page-types__group--missing")
-              },
-              h(
-                "div",
-                { class: "page-types__group-header" },
+          {
+            class: "notice",
+            role: "status",
+            "aria-live": "polite"
+          },
+          view.pageTypeNoticeText
+        )
+      : null,
+    sectionExpanded
+      ? h(
+          "div",
+          { class: "todo-body" },
+          h("div", { class: "hint" }, PopupText.pageTypes.hint),
+          view.pageTypeGroups.length
+            ? [
                 h(
                   "div",
-                  { class: "page-types__group-heading" },
-                  h("div", { class: "page-types__group-title" }, group.title),
+                  { class: "todo-controls" },
                   h(
                     "div",
-                    { class: "page-types__group-subtitle" },
-                    group.markedCount
-                      ? `${group.markedCount} saved ${group.markedCount === 1 ? "page" : "pages"}`
-                      : PopupText.pageTypes.markRequirement
+                    { class: "todo-controls__buttons" },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        class: "button-secondary button-small",
+                        onClick: handlers.onTodoExpandAll
+                      },
+                      PopupText.pageTypes.expandAll
+                    ),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        class: "button-secondary button-small",
+                        onClick: handlers.onTodoCollapseAll
+                      },
+                      PopupText.pageTypes.collapseAll
+                    )
+                  ),
+                  h(
+                    "label",
+                    { class: "todo-controls__auto-collapse" },
+                    h("input", {
+                      type: "checkbox",
+                      checked: view.todoAutoCollapse,
+                      onChange: handlers.onTodoAutoCollapseChange
+                    }),
+                    h("span", null, PopupText.pageTypes.autoCollapse)
                   )
                 ),
-                h(
-                  "span",
-                  {
-                    class: classNames(
-                      "page-types__group-badge",
-                      group.missing
-                        ? "page-types__group-badge--missing"
-                        : "page-types__group-badge--ready"
-                    )
-                  },
-                  group.missing ? PopupText.pageTypes.missingBadge : PopupText.pageTypes.readyBadge
-                )
-              ),
-              group.candidates.length
-                ? h(
-                    "ul",
-                    { class: "page-types__candidate-list" },
-                    group.candidates.map((item) =>
+                view.pageTypeGroups.map((group) => {
+                  const subsectionExpanded = Boolean(
+                    view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[group.key]
+                  );
+                  const subsectionDone = group.markedCount > 0;
+                  return h(
+                    "section",
+                    {
+                      key: group.key,
+                      class: classNames(
+                        "todo-subsection",
+                        group.missing && "todo-subsection--missing"
+                      )
+                    },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        class: "todo-subsection-header",
+                        "aria-expanded": subsectionExpanded ? "true" : "false",
+                        onClick: () => handlers.onTodoSubsectionToggle(group.key)
+                      },
+                      h("span", { class: "todo-subsection-title" }, group.title),
                       h(
-                        "li",
+                        "span",
                         {
-                          key: `${group.key}|${item.url}`,
                           class: classNames(
-                            "page-types__candidate",
-                            item.current && "page-types__candidate--current",
-                            item.marked && "page-types__candidate--marked",
-                            item.duplicate && "page-types__candidate--duplicate"
+                            "todo-subsection-count",
+                            subsectionDone
+                              ? "todo-subsection-count--done"
+                              : "todo-subsection-count--pending"
                           )
                         },
-                        h(
-                          "button",
-                          {
-                            type: "button",
-                            class: "page-types__candidate-button",
-                            disabled: item.navigationDisabled,
-                            onClick: () => handlers.onMarkedPageNavigate(item.url)
-                          },
-                          h(
-                            "span",
-                            { class: "page-types__candidate-copy" },
-                            h(
-                              "span",
-                              { class: "page-types__candidate-url", title: item.url },
-                              item.label
-                            ),
-                            h(
-                              "span",
-                              { class: "page-types__candidate-meta" },
-                              [item.url, formatCandidateWordsCount(item.wordsCount)]
-                                .filter(Boolean)
-                                .join(" • ")
-                            )
-                          ),
-                          h(
-                            "span",
-                            { class: "page-types__candidate-badges" },
-                            item.marked
-                              ? h(
-                                  "span",
-                                  { class: "page-types__candidate-badge page-types__candidate-badge--marked" },
-                                  PopupText.pageTypes.markedBadge
-                                )
-                              : null,
-                            item.current
-                              ? h(
-                                  "span",
-                                  { class: "page-types__candidate-badge page-types__candidate-badge--current" },
-                                  PopupText.pageTypes.currentBadge
-                                )
-                              : null,
-                            item.duplicate
-                              ? h(
-                                  "span",
-                                  {
-                                    class: "page-types__candidate-badge page-types__candidate-badge--duplicate",
-                                    title: item.duplicateNotice
-                                  },
-                                  PopupText.pageTypes.duplicateBadge
-                                )
-                              : null
-                          )
+                        renderTodoIndicator(
+                          subsectionDone ? "check-circle" : "circle-outline",
+                          subsectionDone
                         ),
-                        item.duplicateNotice
-                          ? h("div", { class: "page-types__candidate-warning" }, item.duplicateNotice)
-                          : null
+                        h("span", null, String(group.markedCount))
                       )
-                    )
-                  )
-                : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
-            )
-          )
+                    ),
+                    subsectionExpanded
+                      ? h(
+                          "div",
+                          { class: "todo-subsection-body" },
+                          group.candidates.length
+                            ? group.candidates.map((item) =>
+                                h(
+                                  "div",
+                                  {
+                                    key: `${group.key}|${item.url}`,
+                                    class: classNames(
+                                      "todo-candidate",
+                                      item.current && "todo-candidate--current",
+                                      item.duplicate && "todo-candidate--duplicate"
+                                    )
+                                  },
+                                  renderTodoIndicator(
+                                    item.marked ? "check-circle" : "circle-outline",
+                                    item.marked
+                                  ),
+                                  h(
+                                    "div",
+                                    { class: "todo-candidate-copy" },
+                                    item.navigationDisabled
+                                      ? h(
+                                          "span",
+                                          { class: "todo-candidate-link", title: item.url },
+                                          item.label
+                                        )
+                                      : h(
+                                          "a",
+                                          {
+                                            class: "todo-candidate-link",
+                                            href: item.url,
+                                            title: item.url,
+                                            onClick: (event) => {
+                                              event.preventDefault();
+                                              handlers.onMarkedPageNavigate(item.url);
+                                            }
+                                          },
+                                          item.label
+                                        ),
+                                    formatCandidateWordsCount(item.wordsCount)
+                                      ? h(
+                                          "span",
+                                          { class: "todo-candidate-words" },
+                                          formatCandidateWordsCount(item.wordsCount)
+                                        )
+                                      : null,
+                                    item.duplicateNotice
+                                      ? h(
+                                          "div",
+                                          { class: "page-types__candidate-warning" },
+                                          item.duplicateNotice
+                                        )
+                                      : null
+                                  )
+                                )
+                              )
+                            : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
+                        )
+                      : null
+                  );
+                })
+              ]
+            : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
         )
-      : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
+      : null
   );
 }
 
@@ -1203,6 +1293,7 @@ function renderMarkingView({state: view, actions: handlers}) {
         )
       )
     ),
+    view.todoListVisible && renderMarkedPagesSection(view, handlers),
     postRenderModeControlsVisible &&
       h(
         "section",
@@ -1225,7 +1316,6 @@ function renderMarkingView({state: view, actions: handlers}) {
       view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
     postRenderModeControlsVisible && mergedControlsSection,
-    renderMarkedPagesSection(view, handlers),
     renderModeWarningPopover,
     lynxChecklistPopover
   );
@@ -1620,14 +1710,47 @@ export function initUi(actionHandlers) {
   renderApp();
 }
 
-export function setViewState(patch) {
-  const nextViewState = { ...viewState, ...patch };
-  if (nextViewState.previewBlocked || nextViewState.previewActive) {
-    nextViewState.configMenuOpen = false;
-    nextViewState.basePageMenuOpen = false;
+function collapseTodoViewState(nextViewState) {
+  return {
+    ...nextViewState,
+    todoSectionExpanded: false,
+    todoSubsectionsExpanded: {}
+  };
+}
+
+function filterTodoSubsectionsExpanded(nextViewState) {
+  const pageTypeGroups = Array.isArray(nextViewState.pageTypeGroups)
+    ? nextViewState.pageTypeGroups
+    : [];
+  const validKeys = new Set(pageTypeGroups.map((group) => group.key));
+  return {
+    ...nextViewState,
+    todoSubsectionsExpanded: Object.fromEntries(
+      Object.entries(nextViewState.todoSubsectionsExpanded || {}).filter(
+        ([key, expanded]) => validKeys.has(key) && expanded
+      )
+    )
+  };
+}
+
+function normalizeViewState(nextViewState) {
+  let normalizedViewState = nextViewState;
+  if (normalizedViewState.previewBlocked || normalizedViewState.previewActive) {
+    normalizedViewState = {
+      ...normalizedViewState,
+      configMenuOpen: false,
+      basePageMenuOpen: false
+    };
     state.configMenuOpen = false;
     state.basePageMenuOpen = false;
   }
+  return normalizedViewState.todoListVisible
+    ? filterTodoSubsectionsExpanded(normalizedViewState)
+    : collapseTodoViewState(normalizedViewState);
+}
+
+export function setViewState(patch) {
+  const nextViewState = normalizeViewState({ ...viewState, ...patch });
   viewState = nextViewState;
   renderApp();
 }
@@ -1638,7 +1761,7 @@ export function setViewState(patch) {
  * @param {Function} updater - Function that receives current state and returns updated state
  */
 function updateViewState(updater) {
-  viewState = updater(viewState);
+  viewState = normalizeViewState(updater(viewState));
   renderApp();
 }
 
@@ -1691,4 +1814,51 @@ export function setBasePageMenuOpen(open) {
   }
   state.basePageMenuOpen = open;
   setViewState({ basePageMenuOpen: open });
+}
+
+export function setTodoSectionExpanded(expanded) {
+  updateViewState((currentViewState) => ({
+    ...currentViewState,
+    todoSectionExpanded: Boolean(expanded)
+  }));
+}
+
+export function setTodoSubsectionExpanded(key, expanded) {
+  if (typeof key !== "string" || !key) {
+    return;
+  }
+  updateViewState((currentViewState) => ({
+    ...currentViewState,
+    todoSubsectionsExpanded: {
+      ...(currentViewState.todoSubsectionsExpanded || {}),
+      [key]: Boolean(expanded)
+    }
+  }));
+}
+
+export function setTodoAllSubsectionsExpanded(expanded) {
+  updateViewState((currentViewState) => ({
+    ...currentViewState,
+    todoSubsectionsExpanded: Boolean(expanded)
+      ? Object.fromEntries(
+          (Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : [])
+            .map((group) => [group.key, true])
+        )
+      : {}
+  }));
+}
+
+export function setTodoAutoCollapse(checked) {
+  updateViewState((currentViewState) => ({
+    ...currentViewState,
+    todoAutoCollapse: Boolean(checked)
+  }));
+}
+
+export function collapseTodoList() {
+  updateViewState((currentViewState) => ({
+    ...currentViewState,
+    todoSectionExpanded: false,
+    todoSubsectionsExpanded: {}
+  }));
 }

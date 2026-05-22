@@ -514,11 +514,7 @@ function formatPageTypeCandidateLabel(url) {
   }
   try {
     const parsed = new URL(url);
-    const path = `${parsed.pathname || "/"}${parsed.search || ""}`;
-    if (path && path !== "/") {
-      return path;
-    }
-    return parsed.hostname || url;
+    return `${parsed.pathname || "/"}${parsed.search || ""}` || "/";
   } catch (error) {
     return url;
   }
@@ -2600,6 +2596,7 @@ async function refreshUiInner() {
     !hasStoredSelectors ||
     aiBlockedByDraft;
   nextViewState.renderModeReady = renderModeRequired && renderModeField.isReady;
+  nextViewState.todoListVisible = siteIdReady && nextViewState.renderModeReady;
   nextViewState.renderModeValue = renderModeField.value;
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
@@ -3161,11 +3158,36 @@ function handleBasePageMenuClick(event) {
   event.stopPropagation();
 }
 
+function handleTodoSectionToggle() {
+  const view = uiModule.getViewState();
+  uiModule.setTodoSectionExpanded(!view.todoSectionExpanded);
+}
+
+function handleTodoSubsectionToggle(key) {
+  const view = uiModule.getViewState();
+  const expanded = Boolean(view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[key]);
+  uiModule.setTodoSubsectionExpanded(key, !expanded);
+}
+
+function handleTodoExpandAll() {
+  uiModule.setTodoAllSubsectionsExpanded(true);
+}
+
+function handleTodoCollapseAll() {
+  uiModule.setTodoAllSubsectionsExpanded(false);
+}
+
+function handleTodoAutoCollapseChange(event) {
+  const source = event && (event.currentTarget || event.target);
+  uiModule.setTodoAutoCollapse(Boolean(source && source.checked));
+}
+
 async function handleOpenConfigurationView() {
   uiModule.setConfigMenuOpen(false);
   uiModule.setBasePageMenuOpen(false);
   clearRemoteConfigRetryTimer();
   state.currentView = uiModule.View.Configuration;
+  uiModule.collapseTodoList();
   uiModule.setViewState({ currentView: state.currentView });
   await refreshUi();
 }
@@ -3186,6 +3208,7 @@ async function maybeSwitchToMarkingView() {
   ) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
+    uiModule.collapseTodoList();
     uiModule.setViewState({ currentView: state.currentView });
   }
 }
@@ -3271,7 +3294,28 @@ async function navigateActiveTabToUrl(url) {
 }
 
 async function handleMarkedPageNavigate(url) {
-  await navigateActiveTabToUrl(url);
+  const navigated = await navigateActiveTabToUrl(url);
+  if (!navigated) {
+    return;
+  }
+  const view = uiModule.getViewState();
+  if (!view.todoAutoCollapse) {
+    return;
+  }
+  const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
+  const matchingGroup = pageTypeGroups.find((group) =>
+    Array.isArray(group.candidates) && group.candidates.some((candidate) => candidate.url === url)
+  );
+  const targetCandidate = matchingGroup
+    ? matchingGroup.candidates.find((candidate) => candidate.url === url)
+    : null;
+  if (targetCandidate && targetCandidate.marked && matchingGroup.candidates.length > 1) {
+    uiModule.setTodoAllSubsectionsExpanded(false);
+    uiModule.setTodoSectionExpanded(true);
+    uiModule.setTodoSubsectionExpanded(matchingGroup.key, true);
+    return;
+  }
+  uiModule.collapseTodoList();
 }
 
 async function handleBasePageNavigate(url) {
@@ -3289,9 +3333,13 @@ async function handleLynxChecklistCandidateNavigate(url) {
 
 async function handleEnableToggle(event) {
   const source = event && (event.currentTarget || event.target);
+  const currentViewState = uiModule.getViewState();
   const desiredEnabled = source
     ? Boolean(source.checked)
-    : uiModule.getViewState().toggleEnabled;
+    : currentViewState.toggleEnabled;
+  if (desiredEnabled !== currentViewState.toggleEnabled) {
+    uiModule.collapseTodoList();
+  }
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
     return;
@@ -4539,6 +4587,11 @@ async function init() {
     onConfigMenuClick: handleConfigMenuClick,
     onBasePageMenuToggle: handleBasePageMenuToggle,
     onBasePageMenuClick: handleBasePageMenuClick,
+    onTodoSectionToggle: handleTodoSectionToggle,
+    onTodoSubsectionToggle: handleTodoSubsectionToggle,
+    onTodoExpandAll: handleTodoExpandAll,
+    onTodoCollapseAll: handleTodoCollapseAll,
+    onTodoAutoCollapseChange: handleTodoAutoCollapseChange,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,
