@@ -31,6 +31,7 @@ npm test
 ```
 
 The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
+Run this command before opening or updating a pull request to catch regressions early.
 
 ## Project Structure
 
@@ -153,4 +154,3 @@ Unused code has been removed. All exported functions are actively used or part o
 - **Debouncing**: DOM mutations and scroll events are debounced
 - **Caching**: Element collections and visibility are cached
 - **WeakMap usage**: DOM references use WeakMap to avoid memory leaks
-
