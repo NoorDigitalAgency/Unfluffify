@@ -198,6 +198,19 @@ function normalizeStoredPageTitle(value, fallbackUrl = "") {
   return trimmed;
 }
 
+function normalizePageTypeValue(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
 function normalizeXpathItems(rawXpaths) {
   const parsed = [];
   let changed = false;
@@ -544,6 +557,7 @@ export function normalizePageMarkings(pageMarkings) {
       changed = true;
     }
     const title = normalizeStoredPageTitle(entry.title, url);
+    const pageType = normalizePageTypeValue(entry.pageType);
     if (Object.prototype.hasOwnProperty.call(entry, "url")) {
       changed = true;
     }
@@ -551,6 +565,9 @@ export function normalizePageMarkings(pageMarkings) {
       entry.title !== undefined &&
       title !== entry.title
     ) {
+      changed = true;
+    }
+    if (entry.pageType !== undefined && pageType !== entry.pageType) {
       changed = true;
     }
     if (entry.renderMode !== undefined) {
@@ -567,6 +584,9 @@ export function normalizePageMarkings(pageMarkings) {
     };
     if (title) {
       normalizedEntry.title = title;
+    }
+    if (pageType) {
+      normalizedEntry.pageType = pageType;
     }
     normalized[url] = normalizedEntry;
   });
@@ -687,6 +707,7 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
   return key ? normalized[key] : {
     title: "",
     timestamp: PAGE_TIMESTAMP_FALLBACK,
+    pageType: "",
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
@@ -738,7 +759,7 @@ export function normalizeConfigSyncPayload(payload, fallbackBaseUrl = "") {
   };
 }
 
-export function createConfigSyncPayload(baseUrl, sourceConfig) {
+export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
   const normalizedBaseUrl =
     normalizeCanonicalBaseUrl(baseUrl) ||
     normalizeBaseUrl(baseUrl) ||
@@ -746,11 +767,19 @@ export function createConfigSyncPayload(baseUrl, sourceConfig) {
   const normalized = normalizeConfig(normalizedBaseUrl, sourceConfig).config;
   const pageMarkings = normalized.pageMarkings || {};
   const payloadMarkings = {};
+  const filterPageMarking =
+    options && typeof options.filterPageMarking === "function"
+      ? options.filterPageMarking
+      : null;
   Object.entries(pageMarkings).forEach(([url, entry]) => {
     const safeEntry = cloneNormalizedPageEntry(entry, url);
+    if (typeof filterPageMarking === "function" && !filterPageMarking(url, safeEntry)) {
+      return;
+    }
     payloadMarkings[url] = {
       timestamp: normalizeEntryTimestamp(safeEntry.timestamp),
       title: safeEntry.title || undefined,
+      pageType: safeEntry.pageType || undefined,
       renderedHtml:
         typeof safeEntry.renderedHtml === "string" ? safeEntry.renderedHtml : "",
       rawHtml: typeof safeEntry.rawHtml === "string" ? safeEntry.rawHtml : "",

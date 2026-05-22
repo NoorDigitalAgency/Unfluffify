@@ -226,6 +226,25 @@ export const PopupText = Object.freeze({
     manyMarksSuffix: markCountText.pluralSuffix // Multi-count badge suffix for saved pages.
   }),
 
+  pageTypes: Object.freeze({
+    title: "Page Type Candidates", // Section title for the current site's GraphQL-driven page-type candidates.
+    hint: "Only the listed Live Page candidates can be marked and sent.", // Helper text shown above the page-type candidate hierarchy.
+    emptyState: "Live Pages are not prepared for this site yet. Prepare them in Lynx before marking pages here.", // Empty-state message when the GraphQL query returns no candidate pages.
+    blockedCurrentPage: "This page is not one of the current Live Page candidates. Choose one of the listed candidates to continue.", // Notice shown when the active tab URL is not a current candidate.
+    removedCurrentPage: "This page is no longer a current Live Page candidate and will be ignored until it returns.", // Notice shown when the current page was previously saved but is no longer a current candidate.
+    duplicateCurrentPage: "This URL appears under multiple page types in Live Pages and cannot be marked until that conflict is resolved.", // Notice shown when the current page belongs to more than one returned page type.
+    markedBadge: "Marked", // Badge shown beside candidate rows that already have saved markings.
+    currentBadge: "Current", // Badge shown beside the active tab when it is a current valid candidate.
+    duplicateBadge: "Duplicate", // Badge shown beside disabled duplicate candidate URLs.
+    missingBadge: "Missing", // Badge shown when a page type still needs at least one marked page.
+    readyBadge: "Ready", // Badge shown when a page type already has at least one marked page.
+    markRequirement: "Mark at least one page for every listed page type before sending.", // Hint shown with the page-type section to explain the final requirement.
+    updatedToast: "Live Page candidates updated", // Toast shown when the background refresh detects a change in GraphQL candidates.
+    refreshFailed: "Unable to refresh Live Page candidates", // Toast shown when the candidate refresh fails.
+    invalidStoredNotice: "Stored pages that are no longer valid candidates are ignored and removed from remote sync.", // Notice shown when saved local pages no longer match the current candidate set.
+    wordsSuffix: "words" // Suffix shown after candidate word counts.
+  }),
+
   preview: Object.freeze({
     blockedActive: "Preview mode is active on this page.", // Popup curtain title while the preview is visible on-page.
     blockedHidden: "Preview mode is active. The page popover is hidden.", // Popup curtain title while preview exists but the on-page popover is minimized.
@@ -265,19 +284,17 @@ export const PopupText = Object.freeze({
   }),
 
   lynxChecklist: Object.freeze({
-    title: "Checklist for sending to Lynx:", // Title shown at the top of the Lynx submission checklist popover.
+    title: "Final check before sending to Lynx:", // Title shown at the top of the Lynx submission popover.
     aiQuestion: "I have run the AI content detection a final time and the content looks good:", // Required confirmation question before Lynx submission.
-    pageTypesTitle: "Choose one corresponding page per applicable page type:", // Helper text above the page-type checklist grid.
-    chooseMarkedPage: "Choose a marked page", // Placeholder option for page-type dropdowns.
+    pageTypesTitle: "Current Live Page coverage:", // Helper text above the current page-type coverage summary.
     noticeAiUnanswered: "Please answer the AI content check before sending.", // Notice shown before the first checklist question is answered.
     noticeAiNo: "Please run the AI content detection one last time and confirm it looks good before sending.", // Notice shown while the AI confirmation is set to No.
-    noticePageTypeNo: "If the website has any page types marked No, mark at least one page for each missing type before sending. Use Not applicable only when that page type does not exist on the website.", // Notice shown when a page type is explicitly marked No.
-    noticePageTypeUnanswered: "Answer each page type before sending. If the website has that page type, mark at least one page of that type first.", // Notice shown while any page type still has no answer.
-    noticeNoPageTypesSelected: "If the website has any applicable page types, mark at least one page for each missing type before sending. Use Not applicable only when none of those page types exist on the website.", // Notice shown when every page type is marked Not applicable.
-    noticeSelectionRequiredPrefix: "Choose a marked page for ", // Prefix for the notice shown when a Yes answer still needs a dropdown choice.
-    noticeSelectionRequiredSuffix: " before sending.", // Suffix for the notice shown when a Yes answer still needs a dropdown choice.
-    noticeNoOptionsPrefix: "No marked pages are left for ", // Prefix for the notice shown when no unassigned marked pages remain for a page type.
-    noticeNoOptionsSuffix: ". If the website has this page type, mark another page of that type before sending, or use Not applicable only if it does not exist on the website." // Suffix for the notice shown when no unassigned marked pages remain for a page type.
+    noticeNoCandidates: "Live Pages are not prepared for this site yet. Prepare them before sending to Lynx.", // Notice shown when the GraphQL query returns no candidates.
+    noticeCoverageComplete: "All listed page types have at least one marked page.", // Notice shown when the send prerequisites are satisfied.
+    noticeMissingPageTypesPrefix: "Mark at least one page for: ", // Prefix for the missing-coverage notice.
+    noticeMissingPageTypesSuffix: ".", // Suffix for the missing-coverage notice.
+    missingCandidatesLabel: "Candidates", // Label shown before candidate hints for missing page types.
+    invalidStoredNotice: "Some stored pages are no longer valid candidates and will be ignored." // Notice shown when legacy or invalid stored pages exist.
   }),
 
   device: Object.freeze({

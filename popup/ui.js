@@ -3,7 +3,6 @@ import * as stateModule from "./state.js";
 import {
   PopupText,
   ViewText,
-  formatMarkedPageCount,
   formatScalePercent,
   formatSyncLoadSummary,
   formatSyncSaveSummary
@@ -55,6 +54,10 @@ const initialViewState = {
   syncSaveStatusTone: "muted",
   markedPages: [],
   markedPagesEmptyText: ViewText.markedPagesEmpty,
+  pageTypeGroups: [],
+  pageTypeGroupsEmptyText: PopupText.pageTypes.emptyState,
+  pageTypeNoticeText: "",
+  pageTypeNoticeVisible: false,
   basePageUrls: [],
   basePageUrlsEmptyText: ViewText.basePageUrlsEmpty,
   basePageMenuOpen: false,
@@ -179,6 +182,11 @@ function statusToneClass(tone) {
       ? tone
       : "muted";
   return classNames("status-text", `status-text--${normalizedTone}`);
+}
+
+function formatCandidateWordsCount(wordsCount) {
+  const value = Number.isFinite(wordsCount) ? Math.max(0, Math.trunc(wordsCount)) : 0;
+  return value > 0 ? `${value} ${PopupText.pageTypes.wordsSuffix}` : "";
 }
 
 function getBlockingUiCurtainState(view) {
@@ -351,7 +359,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
     h(
       "div",
       { class: "section-header" },
-      h("div", {class: "section-title"}, PopupText.markedPages.title),
+      h("div", {class: "section-title"}, PopupText.pageTypes.title),
       h(
         "div",
         { class: "section-header-actions" },
@@ -371,39 +379,136 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         renderBasePageMenu(view, handlers)
       )
     ),
+    h("div", { class: "hint" }, PopupText.pageTypes.hint),
     h(
-      "ul",
-      {id: "marked-pages", class: "list"},
-      renderListItems(
-        view.markedPages,
-        view.markedPagesEmptyText,
-        (item) =>
-          h(
-            "li",
-            {key: item.url},
+      "div",
+      {
+        class: "notice",
+        role: "status",
+        "aria-live": "polite",
+        hidden: !view.pageTypeNoticeVisible
+      },
+      view.pageTypeNoticeText
+    ),
+    view.pageTypeGroups.length
+      ? h(
+          "div",
+          { class: "page-types" },
+          view.pageTypeGroups.map((group) =>
             h(
-              "span",
-              {class: "page-title", title: item.title},
-              item.title
-            ),
-            h(
-              "span",
-              {class: "count"},
-              formatMarkedPageCount(item.count)
-            ),
-            h(
-              "button",
+              "section",
               {
-                type: "button",
-                disabled: item.url === view.currentPageUrl,
-                onClick: () => handlers.onMarkedPageNavigate(item.url)
+                key: group.key,
+                class: classNames("page-types__group", group.missing && "page-types__group--missing")
               },
-              icon("arrow-right"),
-              PopupText.actions.navigate
+              h(
+                "div",
+                { class: "page-types__group-header" },
+                h(
+                  "div",
+                  { class: "page-types__group-heading" },
+                  h("div", { class: "page-types__group-title" }, group.title),
+                  h(
+                    "div",
+                    { class: "page-types__group-subtitle" },
+                    group.markedCount
+                      ? `${group.markedCount} saved ${group.markedCount === 1 ? "page" : "pages"}`
+                      : PopupText.pageTypes.markRequirement
+                  )
+                ),
+                h(
+                  "span",
+                  {
+                    class: classNames(
+                      "page-types__group-badge",
+                      group.missing
+                        ? "page-types__group-badge--missing"
+                        : "page-types__group-badge--ready"
+                    )
+                  },
+                  group.missing ? PopupText.pageTypes.missingBadge : PopupText.pageTypes.readyBadge
+                )
+              ),
+              group.candidates.length
+                ? h(
+                    "ul",
+                    { class: "page-types__candidate-list" },
+                    group.candidates.map((item) =>
+                      h(
+                        "li",
+                        {
+                          key: `${group.key}|${item.url}`,
+                          class: classNames(
+                            "page-types__candidate",
+                            item.current && "page-types__candidate--current",
+                            item.marked && "page-types__candidate--marked",
+                            item.duplicate && "page-types__candidate--duplicate"
+                          )
+                        },
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            class: "page-types__candidate-button",
+                            disabled: item.navigationDisabled,
+                            onClick: () => handlers.onMarkedPageNavigate(item.url)
+                          },
+                          h(
+                            "span",
+                            { class: "page-types__candidate-copy" },
+                            h(
+                              "span",
+                              { class: "page-types__candidate-url", title: item.url },
+                              item.label
+                            ),
+                            h(
+                              "span",
+                              { class: "page-types__candidate-meta" },
+                              [item.url, formatCandidateWordsCount(item.wordsCount)]
+                                .filter(Boolean)
+                                .join(" • ")
+                            )
+                          ),
+                          h(
+                            "span",
+                            { class: "page-types__candidate-badges" },
+                            item.marked
+                              ? h(
+                                  "span",
+                                  { class: "page-types__candidate-badge page-types__candidate-badge--marked" },
+                                  PopupText.pageTypes.markedBadge
+                                )
+                              : null,
+                            item.current
+                              ? h(
+                                  "span",
+                                  { class: "page-types__candidate-badge page-types__candidate-badge--current" },
+                                  PopupText.pageTypes.currentBadge
+                                )
+                              : null,
+                            item.duplicate
+                              ? h(
+                                  "span",
+                                  {
+                                    class: "page-types__candidate-badge page-types__candidate-badge--duplicate",
+                                    title: item.duplicateNotice
+                                  },
+                                  PopupText.pageTypes.duplicateBadge
+                                )
+                              : null
+                          )
+                        ),
+                        item.duplicateNotice
+                          ? h("div", { class: "page-types__candidate-warning" }, item.duplicateNotice)
+                          : null
+                      )
+                    )
+                  )
+                : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
             )
           )
-      )
-    )
+        )
+      : h("div", { class: "page-types__empty" }, view.pageTypeGroupsEmptyText)
   );
 }
 
@@ -647,12 +752,11 @@ function renderAiControlsContent(view, handlers) {
 
 function getLynxChecklistNoticeText(checklist) {
   const { blockingReason } = checklist;
-  const pageTypeTitle =
-    blockingReason.pageTypeKey
-      ? (
-          checklist.pageTypes.find((item) => item.key === blockingReason.pageTypeKey) || {}
-        ).title || ""
-      : "";
+  const missingTitles = Array.isArray(blockingReason.pageTypeKeys)
+    ? blockingReason.pageTypeKeys
+        .map((key) => (checklist.pageTypes.find((item) => item.key === key) || {}).title || "")
+        .filter(Boolean)
+    : [];
 
   if (blockingReason.code === "ai_no") {
     return PopupText.lynxChecklist.noticeAiNo;
@@ -660,20 +764,14 @@ function getLynxChecklistNoticeText(checklist) {
   if (blockingReason.code === "ai_unanswered") {
     return PopupText.lynxChecklist.noticeAiUnanswered;
   }
-  if (blockingReason.code === "page_type_selection_required") {
-    return `${PopupText.lynxChecklist.noticeSelectionRequiredPrefix}${pageTypeTitle}${PopupText.lynxChecklist.noticeSelectionRequiredSuffix}`;
+  if (blockingReason.code === "no_candidates") {
+    return PopupText.lynxChecklist.noticeNoCandidates;
   }
-  if (blockingReason.code === "page_type_no_options") {
-    return `${PopupText.lynxChecklist.noticeNoOptionsPrefix}${pageTypeTitle}${PopupText.lynxChecklist.noticeNoOptionsSuffix}`;
+  if (blockingReason.code === "missing_page_types") {
+    return `${PopupText.lynxChecklist.noticeMissingPageTypesPrefix}${missingTitles.join(", ")}${PopupText.lynxChecklist.noticeMissingPageTypesSuffix}`;
   }
-  if (blockingReason.code === "page_type_no") {
-    return PopupText.lynxChecklist.noticePageTypeNo;
-  }
-  if (blockingReason.code === "page_type_unanswered") {
-    return PopupText.lynxChecklist.noticePageTypeUnanswered;
-  }
-  if (blockingReason.code === "no_page_types_selected") {
-    return PopupText.lynxChecklist.noticeNoPageTypesSelected;
+  if (checklist.canSend) {
+    return PopupText.lynxChecklist.noticeCoverageComplete;
   }
   return "";
 }
@@ -760,76 +858,70 @@ function renderLynxChecklistPopover(view, handlers) {
         "section",
         { class: "lynx-checklist-popover__section" },
         h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.pageTypesTitle),
-        h(
-          "div",
-          { class: "lynx-checklist-popover__page-types" },
-          checklist.pageTypes.map((item) =>
-            h(
+        checklist.pageTypes.length
+          ? h(
               "div",
-              {
-                key: item.key,
-                class: classNames(
-                  "lynx-checklist-popover__page-type",
-                  item.inputsDisabled && "lynx-checklist-popover__page-type--disabled"
-                )
-              },
-              h("div", { class: "lynx-checklist-popover__page-type-title" }, item.title),
-              h(
-                "div",
-                {
-                  class: "lynx-checklist-popover__choices",
-                  role: "radiogroup",
-                  "aria-label": item.title
-                },
-                renderLynxChecklistRadioOption({
-                  name: `lynx-checklist-${item.key}`,
-                  value: "yes",
-                  checked: item.decision === "yes",
-                  disabled: item.inputsDisabled,
-                  label: ViewText.yes,
-                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
-                }),
-                renderLynxChecklistRadioOption({
-                  name: `lynx-checklist-${item.key}`,
-                  value: "no",
-                  checked: item.decision === "no",
-                  disabled: item.inputsDisabled,
-                  label: ViewText.no,
-                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
-                }),
-                renderLynxChecklistRadioOption({
-                  name: `lynx-checklist-${item.key}`,
-                  value: "not_applicable",
-                  checked: item.decision === "not_applicable",
-                  disabled: item.inputsDisabled,
-                  label: ViewText.notApplicable,
-                  onChange: (event) => handlers.onLynxChecklistPageTypeDecisionChange(item.key, event)
-                })
-              ),
-              item.showSelect &&
+              { class: "lynx-checklist-popover__page-types" },
+              checklist.pageTypes.map((item) =>
                 h(
-                  "select",
+                  "div",
                   {
-                    class: "lynx-checklist-popover__select",
-                    value: item.selectedPageUrl,
-                    disabled: item.inputsDisabled,
-                    onChange: (event) => handlers.onLynxChecklistPageTypePageChange(item.key, event)
-                  },
-                  h("option", { value: "" }, PopupText.lynxChecklist.chooseMarkedPage),
-                  item.availableOptions.map((option) =>
-                    h(
-                      "option",
-                      {
-                        key: option.url,
-                        value: option.url
-                      },
-                      option.title
+                    key: item.key,
+                    class: classNames(
+                      "lynx-checklist-popover__page-type",
+                      item.missing && "lynx-checklist-popover__page-type--missing"
                     )
-                  )
+                  },
+                  h(
+                    "div",
+                    { class: "lynx-checklist-popover__page-type-title-row" },
+                    h("div", { class: "lynx-checklist-popover__page-type-title" }, item.title),
+                    h(
+                      "span",
+                      {
+                        class: classNames(
+                          "lynx-checklist-popover__page-type-status",
+                          item.missing
+                            ? "lynx-checklist-popover__page-type-status--missing"
+                            : "lynx-checklist-popover__page-type-status--ready"
+                        )
+                      },
+                      item.missing ? PopupText.pageTypes.missingBadge : PopupText.pageTypes.readyBadge
+                    )
+                  ),
+                  h(
+                    "div",
+                    { class: "lynx-checklist-popover__page-type-subtitle" },
+                    item.markedCount
+                      ? `${item.markedCount} saved ${item.markedCount === 1 ? "page" : "pages"}`
+                      : PopupText.pageTypes.markRequirement
+                  ),
+                  item.missing && item.candidatePreview.length
+                    ? h(
+                        "div",
+                        { class: "lynx-checklist-popover__candidate-hints" },
+                        h(
+                          "span",
+                          { class: "lynx-checklist-popover__candidate-hints-label" },
+                          `${PopupText.lynxChecklist.missingCandidatesLabel}:`
+                        ),
+                        item.candidatePreview.map((candidate) =>
+                          h(
+                            "span",
+                            {
+                              key: `${item.key}|${candidate.url}`,
+                              class: "lynx-checklist-popover__candidate-hint",
+                              title: candidate.url
+                            },
+                            candidate.url
+                          )
+                        )
+                      )
+                    : null
                 )
+              )
             )
-          )
-        )
+          : h("div", { class: "hint" }, PopupText.lynxChecklist.noticeNoCandidates)
       ),
       noticeText &&
         h(
@@ -841,6 +933,17 @@ function renderLynxChecklistPopover(view, handlers) {
           },
           noticeText
         ),
+      checklist.invalidMarkedPages.length
+        ? h(
+            "div",
+            {
+              class: "hint lynx-checklist-popover__invalid-hint",
+              role: "status",
+              "aria-live": "polite"
+            },
+            PopupText.lynxChecklist.invalidStoredNotice
+          )
+        : null,
       h(
         "div",
         { class: "button-row lynx-checklist-popover__actions" },
@@ -1120,9 +1223,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
     postRenderModeControlsVisible && mergedControlsSection,
-    postRenderModeControlsVisible &&
-      (markingMode || view.highlightingOptionsVisible) &&
-      renderMarkedPagesSection(view, handlers),
+    renderMarkedPagesSection(view, handlers),
     renderModeWarningPopover,
     lynxChecklistPopover
   );

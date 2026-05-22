@@ -403,7 +403,7 @@ async function toggleDeviceEmulationFromPage() {
 }
 
 async function saveCurrentPageDraft(options) {
-  const { baseUrl, showToast = false } = options || {};
+  const { baseUrl, pageType = "", showToast = false } = options || {};
   const targetBaseUrl = baseUrl || state.baseUrl || "";
   if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
     if (showToast) {
@@ -463,6 +463,7 @@ async function saveCurrentPageDraft(options) {
     document.title.trim() !== pageUrl
       ? document.title.trim()
       : "";
+  entry.pageType = typeof pageType === "string" ? pageType : entry.pageType;
   entry.submissionXpaths = currentSubmissionXpaths;
   core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
@@ -3392,6 +3393,7 @@ export function main() {
         const snapshot = createCurrentPageSnapshot();
         const rawHtml = await fetchCurrentPageRawHtml(location.href);
         entry.renderedHtml = snapshot.renderedHtml;
+        entry.pageType = typeof message.pageType === "string" ? message.pageType : entry.pageType;
         entry.rawHtml = typeof rawHtml === "string"
           ? rawHtml
           : typeof entry.rawHtml === "string"
@@ -3640,7 +3642,10 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      saveCurrentPageDraft({ baseUrl: targetBaseUrl }).then((result) => {
+      saveCurrentPageDraft({
+        baseUrl: targetBaseUrl,
+        pageType: typeof message.pageType === "string" ? message.pageType : ""
+      }).then((result) => {
         sendResponse(result);
       });
       return true;

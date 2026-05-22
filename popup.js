@@ -26,7 +26,8 @@ import * as uiModule from "./popup/ui.js";
 import {
   buildLynxChecklistAssignments,
   buildLynxChecklistViewModel,
-  createInitialLynxChecklistState
+  createInitialLynxChecklistState,
+  normalizePropertyPageTypes
 } from "./popup/lynx-checklist.js";
 import {
   PopupText,
@@ -64,11 +65,23 @@ const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.95;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 const URL_SEARCH_INFO_QUERY = `
 query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
   urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
     domainId
     domainName
+  }
+}
+`;
+const PROPERTY_PAGE_TYPES_QUERY = `
+query getPropertyPageTypes($domainId: Int!) {
+  propertyPageTypes(organizationId: null, domainId: $domainId) {
+    pageType
+    pages {
+      url
+      wordsCount
+    }
   }
 }
 `;
@@ -91,6 +104,7 @@ let popupBusyOverlayDepth = 0;
 let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = PopupText.overlay.loadingPopup;
+let propertyPageTypesRequest = null;
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -312,6 +326,355 @@ function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
   }
   const normalized = `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
   return utils.normalizeCanonicalBaseUrl(normalized) || normalized;
+}
+
+function normalizePageTypeKey(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function normalizeCandidatePageUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "";
+    }
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase();
+    if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
+      parsed.port = "";
+    }
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return parsed.toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+function buildPageMarkingKey(url, pageType) {
+  const normalizedUrl = normalizeCandidatePageUrl(url);
+  const normalizedPageType = normalizePageTypeKey(pageType);
+  if (!normalizedUrl || !normalizedPageType) {
+    return "";
+  }
+  return `${normalizedPageType}|${normalizedUrl}`;
+}
+
+function buildPropertyPageTypesSignature(pageTypes) {
+  return JSON.stringify(
+    Array.isArray(pageTypes)
+      ? pageTypes.map((pageType) => [
+          pageType && typeof pageType.key === "string" ? pageType.key : "",
+          Array.isArray(pageType && pageType.candidates)
+            ? pageType.candidates.map((candidate) => [
+                candidate && typeof candidate.url === "string" ? candidate.url : "",
+                Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
+                Boolean(candidate && candidate.duplicate) ? 1 : 0
+              ])
+            : []
+        ])
+      : []
+  );
+}
+
+function resetPropertyPageTypesState() {
+  state.propertyPageTypes = [];
+  state.propertyPageTypesDuplicateUrls = [];
+  state.propertyPageTypesSiteId = null;
+  state.propertyPageTypesStageBase = "";
+  state.propertyPageTypesSignature = "";
+  state.propertyPageTypesFetchedAt = 0;
+  state.propertyPageTypesLastError = "";
+}
+
+function clearPropertyPageTypesRefreshTimer() {
+  if (state.propertyPageTypesRefreshTimer) {
+    window.clearInterval(state.propertyPageTypesRefreshTimer);
+    state.propertyPageTypesRefreshTimer = 0;
+  }
+  state.propertyPageTypesRefreshKey = "";
+}
+
+async function fetchPropertyPageTypesFromGraphql(options = {}) {
+  const {
+    siteId = null,
+    stageBase = "",
+    tokenValue = ""
+  } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!normalizedSiteId || !graphqlEndpoint) {
+    return { ok: false, pageTypes: [], duplicateUrls: [], error: "" };
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (tokenValue) {
+    headers.Authorization = `Bearer ${tokenValue}`;
+  }
+  const response = await fetch(graphqlEndpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query: PROPERTY_PAGE_TYPES_QUERY,
+      variables: {
+        domainId: normalizedSiteId
+      }
+    })
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    payload = null;
+  }
+  if (!response.ok) {
+    return { ok: false, pageTypes: [], duplicateUrls: [], error: PopupText.pageTypes.refreshFailed };
+  }
+  if (payload && Array.isArray(payload.errors) && payload.errors.length > 0) {
+    return {
+      ok: false,
+      pageTypes: [],
+      duplicateUrls: [],
+      error:
+        payload.errors[0] && typeof payload.errors[0].message === "string"
+          ? payload.errors[0].message
+          : PopupText.pageTypes.refreshFailed
+    };
+  }
+  const rawPageTypes =
+    payload &&
+    payload.data &&
+    Array.isArray(payload.data.propertyPageTypes)
+      ? payload.data.propertyPageTypes
+      : [];
+  const normalized = normalizePropertyPageTypes(rawPageTypes);
+  return {
+    ok: true,
+    pageTypes: normalized.pageTypes,
+    duplicateUrls: normalized.duplicateUrls,
+    signature: buildPropertyPageTypesSignature(normalized.pageTypes)
+  };
+}
+
+async function ensurePropertyPageTypes(options = {}) {
+  const {
+    siteId = null,
+    stageBase = "",
+    tokenValue = "",
+    force = false,
+    notifyOnChange = false
+  } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  const normalizedStageBase = normalizeStageBase(stageBase);
+  if (!normalizedSiteId || !normalizedStageBase || !tokenValue) {
+    resetPropertyPageTypesState();
+    return { ok: false, skipped: true, pageTypes: [], duplicateUrls: [], changed: false };
+  }
+  const cacheKey = `${normalizedStageBase}|${normalizedSiteId}`;
+  const cacheFresh =
+    !force &&
+    state.propertyPageTypesSiteId === normalizedSiteId &&
+    state.propertyPageTypesStageBase === normalizedStageBase &&
+    state.propertyPageTypesFetchedAt > 0 &&
+    Date.now() - state.propertyPageTypesFetchedAt < PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS &&
+    !state.propertyPageTypesLastError;
+  if (cacheFresh) {
+    return {
+      ok: true,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
+      changed: false,
+      fromCache: true
+    };
+  }
+  if (propertyPageTypesRequest && propertyPageTypesRequest.key === cacheKey) {
+    return propertyPageTypesRequest.promise;
+  }
+  const request = fetchPropertyPageTypesFromGraphql({
+    siteId: normalizedSiteId,
+    stageBase: normalizedStageBase,
+    tokenValue
+  }).then((result) => {
+    if (!result.ok) {
+      state.propertyPageTypesLastError = result.error || PopupText.pageTypes.refreshFailed;
+      if (
+        state.propertyPageTypesSiteId === normalizedSiteId &&
+        state.propertyPageTypesStageBase === normalizedStageBase &&
+        Array.isArray(state.propertyPageTypes)
+      ) {
+        return {
+          ok: true,
+          pageTypes: state.propertyPageTypes,
+          duplicateUrls: state.propertyPageTypesDuplicateUrls,
+          changed: false,
+          stale: true,
+          error: state.propertyPageTypesLastError
+        };
+      }
+      return {
+        ok: false,
+        pageTypes: [],
+        duplicateUrls: [],
+        changed: false,
+        error: state.propertyPageTypesLastError
+      };
+    }
+    const previousSignature = state.propertyPageTypesSignature;
+    const nextSignature = result.signature || "";
+    const changed = Boolean(previousSignature) && previousSignature !== nextSignature;
+    state.propertyPageTypes = result.pageTypes;
+    state.propertyPageTypesDuplicateUrls = result.duplicateUrls;
+    state.propertyPageTypesSiteId = normalizedSiteId;
+    state.propertyPageTypesStageBase = normalizedStageBase;
+    state.propertyPageTypesSignature = nextSignature;
+    state.propertyPageTypesFetchedAt = Date.now();
+    state.propertyPageTypesLastError = "";
+    if (changed && notifyOnChange) {
+      uiModule.showToast(PopupText.pageTypes.updatedToast);
+    }
+    return {
+      ok: true,
+      pageTypes: state.propertyPageTypes,
+      duplicateUrls: state.propertyPageTypesDuplicateUrls,
+      changed,
+      stale: false
+    };
+  }).finally(() => {
+    if (propertyPageTypesRequest && propertyPageTypesRequest.key === cacheKey) {
+      propertyPageTypesRequest = null;
+    }
+  });
+  propertyPageTypesRequest = {
+    key: cacheKey,
+    promise: request
+  };
+  return request;
+}
+
+function schedulePropertyPageTypesRefresh(options = {}) {
+  const {
+    siteId = null,
+    stageBase = ""
+  } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  const normalizedStageBase = normalizeStageBase(stageBase);
+  const refreshKey = normalizedSiteId && normalizedStageBase
+    ? `${normalizedStageBase}|${normalizedSiteId}`
+    : "";
+  if (!refreshKey) {
+    clearPropertyPageTypesRefreshTimer();
+    return;
+  }
+  if (
+    state.propertyPageTypesRefreshTimer &&
+    state.propertyPageTypesRefreshKey === refreshKey
+  ) {
+    return;
+  }
+  clearPropertyPageTypesRefreshTimer();
+  state.propertyPageTypesRefreshKey = refreshKey;
+  state.propertyPageTypesRefreshTimer = window.setInterval(() => {
+    helpers.loadGlobalAiSettings().then(({ tokenValue: nextTokenValue, stageBaseValue }) => {
+      return ensurePropertyPageTypes({
+        siteId: normalizedSiteId,
+        stageBase: stageBaseValue || normalizedStageBase,
+        tokenValue: nextTokenValue || "",
+        force: true,
+        notifyOnChange: true
+      });
+    }).then(() => {
+      refreshUi().then();
+    }).catch(() => {
+      uiModule.showToast(PopupText.pageTypes.refreshFailed);
+    });
+  }, PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS);
+}
+
+function formatPageTypeCandidateLabel(url) {
+  if (typeof url !== "string" || !url) {
+    return "";
+  }
+  try {
+    const parsed = new URL(url);
+    const path = `${parsed.pathname || "/"}${parsed.search || ""}`;
+    if (path && path !== "/") {
+      return path;
+    }
+    return parsed.hostname || url;
+  } catch (error) {
+    return url;
+  }
+}
+
+function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
+  const items = [];
+  Object.entries(pageMarkings && typeof pageMarkings === "object" ? pageMarkings : {}).forEach(([url, entry]) => {
+    if (!url || !entry || typeof entry !== "object") {
+      return;
+    }
+    if (baseUrl && !utils.isPageWithinBaseUrl(url, baseUrl)) {
+      return;
+    }
+    const excludedCount = Array.isArray(entry.xpaths)
+      ? entry.xpaths.filter((item) => item && item.excluded && item.xpath).length
+      : 0;
+    const includedCount = Array.isArray(entry.includeXpaths)
+      ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath).length
+      : 0;
+    items.push({
+      url,
+      title: entry.title || url,
+      pageType: entry.pageType || "",
+      count: excludedCount + includedCount
+    });
+  });
+  return items;
+}
+
+function getCurrentPageCandidateState(pageUrl, pageTypes) {
+  const normalizedUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedUrl || !Array.isArray(pageTypes) || !pageTypes.length) {
+    return {
+      status: Array.isArray(pageTypes) && pageTypes.length ? "missing" : "empty",
+      pageTypeKey: "",
+      pageTypeTitle: ""
+    };
+  }
+  const matches = [];
+  pageTypes.forEach((pageType) => {
+    (Array.isArray(pageType && pageType.candidates) ? pageType.candidates : []).forEach((candidate) => {
+      if (candidate && candidate.url === normalizedUrl) {
+        matches.push({ pageType, candidate });
+      }
+    });
+  });
+  if (!matches.length) {
+    return { status: "missing", pageTypeKey: "", pageTypeTitle: "" };
+  }
+  if (matches.length > 1 || matches.some((item) => item.candidate && item.candidate.duplicate)) {
+    return { status: "duplicate", pageTypeKey: "", pageTypeTitle: "" };
+  }
+  return {
+    status: "candidate",
+    pageTypeKey: matches[0].pageType.key,
+    pageTypeTitle: matches[0].pageType.title,
+    url: normalizedUrl
+  };
 }
 
 async function resolveSiteIdFromGraphql(options = {}) {
@@ -838,6 +1201,67 @@ async function getStoredGlobalToken(options = {}) {
 
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
+
+async function removePageMarkingFromRemote(options = {}) {
+  const {
+    endpointValue = "",
+    tokenValue = "",
+    siteId = null,
+    url = ""
+  } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  const normalizedUrl = normalizeCandidatePageUrl(url);
+  const removeUrl = resolveRelativeEndpoint(endpointValue, "/remove");
+  if (!removeUrl || !normalizedSiteId || !normalizedUrl) {
+    return { ok: false, skipped: true };
+  }
+  const response = await fetch(removeUrl, {
+    method: "POST",
+    headers: createConfigSyncHeaders(tokenValue),
+    body: JSON.stringify({
+      siteId: normalizedSiteId,
+      url: normalizedUrl
+    })
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  return { ok: response.ok };
+}
+
+async function pruneRemoteInvalidPageMarkings(options = {}) {
+  const {
+    endpointValue = "",
+    tokenValue = "",
+    siteId = null,
+    invalidUrls = []
+  } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  if (!endpointValue || !normalizedSiteId || !Array.isArray(invalidUrls) || !invalidUrls.length) {
+    return;
+  }
+  for (const value of invalidUrls) {
+    const normalizedUrl = normalizeCandidatePageUrl(value);
+    if (!normalizedUrl) {
+      continue;
+    }
+    const removalKey = `${normalizedSiteId}|${normalizedUrl}`;
+    if (state.removedRemotePageKeys.has(removalKey)) {
+      continue;
+    }
+    try {
+      const result = await removePageMarkingFromRemote({
+        endpointValue,
+        tokenValue,
+        siteId: normalizedSiteId,
+        url: normalizedUrl
+      });
+      if (result.ok) {
+        state.removedRemotePageKeys.add(removalKey);
+      }
+    } catch {
+      // Ignore remote cleanup failures. Sync filtering still prevents re-uploading invalid pages.
+    }
+  }
+}
     return new Date(value).toLocaleTimeString();
   } catch (error) {
     return "";
@@ -1280,7 +1704,32 @@ async function syncBaseConfigToServer(options = {}) {
       workingConfigs[resolvedBaseUrl] = sourceConfig;
       await config.saveConfigs(workingConfigs);
     }
-    const payload = config.createConfigSyncPayload(resolvedBaseUrl, sourceConfig);
+    const propertyPageTypesResult = await ensurePropertyPageTypes({
+      siteId: siteIdResult.siteId,
+      stageBase,
+      tokenValue: currentTokenValue,
+      force: false,
+      notifyOnChange: false
+    });
+    let filterPageMarking = null;
+    if (propertyPageTypesResult && propertyPageTypesResult.ok) {
+      const coverageModel = buildLynxChecklistViewModel({
+        aiAnswer: "yes",
+        pageTypes: propertyPageTypesResult.pageTypes,
+        markedPages: collectStoredPageMarkingItems(sourceConfig.pageMarkings, resolvedBaseUrl)
+      });
+      const activePageMarkingKeys = new Set(
+        coverageModel.activeMarkedPages
+          .map((item) => buildPageMarkingKey(item.url, item.pageType))
+          .filter(Boolean)
+      );
+      filterPageMarking = (url, entry) => activePageMarkingKeys.has(
+        buildPageMarkingKey(url, entry && entry.pageType)
+      );
+    }
+    const payload = config.createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {
+      filterPageMarking
+    });
     try {
       const response = await fetch(saveUrl, {
         method: "POST",
@@ -2009,6 +2458,82 @@ async function refreshUiInner() {
     : baseUrlReady && !siteIdReady
       ? siteIdBlockedReason || ViewText.noDomainIdForBaseUrl
       : "";
+  const liveSiteId = normalizeSiteIdValue(
+    currentSiteId ||
+      (state.currentConfig && state.currentConfig.siteId) ||
+      (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
+  );
+  let propertyPageTypes = [];
+  let propertyPageTypesFetchError = "";
+  if (
+    tabInScope &&
+    state.currentBaseUrl &&
+    liveSiteId &&
+    normalizedStageBaseValue &&
+    tokenValue
+  ) {
+    const propertyPageTypesResult = await ensurePropertyPageTypes({
+      siteId: liveSiteId,
+      stageBase: normalizedStageBaseValue,
+      tokenValue,
+      force: false,
+      notifyOnChange: false
+    });
+    if (propertyPageTypesResult && propertyPageTypesResult.ok) {
+      propertyPageTypes = propertyPageTypesResult.pageTypes || [];
+      propertyPageTypesFetchError = propertyPageTypesResult.error || "";
+    } else if (propertyPageTypesResult) {
+      propertyPageTypesFetchError = propertyPageTypesResult.error || "";
+    }
+    schedulePropertyPageTypesRefresh({
+      siteId: liveSiteId,
+      stageBase: normalizedStageBaseValue
+    });
+  } else {
+    clearPropertyPageTypesRefreshTimer();
+    if (!tabInScope || !state.currentBaseUrl || !liveSiteId) {
+      resetPropertyPageTypesState();
+    }
+  }
+  const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+  const storedPageMarkingItems = collectStoredPageMarkingItems(
+    pageMarkings,
+    state.currentBaseUrl
+  );
+  const pageTypeCoverageModel = buildLynxChecklistViewModel({
+    aiAnswer: state.lynxChecklistAiAnswer,
+    pageTypes: propertyPageTypes,
+    markedPages: storedPageMarkingItems
+  });
+  const activeMarkedPageKeys = new Set(
+    pageTypeCoverageModel.activeMarkedPages
+      .map((item) => buildPageMarkingKey(item.url, item.pageType))
+      .filter(Boolean)
+  );
+  const pageMarkingItemByKey = new Map(
+    storedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
+  );
+  const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
+  const hasStoredCurrentPageEntry = storedPageMarkingItems.some(
+    (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
+  );
+  const currentPageCandidateState = getCurrentPageCandidateState(
+    pageUrl,
+    pageTypeCoverageModel.pageTypes
+  );
+  const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
+  const pageTypeUiBlocked = Boolean(
+    tabInScope &&
+    state.currentBaseUrl &&
+    siteIdReady &&
+    !unsupportedByGraphql &&
+    (currentPageCandidateState.status === "missing" ||
+      currentPageCandidateState.status === "duplicate" ||
+      currentPageCandidateState.status === "empty")
+  );
+  state.currentPageTypeKey = currentPageCandidateState.pageTypeKey || "";
+  state.currentPageTypeTitle = currentPageCandidateState.pageTypeTitle || "";
+  state.lynxChecklistPageTypes = propertyPageTypes;
   const renderModeSet = state.currentBaseUrlHasConfirmedRenderMode;
   const renderModeField = getEditableFieldState({
     inputRef: refs.renderModeSelect,
@@ -2074,10 +2599,16 @@ async function refreshUiInner() {
     baseUrlReady &&
     siteIdReady &&
     endpointReady &&
+    currentPageMarkingAllowed &&
     Boolean(tokenValue) &&
     renderModeReady;
-  isEnabled = toggleEnabled && siteIdReady && renderModeReady;
-  if (tabInScope && toggleEnabled && (!siteIdReady || !renderModeReady) && currentTabId) {
+  isEnabled = toggleEnabled && siteIdReady && renderModeReady && currentPageMarkingAllowed;
+  if (
+    tabInScope &&
+    toggleEnabled &&
+    (!siteIdReady || !renderModeReady || pageTypeUiBlocked) &&
+    currentTabId
+  ) {
     toggleEnabled = false;
     isEnabled = false;
     state.lastPopupEnabled = null;
@@ -2188,7 +2719,8 @@ async function refreshUiInner() {
   const pageScopedUiDisabled =
     unsupportedByGraphql ||
     !tabInScope ||
-    remoteConfigRetryBlocked;
+    remoteConfigRetryBlocked ||
+    pageTypeUiBlocked;
   const configurationUiDisabled = aiBusy;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
@@ -2408,43 +2940,119 @@ async function refreshUiInner() {
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
 
-  const markedPages = [];
   const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
-  const mergedPageMarkings = { ...pageMarkings };
-  if (state.currentDraftEntry && pageUrl) {
-    mergedPageMarkings[pageUrl] = state.currentDraftEntry;
-  }
-  Object.entries(mergedPageMarkings).forEach(([url, entry]) => {
-    if (!url || !entry || !Array.isArray(entry.xpaths)) {
-      return;
-    }
-    if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
-      return;
-    }
-    const excludedCount = entry.xpaths.filter(
-      (item) =>
-        item &&
-        item.excluded &&
-        item.xpath
-    ).length;
-    const includedCount = Array.isArray(entry.includeXpaths)
-      ? entry.includeXpaths.filter(
-          (xpath) =>
-            typeof xpath === "string" &&
-            xpath
-        ).length
-      : 0;
-    markedPages.push({
-      url,
-      title: entry.title || url,
-      count: excludedCount + includedCount
-    });
+  const storedPageMarkingItems = collectStoredPageMarkingItems(
+    pageMarkings,
+    state.currentBaseUrl
+  );
+  const pageTypeCoverageModel = buildLynxChecklistViewModel({
+    aiAnswer: state.lynxChecklistAiAnswer,
+    pageTypes: propertyPageTypes,
+    markedPages: storedPageMarkingItems
   });
-  markedPages.sort((a, b) => a.title.localeCompare(b.title));
-  nextViewState.markedPages = markedPages;
+  const activeMarkedPageKeys = new Set(
+    pageTypeCoverageModel.activeMarkedPages
+      .map((item) => buildPageMarkingKey(item.url, item.pageType))
+      .filter(Boolean)
+  );
+  const pageMarkingItemByKey = new Map(
+    storedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
+  );
+  const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
+  const hasStoredCurrentPageEntry = storedPageMarkingItems.some(
+    (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
+  );
+  const currentPageCandidateState = getCurrentPageCandidateState(
+    pageUrl,
+    pageTypeCoverageModel.pageTypes
+  );
+  const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
+  const pageTypeUiBlocked = Boolean(
+    tabInScope &&
+    state.currentBaseUrl &&
+    siteIdReady &&
+    !unsupportedByGraphql &&
+    (currentPageCandidateState.status === "missing" ||
+      currentPageCandidateState.status === "duplicate" ||
+      currentPageCandidateState.status === "empty")
+  );
+  state.currentPageTypeKey = currentPageCandidateState.pageTypeKey || "";
+  state.currentPageTypeTitle = currentPageCandidateState.pageTypeTitle || "";
+  nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => ({
+    key: pageType.key,
+    title: pageType.title,
+    markedCount: pageType.markedCount,
+    missing: pageType.missing,
+    candidates: pageType.candidates.map((candidate) => {
+      const candidateKey = buildPageMarkingKey(candidate.url, pageType.key);
+      const isCurrent =
+        currentPageMarkingAllowed &&
+        currentPageCandidateState.pageTypeKey === pageType.key &&
+        currentPageCandidateState.url === candidate.url;
+      return {
+        url: candidate.url,
+        label: formatPageTypeCandidateLabel(candidate.url),
+        wordsCount: candidate.wordsCount,
+        marked: activeMarkedPageKeys.has(candidateKey),
+        current: isCurrent,
+        duplicate: Boolean(candidate.duplicate),
+        navigationDisabled: Boolean(candidate.duplicate) || isCurrent,
+        duplicateNotice:
+          candidate.duplicate && Array.isArray(candidate.duplicatePageTypes) && candidate.duplicatePageTypes.length
+            ? `Also listed under ${candidate.duplicatePageTypes.join(", ")}.`
+            : ""
+      };
+    })
+  }));
+  nextViewState.pageTypeGroupsEmptyText = propertyPageTypesFetchError && !pageTypeCoverageModel.pageTypes.length
+    ? propertyPageTypesFetchError
+    : baseUrlReady
+      ? PopupText.pageTypes.emptyState
+      : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
+  nextViewState.pageTypeNoticeText = currentPageCandidateState.status === "duplicate"
+    ? PopupText.pageTypes.duplicateCurrentPage
+    : currentPageCandidateState.status === "missing"
+      ? hasStoredCurrentPageEntry
+        ? PopupText.pageTypes.removedCurrentPage
+        : PopupText.pageTypes.blockedCurrentPage
+      : currentPageCandidateState.status === "empty"
+        ? (propertyPageTypesFetchError || PopupText.pageTypes.emptyState)
+        : pageTypeCoverageModel.invalidMarkedPages.length
+          ? PopupText.pageTypes.invalidStoredNotice
+          : "";
+  nextViewState.pageTypeNoticeVisible = Boolean(nextViewState.pageTypeNoticeText);
+  nextViewState.lynxChecklistPageTypes = propertyPageTypes;
+  nextViewState.markedPages = pageTypeCoverageModel.activeMarkedPages
+    .map((item) => {
+      const key = buildPageMarkingKey(item.url, item.pageType);
+      const sourceItem = pageMarkingItemByKey.get(key);
+      return {
+        url: item.url,
+        title: sourceItem && sourceItem.title ? sourceItem.title : item.title,
+        pageType: item.pageType,
+        count: sourceItem && Number.isFinite(sourceItem.count) ? sourceItem.count : 0
+      };
+    })
+    .sort((left, right) => left.title.localeCompare(right.title));
   nextViewState.markedPagesEmptyText = baseUrlReady
-    ? ViewText.markedPagesEmpty
+    ? PopupText.pageTypes.markRequirement
     : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
+  if (
+    pageTypeCoverageModel.pageTypes.length &&
+    pageTypeCoverageModel.invalidMarkedPages.length &&
+    configEndpointValue &&
+    tokenValue &&
+    liveSiteId
+  ) {
+    pruneRemoteInvalidPageMarkings({
+      endpointValue: configEndpointValue,
+      tokenValue,
+      siteId: liveSiteId,
+      invalidUrls: Array.from(
+        new Set(pageTypeCoverageModel.invalidMarkedPages.map((item) => item.url).filter(Boolean))
+      )
+    }).then();
+  }
 
   const basePageUrlSet = new Set(
     Object.keys(configs).filter((url) => {
@@ -2454,11 +3062,6 @@ async function refreshUiInner() {
       const normalized = config.normalizeConfig(url, configs[url]).config;
       return Boolean(normalizeSiteIdValue(normalized.siteId));
     })
-  );
-  const liveSiteId = normalizeSiteIdValue(
-    currentSiteId ||
-      (state.currentConfig && state.currentConfig.siteId) ||
-      (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
   if (state.currentBaseUrl && liveSiteId) {
     basePageUrlSet.add(state.currentBaseUrl);
@@ -2555,14 +3158,18 @@ function setLynxChecklistViewState() {
   uiModule.setViewState({
     lynxChecklistVisible: Boolean(state.lynxChecklistVisible),
     lynxChecklistAiAnswer: state.lynxChecklistAiAnswer || "",
-    lynxChecklistPageTypes: state.lynxChecklistPageTypes || {}
+    lynxChecklistPageTypes: Array.isArray(state.lynxChecklistPageTypes)
+      ? state.lynxChecklistPageTypes
+      : []
   });
 }
 
 function resetLynxChecklistState() {
   const initial = createInitialLynxChecklistState();
   state.lynxChecklistAiAnswer = initial.aiAnswer;
-  state.lynxChecklistPageTypes = initial.pageTypes;
+  state.lynxChecklistPageTypes = Array.isArray(state.propertyPageTypes)
+    ? state.propertyPageTypes
+    : initial.pageTypes;
 }
 
 function openLynxChecklistPopover() {
@@ -2585,44 +3192,13 @@ function handleLynxChecklistAiAnswerChange(event) {
 }
 
 function handleLynxChecklistPageTypeDecisionChange(pageTypeKey, event) {
-  const nextValue =
-    event && event.currentTarget && typeof event.currentTarget.value === "string"
-      ? event.currentTarget.value
-      : "";
-  const normalized = createInitialLynxChecklistState().pageTypes;
-  const nextPageTypes = {
-    ...normalized,
-    ...(state.lynxChecklistPageTypes || {})
-  };
-  const currentEntry = nextPageTypes[pageTypeKey] || normalized[pageTypeKey];
-  nextPageTypes[pageTypeKey] = {
-    decision:
-      nextValue === "yes" || nextValue === "no" || nextValue === "not_applicable"
-        ? nextValue
-        : "",
-    selectedPageUrl: nextValue === "yes" ? currentEntry.selectedPageUrl || "" : ""
-  };
-  state.lynxChecklistPageTypes = nextPageTypes;
-  setLynxChecklistViewState();
+  void pageTypeKey;
+  void event;
 }
 
 function handleLynxChecklistPageTypePageChange(pageTypeKey, event) {
-  const nextValue =
-    event && event.currentTarget && typeof event.currentTarget.value === "string"
-      ? event.currentTarget.value
-      : "";
-  const initialPageTypes = createInitialLynxChecklistState().pageTypes;
-  const nextPageTypes = {
-    ...initialPageTypes,
-    ...(state.lynxChecklistPageTypes || {})
-  };
-  const currentEntry = nextPageTypes[pageTypeKey] || initialPageTypes[pageTypeKey];
-  nextPageTypes[pageTypeKey] = {
-    decision: currentEntry.decision,
-    selectedPageUrl: nextValue
-  };
-  state.lynxChecklistPageTypes = nextPageTypes;
-  setLynxChecklistViewState();
+  void pageTypeKey;
+  void event;
 }
 
 function handleLynxChecklistCancel() {
@@ -3400,7 +3976,8 @@ async function handlePageSave() {
   await runWithPopupBusyOverlay(PopupText.overlay.savingPage, async () => {
     const response = await messages.sendTabMessage({
       type: "savePageDraft",
-      baseUrl: state.currentBaseUrl
+      baseUrl: state.currentBaseUrl,
+      pageType: state.currentPageTypeKey || ""
     });
     if (!response || !response.ok) {
       updateLastConfigSaveStatus(PopupText.page.saveFailed);
@@ -3793,8 +4370,10 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
     if (!assignPageTypesUrl) {
       return;
     }
+    const storedPageMarkingItems = collectStoredPageMarkingItems(pageMarkings, baseUrl);
     const assignments = buildLynxChecklistAssignments({
-      pageTypes: checklistPageTypes
+      pageTypes: checklistPageTypes,
+      markedPages: storedPageMarkingItems
     });
     if (!assignments.length) {
       return;

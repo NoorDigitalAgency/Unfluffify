@@ -139,7 +139,8 @@ function getEntryFingerprint(entry) {
           .map((xpath) => `consent:${xpath}`)
           .sort()
       : [];
-  return xpathFingerprint.concat(includeFingerprint, consentFingerprint);
+  const pageTypeFingerprint = `pageType:${normalizePageEntryPageType(entry.pageType)}`;
+  return xpathFingerprint.concat(includeFingerprint, consentFingerprint, pageTypeFingerprint);
 }
 
 function isClippedByOverflow(el) {
@@ -1998,6 +1999,7 @@ export function normalizePageEntryXpaths(entry) {
     return entry;
   }
   entry.title = normalizePageEntryTitle(entry.title);
+  entry.pageType = normalizePageEntryPageType(entry.pageType);
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
@@ -2008,6 +2010,19 @@ export function normalizePageEntryXpaths(entry) {
   delete entry.url;
   entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   return entry;
+}
+
+function normalizePageEntryPageType(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
 }
 
 export function createSanitizedPageSnapshot(options = {}) {
@@ -4545,6 +4560,7 @@ export function clonePageEntry(entry) {
   const cloned = {
     title: normalizePageEntryTitle(entry.title),
     timestamp: normalizeEntryTimestampValue(entry.timestamp),
+    pageType: normalizePageEntryPageType(entry.pageType),
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
@@ -4856,6 +4872,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     return {
       title: "",
       timestamp: createCurrentTimestamp(),
+      pageType: "",
       xpaths: [],
       consentXpaths: [],
       includeXpaths: [],
@@ -4874,6 +4891,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   const entry = {
     title: normalizePageEntryTitle(document.title, pageUrl || ""),
     timestamp: createCurrentTimestamp(),
+    pageType: "",
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
