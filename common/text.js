@@ -242,7 +242,10 @@ export const PopupText = Object.freeze({
     updatedToast: "Live Page candidates updated", // Toast shown when the background refresh detects a change in GraphQL candidates.
     refreshFailed: "Unable to refresh Live Page candidates", // Toast shown when the candidate refresh fails.
     invalidStoredNotice: "Stored pages that are no longer valid candidates are ignored and removed from remote sync.", // Notice shown when saved local pages no longer match the current candidate set.
-    wordsSuffix: "words" // Suffix shown after candidate word counts.
+    wordsSuffix: "words", // Suffix shown after candidate word counts.
+    expandAll: "Expand all", // Button label that expands every page-type subsection in the todo list.
+    collapseAll: "Collapse all", // Button label that collapses every page-type subsection in the todo list.
+    autoCollapse: "Auto-collapse" // Checkbox label for the todo list auto-collapse behavior.
   }),
 
   preview: Object.freeze({
