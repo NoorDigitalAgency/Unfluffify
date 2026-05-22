@@ -376,12 +376,16 @@ button.button-small {
 }
 
 .lynx-checklist-popover__card {
-  gap: 14px;
+  gap: 4px;
 }
 
 .lynx-checklist-popover__section {
   display: grid;
-  gap: 10px;
+  gap: 4px;
+}
+
+.lynx-checklist-popover__section:not(:last-of-type) {
+  margin-bottom: 4px;
 }
 
 .lynx-checklist-popover__question {
@@ -393,15 +397,15 @@ button.button-small {
 .lynx-checklist-popover__choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
 }
 
 .lynx-checklist-popover__choice {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 8px 10px;
+  gap: 4px;
+  min-height: 24px;
+  padding: 4px 4px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff8ef;
@@ -415,20 +419,25 @@ button.button-small {
 
 .lynx-checklist-popover__choice input {
   flex-shrink: 0;
+  margin: 0;
 }
 
 .lynx-checklist-popover__page-types {
   display: grid;
-  gap: 10px;
+  gap: 4px;
 }
 
 .lynx-checklist-popover__page-type {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 4px;
+  padding: 4px 8px;
   border: 1px solid #ebe4d8;
   border-radius: 12px;
   background: #fffaf4;
+}
+
+.lynx-checklist-popover__page-type select {
+  padding: 4px 16px 4px 4px;
 }
 
 .lynx-checklist-popover__page-type--disabled {
