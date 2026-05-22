@@ -28,7 +28,7 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizePropertyPageTypes
-} from "./popup/lynx-checklist.js";
+} from "./common/lynx-checklist.js";
 import {
   PopupText,
   ViewText,

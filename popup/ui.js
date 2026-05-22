@@ -10,7 +10,7 @@ import {
 import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
-} from "./lynx-checklist.js";
+} from "../common/lynx-checklist.js";
 
 export { ViewText } from "../common/text.js";
 

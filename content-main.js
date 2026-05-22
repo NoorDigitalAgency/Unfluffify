@@ -17,7 +17,7 @@ import {
   SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
-import { normalizePropertyPageTypes } from "./popup/lynx-checklist.js";
+import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,

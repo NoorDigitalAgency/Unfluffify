@@ -1,5 +1,5 @@
 import { DEVICE_SCALE_DEFAULTS } from "../common/constants.js";
-import { createInitialLynxChecklistState } from "./lynx-checklist.js";
+import { createInitialLynxChecklistState } from "../common/lynx-checklist.js";
 
 const initialLynxChecklistState = createInitialLynxChecklistState();
 
