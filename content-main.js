@@ -17,7 +17,19 @@ import {
   SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
-import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
+import {
+  normalizeCandidatePageUrl,
+  normalizePropertyPageTypes
+} from "./common/lynx-checklist.js";
+import {
+  PROPERTY_PAGE_TYPES_QUERY,
+  URL_SEARCH_INFO_QUERY,
+  buildGraphqlEndpointFromStageBase,
+  getCurrentPageCandidateState,
+  maybeUpdateStoredTokenFromResponse,
+  normalizeSiteIdValue,
+  normalizeStageBase as normalizeStageBaseValue
+} from "./common/lynx-live-pages.js";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
@@ -72,27 +84,6 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "aria-hidden",
   "open"
 ]);
-const URL_SEARCH_INFO_QUERY = `
-query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
-  urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
-    domainId
-    domainName
-  }
-}
-`;
-const PROPERTY_PAGE_TYPES_QUERY = `
-query getPropertyPageTypes($domainId: Int!) {
-  propertyPageTypes(organizationId: null, domainId: $domainId) {
-    pageTypes {
-      pageType
-      pages {
-        url
-        wordsCount
-      }
-    }
-  }
-}
-`;
 
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
@@ -140,82 +131,6 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
-
-function normalizeStageBaseValue(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) {
-    return "";
-  }
-  let hostname = "";
-  try {
-    const url = trimmed.includes("://")
-      ? new URL(trimmed)
-      : new URL(`https://${trimmed}`);
-    hostname = (url.hostname || "").trim().toLowerCase();
-  } catch (error) {
-    return "";
-  }
-  return hostname.replace(/^\.+/, "").replace(/\.+$/, "");
-}
-
-function buildGraphqlEndpointFromStageBase(stageBase) {
-  const normalized = normalizeStageBaseValue(stageBase);
-  if (!normalized) {
-    return "";
-  }
-  return `https://api.${normalized}/graphql`;
-}
-
-function normalizeSiteIdValue(value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
-}
-
-function normalizeCandidatePageUrl(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return "";
-    }
-    parsed.hash = "";
-    parsed.hostname = parsed.hostname.toLowerCase();
-    if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
-      parsed.port = "";
-    }
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-    return parsed.toString();
-  } catch (error) {
-    return "";
-  }
-}
-
-async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
-  if (!response || !response.headers || typeof response.headers.get !== "function") {
-    return currentToken || "";
-  }
-  const updatedToken = (response.headers.get("x-update-token") || "").trim();
-  if (!updatedToken || updatedToken === (currentToken || "")) {
-    return currentToken || "";
-  }
-  await utils.storageSet(chrome.storage.sync, { globalToken: updatedToken });
-  return updatedToken;
-}
 
 async function loadGlobalAiSettingsForContent() {
   const stored = await utils.storageGet(chrome.storage.sync, {
@@ -268,35 +183,6 @@ async function resolveSiteIdFromGraphql(options = {}) {
       payload.data.urlSearchInfo &&
       payload.data.urlSearchInfo.domainId
   );
-}
-
-function getCurrentPageCandidateState(pageTypes, pageUrl) {
-  const normalizedUrl = normalizeCandidatePageUrl(pageUrl);
-  if (!normalizedUrl) {
-    return { status: "missing", pageType: "" };
-  }
-  if (!Array.isArray(pageTypes) || !pageTypes.length) {
-    return { status: "empty", pageType: "" };
-  }
-  const matches = [];
-  pageTypes.forEach((pageType) => {
-    const candidates = Array.isArray(pageType && pageType.candidates) ? pageType.candidates : [];
-    candidates.forEach((candidate) => {
-      if (candidate && candidate.url === normalizedUrl) {
-        matches.push({ pageType, candidate });
-      }
-    });
-  });
-  if (!matches.length) {
-    return { status: "missing", pageType: "" };
-  }
-  if (matches.length > 1 || matches.some((match) => match.candidate && match.candidate.duplicate)) {
-    return { status: "duplicate", pageType: "" };
-  }
-  return {
-    status: "candidate",
-    pageType: typeof matches[0].pageType.key === "string" ? matches[0].pageType.key : ""
-  };
 }
 
 async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
@@ -358,17 +244,17 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
       ? payload.data.propertyPageTypes
       : null
   );
-  const candidateState = getCurrentPageCandidateState(normalized.pageTypes, pageUrl);
+  const candidateState = getCurrentPageCandidateState(pageUrl, normalized.pageTypes);
   if (candidateState.status === "empty") {
     return { ok: false, reason: "Live Pages are not prepared for this site yet." };
   }
   if (candidateState.status === "duplicate") {
     return { ok: false, reason: "This page is listed under multiple Live Page types and cannot be marked." };
   }
-  if (candidateState.status !== "candidate" || !candidateState.pageType) {
+  if (candidateState.status !== "candidate" || !candidateState.pageTypeKey) {
     return { ok: false, reason: "This page is not a current Live Page candidate." };
   }
-  return { ok: true, pageType: candidateState.pageType };
+  return { ok: true, pageType: candidateState.pageTypeKey };
 }
 
 function normalizeAiPreviewItems(items) {

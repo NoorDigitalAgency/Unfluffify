@@ -27,8 +27,19 @@ import {
   buildLynxChecklistAssignments,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
+  normalizeCandidatePageUrl,
+  normalizePageTypeKey,
   normalizePropertyPageTypes
 } from "./common/lynx-checklist.js";
+import {
+  PROPERTY_PAGE_TYPES_QUERY,
+  URL_SEARCH_INFO_QUERY,
+  buildGraphqlEndpointFromStageBase,
+  getCurrentPageCandidateState,
+  maybeUpdateStoredTokenFromResponse,
+  normalizeSiteIdValue,
+  normalizeStageBase
+} from "./common/lynx-live-pages.js";
 import {
   PopupText,
   ViewText,
@@ -66,27 +77,6 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
-const URL_SEARCH_INFO_QUERY = `
-query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
-  urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
-    domainId
-    domainName
-  }
-}
-`;
-const PROPERTY_PAGE_TYPES_QUERY = `
-query getPropertyPageTypes($domainId: Int!) {
-  propertyPageTypes(organizationId: null, domainId: $domainId) {
-    pageTypes {
-      pageType
-      pages {
-        url
-        wordsCount
-      }
-    }
-  }
-}
-`;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
   $domainId: Int!,
@@ -225,35 +215,6 @@ function getEndpointOrigin(value) {
   }
 }
 
-function normalizeStageBase(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) {
-    return "";
-  }
-  let hostname = "";
-  try {
-    const url = trimmed.includes("://")
-      ? new URL(trimmed)
-      : new URL(`https://${trimmed}`);
-    hostname = (url.hostname || "").trim().toLowerCase();
-  } catch (error) {
-    return "";
-  }
-  const normalized = hostname.replace(/^\.+/, "").replace(/\.+$/, "");
-  if (!normalized) {
-    return "";
-  }
-  const domainPattern =
-    /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
-  if (!domainPattern.test(normalized)) {
-    return "";
-  }
-  return normalized;
-}
-
 function buildLoginEndpointFromStageBase(stageBase) {
   const normalized = normalizeStageBase(stageBase);
   if (!normalized) {
@@ -268,25 +229,6 @@ function buildValidateEndpointFromStageBase(stageBase) {
     return "";
   }
   return `https://accounts.${normalized}/api/account/validate`;
-}
-
-function buildGraphqlEndpointFromStageBase(stageBase) {
-  const normalized = normalizeStageBase(stageBase);
-  if (!normalized) {
-    return "";
-  }
-  return `https://api.${normalized}/graphql`;
-}
-
-function normalizeSiteIdValue(value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
 }
 
 function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
@@ -328,44 +270,6 @@ function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
   }
   const normalized = `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
   return utils.normalizeCanonicalBaseUrl(normalized) || normalized;
-}
-
-function normalizePageTypeKey(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/[\s-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toLowerCase();
-}
-
-function normalizeCandidatePageUrl(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return "";
-    }
-    parsed.hash = "";
-    parsed.hostname = parsed.hostname.toLowerCase();
-    if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
-      parsed.port = "";
-    }
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-    return parsed.toString();
-  } catch (error) {
-    return "";
-  }
 }
 
 function buildPageMarkingKey(url, pageType) {
@@ -643,37 +547,6 @@ function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
     });
   });
   return items;
-}
-
-function getCurrentPageCandidateState(pageUrl, pageTypes) {
-  const normalizedUrl = normalizeCandidatePageUrl(pageUrl);
-  if (!normalizedUrl || !Array.isArray(pageTypes) || !pageTypes.length) {
-    return {
-      status: Array.isArray(pageTypes) && pageTypes.length ? "missing" : "empty",
-      pageTypeKey: "",
-      pageTypeTitle: ""
-    };
-  }
-  const matches = [];
-  pageTypes.forEach((pageType) => {
-    (Array.isArray(pageType && pageType.candidates) ? pageType.candidates : []).forEach((candidate) => {
-      if (candidate && candidate.url === normalizedUrl) {
-        matches.push({ pageType, candidate });
-      }
-    });
-  });
-  if (!matches.length) {
-    return { status: "missing", pageTypeKey: "", pageTypeTitle: "" };
-  }
-  if (matches.length > 1 || matches.some((item) => item.candidate && item.candidate.duplicate)) {
-    return { status: "duplicate", pageTypeKey: "", pageTypeTitle: "" };
-  }
-  return {
-    status: "candidate",
-    pageTypeKey: matches[0].pageType.key,
-    pageTypeTitle: matches[0].pageType.title,
-    url: normalizedUrl
-  };
 }
 
 async function resolveSiteIdFromGraphql(options = {}) {
@@ -1170,25 +1043,6 @@ function createConfigSyncHeaders(token) {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
-}
-
-async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
-  if (!response || !response.headers || typeof response.headers.get !== "function") {
-    return currentToken || "";
-  }
-  const updatedToken = (response.headers.get("x-update-token") || "").trim();
-  if (!updatedToken) {
-    return currentToken || "";
-  }
-  if (updatedToken === (currentToken || "")) {
-    return updatedToken;
-  }
-  try {
-    await utils.storageSet(chrome.storage.sync, { globalToken: updatedToken });
-  } catch {
-    // Ignore storage update errors so the calling request flow continues.
-  }
-  return updatedToken;
 }
 
 async function getStoredGlobalToken(options = {}) {
@@ -3405,26 +3259,34 @@ async function handleExplicitIncludeRemove(xpath) {
   }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
 }
 
-async function handleMarkedPageNavigate(url) {
+async function navigateActiveTabToUrl(url) {
   const tab = await helpers.ensureActiveTab({ requireId: true });
   if (!tab) {
-    return;
+    return false;
   }
   chrome.tabs.update(tab.id, { url }, () => {
     void chrome.runtime.lastError;
   });
+  return true;
+}
+
+async function handleMarkedPageNavigate(url) {
+  await navigateActiveTabToUrl(url);
 }
 
 async function handleBasePageNavigate(url) {
   uiModule.setBasePageMenuOpen(false);
-  const tab = await helpers.ensureActiveTab({ requireId: true });
-  if (!tab) {
+  await navigateActiveTabToUrl(url);
+}
+
+async function handleLynxChecklistCandidateNavigate(url) {
+  if (!url) {
     return;
   }
-  chrome.tabs.update(tab.id, { url }, () => {
-    void chrome.runtime.lastError;
-  });
+  closeLynxChecklistPopover();
+  await navigateActiveTabToUrl(url);
 }
+
 async function handleEnableToggle(event) {
   const source = event && (event.currentTarget || event.target);
   const desiredEnabled = source
@@ -4700,6 +4562,7 @@ async function init() {
     onLynxChecklistAiAnswerChange: handleLynxChecklistAiAnswerChange,
     onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
     onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,
+    onLynxChecklistCandidateNavigate: handleLynxChecklistCandidateNavigate,
     onLynxChecklistCancel: handleLynxChecklistCancel,
     onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,

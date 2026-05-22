@@ -5,6 +5,7 @@ import {
   normalizeBaseUrl,
   normalizeCanonicalBaseUrl
 } from "./utilities.js";
+import { normalizeSiteIdValue } from "./lynx-live-pages.js";
 
 /** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
@@ -44,23 +45,6 @@ export function getConfigRenderMode(sourceConfig) {
     return DEFAULT_RENDER_MODE;
   }
   return normalizeRenderMode(sourceConfig.renderMode);
-}
-
-function normalizeSiteIdValue(value) {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return Math.trunc(value);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const parsed = Number.parseInt(trimmed, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return null;
 }
 
 function parseTimestampMillis(value) {

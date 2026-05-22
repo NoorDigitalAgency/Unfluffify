@@ -16,7 +16,7 @@ const ALLOWED_PAGE_TYPE_LABELS = Object.freeze({
 
 const ALLOWED_PAGE_TYPE_ORDER = Object.freeze(Object.keys(ALLOWED_PAGE_TYPE_LABELS));
 
-function normalizePageTypeKey(value) {
+export function normalizePageTypeKey(value) {
   if (typeof value !== "string") {
     return "";
   }
@@ -29,7 +29,7 @@ function normalizePageTypeKey(value) {
     .toLowerCase();
 }
 
-function normalizeCandidateUrl(value) {
+export function normalizeCandidatePageUrl(value) {
   if (typeof value !== "string") {
     return "";
   }
@@ -94,7 +94,7 @@ function normalizeCandidate(rawCandidate) {
   if (!rawCandidate || typeof rawCandidate !== "object") {
     return null;
   }
-  const url = normalizeCandidateUrl(rawCandidate.url);
+  const url = normalizeCandidatePageUrl(rawCandidate.url);
   if (!url) {
     return null;
   }
@@ -216,7 +216,7 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
     if (!item || typeof item !== "object") {
       return;
     }
-    const url = normalizeCandidateUrl(item.url);
+    const url = normalizeCandidatePageUrl(item.url);
     const pageType = normalizePageTypeKey(item.pageType);
     if (!url || !pageType) {
       invalidMarkedPages.push(item);

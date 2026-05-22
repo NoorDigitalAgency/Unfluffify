@@ -907,11 +907,13 @@ function renderLynxChecklistPopover(view, handlers) {
                         ),
                         item.candidatePreview.map((candidate) =>
                           h(
-                            "span",
+                            "button",
                             {
                               key: `${item.key}|${candidate.url}`,
+                              type: "button",
                               class: "lynx-checklist-popover__candidate-hint",
-                              title: candidate.url
+                              title: candidate.url,
+                              onClick: () => handlers.onLynxChecklistCandidateNavigate(candidate.url)
                             },
                             candidate.url
                           )
