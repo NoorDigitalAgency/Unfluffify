@@ -2,6 +2,20 @@ function normalizeAiAnswer(value) {
   return value === "yes" || value === "no" ? value : "";
 }
 
+const ALLOWED_PAGE_TYPE_LABELS = Object.freeze({
+  homepage: "Homepage",
+  article: "Article",
+  listing: "Listing",
+  category: "Category",
+  product: "Product",
+  service_page: "Service Page",
+  company: "Company",
+  landing_page: "Landing Page",
+  utility: "Utility"
+});
+
+const ALLOWED_PAGE_TYPE_ORDER = Object.freeze(Object.keys(ALLOWED_PAGE_TYPE_LABELS));
+
 function normalizePageTypeKey(value) {
   if (typeof value !== "string") {
     return "";
@@ -45,6 +59,9 @@ function formatPageTypeTitleFromKey(value) {
   if (!key) {
     return "";
   }
+  if (ALLOWED_PAGE_TYPE_LABELS[key]) {
+    return ALLOWED_PAGE_TYPE_LABELS[key];
+  }
   return key
     .split("_")
     .filter(Boolean)
@@ -58,10 +75,14 @@ function formatPageTypeTitleFromKey(value) {
 }
 
 function normalizePageTypeTitle(value, fallbackKey) {
+  const key = normalizePageTypeKey(fallbackKey);
+  if (ALLOWED_PAGE_TYPE_LABELS[key]) {
+    return ALLOWED_PAGE_TYPE_LABELS[key];
+  }
   if (typeof value === "string" && value.trim()) {
     return value.trim();
   }
-  return formatPageTypeTitleFromKey(fallbackKey);
+  return formatPageTypeTitleFromKey(key);
 }
 
 function normalizeWordsCount(value) {
@@ -122,7 +143,7 @@ export function normalizePropertyPageTypes(value = []) {
       return;
     }
     const key = normalizePageTypeKey(rawPageType.pageType || rawPageType.key);
-    if (!key || seenKeys.has(key)) {
+    if (!key || !ALLOWED_PAGE_TYPE_LABELS[key] || seenKeys.has(key)) {
       return;
     }
     seenKeys.add(key);
@@ -131,6 +152,10 @@ export function normalizePropertyPageTypes(value = []) {
       title: normalizePageTypeTitle(rawPageType.title, key),
       candidates: normalizePageTypeCandidates(rawPageType)
     });
+  });
+
+  pageTypes.sort((left, right) => {
+    return ALLOWED_PAGE_TYPE_ORDER.indexOf(left.key) - ALLOWED_PAGE_TYPE_ORDER.indexOf(right.key);
   });
 
   const duplicateUrlToKeys = new Map();

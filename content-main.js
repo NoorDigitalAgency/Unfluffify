@@ -83,10 +83,12 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
 const PROPERTY_PAGE_TYPES_QUERY = `
 query getPropertyPageTypes($domainId: Int!) {
   propertyPageTypes(organizationId: null, domainId: $domainId) {
-    pageType
-    pages {
-      url
-      wordsCount
+    pageTypes {
+      pageType
+      pages {
+        url
+        wordsCount
+      }
     }
   }
 }
@@ -352,9 +354,9 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
     return { ok: false, reason: "Unable to verify Live Page candidates." };
   }
   const normalized = normalizePropertyPageTypes(
-    payload && payload.data && Array.isArray(payload.data.propertyPageTypes)
+    payload && payload.data
       ? payload.data.propertyPageTypes
-      : []
+      : null
   );
   const candidateState = getCurrentPageCandidateState(normalized.pageTypes, pageUrl);
   if (candidateState.status === "empty") {

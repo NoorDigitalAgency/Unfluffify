@@ -63,6 +63,48 @@ test("normalizes GraphQL page types and flags duplicate candidate URLs", () => {
   );
 });
 
+test("accepts the wrapped propertyPageTypes.pageTypes GraphQL response shape", () => {
+  const normalized = normalizePropertyPageTypes({
+    pageTypes: propertyPageTypes
+  });
+
+  assert.deepEqual(normalized.pageTypes.map((item) => item.key), [
+    "homepage",
+    "article",
+    "listing",
+    "product"
+  ]);
+});
+
+test("filters out unsupported page types and uses the fixed friendly labels for allowed types", () => {
+  const normalized = normalizePropertyPageTypes([
+    {
+      pageType: "custom_page_type",
+      title: "Custom Page Type",
+      pages: [{ url: "https://example.com/custom", wordsCount: 150 }]
+    },
+    {
+      pageType: "service_page",
+      title: "Service page from API",
+      pages: [{ url: "https://example.com/service", wordsCount: 220 }]
+    },
+    {
+      pageType: "landingPage",
+      title: "Landing page from API",
+      pages: [{ url: "https://example.com/landing", wordsCount: 180 }]
+    }
+  ]);
+
+  assert.deepEqual(normalized.pageTypes.map((item) => item.key), [
+    "service_page",
+    "landing_page"
+  ]);
+  assert.deepEqual(normalized.pageTypes.map((item) => item.title), [
+    "Service Page",
+    "Landing Page"
+  ]);
+});
+
 test("requires the AI confirmation before sending", () => {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,

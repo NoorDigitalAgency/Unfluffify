@@ -77,10 +77,12 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
 const PROPERTY_PAGE_TYPES_QUERY = `
 query getPropertyPageTypes($domainId: Int!) {
   propertyPageTypes(organizationId: null, domainId: $domainId) {
-    pageType
-    pages {
-      url
-      wordsCount
+    pageTypes {
+      pageType
+      pages {
+        url
+        wordsCount
+      }
     }
   }
 }
@@ -456,12 +458,9 @@ async function fetchPropertyPageTypesFromGraphql(options = {}) {
           : PopupText.pageTypes.refreshFailed
     };
   }
-  const rawPageTypes =
-    payload &&
-    payload.data &&
-    Array.isArray(payload.data.propertyPageTypes)
-      ? payload.data.propertyPageTypes
-      : [];
+  const rawPageTypes = payload && payload.data
+    ? payload.data.propertyPageTypes
+    : null;
   const normalized = normalizePropertyPageTypes(rawPageTypes);
   return {
     ok: true,
