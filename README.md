@@ -153,4 +153,3 @@ Unused code has been removed. All exported functions are actively used or part o
 - **Debouncing**: DOM mutations and scroll events are debounced
 - **Caching**: Element collections and visibility are cached
 - **WeakMap usage**: DOM references use WeakMap to avoid memory leaks
-
