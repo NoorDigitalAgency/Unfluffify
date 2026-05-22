@@ -5243,90 +5243,16 @@ export async function saveConfig(baseUrl, configValue) {
 }
 
 export function showAiPopover(items, options = {}) {
-  ensureAiPopoverStyle();
   clearFocusHighlight();
   closeAiPopover({ notify: false, suppressCallback: true });
-  const popover = document.createElement("div");
-  popover.className = "uf-ai-popover";
-  popover.setAttribute("data-uf-extension-ui", "true");
-  popover.setAttribute("role", "dialog");
-  popover.setAttribute("aria-modal", "true");
-  const backdrop = document.createElement("div");
-  backdrop.className = "uf-ai-popover-backdrop";
-  const stage = document.createElement("div");
-  stage.className = "uf-ai-popover-stage";
-  const modal = document.createElement("div");
-  modal.className = "uf-ai-popover-modal";
-  const header = document.createElement("div");
-  header.className = "uf-ai-popover-header";
-  const collapse = document.createElement("button");
-  collapse.className = "uf-ai-popover-toggle uf-ai-popover-toggle--collapse";
-  collapse.type = "button";
-  collapse.setAttribute("aria-label", ContentText.preview.collapseAriaLabel);
-  collapse.appendChild(createAiPopoverPanelIcon("left"));
-  collapse.addEventListener("click", () => setAiPopoverCollapsed(true));
-  const title = document.createElement("div");
-  title.className = "uf-ai-popover-title";
-  title.textContent = ContentText.preview.title;
-  const close = document.createElement("button");
-  close.className = "uf-ai-popover-close";
-  close.type = "button";
-  close.textContent = ContentText.preview.closeGlyph;
-  close.setAttribute("aria-label", ContentText.preview.closeAriaLabel);
-  close.addEventListener("click", () => closeAiPopover());
-  header.appendChild(collapse);
-  header.appendChild(title);
-  header.appendChild(close);
-  const restore = document.createElement("button");
-  restore.className = "uf-ai-popover-toggle uf-ai-popover-toggle--restore";
-  restore.type = "button";
-  restore.setAttribute("aria-label", ContentText.preview.restoreAriaLabel);
-  restore.appendChild(createAiPopoverPanelIcon("right"));
-  restore.addEventListener("click", () => setAiPopoverCollapsed(false));
-  const body = document.createElement("div");
-  body.className = "uf-ai-popover-body";
-  const list = document.createElement("ul");
-  list.className = "uf-ai-popover-list";
-  if (!items.length) {
-    const empty = document.createElement("li");
-    empty.textContent = ContentText.preview.emptyState;
-    list.appendChild(empty);
-  } else {
-    items.forEach((item) => {
-      const li = document.createElement("li");
-      if (item && typeof item === "object" && typeof item.text === "string") {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "uf-ai-popover-item-button";
-        button.textContent = item.text;
-        button.addEventListener("click", () => {
-          const target = item.xpath ? getElementFromXPath(item.xpath) : null;
-          setAiPopoverCollapsed(true);
-          if (target) {
-            focusPreviewElement(target);
-          }
-        });
-        li.appendChild(button);
-      } else {
-        li.textContent = typeof item === "string" ? item : "";
-      }
-      list.appendChild(li);
-    });
-  }
-  body.appendChild(list);
-  modal.appendChild(header);
-  modal.appendChild(body);
-  stage.appendChild(modal);
-  popover.appendChild(backdrop);
-  popover.appendChild(stage);
-  popover.appendChild(restore);
-  document.documentElement.appendChild(popover);
-  state.aiPopover = popover;
+  const marker = document.createElement("div");
+  marker.hidden = true;
+  marker.setAttribute("data-uf-extension-ui", "true");
+  document.documentElement.appendChild(marker);
+  state.aiPopover = marker;
   state.aiPopoverOnClose = typeof options.onClose === "function" ? options.onClose : null;
-  state.aiPopoverOnCollapsedChange =
-    typeof options.onCollapsedChange === "function" ? options.onCollapsedChange : null;
+  state.aiPopoverOnCollapsedChange = null;
   state.aiPopoverCollapsed = false;
-  setAiPopoverCollapsed(false);
 }
 
 export function getDraftPageEntry(pageUrl) {

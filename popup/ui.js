@@ -19,6 +19,7 @@ const { state } = stateModule;
 
 const refs = {};
 const initialLynxChecklistState = createInitialLynxChecklistState();
+let lastPreviewScrolledXpath = "";
 
 export const View = {
     Configuration: 'Configuration',
@@ -128,6 +129,9 @@ const initialViewState = {
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
   highlightingOptionsVisible: false,
+  previewActive: false,
+  previewItems: [],
+  previewFocusedXpath: "",
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
   highlightMarkedPagesChecked: true,
@@ -178,13 +182,6 @@ function statusToneClass(tone) {
 }
 
 function getBlockingUiCurtainState(view) {
-  if (view.previewBlocked) {
-    return {
-      visible: true,
-      mode: "preview",
-      message: view.previewBlockedMessage || ViewText.previewBlockedDefault
-    };
-  }
   if (view.isBusy) {
     return {
       visible: true,
@@ -410,9 +407,75 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   );
 }
 
+function renderPreviewSidebar(view, handlers) {
+  const openingPreview = view.previewBlocked && !view.previewActive;
+  const listItems = openingPreview
+    ? [
+        h("li", { class: "preview-sidebar__empty", key: "loading" }, PopupText.preview.loading)
+      ]
+    : view.previewItems.length
+      ? view.previewItems.map((item, index) => {
+          const active = item.xpath === view.previewFocusedXpath;
+          return h(
+            "li",
+            {
+              key: item.xpath,
+              class: classNames("preview-sidebar__item", active && "preview-sidebar__item--active")
+            },
+            h(
+              "button",
+              {
+                type: "button",
+                class: "preview-sidebar__item-button",
+                onClick: () => handlers.onPreviewItemFocus(item.xpath),
+                ref: (el) => {
+                  if (active) {
+                    refs.previewActiveItem = el;
+                  }
+                }
+              },
+              h("span", { class: "preview-sidebar__item-index", "aria-hidden": "true" }, `${index + 1}.`),
+              h("span", { class: "preview-sidebar__item-text", title: item.text }, item.text)
+            )
+          );
+        })
+      : [
+          h("li", { class: "preview-sidebar__empty", key: "empty" }, PopupText.preview.emptyState)
+        ];
+
+  return h(
+    "section",
+    { class: "card preview-sidebar" },
+    h(
+      "div",
+      { class: "preview-sidebar__header" },
+      h("div", { class: "section-title" }, PopupText.preview.sidebarTitle),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "preview-sidebar__dismiss",
+          onClick: handlers.onExitPreviewMode,
+          "aria-label": PopupText.actions.exitPreview,
+          title: PopupText.actions.exitPreview
+        },
+        icon("exit-to-app")
+      )
+    ),
+    h(
+      "div",
+      { class: "hint preview-sidebar__hint" },
+      openingPreview
+        ? (view.previewBlockedMessage || PopupText.preview.loading)
+        : PopupText.preview.sidebarHint
+    ),
+    h("ul", { class: "preview-sidebar__list" }, listItems)
+  );
+}
+
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
-  const previewCurtainVisible = curtain.mode === "preview";
+  const previewVisible = view.previewBlocked || view.previewActive;
 
   return h(
     Fragment,
@@ -443,64 +506,67 @@ function App({ state: view, actions: handlers }) {
           { class: "header-text" },
           h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
         ),
-        h(
-          "div",
-          { class: "header-actions" },
-          h(
-            "button",
-            {
-              id: "config-toggle",
-              type: "button",
-              class: "config-button",
-              "aria-haspopup": "menu",
-              "aria-expanded": view.configMenuOpen ? "true" : "false",
-              onClick: handlers.onConfigToggle
-            },
-            icon("cog-outline"),
-            PopupText.configuration.title
-          ),
+        !previewVisible &&
           h(
             "div",
-            {
-              id: "config-menu",
-              class: "config-menu",
-              role: "menu",
-              hidden: !view.configMenuOpen,
-              onClick: handlers.onConfigMenuClick
-            },
+            { class: "header-actions" },
             h(
               "button",
               {
-                id: "config-open-view",
+                id: "config-toggle",
                 type: "button",
-                role: "menuitem",
-                onClick: handlers.onOpenConfiguration
+                class: "config-button",
+                "aria-haspopup": "menu",
+                "aria-expanded": view.configMenuOpen ? "true" : "false",
+                onClick: handlers.onConfigToggle
               },
-              icon("tune"),
-              PopupText.configuration.openViewAction
+              icon("cog-outline"),
+              PopupText.configuration.title
             ),
-            h("div", { class: "config-divider", role: "separator" }),
             h(
-              "button",
+              "div",
               {
-                id: "clear-domain-cache",
-                type: "button",
-                role: "menuitem",
-                class: "danger",
-                disabled: view.clearDomainCacheDisabled,
-                onClick: handlers.onClearDomainCache
+                id: "config-menu",
+                class: "config-menu",
+                role: "menu",
+                hidden: !view.configMenuOpen,
+                onClick: handlers.onConfigMenuClick
               },
-              icon("trash-can-outline"),
-              PopupText.cache.menuAction
+              h(
+                "button",
+                {
+                  id: "config-open-view",
+                  type: "button",
+                  role: "menuitem",
+                  onClick: handlers.onOpenConfiguration
+                },
+                icon("tune"),
+                PopupText.configuration.openViewAction
+              ),
+              h("div", { class: "config-divider", role: "separator" }),
+              h(
+                "button",
+                {
+                  id: "clear-domain-cache",
+                  type: "button",
+                  role: "menuitem",
+                  class: "danger",
+                  disabled: view.clearDomainCacheDisabled,
+                  onClick: handlers.onClearDomainCache
+                },
+                icon("trash-can-outline"),
+                PopupText.cache.menuAction
+              )
             )
           )
-        )
       ),
-      view.currentView === View.Marking ?
-          renderMarkingView({ state: view, actions: handlers }) :
-          view.currentView === View.Configuration ?
-              renderConfigurationView({ state: view, actions: handlers }) :
-              null
+      previewVisible
+        ? renderPreviewSidebar(view, handlers)
+        : view.currentView === View.Marking
+          ? renderMarkingView({ state: view, actions: handlers })
+          : view.currentView === View.Configuration
+            ? renderConfigurationView({ state: view, actions: handlers })
+            : null
     ),
     h(
       "div",
@@ -523,38 +589,14 @@ function App({ state: view, actions: handlers }) {
       },
       h(
         "div",
-        {
-          class: classNames(
-            "ui-curtain__content",
-            previewCurtainVisible && "ui-curtain__content--preview"
-          )
-        },
-        previewCurtainVisible
-          ? h(
-              "div",
-              { class: "ui-curtain__preview-badge", "aria-hidden": "true" },
-              h("span", { class: "mdi mdi-eye-outline" })
-            )
-          : h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
+        { class: "ui-curtain__content" },
+        h("div", { class: "ui-curtain__spinner", "aria-hidden": "true" }),
         h("div", { class: "ui-curtain__title" }, curtain.message || PopupText.overlay.pleaseWait),
         h(
           "div",
           { class: "ui-curtain__hint" },
-          view.previewBlocked
-            ? PopupText.overlay.previewHint
-            : PopupText.overlay.busyHint
-        ),
-        previewCurtainVisible
-          ? h(
-              "button",
-              {
-                type: "button",
-                class: "ui-curtain__action",
-                onClick: handlers.onExitPreviewMode
-              },
-              PopupText.actions.exitPreview
-            )
-          : null
+          PopupText.overlay.busyHint
+        )
       )
     )
   );
@@ -1446,7 +1488,24 @@ function renderApp() {
   if (!root) {
     return;
   }
+  refs.previewActiveItem = null;
   render(h(App, { state: viewState, actions }), root);
+  if (viewState.previewBlocked || viewState.previewActive) {
+    const activeXpath = typeof viewState.previewFocusedXpath === "string"
+      ? viewState.previewFocusedXpath
+      : "";
+    if (!activeXpath) {
+      lastPreviewScrolledXpath = "";
+    } else if (refs.previewActiveItem && lastPreviewScrolledXpath !== activeXpath) {
+      refs.previewActiveItem.scrollIntoView({
+        block: "center",
+        inline: "nearest"
+      });
+      lastPreviewScrolledXpath = activeXpath;
+    }
+  } else {
+    lastPreviewScrolledXpath = "";
+  }
   document.body.classList.toggle(
     "is-busy",
     getBlockingUiCurtainState(viewState).visible
@@ -1459,7 +1518,14 @@ export function initUi(actionHandlers) {
 }
 
 export function setViewState(patch) {
-  viewState = { ...viewState, ...patch };
+  const nextViewState = { ...viewState, ...patch };
+  if (nextViewState.previewBlocked || nextViewState.previewActive) {
+    nextViewState.configMenuOpen = false;
+    nextViewState.basePageMenuOpen = false;
+    state.configMenuOpen = false;
+    state.basePageMenuOpen = false;
+  }
+  viewState = nextViewState;
   renderApp();
 }
 
@@ -1499,6 +1565,9 @@ export function setUiBusy(isBusy, message = "") {
 export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDefault) {
   setViewState({
     previewBlocked: Boolean(isBlocked),
+    previewActive: isBlocked ? viewState.previewActive : false,
+    previewItems: isBlocked ? viewState.previewItems : [],
+    previewFocusedXpath: isBlocked ? viewState.previewFocusedXpath : "",
     previewBlockedMessage: isBlocked
       ? (message || ViewText.previewBlockedDefault)
       : ViewText.previewBlockedDefault

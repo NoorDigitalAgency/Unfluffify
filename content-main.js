@@ -34,6 +34,7 @@ const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR = "data-uf-silent-selector-include";
 const SILENT_SELECTOR_EXCLUDE_ATTR = "data-uf-silent-selector-exclude";
+const AI_PREVIEW_CLICKABLE_ATTR = "data-uf-ai-preview-clickable";
 const SILENT_SELECTOR_TITLE_PREFIX = "Unfluffify selector: ";
 const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
   "Mobile simulation must be enabled to save markings.";
@@ -94,12 +95,15 @@ let silentHighlightLastPositionSignature = "";
 let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
+let aiPreviewClickableNodes = new Set();
 const silentSelectorOriginalTitles = new WeakMap();
 
 function createAiPreviewState() {
   return {
     active: false,
-    collapsed: false,
+    items: [],
+    itemXpathSet: new Set(),
+    focusedXpath: "",
     previousEnabled: false,
     previousBaseUrl: "",
     previousPageUrl: "",
@@ -113,6 +117,122 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
+
+function normalizeAiPreviewItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      xpath: typeof item.xpath === "string" ? item.xpath : "",
+      text: typeof item.text === "string" ? item.text : ""
+    }))
+    .filter((item) => item.xpath);
+}
+
+function setAiPreviewItems(items) {
+  const normalized = normalizeAiPreviewItems(items);
+  aiPreviewState.items = normalized;
+  aiPreviewState.itemXpathSet = new Set(normalized.map((item) => item.xpath));
+  aiPreviewState.focusedXpath = "";
+  syncAiPreviewClickableTargets(normalized);
+}
+
+function clearAiPreviewClickableTargets() {
+  if (!aiPreviewClickableNodes.size) {
+    return;
+  }
+  for (const node of aiPreviewClickableNodes) {
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    node.removeAttribute(AI_PREVIEW_CLICKABLE_ATTR);
+  }
+  aiPreviewClickableNodes.clear();
+}
+
+function syncAiPreviewClickableTargets(items) {
+  clearAiPreviewClickableTargets();
+  if (!Array.isArray(items) || !items.length) {
+    return;
+  }
+  items.forEach((item) => {
+    const xpath = item && typeof item.xpath === "string" ? item.xpath : "";
+    if (!xpath) {
+      return;
+    }
+    const node = core.getElementFromXPath(xpath);
+    if (!node || node.nodeType !== 1 || isExtensionUiNode(node)) {
+      return;
+    }
+    node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
+    aiPreviewClickableNodes.add(node);
+  });
+}
+
+function notifyAiPreviewFocusChanged(xpath) {
+  chrome.runtime.sendMessage({
+    type: "aiPreviewFocusChanged",
+    baseUrl: state.baseUrl || "",
+    pageUrl: location.href,
+    xpath: typeof xpath === "string" ? xpath : ""
+  }).then().catch(() => {
+    // Ignore popup-sync failures while preview focus changes.
+  });
+}
+
+function setAiPreviewFocusedXpath(xpath, options = {}) {
+  if (!aiPreviewState.active) {
+    return false;
+  }
+  const nextXpath = typeof xpath === "string" ? xpath : "";
+  if (nextXpath && !aiPreviewState.itemXpathSet.has(nextXpath)) {
+    return false;
+  }
+  aiPreviewState.focusedXpath = nextXpath;
+  if (options.notify !== false) {
+    notifyAiPreviewFocusChanged(nextXpath);
+  }
+  return true;
+}
+
+function getAiPreviewClickTarget(eventTarget) {
+  let node = eventTarget && eventTarget.nodeType === 1
+    ? eventTarget
+    : eventTarget && eventTarget.parentElement
+      ? eventTarget.parentElement
+      : null;
+  while (node && node.nodeType === 1) {
+    if (isExtensionUiNode(node)) {
+      return null;
+    }
+    const xpath = core.getXPath(node);
+    if (xpath && aiPreviewState.itemXpathSet.has(xpath)) {
+      return { element: node, xpath };
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function handleAiPreviewClick(event) {
+  if (!aiPreviewState.active || !event || event.button !== 0) {
+    return false;
+  }
+  const target = getAiPreviewClickTarget(event.target);
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  if (target) {
+    core.focusPreviewElement(target.element, { center: false });
+    setAiPreviewFocusedXpath(target.xpath);
+    return true;
+  }
+  core.clearFocusHighlight();
+  setAiPreviewFocusedXpath("");
+  return true;
+}
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_LINK_HIGHLIGHTING_ATTR,
@@ -442,6 +562,10 @@ function ensureSilentHighlightingStyles() {
       html [${core.CONSENT_HIDDEN_ATTR}] {
         pointer-events: none !important;
         visibility: hidden !important;
+      }
+      html [${AI_PREVIEW_CLICKABLE_ATTR}],
+      html [${AI_PREVIEW_CLICKABLE_ATTR}] * {
+        cursor: pointer !important;
       }
       html.uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
         visibility: visible !important;
@@ -1265,6 +1389,7 @@ function applyVisibleConsentVisibility(visibility) {
 }
 
 function resetAiPreviewState() {
+  clearAiPreviewClickableTargets();
   aiPreviewState = createAiPreviewState();
 }
 
@@ -1317,7 +1442,9 @@ async function enterAiPreviewMode() {
     const previousPageUrl = location.href;
     aiPreviewState = {
       active: true,
-      collapsed: false,
+      items: [],
+      itemXpathSet: new Set(),
+      focusedXpath: "",
       previousEnabled: Boolean(state.enabled),
       previousBaseUrl: state.baseUrl || "",
       previousPageUrl,
@@ -1328,8 +1455,6 @@ async function enterAiPreviewMode() {
         silentHighlightVisibility
       )
     };
-  } else {
-    aiPreviewState.collapsed = false;
   }
 
   if (aiPreviewState.previousEnabled && state.enabled) {
@@ -3015,6 +3140,9 @@ export function main() {
     if (state.enabled) {
       return;
     }
+    if (handleAiPreviewClick(event)) {
+      return;
+    }
     handleSilentSelectorClickCopy(event);
   }, true);
 
@@ -3056,7 +3184,11 @@ export function main() {
       sendResponse({
         ok: true,
         active: aiPreviewState.active,
-        collapsed: aiPreviewState.collapsed
+        items: aiPreviewState.items.map((item) => ({
+          xpath: item.xpath,
+          text: item.text
+        })),
+        focusedXpath: aiPreviewState.focusedXpath
       });
       return;
     }
@@ -3207,12 +3339,18 @@ export function main() {
         return;
       }
       core.focusPreviewElement(target);
+      if (aiPreviewState.active) {
+        setAiPreviewFocusedXpath(xpath);
+      }
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "clearFocus") {
       core.clearFocusHighlight();
+      if (aiPreviewState.active) {
+        setAiPreviewFocusedXpath("");
+      }
       sendResponse({ ok: true });
       return;
     }
@@ -3552,11 +3690,9 @@ export function main() {
           items = [];
         }
         await enterAiPreviewMode();
+        setAiPreviewItems(items);
         core.showAiPopover(items, {
-          onClose: () => exitAiPreviewMode(),
-          onCollapsedChange: (collapsed) => {
-            aiPreviewState.collapsed = Boolean(collapsed);
-          }
+          onClose: () => exitAiPreviewMode()
         });
         sendResponse({ ok: true, count: items.length });
       })().catch(() => {

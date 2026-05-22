@@ -1623,7 +1623,12 @@ async function refreshUiInner() {
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
   const previewActive = Boolean(previewState && previewState.active);
-  const previewCollapsed = Boolean(previewState && previewState.collapsed);
+  const previewItems = Array.isArray(previewState && previewState.items)
+    ? previewState.items.filter((item) => item && typeof item === "object" && typeof item.xpath === "string")
+    : [];
+  const previewFocusedXpath = typeof (previewState && previewState.focusedXpath) === "string"
+    ? previewState.focusedXpath
+    : "";
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let discoveredBaseUrlFromGraphql = "";
@@ -1893,11 +1898,12 @@ async function refreshUiInner() {
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen,
     basePageMenuOpen: state.basePageMenuOpen,
+    previewActive,
+    previewItems,
+    previewFocusedXpath,
     previewBlocked: previewActive,
     previewBlockedMessage: previewActive
-      ? previewCollapsed
-        ? PopupText.preview.blockedHidden
-        : PopupText.preview.blockedActive
+      ? PopupText.preview.blockedActive
       : ViewText.previewBlockedDefault
   };
   const baseUrlReady = Boolean(state.currentBaseUrl);
@@ -4076,6 +4082,21 @@ async function handleExitPreviewMode() {
   }
 }
 
+async function handlePreviewItemFocus(xpath) {
+  if (!xpath || !await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  uiModule.setViewState({ previewFocusedXpath: xpath });
+  const response = await messages.sendTabMessage({
+    type: "focusElement",
+    xpath
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast(PopupText.explicitSelection.focusFailed);
+    await refreshUi();
+  }
+}
+
 function scheduleRefresh() {
   if (state.refreshTimer) {
     return;
@@ -4141,6 +4162,7 @@ async function init() {
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
+    onPreviewItemFocus: handlePreviewItemFocus,
     onExitPreviewMode: handleExitPreviewMode,
     onExplicitExcludeView: handleExplicitExcludeView,
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
@@ -4237,7 +4259,16 @@ async function init() {
     }
   });
 
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (
+      state.currentTab &&
+      sender &&
+      sender.tab &&
+      sender.tab.id &&
+      sender.tab.id !== state.currentTab.id
+    ) {
+      return;
+    }
     if (message && message.type === "aiPreviewClosed") {
       (async () => {
         try {
@@ -4247,6 +4278,12 @@ async function init() {
           setPreviewBlocked(false);
         }
       })();
+      return;
+    }
+    if (message && message.type === "aiPreviewFocusChanged") {
+      uiModule.setViewState({
+        previewFocusedXpath: typeof message.xpath === "string" ? message.xpath : ""
+      });
       return;
     }
     if (!message || message.type !== "pageDraftChanged") {

@@ -229,6 +229,10 @@ export const PopupText = Object.freeze({
   preview: Object.freeze({
     blockedActive: "Preview mode is active on this page.", // Popup curtain title while the preview is visible on-page.
     blockedHidden: "Preview mode is active. The page popover is hidden.", // Popup curtain title while preview exists but the on-page popover is minimized.
+    sidebarTitle: "Detected Content", // Title for the side-panel preview list shown during preview mode.
+    sidebarHint: "Click a row or included page content to compare both sides. Exit preview to resume editing.", // Helper text shown above the side-panel preview list.
+    loading: "Loading preview...", // Temporary text shown while the preview list is being prepared.
+    emptyState: "No content detected", // Empty-state text for the side-panel preview list.
     noStoredSelectors: "No stored selectors available", // Toast shown when preview is requested without any saved selectors.
     openFailed: "Unable to open preview", // Toast shown if the page preview cannot be opened.
     exitFailed: "Unable to exit preview" // Toast shown if preview mode cannot be closed.
