@@ -17,6 +17,7 @@ import {
   SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
+import { normalizePropertyPageTypes } from "./popup/lynx-checklist.js";
 import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
@@ -71,6 +72,25 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "aria-hidden",
   "open"
 ]);
+const URL_SEARCH_INFO_QUERY = `
+query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
+  urlSearchInfo(url: $url, includePageInfo: $includePageInfo) {
+    domainId
+    domainName
+  }
+}
+`;
+const PROPERTY_PAGE_TYPES_QUERY = `
+query getPropertyPageTypes($domainId: Int!) {
+  propertyPageTypes(organizationId: null, domainId: $domainId) {
+    pageType
+    pages {
+      url
+      wordsCount
+    }
+  }
+}
+`;
 
 let silentHighlightingUrlTimer = 0;
 let silentHighlightingObserver = null;
@@ -96,6 +116,7 @@ let silentHighlightRevealRaf = 0;
 let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
+let deviceEmulationHotkeyBusy = false;
 const silentSelectorOriginalTitles = new WeakMap();
 
 function createAiPreviewState() {
@@ -117,6 +138,236 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
+
+function normalizeStageBaseValue(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
+  }
+  let hostname = "";
+  try {
+    const url = trimmed.includes("://")
+      ? new URL(trimmed)
+      : new URL(`https://${trimmed}`);
+    hostname = (url.hostname || "").trim().toLowerCase();
+  } catch (error) {
+    return "";
+  }
+  return hostname.replace(/^\.+/, "").replace(/\.+$/, "");
+}
+
+function buildGraphqlEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBaseValue(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://api.${normalized}/graphql`;
+}
+
+function normalizeSiteIdValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function normalizeCandidatePageUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "";
+    }
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase();
+    if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
+      parsed.port = "";
+    }
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return parsed.toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+async function maybeUpdateStoredTokenFromResponse(response, currentToken = "") {
+  if (!response || !response.headers || typeof response.headers.get !== "function") {
+    return currentToken || "";
+  }
+  const updatedToken = (response.headers.get("x-update-token") || "").trim();
+  if (!updatedToken || updatedToken === (currentToken || "")) {
+    return currentToken || "";
+  }
+  await utils.storageSet(chrome.storage.sync, { globalToken: updatedToken });
+  return updatedToken;
+}
+
+async function loadGlobalAiSettingsForContent() {
+  const stored = await utils.storageGet(chrome.storage.sync, {
+    globalStageBase: "",
+    globalToken: ""
+  });
+  return {
+    stageBaseValue: typeof stored.globalStageBase === "string" ? stored.globalStageBase.trim() : "",
+    tokenValue: typeof stored.globalToken === "string" ? stored.globalToken.trim() : ""
+  };
+}
+
+async function resolveSiteIdFromGraphql(options = {}) {
+  const {
+    stageBase = "",
+    pageUrl = "",
+    tokenValue = ""
+  } = options;
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!graphqlEndpoint || !pageUrl) {
+    return null;
+  }
+  const response = await fetch(graphqlEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
+    },
+    body: JSON.stringify({
+      query: URL_SEARCH_INFO_QUERY,
+      variables: {
+        url: pageUrl,
+        includePageInfo: false
+      }
+    })
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    payload = null;
+  }
+  if (!response.ok || !payload || Array.isArray(payload.errors)) {
+    return null;
+  }
+  return normalizeSiteIdValue(
+    payload &&
+      payload.data &&
+      payload.data.urlSearchInfo &&
+      payload.data.urlSearchInfo.domainId
+  );
+}
+
+function getCurrentPageCandidateState(pageTypes, pageUrl) {
+  const normalizedUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedUrl) {
+    return { status: "missing", pageType: "" };
+  }
+  if (!Array.isArray(pageTypes) || !pageTypes.length) {
+    return { status: "empty", pageType: "" };
+  }
+  const matches = [];
+  pageTypes.forEach((pageType) => {
+    const candidates = Array.isArray(pageType && pageType.candidates) ? pageType.candidates : [];
+    candidates.forEach((candidate) => {
+      if (candidate && candidate.url === normalizedUrl) {
+        matches.push({ pageType, candidate });
+      }
+    });
+  });
+  if (!matches.length) {
+    return { status: "missing", pageType: "" };
+  }
+  if (matches.length > 1 || matches.some((match) => match.candidate && match.candidate.duplicate)) {
+    return { status: "duplicate", pageType: "" };
+  }
+  return {
+    status: "candidate",
+    pageType: typeof matches[0].pageType.key === "string" ? matches[0].pageType.key : ""
+  };
+}
+
+async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
+    return { ok: false, reason: "Set Base Page URL in the Unfluffify popup first." };
+  }
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return { ok: false, reason: "Open the Unfluffify popup first." };
+  }
+  const currentConfigs = await config.getConfigs();
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    currentConfigs[normalizedBaseUrl]
+  ).config;
+  let siteId = normalizeSiteIdValue(normalizedConfig.siteId);
+  if (!siteId) {
+    siteId = await resolveSiteIdFromGraphql({
+      stageBase: stageBaseValue,
+      pageUrl,
+      tokenValue
+    });
+    if (siteId) {
+      await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+        targetConfig.siteId = siteId;
+      });
+    }
+  }
+  if (!siteId) {
+    return { ok: false, reason: "Open the Unfluffify popup first." };
+  }
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
+  const response = await fetch(graphqlEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${tokenValue}`
+    },
+    body: JSON.stringify({
+      query: PROPERTY_PAGE_TYPES_QUERY,
+      variables: {
+        domainId: siteId
+      }
+    })
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    payload = null;
+  }
+  if (!response.ok || !payload || Array.isArray(payload.errors)) {
+    return { ok: false, reason: "Unable to verify Live Page candidates." };
+  }
+  const normalized = normalizePropertyPageTypes(
+    payload && payload.data && Array.isArray(payload.data.propertyPageTypes)
+      ? payload.data.propertyPageTypes
+      : []
+  );
+  const candidateState = getCurrentPageCandidateState(normalized.pageTypes, pageUrl);
+  if (candidateState.status === "empty") {
+    return { ok: false, reason: "Live Pages are not prepared for this site yet." };
+  }
+  if (candidateState.status === "duplicate") {
+    return { ok: false, reason: "This page is listed under multiple Live Page types and cannot be marked." };
+  }
+  if (candidateState.status !== "candidate" || !candidateState.pageType) {
+    return { ok: false, reason: "This page is not a current Live Page candidate." };
+  }
+  return { ok: true, pageType: candidateState.pageType };
+}
 
 function normalizeAiPreviewItems(items) {
   if (!Array.isArray(items)) {
@@ -368,7 +619,82 @@ async function isMobileSimulationActiveForCurrentTab() {
   return Boolean(response.state.enabled) && response.state.mode === "mobile";
 }
 
+async function resolveBaseUrlForCurrentPage() {
+  let baseUrl = state.baseUrl || "";
+  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
+    const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
+    baseUrl = tabState && tabState.baseUrl ? tabState.baseUrl : "";
+  }
+  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
+    const configs = await config.getConfigs();
+    baseUrl = utils.findMatchingBaseUrl(location.href, configs);
+  }
+  return baseUrl && utils.isPageWithinBaseUrl(location.href, baseUrl) ? baseUrl : "";
+}
+
+async function isEnableHotkeyAllowedOnPage() {
+  const currentlyEnabled = Boolean(state.enabled);
+  if (currentlyEnabled) {
+    return { allowed: true, baseUrl: state.baseUrl || "", pageType: state.currentPageType || "" };
+  }
+  const baseUrl = await resolveBaseUrlForCurrentPage();
+  if (!baseUrl) {
+    return { allowed: false, baseUrl: "", pageType: "" };
+  }
+  const baseConfig = await config.ensureConfig(baseUrl);
+  if (!config.isRenderModeConfirmed(baseConfig)) {
+    return { allowed: false, baseUrl, pageType: "" };
+  }
+  const pageTypeResult = await resolveCurrentPageTypeForMarking(baseUrl, location.href);
+  if (!pageTypeResult.ok || !pageTypeResult.pageType) {
+    return { allowed: false, baseUrl, pageType: "" };
+  }
+  return { allowed: true, baseUrl, pageType: pageTypeResult.pageType };
+}
+
+function hasSavedPageDataForHotkey(entry) {
+  return Boolean(
+    entry &&
+      ((Array.isArray(entry.xpaths) && entry.xpaths.length > 0) ||
+        (Array.isArray(entry.includeXpaths) && entry.includeXpaths.length > 0) ||
+        (Array.isArray(entry.consentXpaths) && entry.consentXpaths.length > 0) ||
+        (typeof entry.renderedHtml === "string" && entry.renderedHtml.length > 0))
+  );
+}
+
+function hasSavedAiSnapshotForHotkey(entry) {
+  return Boolean(
+    entry &&
+      typeof entry.renderedHtml === "string" &&
+      entry.renderedHtml.length > 0 &&
+      Array.isArray(entry.submissionXpaths) &&
+      entry.submissionXpaths.length > 0
+  );
+}
+
+async function isPageSaveHotkeyAllowedOnPage() {
+  if (!state.enabled || !state.baseUrl || !state.config) {
+    return false;
+  }
+  const pageUrl = location.href;
+  const draftEntry = core.getDraftPageEntry(pageUrl);
+  if (!draftEntry) {
+    return false;
+  }
+  const savedEntry = core.getSavedPageEntry(pageUrl);
+  const hasSavedPageData = hasSavedPageDataForHotkey(savedEntry);
+  const needsAiSnapshotBackfill = hasSavedPageData && !hasSavedAiSnapshotForHotkey(savedEntry);
+  const mobileSimulationActive = await isMobileSimulationActiveForCurrentTab();
+  return Boolean(
+    mobileSimulationActive &&
+    (core.isPageDraftDirty(pageUrl) || !hasSavedPageData || needsAiSnapshotBackfill)
+  );
+}
+
 async function toggleDeviceEmulationFromPage() {
+  if (deviceEmulationHotkeyBusy) {
+    return;
+  }
   let currentState = null;
   try {
     const response = await utils.sendRuntimeMessage({ type: "getDeviceEmulationState" });
@@ -390,7 +716,13 @@ async function toggleDeviceEmulationFromPage() {
       enabled: true,
       mode: "mobile"
     };
-  const result = await utils.sendRuntimeMessage(request);
+  deviceEmulationHotkeyBusy = true;
+  let result = null;
+  try {
+    result = await utils.sendRuntimeMessage(request);
+  } finally {
+    deviceEmulationHotkeyBusy = false;
+  }
   if (!result || !result.ok) {
     showPageToast("Unable to update simulation mode.");
     return;
@@ -404,6 +736,7 @@ async function toggleDeviceEmulationFromPage() {
 
 async function saveCurrentPageDraft(options) {
   const { baseUrl, pageType = "", showToast = false } = options || {};
+  const resolvedPageType = typeof pageType === "string" && pageType ? pageType : state.currentPageType || "";
   const targetBaseUrl = baseUrl || state.baseUrl || "";
   if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
     if (showToast) {
@@ -463,7 +796,7 @@ async function saveCurrentPageDraft(options) {
     document.title.trim() !== pageUrl
       ? document.title.trim()
       : "";
-  entry.pageType = typeof pageType === "string" ? pageType : entry.pageType;
+  entry.pageType = resolvedPageType || entry.pageType;
   entry.submissionXpaths = currentSubmissionXpaths;
   core.touchPageEntryTimestamp(entry);
   state.config.pageMarkings[pageUrl] = entry;
@@ -488,32 +821,39 @@ async function saveCurrentPageDraft(options) {
   };
 }
 
-async function toggleEnabledFromPage() {
+async function toggleEnabledFromPage(options = {}) {
+  const { gate = null, showDisabledToast = true } = options || {};
   const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
   const currentlyEnabled = Boolean(state.enabled || (tabState && tabState.enabled));
-  let baseUrl = state.baseUrl || (tabState && tabState.baseUrl ? tabState.baseUrl : "");
+  const gateResult = gate || await isEnableHotkeyAllowedOnPage();
+  const baseUrl = gateResult.baseUrl || state.baseUrl || (tabState && tabState.baseUrl ? tabState.baseUrl : "");
   if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
-    const configs = await config.getConfigs();
-    baseUrl = utils.findMatchingBaseUrl(location.href, configs);
+    if (showDisabledToast) {
+      showPageToast("Set Base Page URL in the Unfluffify popup first.");
+    }
+    return;
   }
-  if (!baseUrl || !utils.isPageWithinBaseUrl(location.href, baseUrl)) {
-    showPageToast("Set Base Page URL in the Unfluffify popup first.");
+  if (!gateResult.allowed) {
     return;
   }
   if (currentlyEnabled) {
+    state.currentPageType = "";
     core.disable();
     await utils.sendRuntimeMessage({
       type: "setTabState",
       enabled: false,
-      baseUrl
+      baseUrl,
+      pageType: ""
     });
     refreshSilentHighlightings().then();
     return;
   }
+  state.currentPageType = gateResult.pageType || "";
   await utils.sendRuntimeMessage({
     type: "setTabState",
     enabled: true,
-    baseUrl
+    baseUrl,
+    pageType: state.currentPageType
   });
   core.enableForBaseUrl(baseUrl).then();
   refreshSilentHighlightings().then();
@@ -3118,23 +3458,27 @@ export function main() {
     event.preventDefault();
     event.stopPropagation();
     if (key === "e") {
-      toggleEnabledFromPage().then();
+      isEnableHotkeyAllowedOnPage().then((result) => {
+        if (!result.allowed) {
+          return;
+        }
+        toggleEnabledFromPage({ gate: result, showDisabledToast: false }).then();
+      });
       return;
     }
     if (key === "m") {
+      if (deviceEmulationHotkeyBusy) {
+        return;
+      }
       toggleDeviceEmulationFromPage().then();
       return;
     }
-    if (!state.enabled) {
-      return;
-    }
-    (async () => {
-      if (!await isMobileSimulationActiveForCurrentTab()) {
-        showPageToast(PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE);
+    isPageSaveHotkeyAllowedOnPage().then((allowed) => {
+      if (!allowed) {
         return;
       }
       saveCurrentPageDraft({ showToast: true }).then();
-    })();
+    });
   }, true);
 
   document.addEventListener("click", (event) => {
@@ -3154,16 +3498,21 @@ export function main() {
 
     if (message.type === "setEnabled") {
       if (message.enabled) {
+        state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
         stopSilentHighlightingObserver();
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
         core.enableForBaseUrl(message.baseUrl)
           .then(() => {
-          refreshEnabledAiHighlights();
-        });
-        sendResponse({ ok: true });
-        return;
+            refreshEnabledAiHighlights();
+            sendResponse({ ok: true });
+          })
+          .catch(() => {
+            sendResponse({ ok: false });
+          });
+        return true;
       }
+      state.currentPageType = "";
       clearAiPreviewState();
       core.disable();
       refreshSilentHighlightings().then(() => {
@@ -3393,7 +3742,10 @@ export function main() {
         const snapshot = createCurrentPageSnapshot();
         const rawHtml = await fetchCurrentPageRawHtml(location.href);
         entry.renderedHtml = snapshot.renderedHtml;
-        entry.pageType = typeof message.pageType === "string" ? message.pageType : entry.pageType;
+        entry.pageType =
+          (typeof message.pageType === "string" && message.pageType) ||
+          state.currentPageType ||
+          entry.pageType;
         entry.rawHtml = typeof rawHtml === "string"
           ? rawHtml
           : typeof entry.rawHtml === "string"

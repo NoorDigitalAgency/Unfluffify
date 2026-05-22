@@ -2939,45 +2939,6 @@ async function refreshUiInner() {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
-
-  const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
-  const storedPageMarkingItems = collectStoredPageMarkingItems(
-    pageMarkings,
-    state.currentBaseUrl
-  );
-  const pageTypeCoverageModel = buildLynxChecklistViewModel({
-    aiAnswer: state.lynxChecklistAiAnswer,
-    pageTypes: propertyPageTypes,
-    markedPages: storedPageMarkingItems
-  });
-  const activeMarkedPageKeys = new Set(
-    pageTypeCoverageModel.activeMarkedPages
-      .map((item) => buildPageMarkingKey(item.url, item.pageType))
-      .filter(Boolean)
-  );
-  const pageMarkingItemByKey = new Map(
-    storedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
-  );
-  const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
-  const hasStoredCurrentPageEntry = storedPageMarkingItems.some(
-    (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
-  );
-  const currentPageCandidateState = getCurrentPageCandidateState(
-    pageUrl,
-    pageTypeCoverageModel.pageTypes
-  );
-  const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
-  const pageTypeUiBlocked = Boolean(
-    tabInScope &&
-    state.currentBaseUrl &&
-    siteIdReady &&
-    !unsupportedByGraphql &&
-    (currentPageCandidateState.status === "missing" ||
-      currentPageCandidateState.status === "duplicate" ||
-      currentPageCandidateState.status === "empty")
-  );
-  state.currentPageTypeKey = currentPageCandidateState.pageTypeKey || "";
-  state.currentPageTypeTitle = currentPageCandidateState.pageTypeTitle || "";
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => ({
     key: pageType.key,
     title: pageType.title,
@@ -3487,8 +3448,18 @@ async function handleEnableToggle(event) {
     await refreshUi();
     return;
   }
+  if (desiredEnabled && !state.currentPageTypeKey) {
+    uiModule.showToast(
+      uiModule.getViewState().pageTypeNoticeText || PopupText.pageTypes.blockedCurrentPage
+    );
+    uiModule.setViewState({ toggleEnabled: false });
+    state.lastPopupEnabled = null;
+    await refreshUi();
+    return;
+  }
   state.lastPopupEnabled = desiredEnabled;
   const baseUrlValue = state.currentBaseUrl;
+  const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
   await runWithPopupBusyOverlay(
     desiredEnabled ? PopupText.overlay.enablingMarking : PopupText.overlay.disablingMarking,
     async () => {
@@ -3542,21 +3513,24 @@ async function handleEnableToggle(event) {
         await utils.setTabState(tab.id, {
           enabled: true,
           baseUrl: effectiveBaseUrl,
+          pageType: currentPageTypeKey,
           silentHighlightOptions: getSilentHighlightVisibility()
         });
         await messages.sendTabMessageWithRetry({
           type: "setEnabled",
           enabled: true,
-          baseUrl: effectiveBaseUrl
+          baseUrl: effectiveBaseUrl,
+          pageType: currentPageTypeKey
         });
         await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
       } else {
         await utils.setTabState(tab.id, {
           enabled: false,
           baseUrl: baseUrlValue,
+          pageType: "",
           silentHighlightOptions: getSilentHighlightVisibility()
         });
-        await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
+        await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false, pageType: "" });
       }
       await refreshUi();
     },
@@ -4775,6 +4749,9 @@ async function init() {
     }
     const view = uiModule.getViewState();
     if (key === "e") {
+      if (view.toggleEnabledDisabled) {
+        return;
+      }
       handleEnableToggle({ target: { checked: !view.toggleEnabled } }).then();
       return;
     }

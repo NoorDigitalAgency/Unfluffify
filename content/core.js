@@ -23,6 +23,7 @@ import {
 export const state = {
   enabled: false,
   baseUrl: "",
+  currentPageType: "",
   config: null,
   overlay: null,
   layers: {},
@@ -4868,11 +4869,12 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
 
 export function getPageMarkingEntry(configValue, pageUrl, options) {
   const { create = true, persist = true } = options || {};
+  const currentPageType = normalizePageEntryPageType(state.currentPageType);
   if (!configValue) {
     return {
       title: "",
       timestamp: createCurrentTimestamp(),
-      pageType: "",
+      pageType: currentPageType,
       xpaths: [],
       consentXpaths: [],
       includeXpaths: [],
@@ -4886,12 +4888,15 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   }
   const existing = configValue.pageMarkings[pageUrl];
   if (existing && Array.isArray(existing.xpaths)) {
+    if (!normalizePageEntryPageType(existing.pageType) && currentPageType) {
+      existing.pageType = currentPageType;
+    }
     return normalizePageEntryXpaths(existing);
   }
   const entry = {
     title: normalizePageEntryTitle(document.title, pageUrl || ""),
     timestamp: createCurrentTimestamp(),
-    pageType: "",
+    pageType: currentPageType,
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
@@ -4950,6 +4955,7 @@ export function disable() {
   cacheUnsavedDraftBeforeDisable();
   state.enabled = false;
   state.baseUrl = "";
+  state.currentPageType = "";
   state.config = null;
   state.currentPageUrl = "";
   state.currentPageEntry = null;
@@ -5019,6 +5025,9 @@ export async function enableForBaseUrl(baseUrl) {
       state.config &&
       state.config.pageMarkings &&
       state.config.pageMarkings[pageUrl];
+  if (!state.currentPageType) {
+    state.currentPageType = normalizePageEntryPageType(savedEntry && savedEntry.pageType);
+  }
   setSavedPageEntry(pageUrl, savedEntry || null);
   const cachedDraft = state.disabledUnsavedDraft;
   if (
@@ -5306,6 +5315,12 @@ export async function refreshFromTabState() {
           config.pageMarkings && config.pageMarkings[pageUrl]
               ? config.pageMarkings[pageUrl]
               : null;
+      state.currentPageType = normalizePageEntryPageType(
+        (response && response.pageType) || (storedEntry && storedEntry.pageType) || ""
+      );
+      if (draftEntry && !normalizePageEntryPageType(draftEntry.pageType) && state.currentPageType) {
+        draftEntry.pageType = state.currentPageType;
+      }
       mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
       state.baseUrl = response.baseUrl;
       state.config = config;

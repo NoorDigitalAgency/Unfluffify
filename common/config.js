@@ -570,6 +570,10 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.pageType !== undefined && pageType !== entry.pageType) {
       changed = true;
     }
+    if (!pageType) {
+      changed = true;
+      return;
+    }
     if (entry.renderMode !== undefined) {
       changed = true;
     }
@@ -870,12 +874,21 @@ export async function getConfigs() {
   const result = await idbGet("configs");
   const rawConfigs = result.configs || {};
   const normalizedConfigs = {};
+  let changed = false;
   Object.entries(rawConfigs).forEach(([key, value]) => {
     const normalizedKey = normalizeBaseUrl(key) || key;
+    if (normalizedKey !== key) {
+      changed = true;
+    }
     if (!normalizedConfigs[normalizedKey]) {
-      normalizedConfigs[normalizedKey] = value;
+      const normalizedValue = normalizeConfig(normalizedKey, value);
+      normalizedConfigs[normalizedKey] = normalizedValue.config;
+      if (normalizedValue.changed) {
+        changed = true;
+      }
       return;
     }
+    changed = true;
     const existing = normalizeConfig(normalizedKey, normalizedConfigs[normalizedKey]).config;
     const incoming = normalizeConfig(normalizedKey, value).config;
     const mergedPageMarkings = mergePageMarkingsByTimestamp(
@@ -907,6 +920,9 @@ export async function getConfigs() {
       submittedSelectorsFingerprint: selectors.submittedFingerprint
     };
   });
+  if (changed) {
+    await idbSet({ configs: normalizedConfigs });
+  }
   return normalizedConfigs;
 }
 

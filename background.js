@@ -72,6 +72,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           enabled: Boolean(message.enabled),
           baseUrl: message.baseUrl || ""
         };
+        if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
+          nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
+        }
         if (existing.silentHighlightOptions) {
           nextState.silentHighlightOptions = normalizeSilentHighlightOptions(
             existing.silentHighlightOptions
