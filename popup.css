@@ -1554,7 +1554,7 @@ span.todo-candidate-link {
   gap: 10px;
   margin: -12px -12px 2px;
   padding: 10px 12px 8px;
-  background: rgba(248, 249, 252, 0.96);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -1601,11 +1601,11 @@ span.todo-candidate-link {
 
 .preview-sidebar__item-button:hover {
   background: var(--bg-accent);
-  border-color: #d1d5db;
+  border-color: color-mix(in srgb, var(--line) 70%, var(--ink) 30%);
 }
 
 .preview-sidebar__item-button:focus-visible {
-  outline: 2px solid rgba(79, 70, 229, 0.3);
+  outline: 2px solid color-mix(in srgb, var(--accent) 36%, transparent);
   outline-offset: 2px;
 }
 
@@ -1614,13 +1614,13 @@ span.todo-candidate-link {
 }
 
 .preview-sidebar__item--active .preview-sidebar__item-button {
-  border-color: rgba(79, 70, 229, 0.4);
-  background: var(--bg-accent);
-  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.1);
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
+  background: color-mix(in srgb, var(--accent-light) 72%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .preview-sidebar__item--active .preview-sidebar__item-index {
-  color: var(--accent);
+  color: var(--accent-dark);
 }
 
 .preview-sidebar__item-index {
