@@ -3034,6 +3034,33 @@ async function handleThemeInput(event) {
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
 
+async function cycleTheme(direction) {
+  const options = Array.isArray(THEME_OPTIONS) ? THEME_OPTIONS : [];
+  if (!options.length) {
+    return;
+  }
+  const currentTheme = normalizeThemeValue(state.currentTheme);
+  const currentIndex = options.findIndex((item) => item && item.value === currentTheme);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const delta = direction < 0 ? -1 : 1;
+  const nextIndex = (safeIndex + delta + options.length) % options.length;
+  state.currentTheme = normalizeThemeValue(options[nextIndex].value);
+  applyPopupTheme(state.currentTheme, state.currentThemeMode);
+  uiModule.setViewState({
+    themeValue: state.currentTheme,
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+  });
+  await persistThemeSettings(state.currentTheme, state.currentThemeMode);
+}
+
+async function handleThemePrevious() {
+  await cycleTheme(-1);
+}
+
+async function handleThemeNext() {
+  await cycleTheme(1);
+}
+
 async function handleThemeModeInput(event) {
   const nextThemeModeValue = normalizeThemeModeValue(
     event && event.target ? event.target.value : state.currentThemeMode
@@ -3312,9 +3339,9 @@ function handleTodoCollapseAll() {
   uiModule.setTodoAllSubsectionsExpanded(false);
 }
 
-function handleTodoAutoCollapseChange(event) {
-  const source = event && (event.currentTarget || event.target);
-  uiModule.setTodoAutoCollapse(Boolean(source && source.checked));
+function handleTodoAutoCollapseToggle() {
+  const view = uiModule.getViewState();
+  uiModule.setTodoAutoCollapse(!Boolean(view.todoAutoCollapse));
 }
 
 function handleHighlightingSectionToggle() {
@@ -4734,7 +4761,7 @@ async function init() {
     onTodoSubsectionToggle: handleTodoSubsectionToggle,
     onTodoExpandAll: handleTodoExpandAll,
     onTodoCollapseAll: handleTodoCollapseAll,
-    onTodoAutoCollapseChange: handleTodoAutoCollapseChange,
+    onTodoAutoCollapseToggle: handleTodoAutoCollapseToggle,
     onHighlightingSectionToggle: handleHighlightingSectionToggle,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
@@ -4752,6 +4779,8 @@ async function init() {
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
     onThemeInput: handleThemeInput,
+    onThemePrevious: handleThemePrevious,
+    onThemeNext: handleThemeNext,
     onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,

@@ -186,6 +186,10 @@ function editToggleIcon(actionText) {
   return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
 }
 
+function todoAutoCollapseIcon(enabled) {
+  return enabled ? "unfold-less-horizontal" : "unfold-more-horizontal";
+}
+
 function statusToneClass(tone) {
   const normalizedTone =
     tone === "success" || tone === "warning" || tone === "danger"
@@ -408,13 +412,17 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
           "aria-expanded": sectionExpanded ? "true" : "false",
           onClick: handlers.onTodoSectionToggle
         },
-        h("span", { class: "section-title" }, PopupText.pageTypes.title),
+        h(
+          "span",
+          { class: "todo-header-title" },
+          h("span", { class: "section-title" }, PopupText.pageTypes.title)
+        ),
         h(
           "span",
           {
             class: classNames(
               "todo-status-line",
-              progress.done ? "status-text--success" : "status-text--muted"
+              progress.done ? "todo-status-line--done" : "todo-status-line--pending"
             )
           },
           renderTodoIndicator(
@@ -458,7 +466,6 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
       ? h(
           "div",
           { class: "todo-body" },
-          h("div", { class: "hint" }, PopupText.pageTypes.hint),
           view.pageTypeGroups.length
             ? [
                 h(
@@ -472,29 +479,38 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                       {
                         type: "button",
                         class: "button-secondary button-small",
+                        title: PopupText.pageTypes.expandAll,
+                        "aria-label": PopupText.pageTypes.expandAll,
                         onClick: handlers.onTodoExpandAll
                       },
-                      PopupText.pageTypes.expandAll
+                      icon("unfold-more-horizontal")
                     ),
                     h(
                       "button",
                       {
                         type: "button",
                         class: "button-secondary button-small",
+                        title: PopupText.pageTypes.collapseAll,
+                        "aria-label": PopupText.pageTypes.collapseAll,
                         onClick: handlers.onTodoCollapseAll
                       },
-                      PopupText.pageTypes.collapseAll
+                      icon("unfold-less-horizontal")
                     )
                   ),
                   h(
-                    "label",
-                    { class: "todo-controls__auto-collapse" },
-                    h("input", {
-                      type: "checkbox",
-                      checked: view.todoAutoCollapse,
-                      onChange: handlers.onTodoAutoCollapseChange
-                    }),
-                    h("span", null, PopupText.pageTypes.autoCollapse)
+                    "button",
+                    {
+                      type: "button",
+                      class: classNames(
+                        "todo-controls__auto-collapse",
+                        view.todoAutoCollapse && "todo-controls__auto-collapse--active"
+                      ),
+                      title: PopupText.pageTypes.autoCollapse,
+                      "aria-label": PopupText.pageTypes.autoCollapse,
+                      "aria-pressed": view.todoAutoCollapse ? "true" : "false",
+                      onClick: handlers.onTodoAutoCollapseToggle
+                    },
+                    icon(todoAutoCollapseIcon(view.todoAutoCollapse))
                   )
                 ),
                 view.pageTypeGroups.map((group) => {
@@ -996,13 +1012,6 @@ function renderLynxChecklistPopover(view, handlers) {
                       item.missing ? PopupText.pageTypes.missingBadge : PopupText.pageTypes.readyBadge
                     )
                   ),
-                  h(
-                    "div",
-                    { class: "lynx-checklist-popover__page-type-subtitle" },
-                    item.markedCount
-                      ? `${item.markedCount} saved ${item.markedCount === 1 ? "page" : "pages"}`
-                      : PopupText.pageTypes.markRequirement
-                  ),
                   item.missing && item.candidatePreview.length
                     ? h(
                         "div",
@@ -1064,6 +1073,7 @@ function renderLynxChecklistPopover(view, handlers) {
             class: "button-secondary",
             onClick: handlers.onLynxChecklistCancel
           },
+          icon("arrow-left"),
           PopupText.actions.cancel
         ),
         h(
@@ -1074,6 +1084,7 @@ function renderLynxChecklistPopover(view, handlers) {
             disabled: !checklist.canSend,
             onClick: handlers.onLynxChecklistSend
           },
+          icon("send"),
           PopupText.actions.sendToLynx
         )
       )
@@ -1412,17 +1423,6 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
                 checked: view.highlightVisibleConsentChecked,
                 onChange: handlers.onHighlightVisibleConsentChange
               })
-            ),
-            h(
-              "label",
-              { class: "row" },
-              h("span", { class: "row-label" }, icon("unfold-more-horizontal", "row-icon"), PopupText.pageTypes.autoCollapse),
-              h("input", {
-                id: "highlighting-auto-collapse",
-                type: "checkbox",
-                checked: view.todoAutoCollapse,
-                onChange: handlers.onTodoAutoCollapseChange
-              })
             )
           )
         : null
@@ -1739,22 +1739,50 @@ function renderConfigurationView({state: view, actions: handlers}) {
                 "label",
                 { class: "config-appearance-control" },
                 h("span", { class: "config-appearance-label" }, PopupText.configuration.themeFieldLabel),
-                h("select", {
-                  id: "theme-select",
-                  value: view.themeValue,
-                  disabled: view.themeControlsDisabled,
-                  onChange: handlers.onThemeInput
-                },
-                ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
+                h(
+                  "div",
+                  { class: "theme-control-row" },
                   h(
-                    "option",
+                    "button",
                     {
-                      key: option.value,
-                      value: option.value
+                      type: "button",
+                      class: "button-secondary button-small theme-nav-button",
+                      disabled: view.themeControlsDisabled,
+                      title: PopupText.configuration.themePrevious,
+                      "aria-label": PopupText.configuration.themePrevious,
+                      onClick: handlers.onThemePrevious
                     },
-                    option.label
+                    icon("chevron-left")
+                  ),
+                  h("select", {
+                    id: "theme-select",
+                    value: view.themeValue,
+                    disabled: view.themeControlsDisabled,
+                    onChange: handlers.onThemeInput
+                  },
+                  ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
+                    h(
+                      "option",
+                      {
+                        key: option.value,
+                        value: option.value
+                      },
+                      option.label
+                    )
+                  )),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      class: "button-secondary button-small theme-nav-button",
+                      disabled: view.themeControlsDisabled,
+                      title: PopupText.configuration.themeNext,
+                      "aria-label": PopupText.configuration.themeNext,
+                      onClick: handlers.onThemeNext
+                    },
+                    icon("chevron-right")
                   )
-                ))
+                )
               ),
               h(
                 "label",

@@ -287,6 +287,24 @@ button.button-small {
   max-width: 100%;
 }
 
+.theme-control-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-nav-button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.theme-nav-button .btn-icon {
+  margin-right: 0;
+}
+
 .config-appearance-control--mode select {
   min-width: 104px;
 }
@@ -1280,14 +1298,26 @@ button.loading:disabled {
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--accent-light) 100%;
+  background: transparent;
   color: inherit;
   text-align: left;
+}
+
+.todo-header-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.todo-header .section-title {
+  color: color-mix(in srgb, var(--accent-dark) 80%, var(--ink));
+  font-weight: 700;
+  letter-spacing: 0.75px;
 }
 
 .todo-header::before {
@@ -1305,7 +1335,7 @@ button.loading:disabled {
 }
 
 .todo-header:hover {
-  background: color-mix(in srgb, var(--accent-light) 70%, transparent);
+  background: color-mix(in srgb, var(--accent-light) 62%, transparent);
   box-shadow: none;
   filter: none;
 }
@@ -1316,10 +1346,27 @@ button.loading:disabled {
   gap: 4px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 72%, var(--accent-light));
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  margin-left: auto;
+  border: 1px solid transparent;
   font-size: 12px;
   font-weight: 600;
+}
+
+.todo-status-line--done {
+  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
+  color: var(--card);
+}
+
+.todo-status-line--pending {
+  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
+  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
+  color: var(--card);
+}
+
+.todo-status-line .todo-indicator--done,
+.todo-status-line .todo-indicator--pending {
+  color: inherit;
 }
 
 .todo-controls {
@@ -1337,10 +1384,26 @@ button.loading:disabled {
 }
 
 .todo-controls__auto-collapse {
+  min-width: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-accent);
+  color: var(--muted);
+}
+
+.todo-controls__auto-collapse--active {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  color: var(--accent-dark);
+}
+
+.todo-controls__auto-collapse .btn-icon {
+  margin-right: 0;
 }
 
 .todo-body {
@@ -1404,6 +1467,14 @@ button.loading:disabled {
 .todo-controls__buttons button:hover {
   background: color-mix(in srgb, var(--accent-light) 70%, transparent);
   box-shadow: none;
+}
+
+.todo-controls__auto-collapse:hover {
+  background: color-mix(in srgb, var(--bg-accent) 82%, var(--card));
+}
+
+.todo-controls__auto-collapse--active:hover {
+  background: color-mix(in srgb, var(--accent) 24%, var(--card));
 }
 
 .todo-subsection-title {

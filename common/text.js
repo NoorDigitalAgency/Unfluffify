@@ -227,7 +227,7 @@ export const PopupText = Object.freeze({
   }),
 
   pageTypes: Object.freeze({
-    title: "Page Type Candidates", // Section title for the current site's GraphQL-driven page-type candidates.
+    title: "Todo List", // Section title for the current site's GraphQL-driven page-type candidates.
     hint: "Only the listed Live Page candidates can be marked and sent.", // Helper text shown above the page-type candidate hierarchy.
     emptyState: "Live Pages are not prepared for this site yet. Prepare them in Lynx before marking pages here.", // Empty-state message when the GraphQL query returns no candidate pages.
     blockedCurrentPage: "This page is not one of the current Live Page candidates. Choose one of the listed candidates to continue.", // Notice shown when the active tab URL is not a current candidate.
@@ -353,6 +353,8 @@ export const PopupText = Object.freeze({
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
     appearanceSectionTitle: "Appearance", // Section title for popup theme controls.
     themeFieldLabel: "Theme", // Label for selecting a popup theme.
+    themePrevious: "Previous theme", // Accessibility label for cycling to the previous theme.
+    themeNext: "Next theme", // Accessibility label for cycling to the next theme.
     themeModeFieldLabel: "Mode", // Label for selecting light/dark/system mode behavior.
     themeModeSystem: "System", // Theme mode option that follows system preference.
     themeModeLight: "Light", // Theme mode option that forces light mode.
