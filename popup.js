@@ -1954,6 +1954,67 @@ function readCheckboxValue(event, fallbackValue) {
   return Boolean(target.checked);
 }
 
+function buildTodoExpansionKey(tabId = null, baseUrl = "") {
+  const normalizedTabId = tabId || (state.currentTab && state.currentTab.id) || null;
+  const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
+    ? baseUrl
+    : state.currentBaseUrl;
+  return normalizedTabId && normalizedBaseUrl ? `${normalizedTabId}|${normalizedBaseUrl}` : "";
+}
+
+function getTodoExpansionStateFromView() {
+  const view = uiModule.getViewState();
+  return {
+    todoSectionExpanded: Boolean(view.todoSectionExpanded),
+    todoSubsectionsExpanded: {
+      ...(view.todoSubsectionsExpanded && typeof view.todoSubsectionsExpanded === "object"
+        ? view.todoSubsectionsExpanded
+        : {})
+    }
+  };
+}
+
+function saveCurrentTodoExpansionState() {
+  const key = state.currentTodoExpansionKey || buildTodoExpansionKey();
+  if (!key) {
+    return;
+  }
+  state.todoExpansionStateByContext.set(key, getTodoExpansionStateFromView());
+}
+
+function getCollapsedTodoExpansionState() {
+  return {
+    todoControlsMenuOpen: false,
+    todoSectionExpanded: false,
+    todoSubsectionsExpanded: {}
+  };
+}
+
+function getSavedTodoExpansionState(key) {
+  if (!key) {
+    return null;
+  }
+  const saved = state.todoExpansionStateByContext.get(key);
+  if (!saved || typeof saved !== "object") {
+    return null;
+  }
+  return {
+    todoControlsMenuOpen: false,
+    todoSectionExpanded: Boolean(saved.todoSectionExpanded),
+    todoSubsectionsExpanded: {
+      ...(saved.todoSubsectionsExpanded && typeof saved.todoSubsectionsExpanded === "object"
+        ? saved.todoSubsectionsExpanded
+        : {})
+    }
+  };
+}
+
+function collapseTodoListForAutoCollapse() {
+  if (uiModule.getViewState().todoAutoCollapse) {
+    uiModule.collapseTodoList();
+  }
+}
+
 async function refreshUiInner() {
   if (!state.currentTab) {
     return;
@@ -1962,6 +2023,7 @@ async function refreshUiInner() {
   await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
+  saveCurrentTodoExpansionState();
   if (tabChanged) {
     state.stageBaseEditMode = false;
     state.endpointEditMode = false;
@@ -2999,6 +3061,23 @@ async function refreshUiInner() {
   nextViewState.basePageUrls = basePageUrls;
   nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
+  const nextTodoExpansionKey = buildTodoExpansionKey(currentTabId, state.currentBaseUrl);
+  const currentTodoExpansionKey = state.currentTodoExpansionKey;
+  const todoExpansionContextChanged = nextTodoExpansionKey !== currentTodoExpansionKey;
+  const todoExpansionShouldCollapse =
+    !nextTodoExpansionKey ||
+    state.currentBaseUrl !== previousBaseUrl ||
+    (todoExpansionContextChanged && nextViewState.todoAutoCollapse);
+  if (todoExpansionShouldCollapse) {
+    Object.assign(nextViewState, getCollapsedTodoExpansionState());
+  } else if (todoExpansionContextChanged) {
+    Object.assign(
+      nextViewState,
+      getSavedTodoExpansionState(nextTodoExpansionKey) || getCollapsedTodoExpansionState()
+    );
+  }
+  state.currentTodoExpansionKey = nextTodoExpansionKey;
+
   uiModule.setViewState(nextViewState);
   if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
     await applySilentHighlightVisibility();
@@ -3403,22 +3482,26 @@ function handleTodoControlsMenuClick(event) {
 function handleTodoSectionToggle() {
   const view = uiModule.getViewState();
   uiModule.setTodoSectionExpanded(!view.todoSectionExpanded);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoSubsectionToggle(key) {
   const view = uiModule.getViewState();
   const expanded = Boolean(view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[key]);
   uiModule.setTodoSubsectionExpanded(key, !expanded);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoExpandAll() {
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(true);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoCollapseAll() {
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(false);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoAutoCollapseToggle() {
@@ -3438,7 +3521,7 @@ async function handleOpenConfigurationView() {
   uiModule.setBasePageMenuOpen(false);
   clearRemoteConfigRetryTimer();
   state.currentView = uiModule.View.Configuration;
-  uiModule.collapseTodoList();
+  collapseTodoListForAutoCollapse();
   uiModule.setViewState({ currentView: state.currentView });
   await refreshUi();
 }
@@ -3459,7 +3542,7 @@ async function maybeSwitchToMarkingView() {
   ) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
-    uiModule.collapseTodoList();
+    collapseTodoListForAutoCollapse();
     uiModule.setViewState({ currentView: state.currentView });
   }
 }
@@ -3553,25 +3636,15 @@ async function handleMarkedPageNavigate(url) {
   if (!view.todoAutoCollapse) {
     return;
   }
-  const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
-  const matchingGroup = pageTypeGroups.find((group) =>
-    Array.isArray(group.candidates) && group.candidates.some((candidate) => candidate.url === url)
-  );
-  const targetCandidate = matchingGroup
-    ? matchingGroup.candidates.find((candidate) => candidate.url === url)
-    : null;
-  if (targetCandidate && targetCandidate.marked && matchingGroup.candidates.length > 1) {
-    uiModule.setTodoAllSubsectionsExpanded(false);
-    uiModule.setTodoSectionExpanded(true);
-    uiModule.setTodoSubsectionExpanded(matchingGroup.key, true);
-    return;
-  }
   uiModule.collapseTodoList();
 }
 
 async function handleBasePageNavigate(url) {
   uiModule.setBasePageMenuOpen(false);
-  await navigateActiveTabToUrl(url);
+  const navigated = await navigateActiveTabToUrl(url);
+  if (navigated) {
+    collapseTodoListForAutoCollapse();
+  }
 }
 
 async function handleLynxChecklistCandidateNavigate(url) {
@@ -3579,7 +3652,10 @@ async function handleLynxChecklistCandidateNavigate(url) {
     return;
   }
   closeLynxChecklistPopover();
-  await navigateActiveTabToUrl(url);
+  const navigated = await navigateActiveTabToUrl(url);
+  if (navigated) {
+    collapseTodoListForAutoCollapse();
+  }
 }
 
 async function handleEnableToggle(event) {
@@ -3589,7 +3665,7 @@ async function handleEnableToggle(event) {
     ? Boolean(source.checked)
     : currentViewState.toggleEnabled;
   if (desiredEnabled !== currentViewState.toggleEnabled) {
-    uiModule.collapseTodoList();
+    collapseTodoListForAutoCollapse();
   }
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
@@ -4768,6 +4844,7 @@ async function handlePreviewLatest() {
     return;
   }
   state.lastPopupEnabled = null;
+  collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const response = await messages.sendTabMessage({
