@@ -294,12 +294,12 @@ function renderBasePageMenu(view, handlers) {
 }
 
 function renderThemePalette(option, extraClassName = "") {
-  const themeValue = option && typeof option.value === "string" ? option.value : "";
+  const themeId = option && typeof option.value === "string" ? option.value : "";
   return h(
     "span",
     {
       class: classNames("theme-palette", extraClassName),
-      "data-theme": themeValue || null,
+      "data-theme": themeId || null,
       "aria-hidden": "true"
     },
     [1, 2, 3, 4].map((index) =>
@@ -326,6 +326,7 @@ function renderThemeDropdown(view, handlers) {
         disabled: view.themeControlsDisabled,
         "aria-haspopup": "listbox",
         "aria-expanded": view.themeMenuOpen ? "true" : "false",
+        "aria-labelledby": "theme-field-label theme-dropdown-toggle",
         onClick: handlers.onThemeMenuToggle,
         ref: (el) => {
           refs.themeDropdownButton = el;
@@ -415,7 +416,7 @@ function renderThemeModeButtons(view, handlers) {
   };
   return h(
     "div",
-    { class: "theme-mode-buttons", role: "group", "aria-label": PopupText.configuration.themeModeFieldLabel },
+    { class: "theme-mode-buttons", role: "group", "aria-labelledby": "theme-mode-field-label" },
     ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
       h(
         "button",
@@ -1872,7 +1873,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
             h(
               "div",
               { class: "config-appearance-control" },
-              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
+              h("span", { id: "theme-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
               h(
                 "div",
                 { class: "theme-control-row" },
@@ -1906,7 +1907,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
             h(
               "div",
               { class: "config-appearance-control config-appearance-control--mode" },
-              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
+              h("span", { id: "theme-mode-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
               renderThemeModeButtons(view, handlers)
             )
           )
