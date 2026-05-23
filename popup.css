@@ -1329,6 +1329,13 @@ button.loading:disabled {
   padding: 6px 0;
 }
 
+.todo-candidate--current {
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-light) 70%, var(--card));
+}
+
 .todo-candidate + .todo-candidate {
   border-top: 1px solid var(--line);
 }
@@ -1364,6 +1371,23 @@ span.todo-candidate-link {
 .todo-candidate-words {
   font-size: 10px;
   color: var(--muted);
+}
+
+.todo-candidate-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+
+.todo-candidate-badge--current {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-dark);
 }
 
 .todo-indicator {

@@ -585,6 +585,17 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                                           formatCandidateWordsCount(item.wordsCount)
                                         )
                                       : null,
+                                    item.current
+                                      ? h(
+                                          "span",
+                                          {
+                                            class: "todo-candidate-badge todo-candidate-badge--current",
+                                            role: "status",
+                                            "aria-live": "polite"
+                                          },
+                                          PopupText.pageTypes.currentBadge
+                                        )
+                                      : null,
                                     item.duplicateNotice
                                       ? h(
                                           "div",
