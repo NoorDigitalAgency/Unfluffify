@@ -345,7 +345,10 @@ function renderThemeDropdown(view, handlers) {
           view.themeMenuPlacement === "top" && "theme-dropdown__menu--top"
         ),
         role: "listbox",
-        hidden: !view.themeMenuOpen
+        hidden: !view.themeMenuOpen,
+        onClick: (event) => {
+          event.stopPropagation();
+        }
       },
       themeOptions.map((option) =>
         h(
