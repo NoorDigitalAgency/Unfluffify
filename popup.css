@@ -315,6 +315,16 @@ button.button-small {
   white-space: nowrap;
 }
 
+.theme-dropdown__caret {
+  margin-left: auto;
+  margin-right: 0;
+  transition: transform 120ms ease;
+}
+
+.theme-dropdown__caret--open {
+  transform: rotate(180deg);
+}
+
 .theme-dropdown__menu {
   left: 0;
   right: auto;
@@ -333,6 +343,10 @@ button.button-small {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   justify-items: start;
+}
+
+.theme-dropdown__menu button.is-selected {
+  background: color-mix(in srgb, var(--accent-light) 62%, var(--card));
 }
 
 .theme-palette {

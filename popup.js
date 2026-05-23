@@ -77,6 +77,7 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
+const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -1981,7 +1982,20 @@ function saveCurrentTodoExpansionState() {
   if (!key) {
     return;
   }
+  if (!(state.todoExpansionStateByContext instanceof Map)) {
+    state.todoExpansionStateByContext = new Map();
+  }
+  if (state.todoExpansionStateByContext.has(key)) {
+    state.todoExpansionStateByContext.delete(key);
+  }
   state.todoExpansionStateByContext.set(key, getTodoExpansionStateFromView());
+  while (state.todoExpansionStateByContext.size > TODO_EXPANSION_CONTEXT_LIMIT) {
+    const oldestKey = state.todoExpansionStateByContext.keys().next().value;
+    if (typeof oldestKey !== "string" || !oldestKey) {
+      break;
+    }
+    state.todoExpansionStateByContext.delete(oldestKey);
+  }
 }
 
 function getCollapsedTodoExpansionState() {
@@ -1993,13 +2007,15 @@ function getCollapsedTodoExpansionState() {
 }
 
 function getSavedTodoExpansionState(key) {
-  if (!key) {
+  if (!key || !(state.todoExpansionStateByContext instanceof Map)) {
     return null;
   }
   const saved = state.todoExpansionStateByContext.get(key);
   if (!saved || typeof saved !== "object") {
     return null;
   }
+  state.todoExpansionStateByContext.delete(key);
+  state.todoExpansionStateByContext.set(key, saved);
   return {
     todoControlsMenuOpen: false,
     todoSectionExpanded: Boolean(saved.todoSectionExpanded),
@@ -3148,6 +3164,34 @@ function handleThemeMenuToggle(event) {
   event.stopPropagation();
   const view = uiModule.getViewState();
   uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
+}
+
+function handleThemeMenuKeyDown(event) {
+  const key = event && typeof event.key === "string" ? event.key : "";
+  let indexDelta = null;
+  if (key === "ArrowDown") {
+    indexDelta = 1;
+  } else if (key === "ArrowUp") {
+    indexDelta = -1;
+  }
+  const options = Array.isArray(THEME_OPTIONS) ? THEME_OPTIONS : [];
+  if (
+    indexDelta === null ||
+    !options.length ||
+    uiModule.getViewState().themeControlsDisabled
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const currentTheme = normalizeThemeValue(state.currentTheme);
+  const currentIndex = options.findIndex((item) => item && item.value === currentTheme);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const nextIndex = (safeIndex + indexDelta + options.length) % options.length;
+  if (!uiModule.getViewState().themeMenuOpen) {
+    uiModule.setThemeMenuOpen(true, getThemeMenuPlacement());
+  }
+  handleThemeOptionSelect(options[nextIndex].value).then();
 }
 
 async function handleThemeOptionSelect(value) {
@@ -4943,6 +4987,7 @@ async function init() {
     onThemePrevious: handleThemePrevious,
     onThemeNext: handleThemeNext,
     onThemeMenuToggle: handleThemeMenuToggle,
+    onThemeMenuKeyDown: handleThemeMenuKeyDown,
     onThemeOptionSelect: handleThemeOptionSelect,
     onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,

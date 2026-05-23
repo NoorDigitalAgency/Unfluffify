@@ -329,12 +329,17 @@ function renderThemeDropdown(view, handlers) {
         "aria-expanded": view.themeMenuOpen ? "true" : "false",
         "aria-label": `${PopupText.configuration.themeFieldLabel}: ${selectedTheme ? selectedTheme.label : ""}`,
         onClick: handlers.onThemeMenuToggle,
+        onKeyDown: handlers.onThemeMenuKeyDown,
         ref: (el) => {
           refs.themeDropdownButton = el;
         }
       },
       h("span", { class: "theme-dropdown__label" }, selectedTheme ? selectedTheme.label : ""),
-      renderThemePalette(selectedTheme)
+      renderThemePalette(selectedTheme),
+      icon(
+        "chevron-down",
+        classNames("theme-dropdown__caret", view.themeMenuOpen && "theme-dropdown__caret--open")
+      )
     ),
     h(
       "div",
@@ -346,6 +351,10 @@ function renderThemeDropdown(view, handlers) {
         ),
         role: "listbox",
         hidden: !view.themeMenuOpen,
+        onKeyDown: handlers.onThemeMenuKeyDown,
+        onMouseDown: (event) => {
+          event.stopPropagation();
+        },
         onClick: (event) => {
           event.stopPropagation();
         }
@@ -356,6 +365,7 @@ function renderThemeDropdown(view, handlers) {
           {
             key: option.value,
             type: "button",
+            class: classNames(option.value === view.themeValue && "is-selected"),
             role: "option",
             "aria-selected": option.value === view.themeValue ? "true" : "false",
             onClick: () => handlers.onThemeOptionSelect(option.value)
