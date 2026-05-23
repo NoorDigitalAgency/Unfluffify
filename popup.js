@@ -1954,7 +1954,7 @@ function readCheckboxValue(event, fallbackValue) {
   return Boolean(target.checked);
 }
 
-function buildTodoExpansionKey(tabId = null, baseUrl = "") {
+function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
   const normalizedTabId = tabId || (state.currentTab && state.currentTab.id) || null;
   const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
     ? baseUrl
@@ -1977,7 +1977,7 @@ function getTodoExpansionStateFromView() {
 }
 
 function saveCurrentTodoExpansionState() {
-  const key = state.currentTodoExpansionKey || buildTodoExpansionKey();
+  const key = state.currentTodoExpansionKey || buildTodoExpansionContextKey();
   if (!key) {
     return;
   }
@@ -3063,16 +3063,16 @@ async function refreshUiInner() {
   nextViewState.basePageUrls = basePageUrls;
   nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
-  const nextTodoExpansionKey = buildTodoExpansionKey(currentTabId, state.currentBaseUrl);
+  const nextTodoExpansionKey = buildTodoExpansionContextKey(currentTabId, state.currentBaseUrl);
   const currentTodoExpansionKey = state.currentTodoExpansionKey;
   const todoExpansionContextChanged = nextTodoExpansionKey !== currentTodoExpansionKey;
   const hasNoTodoExpansionContext = !nextTodoExpansionKey;
-  const baseUrlChanged = state.currentBaseUrl !== previousBaseUrl;
+  const movedToDifferentProperty = state.currentBaseUrl !== previousBaseUrl;
   const shouldAutoCollapseOnContextChange =
     todoExpansionContextChanged && nextViewState.todoAutoCollapse;
   const todoExpansionShouldCollapse =
     hasNoTodoExpansionContext ||
-    baseUrlChanged ||
+    movedToDifferentProperty ||
     shouldAutoCollapseOnContextChange;
   if (todoExpansionShouldCollapse) {
     Object.assign(nextViewState, getCollapsedTodoExpansionState());
@@ -3633,24 +3633,21 @@ async function navigateActiveTabToUrl(url) {
   return true;
 }
 
-async function handleMarkedPageNavigate(url) {
-  const navigated = await navigateActiveTabToUrl(url);
-  if (!navigated) {
-    return;
-  }
-  const view = uiModule.getViewState();
-  if (!view.todoAutoCollapse) {
-    return;
-  }
-  uiModule.collapseTodoList();
-}
-
-async function handleBasePageNavigate(url) {
-  uiModule.setBasePageMenuOpen(false);
+async function navigateActiveTabToUrlWithTodoCollapse(url) {
   const navigated = await navigateActiveTabToUrl(url);
   if (navigated) {
     collapseTodoListForAutoCollapse();
   }
+  return navigated;
+}
+
+async function handleMarkedPageNavigate(url) {
+  await navigateActiveTabToUrlWithTodoCollapse(url);
+}
+
+async function handleBasePageNavigate(url) {
+  uiModule.setBasePageMenuOpen(false);
+  await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
 async function handleLynxChecklistCandidateNavigate(url) {
@@ -3658,10 +3655,7 @@ async function handleLynxChecklistCandidateNavigate(url) {
     return;
   }
   closeLynxChecklistPopover();
-  const navigated = await navigateActiveTabToUrl(url);
-  if (navigated) {
-    collapseTodoListForAutoCollapse();
-  }
+  await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
 async function handleEnableToggle(event) {
