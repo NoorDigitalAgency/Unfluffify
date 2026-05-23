@@ -110,6 +110,24 @@ const THEME_CATALOG = Object.freeze([
   { value: "lavender", label: "Lavender", cluster: "violet" }
 ]);
 const THEME_IDS = new Set(THEME_CATALOG.map((theme) => theme.value));
+const THEME_PALETTES = Object.freeze({
+  blueprint: ["#f4f6fa", "#172033", "#2f62a3", "#dfe9f7"],
+  tidepool: ["#f4f7f6", "#18211f", "#0b7563", "#d9efea"],
+  mint: ["#f4faf9", "#1a2825", "#2a9d8f", "#d8eeea"],
+  ocean: ["#f2f9fa", "#152e3d", "#267a8a", "#e0f4f7"],
+  graphite: ["#ffffff", "#111111", "#008ba8", "#e0f1f5"],
+  earthy: ["#f5f5f0", "#2d3329", "#5c7a5c", "#e6efe6"],
+  happy: ["#fff8f3", "#2a1f1c", "#7e9523", "#ebf3d3"],
+  sunset: ["#fdf8f5", "#362420", "#b85c49", "#fbeae6"],
+  "clay-rose": ["#f6f4f3", "#241f21", "#a93f5f", "#f4dde5"],
+  "plum-steel": ["#f6f6f8", "#202126", "#7b4e92", "#eee4f3"],
+  plum: ["#faf6f9", "#2c2230", "#8a4d8c", "#efe3ee"],
+  lavender: ["#f8f7fa", "#252233", "#7055ad", "#eeeaf7"],
+  nordic: ["#fafbfa", "#1c2127", "#3f7ea1", "#dfeef5"],
+  neutral: ["#f6f7f9", "#1f2330", "#5a5d9c", "#eeeff7"],
+  cool: ["#f1f5f9", "#0f172a", "#3a87b3", "#e3eff6"],
+  "swedish-minimal": ["#f7f8f7", "#1b2226", "#006aa7", "#dcebf2"]
+});
 const THEME_OPTIONS = Object.freeze(
   [...THEME_CATALOG]
     .sort((left, right) => {
@@ -120,7 +138,11 @@ const THEME_OPTIONS = Object.freeze(
       }
       return left.label.localeCompare(right.label);
     })
-    .map((theme) => ({ value: theme.value, label: theme.label }))
+    .map((theme) => ({
+      value: theme.value,
+      label: theme.label,
+      palette: THEME_PALETTES[theme.value] || ["#f8f9fc", "#1a1d26", "#4f46e5", "#eef2ff"]
+    }))
 );
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
@@ -2748,6 +2770,9 @@ async function refreshUiInner() {
       : PopupText.renderMode.title;
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
+  nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
+  nextViewState.renderModeChangeMenuVisible =
+    resolvedView === uiModule.View.Marking && renderModeRequired && renderModeSet;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -3025,13 +3050,41 @@ async function handleThemeInput(event) {
   const nextThemeValue = normalizeThemeValue(
     event && event.target ? event.target.value : state.currentTheme
   );
+  await applyThemeValue(nextThemeValue);
+}
+
+async function applyThemeValue(nextThemeValue) {
   state.currentTheme = nextThemeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
     themeValue: state.currentTheme,
-    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode),
+    themeMenuOpen: false
   });
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
+}
+
+function getThemeMenuPlacement() {
+  const refs = uiModule.getRefs();
+  const button = refs.themeDropdownButton;
+  if (!button || typeof button.getBoundingClientRect !== "function") {
+    return "bottom";
+  }
+  const rect = button.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const spaceBelow = viewportHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  return spaceBelow < 220 && spaceAbove > spaceBelow ? "top" : "bottom";
+}
+
+function handleThemeMenuToggle(event) {
+  event.stopPropagation();
+  const view = uiModule.getViewState();
+  uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
+}
+
+async function handleThemeOptionSelect(value) {
+  await applyThemeValue(normalizeThemeValue(value));
 }
 
 async function cycleTheme(direction) {
@@ -3048,7 +3101,8 @@ async function cycleTheme(direction) {
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
     themeValue: state.currentTheme,
-    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode),
+    themeMenuOpen: false
   });
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
@@ -3063,7 +3117,9 @@ async function handleThemeNext() {
 
 async function handleThemeModeInput(event) {
   const nextThemeModeValue = normalizeThemeModeValue(
-    event && event.target ? event.target.value : state.currentThemeMode
+    event && (event.currentTarget || event.target)
+      ? (event.currentTarget || event.target).value
+      : state.currentThemeMode
   );
   state.currentThemeMode = nextThemeModeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
@@ -3239,6 +3295,14 @@ async function handleRenderModeEditToggle() {
   await refreshUi();
 }
 
+async function handleOpenRenderModeSection() {
+  uiModule.setConfigMenuOpen(false);
+  uiModule.setBasePageMenuOpen(false);
+  state.renderModeEditMode = true;
+  state.renderModeSummaryOpen = true;
+  await refreshUi();
+}
+
 function handleRenderModeSummaryToggle(event) {
   const target = event && event.currentTarget;
   const nextOpen = Boolean(target && target.open);
@@ -3298,6 +3362,26 @@ function handleLoginPasswordKeyDown(event) {
     () => !uiModule.getViewState().loginActionDisabled,
     handleLoginAction
   );
+}
+
+function createRemoteSupportCode() {
+  const bytes = new Uint8Array(4);
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  const value = Array.from(bytes).reduce((acc, byte) => (acc << 8) + byte, 0) % 1000000;
+  return String(value).padStart(6, "0");
+}
+
+function handleRemoteSupportRequest() {
+  uiModule.setViewState({
+    remoteSupportRequested: true,
+    remoteSupportCode: createRemoteSupportCode()
+  });
 }
 
 function handleConfigToggle(event) {
@@ -4799,6 +4883,8 @@ async function init() {
     onThemeInput: handleThemeInput,
     onThemePrevious: handleThemePrevious,
     onThemeNext: handleThemeNext,
+    onThemeMenuToggle: handleThemeMenuToggle,
+    onThemeOptionSelect: handleThemeOptionSelect,
     onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
@@ -4813,6 +4899,7 @@ async function init() {
     onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
+    onOpenRenderModeSection: handleOpenRenderModeSection,
     onStageBaseKeyDown: handleStageBaseKeyDown,
     onStageBaseSet: handleStageBaseSet,
     onStageBaseEditToggle: handleStageBaseEditToggle,
@@ -4820,6 +4907,7 @@ async function init() {
     onLoginPasswordInput: handleLoginPasswordInput,
     onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
     onLoginAction: handleLoginAction,
+    onRemoteSupportRequest: handleRemoteSupportRequest,
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
@@ -4837,12 +4925,14 @@ async function init() {
     uiModule.setConfigMenuOpen(false);
     uiModule.setBasePageMenuOpen(false);
     uiModule.setTodoControlsMenuOpen(false);
+    uiModule.setThemeMenuOpen(false);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
       uiModule.setBasePageMenuOpen(false);
       uiModule.setTodoControlsMenuOpen(false);
+      uiModule.setThemeMenuOpen(false);
     }
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {

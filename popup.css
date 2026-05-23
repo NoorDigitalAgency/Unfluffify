@@ -238,14 +238,14 @@ button.button-small {
 
 .config-appearance-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(130px, auto);
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   align-items: center;
 }
 
 .config-appearance-control {
   min-width: 0;
-  display: inline-flex;
+  display: grid;
   align-items: center;
   gap: 5px;
 }
@@ -283,6 +283,74 @@ button.button-small {
   gap: 4px;
 }
 
+.theme-dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.theme-dropdown__toggle {
+  width: 100%;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.theme-dropdown__toggle:hover {
+  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.theme-dropdown__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-dropdown__menu {
+  left: 0;
+  right: auto;
+  width: min(220px, calc(100vw - 48px));
+  max-height: 220px;
+  overflow: auto;
+}
+
+.theme-dropdown__menu--top {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.theme-dropdown__menu button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.theme-palette {
+  flex: 0 0 auto;
+  display: inline-grid;
+  grid-template-columns: repeat(4, 10px);
+  gap: 2px;
+}
+
+.theme-palette__swatch {
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.theme-palette--summary {
+  margin-left: auto;
+}
+
 .theme-nav-button {
   min-width: 30px;
   min-height: 32px;
@@ -310,8 +378,39 @@ button.button-small {
   outline-offset: 2px;
 }
 
-.config-appearance-control--mode select {
-  min-width: 104px;
+.theme-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.theme-mode-button {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-height: 50px;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.theme-mode-button:hover {
+  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  color: var(--ink);
+}
+
+.theme-mode-button--active {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
+  background: color-mix(in srgb, var(--accent-light) 68%, var(--card));
+  color: var(--accent-dark);
+}
+
+.theme-mode-button .btn-icon {
+  margin-right: 0;
+  font-size: 16px;
 }
 
 .input-row {
@@ -340,6 +439,18 @@ button.button-small {
   font-size: 12px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.property-url-row {
+  align-items: stretch;
+}
+
+.property-url-actions {
+  align-self: stretch;
+}
+
+.property-url-actions .section-menu-button {
+  height: 100%;
 }
 
 .readout {
@@ -651,6 +762,27 @@ button.button-small {
   max-width: 100%;
 }
 
+.remote-support-card {
+  gap: 8px;
+}
+
+.remote-support-code {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-light) 52%, var(--card));
+  font-size: 12px;
+}
+
+.remote-support-code strong {
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  color: var(--accent-dark);
+}
+
 .token-status {
   font-size: 12px;
   color: var(--muted);
@@ -873,6 +1005,9 @@ button.loading:disabled {
   text-transform: none;
   letter-spacing: 0;
   color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .section-header {
@@ -921,7 +1056,8 @@ button.loading:disabled {
 
 .section-menu {
   position: absolute;
-  bottom: 0;
+  top: calc(100% + 4px);
+  bottom: auto;
   right: 0;
   min-width: 240px;
   max-width: calc(100vw - 48px);
@@ -933,6 +1069,10 @@ button.loading:disabled {
   display: grid;
   gap: 2px;
   z-index: 12;
+}
+
+.base-page-menu {
+  min-width: 260px;
 }
 
 .section-menu[hidden] {
