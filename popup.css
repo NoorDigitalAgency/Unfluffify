@@ -565,6 +565,7 @@ button.button-small {
   flex: 0 0 auto;
   padding: 3px 7px;
   border-radius: 999px;
+  border: 1px solid transparent;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.35px;
@@ -572,13 +573,15 @@ button.button-small {
 }
 
 .lynx-checklist-popover__page-type-status--ready {
-  background: color-mix(in srgb, var(--success) 16%, transparent);
-  color: var(--success);
+  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
+  color: var(--card);
 }
 
 .lynx-checklist-popover__page-type-status--missing {
-  background: color-mix(in srgb, var(--warn) 17%, transparent);
-  color: var(--warn);
+  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
+  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
+  color: var(--card);
 }
 
 .lynx-checklist-popover__candidate-hints {
@@ -1372,38 +1375,55 @@ button.loading:disabled {
 .todo-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .todo-controls__buttons {
   display: inline-flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.todo-controls__icon-button {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  justify-content: center;
+}
+
+.todo-controls__icon-button .btn-icon {
+  margin-right: 0;
+  font-size: 14px;
 }
 
 .todo-controls__auto-collapse {
-  min-width: 28px;
-  min-height: 28px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
-  border-radius: 8px;
+  padding: 0;
+  border-radius: 6px;
   border: 1px solid var(--line);
   background: var(--bg-accent);
-  color: var(--muted);
+  cursor: pointer;
+}
+
+.todo-controls__auto-collapse input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
 }
 
 .todo-controls__auto-collapse--active {
   border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
   background: color-mix(in srgb, var(--accent) 18%, var(--card));
-  color: var(--accent-dark);
-}
-
-.todo-controls__auto-collapse .btn-icon {
-  margin-right: 0;
 }
 
 .todo-body {

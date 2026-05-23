@@ -3339,9 +3339,9 @@ function handleTodoCollapseAll() {
   uiModule.setTodoAllSubsectionsExpanded(false);
 }
 
-function handleTodoAutoCollapseToggle() {
-  const view = uiModule.getViewState();
-  uiModule.setTodoAutoCollapse(!Boolean(view.todoAutoCollapse));
+function handleTodoAutoCollapseChange(event) {
+  const source = event && (event.currentTarget || event.target);
+  uiModule.setTodoAutoCollapse(Boolean(source && source.checked));
 }
 
 function handleHighlightingSectionToggle() {
@@ -4761,7 +4761,7 @@ async function init() {
     onTodoSubsectionToggle: handleTodoSubsectionToggle,
     onTodoExpandAll: handleTodoExpandAll,
     onTodoCollapseAll: handleTodoCollapseAll,
-    onTodoAutoCollapseToggle: handleTodoAutoCollapseToggle,
+    onTodoAutoCollapseChange: handleTodoAutoCollapseChange,
     onHighlightingSectionToggle: handleHighlightingSectionToggle,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,

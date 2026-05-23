@@ -3,9 +3,7 @@ import * as stateModule from "./state.js";
 import {
   PopupText,
   ViewText,
-  formatScalePercent,
-  formatSyncLoadSummary,
-  formatSyncSaveSummary
+  formatScalePercent
 } from "../common/text.js";
 import {
   buildLynxChecklistViewModel,
@@ -184,10 +182,6 @@ function icon(name, extraClass = "") {
 
 function editToggleIcon(actionText) {
   return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
-}
-
-function todoAutoCollapseIcon(enabled) {
-  return enabled ? "unfold-less-horizontal" : "unfold-more-horizontal";
 }
 
 function statusToneClass(tone) {
@@ -478,7 +472,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                       "button",
                       {
                         type: "button",
-                        class: "button-secondary button-small",
+                        class: "button-secondary button-small todo-controls__icon-button",
                         title: PopupText.pageTypes.expandAll,
                         "aria-label": PopupText.pageTypes.expandAll,
                         onClick: handlers.onTodoExpandAll
@@ -489,7 +483,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                       "button",
                       {
                         type: "button",
-                        class: "button-secondary button-small",
+                        class: "button-secondary button-small todo-controls__icon-button",
                         title: PopupText.pageTypes.collapseAll,
                         "aria-label": PopupText.pageTypes.collapseAll,
                         onClick: handlers.onTodoCollapseAll
@@ -498,19 +492,20 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                     )
                   ),
                   h(
-                    "button",
+                    "label",
                     {
-                      type: "button",
                       class: classNames(
                         "todo-controls__auto-collapse",
                         view.todoAutoCollapse && "todo-controls__auto-collapse--active"
                       ),
-                      title: PopupText.pageTypes.autoCollapse,
-                      "aria-label": PopupText.pageTypes.autoCollapse,
-                      "aria-pressed": view.todoAutoCollapse ? "true" : "false",
-                      onClick: handlers.onTodoAutoCollapseToggle
+                      title: PopupText.pageTypes.autoCollapse
                     },
-                    icon(todoAutoCollapseIcon(view.todoAutoCollapse))
+                    h("input", {
+                      type: "checkbox",
+                      checked: view.todoAutoCollapse,
+                      "aria-label": PopupText.pageTypes.autoCollapse,
+                      onChange: handlers.onTodoAutoCollapseChange
+                    })
                   )
                 ),
                 view.pageTypeGroups.map((group) => {
@@ -1173,31 +1168,6 @@ function renderMarkingView({state: view, actions: handlers}) {
           class: classNames("hint", statusToneClass(view.pageDraftStatusTone))
         },
         view.pageDraftStatusText
-      ),
-      h(
-        "details",
-        { class: "collapsible" },
-        h("summary", null, PopupText.page.serverSyncTitle),
-        h(
-          "div",
-          { class: "collapsible-body" },
-          h(
-            "div",
-            {
-              class: classNames("hint", statusToneClass(view.syncLoadStatusTone)),
-              id: "sync-load-status"
-            },
-            formatSyncLoadSummary(view.syncLoadStatusText)
-          ),
-          h(
-            "div",
-            {
-              class: classNames("hint", statusToneClass(view.syncSaveStatusTone)),
-              id: "sync-save-status"
-            },
-            formatSyncSaveSummary(view.syncSaveStatusText)
-          )
-        )
       )
     );
   }
