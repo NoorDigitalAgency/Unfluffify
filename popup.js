@@ -1989,9 +1989,12 @@ function saveCurrentTodoExpansionState() {
     state.todoExpansionStateByContext.delete(key);
   }
   state.todoExpansionStateByContext.set(key, getTodoExpansionStateFromView());
-  while (state.todoExpansionStateByContext.size > TODO_EXPANSION_CONTEXT_LIMIT) {
-    const oldestKey = state.todoExpansionStateByContext.keys().next().value;
-    state.todoExpansionStateByContext.delete(oldestKey);
+  const overflowCount = state.todoExpansionStateByContext.size - TODO_EXPANSION_CONTEXT_LIMIT;
+  if (overflowCount > 0) {
+    const keyIterator = state.todoExpansionStateByContext.keys();
+    for (let index = 0; index < overflowCount; index += 1) {
+      state.todoExpansionStateByContext.delete(keyIterator.next().value);
+    }
   }
 }
 
@@ -2011,6 +2014,7 @@ function getSavedTodoExpansionState(key) {
   if (!saved || typeof saved !== "object") {
     return null;
   }
+  // Refresh insertion order so recently restored contexts are evicted last.
   state.todoExpansionStateByContext.delete(key);
   state.todoExpansionStateByContext.set(key, saved);
   return {
