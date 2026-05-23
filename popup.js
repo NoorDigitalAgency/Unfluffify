@@ -3373,7 +3373,7 @@ function createRemoteSupportCode() {
       bytes[index] = Math.floor(Math.random() * 256);
     }
   }
-  const value = Array.from(bytes).reduce((acc, byte) => (acc << 8) + byte, 0) % 1000000;
+  const value = Array.from(bytes).reduce((acc, byte) => ((acc * 256) + byte) % 1000000, 0);
   return String(value).padStart(6, "0");
 }
 
