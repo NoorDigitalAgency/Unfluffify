@@ -55,50 +55,65 @@ body.is-busy {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 10px 12px;
-
-.theme-control-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  font-size: 10px;
-  gap: 6px;
-}
-  letter-spacing: 0.55px;
-  white-space: nowrap;
-}
-
-.config-appearance-control select {
-  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
   max-width: 100%;
+  overflow: visible;
 }
 
-.theme-control-row {
+.header-text {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
 }
 
-.theme-nav-button {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  border-radius: 8px;
+.header-actions {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  margin-left: auto;
 }
 
-.theme-nav-button .btn-icon {
+.header-menu-toggle {
+  min-width: 18px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
 }
 
-  border: none;
+.header-menu-toggle:hover {
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: background 0.12s ease;
+  box-shadow: none;
+}
+
+.header-menu-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.header-menu-toggle .btn-icon {
+  margin-right: 0;
+}
+
+.config-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  bottom: auto;
+  min-width: 240px;
+}
+
+.config-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 2px 0;
 }
 
 .config-menu button:hover {
@@ -206,14 +221,14 @@ button.button-small {
 }
 
 .config-appearance-collapsible {
-  border: 0;
-  padding: 0;
-  background: transparent;
+  gap: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 
 .config-appearance-collapsible summary {
   margin: 0;
-  padding: 2px 0;
+  padding: 0;
 }
 
 .config-appearance-body {
@@ -238,11 +253,22 @@ button.button-small {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.55px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
   white-space: nowrap;
+}
+
+.control-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.35;
 }
 
 .config-appearance-control select {
@@ -252,20 +278,36 @@ button.button-small {
 
 .theme-control-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .theme-nav-button {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  border-radius: 8px;
+  min-width: 30px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--accent-dark);
+  box-shadow: none;
 }
 
 .theme-nav-button .btn-icon {
   margin-right: 0;
+  font-size: 14px;
+}
+
+.theme-nav-button:hover {
+  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.theme-nav-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline-offset: 2px;
 }
 
 .config-appearance-control--mode select {
@@ -368,8 +410,8 @@ button.button-small {
 .warning-panel-title {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--warn);
 }
 
@@ -557,8 +599,8 @@ button.button-small {
   font-size: 10px;
   font-weight: 700;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.35px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .lynx-checklist-popover__candidate-hint {
@@ -678,13 +720,18 @@ select {
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--ink);
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-dark);
   background: var(--card);
   min-width: 0;
   max-width: 100%;
   transition: border-color 0.15s ease;
+}
+
+select option {
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
 }
 
 select:focus {
@@ -822,8 +869,9 @@ button.loading:disabled {
 
 .section-title {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--accent);
 }
 
@@ -925,8 +973,8 @@ button.loading:disabled {
   flex: 0 0 auto;
   font-size: 11px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .section-menu__empty {
@@ -947,10 +995,11 @@ button.loading:disabled {
 .collapsible summary {
   list-style: none;
   cursor: pointer;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -962,8 +1011,10 @@ button.loading:disabled {
 
 .collapsible summary::before {
   content: "▸";
+  color: var(--accent);
   font-size: 12px;
-  transition: transform 0.2s ease;
+  line-height: 1;
+  transition: transform 0.18s ease;
 }
 
 .collapsible[open] summary::before {
@@ -971,19 +1022,20 @@ button.loading:disabled {
 }
 
 .collapsible.config-appearance-collapsible summary::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid color-mix(in srgb, var(--accent) 78%, var(--ink));
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 78%, var(--ink));
-  border-radius: 1px;
-  transform: rotate(-45deg);
-  transition: transform 0.2s ease;
-  margin-right: 4px;
+  content: "▸";
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 0;
+  transform: rotate(0deg);
 }
 
 .collapsible.config-appearance-collapsible[open] summary::before {
-  transform: rotate(45deg);
+  transform: rotate(90deg);
 }
 
 .collapsible[open] summary {
@@ -1038,8 +1090,8 @@ button.loading:disabled {
   flex: 0 0 auto;
   font-size: 11px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .list li span:not(.status):not(.count) {
@@ -1049,8 +1101,8 @@ button.loading:disabled {
 .list li .status {
   font-size: 11px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
   padding-right: 8px;
 }
 
@@ -1299,6 +1351,7 @@ button.loading:disabled {
 .todo-header .section-title {
   color: color-mix(in srgb, var(--accent-dark) 80%, var(--ink));
   font-weight: 500;
+  text-transform: uppercase;
   letter-spacing: 0.75px;
 }
 
@@ -1309,7 +1362,6 @@ button.loading:disabled {
   line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.18s ease;
-  margin-right: 3px;
 }
 
 .todo-header[aria-expanded="true"]::before {
@@ -1359,15 +1411,16 @@ button.loading:disabled {
 }
 
 .todo-controls-menu-toggle {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  min-height: 22px;
-  padding: 0;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--ink) 18%);
-  background: color-mix(in srgb, var(--bg-accent) 88%, var(--card));
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--muted);
+  box-shadow: none;
 }
 
 .todo-controls-menu-toggle .btn-icon {
@@ -1376,8 +1429,9 @@ button.loading:disabled {
 }
 
 .todo-controls-menu {
-  top: calc(100% + 4px);
+  top: calc(100% + 2px);
   right: 0;
+  bottom: auto;
   min-width: 184px;
 }
 
@@ -1452,7 +1506,7 @@ button.loading:disabled {
 
 .todo-header:hover,
 .todo-controls-menu-toggle:hover {
-  background: color-mix(in srgb, var(--accent-light) 70%, transparent);
+  background: transparent;
   box-shadow: none;
 }
 

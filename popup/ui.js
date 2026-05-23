@@ -515,7 +515,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                     {
                       id: "todo-controls-menu-toggle",
                       type: "button",
-                      class: "section-menu-button button-secondary todo-controls-menu-toggle",
+                      class: "todo-controls-menu-toggle",
                       "aria-haspopup": "menu",
                       "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
                       title: PopupText.pageTypes.controlsMenu,
@@ -755,19 +755,19 @@ function App({ state: view, actions: handlers }) {
               {
                 id: "config-toggle",
                 type: "button",
-                class: "config-button",
+                class: "header-menu-toggle",
                 "aria-haspopup": "menu",
                 "aria-expanded": view.configMenuOpen ? "true" : "false",
+                title: PopupText.configuration.title,
                 onClick: handlers.onConfigToggle
               },
-              icon("cog-outline"),
-              PopupText.configuration.title
+              icon("dots-vertical")
             ),
             h(
               "div",
               {
                 id: "config-menu",
-                class: "config-menu",
+                class: "section-menu config-menu",
                 role: "menu",
                 hidden: !view.configMenuOpen,
                 onClick: handlers.onConfigMenuClick
@@ -781,7 +781,7 @@ function App({ state: view, actions: handlers }) {
                   onClick: handlers.onOpenConfiguration
                 },
                 icon("tune"),
-                PopupText.configuration.openViewAction
+                h("span", { class: "section-menu__label" }, PopupText.configuration.openViewAction)
               ),
               h("div", { class: "config-divider", role: "separator" }),
               h(
@@ -795,7 +795,7 @@ function App({ state: view, actions: handlers }) {
                   onClick: handlers.onClearDomainCache
                 },
                 icon("trash-can-outline"),
-                PopupText.cache.menuAction
+                h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
               )
             )
           )
@@ -1482,7 +1482,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
       h(
         "label",
         { class: "field" },
-        h("span", null, label),
+        h("span", { class: "control-label" }, label),
         h(
           "div",
           { class: "input-row" },
@@ -1655,7 +1655,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           h(
             "label",
             { class: "field" },
-            h("span", null, PopupText.authentication.emailLabel),
+            h("span", { class: "control-label" }, PopupText.authentication.emailLabel),
             h("input", {
               id: "login-email",
               type: "email",
@@ -1668,7 +1668,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           h(
             "label",
             { class: "field" },
-            h("span", null, PopupText.authentication.passwordLabel),
+            h("span", { class: "control-label" }, PopupText.authentication.passwordLabel),
             h("input", {
               id: "login-password",
               type: "password",
@@ -1705,83 +1705,45 @@ function renderConfigurationView({state: view, actions: handlers}) {
         )
       ),
       h(
-        "section",
-        { class: "card config-appearance-card" },
+        "details",
+        { class: "card collapsible config-appearance-collapsible" },
         h(
-          "details",
-          { class: "collapsible config-appearance-collapsible" },
-          h(
-            "summary",
-            null,
-            icon("palette-outline", "field-icon"),
-            PopupText.configuration.appearanceSectionTitle
-          ),
+          "summary",
+          null,
+          PopupText.configuration.appearanceSectionTitle
+        ),
+        h(
+          "div",
+          { class: "collapsible-body config-appearance-body" },
           h(
             "div",
-            { class: "collapsible-body config-appearance-body" },
+            { class: "config-appearance-row" },
             h(
-              "div",
-              { class: "config-appearance-row" },
+              "label",
+              { class: "config-appearance-control" },
+              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
               h(
-                "label",
-                { class: "config-appearance-control" },
-                h("span", { class: "config-appearance-label" }, PopupText.configuration.themeFieldLabel),
+                "div",
+                { class: "theme-control-row" },
                 h(
-                  "div",
-                  { class: "theme-control-row" },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      class: "button-secondary button-small theme-nav-button",
-                      disabled: view.themeControlsDisabled,
-                      title: PopupText.configuration.themePrevious,
-                      "aria-label": PopupText.configuration.themePrevious,
-                      onClick: handlers.onThemePrevious
-                    },
-                    icon("chevron-left")
-                  ),
-                  h("select", {
-                    id: "theme-select",
-                    value: view.themeValue,
+                  "button",
+                  {
+                    type: "button",
+                    class: "theme-nav-button",
                     disabled: view.themeControlsDisabled,
-                    onChange: handlers.onThemeInput
+                    title: PopupText.configuration.themePrevious,
+                    "aria-label": PopupText.configuration.themePrevious,
+                    onClick: handlers.onThemePrevious
                   },
-                  ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
-                    h(
-                      "option",
-                      {
-                        key: option.value,
-                        value: option.value
-                      },
-                      option.label
-                    )
-                  )),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      class: "button-secondary button-small theme-nav-button",
-                      disabled: view.themeControlsDisabled,
-                      title: PopupText.configuration.themeNext,
-                      "aria-label": PopupText.configuration.themeNext,
-                      onClick: handlers.onThemeNext
-                    },
-                    icon("chevron-right")
-                  )
-                )
-              ),
-              h(
-                "label",
-                { class: "config-appearance-control config-appearance-control--mode" },
-                h("span", { class: "config-appearance-label" }, PopupText.configuration.themeModeFieldLabel),
+                  icon("chevron-left")
+                ),
                 h("select", {
-                  id: "theme-mode-select",
-                  value: view.themeModeValue,
+                  id: "theme-select",
+                  value: view.themeValue,
                   disabled: view.themeControlsDisabled,
-                  onChange: handlers.onThemeModeInput
+                  onChange: handlers.onThemeInput
                 },
-                ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
+                ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
                   h(
                     "option",
                     {
@@ -1790,8 +1752,41 @@ function renderConfigurationView({state: view, actions: handlers}) {
                     },
                     option.label
                   )
-                ))
+                )),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "theme-nav-button",
+                    disabled: view.themeControlsDisabled,
+                    title: PopupText.configuration.themeNext,
+                    "aria-label": PopupText.configuration.themeNext,
+                    onClick: handlers.onThemeNext
+                  },
+                  icon("chevron-right")
+                )
               )
+            ),
+            h(
+              "label",
+              { class: "config-appearance-control config-appearance-control--mode" },
+              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
+              h("select", {
+                id: "theme-mode-select",
+                value: view.themeModeValue,
+                disabled: view.themeControlsDisabled,
+                onChange: handlers.onThemeModeInput
+              },
+              ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
+                h(
+                  "option",
+                  {
+                    key: option.value,
+                    value: option.value
+                  },
+                  option.label
+                )
+              ))
             )
           )
         )

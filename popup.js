@@ -2699,8 +2699,8 @@ async function refreshUiInner() {
     !siteIdReady ||
     !hasStoredSelectors ||
     aiBlockedByDraft;
-  nextViewState.renderModeReady = renderModeRequired && renderModeField.isReady;
-  nextViewState.todoListVisible = siteIdReady && nextViewState.renderModeReady;
+  nextViewState.renderModeReady = renderModeReady;
+  nextViewState.todoListVisible = siteIdReady && renderModeReady;
   nextViewState.renderModeValue = renderModeField.value;
   nextViewState.renderModeReadOnly = !renderModeField.isEditing;
   nextViewState.renderModeSetVisible = renderModeRequired && renderModeField.isEditing;
