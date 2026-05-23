@@ -294,12 +294,12 @@ function renderBasePageMenu(view, handlers) {
 }
 
 function renderThemePalette(option, extraClassName = "") {
-  const value = option && typeof option.value === "string" ? option.value : "";
+  const themeValue = option && typeof option.value === "string" ? option.value : "";
   return h(
     "span",
     {
       class: classNames("theme-palette", extraClassName),
-      "data-theme": value || null,
+      "data-theme": themeValue || null,
       "aria-hidden": "true"
     },
     [1, 2, 3, 4].map((index) =>
