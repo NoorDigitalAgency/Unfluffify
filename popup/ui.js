@@ -437,7 +437,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
             title: PopupText.tooltips.basePageUrls,
             onClick: handlers.onBasePageMenuToggle
           },
-          icon("menu")
+          icon("dots-vertical")
         ),
         renderBasePageMenu(view, handlers)
       )

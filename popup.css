@@ -796,6 +796,27 @@ button.loading:disabled {
   border-radius: 8px;
 }
 
+#base-page-menu-toggle {
+  min-width: 24px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+#base-page-menu-toggle:hover {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+#base-page-menu-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
 .section-menu-button .btn-icon {
   margin-right: 0;
 }
@@ -1245,7 +1266,7 @@ button.loading:disabled {
 }
 
 .todo-subsection--missing {
-  border-color: #fde68a;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
 }
 
 .todo-subsection-header {
@@ -1261,7 +1282,15 @@ button.loading:disabled {
 }
 
 .todo-subsection-header:hover {
+  background: none;
+  box-shadow: none;
   filter: none;
+}
+
+.todo-header:hover,
+.todo-controls__buttons button:hover {
+  background: var(--bg-accent);
+  box-shadow: none;
 }
 
 .todo-subsection-title {
