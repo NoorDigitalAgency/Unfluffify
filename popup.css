@@ -1666,13 +1666,13 @@ span.todo-candidate-link {
 }
 
 .preview-sidebar__dismiss:hover {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #dc2626;
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg-accent));
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
 }
 
 .preview-sidebar__dismiss:focus-visible {
-  outline: 2px solid rgba(220, 38, 38, 0.3);
+  outline: 2px solid color-mix(in srgb, var(--danger) 35%, transparent);
   outline-offset: 2px;
 }
 
@@ -1692,8 +1692,8 @@ span.todo-candidate-link {
   bottom: 14px;
   padding: 10px 12px;
   border-radius: var(--radius);
-  background: rgba(17, 24, 39, 0.92);
-  color: #f9fafb;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  color: var(--card);
   font-size: 12px;
   opacity: 0;
   transform: translateY(8px);
@@ -1709,7 +1709,7 @@ span.todo-candidate-link {
 .ui-curtain {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.4);
+  background: color-mix(in srgb, var(--ink) 40%, transparent);
   display: grid;
   place-items: center;
   z-index: 20;
@@ -1741,7 +1741,7 @@ span.todo-candidate-link {
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  border: 2px solid rgba(79, 70, 229, 0.2);
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
   border-top-color: var(--accent);
   animation: ui-curtain-spin 0.8s linear infinite;
   grid-row: 1 / span 2;
@@ -1755,7 +1755,7 @@ span.todo-candidate-link {
   align-items: center;
   justify-content: center;
   background: var(--bg-accent);
-  border: 1px solid rgba(79, 70, 229, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--accent);
   grid-row: 1 / span 2;
   flex-shrink: 0;
