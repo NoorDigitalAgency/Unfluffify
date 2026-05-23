@@ -3303,6 +3303,7 @@ function handleLoginPasswordKeyDown(event) {
 function handleConfigToggle(event) {
   event.stopPropagation();
   uiModule.setBasePageMenuOpen(false);
+  uiModule.setTodoControlsMenuOpen(false);
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
 }
 
@@ -3313,10 +3314,23 @@ function handleConfigMenuClick(event) {
 function handleBasePageMenuToggle(event) {
   event.stopPropagation();
   uiModule.setConfigMenuOpen(false);
+  uiModule.setTodoControlsMenuOpen(false);
   uiModule.setBasePageMenuOpen(!state.basePageMenuOpen);
 }
 
 function handleBasePageMenuClick(event) {
+  event.stopPropagation();
+}
+
+function handleTodoControlsMenuToggle(event) {
+  event.stopPropagation();
+  const view = uiModule.getViewState();
+  uiModule.setConfigMenuOpen(false);
+  uiModule.setBasePageMenuOpen(false);
+  uiModule.setTodoControlsMenuOpen(!Boolean(view.todoControlsMenuOpen));
+}
+
+function handleTodoControlsMenuClick(event) {
   event.stopPropagation();
 }
 
@@ -3332,16 +3346,18 @@ function handleTodoSubsectionToggle(key) {
 }
 
 function handleTodoExpandAll() {
+  uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(true);
 }
 
 function handleTodoCollapseAll() {
+  uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(false);
 }
 
-function handleTodoAutoCollapseChange(event) {
-  const source = event && (event.currentTarget || event.target);
-  uiModule.setTodoAutoCollapse(Boolean(source && source.checked));
+function handleTodoAutoCollapseToggle() {
+  const view = uiModule.getViewState();
+  uiModule.setTodoAutoCollapse(!Boolean(view.todoAutoCollapse));
 }
 
 function handleHighlightingSectionToggle() {
@@ -4757,11 +4773,13 @@ async function init() {
     onConfigMenuClick: handleConfigMenuClick,
     onBasePageMenuToggle: handleBasePageMenuToggle,
     onBasePageMenuClick: handleBasePageMenuClick,
+    onTodoControlsMenuToggle: handleTodoControlsMenuToggle,
+    onTodoControlsMenuClick: handleTodoControlsMenuClick,
     onTodoSectionToggle: handleTodoSectionToggle,
     onTodoSubsectionToggle: handleTodoSubsectionToggle,
     onTodoExpandAll: handleTodoExpandAll,
     onTodoCollapseAll: handleTodoCollapseAll,
-    onTodoAutoCollapseChange: handleTodoAutoCollapseChange,
+    onTodoAutoCollapseToggle: handleTodoAutoCollapseToggle,
     onHighlightingSectionToggle: handleHighlightingSectionToggle,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
@@ -4818,11 +4836,13 @@ async function init() {
   document.addEventListener("click", () => {
     uiModule.setConfigMenuOpen(false);
     uiModule.setBasePageMenuOpen(false);
+    uiModule.setTodoControlsMenuOpen(false);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
       uiModule.setBasePageMenuOpen(false);
+      uiModule.setTodoControlsMenuOpen(false);
     }
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {

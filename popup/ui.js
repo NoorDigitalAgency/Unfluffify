@@ -56,6 +56,7 @@ const initialViewState = {
   pageTypeGroupsEmptyText: PopupText.pageTypes.emptyState,
   pageTypeNoticeText: "",
   pageTypeNoticeVisible: false,
+  todoControlsMenuOpen: false,
   todoSectionExpanded: false,
   todoSubsectionsExpanded: {},
   todoAutoCollapse: true,
@@ -385,6 +386,50 @@ function renderTodoIndicator(iconName, done = false, extraClassName = "") {
   );
 }
 
+function renderTodoControlsMenu(view, handlers) {
+  return h(
+    "div",
+    {
+      class: "section-menu todo-controls-menu",
+      role: "menu",
+      hidden: !view.todoControlsMenuOpen,
+      onClick: handlers.onTodoControlsMenuClick
+    },
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoExpandAll
+      },
+      icon("unfold-more-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoCollapseAll
+      },
+      icon("unfold-less-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitemcheckbox",
+        "aria-checked": view.todoAutoCollapse ? "true" : "false",
+        onClick: handlers.onTodoAutoCollapseToggle
+      },
+      icon("checkbox-multiple-marked-outline"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse),
+      icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline")
+    )
+  );
+}
+
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   const progress = getTodoProgress(view);
   const sectionExpanded = Boolean(view.todoSectionExpanded);
@@ -466,47 +511,19 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                   "div",
                   { class: "todo-controls" },
                   h(
-                    "div",
-                    { class: "todo-controls__buttons" },
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        class: "button-secondary button-small todo-controls__icon-button",
-                        title: PopupText.pageTypes.expandAll,
-                        "aria-label": PopupText.pageTypes.expandAll,
-                        onClick: handlers.onTodoExpandAll
-                      },
-                      icon("unfold-more-horizontal")
-                    ),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        class: "button-secondary button-small todo-controls__icon-button",
-                        title: PopupText.pageTypes.collapseAll,
-                        "aria-label": PopupText.pageTypes.collapseAll,
-                        onClick: handlers.onTodoCollapseAll
-                      },
-                      icon("unfold-less-horizontal")
-                    )
-                  ),
-                  h(
-                    "label",
+                    "button",
                     {
-                      class: classNames(
-                        "todo-controls__auto-collapse",
-                        view.todoAutoCollapse && "todo-controls__auto-collapse--active"
-                      ),
-                      title: PopupText.pageTypes.autoCollapse
+                      id: "todo-controls-menu-toggle",
+                      type: "button",
+                      class: "section-menu-button button-secondary todo-controls-menu-toggle",
+                      "aria-haspopup": "menu",
+                      "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
+                      title: PopupText.pageTypes.controlsMenu,
+                      onClick: handlers.onTodoControlsMenuToggle
                     },
-                    h("input", {
-                      type: "checkbox",
-                      checked: view.todoAutoCollapse,
-                      "aria-label": PopupText.pageTypes.autoCollapse,
-                      onChange: handlers.onTodoAutoCollapseChange
-                    })
-                  )
+                    icon("dots-horizontal")
+                  ),
+                  renderTodoControlsMenu(view, handlers)
                 ),
                 view.pageTypeGroups.map((group) => {
                   const subsectionExpanded = Boolean(
@@ -1819,6 +1836,7 @@ export function initUi(actionHandlers) {
 function collapseTodoViewState(nextViewState) {
   return {
     ...nextViewState,
+    todoControlsMenuOpen: false,
     todoSectionExpanded: false,
     todoSubsectionsExpanded: {}
   };
@@ -1845,7 +1863,8 @@ function normalizeViewState(nextViewState) {
     normalizedViewState = {
       ...normalizedViewState,
       configMenuOpen: false,
-      basePageMenuOpen: false
+      basePageMenuOpen: false,
+      todoControlsMenuOpen: false
     };
     state.configMenuOpen = false;
     state.basePageMenuOpen = false;
@@ -1922,10 +1941,17 @@ export function setBasePageMenuOpen(open) {
   setViewState({ basePageMenuOpen: open });
 }
 
+export function setTodoControlsMenuOpen(open) {
+  setViewState({ todoControlsMenuOpen: Boolean(open) });
+}
+
 export function setTodoSectionExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
-    todoSectionExpanded: Boolean(expanded)
+    todoSectionExpanded: Boolean(expanded),
+    todoControlsMenuOpen: Boolean(expanded)
+      ? currentViewState.todoControlsMenuOpen
+      : false
   }));
 }
 
@@ -1945,6 +1971,7 @@ export function setTodoSubsectionExpanded(key, expanded) {
 export function setTodoAllSubsectionsExpanded(expanded) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
+    todoControlsMenuOpen: false,
     todoSubsectionsExpanded: Boolean(expanded)
       ? Object.fromEntries(
           (Array.isArray(currentViewState.pageTypeGroups) ? currentViewState.pageTypeGroups : [])
@@ -1957,6 +1984,7 @@ export function setTodoAllSubsectionsExpanded(expanded) {
 export function setTodoAutoCollapse(checked) {
   updateViewState((currentViewState) => ({
     ...currentViewState,
+    todoControlsMenuOpen: false,
     todoAutoCollapse: Boolean(checked)
   }));
 }
@@ -1964,6 +1992,7 @@ export function setTodoAutoCollapse(checked) {
 export function collapseTodoList() {
   updateViewState((currentViewState) => ({
     ...currentViewState,
+    todoControlsMenuOpen: false,
     todoSectionExpanded: false,
     todoSubsectionsExpanded: {}
   }));

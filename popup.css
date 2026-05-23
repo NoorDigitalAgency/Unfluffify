@@ -57,75 +57,39 @@ body.is-busy {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+
+.theme-control-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  font-size: 10px;
+  gap: 6px;
+}
+  letter-spacing: 0.55px;
+  white-space: nowrap;
+}
+
+.config-appearance-control select {
+  min-width: 0;
   max-width: 100%;
-  overflow: visible;
 }
 
-.header-text {
+.theme-control-row {
   display: grid;
-  gap: 4px;
-}
-
-.header-actions {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-}
-
-.app-header .config-button {
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  gap: 6px;
 }
 
-.app-header .config-button:hover {
-  background: var(--bg-accent);
-  border-color: color-mix(in srgb, var(--line) 70%, var(--ink) 30%);
-}
-
-.config-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 285px;
-  max-width: calc(100vw - 28px);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+.theme-nav-button {
+  min-width: 28px;
+  min-height: 28px;
   padding: 4px;
-  display: grid;
-  gap: 2px;
-  z-index: 10;
+  border-radius: 8px;
 }
 
-.config-menu[hidden] {
-  display: none;
+.theme-nav-button .btn-icon {
 }
 
-.config-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 2px 0;
-}
-
-.config-menu button {
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--ink);
@@ -270,7 +234,6 @@ button.button-small {
   align-items: center;
   gap: 5px;
 }
-
 .config-appearance-label {
   display: inline-flex;
   align-items: center;
@@ -1007,6 +970,22 @@ button.loading:disabled {
   transform: rotate(90deg);
 }
 
+.collapsible.config-appearance-collapsible summary::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid color-mix(in srgb, var(--accent) 78%, var(--ink));
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 78%, var(--ink));
+  border-radius: 1px;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+  margin-right: 4px;
+}
+
+.collapsible.config-appearance-collapsible[open] summary::before {
+  transform: rotate(45deg);
+}
+
 .collapsible[open] summary {
   margin-bottom: 8px;
 }
@@ -1319,7 +1298,7 @@ button.loading:disabled {
 
 .todo-header .section-title {
   color: color-mix(in srgb, var(--accent-dark) 80%, var(--ink));
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.75px;
 }
 
@@ -1376,54 +1355,42 @@ button.loading:disabled {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  position: relative;
 }
 
-.todo-controls__buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.todo-controls__icon-button {
+.todo-controls-menu-toggle {
   width: 22px;
   min-width: 22px;
   height: 22px;
   min-height: 22px;
   padding: 0;
   border-radius: 6px;
-  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--ink) 18%);
+  background: color-mix(in srgb, var(--bg-accent) 88%, var(--card));
+  color: var(--muted);
 }
 
-.todo-controls__icon-button .btn-icon {
+.todo-controls-menu-toggle .btn-icon {
   margin-right: 0;
   font-size: 14px;
 }
 
-.todo-controls__auto-collapse {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  min-height: 22px;
-  display: inline-flex;
+.todo-controls-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 184px;
+}
+
+.todo-controls-menu button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  padding: 0;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--bg-accent);
-  cursor: pointer;
+  gap: 8px;
 }
 
-.todo-controls__auto-collapse input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-}
-
-.todo-controls__auto-collapse--active {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
-  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+.todo-controls-menu button .btn-icon:last-child {
+  margin-left: auto;
+  margin-right: 0;
 }
 
 .todo-body {
@@ -1484,24 +1451,16 @@ button.loading:disabled {
 }
 
 .todo-header:hover,
-.todo-controls__buttons button:hover {
+.todo-controls-menu-toggle:hover {
   background: color-mix(in srgb, var(--accent-light) 70%, transparent);
   box-shadow: none;
-}
-
-.todo-controls__auto-collapse:hover {
-  background: color-mix(in srgb, var(--bg-accent) 82%, var(--card));
-}
-
-.todo-controls__auto-collapse--active:hover {
-  background: color-mix(in srgb, var(--accent) 24%, var(--card));
 }
 
 .todo-subsection-title {
   min-width: 0;
   font-size: 13px;
   font-weight: 400;
-  color: var(--ink);
+  color: var(--accent);
   margin-right: auto;
 }
 
@@ -1511,18 +1470,26 @@ button.loading:disabled {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--ink) 22%);
-  background: color-mix(in srgb, var(--card) 78%, var(--bg-accent));
+  border: 1px solid transparent;
   font-size: 12px;
   font-weight: 600;
 }
 
 .todo-subsection-count--done {
-  color: var(--success);
+  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
+  color: var(--card);
 }
 
 .todo-subsection-count--pending {
-  color: var(--muted);
+  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
+  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
+  color: var(--card);
+}
+
+.todo-subsection-count .todo-indicator--done,
+.todo-subsection-count .todo-indicator--pending {
+  color: inherit;
 }
 
 .todo-subsection-body {
