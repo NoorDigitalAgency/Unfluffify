@@ -261,7 +261,7 @@ function renderBasePageMenu(view, handlers) {
       hidden: !view.basePageMenuOpen,
       onClick: handlers.onBasePageMenuClick
     },
-    view.basePageUrls.length
+    (view.basePageUrls.length
       ? view.basePageUrls.map((item) =>
           h(
             "button",
@@ -290,6 +290,7 @@ function renderBasePageMenu(view, handlers) {
           { class: "section-menu__empty" },
           view.basePageUrlsEmptyText
         )
+    )
   );
 }
 
@@ -326,7 +327,7 @@ function renderThemeDropdown(view, handlers) {
         disabled: view.themeControlsDisabled,
         "aria-haspopup": "listbox",
         "aria-expanded": view.themeMenuOpen ? "true" : "false",
-        "aria-labelledby": "theme-field-label theme-dropdown-toggle",
+        "aria-label": `${PopupText.configuration.themeFieldLabel}: ${selectedTheme ? selectedTheme.label : ""}`,
         onClick: handlers.onThemeMenuToggle,
         ref: (el) => {
           refs.themeDropdownButton = el;
@@ -2061,20 +2062,19 @@ export function setBasePageMenuOpen(open) {
 }
 
 export function setThemeMenuOpen(open, placement = "bottom") {
+  const normalizedOpen = Boolean(open);
+  const normalizedPlacement = placement === "top" ? "top" : "bottom";
   if (
-    !open &&
-    !viewState.themeMenuOpen &&
-    !viewState.configMenuOpen &&
-    !viewState.basePageMenuOpen &&
-    !viewState.todoControlsMenuOpen
+    viewState.themeMenuOpen === normalizedOpen &&
+    viewState.themeMenuPlacement === normalizedPlacement
   ) {
     return;
   }
   state.configMenuOpen = false;
   state.basePageMenuOpen = false;
   setViewState({
-    themeMenuOpen: Boolean(open),
-    themeMenuPlacement: placement === "top" ? "top" : "bottom",
+    themeMenuOpen: normalizedOpen,
+    themeMenuPlacement: normalizedPlacement,
     configMenuOpen: false,
     basePageMenuOpen: false,
     todoControlsMenuOpen: false
