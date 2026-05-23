@@ -140,7 +140,8 @@ export const PopupText = Object.freeze({
     previewLatest: "Show Content List", // Selector action that previews the latest stored selector set.
     exitPreview: "Exit Preview", // Curtain action that closes page preview mode.
     revertToSaved: "Revert to saved", // Page-data action that restores the last saved draft.
-    enableMarking: "Enable Marking" // Toggle label that enables page-marking mode.
+    enableMarking: "Enable Marking", // Toggle label that enables page-marking mode.
+    back: "Back" // Compact icon-only action that returns from configuration to marking.
   }),
 
   tooltips: Object.freeze({
@@ -175,6 +176,7 @@ export const PopupText = Object.freeze({
 
   renderMode: Object.freeze({
     title: "Render Mode", // Field label and default collapsible title for render-mode controls.
+    menuAction: "View or change render mode", // Configuration-menu action that opens the render-mode editor.
     summaryTitleRendered: "Render Mode: JavaScript", // Collapsible title when the resolved render mode is rendered HTML.
     summaryTitleStatic: "Render Mode: Static", // Collapsible title when the resolved render mode is static HTML.
     optionStatic: "Static", // Select-option label for static HTML mode.
@@ -360,6 +362,11 @@ export const PopupText = Object.freeze({
     themeModeSystem: "System", // Theme mode option that follows system preference.
     themeModeLight: "Light", // Theme mode option that forces light mode.
     themeModeDark: "Dark", // Theme mode option that forces dark mode.
+    remoteSupportSectionTitle: "Remote Support", // Section title for support-code requests.
+    remoteSupportHint: "Request a one-time support code to share with Noor support. Screen sharing/control will connect through the configuration backend when available.", // Helper text for the remote support request.
+    remoteSupportButton: "Request remote support", // Button label that generates a support request code.
+    remoteSupportCodeLabel: "Share this code:", // Label shown before the generated support code.
+    remoteSupportUnavailable: "Remote control requires the configuration backend support service.", // Hint shown while backend support is unavailable.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.

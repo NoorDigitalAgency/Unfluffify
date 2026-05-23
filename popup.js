@@ -77,6 +77,7 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
+const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -1954,6 +1955,85 @@ function readCheckboxValue(event, fallbackValue) {
   return Boolean(target.checked);
 }
 
+function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
+  const normalizedTabId = tabId || (state.currentTab && state.currentTab.id) || null;
+  const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
+    ? baseUrl
+    : state.currentBaseUrl;
+  return normalizedTabId && normalizedBaseUrl
+    ? JSON.stringify([normalizedTabId, normalizedBaseUrl])
+    : "";
+}
+
+function getTodoExpansionStateFromView() {
+  const view = uiModule.getViewState();
+  return {
+    todoSectionExpanded: Boolean(view.todoSectionExpanded),
+    todoSubsectionsExpanded: {
+      ...(view.todoSubsectionsExpanded && typeof view.todoSubsectionsExpanded === "object"
+        ? view.todoSubsectionsExpanded
+        : {})
+    }
+  };
+}
+
+function saveCurrentTodoExpansionState() {
+  const key = state.currentTodoExpansionKey || buildTodoExpansionContextKey();
+  if (!key) {
+    return;
+  }
+  if (!(state.todoExpansionStateByContext instanceof Map)) {
+    state.todoExpansionStateByContext = new Map();
+  }
+  if (state.todoExpansionStateByContext.has(key)) {
+    state.todoExpansionStateByContext.delete(key);
+  }
+  state.todoExpansionStateByContext.set(key, getTodoExpansionStateFromView());
+  const overflowCount = state.todoExpansionStateByContext.size - TODO_EXPANSION_CONTEXT_LIMIT;
+  if (overflowCount > 0) {
+    const keyIterator = state.todoExpansionStateByContext.keys();
+    for (let index = 0; index < overflowCount; index += 1) {
+      state.todoExpansionStateByContext.delete(keyIterator.next().value);
+    }
+  }
+}
+
+function getCollapsedTodoExpansionState() {
+  return {
+    todoControlsMenuOpen: false,
+    todoSectionExpanded: false,
+    todoSubsectionsExpanded: {}
+  };
+}
+
+function getSavedTodoExpansionState(key) {
+  if (!key || !(state.todoExpansionStateByContext instanceof Map)) {
+    return null;
+  }
+  const saved = state.todoExpansionStateByContext.get(key);
+  if (!saved || typeof saved !== "object") {
+    return null;
+  }
+  // Refresh insertion order so recently restored contexts are evicted last.
+  state.todoExpansionStateByContext.delete(key);
+  state.todoExpansionStateByContext.set(key, saved);
+  return {
+    todoControlsMenuOpen: false,
+    todoSectionExpanded: Boolean(saved.todoSectionExpanded),
+    todoSubsectionsExpanded: {
+      ...(saved.todoSubsectionsExpanded && typeof saved.todoSubsectionsExpanded === "object"
+        ? saved.todoSubsectionsExpanded
+        : {})
+    }
+  };
+}
+
+function collapseTodoListForAutoCollapse() {
+  if (uiModule.getViewState().todoAutoCollapse) {
+    uiModule.collapseTodoList();
+  }
+}
+
 async function refreshUiInner() {
   if (!state.currentTab) {
     return;
@@ -1962,6 +2042,7 @@ async function refreshUiInner() {
   await validateStoredToken({ force: false, showToastOnInvalid: true });
   const currentTabId = state.currentTab.id || null;
   const tabChanged = Boolean(currentTabId && state.lastTabId !== currentTabId);
+  saveCurrentTodoExpansionState();
   if (tabChanged) {
     state.stageBaseEditMode = false;
     state.endpointEditMode = false;
@@ -2748,6 +2829,13 @@ async function refreshUiInner() {
       : PopupText.renderMode.title;
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
+  nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
+  nextViewState.renderModeChangeMenuVisible =
+    resolvedView === uiModule.View.Marking &&
+    renderModeRequired &&
+    renderModeSet &&
+    !pageScopedUiDisabled &&
+    currentPageMarkingAllowed;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
@@ -2992,6 +3080,27 @@ async function refreshUiInner() {
   nextViewState.basePageUrls = basePageUrls;
   nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
+  const nextTodoExpansionKey = buildTodoExpansionContextKey(currentTabId, state.currentBaseUrl);
+  const currentTodoExpansionKey = state.currentTodoExpansionKey;
+  const todoExpansionContextChanged = nextTodoExpansionKey !== currentTodoExpansionKey;
+  const hasNoTodoExpansionContext = !nextTodoExpansionKey;
+  const movedToDifferentProperty = state.currentBaseUrl !== previousBaseUrl;
+  const shouldAutoCollapseOnContextChange =
+    todoExpansionContextChanged && nextViewState.todoAutoCollapse;
+  const todoExpansionShouldCollapse =
+    hasNoTodoExpansionContext ||
+    movedToDifferentProperty ||
+    shouldAutoCollapseOnContextChange;
+  if (todoExpansionShouldCollapse) {
+    Object.assign(nextViewState, getCollapsedTodoExpansionState());
+  } else if (todoExpansionContextChanged) {
+    Object.assign(
+      nextViewState,
+      getSavedTodoExpansionState(nextTodoExpansionKey) || getCollapsedTodoExpansionState()
+    );
+  }
+  state.currentTodoExpansionKey = nextTodoExpansionKey;
+
   uiModule.setViewState(nextViewState);
   if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
     await applySilentHighlightVisibility();
@@ -3025,13 +3134,71 @@ async function handleThemeInput(event) {
   const nextThemeValue = normalizeThemeValue(
     event && event.target ? event.target.value : state.currentTheme
   );
+  await applyThemeValue(nextThemeValue);
+}
+
+async function applyThemeValue(nextThemeValue) {
   state.currentTheme = nextThemeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
     themeValue: state.currentTheme,
-    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode),
+    themeMenuOpen: false
   });
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
+}
+
+function getThemeMenuPlacement() {
+  const refs = uiModule.getRefs();
+  const button = refs.themeDropdownButton;
+  if (!button || typeof button.getBoundingClientRect !== "function") {
+    return "bottom";
+  }
+  const rect = button.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const spaceBelow = viewportHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  return spaceBelow < 220 && spaceAbove > spaceBelow ? "top" : "bottom";
+}
+
+function handleThemeMenuToggle(event) {
+  event.stopPropagation();
+  const view = uiModule.getViewState();
+  uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
+}
+
+function handleThemeMenuKeyDown(event) {
+  const key = event && typeof event.key === "string" ? event.key : "";
+  let indexDelta = null;
+  if (key === "ArrowDown") {
+    indexDelta = 1;
+  } else if (key === "ArrowUp") {
+    indexDelta = -1;
+  }
+  const options = Array.isArray(THEME_OPTIONS) ? THEME_OPTIONS : [];
+  if (
+    indexDelta === null ||
+    !options.length ||
+    uiModule.getViewState().themeControlsDisabled
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const currentTheme = normalizeThemeValue(state.currentTheme);
+  const currentIndex = options.findIndex((item) => item && item.value === currentTheme);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const nextIndex = (safeIndex + indexDelta + options.length) % options.length;
+  if (!uiModule.getViewState().themeMenuOpen) {
+    uiModule.setThemeMenuOpen(true, getThemeMenuPlacement());
+  }
+  void handleThemeOptionSelect(options[nextIndex].value).catch(() => {
+    uiModule.showToast(PopupText.page.saveFailed);
+  });
+}
+
+async function handleThemeOptionSelect(value) {
+  await applyThemeValue(normalizeThemeValue(value));
 }
 
 async function cycleTheme(direction) {
@@ -3048,7 +3215,8 @@ async function cycleTheme(direction) {
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
     themeValue: state.currentTheme,
-    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode),
+    themeMenuOpen: false
   });
   await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
@@ -3063,7 +3231,9 @@ async function handleThemeNext() {
 
 async function handleThemeModeInput(event) {
   const nextThemeModeValue = normalizeThemeModeValue(
-    event && event.target ? event.target.value : state.currentThemeMode
+    event && (event.currentTarget || event.target)
+      ? (event.currentTarget || event.target).value
+      : state.currentThemeMode
   );
   state.currentThemeMode = nextThemeModeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
@@ -3239,6 +3409,14 @@ async function handleRenderModeEditToggle() {
   await refreshUi();
 }
 
+async function handleOpenRenderModeSection() {
+  uiModule.setConfigMenuOpen(false);
+  uiModule.setBasePageMenuOpen(false);
+  state.renderModeEditMode = true;
+  state.renderModeSummaryOpen = true;
+  await refreshUi();
+}
+
 function handleRenderModeSummaryToggle(event) {
   const target = event && event.currentTarget;
   const nextOpen = Boolean(target && target.open);
@@ -3300,6 +3478,26 @@ function handleLoginPasswordKeyDown(event) {
   );
 }
 
+function createRemoteSupportCode() {
+  const bytes = new Uint8Array(4);
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  const value = Array.from(bytes).reduce((acc, byte) => ((acc * 256) + byte) % 1000000, 0);
+  return String(value).padStart(6, "0");
+}
+
+function handleRemoteSupportRequest() {
+  uiModule.setViewState({
+    remoteSupportRequested: true,
+    remoteSupportCode: createRemoteSupportCode()
+  });
+}
+
 function handleConfigToggle(event) {
   event.stopPropagation();
   uiModule.setBasePageMenuOpen(false);
@@ -3337,22 +3535,26 @@ function handleTodoControlsMenuClick(event) {
 function handleTodoSectionToggle() {
   const view = uiModule.getViewState();
   uiModule.setTodoSectionExpanded(!view.todoSectionExpanded);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoSubsectionToggle(key) {
   const view = uiModule.getViewState();
   const expanded = Boolean(view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[key]);
   uiModule.setTodoSubsectionExpanded(key, !expanded);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoExpandAll() {
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(true);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoCollapseAll() {
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setTodoAllSubsectionsExpanded(false);
+  saveCurrentTodoExpansionState();
 }
 
 function handleTodoAutoCollapseToggle() {
@@ -3372,7 +3574,7 @@ async function handleOpenConfigurationView() {
   uiModule.setBasePageMenuOpen(false);
   clearRemoteConfigRetryTimer();
   state.currentView = uiModule.View.Configuration;
-  uiModule.collapseTodoList();
+  collapseTodoListForAutoCollapse();
   uiModule.setViewState({ currentView: state.currentView });
   await refreshUi();
 }
@@ -3393,7 +3595,7 @@ async function maybeSwitchToMarkingView() {
   ) {
     state.currentView = uiModule.View.Marking;
     state.configViewLocked = false;
-    uiModule.collapseTodoList();
+    collapseTodoListForAutoCollapse();
     uiModule.setViewState({ currentView: state.currentView });
   }
 }
@@ -3478,34 +3680,21 @@ async function navigateActiveTabToUrl(url) {
   return true;
 }
 
-async function handleMarkedPageNavigate(url) {
+async function navigateActiveTabToUrlWithTodoCollapse(url) {
   const navigated = await navigateActiveTabToUrl(url);
-  if (!navigated) {
-    return;
+  if (navigated) {
+    collapseTodoListForAutoCollapse();
   }
-  const view = uiModule.getViewState();
-  if (!view.todoAutoCollapse) {
-    return;
-  }
-  const pageTypeGroups = Array.isArray(view.pageTypeGroups) ? view.pageTypeGroups : [];
-  const matchingGroup = pageTypeGroups.find((group) =>
-    Array.isArray(group.candidates) && group.candidates.some((candidate) => candidate.url === url)
-  );
-  const targetCandidate = matchingGroup
-    ? matchingGroup.candidates.find((candidate) => candidate.url === url)
-    : null;
-  if (targetCandidate && targetCandidate.marked && matchingGroup.candidates.length > 1) {
-    uiModule.setTodoAllSubsectionsExpanded(false);
-    uiModule.setTodoSectionExpanded(true);
-    uiModule.setTodoSubsectionExpanded(matchingGroup.key, true);
-    return;
-  }
-  uiModule.collapseTodoList();
+  return navigated;
+}
+
+async function handleMarkedPageNavigate(url) {
+  await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
 async function handleBasePageNavigate(url) {
   uiModule.setBasePageMenuOpen(false);
-  await navigateActiveTabToUrl(url);
+  await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
 async function handleLynxChecklistCandidateNavigate(url) {
@@ -3513,7 +3702,7 @@ async function handleLynxChecklistCandidateNavigate(url) {
     return;
   }
   closeLynxChecklistPopover();
-  await navigateActiveTabToUrl(url);
+  await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
 async function handleEnableToggle(event) {
@@ -3523,7 +3712,7 @@ async function handleEnableToggle(event) {
     ? Boolean(source.checked)
     : currentViewState.toggleEnabled;
   if (desiredEnabled !== currentViewState.toggleEnabled) {
-    uiModule.collapseTodoList();
+    collapseTodoListForAutoCollapse();
   }
   const tab = await helpers.ensureActiveTab({ requireId: true, requireUrl: true });
   if (!tab) {
@@ -4702,6 +4891,7 @@ async function handlePreviewLatest() {
     return;
   }
   state.lastPopupEnabled = null;
+  collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
     const response = await messages.sendTabMessage({
@@ -4799,6 +4989,9 @@ async function init() {
     onThemeInput: handleThemeInput,
     onThemePrevious: handleThemePrevious,
     onThemeNext: handleThemeNext,
+    onThemeMenuToggle: handleThemeMenuToggle,
+    onThemeMenuKeyDown: handleThemeMenuKeyDown,
+    onThemeOptionSelect: handleThemeOptionSelect,
     onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
@@ -4813,6 +5006,7 @@ async function init() {
     onLynxChecklistSend: handleLynxChecklistSend,
     onRenderModeSet: handleRenderModeSet,
     onRenderModeEditToggle: handleRenderModeEditToggle,
+    onOpenRenderModeSection: handleOpenRenderModeSection,
     onStageBaseKeyDown: handleStageBaseKeyDown,
     onStageBaseSet: handleStageBaseSet,
     onStageBaseEditToggle: handleStageBaseEditToggle,
@@ -4820,6 +5014,7 @@ async function init() {
     onLoginPasswordInput: handleLoginPasswordInput,
     onLoginPasswordKeyDown: handleLoginPasswordKeyDown,
     onLoginAction: handleLoginAction,
+    onRemoteSupportRequest: handleRemoteSupportRequest,
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
@@ -4837,12 +5032,14 @@ async function init() {
     uiModule.setConfigMenuOpen(false);
     uiModule.setBasePageMenuOpen(false);
     uiModule.setTodoControlsMenuOpen(false);
+    uiModule.setThemeMenuOpen(false);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
       uiModule.setBasePageMenuOpen(false);
       uiModule.setTodoControlsMenuOpen(false);
+      uiModule.setThemeMenuOpen(false);
     }
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {

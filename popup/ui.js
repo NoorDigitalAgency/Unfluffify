@@ -98,6 +98,8 @@ const initialViewState = {
   themeModeValue: "system",
   themeOptions: [],
   themeModeOptions: [],
+  themeMenuOpen: false,
+  themeMenuPlacement: "bottom",
   themeControlsDisabled: false,
   renderModeValue: "undetermined",
   renderModeReadOnly: true,
@@ -120,6 +122,8 @@ const initialViewState = {
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
   renderModeSummaryOpen: false,
+  renderModeSectionVisible: false,
+  renderModeChangeMenuVisible: false,
   renderModeSummaryTitle: PopupText.renderMode.title,
   loginEmailValue: "",
   loginPasswordValue: "",
@@ -154,6 +158,8 @@ const initialViewState = {
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
+  remoteSupportCode: "",
+  remoteSupportRequested: false,
   isBusy: false,
   busyMessage: "",
   toastMessage: "",
@@ -183,6 +189,11 @@ function icon(name, extraClass = "") {
 
 function editToggleIcon(actionText) {
   return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
+}
+
+function getSelectedThemeOption(view) {
+  const options = Array.isArray(view.themeOptions) ? view.themeOptions : [];
+  return options.find((option) => option && option.value === view.themeValue) || options[0] || null;
 }
 
 function statusToneClass(tone) {
@@ -245,12 +256,12 @@ function renderBasePageMenu(view, handlers) {
   return h(
     "div",
     {
-      class: "section-menu",
+      class: "section-menu base-page-menu",
       role: "menu",
       hidden: !view.basePageMenuOpen,
       onClick: handlers.onBasePageMenuClick
     },
-    view.basePageUrls.length
+    (view.basePageUrls.length
       ? view.basePageUrls.map((item) =>
           h(
             "button",
@@ -279,6 +290,195 @@ function renderBasePageMenu(view, handlers) {
           { class: "section-menu__empty" },
           view.basePageUrlsEmptyText
         )
+    )
+  );
+}
+
+function renderThemePalette(option, extraClassName = "") {
+  const themeId = option && typeof option.value === "string" ? option.value : "";
+  return h(
+    "span",
+    {
+      class: classNames("theme-palette", extraClassName),
+      "data-theme": themeId || null,
+      "aria-hidden": "true"
+    },
+    [1, 2, 3, 4].map((index) =>
+      h("span", {
+        key: index,
+        class: `theme-palette__swatch theme-palette__swatch--${index}`
+      })
+    )
+  );
+}
+
+function renderThemeDropdown(view, handlers) {
+  const selectedTheme = getSelectedThemeOption(view);
+  const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
+  return h(
+    "div",
+    { class: "theme-dropdown" },
+    h(
+      "button",
+      {
+        id: "theme-dropdown-toggle",
+        type: "button",
+        class: "theme-dropdown__toggle",
+        disabled: view.themeControlsDisabled,
+        "aria-haspopup": "listbox",
+        "aria-expanded": view.themeMenuOpen ? "true" : "false",
+        "aria-label": `${PopupText.configuration.themeFieldLabel}: ${selectedTheme ? selectedTheme.label : ""}`,
+        onClick: handlers.onThemeMenuToggle,
+        onKeyDown: handlers.onThemeMenuKeyDown,
+        ref: (el) => {
+          refs.themeDropdownButton = el;
+        }
+      },
+      h("span", { class: "theme-dropdown__label" }, selectedTheme ? selectedTheme.label : ""),
+      renderThemePalette(selectedTheme),
+      icon(
+        "chevron-down",
+        classNames("theme-dropdown__caret", view.themeMenuOpen && "theme-dropdown__caret--open")
+      )
+    ),
+    h(
+      "div",
+      {
+        class: classNames(
+          "section-menu",
+          "theme-dropdown__menu",
+          view.themeMenuPlacement === "top" && "theme-dropdown__menu--top"
+        ),
+        role: "listbox",
+        hidden: !view.themeMenuOpen,
+        onKeyDown: handlers.onThemeMenuKeyDown,
+        onMouseDown: (event) => {
+          event.stopPropagation();
+        },
+        onClick: (event) => {
+          event.stopPropagation();
+        }
+      },
+      themeOptions.map((option) =>
+        h(
+          "button",
+          {
+            key: option.value,
+            type: "button",
+            class: classNames(option.value === view.themeValue && "is-selected"),
+            role: "option",
+            "aria-selected": option.value === view.themeValue ? "true" : "false",
+            onClick: () => handlers.onThemeOptionSelect(option.value)
+          },
+          h("span", { class: "section-menu__label" }, option.label),
+          renderThemePalette(option),
+          option.value === view.themeValue ? icon("check") : null
+        )
+      )
+    )
+  );
+}
+
+function renderTodoControlsMenu(view, handlers) {
+  return h(
+    "div",
+    {
+      class: "section-menu todo-controls-menu",
+      role: "menu",
+      hidden: !view.todoControlsMenuOpen,
+      onClick: handlers.onTodoControlsMenuClick
+    },
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoExpandAll
+      },
+      icon("unfold-more-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoCollapseAll
+      },
+      icon("unfold-less-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitemcheckbox",
+        "aria-checked": view.todoAutoCollapse ? "true" : "false",
+        onClick: handlers.onTodoAutoCollapseToggle
+      },
+      icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse)
+    )
+  );
+}
+
+function renderThemeModeButtons(view, handlers) {
+  const iconByMode = {
+    system: "theme-light-dark",
+    light: "white-balance-sunny",
+    dark: "weather-night"
+  };
+  return h(
+    "div",
+    { class: "theme-mode-buttons", role: "group", "aria-labelledby": "theme-mode-field-label" },
+    ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
+      h(
+        "button",
+        {
+          key: option.value,
+          type: "button",
+          class: classNames(
+            "theme-mode-button",
+            option.value === view.themeModeValue && "theme-mode-button--active"
+          ),
+          value: option.value,
+          disabled: view.themeControlsDisabled,
+          "aria-pressed": option.value === view.themeModeValue ? "true" : "false",
+          onClick: handlers.onThemeModeInput
+        },
+        icon(iconByMode[option.value] || "circle-outline"),
+        h("span", null, option.label)
+      )
+    )
+  );
+}
+
+function renderRemoteSupportSection(view, handlers) {
+  return h(
+    "section",
+    { class: "card remote-support-card" },
+    h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
+    h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
+    h(
+      "button",
+      {
+        id: "remote-support-request",
+        type: "button",
+        class: "full-width",
+        onClick: handlers.onRemoteSupportRequest
+      },
+      icon("monitor-share"),
+      PopupText.configuration.remoteSupportButton
+    ),
+    view.remoteSupportRequested
+      ? h(
+          "div",
+          { class: "remote-support-code", role: "status", "aria-live": "polite" },
+          h("span", null, PopupText.configuration.remoteSupportCodeLabel),
+          h("strong", null, view.remoteSupportCode || "------"),
+          h("span", { class: "hint" }, PopupText.configuration.remoteSupportUnavailable)
+        )
+      : null
   );
 }
 
@@ -386,50 +586,6 @@ function renderTodoIndicator(iconName, done = false, extraClassName = "") {
   );
 }
 
-function renderTodoControlsMenu(view, handlers) {
-  return h(
-    "div",
-    {
-      class: "section-menu todo-controls-menu",
-      role: "menu",
-      hidden: !view.todoControlsMenuOpen,
-      onClick: handlers.onTodoControlsMenuClick
-    },
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitem",
-        onClick: handlers.onTodoExpandAll
-      },
-      icon("unfold-more-horizontal"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
-    ),
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitem",
-        onClick: handlers.onTodoCollapseAll
-      },
-      icon("unfold-less-horizontal"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
-    ),
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitemcheckbox",
-        "aria-checked": view.todoAutoCollapse ? "true" : "false",
-        onClick: handlers.onTodoAutoCollapseToggle
-      },
-      icon("checkbox-multiple-marked-outline"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse),
-      icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline")
-    )
-  );
-}
-
 function renderMarkedPagesSection(view, handlers, extraClassName = "") {
   const progress = getTodoProgress(view);
   const sectionExpanded = Boolean(view.todoSectionExpanded);
@@ -454,7 +610,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         h(
           "span",
           { class: "todo-header-title" },
-          h("span", { class: "section-title" }, PopupText.pageTypes.title)
+          h("span", { class: "section-title" }, icon("format-list-checks", "field-icon"), PopupText.pageTypes.title)
         ),
         h(
           "span",
@@ -471,24 +627,26 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
           h("span", null, `${progress.completed}/${progress.total}`)
         )
       ),
-      h(
-        "div",
-        { class: "section-header-actions" },
-        h(
-          "button",
-          {
-            id: "base-page-menu-toggle",
-            type: "button",
-            class: "section-menu-button button-secondary",
-            "aria-haspopup": "menu",
-            "aria-expanded": view.basePageMenuOpen ? "true" : "false",
-            title: PopupText.tooltips.basePageUrls,
-            onClick: handlers.onBasePageMenuToggle
-          },
-          icon("dots-vertical")
-        ),
-        renderBasePageMenu(view, handlers)
-      )
+      sectionExpanded
+        ? h(
+            "div",
+            { class: "section-header-actions todo-header-actions" },
+            h(
+              "button",
+              {
+                id: "todo-controls-menu-toggle",
+                type: "button",
+                class: "section-menu-button button-secondary",
+                "aria-haspopup": "menu",
+                "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
+                title: PopupText.pageTypes.controlsMenu,
+                onClick: handlers.onTodoControlsMenuToggle
+              },
+              icon("dots-vertical")
+            ),
+            renderTodoControlsMenu(view, handlers)
+          )
+        : null
     ),
     view.pageTypeNoticeVisible
       ? h(
@@ -507,24 +665,6 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
           { class: "todo-body" },
           view.pageTypeGroups.length
             ? [
-                h(
-                  "div",
-                  { class: "todo-controls" },
-                  h(
-                    "button",
-                    {
-                      id: "todo-controls-menu-toggle",
-                      type: "button",
-                      class: "todo-controls-menu-toggle",
-                      "aria-haspopup": "menu",
-                      "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
-                      title: PopupText.pageTypes.controlsMenu,
-                      onClick: handlers.onTodoControlsMenuToggle
-                    },
-                    icon("dots-horizontal")
-                  ),
-                  renderTodoControlsMenu(view, handlers)
-                ),
                 view.pageTypeGroups.map((group) => {
                   const subsectionExpanded = Boolean(
                     view.todoSubsectionsExpanded && view.todoSubsectionsExpanded[group.key]
@@ -716,6 +856,7 @@ function renderPreviewSidebar(view, handlers) {
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
   const previewVisible = view.previewBlocked || view.previewActive;
+  const configurationView = view.currentView === View.Configuration;
 
   return h(
     Fragment,
@@ -733,7 +874,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible,
             onClick: handlers.onUnregisterCurrentTab
           }
         )
@@ -750,54 +891,83 @@ function App({ state: view, actions: handlers }) {
           h(
             "div",
             { class: "header-actions" },
-            h(
-              "button",
-              {
-                id: "config-toggle",
-                type: "button",
-                class: "header-menu-toggle",
-                "aria-haspopup": "menu",
-                "aria-expanded": view.configMenuOpen ? "true" : "false",
-                title: PopupText.configuration.title,
-                onClick: handlers.onConfigToggle
-              },
-              icon("dots-vertical")
-            ),
-            h(
-              "div",
-              {
-                id: "config-menu",
-                class: "section-menu config-menu",
-                role: "menu",
-                hidden: !view.configMenuOpen,
-                onClick: handlers.onConfigMenuClick
-              },
-              h(
-                "button",
-                {
-                  id: "config-open-view",
-                  type: "button",
-                  role: "menuitem",
-                  onClick: handlers.onOpenConfiguration
-                },
-                icon("tune"),
-                h("span", { class: "section-menu__label" }, PopupText.configuration.openViewAction)
-              ),
-              h("div", { class: "config-divider", role: "separator" }),
-              h(
-                "button",
-                {
-                  id: "clear-domain-cache",
-                  type: "button",
-                  role: "menuitem",
-                  class: "danger",
-                  disabled: view.clearDomainCacheDisabled,
-                  onClick: handlers.onClearDomainCache
-                },
-                icon("trash-can-outline"),
-                h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
-              )
-            )
+            configurationView
+              ? h(
+                  "button",
+                  {
+                    id: "config-header-back",
+                    type: "button",
+                    class: "header-menu-toggle",
+                    title: PopupText.actions.back,
+                    "aria-label": PopupText.actions.back,
+                    disabled: view.configurationContinueDisabled,
+                    onClick: handlers.onConfigurationContinue
+                  },
+                  icon("arrow-left")
+                )
+              : [
+                  h(
+                    "button",
+                    {
+                      id: "config-toggle",
+                      type: "button",
+                      class: "header-menu-toggle",
+                      "aria-haspopup": "menu",
+                      "aria-expanded": view.configMenuOpen ? "true" : "false",
+                      title: PopupText.configuration.title,
+                      onClick: handlers.onConfigToggle
+                    },
+                    icon("dots-vertical")
+                  ),
+                  h(
+                    "div",
+                    {
+                      id: "config-menu",
+                      class: "section-menu config-menu",
+                      role: "menu",
+                      hidden: !view.configMenuOpen,
+                      onClick: handlers.onConfigMenuClick
+                    },
+                    h(
+                      "button",
+                      {
+                        id: "config-open-view",
+                        type: "button",
+                        role: "menuitem",
+                        onClick: handlers.onOpenConfiguration
+                      },
+                      icon("tune"),
+                      h("span", { class: "section-menu__label" }, PopupText.configuration.openViewAction)
+                    ),
+                    view.renderModeChangeMenuVisible
+                      ? h(
+                          "button",
+                          {
+                            id: "render-mode-open-view",
+                            type: "button",
+                            role: "menuitem",
+                            onClick: handlers.onOpenRenderModeSection
+                          },
+                          icon("monitor-dashboard"),
+                          h("span", { class: "section-menu__label" }, PopupText.renderMode.menuAction)
+                        )
+                      : null,
+                    h("div", { class: "config-divider", role: "separator" }),
+                    h(
+                      "button",
+                      {
+                        id: "clear-domain-cache",
+                        type: "button",
+                        role: "menuitem",
+                        class: "danger",
+                        disabled: view.clearDomainCacheDisabled,
+                        onClick: handlers.onClearDomainCache
+                      },
+                      icon("trash-can-outline"),
+                      h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
+                    )
+                  )
+                ]
           )
       ),
       previewVisible
@@ -1272,14 +1442,32 @@ function renderMarkingView({state: view, actions: handlers}) {
         h("span", null, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
         h(
           "div",
-          {class: "input-row"},
+          {class: "input-row property-url-row"},
           h("input", {
             id: "base-url",
             type: "text",
             placeholder: PopupText.baseUrl.placeholder,
             readOnly: true,
             value: view.baseUrlInputValue
-          })
+          }),
+          h(
+            "div",
+            { class: "section-header-actions property-url-actions" },
+            h(
+              "button",
+              {
+                id: "base-page-menu-toggle",
+                type: "button",
+                class: "section-menu-button button-secondary",
+                "aria-haspopup": "menu",
+                "aria-expanded": view.basePageMenuOpen ? "true" : "false",
+                title: PopupText.tooltips.basePageUrls,
+                onClick: handlers.onBasePageMenuToggle
+              },
+              icon("dots-vertical")
+            ),
+            renderBasePageMenu(view, handlers)
+          )
         )
       ),
       h(
@@ -1292,22 +1480,15 @@ function renderMarkingView({state: view, actions: handlers}) {
           hidden: !view.baseUrlNoticeVisible
         },
         view.baseUrlNoticeText
-      ),
-      h(
-        "details",
-        {
-          class: "collapsible",
-          open: view.renderModeSummaryOpen,
-          onToggle: handlers.onRenderModeSummaryToggle
-        },
-        h("summary", null, icon("monitor-dashboard", "field-icon"), view.renderModeSummaryTitle),
-        h(
-          "div",
-          {class: "collapsible-body"},
-          renderRenderModeEditor(view, handlers)
-        )
       )
     ),
+    view.renderModeSectionVisible &&
+      h(
+        "section",
+        { class: "card render-mode-section" },
+        h("div", { class: "section-title" }, icon("monitor-dashboard", "field-icon"), view.renderModeSummaryTitle),
+        renderRenderModeEditor(view, handlers)
+      ),
     view.todoListVisible && renderMarkedPagesSection(view, handlers),
     postRenderModeControlsVisible &&
       h(
@@ -1349,7 +1530,7 @@ function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
           "aria-expanded": expanded ? "true" : "false",
           onClick: handlers.onHighlightingSectionToggle
         },
-        h("span", { class: "section-title" }, PopupText.highlighting.sectionTitle)
+        h("span", { class: "section-title" }, icon("marker", "field-icon"), PopupText.highlighting.sectionTitle)
       ),
       expanded
         ? h(
@@ -1544,7 +1725,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
       h(
         "section",
         { class: "card" },
-        h("div", { class: "section-title" }, PopupText.configuration.title),
+        h("div", { class: "section-title" }, icon("api", "field-icon"), PopupText.configuration.endpointSectionTitle),
         h("div", { class: "hint" }, PopupText.configuration.setupHint),
         h(
           "div",
@@ -1556,23 +1737,6 @@ function renderConfigurationView({state: view, actions: handlers}) {
           },
           view.configurationNoticeText
         ),
-        h(
-          "button",
-          {
-            id: "config-continue",
-            type: "button",
-            disabled: view.configurationContinueDisabled,
-            onClick: handlers.onConfigurationContinue,
-            class: "full-width margin-above"
-          },
-          icon("arrow-left"),
-          PopupText.actions.goBack
-        )
-      ),
-      h(
-        "section",
-        { class: "card" },
-        h("div", { class: "section-title" }, PopupText.configuration.endpointSectionTitle),
         renderEditableConfigurationField({
           inputId: "config-endpoint-url",
           noticeId: "config-endpoint-notice",
@@ -1648,7 +1812,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
       h(
         "section",
         { class: "card" },
-        h("div", { class: "section-title" }, PopupText.authentication.title),
+        h("div", { class: "section-title" }, icon("account-key-outline", "field-icon"), PopupText.authentication.title),
         h(
           Fragment,
           null,
@@ -1710,7 +1874,9 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
           "summary",
           null,
-          PopupText.configuration.appearanceSectionTitle
+          icon("palette-outline", "field-icon"),
+          PopupText.configuration.appearanceSectionTitle,
+          renderThemePalette(getSelectedThemeOption(view), "theme-palette--summary")
         ),
         h(
           "div",
@@ -1719,9 +1885,9 @@ function renderConfigurationView({state: view, actions: handlers}) {
             "div",
             { class: "config-appearance-row" },
             h(
-              "label",
+              "div",
               { class: "config-appearance-control" },
-              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
+              h("span", { id: "theme-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
               h(
                 "div",
                 { class: "theme-control-row" },
@@ -1737,22 +1903,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
                   },
                   icon("chevron-left")
                 ),
-                h("select", {
-                  id: "theme-select",
-                  value: view.themeValue,
-                  disabled: view.themeControlsDisabled,
-                  onChange: handlers.onThemeInput
-                },
-                ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
-                  h(
-                    "option",
-                    {
-                      key: option.value,
-                      value: option.value
-                    },
-                    option.label
-                  )
-                )),
+                renderThemeDropdown(view, handlers),
                 h(
                   "button",
                   {
@@ -1768,29 +1919,15 @@ function renderConfigurationView({state: view, actions: handlers}) {
               )
             ),
             h(
-              "label",
+              "div",
               { class: "config-appearance-control config-appearance-control--mode" },
-              h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
-              h("select", {
-                id: "theme-mode-select",
-                value: view.themeModeValue,
-                disabled: view.themeControlsDisabled,
-                onChange: handlers.onThemeModeInput
-              },
-              ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
-                h(
-                  "option",
-                  {
-                    key: option.value,
-                    value: option.value
-                  },
-                  option.label
-                )
-              ))
+              h("span", { id: "theme-mode-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
+              renderThemeModeButtons(view, handlers)
             )
           )
         )
-      )
+      ),
+      renderRemoteSupportSection(view, handlers)
     );
 }
 
@@ -1859,7 +1996,8 @@ function normalizeViewState(nextViewState) {
       ...normalizedViewState,
       configMenuOpen: false,
       basePageMenuOpen: false,
-      todoControlsMenuOpen: false
+      todoControlsMenuOpen: false,
+      themeMenuOpen: false
     };
     state.configMenuOpen = false;
     state.basePageMenuOpen = false;
@@ -1925,7 +2063,7 @@ export function setConfigMenuOpen(open) {
     return;
   }
   state.configMenuOpen = open;
-  setViewState({ configMenuOpen: open });
+  setViewState({ configMenuOpen: open, themeMenuOpen: false });
 }
 
 export function setBasePageMenuOpen(open) {
@@ -1933,10 +2071,33 @@ export function setBasePageMenuOpen(open) {
     return;
   }
   state.basePageMenuOpen = open;
-  setViewState({ basePageMenuOpen: open });
+  setViewState({ basePageMenuOpen: open, themeMenuOpen: false });
+}
+
+export function setThemeMenuOpen(open, placement = "bottom") {
+  const normalizedOpen = Boolean(open);
+  const normalizedPlacement = placement === "top" ? "top" : "bottom";
+  if (
+    viewState.themeMenuOpen === normalizedOpen &&
+    viewState.themeMenuPlacement === normalizedPlacement
+  ) {
+    return;
+  }
+  state.configMenuOpen = false;
+  state.basePageMenuOpen = false;
+  setViewState({
+    themeMenuOpen: normalizedOpen,
+    themeMenuPlacement: normalizedPlacement,
+    configMenuOpen: false,
+    basePageMenuOpen: false,
+    todoControlsMenuOpen: false
+  });
 }
 
 export function setTodoControlsMenuOpen(open) {
+  if (Boolean(viewState.todoControlsMenuOpen) === Boolean(open)) {
+    return;
+  }
   setViewState({ todoControlsMenuOpen: Boolean(open) });
 }
 

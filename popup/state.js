@@ -22,6 +22,8 @@ export const state = {
   aiSelectorsComputedBaseUrl: "",
   configMenuOpen: false,
   basePageMenuOpen: false,
+  currentTodoExpansionKey: "",
+  todoExpansionStateByContext: new Map(),
   renderModeSummaryOpen: false,
   currentDeviceMode: "mobile",
   currentDeviceScale: DEVICE_SCALE_DEFAULTS.mobile,
