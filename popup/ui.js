@@ -460,49 +460,6 @@ function renderRemoteSupportSection(view, handlers) {
   );
 }
 
-function renderTodoControlsMenu(view, handlers) {
-  return h(
-    "div",
-    {
-      class: "section-menu todo-controls-menu",
-      role: "menu",
-      hidden: !view.todoControlsMenuOpen,
-      onClick: handlers.onTodoControlsMenuClick
-    },
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitem",
-        onClick: handlers.onTodoExpandAll
-      },
-      icon("unfold-more-horizontal"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
-    ),
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitem",
-        onClick: handlers.onTodoCollapseAll
-      },
-      icon("unfold-less-horizontal"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
-    ),
-    h(
-      "button",
-      {
-        type: "button",
-        role: "menuitemcheckbox",
-        "aria-checked": view.todoAutoCollapse ? "true" : "false",
-        onClick: handlers.onTodoAutoCollapseToggle
-      },
-      icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline"),
-      h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse)
-    )
-  );
-}
-
 function renderRenderModeEditor(view, handlers) {
   return h(
     Fragment,
