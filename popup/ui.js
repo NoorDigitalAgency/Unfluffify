@@ -1556,49 +1556,53 @@ function renderConfigurationView({state: view, actions: handlers}) {
       ),
       h(
         "section",
-        { class: "card" },
+        { class: "card config-appearance-card" },
         h("div", { class: "section-title" }, PopupText.configuration.appearanceSectionTitle),
         h(
-          "label",
-          { class: "field" },
-          h("span", null, icon("palette-outline", "field-icon"), PopupText.configuration.themeFieldLabel),
-          h("select", {
-            id: "theme-select",
-            value: view.themeValue,
-            disabled: view.themeControlsDisabled,
-            onChange: handlers.onThemeInput
-          },
-          ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
-            h(
-              "option",
-              {
-                key: option.value,
-                value: option.value
-              },
-              option.label
-            )
-          ))
-        ),
-        h(
-          "label",
-          { class: "field" },
-          h("span", null, icon("theme-light-dark", "field-icon"), PopupText.configuration.themeModeFieldLabel),
-          h("select", {
-            id: "theme-mode-select",
-            value: view.themeModeValue,
-            disabled: view.themeControlsDisabled,
-            onChange: handlers.onThemeModeInput
-          },
-          ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
-            h(
-              "option",
-              {
-                key: option.value,
-                value: option.value
-              },
-              option.label
-            )
-          ))
+          "div",
+          { class: "config-appearance-grid" },
+          h(
+            "label",
+            { class: "field field--compact config-appearance-field" },
+            h("span", null, icon("palette-outline", "field-icon"), PopupText.configuration.themeFieldLabel),
+            h("select", {
+              id: "theme-select",
+              value: view.themeValue,
+              disabled: view.themeControlsDisabled,
+              onChange: handlers.onThemeInput
+            },
+            ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
+              h(
+                "option",
+                {
+                  key: option.value,
+                  value: option.value
+                },
+                option.label
+              )
+            ))
+          ),
+          h(
+            "label",
+            { class: "field field--compact config-appearance-field" },
+            h("span", null, icon("theme-light-dark", "field-icon"), PopupText.configuration.themeModeFieldLabel),
+            h("select", {
+              id: "theme-mode-select",
+              value: view.themeModeValue,
+              disabled: view.themeControlsDisabled,
+              onChange: handlers.onThemeModeInput
+            },
+            ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
+              h(
+                "option",
+                {
+                  key: option.value,
+                  value: option.value
+                },
+                option.label
+              )
+            ))
+          )
         )
       ),
       h(

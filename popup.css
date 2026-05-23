@@ -231,6 +231,33 @@ button.button-small {
   font-size: 13px;
 }
 
+.field--compact {
+  gap: 4px;
+}
+
+.config-appearance-card {
+  gap: 6px;
+}
+
+.config-appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.config-appearance-field {
+  min-width: 0;
+}
+
+.config-appearance-field .field-icon {
+  margin-right: 4px;
+}
+
+.config-appearance-field select {
+  min-width: 0;
+}
+
 .input-row {
   display: flex;
   align-items: center;
@@ -1210,11 +1237,25 @@ button.loading:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0;
+  padding: 0 0 0 2px;
   border: 0;
   background: none;
   color: inherit;
   text-align: left;
+}
+
+.todo-header::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+  margin-right: 3px;
+}
+
+.todo-header[aria-expanded="true"]::before {
+  transform: rotate(90deg);
 }
 
 .todo-header:hover {
@@ -1274,11 +1315,25 @@ button.loading:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0;
+  padding: 0 0 0 2px;
   border: 0;
   background: none;
   color: inherit;
   text-align: left;
+}
+
+.todo-subsection-header::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+  margin-right: 3px;
+}
+
+.todo-subsection-header[aria-expanded="true"]::before {
+  transform: rotate(90deg);
 }
 
 .todo-subsection-header:hover {
@@ -1298,6 +1353,7 @@ button.loading:disabled {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
+  margin-right: auto;
 }
 
 .todo-subsection-count {
@@ -1327,6 +1383,12 @@ button.loading:disabled {
   gap: 8px;
   align-items: start;
   padding: 6px 0;
+}
+
+@media (max-width: 520px) {
+  .config-appearance-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .todo-candidate--current {
