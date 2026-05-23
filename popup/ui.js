@@ -1560,11 +1560,11 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h("div", { class: "section-title" }, PopupText.configuration.appearanceSectionTitle),
         h(
           "div",
-          { class: "config-appearance-grid" },
+          { class: "config-appearance-row" },
           h(
             "label",
-            { class: "field field--compact config-appearance-field" },
-            h("span", null, icon("palette-outline", "field-icon"), PopupText.configuration.themeFieldLabel),
+            { class: "config-appearance-control" },
+            h("span", { class: "config-appearance-label" }, icon("palette-outline", "field-icon"), PopupText.configuration.themeFieldLabel),
             h("select", {
               id: "theme-select",
               value: view.themeValue,
@@ -1584,8 +1584,8 @@ function renderConfigurationView({state: view, actions: handlers}) {
           ),
           h(
             "label",
-            { class: "field field--compact config-appearance-field" },
-            h("span", null, icon("theme-light-dark", "field-icon"), PopupText.configuration.themeModeFieldLabel),
+            { class: "config-appearance-control config-appearance-control--mode" },
+            h("span", { class: "config-appearance-label" }, icon("theme-light-dark", "field-icon"), PopupText.configuration.themeModeFieldLabel),
             h("select", {
               id: "theme-mode-select",
               value: view.themeModeValue,

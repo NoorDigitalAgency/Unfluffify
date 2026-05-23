@@ -236,26 +236,43 @@ button.button-small {
 }
 
 .config-appearance-card {
+  gap: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.config-appearance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.config-appearance-control {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
 }
 
-.config-appearance-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  align-items: start;
+.config-appearance-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  white-space: nowrap;
 }
 
-.config-appearance-field {
+.config-appearance-control select {
   min-width: 0;
+  max-width: 100%;
 }
 
-.config-appearance-field .field-icon {
-  margin-right: 4px;
-}
-
-.config-appearance-field select {
-  min-width: 0;
+.config-appearance-control--mode select {
+  min-width: 108px;
 }
 
 .input-row {
@@ -1386,8 +1403,14 @@ button.loading:disabled {
 }
 
 @media (max-width: 520px) {
-  .config-appearance-grid {
+  .config-appearance-row {
     grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .config-appearance-control {
+    display: grid;
+    gap: 4px;
   }
 }
 
@@ -1428,6 +1451,14 @@ span.todo-candidate-link {
   color: var(--accent);
   text-decoration: underline;
   outline: none;
+}
+
+.todo-candidate--current .todo-candidate-link,
+.todo-candidate--current .todo-candidate-link:hover,
+.todo-candidate--current .todo-candidate-link:focus-visible {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
 }
 
 .todo-candidate-words {
