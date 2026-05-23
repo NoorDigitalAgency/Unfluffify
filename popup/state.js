@@ -39,7 +39,7 @@ export const state = {
   lastPopupEnabled: null,
   silentHighlightShowMarkedPages: true,
   silentHighlightShowIncludedContent: true,
-  silentHighlightShowExcludedContent: false,
+  silentHighlightShowExcludedContent: true,
   silentHighlightShowVisibleConsent: false,
   silentHighlightHideDuringScrollRedraw: true,
   lastAppliedSilentHighlightKey: "",

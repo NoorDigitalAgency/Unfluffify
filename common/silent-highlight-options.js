@@ -1,7 +1,7 @@
 export const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = Object.freeze({
   markedPages: true,
   includedContent: true,
-  excludedContent: false,
+  excludedContent: true,
   visibleConsent: false,
   hideDuringScrollRedraw: true
 });

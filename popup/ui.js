@@ -141,6 +141,7 @@ const initialViewState = {
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
   highlightingOptionsVisible: false,
+  highlightingSectionExpanded: false,
   previewActive: false,
   previewItems: [],
   previewFocusedXpath: "",
@@ -148,7 +149,7 @@ const initialViewState = {
   previewBlockedMessage: ViewText.previewBlockedDefault,
   highlightMarkedPagesChecked: true,
   highlightIncludedContentChecked: true,
-  highlightExcludedContentChecked: false,
+  highlightExcludedContentChecked: true,
   highlightVisibleConsentChecked: false,
   highlightHideDuringScrollRedrawChecked: true,
   configMenuOpen: false,
@@ -1328,76 +1329,103 @@ function renderMarkingView({state: view, actions: handlers}) {
         )
       )
     ,
+    postRenderModeControlsVisible && mergedControlsSection,
     postRenderModeControlsVisible &&
       view.highlightingOptionsVisible &&
       renderHighlightingOptionsSection({ state: view, actions: handlers }),
-    postRenderModeControlsVisible && mergedControlsSection,
     renderModeWarningPopover,
     lynxChecklistPopover
   );
 }
 
 function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
+    const expanded = Boolean(view.highlightingSectionExpanded);
     return h(
       "section",
-      { class: "card" },
-      h("div", { class: "section-title" }, PopupText.highlighting.sectionTitle),
+      { class: "card highlighting-section" },
       h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), PopupText.highlighting.markedPages),
-        h("input", {
-          id: "highlight-marked-pages",
-          type: "checkbox",
-          checked: view.highlightMarkedPagesChecked,
-          onChange: handlers.onHighlightMarkedPagesChange
-        })
+        "button",
+        {
+          type: "button",
+          class: "highlighting-header",
+          "aria-expanded": expanded ? "true" : "false",
+          onClick: handlers.onHighlightingSectionToggle
+        },
+        h("span", { class: "section-title" }, PopupText.highlighting.sectionTitle)
       ),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
-        h("input", {
-          id: "highlight-included-content",
-          type: "checkbox",
-          checked: view.highlightIncludedContentChecked,
-          onChange: handlers.onHighlightIncludedContentChange
-        })
-      ),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
-        h("input", {
-          id: "highlight-excluded-content",
-          type: "checkbox",
-          checked: view.highlightExcludedContentChecked,
-          onChange: handlers.onHighlightExcludedContentChange
-        })
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
-        h("input", {
-          id: "highlight-hide-during-scroll-redraw",
-          type: "checkbox",
-          checked: view.highlightHideDuringScrollRedrawChecked,
-          onChange: handlers.onHighlightHideDuringScrollRedrawChange
-        })
-      ),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
-        h("input", {
-          id: "highlight-visible-consent",
-          type: "checkbox",
-          checked: view.highlightVisibleConsentChecked,
-          onChange: handlers.onHighlightVisibleConsentChange
-        })
-      )
+      expanded
+        ? h(
+            "div",
+            { class: "highlighting-body" },
+            h(
+              "label",
+              { class: "row" },
+              h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), PopupText.highlighting.markedPages),
+              h("input", {
+                id: "highlight-marked-pages",
+                type: "checkbox",
+                checked: view.highlightMarkedPagesChecked,
+                onChange: handlers.onHighlightMarkedPagesChange
+              })
+            ),
+            h(
+              "label",
+              { class: "row" },
+              h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
+              h("input", {
+                id: "highlight-included-content",
+                type: "checkbox",
+                checked: view.highlightIncludedContentChecked,
+                onChange: handlers.onHighlightIncludedContentChange
+              })
+            ),
+            h(
+              "label",
+              { class: "row" },
+              h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
+              h("input", {
+                id: "highlight-excluded-content",
+                type: "checkbox",
+                checked: view.highlightExcludedContentChecked,
+                onChange: handlers.onHighlightExcludedContentChange
+              })
+            ),
+            h("div", { class: "section-divider", role: "separator" }),
+            h(
+              "label",
+              { class: "row" },
+              h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
+              h("input", {
+                id: "highlight-hide-during-scroll-redraw",
+                type: "checkbox",
+                checked: view.highlightHideDuringScrollRedrawChecked,
+                onChange: handlers.onHighlightHideDuringScrollRedrawChange
+              })
+            ),
+            h(
+              "label",
+              { class: "row" },
+              h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
+              h("input", {
+                id: "highlight-visible-consent",
+                type: "checkbox",
+                checked: view.highlightVisibleConsentChecked,
+                onChange: handlers.onHighlightVisibleConsentChange
+              })
+            ),
+            h(
+              "label",
+              { class: "row" },
+              h("span", { class: "row-label" }, icon("unfold-more-horizontal", "row-icon"), PopupText.pageTypes.autoCollapse),
+              h("input", {
+                id: "highlighting-auto-collapse",
+                type: "checkbox",
+                checked: view.todoAutoCollapse,
+                onChange: handlers.onTodoAutoCollapseChange
+              })
+            )
+          )
+        : null
     );
 }
 

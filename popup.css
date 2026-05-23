@@ -1483,6 +1483,46 @@ span.todo-candidate-link {
   color: var(--accent-dark);
 }
 
+.highlighting-section {
+  gap: 6px;
+}
+
+.highlighting-header {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.highlighting-header::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+
+.highlighting-header[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.highlighting-header:hover {
+  background: none;
+  box-shadow: none;
+}
+
+.highlighting-body {
+  display: grid;
+  gap: 8px;
+}
+
 .todo-indicator {
   margin-right: 0;
   font-size: 16px;
