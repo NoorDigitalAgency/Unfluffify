@@ -1959,7 +1959,9 @@ function buildTodoExpansionKey(tabId = null, baseUrl = "") {
   const normalizedBaseUrl = typeof baseUrl === "string" && baseUrl
     ? baseUrl
     : state.currentBaseUrl;
-  return normalizedTabId && normalizedBaseUrl ? `${normalizedTabId}|${normalizedBaseUrl}` : "";
+  return normalizedTabId && normalizedBaseUrl
+    ? JSON.stringify([normalizedTabId, normalizedBaseUrl])
+    : "";
 }
 
 function getTodoExpansionStateFromView() {
@@ -3064,10 +3066,14 @@ async function refreshUiInner() {
   const nextTodoExpansionKey = buildTodoExpansionKey(currentTabId, state.currentBaseUrl);
   const currentTodoExpansionKey = state.currentTodoExpansionKey;
   const todoExpansionContextChanged = nextTodoExpansionKey !== currentTodoExpansionKey;
+  const hasNoTodoExpansionContext = !nextTodoExpansionKey;
+  const baseUrlChanged = state.currentBaseUrl !== previousBaseUrl;
+  const shouldAutoCollapseOnContextChange =
+    todoExpansionContextChanged && nextViewState.todoAutoCollapse;
   const todoExpansionShouldCollapse =
-    !nextTodoExpansionKey ||
-    state.currentBaseUrl !== previousBaseUrl ||
-    (todoExpansionContextChanged && nextViewState.todoAutoCollapse);
+    hasNoTodoExpansionContext ||
+    baseUrlChanged ||
+    shouldAutoCollapseOnContextChange;
   if (todoExpansionShouldCollapse) {
     Object.assign(nextViewState, getCollapsedTodoExpansionState());
   } else if (todoExpansionContextChanged) {
