@@ -17,6 +17,10 @@
   --radius-lg: 12px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -88,7 +92,7 @@ body.is-busy {
 
 .app-header .config-button:hover {
   background: var(--bg-accent);
-  border-color: #d1d5db;
+  border-color: color-mix(in srgb, var(--line) 70%, var(--ink) 30%);
 }
 
 .config-menu {
@@ -142,7 +146,7 @@ body.is-busy {
 }
 
 .config-menu button.danger:hover {
-  background: #fef2f2;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .subtitle {
@@ -196,17 +200,17 @@ button.button-secondary {
 }
 
 button.button-secondary:hover {
-  background: #e5e7eb;
+  background: color-mix(in srgb, var(--bg-accent) 72%, var(--line) 28%);
 }
 
 button.button-danger {
   border-color: transparent;
-  background: #fef2f2;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
 button.button-danger:hover {
-  background: #fee2e2;
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 button.button-small {
@@ -273,9 +277,9 @@ button.button-small {
   font-size: 12px;
   color: var(--warn);
   padding: 8px 10px;
-  border: 1px solid #fde68a;
+  border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
   border-radius: var(--radius);
-  background: #fffbeb;
+  background: color-mix(in srgb, var(--warn) 14%, var(--card));
   line-height: 1.5;
 }
 
@@ -302,7 +306,7 @@ button.button-small {
 }
 
 .notice__action:focus-visible {
-  outline: 2px solid rgba(79, 70, 229, 0.35);
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -311,9 +315,9 @@ button.button-small {
   display: grid;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #fde68a;
+  border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
   border-radius: var(--radius);
-  background: #fffbeb;
+  background: color-mix(in srgb, var(--warn) 14%, var(--card));
 }
 
 .warning-panel[hidden] {
@@ -325,7 +329,7 @@ button.button-small {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #92400e;
+  color: var(--warn);
 }
 
 .warning-panel-body {
@@ -452,8 +456,8 @@ button.button-small {
 }
 
 .lynx-checklist-popover__page-type--missing {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--card));
 }
 
 .lynx-checklist-popover__page-type-title-row {
@@ -486,13 +490,13 @@ button.button-small {
 }
 
 .lynx-checklist-popover__page-type-status--ready {
-  background: #dcfce7;
-  color: #166534;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .lynx-checklist-popover__page-type-status--missing {
-  background: #fef3c7;
-  color: #92400e;
+  background: color-mix(in srgb, var(--warn) 17%, transparent);
+  color: var(--warn);
 }
 
 .lynx-checklist-popover__candidate-hints {
@@ -705,8 +709,8 @@ button {
   padding: 7px 12px;
   border-radius: 6px;
   border: 1px solid transparent;
-  background: var(--accent);
-  color: #ffffff;
+  background: var(--button-primary-bg, light-dark(var(--accent), var(--accent-dark)));
+  color: var(--button-primary-ink, light-dark(#ffffff, var(--card)));
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -714,8 +718,8 @@ button {
 }
 
 button:hover {
-  background: var(--accent-dark);
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.2);
+  background: var(--button-primary-hover-bg, light-dark(var(--accent-dark), var(--accent)));
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 button:active {
@@ -1001,8 +1005,8 @@ button.loading:disabled {
 }
 
 .page-types__group--missing {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--card));
 }
 
 .page-types__group-header {
@@ -1041,13 +1045,13 @@ button.loading:disabled {
 }
 
 .page-types__group-badge--ready {
-  background: #dcfce7;
-  color: #166534;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .page-types__group-badge--missing {
-  background: #fef3c7;
-  color: #92400e;
+  background: color-mix(in srgb, var(--warn) 17%, transparent);
+  color: var(--warn);
 }
 
 .page-types__candidate-list {
@@ -1130,27 +1134,27 @@ button.loading:disabled {
 }
 
 .page-types__candidate-badge--marked {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  color: var(--accent-dark);
 }
 
 .page-types__candidate-badge--current {
-  background: #dcfce7;
-  color: #166534;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .page-types__candidate-badge--duplicate {
-  background: #fef3c7;
-  color: #92400e;
+  background: color-mix(in srgb, var(--warn) 17%, transparent);
+  color: var(--warn);
 }
 
 .page-types__candidate--current .page-types__candidate-button {
-  border-color: rgba(22, 163, 74, 0.3);
-  box-shadow: inset 0 0 0 1px rgba(22, 163, 74, 0.1);
+  border-color: color-mix(in srgb, var(--success) 38%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 16%, transparent);
 }
 
 .page-types__candidate--marked .page-types__candidate-button {
-  border-color: rgba(91, 33, 182, 0.25);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
 }
 
 .page-types__candidate--duplicate .page-types__candidate-button {
@@ -1160,7 +1164,7 @@ button.loading:disabled {
 .page-types__candidate-warning {
   padding: 0 4px;
   font-size: 10px;
-  color: #92400e;
+  color: var(--warn);
   line-height: 1.35;
 }
 

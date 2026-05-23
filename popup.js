@@ -96,7 +96,7 @@ const THEME_CATALOG = Object.freeze([
   { value: "swedish-minimal", label: "Swedish Minimal", cluster: "blue" },
   { value: "cool", label: "Cool", cluster: "blue" },
   { value: "nordic", label: "Nordic", cluster: "blue" },
-  { value: "neutral", label: "Neutral", cluster: "blue" },
+  { value: "neutral", label: "Neutral", cluster: "violet" },
   { value: "tidepool", label: "Tidepool", cluster: "cyan" },
   { value: "mint", label: "Mint", cluster: "cyan" },
   { value: "ocean", label: "Ocean", cluster: "cyan" },

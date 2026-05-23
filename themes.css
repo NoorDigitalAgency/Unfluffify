@@ -182,12 +182,15 @@
   --ink: light-dark(#2a1f1c, #ffeede);
   --muted: light-dark(#7d6f68, #b59e91);
   --line: light-dark(#f5e2d0, #483527);
-  --accent: light-dark(#9eb830, #bcd84d);
-  --accent-dark: light-dark(#6b811e, #d2e776);
+  --accent: light-dark(#7e9523, #cfe06a);
+  --accent-dark: light-dark(#5f7219, #e3ef9a);
   --accent-light: light-dark(#ebf3d3, #2c3a15);
   --success: light-dark(#059669, #44e0a8);
   --danger: light-dark(#c41e3a, #ff4d6e);
   --warn: light-dark(#f59e0b, #ffc94d);
+  --button-primary-bg: light-dark(#7e9523, #dce987);
+  --button-primary-hover-bg: light-dark(#5f7219, #edf6b1);
+  --button-primary-ink: light-dark(#ffffff, #1f2a0a);
 }
 
 [data-theme="nordic"] {
