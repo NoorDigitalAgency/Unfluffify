@@ -840,7 +840,7 @@ button.loading:disabled {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: var(--muted);
+  color: var(--accent);
 }
 
 .section-header {
@@ -1285,14 +1285,14 @@ button.loading:disabled {
   padding: 6px 8px;
   border: 0;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent-light) 40%, transparent);
+  background: var(--accent-light) 100%;
   color: inherit;
   text-align: left;
 }
 
 .todo-header::before {
   content: "▸";
-  color: var(--muted);
+  color: var(--accent);
   font-size: 12px;
   line-height: 1;
   transform: rotate(0deg);
@@ -1305,7 +1305,7 @@ button.loading:disabled {
 }
 
 .todo-header:hover {
-  background: color-mix(in srgb, var(--accent-light) 62%, transparent);
+  background: color-mix(in srgb, var(--accent-light) 70%, transparent);
   box-shadow: none;
   filter: none;
 }
@@ -1328,10 +1328,6 @@ button.loading:disabled {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--accent) 28%);
-  background: color-mix(in srgb, var(--bg-accent) 72%, var(--card));
 }
 
 .todo-controls__buttons {
@@ -1345,7 +1341,6 @@ button.loading:disabled {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--muted);
 }
 
 .todo-body {
@@ -1356,7 +1351,7 @@ button.loading:disabled {
 .todo-subsection {
   display: grid;
   gap: 9px;
-  padding: 9px 10px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--card) 86%, var(--bg-accent));
@@ -1407,14 +1402,14 @@ button.loading:disabled {
 
 .todo-header:hover,
 .todo-controls__buttons button:hover {
-  background: var(--bg-accent);
+  background: color-mix(in srgb, var(--accent-light) 70%, transparent);
   box-shadow: none;
 }
 
 .todo-subsection-title {
   min-width: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--ink);
   margin-right: auto;
 }
@@ -1555,7 +1550,7 @@ span.todo-candidate-link {
 
 .highlighting-header::before {
   content: "▸";
-  color: var(--muted);
+  color: var(--accent);
   font-size: 12px;
   line-height: 1;
   transform: rotate(0deg);
@@ -1888,11 +1883,17 @@ span.todo-candidate-link {
   justify-content: center;
 }
 
+.close-button:hover {
+  background: #fc665e;
+  border: 1px solid #e0443e;
+  box-shadow: none;
+}
+
 .close-button::before,
 .close-button::after {
   content: "";
   position: absolute;
-  width: 6px;
+  width: 8px;
   height: 1.5px;
   background: rgba(100, 20, 20, 0.7);
   border-radius: 1px;

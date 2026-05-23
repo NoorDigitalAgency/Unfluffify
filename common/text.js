@@ -427,7 +427,7 @@ export const PopupText = Object.freeze({
   unregister: Object.freeze({
     closeButtonTitle: "Unregister current tab and reload", // Tooltip on the top-right close/unregister button.
     toastNoActiveTab: "No active tab to unregister", // Toast shown when unregister is requested without an active tab.
-    confirm: "Unregister this tab from the extension, close the side panel, and reload the page?", // Confirmation dialog before unregistering the current tab.
+    confirm: "Do you want to close Unfluffify and refresh the page to normal?", // Confirmation dialog before unregistering the current tab.
     toastFailed: "Unable to unregister current tab" // Fallback toast when unregistering the tab fails.
   }),
 
