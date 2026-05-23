@@ -77,6 +77,51 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
+const GLOBAL_THEME_KEY = "globalTheme";
+const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
+const THEME_DEFAULT = "nordic";
+const THEME_MODE_DEFAULT = "system";
+const THEME_MODE_SYSTEM = "system";
+const THEME_MODE_LIGHT = "light";
+const THEME_MODE_DARK = "dark";
+const THEME_ACCENT_CLUSTER_ORDER = Object.freeze({
+  blue: 0,
+  cyan: 1,
+  green: 2,
+  warm: 3,
+  violet: 4
+});
+const THEME_CATALOG = Object.freeze([
+  { value: "blueprint", label: "Blueprint", cluster: "blue" },
+  { value: "swedish-minimal", label: "Swedish Minimal", cluster: "blue" },
+  { value: "cool", label: "Cool", cluster: "blue" },
+  { value: "nordic", label: "Nordic", cluster: "blue" },
+  { value: "neutral", label: "Neutral", cluster: "blue" },
+  { value: "tidepool", label: "Tidepool", cluster: "cyan" },
+  { value: "mint", label: "Mint", cluster: "cyan" },
+  { value: "ocean", label: "Ocean", cluster: "cyan" },
+  { value: "graphite", label: "Graphite", cluster: "cyan" },
+  { value: "earthy", label: "Earthy", cluster: "green" },
+  { value: "happy", label: "Happy", cluster: "green" },
+  { value: "sunset", label: "Sunset", cluster: "warm" },
+  { value: "clay-rose", label: "Clay Rose", cluster: "warm" },
+  { value: "plum-steel", label: "Plum Steel", cluster: "violet" },
+  { value: "plum", label: "Plum", cluster: "violet" },
+  { value: "lavender", label: "Lavender", cluster: "violet" }
+]);
+const THEME_IDS = new Set(THEME_CATALOG.map((theme) => theme.value));
+const THEME_OPTIONS = Object.freeze(
+  [...THEME_CATALOG]
+    .sort((left, right) => {
+      const leftOrder = THEME_ACCENT_CLUSTER_ORDER[left.cluster] ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = THEME_ACCENT_CLUSTER_ORDER[right.cluster] ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return left.label.localeCompare(right.label);
+    })
+    .map((theme) => ({ value: theme.value, label: theme.label }))
+);
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
   $domainId: Int!,
@@ -213,6 +258,60 @@ function getEndpointOrigin(value) {
   } catch (error) {
     return "";
   }
+}
+
+function normalizeThemeValue(value) {
+  if (typeof value !== "string") {
+    return THEME_DEFAULT;
+  }
+  const normalized = value.trim().toLowerCase();
+  return THEME_IDS.has(normalized) ? normalized : THEME_DEFAULT;
+}
+
+function normalizeThemeModeValue(value) {
+  if (value === THEME_MODE_LIGHT || value === THEME_MODE_DARK || value === THEME_MODE_SYSTEM) {
+    return value;
+  }
+  return THEME_MODE_DEFAULT;
+}
+
+function applyPopupTheme(themeValue, modeValue) {
+  const root = document.documentElement;
+  if (!root) {
+    return;
+  }
+  const normalizedTheme = normalizeThemeValue(themeValue);
+  const normalizedMode = normalizeThemeModeValue(modeValue);
+  root.setAttribute("data-theme", normalizedTheme);
+  root.setAttribute("data-theme-mode", normalizedMode);
+  root.style.colorScheme =
+    normalizedMode === THEME_MODE_SYSTEM ? "light dark" : normalizedMode;
+}
+
+async function loadThemeSettings() {
+  const stored = await utils.storageGet(chrome.storage.sync, [
+    GLOBAL_THEME_KEY,
+    GLOBAL_THEME_MODE_KEY
+  ]);
+  return {
+    themeValue: normalizeThemeValue(stored && stored[GLOBAL_THEME_KEY]),
+    themeModeValue: normalizeThemeModeValue(stored && stored[GLOBAL_THEME_MODE_KEY])
+  };
+}
+
+async function persistThemeSettings(themeValue, themeModeValue) {
+  await utils.storageSet(chrome.storage.sync, {
+    [GLOBAL_THEME_KEY]: normalizeThemeValue(themeValue),
+    [GLOBAL_THEME_MODE_KEY]: normalizeThemeModeValue(themeModeValue)
+  });
+}
+
+async function ensureThemeSettings() {
+  const { themeValue, themeModeValue } = await loadThemeSettings();
+  state.currentTheme = themeValue;
+  state.currentThemeMode = themeModeValue;
+  applyPopupTheme(themeValue, themeModeValue);
+  await persistThemeSettings(themeValue, themeModeValue);
 }
 
 function buildLoginEndpointFromStageBase(stageBase) {
@@ -2442,6 +2541,11 @@ async function refreshUiInner() {
     endpointReady &&
     stageBaseReady &&
     Boolean(tokenValue);
+  const themeModeOptions = [
+    { value: THEME_MODE_SYSTEM, label: PopupText.configuration.themeModeSystem },
+    { value: THEME_MODE_LIGHT, label: PopupText.configuration.themeModeLight },
+    { value: THEME_MODE_DARK, label: PopupText.configuration.themeModeDark }
+  ];
   const aiReady =
     tabInScope &&
     !unsupportedByGraphql &&
@@ -2656,6 +2760,11 @@ async function refreshUiInner() {
   nextViewState.stageBaseInputDisabled = configurationUiDisabled;
   nextViewState.stageBaseSetDisabled = configurationUiDisabled;
   nextViewState.stageBaseEditDisabled = configurationUiDisabled;
+  nextViewState.themeValue = normalizeThemeValue(state.currentTheme);
+  nextViewState.themeModeValue = normalizeThemeModeValue(state.currentThemeMode);
+  nextViewState.themeOptions = THEME_OPTIONS;
+  nextViewState.themeModeOptions = themeModeOptions;
+  nextViewState.themeControlsDisabled = configurationUiDisabled;
   nextViewState.loginEmailValue = loginEmailValue;
   nextViewState.loginPasswordValue = loginPasswordValue;
   nextViewState.loginCredentialsDisabled =
@@ -2910,6 +3019,32 @@ function handleEndpointInput(event) {
 
 function handleStageBaseInput(event) {
   uiModule.setViewState({ stageBaseValue: event.target.value });
+}
+
+async function handleThemeInput(event) {
+  const nextThemeValue = normalizeThemeValue(
+    event && event.target ? event.target.value : state.currentTheme
+  );
+  state.currentTheme = nextThemeValue;
+  applyPopupTheme(state.currentTheme, state.currentThemeMode);
+  uiModule.setViewState({
+    themeValue: state.currentTheme,
+    themeModeValue: normalizeThemeModeValue(state.currentThemeMode)
+  });
+  await persistThemeSettings(state.currentTheme, state.currentThemeMode);
+}
+
+async function handleThemeModeInput(event) {
+  const nextThemeModeValue = normalizeThemeModeValue(
+    event && event.target ? event.target.value : state.currentThemeMode
+  );
+  state.currentThemeMode = nextThemeModeValue;
+  applyPopupTheme(state.currentTheme, state.currentThemeMode);
+  uiModule.setViewState({
+    themeValue: normalizeThemeValue(state.currentTheme),
+    themeModeValue: state.currentThemeMode
+  });
+  await persistThemeSettings(state.currentTheme, state.currentThemeMode);
 }
 
 function handleRenderModeInput(event) {
@@ -4572,6 +4707,7 @@ function scheduleRefresh() {
 
 async function init() {
   await helpers.ensureActiveTab();
+  await ensureThemeSettings();
 
   uiModule.initUi({
     onToggleEnabled: handleEnableToggle,
@@ -4607,6 +4743,8 @@ async function init() {
     onEndpointSet: handleEndpointSet,
     onEndpointEditToggle: handleEndpointEditToggle,
     onStageBaseInput: handleStageBaseInput,
+    onThemeInput: handleThemeInput,
+    onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
     onRenderModeNoticeAction: handleRenderModeNoticeAction,
@@ -4716,6 +4854,23 @@ async function init() {
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "sync") {
+      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
+        if (changes[GLOBAL_THEME_KEY]) {
+          state.currentTheme = normalizeThemeValue(
+            changes[GLOBAL_THEME_KEY].newValue
+          );
+        }
+        if (changes[GLOBAL_THEME_MODE_KEY]) {
+          state.currentThemeMode = normalizeThemeModeValue(
+            changes[GLOBAL_THEME_MODE_KEY].newValue
+          );
+        }
+        applyPopupTheme(state.currentTheme, state.currentThemeMode);
+        scheduleRefresh();
+      }
+      return;
+    }
     if (areaName !== "local" && areaName !== "session") {
       return;
     }

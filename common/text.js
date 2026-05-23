@@ -351,6 +351,12 @@ export const PopupText = Object.freeze({
     setupHint: "Set endpoints, login credentials, and sign in to continue.", // Helper text at the top of configuration view.
     continueSetupNotice: "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.", // Notice shown when configuration is incomplete.
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
+    appearanceSectionTitle: "Appearance", // Section title for popup theme controls.
+    themeFieldLabel: "Theme", // Label for selecting a popup theme.
+    themeModeFieldLabel: "Mode", // Label for selecting light/dark/system mode behavior.
+    themeModeSystem: "System", // Theme mode option that follows system preference.
+    themeModeLight: "Light", // Theme mode option that forces light mode.
+    themeModeDark: "Dark", // Theme mode option that forces dark mode.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.

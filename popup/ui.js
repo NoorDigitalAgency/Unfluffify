@@ -95,6 +95,11 @@ const initialViewState = {
   stageBaseInputDisabled: false,
   stageBaseSetDisabled: false,
   stageBaseEditDisabled: false,
+  themeValue: "nordic",
+  themeModeValue: "system",
+  themeOptions: [],
+  themeModeOptions: [],
+  themeControlsDisabled: false,
   renderModeValue: "undetermined",
   renderModeReadOnly: true,
   renderModeSetVisible: false,
@@ -1536,6 +1541,53 @@ function renderConfigurationView({state: view, actions: handlers}) {
           },
           icon("arrow-left"),
           PopupText.actions.goBack
+        )
+      ),
+      h(
+        "section",
+        { class: "card" },
+        h("div", { class: "section-title" }, PopupText.configuration.appearanceSectionTitle),
+        h(
+          "label",
+          { class: "field" },
+          h("span", null, icon("palette-outline", "field-icon"), PopupText.configuration.themeFieldLabel),
+          h("select", {
+            id: "theme-select",
+            value: view.themeValue,
+            disabled: view.themeControlsDisabled,
+            onChange: handlers.onThemeInput
+          },
+          ...(Array.isArray(view.themeOptions) ? view.themeOptions : []).map((option) =>
+            h(
+              "option",
+              {
+                key: option.value,
+                value: option.value
+              },
+              option.label
+            )
+          ))
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", null, icon("theme-light-dark", "field-icon"), PopupText.configuration.themeModeFieldLabel),
+          h("select", {
+            id: "theme-mode-select",
+            value: view.themeModeValue,
+            disabled: view.themeControlsDisabled,
+            onChange: handlers.onThemeModeInput
+          },
+          ...(Array.isArray(view.themeModeOptions) ? view.themeModeOptions : []).map((option) =>
+            h(
+              "option",
+              {
+                key: option.value,
+                value: option.value
+              },
+              option.label
+            )
+          ))
         )
       ),
       h(

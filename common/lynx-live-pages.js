@@ -13,7 +13,7 @@ query getUrlSearchInfo($url: String!, $includePageInfo: Boolean!) {
 
 export const PROPERTY_PAGE_TYPES_QUERY = `
 query getPropertyPageTypes($domainId: Int!) {
-  propertyPageTypes(organizationId: null, domainId: $domainId) {
+  propertyPageTypes(domainId: $domainId) {
     pageTypes {
       pageType
       pages {

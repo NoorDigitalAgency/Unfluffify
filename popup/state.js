@@ -5,6 +5,8 @@ const initialLynxChecklistState = createInitialLynxChecklistState();
 
 export const state = {
   currentView: "Marking",
+  currentTheme: "nordic",
+  currentThemeMode: "system",
   currentTab: null,
   currentBaseUrl: "",
   currentConfig: null,
