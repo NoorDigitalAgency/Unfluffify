@@ -1991,7 +1991,7 @@ function saveCurrentTodoExpansionState() {
   state.todoExpansionStateByContext.set(key, getTodoExpansionStateFromView());
   while (state.todoExpansionStateByContext.size > TODO_EXPANSION_CONTEXT_LIMIT) {
     const oldestKey = state.todoExpansionStateByContext.keys().next().value;
-    if (typeof oldestKey !== "string" || !oldestKey) {
+    if (typeof oldestKey === "undefined") {
       break;
     }
     state.todoExpansionStateByContext.delete(oldestKey);
@@ -3191,7 +3191,7 @@ function handleThemeMenuKeyDown(event) {
   if (!uiModule.getViewState().themeMenuOpen) {
     uiModule.setThemeMenuOpen(true, getThemeMenuPlacement());
   }
-  handleThemeOptionSelect(options[nextIndex].value).then();
+  void handleThemeOptionSelect(options[nextIndex].value);
 }
 
 async function handleThemeOptionSelect(value) {
