@@ -236,15 +236,31 @@ button.button-small {
 }
 
 .config-appearance-card {
-  gap: 4px;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  gap: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.config-appearance-collapsible {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.config-appearance-collapsible summary {
+  margin: 0;
+  padding: 2px 0;
+}
+
+.config-appearance-body {
+  gap: 6px;
+  padding-top: 6px;
 }
 
 .config-appearance-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, auto);
+  gap: 6px;
   align-items: center;
 }
 
@@ -252,14 +268,14 @@ button.button-small {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .config-appearance-label {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.55px;
@@ -272,7 +288,7 @@ button.button-small {
 }
 
 .config-appearance-control--mode select {
-  min-width: 108px;
+  min-width: 104px;
 }
 
 .input-row {
@@ -1245,7 +1261,13 @@ button.loading:disabled {
 
 
 .todo-section {
-  gap: 8px;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent-light) 34%, var(--card)) 0%,
+    var(--card) 22%
+  );
 }
 
 .todo-header {
@@ -1253,10 +1275,11 @@ button.loading:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 0 0 2px;
+  gap: 10px;
+  padding: 6px 8px;
   border: 0;
-  background: none;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-light) 40%, transparent);
   color: inherit;
   text-align: left;
 }
@@ -1276,6 +1299,8 @@ button.loading:disabled {
 }
 
 .todo-header:hover {
+  background: color-mix(in srgb, var(--accent-light) 62%, transparent);
+  box-shadow: none;
   filter: none;
 }
 
@@ -1283,6 +1308,10 @@ button.loading:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 72%, var(--accent-light));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
   font-size: 12px;
   font-weight: 600;
 }
@@ -1293,6 +1322,10 @@ button.loading:disabled {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--accent) 28%);
+  background: color-mix(in srgb, var(--bg-accent) 72%, var(--card));
 }
 
 .todo-controls__buttons {
@@ -1316,11 +1349,17 @@ button.loading:disabled {
 
 .todo-subsection {
   display: grid;
-  gap: 8px;
-  padding: 8px 9px;
+  gap: 9px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--card);
+  background: color-mix(in srgb, var(--card) 86%, var(--bg-accent));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.todo-subsection:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  background: color-mix(in srgb, var(--card) 80%, var(--accent-light));
 }
 
 .todo-subsection--missing {
@@ -1332,8 +1371,9 @@ button.loading:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 0 0 2px;
+  padding: 4px 6px;
   border: 0;
+  border-radius: 8px;
   background: none;
   color: inherit;
   text-align: left;
@@ -1354,7 +1394,7 @@ button.loading:disabled {
 }
 
 .todo-subsection-header:hover {
-  background: none;
+  background: color-mix(in srgb, var(--bg-accent) 80%, var(--card));
   box-shadow: none;
   filter: none;
 }
@@ -1377,6 +1417,10 @@ button.loading:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--ink) 22%);
+  background: color-mix(in srgb, var(--card) 78%, var(--bg-accent));
   font-size: 12px;
   font-weight: 600;
 }
@@ -1399,7 +1443,9 @@ button.loading:disabled {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: start;
-  padding: 6px 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 76%, var(--bg-accent));
 }
 
 @media (max-width: 520px) {
@@ -1422,7 +1468,8 @@ button.loading:disabled {
 }
 
 .todo-candidate + .todo-candidate {
-  border-top: 1px solid var(--line);
+  border-top: 0;
+  margin-top: 2px;
 }
 
 .todo-candidate-copy {
