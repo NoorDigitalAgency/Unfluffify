@@ -253,7 +253,6 @@ function getBlockingUiCurtainState(view) {
 }
 
 function renderBasePageMenu(view, handlers) {
-  const showTodoControls = Boolean(view.todoSectionExpanded);
   return h(
     "div",
     {
@@ -262,7 +261,7 @@ function renderBasePageMenu(view, handlers) {
       hidden: !view.basePageMenuOpen,
       onClick: handlers.onBasePageMenuClick
     },
-    ...(view.basePageUrls.length
+    view.basePageUrls.length
       ? view.basePageUrls.map((item) =>
           h(
             "button",
@@ -286,62 +285,27 @@ function renderBasePageMenu(view, handlers) {
               : icon("arrow-right")
           )
         )
-      : [
-          h(
-            "div",
-            { class: "section-menu__empty" },
-            view.basePageUrlsEmptyText
-          )
-        ]),
-    showTodoControls ? h("div", { class: "config-divider", role: "separator" }) : null,
-    showTodoControls
-      ? [
-          h(
-            "button",
-            {
-              type: "button",
-              role: "menuitem",
-              onClick: handlers.onTodoExpandAll
-            },
-            icon("unfold-more-horizontal"),
-            h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
-          ),
-          h(
-            "button",
-            {
-              type: "button",
-              role: "menuitem",
-              onClick: handlers.onTodoCollapseAll
-            },
-            icon("unfold-less-horizontal"),
-            h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
-          ),
-          h(
-            "button",
-            {
-              type: "button",
-              role: "menuitemcheckbox",
-              "aria-checked": view.todoAutoCollapse ? "true" : "false",
-              onClick: handlers.onTodoAutoCollapseToggle
-            },
-            icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline"),
-            h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse)
-          )
-        ]
-      : null
+      : h(
+          "div",
+          { class: "section-menu__empty" },
+          view.basePageUrlsEmptyText
+        )
   );
 }
 
 function renderThemePalette(option, extraClassName = "") {
-  const palette = option && Array.isArray(option.palette) ? option.palette : [];
+  const value = option && typeof option.value === "string" ? option.value : "";
   return h(
     "span",
-    { class: classNames("theme-palette", extraClassName), "aria-hidden": "true" },
-    palette.slice(0, 4).map((color, index) =>
+    {
+      class: classNames("theme-palette", extraClassName),
+      "data-theme": value || null,
+      "aria-hidden": "true"
+    },
+    [1, 2, 3, 4].map((index) =>
       h("span", {
-        key: `${color}-${index}`,
-        class: "theme-palette__swatch",
-        style: { backgroundColor: color }
+        key: index,
+        class: `theme-palette__swatch theme-palette__swatch--${index}`
       })
     )
   );
@@ -367,8 +331,8 @@ function renderThemeDropdown(view, handlers) {
           refs.themeDropdownButton = el;
         }
       },
-      renderThemePalette(selectedTheme),
-      h("span", { class: "theme-dropdown__label" }, selectedTheme ? selectedTheme.label : "")
+      h("span", { class: "theme-dropdown__label" }, selectedTheme ? selectedTheme.label : ""),
+      renderThemePalette(selectedTheme)
     ),
     h(
       "div",
@@ -391,11 +355,54 @@ function renderThemeDropdown(view, handlers) {
             "aria-selected": option.value === view.themeValue ? "true" : "false",
             onClick: () => handlers.onThemeOptionSelect(option.value)
           },
-          renderThemePalette(option),
           h("span", { class: "section-menu__label" }, option.label),
+          renderThemePalette(option),
           option.value === view.themeValue ? icon("check") : null
         )
       )
+    )
+  );
+}
+
+function renderTodoControlsMenu(view, handlers) {
+  return h(
+    "div",
+    {
+      class: "section-menu todo-controls-menu",
+      role: "menu",
+      hidden: !view.todoControlsMenuOpen,
+      onClick: handlers.onTodoControlsMenuClick
+    },
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoExpandAll
+      },
+      icon("unfold-more-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.expandAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        onClick: handlers.onTodoCollapseAll
+      },
+      icon("unfold-less-horizontal"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.collapseAll)
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        role: "menuitemcheckbox",
+        "aria-checked": view.todoAutoCollapse ? "true" : "false",
+        onClick: handlers.onTodoAutoCollapseToggle
+      },
+      icon(view.todoAutoCollapse ? "checkbox-marked" : "checkbox-blank-outline"),
+      h("span", { class: "section-menu__label" }, PopupText.pageTypes.autoCollapse)
     )
   );
 }
@@ -605,7 +612,26 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
           h("span", null, `${progress.completed}/${progress.total}`)
         )
       ),
-      null
+      sectionExpanded
+        ? h(
+            "div",
+            { class: "section-header-actions todo-header-actions" },
+            h(
+              "button",
+              {
+                id: "todo-controls-menu-toggle",
+                type: "button",
+                class: "section-menu-button button-secondary",
+                "aria-haspopup": "menu",
+                "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
+                title: PopupText.pageTypes.controlsMenu,
+                onClick: handlers.onTodoControlsMenuToggle
+              },
+              icon("dots-vertical")
+            ),
+            renderTodoControlsMenu(view, handlers)
+          )
+        : null
     ),
     view.pageTypeNoticeVisible
       ? h(
@@ -1684,7 +1710,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
       h(
         "section",
         { class: "card" },
-        h("div", { class: "section-title" }, PopupText.configuration.title),
+        h("div", { class: "section-title" }, icon("api", "field-icon"), PopupText.configuration.endpointSectionTitle),
         h("div", { class: "hint" }, PopupText.configuration.setupHint),
         h(
           "div",
@@ -1696,23 +1722,6 @@ function renderConfigurationView({state: view, actions: handlers}) {
           },
           view.configurationNoticeText
         ),
-        h(
-          "button",
-          {
-            id: "config-continue",
-            type: "button",
-            disabled: view.configurationContinueDisabled,
-            onClick: handlers.onConfigurationContinue,
-            class: "full-width margin-above"
-          },
-          icon("arrow-left"),
-          PopupText.actions.goBack
-        )
-      ),
-      h(
-        "section",
-        { class: "card" },
-        h("div", { class: "section-title" }, PopupText.configuration.endpointSectionTitle),
         renderEditableConfigurationField({
           inputId: "config-endpoint-url",
           noticeId: "config-endpoint-notice",
@@ -1788,7 +1797,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
       h(
         "section",
         { class: "card" },
-        h("div", { class: "section-title" }, PopupText.authentication.title),
+        h("div", { class: "section-title" }, icon("account-key-outline", "field-icon"), PopupText.authentication.title),
         h(
           Fragment,
           null,
@@ -1850,6 +1859,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
           "summary",
           null,
+          icon("palette-outline", "field-icon"),
           PopupText.configuration.appearanceSectionTitle,
           renderThemePalette(getSelectedThemeOption(view), "theme-palette--summary")
         ),
@@ -1860,13 +1870,41 @@ function renderConfigurationView({state: view, actions: handlers}) {
             "div",
             { class: "config-appearance-row" },
             h(
-              "label",
+              "div",
               { class: "config-appearance-control" },
               h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
-              renderThemeDropdown(view, handlers)
+              h(
+                "div",
+                { class: "theme-control-row" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "theme-nav-button",
+                    disabled: view.themeControlsDisabled,
+                    title: PopupText.configuration.themePrevious,
+                    "aria-label": PopupText.configuration.themePrevious,
+                    onClick: handlers.onThemePrevious
+                  },
+                  icon("chevron-left")
+                ),
+                renderThemeDropdown(view, handlers),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "theme-nav-button",
+                    disabled: view.themeControlsDisabled,
+                    title: PopupText.configuration.themeNext,
+                    "aria-label": PopupText.configuration.themeNext,
+                    onClick: handlers.onThemeNext
+                  },
+                  icon("chevron-right")
+                )
+              )
             ),
             h(
-              "label",
+              "div",
               { class: "config-appearance-control config-appearance-control--mode" },
               h("span", { class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
               renderThemeModeButtons(view, handlers)
@@ -2022,6 +2060,15 @@ export function setBasePageMenuOpen(open) {
 }
 
 export function setThemeMenuOpen(open, placement = "bottom") {
+  if (
+    !open &&
+    !viewState.themeMenuOpen &&
+    !viewState.configMenuOpen &&
+    !viewState.basePageMenuOpen &&
+    !viewState.todoControlsMenuOpen
+  ) {
+    return;
+  }
   state.configMenuOpen = false;
   state.basePageMenuOpen = false;
   setViewState({
@@ -2034,6 +2081,9 @@ export function setThemeMenuOpen(open, placement = "bottom") {
 }
 
 export function setTodoControlsMenuOpen(open) {
+  if (Boolean(viewState.todoControlsMenuOpen) === Boolean(open)) {
+    return;
+  }
   setViewState({ todoControlsMenuOpen: Boolean(open) });
 }
 

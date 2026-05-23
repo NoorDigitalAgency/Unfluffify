@@ -330,10 +330,16 @@ button.button-small {
 
 .theme-dropdown__menu button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  justify-items: start;
 }
 
 .theme-palette {
+  --theme-palette-1: var(--bg);
+  --theme-palette-2: var(--ink);
+  --theme-palette-3: var(--accent);
+  --theme-palette-4: var(--accent-light);
   flex: 0 0 auto;
   display: inline-grid;
   grid-template-columns: repeat(4, 10px);
@@ -342,9 +348,25 @@ button.button-small {
 
 .theme-palette__swatch {
   width: 10px;
-  height: 14px;
+  height: 10px;
   border-radius: 3px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.theme-palette__swatch--1 {
+  background: var(--theme-palette-1);
+}
+
+.theme-palette__swatch--2 {
+  background: var(--theme-palette-2);
+}
+
+.theme-palette__swatch--3 {
+  background: var(--theme-palette-3);
+}
+
+.theme-palette__swatch--4 {
+  background: var(--theme-palette-4);
 }
 
 .theme-palette--summary {
@@ -397,15 +419,22 @@ button.button-small {
   box-shadow: none;
 }
 
-.theme-mode-button:hover {
+.theme-mode-button:hover:not(.theme-mode-button--active) {
   background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
   color: var(--ink);
+  box-shadow: none;
 }
 
 .theme-mode-button--active {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
   background: color-mix(in srgb, var(--accent-light) 68%, var(--card));
   color: var(--accent-dark);
+}
+
+.theme-mode-button--active:hover {
+  background: color-mix(in srgb, var(--accent-light) 68%, var(--card));
+  color: var(--accent-dark);
+  box-shadow: none;
 }
 
 .theme-mode-button .btn-icon {
@@ -1029,7 +1058,8 @@ button.loading:disabled {
   border-radius: 8px;
 }
 
-#base-page-menu-toggle {
+#base-page-menu-toggle,
+#todo-controls-menu-toggle {
   min-width: 24px;
   padding: 2px 4px;
   border: 0;
@@ -1039,13 +1069,15 @@ button.loading:disabled {
   box-shadow: none;
 }
 
-#base-page-menu-toggle:hover {
+#base-page-menu-toggle:hover,
+#todo-controls-menu-toggle:hover {
   background: transparent;
   color: var(--ink);
   box-shadow: none;
 }
 
-#base-page-menu-toggle:focus-visible {
+#base-page-menu-toggle:focus-visible,
+#todo-controls-menu-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
   outline-offset: 2px;
 }
@@ -1091,7 +1123,7 @@ button.loading:disabled {
   font-weight: 500;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   transition: background 0.12s ease;
 }
@@ -1101,6 +1133,9 @@ button.loading:disabled {
 }
 
 .section-menu__label {
+  flex: 1 1 auto;
+  text-align: left;
+  justify-self: start;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

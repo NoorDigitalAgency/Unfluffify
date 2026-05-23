@@ -110,24 +110,6 @@ const THEME_CATALOG = Object.freeze([
   { value: "lavender", label: "Lavender", cluster: "violet" }
 ]);
 const THEME_IDS = new Set(THEME_CATALOG.map((theme) => theme.value));
-const THEME_PALETTES = Object.freeze({
-  blueprint: ["#f4f6fa", "#172033", "#2f62a3", "#dfe9f7"],
-  tidepool: ["#f4f7f6", "#18211f", "#0b7563", "#d9efea"],
-  mint: ["#f4faf9", "#1a2825", "#2a9d8f", "#d8eeea"],
-  ocean: ["#f2f9fa", "#152e3d", "#267a8a", "#e0f4f7"],
-  graphite: ["#ffffff", "#111111", "#008ba8", "#e0f1f5"],
-  earthy: ["#f5f5f0", "#2d3329", "#5c7a5c", "#e6efe6"],
-  happy: ["#fff8f3", "#2a1f1c", "#7e9523", "#ebf3d3"],
-  sunset: ["#fdf8f5", "#362420", "#b85c49", "#fbeae6"],
-  "clay-rose": ["#f6f4f3", "#241f21", "#a93f5f", "#f4dde5"],
-  "plum-steel": ["#f6f6f8", "#202126", "#7b4e92", "#eee4f3"],
-  plum: ["#faf6f9", "#2c2230", "#8a4d8c", "#efe3ee"],
-  lavender: ["#f8f7fa", "#252233", "#7055ad", "#eeeaf7"],
-  nordic: ["#fafbfa", "#1c2127", "#3f7ea1", "#dfeef5"],
-  neutral: ["#f6f7f9", "#1f2330", "#5a5d9c", "#eeeff7"],
-  cool: ["#f1f5f9", "#0f172a", "#3a87b3", "#e3eff6"],
-  "swedish-minimal": ["#f7f8f7", "#1b2226", "#006aa7", "#dcebf2"]
-});
 const THEME_OPTIONS = Object.freeze(
   [...THEME_CATALOG]
     .sort((left, right) => {
@@ -138,11 +120,7 @@ const THEME_OPTIONS = Object.freeze(
       }
       return left.label.localeCompare(right.label);
     })
-    .map((theme) => ({
-      value: theme.value,
-      label: theme.label,
-      palette: THEME_PALETTES[theme.value] || ["#f8f9fc", "#1a1d26", "#4f46e5", "#eef2ff"]
-    }))
+    .map((theme) => ({ value: theme.value, label: theme.label }))
 );
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
@@ -2772,7 +2750,11 @@ async function refreshUiInner() {
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
   nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
   nextViewState.renderModeChangeMenuVisible =
-    resolvedView === uiModule.View.Marking && renderModeRequired && renderModeSet;
+    resolvedView === uiModule.View.Marking &&
+    renderModeRequired &&
+    renderModeSet &&
+    !pageScopedUiDisabled &&
+    currentPageMarkingAllowed;
   nextViewState.stageBaseValue = stageBaseField.value;
   nextViewState.stageBaseReadOnly = !stageBaseField.isEditing;
   nextViewState.stageBaseSetVisible = stageBaseField.isEditing;
