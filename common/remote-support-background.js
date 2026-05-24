@@ -230,6 +230,11 @@ function bindDataChannel(channel) {
     sessionState.connected = true;
     sessionState.partnerConnected = true;
     sessionState.streaming = sessionState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
+    if (sessionState.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
+      sendDataMessage("control-include-payloads", {
+        enabled: Boolean(sessionState.includePayloads)
+      });
+    }
     updateActivity();
     broadcastState();
   };
@@ -255,6 +260,9 @@ function bindDataChannel(channel) {
 async function ensurePeerConnection(offerer) {
   if (peerConnection) {
     return peerConnection;
+  }
+  if (typeof RTCPeerConnection !== "function") {
+    throw new Error("WebRTC peer connection is not available in the extension background");
   }
   peerConnection = new RTCPeerConnection({
     iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }]
@@ -356,6 +364,14 @@ function stopFrameStreaming() {
   frameIntervalId = 0;
 }
 
+function getRemoteSupportErrorMessage(error, fallback) {
+  return (error && error.message) || fallback;
+}
+
+function isCurrentSession(sessionId) {
+  return Boolean(sessionState.active) && sessionState.sessionId === sessionId;
+}
+
 async function connectSignalingSocket({ wsUrl, role, supportCode }) {
   return new Promise((resolve, reject) => {
     try {
@@ -368,25 +384,37 @@ async function connectSignalingSocket({ wsUrl, role, supportCode }) {
     let resolved = false;
 
     signalingSocket.onopen = async () => {
-      signalingSocket.send(
-        serializeRemoteSupportMessage("register", {
-          sessionId: sessionState.sessionId,
-          supportCode,
-          role
-        })
-      );
+      try {
+        signalingSocket.send(
+          serializeRemoteSupportMessage("register", {
+            sessionId: sessionState.sessionId,
+            supportCode,
+            role
+          })
+        );
 
-      const offerer = role === REMOTE_SUPPORT_ROLE_SUPPORTER;
-      const pc = await ensurePeerConnection(offerer);
-      if (offerer) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignal("offer", { description: pc.localDescription });
-      }
+        const offerer = role === REMOTE_SUPPORT_ROLE_SUPPORTER;
+        const pc = await ensurePeerConnection(offerer);
+        if (offerer) {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendSignal("offer", { description: pc.localDescription });
+        }
 
-      if (!resolved) {
-        resolved = true;
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      } catch (error) {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(getRemoteSupportErrorMessage(error, "Unable to initialize remote support signaling")));
+        }
+        try {
+          signalingSocket.close();
+        } catch {
+          // Ignore close races during startup failure.
+        }
       }
     };
 
@@ -535,17 +563,29 @@ async function beginSession({
   await setContentModeForSessionTab(true);
   startInactivityMonitor();
 
-  await connectSignalingSocket({
+  const currentSessionId = sessionId;
+  void connectSignalingSocket({
     wsUrl,
     role,
     supportCode
-  });
-
-  if (mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    startFrameStreaming();
-  }
-
-  broadcastState();
+  })
+    .then(() => {
+      if (!isCurrentSession(currentSessionId)) {
+        return;
+      }
+      if (mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+        startFrameStreaming();
+      }
+      broadcastState();
+    })
+    .catch((error) => {
+      if (!isCurrentSession(currentSessionId)) {
+        return;
+      }
+      terminateRemoteSupportSession(
+        getRemoteSupportErrorMessage(error, "Unable to start remote support session")
+      ).then();
+    });
 }
 
 export async function terminateRemoteSupportSession(reason = "Session ended") {
@@ -685,10 +725,6 @@ async function handleJoinSupportSession(message) {
     expiresAt: typeof payload.expiresAt === "string" ? payload.expiresAt : "",
     includePayloads: Boolean(message.includePayloads),
     wsUrl
-  });
-
-  sendDataMessage("control-include-payloads", {
-    enabled: Boolean(message.includePayloads)
   });
 
   return {
