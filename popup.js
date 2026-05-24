@@ -2404,11 +2404,6 @@ async function refreshUiInner() {
   nextViewState.remoteSupportPageVisible = remoteSupportPageVisible;
   nextViewState.remoteSupportConnected = Boolean(remoteSupportState && remoteSupportState.connected);
   nextViewState.remoteSupportStreaming = Boolean(remoteSupportState && remoteSupportState.streaming);
-  nextViewState.remoteSupportIncludePayloads = Boolean(
-    remoteSupportState && Object.prototype.hasOwnProperty.call(remoteSupportState, "includePayloads")
-      ? remoteSupportState.includePayloads
-      : view.remoteSupportIncludePayloads
-  );
   nextViewState.remoteSupportPreviewImage = state.remoteSupportLastFrame || "";
   nextViewState.remoteSupportControlDisabled = !(
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING &&
@@ -3551,9 +3546,6 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportCode: nextState.supportCode || "",
     remoteSupportConnected: Boolean(nextState.connected),
     remoteSupportStreaming: Boolean(nextState.streaming),
-    remoteSupportIncludePayloads: nextState.active
-      ? Boolean(nextState.includePayloads)
-      : Boolean(uiModule.getViewState().remoteSupportIncludePayloads),
     remoteSupportControlDisabled: !supporting || !nextState.connected,
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
@@ -3638,8 +3630,7 @@ async function handleRemoteSupportJoin() {
     endpointValue: setup.configEndpointValue,
     tokenValue: setup.tokenValue,
     tabId: state.currentTab.id,
-    supportCode,
-    includePayloads: Boolean(uiModule.getViewState().remoteSupportIncludePayloads)
+    supportCode
   });
   if (!response || !response.ok) {
     uiModule.showToast((response && response.error) || "Unable to join support session");
@@ -3655,17 +3646,6 @@ async function handleRemoteSupportEnd() {
   state.remoteSupportLastFrame = "";
   syncRemoteSupportViewState(state.remoteSupportState);
   uiModule.setViewState({ remoteSupportPreviewImage: "" });
-}
-
-async function handleRemoteSupportIncludePayloadsChange(event) {
-  const enabled = Boolean(
-    event && (event.currentTarget || event.target) && (event.currentTarget || event.target).checked
-  );
-  uiModule.setViewState({ remoteSupportIncludePayloads: enabled });
-  await messages.sendRuntimeMessage({
-    type: "remoteSupportSetIncludePayloads",
-    enabled
-  });
 }
 
 function createRemotePointerPayload(event) {
@@ -5266,7 +5246,6 @@ async function init() {
     onRemoteSupportRequest: handleRemoteSupportRequest,
     onRemoteSupportJoinCodeInput: handleRemoteSupportJoinCodeInput,
     onRemoteSupportJoin: handleRemoteSupportJoin,
-    onRemoteSupportIncludePayloadsChange: handleRemoteSupportIncludePayloadsChange,
     onRemoteSupportEnd: handleRemoteSupportEnd,
     onRemoteSupportSurfaceMouseMove: handleRemoteSupportSurfaceMouseMove,
     onRemoteSupportSurfaceClick: handleRemoteSupportSurfaceClick,

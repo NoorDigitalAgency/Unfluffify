@@ -63,7 +63,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     message.type === "remoteSupportJoin" ||
     message.type === "remoteSupportEnd" ||
     message.type === "remoteSupportSendCommand" ||
-    message.type === "remoteSupportSetIncludePayloads" ||
     message.type === "remoteSupportTelemetryFromContent" ||
     message.type === "remoteSupportTransportEvent"
   ) {

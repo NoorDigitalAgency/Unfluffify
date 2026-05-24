@@ -642,7 +642,7 @@ async function handleJoinSupportSession(message) {
     sessionId,
     supportCode,
     expiresAt: typeof payload.expiresAt === "string" ? payload.expiresAt : "",
-    includePayloads: Boolean(message.includePayloads),
+    includePayloads: false,
     wsUrl
   });
 
@@ -801,7 +801,7 @@ function handlePortConnection(port) {
     if (!message || typeof message !== "object") {
       return;
     }
-    if (message.type === "setIncludePayloads") {
+    if (port.name === REMOTE_SUPPORT_PORT_NETWORK && message.type === "setIncludePayloads") {
       const enabled = Boolean(message.enabled);
       sessionState.includePayloads = enabled;
       if (sessionState.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
@@ -878,16 +878,6 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
   if (message.type === "remoteSupportSendCommand") {
     const sent = sendDataMessage("command", message.command || {});
     return { ok: sent };
-  }
-
-  if (message.type === "remoteSupportSetIncludePayloads") {
-    const enabled = Boolean(message.enabled);
-    sessionState.includePayloads = enabled;
-    if (sessionState.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
-      sendDataMessage("control-include-payloads", { enabled });
-    }
-    broadcastState();
-    return { ok: true, state: getPublicState() };
   }
 
   if (message.type === "remoteSupportTelemetryFromContent") {

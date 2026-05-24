@@ -205,7 +205,7 @@ Both DevTools panels (`remote-console.js`, `remote-network.js`) build all rows a
 
 ### DevTools checkbox sync
 
-The "Include payloads" checkbox in the network panel is synchronised with the actual session state on port connect via the `remoteSupportStateChanged` message, and is disabled when the panel is not in `supporting` mode.
+The "Include payloads" checkbox in the network panel is synchronised with the actual session state on port connect via the `remoteSupportStateChanged` message, is disabled when the panel is not in `supporting` mode, and is the single source of truth for `includePayloads`. The popup no longer exposes a second checkbox or writes this state.
 
 ### Safe object URL revocation
 

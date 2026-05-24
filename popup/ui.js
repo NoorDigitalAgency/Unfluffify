@@ -168,7 +168,6 @@ const initialViewState = {
   remoteSupportStatusText: "",
   remoteSupportConnected: false,
   remoteSupportStreaming: false,
-  remoteSupportIncludePayloads: false,
   remoteSupportPreviewImage: "",
   remoteSupportControlDisabled: true,
   remoteSupportError: "",
@@ -467,7 +466,6 @@ function renderThemeModeButtons(view, handlers) {
 
 function renderRemoteSupportSection(view, handlers) {
   const supporting = view.remoteSupportMode === "supporting";
-  const beingSupported = view.remoteSupportMode === "being_supported";
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
   return h(
@@ -516,18 +514,6 @@ function renderRemoteSupportSection(view, handlers) {
           icon("monitor-share"),
           PopupText.configuration.remoteSupportButton
         ),
-    h(
-      "label",
-      { class: "toggle tiny" },
-      h("input", {
-        id: "remote-support-include-payloads",
-        type: "checkbox",
-        checked: Boolean(view.remoteSupportIncludePayloads),
-        disabled: beingSupported,
-        onChange: handlers.onRemoteSupportIncludePayloadsChange
-      }),
-      h("span", null, PopupText.configuration.remoteSupportIncludePayloads)
-    ),
     view.remoteSupportRequested
       ? h(
           "div",

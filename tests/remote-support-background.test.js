@@ -15,6 +15,34 @@ function createChromeMock() {
   let offscreenDocumentOpen = false;
   let keepAlivePort = null;
 
+  function createPort(name) {
+    const messageListeners = [];
+    const disconnectListeners = [];
+    return {
+      name,
+      postedMessages: [],
+      onMessage: {
+        addListener(listener) {
+          messageListeners.push(listener);
+        }
+      },
+      onDisconnect: {
+        addListener(listener) {
+          disconnectListeners.push(listener);
+        }
+      },
+      postMessage(message) {
+        this.postedMessages.push(message);
+      },
+      emitMessage(message) {
+        messageListeners.forEach((listener) => listener(message));
+      },
+      disconnect() {
+        disconnectListeners.forEach((listener) => listener());
+      }
+    };
+  }
+
   const chromeMock = {
     runtime: {
       lastError: null,
@@ -43,20 +71,13 @@ function createChromeMock() {
     offscreen: {
       async createDocument() {
         offscreenDocumentOpen = true;
-        keepAlivePort = {
-          name: "unfluffify-remote-support-transport",
-          onDisconnect: {
-            addListener(listener) {
-              keepAlivePort._disconnectListener = listener;
-            }
-          }
-        };
+        keepAlivePort = createPort("unfluffify-remote-support-transport");
         runtimeConnectListeners.forEach((listener) => listener(keepAlivePort));
       },
       async closeDocument() {
         offscreenDocumentOpen = false;
-        if (keepAlivePort && typeof keepAlivePort._disconnectListener === "function") {
-          keepAlivePort._disconnectListener();
+        if (keepAlivePort) {
+          keepAlivePort.disconnect();
         }
       }
     },
@@ -74,6 +95,11 @@ function createChromeMock() {
 
   return {
     chromeMock,
+    connectPort(name) {
+      const port = createPort(name);
+      runtimeConnectListeners.forEach((listener) => listener(port));
+      return port;
+    },
     runtimeEvents,
     transportMessages
   };
@@ -193,6 +219,73 @@ test("remote support transport events drive session teardown without hanging the
     assert.equal(stateResponse.ok, true);
     assert.equal(stateResponse.state.active, false);
     assert.match(stateResponse.state.error, /Connection ended/i);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("network devtools panel is the only include-payloads writer for supporting sessions", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, connectPort, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_supporter",
+        supportCode: "222333",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 12,
+        supportCode: "222333",
+        includePayloads: true
+      },
+      { tab: { id: 12 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+    assert.equal(joinResponse.state.includePayloads, false);
+
+    const consolePort = connectPort("unfluffify-remote-support-console");
+    consolePort.emitMessage({ type: "setIncludePayloads", enabled: true });
+
+    let stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState" },
+      {}
+    );
+    assert.equal(stateResponse.state.includePayloads, false);
+
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    assert.equal(networkPort.postedMessages[0].type, "remoteSupportStateChanged");
+    assert.equal(networkPort.postedMessages[0].state.includePayloads, false);
+
+    networkPort.emitMessage({ type: "setIncludePayloads", enabled: true });
+
+    stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState" },
+      {}
+    );
+    assert.equal(stateResponse.state.includePayloads, true);
+    assert.equal(transportMessages.at(-1).type, "remoteSupportTransportSendData");
+    assert.equal(transportMessages.at(-1).messageType, "control-include-payloads");
+    assert.deepEqual(transportMessages.at(-1).payload, { enabled: true });
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;

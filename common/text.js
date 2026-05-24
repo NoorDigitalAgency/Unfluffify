@@ -370,7 +370,6 @@ export const PopupText = Object.freeze({
     remoteSupportJoinCodeLabel: "Join with support code", // Label for the support code input used by supporters.
     remoteSupportJoinCodePlaceholder: "Enter support code", // Placeholder for supporter support-code input.
     remoteSupportJoinButton: "Join support", // Button label for joining a support session.
-    remoteSupportIncludePayloads: "Include AJAX payloads", // Toggle label for payload streaming.
     remoteSupportEndButton: "End support session", // Button label for ending an active session.
     remoteSupportBeingSupportedHint: "This tab is currently controlled remotely for extension-owned interactions.", // Hint shown in being-supported mode.
     remoteSupportSurfaceAlt: "Remote supported tab preview", // Alt text for remote control preview image.
