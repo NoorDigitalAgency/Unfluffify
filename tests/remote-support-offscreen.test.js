@@ -214,20 +214,12 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
           username: "support-user",
           credential: "support-secret"
         },
-        { urls: ["stun:stun.cloudflare.com:3478"] },
-        { urls: ["stun:stun.l.google.com:19302"] },
-        { urls: ["stun:stun1.l.google.com:19302"] },
-        { urls: ["stun:global.stun.twilio.com:3478"] }
+        { urls: ["stun:stun.cloudflare.com:3478"] }
       ],
       iceCandidatePoolSize: 4
     });
     assert.deepEqual(peerConnectionConfigs[1], {
-      iceServers: [
-        { urls: ["stun:stun.cloudflare.com:3478"] },
-        { urls: ["stun:stun.l.google.com:19302"] },
-        { urls: ["stun:stun1.l.google.com:19302"] },
-        { urls: ["stun:global.stun.twilio.com:3478"] }
-      ],
+      iceServers: [],
       iceCandidatePoolSize: 4
     });
 
