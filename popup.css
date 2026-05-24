@@ -1773,11 +1773,6 @@ button.loading:disabled {
   background: color-mix(in srgb, var(--accent-light) 70%, var(--card));
 }
 
-.todo-candidate + .todo-candidate {
-  border-top: 0;
-  margin-top: 2px;
-}
-
 .todo-candidate-copy {
   min-width: 0;
   display: grid;
