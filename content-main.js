@@ -3587,7 +3587,6 @@ export function main() {
     return;
   }
   state.initialized = true;
-  installRemoteSupportTelemetryBridge();
 
   core.refreshFromTabState().then(() => {
     refreshEnabledAiHighlights();
@@ -3693,7 +3692,9 @@ export function main() {
     if (message.type === "remoteSupportModeChanged") {
       remoteSupportMode = message.active ? String(message.mode || "inactive") : "inactive";
       remoteSupportRole = message.active ? String(message.role || "") : "";
-      if (!isBeingSupportedMode()) {
+      if (isBeingSupportedMode()) {
+        installRemoteSupportTelemetryBridge();
+      } else {
         hideRemoteSupportCursor();
       }
       sendResponse({ ok: true, mode: remoteSupportMode, role: remoteSupportRole });
