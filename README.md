@@ -3,7 +3,7 @@
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
 The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md).
-Remote support design and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
+Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
 ## Features
 
@@ -15,6 +15,7 @@ Remote support design and backend endpoint expectations are documented in [REMOT
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
+- **Remote Support**: WebRTC-based session allowing a supporter to view a live tab preview, stream console/network telemetry, and send remote control inputs
 
 ## Installation (Developer Mode)
 
@@ -31,7 +32,7 @@ Run the regression suite from the repository root:
 npm test
 ```
 
-The tests cover the pure marking/highlighting rules that have caused regressions during recent logic changes.
+The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
 
 ## Project Structure
@@ -52,6 +53,8 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`selector-set.js`** - AI selector set operations and deduplication
 - **`silent-highlight-options.js`** - Silent highlight visual configuration
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
+- **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
+- **`remote-support-background.js`** - Background-side session orchestration: WebRTC signaling, frame streaming, telemetry routing, and remote command replay
 
 ### Content Scripts (`/content`)
 
@@ -65,6 +68,9 @@ Run this command before opening or updating a pull request to catch regressions 
 
 - **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability and parent-boundary selection
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
+- **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
+- **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
+- **`remote-support.test.js`** - Coverage for remote support utilities: constants, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
 
 ### Popup UI (`/popup`)
 

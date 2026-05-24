@@ -170,3 +170,39 @@ Server responsibilities:
 - Active tab closed on being-supported side.
 - WebRTC/signaling disconnect.
 - Inactivity timeout (7 minutes).
+
+## Security & correctness guarantees
+
+### Telemetry bridge activation
+
+`installRemoteSupportTelemetryBridge()` is only called when the content-script session mode transitions to `being_supported`. No `console`/`fetch`/XHR monkey-patching is applied on pages that never host an active support session.
+
+### Nonce-based message authentication
+
+When the telemetry bridge is installed, a 16-byte cryptographically random nonce (generated via `crypto.getRandomValues`) is embedded in the injected page script and included in every `postMessage`. The content script validates `data.nonce` before processing any telemetry message. An Array-type guard and a 65 536-byte JSON size cap are also enforced.
+
+### `includePayloads` gating (three-layer defence)
+
+1. **Page hook** – starts with `let includePayloads = false` and only reads request/response bodies when a `unfluffify:remote-support:control` message from the content script sets the flag to `true`.
+2. **Content script** – `sendRemoteTelemetryEntry` strips `entry.payload` as a backstop when `remoteSupportIncludePayloads` is `false`.
+3. **Background** – `handleTelemetryFromContent()` strips `entry.payload` when `sessionState.includePayloads` is `false`, clamps individual payload strings via `clampPayloadSize`, and enforces the total `REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES` budget before calling `sendDataMessage()`.
+
+### DOM XSS prevention in DevTools panels
+
+Both DevTools panels (`remote-console.js`, `remote-network.js`) build all rows and cells using `document.createElement` and `textContent` exclusively. No `innerHTML` interpolation of data received from the remote peer is performed.
+
+### DevTools checkbox sync
+
+The "Include payloads" checkbox in the network panel is synchronised with the actual session state on port connect via the `remoteSupportStateChanged` message, and is disabled when the panel is not in `supporting` mode.
+
+### Safe object URL revocation
+
+`downloadPayload()` defers `URL.revokeObjectURL` via `setTimeout(..., 0)` to guarantee the browser has initiated the download before the object URL is torn down.
+
+### Remote control surface guards
+
+All four surface event handlers (`mousemove`, `click`, `wheel`, `keydown`) check `remoteSupportControlDisabled` before forwarding commands to the background. `keydown` calls `event.preventDefault()` unconditionally so no default browser key binding fires while the surface has focus.
+
+### True UTF-8 byte clamping
+
+`clampPayloadSize(value, maxBytes)` (in `common/remote-support.js`) uses `TextEncoder` and a binary search to find the longest prefix of `value` whose **UTF-8 byte length** fits within `maxBytes`, correctly handling multibyte characters.
