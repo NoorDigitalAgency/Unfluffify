@@ -40,6 +40,17 @@ import {
   initRemoteSupportBackground
 } from "./common/remote-support-background.js";
 
+const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
+  "getRemoteSupportState",
+  "remoteSupportRequestCode",
+  "remoteSupportJoin",
+  "remoteSupportEnd",
+  "remoteSupportSendCommand",
+  "remoteSupportTelemetry",
+  "remoteSupportTelemetryFromContent",
+  "remoteSupportTransportEvent"
+]);
+
 initRemoteSupportBackground();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -47,25 +58,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  handleRemoteSupportBackgroundMessage(message, sender)
-    .then((result) => {
-      if (!result) {
-        return;
-      }
-      sendResponse(result);
-    })
-    .catch(() => {
-      sendResponse({ ok: false, error: "Remote support request failed" });
-    });
-  if (
-    message.type === "getRemoteSupportState" ||
-    message.type === "remoteSupportRequestCode" ||
-    message.type === "remoteSupportJoin" ||
-    message.type === "remoteSupportEnd" ||
-    message.type === "remoteSupportSendCommand" ||
-    message.type === "remoteSupportTelemetryFromContent" ||
-    message.type === "remoteSupportTransportEvent"
-  ) {
+  if (REMOTE_SUPPORT_MESSAGE_TYPES.has(message.type)) {
+    handleRemoteSupportBackgroundMessage(message, sender)
+      .then((result) => {
+        sendResponse(result || { ok: false, error: "Remote support request failed" });
+      })
+      .catch(() => {
+        sendResponse({ ok: false, error: "Remote support request failed" });
+      });
     return true;
   }
 
