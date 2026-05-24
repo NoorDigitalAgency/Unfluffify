@@ -466,6 +466,7 @@ function renderThemeModeButtons(view, handlers) {
 
 function renderRemoteSupportSection(view, handlers) {
   const supporting = view.remoteSupportMode === "supporting";
+  const beingSupported = view.remoteSupportMode === "being_supported";
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
   return h(
