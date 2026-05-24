@@ -40,6 +40,7 @@ export const state = {
   remoteSupportState: null,
   remoteSupportJoinCode: "",
   remoteSupportLastFrame: "",
+  remoteSupportViewLocked: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
   silentHighlightShowMarkedPages: true,

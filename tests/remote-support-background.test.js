@@ -218,6 +218,7 @@ test("remote support transport events drive session teardown without hanging the
 
     assert.equal(stateResponse.ok, true);
     assert.equal(stateResponse.state.active, false);
+    assert.equal(stateResponse.state.tabId, 9);
     assert.match(stateResponse.state.error, /Connection ended/i);
   } finally {
     await terminateRemoteSupportSession("Test cleanup");

@@ -514,6 +514,7 @@ export async function terminateRemoteSupportSession(reason = "Session ended") {
   const previousTabId = sessionState.tabId;
   Object.assign(sessionState, {
     ...createInactiveRemoteSupportState(),
+    tabId: previousTabId,
     error: reason || ""
   });
   if (hadActiveSession && previousTabId) {

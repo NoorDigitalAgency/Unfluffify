@@ -14,12 +14,15 @@ import {
   REMOTE_SUPPORT_ROLE_REQUESTER,
   createInactiveRemoteSupportState,
   getRemoteSupportPageUrl,
+  isRemoteSupportStateForTab,
   isRemoteSupportPageUrl,
   isAjaxResourceType,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
+  scopeRemoteSupportStateToTab,
   serializeRemoteSupportMessage,
   parseRemoteSupportMessage,
+  shouldLockRemoteSupportConfigurationView,
   clampPayloadSize
 } from "../common/remote-support.js";
 
@@ -203,6 +206,61 @@ test("isRemoteSupportPageUrl rejects unrelated origins and paths", () => {
   );
   assert.equal(
     isRemoteSupportPageUrl("https://api.example.com/help", "https://api.example.com"),
+    false
+  );
+});
+
+test("isRemoteSupportStateForTab matches only the owning tab", () => {
+  assert.equal(isRemoteSupportStateForTab({ active: true, tabId: 22 }, 22), true);
+  assert.equal(isRemoteSupportStateForTab({ active: true, tabId: 22 }, 23), false);
+});
+
+test("scopeRemoteSupportStateToTab hides active session data from unrelated tabs", () => {
+  const scoped = scopeRemoteSupportStateToTab({
+    active: true,
+    mode: REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+    role: REMOTE_SUPPORT_ROLE_REQUESTER,
+    tabId: 9,
+    supportCode: "123456",
+    connected: true,
+    error: ""
+  }, 10);
+
+  assert.equal(scoped.active, false);
+  assert.equal(scoped.mode, REMOTE_SUPPORT_MODE_INACTIVE);
+  assert.equal(scoped.supportCode, "");
+  assert.equal(scoped.connected, false);
+});
+
+test("scopeRemoteSupportStateToTab keeps the session for the owning tab", () => {
+  const scoped = scopeRemoteSupportStateToTab({
+    active: true,
+    mode: REMOTE_SUPPORT_MODE_SUPPORTING,
+    role: REMOTE_SUPPORT_ROLE_SUPPORTER,
+    tabId: 11,
+    supportCode: "654321",
+    connected: true,
+    streaming: false,
+    includePayloads: true,
+    error: ""
+  }, 11);
+
+  assert.equal(scoped.active, true);
+  assert.equal(scoped.mode, REMOTE_SUPPORT_MODE_SUPPORTING);
+  assert.equal(scoped.role, REMOTE_SUPPORT_ROLE_SUPPORTER);
+  assert.equal(scoped.supportCode, "654321");
+  assert.equal(scoped.connected, true);
+  assert.equal(scoped.includePayloads, true);
+});
+
+test("shouldLockRemoteSupportConfigurationView only locks the support page before the session starts", () => {
+  assert.equal(shouldLockRemoteSupportConfigurationView(true, null, 3), true);
+  assert.equal(
+    shouldLockRemoteSupportConfigurationView(true, { active: true, tabId: 3 }, 3),
+    false
+  );
+  assert.equal(
+    shouldLockRemoteSupportConfigurationView(false, { active: false, tabId: 3 }, 3),
     false
   );
 });

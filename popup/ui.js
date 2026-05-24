@@ -17,6 +17,7 @@ const { state } = stateModule;
 const refs = {};
 const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
+let lastRemoteSupportSectionScrollKey = "";
 
 export const View = {
     Configuration: 'Configuration',
@@ -26,6 +27,7 @@ export const View = {
 const initialViewState = {
   currentView: View.Configuration,
   configurationContinueDisabled: true,
+  configurationBackDisabled: true,
   configurationNoticeText: "",
   configurationNoticeVisible: false,
   currentPageUrl: ViewText.unavailable,
@@ -160,8 +162,11 @@ const initialViewState = {
   unregisterCurrentTabDisabled: false,
   remoteSupportCode: "",
   remoteSupportRequested: false,
+  remoteSupportRequestLoading: false,
   remoteSupportJoinCode: "",
+  remoteSupportJoinLoading: false,
   remoteSupportPageVisible: false,
+  remoteSupportAutoFocus: false,
   remoteSupportMode: "inactive",
   remoteSupportRole: "",
   remoteSupportSessionActive: false,
@@ -467,11 +472,18 @@ function renderThemeModeButtons(view, handlers) {
 function renderRemoteSupportSection(view, handlers) {
   const supporting = view.remoteSupportMode === "supporting";
   const beingSupported = view.remoteSupportMode === "being_supported";
+  const requesting = Boolean(view.remoteSupportRequestLoading);
+  const joining = Boolean(view.remoteSupportJoinLoading);
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
   return h(
     "section",
-    { class: "card remote-support-card" },
+    {
+      class: "card remote-support-card",
+      ref: (el) => {
+        refs.remoteSupportSection = el;
+      }
+    },
     h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
     h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
     supportPageVisible
@@ -487,7 +499,7 @@ function renderRemoteSupportSection(view, handlers) {
               type: "text",
               placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
               value: view.remoteSupportJoinCode || "",
-              disabled: sessionActive,
+              disabled: sessionActive || joining,
               onInput: handlers.onRemoteSupportJoinCodeInput
             }),
             h(
@@ -495,10 +507,12 @@ function renderRemoteSupportSection(view, handlers) {
               {
                 id: "remote-support-join",
                 type: "button",
-                disabled: sessionActive || !view.remoteSupportJoinCode,
+                class: classNames(joining && "loading"),
+                disabled: sessionActive || joining || !view.remoteSupportJoinCode,
+                "aria-busy": joining ? "true" : "false",
                 onClick: handlers.onRemoteSupportJoin
               },
-              icon("account-switch"),
+              icon(joining ? "loading" : "account-switch", joining ? "mdi-spin" : ""),
               PopupText.configuration.remoteSupportJoinButton
             )
           )
@@ -508,11 +522,12 @@ function renderRemoteSupportSection(view, handlers) {
           {
             id: "remote-support-request",
             type: "button",
-            class: "full-width",
-            disabled: sessionActive,
+            class: classNames("full-width", requesting && "loading"),
+            disabled: sessionActive || requesting,
+            "aria-busy": requesting ? "true" : "false",
             onClick: handlers.onRemoteSupportRequest
           },
-          icon("monitor-share"),
+          icon(requesting ? "loading" : "monitor-share", requesting ? "mdi-spin" : ""),
           PopupText.configuration.remoteSupportButton
         ),
     view.remoteSupportRequested
@@ -990,7 +1005,7 @@ function App({ state: view, actions: handlers }) {
                     class: "header-menu-toggle",
                     title: PopupText.actions.back,
                     "aria-label": PopupText.actions.back,
-                    disabled: view.configurationContinueDisabled,
+                    disabled: view.configurationBackDisabled,
                     onClick: handlers.onConfigurationContinue
                   },
                   icon("arrow-left")
@@ -2043,6 +2058,22 @@ function renderApp() {
     }
   } else {
     lastPreviewScrolledXpath = "";
+  }
+  const remoteSupportScrollKey =
+    viewState.remoteSupportAutoFocus && viewState.currentView === View.Configuration
+      ? String(viewState.currentPageUrl || "")
+      : "";
+  if (!remoteSupportScrollKey) {
+    lastRemoteSupportSectionScrollKey = "";
+  } else if (
+    refs.remoteSupportSection &&
+    lastRemoteSupportSectionScrollKey !== remoteSupportScrollKey
+  ) {
+    refs.remoteSupportSection.scrollIntoView({
+      block: "center",
+      inline: "nearest"
+    });
+    lastRemoteSupportSectionScrollKey = remoteSupportScrollKey;
   }
   document.body.classList.toggle(
     "is-busy",

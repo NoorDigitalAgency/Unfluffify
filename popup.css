@@ -2,15 +2,35 @@
   --bg: #f8f9fc;
   --bg-accent: #f0f2f7;
   --card: #ffffff;
-  --ink: #1a1d26;
-  --muted: #6b7280;
+  --ink-base: #1a1d26;
+  --muted-base: #6b7280;
   --success: #16a34a;
   --danger: #dc2626;
-  --line: #e5e7eb;
+  --line-base: #e5e7eb;
   --accent: #4f46e5;
   --accent-dark: #3730a3;
   --accent-light: #eef2ff;
   --warn: #d97706;
+  --ink: light-dark(
+    color-mix(in srgb, var(--ink-base) 94%, #040608 6%),
+    color-mix(in srgb, var(--ink-base) 84%, #ffffff 16%)
+  );
+  --muted: light-dark(
+    color-mix(in srgb, var(--muted-base) 90%, #040608 10%),
+    color-mix(in srgb, var(--muted-base) 74%, #ffffff 26%)
+  );
+  --line: light-dark(
+    color-mix(in srgb, var(--line-base) 76%, #040608 24%),
+    color-mix(in srgb, var(--line-base) 68%, #ffffff 32%)
+  );
+  --focus-ring: light-dark(
+    color-mix(in srgb, var(--accent) 68%, #040608 32%),
+    color-mix(in srgb, var(--accent) 66%, #ffffff 34%)
+  );
+  --focus-ring-soft: light-dark(
+    color-mix(in srgb, var(--accent) 18%, transparent),
+    color-mix(in srgb, var(--accent) 32%, transparent)
+  );
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
   --radius: 8px;
@@ -95,8 +115,9 @@ body.is-busy {
 }
 
 .header-menu-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .header-menu-toggle .btn-icon {
@@ -410,8 +431,9 @@ button.button-small {
 }
 
 .theme-nav-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .theme-mode-buttons {
@@ -547,9 +569,10 @@ button.button-small {
 }
 
 .notice__action:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 4px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .warning-panel {
@@ -787,8 +810,9 @@ button.button-small {
 
 .lynx-checklist-popover__candidate-hint:focus-visible {
   background: color-mix(in srgb, var(--bg-accent) 65%, var(--line) 35%);
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .lynx-checklist-popover__invalid-hint {
@@ -851,7 +875,9 @@ button.button-small {
 }
 
 .remote-support-surface:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .remote-support-surface img {
@@ -934,9 +960,13 @@ input[type="password"] {
 input[type="text"]:focus,
 input[type="email"]:focus,
 input[type="password"]:focus {
-  outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+input[type="text"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="password"]:focus-visible {
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 select {
@@ -958,9 +988,11 @@ select option {
 }
 
 select:focus {
-  outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+select:focus-visible {
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 select:disabled {
@@ -1140,8 +1172,9 @@ button.loading:disabled {
 
 #base-page-menu-toggle:focus-visible,
 #todo-controls-menu-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .section-menu-button .btn-icon {
@@ -1845,9 +1878,10 @@ span.todo-candidate-link {
 .todo-candidate-link:focus-visible {
   color: var(--accent);
   text-decoration: underline;
-  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 3px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .todo-candidate--current .todo-candidate-link,
@@ -2002,8 +2036,9 @@ span.todo-candidate-link {
 }
 
 .preview-sidebar__item-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .preview-sidebar__item-button:active {
@@ -2069,8 +2104,9 @@ span.todo-candidate-link {
 }
 
 .preview-sidebar__dismiss:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 
 .preview-sidebar__dismiss:active {
@@ -2323,4 +2359,47 @@ li button span.mdi::before {
 .readout-full {
   width: 100%;
   display: block;
+}
+
+:where(
+  button,
+  [href],
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [tabindex]:not([tabindex="-1"])
+):focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+:where(
+  button,
+  [href],
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:where(
+  button,
+  [href],
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }

@@ -65,6 +65,38 @@ export function getRemoteSupportPageUrl(baseUrl) {
   return resolveEndpointUrl(baseUrl, REMOTE_SUPPORT_PAGE_PATH);
 }
 
+function normalizeRemoteSupportTabId(value) {
+  const tabId = Number(value);
+  return Number.isFinite(tabId) ? tabId : null;
+}
+
+export function isRemoteSupportStateForTab(state, tabId) {
+  const normalizedTabId = normalizeRemoteSupportTabId(tabId);
+  const stateTabId = normalizeRemoteSupportTabId(state && state.tabId);
+  return normalizedTabId !== null && stateTabId !== null && stateTabId === normalizedTabId;
+}
+
+export function scopeRemoteSupportStateToTab(state, tabId) {
+  if (!state || typeof state !== "object" || !isRemoteSupportStateForTab(state, tabId)) {
+    return createInactiveRemoteSupportState();
+  }
+
+  return {
+    ...createInactiveRemoteSupportState(),
+    ...state,
+    active: Boolean(state.active),
+    connected: Boolean(state.connected),
+    streaming: Boolean(state.streaming),
+    includePayloads: Boolean(state.includePayloads),
+    tabId: normalizeRemoteSupportTabId(state.tabId)
+  };
+}
+
+export function shouldLockRemoteSupportConfigurationView(pageVisible, state, tabId) {
+  const scopedState = scopeRemoteSupportStateToTab(state, tabId);
+  return Boolean(pageVisible) && !Boolean(scopedState.active);
+}
+
 export function isRemoteSupportPageUrl(pageUrl, endpointBaseUrl) {
   const expectedUrl = getRemoteSupportPageUrl(endpointBaseUrl);
   if (!expectedUrl || !pageUrl) {
