@@ -29,15 +29,38 @@ function appendEntry(entry) {
   const timestamp = Number(entry.completedAt || entry.startedAt) || Date.now();
   const date = new Date(timestamp).toISOString();
   const hasPayload = Boolean(entry.payload && (entry.payload.request || entry.payload.response));
-  tr.innerHTML = `
-    <td class="mono">${date}</td>
-    <td>${Number(entry.statusCode) || 0}</td>
-    <td>${entry.method || "GET"}</td>
-    <td>${entry.type || "other"}</td>
-    <td>${Math.max(0, Number(entry.loadTimeMs) || 0).toFixed(1)}</td>
-    <td class="mono">${entry.url || ""}</td>
-    <td class="payload"></td>
-  `;
+
+  const tdDate = document.createElement("td");
+  tdDate.className = "mono";
+  tdDate.textContent = date;
+
+  const tdStatus = document.createElement("td");
+  tdStatus.textContent = String(Number(entry.statusCode) || 0);
+
+  const tdMethod = document.createElement("td");
+  tdMethod.textContent = String(entry.method || "GET");
+
+  const tdType = document.createElement("td");
+  tdType.textContent = String(entry.type || "other");
+
+  const tdTime = document.createElement("td");
+  tdTime.textContent = Math.max(0, Number(entry.loadTimeMs) || 0).toFixed(1);
+
+  const tdUrl = document.createElement("td");
+  tdUrl.className = "mono";
+  tdUrl.textContent = String(entry.url || "");
+
+  const tdPayload = document.createElement("td");
+  tdPayload.className = "payload";
+
+  tr.appendChild(tdDate);
+  tr.appendChild(tdStatus);
+  tr.appendChild(tdMethod);
+  tr.appendChild(tdType);
+  tr.appendChild(tdTime);
+  tr.appendChild(tdUrl);
+  tr.appendChild(tdPayload);
+
   if (hasPayload) {
     const button = document.createElement("button");
     button.type = "button";
@@ -45,10 +68,7 @@ function appendEntry(entry) {
     button.title = "Save payload";
     button.textContent = "↓";
     button.addEventListener("click", () => downloadPayload(entry));
-    const payloadCell = tr.querySelector(".payload");
-    if (payloadCell) {
-      payloadCell.appendChild(button);
-    }
+    tdPayload.appendChild(button);
   }
   rows.prepend(tr);
 }

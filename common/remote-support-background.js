@@ -498,7 +498,8 @@ async function setContentModeForSessionTab(active) {
       mode: active ? sessionState.mode : "inactive",
       role: active ? sessionState.role : "",
       supportCode: active ? sessionState.supportCode : "",
-      sessionId: active ? sessionState.sessionId : ""
+      sessionId: active ? sessionState.sessionId : "",
+      includePayloads: active ? Boolean(sessionState.includePayloads) : false
     });
   } catch {
     // Content script may be unavailable on unsupported pages.

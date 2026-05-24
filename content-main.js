@@ -137,6 +137,8 @@ const REMOTE_SUPPORT_CURSOR_STYLE_ID = "unfluffify-remote-support-cursor-style";
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
+let remoteSupportIncludePayloads = false;
+let remoteSupportBridgeNonce = "";
 
 function isBeingSupportedMode() {
   return remoteSupportMode === "being_supported";
@@ -281,116 +283,142 @@ function sendRemoteTelemetryEntry(channel, entry) {
   if (!isBeingSupportedMode()) {
     return;
   }
+  const sanitizedEntry = remoteSupportIncludePayloads
+    ? entry
+    : { ...entry, payload: undefined };
   chrome.runtime.sendMessage({
     type: "remoteSupportTelemetryFromContent",
     channel,
-    entry
+    entry: sanitizedEntry
   }).then().catch(() => {
     // Ignore telemetry send failures when support session is not active.
   });
 }
 
 function installRemoteSupportTelemetryBridge() {
-  if (window.__unfluffifyRemoteSupportBridgeInstalled) {
-    return;
+  if (!remoteSupportBridgeNonce) {
+    remoteSupportBridgeNonce = Array.from(
+      crypto.getRandomValues(new Uint8Array(16)),
+      (b) => b.toString(16).padStart(2, "0")
+    ).join("");
   }
-  window.__unfluffifyRemoteSupportBridgeInstalled = true;
-  window.addEventListener("message", (event) => {
-    if (!event || event.source !== window) {
-      return;
-    }
-    const data = event.data;
-    if (!data || data.source !== REMOTE_SUPPORT_PAGE_BRIDGE_EVENT) {
-      return;
-    }
-    const channel = data.channel === "network" ? "network" : "console";
-    const entry = data.entry && typeof data.entry === "object" ? data.entry : {};
-    sendRemoteTelemetryEntry(channel, entry);
-  });
-  const script = document.createElement("script");
-  script.setAttribute("data-uf-extension-ui", "true");
-  script.textContent = `(() => {
-    if (window.__unfluffifyRemoteSupportPageHookInstalled) return;
-    window.__unfluffifyRemoteSupportPageHookInstalled = true;
-    const SOURCE = ${JSON.stringify(REMOTE_SUPPORT_PAGE_BRIDGE_EVENT)};
-    const MAX = 32768;
-    const clamp = (value) => {
-      const text = typeof value === 'string' ? value : (() => {
-        try { return JSON.stringify(value); } catch { return String(value); }
-      })();
-      return text.length > MAX ? text.slice(0, MAX) : text;
-    };
-    const post = (channel, entry) => {
-      window.postMessage({ source: SOURCE, channel, entry: { ...entry, timestamp: Date.now() } }, '*');
-    };
-    ['log','info','warn','error','debug'].forEach((level) => {
-      const original = console[level];
-      if (typeof original !== 'function') return;
-      console[level] = function(...args) {
-        try { post('console', { level, message: clamp(args.map((item) => (typeof item === 'string' ? item : (item && item.message) || item)).join(' ')) }); } catch {}
-        return original.apply(this, args);
-      };
+  if (!window.__unfluffifyRemoteSupportBridgeInstalled) {
+    window.__unfluffifyRemoteSupportBridgeInstalled = true;
+    const nonce = remoteSupportBridgeNonce;
+    window.addEventListener("message", (event) => {
+      if (!event || event.source !== window) {
+        return;
+      }
+      const data = event.data;
+      if (!data || data.source !== REMOTE_SUPPORT_PAGE_BRIDGE_EVENT || data.nonce !== nonce) {
+        return;
+      }
+      const channel = data.channel === "network" ? "network" : "console";
+      // Expect a plain object; arrays satisfy typeof === "object" but are not valid entry shapes.
+      const rawEntry = data.entry && typeof data.entry === "object" && !Array.isArray(data.entry) ? data.entry : {};
+      try {
+        if (JSON.stringify(rawEntry).length > 65536) {
+          return;
+        }
+      } catch {
+        return;
+      }
+      sendRemoteTelemetryEntry(channel, rawEntry);
     });
-    const originalFetch = window.fetch;
-    if (typeof originalFetch === 'function') {
-      window.fetch = async function(...args) {
-        const startedAt = Date.now();
-        const input = args[0];
-        const init = args[1] || {};
-        const url = typeof input === 'string' ? input : (input && input.url) || '';
-        const method = (init.method || 'GET').toUpperCase();
-        const requestBody = init && typeof init.body !== 'undefined' ? clamp(init.body) : '';
-        try {
-          const response = await originalFetch.apply(this, args);
-          const loadTimeMs = Date.now() - startedAt;
+    const script = document.createElement("script");
+    script.setAttribute("data-uf-extension-ui", "true");
+    script.textContent = `(() => {
+      if (window.__unfluffifyRemoteSupportPageHookInstalled) return;
+      window.__unfluffifyRemoteSupportPageHookInstalled = true;
+      const SOURCE = ${JSON.stringify(REMOTE_SUPPORT_PAGE_BRIDGE_EVENT)};
+      const NONCE = ${JSON.stringify(remoteSupportBridgeNonce)};
+      let includePayloads = false;
+      window.addEventListener('message', (e) => {
+        if (!e || e.source !== window || !e.data) return;
+        if (e.data.type !== 'unfluffify:remote-support:control') return;
+        includePayloads = Boolean(e.data.enabled);
+      });
+      const MAX = 32768;
+      const clamp = (value) => {
+        const text = typeof value === 'string' ? value : (() => {
+          try { return JSON.stringify(value); } catch { return String(value); }
+        })();
+        return text.length > MAX ? text.slice(0, MAX) : text;
+      };
+      const post = (channel, entry) => {
+        window.postMessage({ source: SOURCE, nonce: NONCE, channel, entry: { ...entry, timestamp: Date.now() } }, '*');
+      };
+      ['log','info','warn','error','debug'].forEach((level) => {
+        const original = console[level];
+        if (typeof original !== 'function') return;
+        console[level] = function(...args) {
+          try { post('console', { level, message: clamp(args.map((item) => (typeof item === 'string' ? item : (item && item.message) || item)).join(' ')) }); } catch {}
+          return original.apply(this, args);
+        };
+      });
+      const originalFetch = window.fetch;
+      if (typeof originalFetch === 'function') {
+        window.fetch = async function(...args) {
+          const startedAt = Date.now();
+          const input = args[0];
+          const init = args[1] || {};
+          const url = typeof input === 'string' ? input : (input && input.url) || '';
+          const method = (init.method || 'GET').toUpperCase();
+          const requestBody = includePayloads && typeof init.body !== 'undefined' ? clamp(init.body) : '';
+          try {
+            const response = await originalFetch.apply(this, args);
+            const loadTimeMs = Date.now() - startedAt;
+            let responsePayload = '';
+            if (includePayloads) { try { responsePayload = clamp(await response.clone().text()); } catch {} }
+            post('network', {
+              source: 'ajax',
+              type: 'fetch',
+              url,
+              method,
+              statusCode: Number(response.status) || 0,
+              loadTimeMs,
+              payload: requestBody || responsePayload ? { request: requestBody, response: responsePayload } : null
+            });
+            return response;
+          } catch (error) {
+            post('network', { source: 'ajax', type: 'fetch', url, method, statusCode: 0, loadTimeMs: Date.now() - startedAt, payload: null, error: clamp(error && error.message ? error.message : error) });
+            throw error;
+          }
+        };
+      }
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const originalSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this.__ufRemoteSupportRequestMeta = { method: String(method || 'GET').toUpperCase(), url: String(url || ''), startedAt: 0, requestBody: '' };
+        return originalOpen.call(this, method, url, ...rest);
+      };
+      XMLHttpRequest.prototype.send = function(body) {
+        const meta = this.__ufRemoteSupportRequestMeta || { method: 'GET', url: '', startedAt: 0, requestBody: '' };
+        meta.startedAt = Date.now();
+        meta.requestBody = includePayloads && body !== undefined ? clamp(body) : '';
+        this.__ufRemoteSupportRequestMeta = meta;
+        this.addEventListener('loadend', () => {
+          const current = this.__ufRemoteSupportRequestMeta || meta;
           let responsePayload = '';
-          try { responsePayload = clamp(await response.clone().text()); } catch {}
+          if (includePayloads) { try { responsePayload = clamp(this.responseText || ''); } catch {} }
           post('network', {
             source: 'ajax',
-            type: 'fetch',
-            url,
-            method,
-            statusCode: Number(response.status) || 0,
-            loadTimeMs,
-            payload: requestBody || responsePayload ? { request: requestBody, response: responsePayload } : null
+            type: 'xhr',
+            url: current.url || '',
+            method: current.method || 'GET',
+            statusCode: Number(this.status) || 0,
+            loadTimeMs: Math.max(0, Date.now() - (Number(current.startedAt) || Date.now())),
+            payload: current.requestBody || responsePayload ? { request: current.requestBody || '', response: responsePayload } : null
           });
-          return response;
-        } catch (error) {
-          post('network', { source: 'ajax', type: 'fetch', url, method, statusCode: 0, loadTimeMs: Date.now() - startedAt, payload: requestBody ? { request: requestBody, response: '' } : null, error: clamp(error && error.message ? error.message : error) });
-          throw error;
-        }
+        }, { once: true });
+        return originalSend.call(this, body);
       };
-    }
-    const originalOpen = XMLHttpRequest.prototype.open;
-    const originalSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-      this.__ufRemoteSupportRequestMeta = { method: String(method || 'GET').toUpperCase(), url: String(url || ''), startedAt: 0, requestBody: '' };
-      return originalOpen.call(this, method, url, ...rest);
-    };
-    XMLHttpRequest.prototype.send = function(body) {
-      const meta = this.__ufRemoteSupportRequestMeta || { method: 'GET', url: '', startedAt: 0, requestBody: '' };
-      meta.startedAt = Date.now();
-      meta.requestBody = typeof body !== 'undefined' ? clamp(body) : '';
-      this.__ufRemoteSupportRequestMeta = meta;
-      this.addEventListener('loadend', () => {
-        const current = this.__ufRemoteSupportRequestMeta || meta;
-        let responsePayload = '';
-        try { responsePayload = clamp(this.responseText || ''); } catch {}
-        post('network', {
-          source: 'ajax',
-          type: 'xhr',
-          url: current.url || '',
-          method: current.method || 'GET',
-          statusCode: Number(this.status) || 0,
-          loadTimeMs: Math.max(0, Date.now() - (Number(current.startedAt) || Date.now())),
-          payload: current.requestBody || responsePayload ? { request: current.requestBody || '', response: responsePayload } : null
-        });
-      }, { once: true });
-      return originalSend.call(this, body);
-    };
-  })();`;
-  (document.documentElement || document.head || document.body).appendChild(script);
-  script.remove();
+    })();`;
+    (document.documentElement || document.head || document.body).appendChild(script);
+    script.remove();
+  }
+  // Update includePayloads in the page hook (handles both first install and subsequent session changes).
+  window.postMessage({ type: "unfluffify:remote-support:control", enabled: remoteSupportIncludePayloads }, "*");
 }
 
 async function loadGlobalAiSettingsForContent() {
@@ -3692,6 +3720,7 @@ export function main() {
     if (message.type === "remoteSupportModeChanged") {
       remoteSupportMode = message.active ? String(message.mode || "inactive") : "inactive";
       remoteSupportRole = message.active ? String(message.role || "") : "";
+      remoteSupportIncludePayloads = message.active ? Boolean(message.includePayloads) : false;
       if (isBeingSupportedMode()) {
         installRemoteSupportTelemetryBridge();
       } else {
