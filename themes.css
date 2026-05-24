@@ -86,7 +86,7 @@
   --ink-base: light-dark(#111111, #f4f4f4);
   --muted-base: light-dark(#6a6a6a, #989898);
   --line-base: light-dark(#e2e2e2, #2e2e2e);
-  --accent: light-dark(#008ba8, #4cc6e0);
+  --accent: light-dark(#00809b, #4cc6e0);
   --accent-dark: light-dark(#006477, #8ee0f0);
   --accent-light: light-dark(#e0f1f5, #1d2c33);
   --success: light-dark(#2d8a3e, #5fd674);
@@ -118,7 +118,7 @@
   --ink-base: light-dark(#1a2825, #eaf3f0);
   --muted-base: light-dark(#5d716c, #93a6a1);
   --line-base: light-dark(#d6e6e1, #2e403b);
-  --accent: light-dark(#2a9d8f, #6ed4c5);
+  --accent: light-dark(#238377, #6ed4c5);
   --accent-dark: light-dark(#1a6e63, #9ce6da);
   --accent-light: light-dark(#d8eeea, #1c302b);
   --success: light-dark(#2e9b48, #5dd472);
@@ -134,7 +134,7 @@
   --ink-base: light-dark(#0f172a, #ecf1f7);
   --muted-base: light-dark(#64748b, #95a0b2);
   --line-base: light-dark(#d8e0e8, #2e3c56);
-  --accent: light-dark(#3a87b3, #75bbdd);
+  --accent: light-dark(#367da6, #75bbdd);
   --accent-dark: light-dark(#1f5b80, #a8d3e6);
   --accent-light: light-dark(#e3eff6, #1e3a52);
   --success: light-dark(#0d9488, #3de6cf);
@@ -182,13 +182,13 @@
   --ink-base: light-dark(#2a1f1c, #ffeede);
   --muted-base: light-dark(#7d6f68, #b59e91);
   --line-base: light-dark(#f5e2d0, #483527);
-  --accent: light-dark(#7e9523, #cfe06a);
+  --accent: light-dark(#6b7e1e, #cfe06a);
   --accent-dark: light-dark(#5f7219, #e3ef9a);
   --accent-light: light-dark(#ebf3d3, #2c3a15);
   --success: light-dark(#059669, #44e0a8);
   --danger: light-dark(#c41e3a, #ff4d6e);
   --warn: light-dark(#f59e0b, #ffc94d);
-  --button-primary-bg: light-dark(#7e9523, #dce987);
+  --button-primary-bg: light-dark(#6b7e1e, #dce987);
   --button-primary-hover-bg: light-dark(#5f7219, #edf6b1);
   --button-primary-ink: light-dark(#ffffff, #1f2a0a);
 }
@@ -201,7 +201,7 @@
   --ink-base: light-dark(#1c2127, #f0f3f5);
   --muted-base: light-dark(#6b727a, #a1a8af);
   --line-base: light-dark(#dadddc, #424850);
-  --accent: light-dark(#3f7ea1, #8fc6dd);
+  --accent: light-dark(#3e7d9f, #8fc6dd);
   --accent-dark: light-dark(#245870, #b0dbeb);
   --accent-light: light-dark(#dfeef5, #1f3a4a);
   --success: light-dark(#2a8a37, #5ed66b);
