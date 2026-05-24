@@ -73,19 +73,19 @@ test("createInactiveRemoteSupportState returns a fresh object each call", () => 
 // isAjaxResourceType
 // ──────────────────────────────────────────────────────────────
 
-test("isAjaxResourceType recognises xmlhttprequest (case-insensitive)", () => {
+test("isAjaxResourceType recognizes xmlhttprequest (case-insensitive)", () => {
   assert.equal(isAjaxResourceType("xmlhttprequest"), true);
   assert.equal(isAjaxResourceType("XMLHttpRequest"), true);
   assert.equal(isAjaxResourceType("XMLHTTPREQUEST"), true);
 });
 
-test("isAjaxResourceType recognises fetch (case-insensitive)", () => {
+test("isAjaxResourceType recognizes fetch (case-insensitive)", () => {
   assert.equal(isAjaxResourceType("fetch"), true);
   assert.equal(isAjaxResourceType("Fetch"), true);
   assert.equal(isAjaxResourceType("FETCH"), true);
 });
 
-test("isAjaxResourceType recognises xhr alias", () => {
+test("isAjaxResourceType recognizes xhr alias", () => {
   assert.equal(isAjaxResourceType("xhr"), true);
   assert.equal(isAjaxResourceType("XHR"), true);
 });
