@@ -131,6 +131,295 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
+const REMOTE_SUPPORT_PAGE_BRIDGE_EVENT = "unfluffify:remote-support:telemetry";
+const REMOTE_SUPPORT_CURSOR_ID = "unfluffify-remote-support-cursor";
+const REMOTE_SUPPORT_CURSOR_STYLE_ID = "unfluffify-remote-support-cursor-style";
+
+let remoteSupportMode = "inactive";
+let remoteSupportRole = "";
+let remoteSupportIncludePayloads = false;
+let remoteSupportBridgeNonce = "";
+
+function isBeingSupportedMode() {
+  return remoteSupportMode === "being_supported";
+}
+
+function ensureRemoteSupportCursor() {
+  let style = document.getElementById(REMOTE_SUPPORT_CURSOR_STYLE_ID);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = REMOTE_SUPPORT_CURSOR_STYLE_ID;
+    style.setAttribute("data-uf-extension-ui", "true");
+    style.textContent = `
+      #${REMOTE_SUPPORT_CURSOR_ID} {
+        position: fixed;
+        width: 14px;
+        height: 14px;
+        margin: -7px 0 0 -7px;
+        border-radius: 50%;
+        border: 2px solid #ffffff;
+        background: #3a7cff;
+        box-shadow: 0 0 0 2px rgba(58, 124, 255, 0.35);
+        pointer-events: none;
+        z-index: 2147483647;
+        transform: translate3d(-100px, -100px, 0);
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}[hidden] {
+        display: none;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+  let cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
+  if (!cursor) {
+    cursor = document.createElement("div");
+    cursor.id = REMOTE_SUPPORT_CURSOR_ID;
+    cursor.setAttribute("data-uf-extension-ui", "true");
+    cursor.setAttribute("aria-hidden", "true");
+    (document.body || document.documentElement).appendChild(cursor);
+  }
+  return cursor;
+}
+
+function setRemoteSupportCursorPosition(xRatio, yRatio) {
+  const cursor = ensureRemoteSupportCursor();
+  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
+  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+  const x = Math.max(0, Math.min(1, Number(xRatio) || 0)) * viewportWidth;
+  const y = Math.max(0, Math.min(1, Number(yRatio) || 0)) * viewportHeight;
+  cursor.hidden = false;
+  cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  return { x, y };
+}
+
+function hideRemoteSupportCursor() {
+  const cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
+  if (cursor) {
+    cursor.hidden = true;
+  }
+}
+
+function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
+  if (!target || target.nodeType !== 1 || !isExtensionUiNode(target)) {
+    return false;
+  }
+  const mouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX,
+    clientY,
+    button
+  };
+  target.dispatchEvent(new MouseEvent("mousedown", mouseEventInit));
+  target.dispatchEvent(new MouseEvent("mouseup", mouseEventInit));
+  target.dispatchEvent(new MouseEvent("click", mouseEventInit));
+  return true;
+}
+
+function executeRemoteSupportCommand(command) {
+  if (!isBeingSupportedMode() || !command || typeof command !== "object") {
+    return;
+  }
+  const type = typeof command.type === "string" ? command.type : "";
+  if (!type) {
+    return;
+  }
+  if (type === "pointer-move") {
+    setRemoteSupportCursorPosition(command.x, command.y);
+    return;
+  }
+  if (type === "pointer-click") {
+    const point = setRemoteSupportCursorPosition(command.x, command.y);
+    const target = document.elementFromPoint(point.x, point.y);
+    dispatchRemotePointerClick(target, point.x, point.y, Number(command.button) || 0);
+    return;
+  }
+  if (type === "scroll") {
+    window.scrollBy({
+      left: Number(command.deltaX) || 0,
+      top: Number(command.deltaY) || 0,
+      behavior: "auto"
+    });
+    return;
+  }
+  if (type === "key") {
+    const eventInit = {
+      key: String(command.key || ""),
+      code: String(command.code || ""),
+      ctrlKey: Boolean(command.ctrlKey),
+      altKey: Boolean(command.altKey),
+      shiftKey: Boolean(command.shiftKey),
+      metaKey: Boolean(command.metaKey),
+      bubbles: true,
+      cancelable: true
+    };
+    const target = document.activeElement && document.activeElement.nodeType === 1
+      ? document.activeElement
+      : document.documentElement;
+    target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+    target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+  }
+}
+
+function handleBlockedLocalExtensionInteraction(event) {
+  if (!isBeingSupportedMode() || !event) {
+    return;
+  }
+  const target = event.target && event.target.nodeType === 1
+    ? event.target
+    : event.target && event.target.parentElement
+      ? event.target.parentElement
+      : null;
+  if (!target || !isExtensionUiNode(target)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function sendRemoteTelemetryEntry(channel, entry) {
+  if (!isBeingSupportedMode()) {
+    return;
+  }
+  const sanitizedEntry = remoteSupportIncludePayloads
+    ? entry
+    : { ...entry, payload: undefined };
+  chrome.runtime.sendMessage({
+    type: "remoteSupportTelemetryFromContent",
+    channel,
+    entry: sanitizedEntry
+  }).then().catch(() => {
+    // Ignore telemetry send failures when support session is not active.
+  });
+}
+
+function installRemoteSupportTelemetryBridge() {
+  if (!remoteSupportBridgeNonce) {
+    remoteSupportBridgeNonce = Array.from(
+      crypto.getRandomValues(new Uint8Array(16)),
+      (b) => b.toString(16).padStart(2, "0")
+    ).join("");
+  }
+  if (!window.__unfluffifyRemoteSupportBridgeInstalled) {
+    window.__unfluffifyRemoteSupportBridgeInstalled = true;
+    const nonce = remoteSupportBridgeNonce;
+    window.addEventListener("message", (event) => {
+      if (!event || event.source !== window) {
+        return;
+      }
+      const data = event.data;
+      if (!data || data.source !== REMOTE_SUPPORT_PAGE_BRIDGE_EVENT || data.nonce !== nonce) {
+        return;
+      }
+      const channel = data.channel === "network" ? "network" : "console";
+      // Expect a plain object; arrays satisfy typeof === "object" but are not valid entry shapes.
+      const rawEntry = data.entry && typeof data.entry === "object" && !Array.isArray(data.entry) ? data.entry : {};
+      try {
+        if (JSON.stringify(rawEntry).length > 65536) {
+          return;
+        }
+      } catch {
+        return;
+      }
+      sendRemoteTelemetryEntry(channel, rawEntry);
+    });
+    const script = document.createElement("script");
+    script.setAttribute("data-uf-extension-ui", "true");
+    script.textContent = `(() => {
+      if (window.__unfluffifyRemoteSupportPageHookInstalled) return;
+      window.__unfluffifyRemoteSupportPageHookInstalled = true;
+      const SOURCE = ${JSON.stringify(REMOTE_SUPPORT_PAGE_BRIDGE_EVENT)};
+      const NONCE = ${JSON.stringify(remoteSupportBridgeNonce)};
+      let includePayloads = false;
+      window.addEventListener('message', (e) => {
+        if (!e || e.source !== window || !e.data) return;
+        if (e.data.type !== 'unfluffify:remote-support:control') return;
+        includePayloads = Boolean(e.data.enabled);
+      });
+      const MAX = 32768;
+      const clamp = (value) => {
+        const text = typeof value === 'string' ? value : (() => {
+          try { return JSON.stringify(value); } catch { return String(value); }
+        })();
+        return text.length > MAX ? text.slice(0, MAX) : text;
+      };
+      const post = (channel, entry) => {
+        window.postMessage({ source: SOURCE, nonce: NONCE, channel, entry: { ...entry, timestamp: Date.now() } }, '*');
+      };
+      ['log','info','warn','error','debug'].forEach((level) => {
+        const original = console[level];
+        if (typeof original !== 'function') return;
+        console[level] = function(...args) {
+          try { post('console', { level, message: clamp(args.map((item) => (typeof item === 'string' ? item : (item && item.message) || item)).join(' ')) }); } catch {}
+          return original.apply(this, args);
+        };
+      });
+      const originalFetch = window.fetch;
+      if (typeof originalFetch === 'function') {
+        window.fetch = async function(...args) {
+          const startedAt = Date.now();
+          const input = args[0];
+          const init = args[1] || {};
+          const url = typeof input === 'string' ? input : (input && input.url) || '';
+          const method = (init.method || 'GET').toUpperCase();
+          const requestBody = includePayloads && typeof init.body !== 'undefined' ? clamp(init.body) : '';
+          try {
+            const response = await originalFetch.apply(this, args);
+            const loadTimeMs = Date.now() - startedAt;
+            let responsePayload = '';
+            if (includePayloads) { try { responsePayload = clamp(await response.clone().text()); } catch {} }
+            post('network', {
+              source: 'ajax',
+              type: 'fetch',
+              url,
+              method,
+              statusCode: Number(response.status) || 0,
+              loadTimeMs,
+              payload: requestBody || responsePayload ? { request: requestBody, response: responsePayload } : null
+            });
+            return response;
+          } catch (error) {
+            post('network', { source: 'ajax', type: 'fetch', url, method, statusCode: 0, loadTimeMs: Date.now() - startedAt, payload: null, error: clamp(error && error.message ? error.message : error) });
+            throw error;
+          }
+        };
+      }
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const originalSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this.__ufRemoteSupportRequestMeta = { method: String(method || 'GET').toUpperCase(), url: String(url || ''), startedAt: 0, requestBody: '' };
+        return originalOpen.call(this, method, url, ...rest);
+      };
+      XMLHttpRequest.prototype.send = function(body) {
+        const meta = this.__ufRemoteSupportRequestMeta || { method: 'GET', url: '', startedAt: 0, requestBody: '' };
+        meta.startedAt = Date.now();
+        meta.requestBody = includePayloads && body !== undefined ? clamp(body) : '';
+        this.__ufRemoteSupportRequestMeta = meta;
+        this.addEventListener('loadend', () => {
+          const current = this.__ufRemoteSupportRequestMeta || meta;
+          let responsePayload = '';
+          if (includePayloads) { try { responsePayload = clamp(this.responseText || ''); } catch {} }
+          post('network', {
+            source: 'ajax',
+            type: 'xhr',
+            url: current.url || '',
+            method: current.method || 'GET',
+            statusCode: Number(this.status) || 0,
+            loadTimeMs: Math.max(0, Date.now() - (Number(current.startedAt) || Date.now())),
+            payload: current.requestBody || responsePayload ? { request: current.requestBody || '', response: responsePayload } : null
+          });
+        }, { once: true });
+        return originalSend.call(this, body);
+      };
+    })();`;
+    (document.documentElement || document.head || document.body).appendChild(script);
+    script.remove();
+  }
+  // Update includePayloads in the page hook (handles both first install and subsequent session changes).
+  window.postMessage({ type: "unfluffify:remote-support:control", enabled: remoteSupportIncludePayloads }, "*");
+}
 
 async function loadGlobalAiSettingsForContent() {
   const stored = await utils.storageGet(chrome.storage.sync, {
@@ -3370,6 +3659,10 @@ export function main() {
   }, true);
 
   document.addEventListener("click", (event) => {
+    if (isBeingSupportedMode()) {
+      handleBlockedLocalExtensionInteraction(event);
+      return;
+    }
     if (state.enabled) {
       return;
     }
@@ -3378,6 +3671,12 @@ export function main() {
     }
     handleSilentSelectorClickCopy(event);
   }, true);
+  document.addEventListener("mousedown", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("mouseup", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("click", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("wheel", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("keydown", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("keyup", handleBlockedLocalExtensionInteraction, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
@@ -3416,6 +3715,25 @@ export function main() {
         sendResponse({ ok: true });
       });
       return true;
+    }
+
+    if (message.type === "remoteSupportModeChanged") {
+      remoteSupportMode = message.active ? String(message.mode || "inactive") : "inactive";
+      remoteSupportRole = message.active ? String(message.role || "") : "";
+      remoteSupportIncludePayloads = message.active ? Boolean(message.includePayloads) : false;
+      if (isBeingSupportedMode()) {
+        installRemoteSupportTelemetryBridge();
+      } else {
+        hideRemoteSupportCursor();
+      }
+      sendResponse({ ok: true, mode: remoteSupportMode, role: remoteSupportRole });
+      return;
+    }
+
+    if (message.type === "remoteSupportExecuteCommand") {
+      executeRemoteSupportCommand(message.command || null);
+      sendResponse({ ok: true });
+      return;
     }
 
     if (message.type === "getAiPreviewState") {

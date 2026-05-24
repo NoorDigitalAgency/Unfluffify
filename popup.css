@@ -488,6 +488,10 @@ button.button-small {
   align-items: stretch;
 }
 
+.property-url-row.input-row {
+  gap: 4px;
+}
+
 .property-url-actions {
   align-self: stretch;
 }
@@ -813,6 +817,10 @@ button.button-small {
   gap: 8px;
 }
 
+.remote-support-card .field {
+  margin-bottom: 0;
+}
+
 .remote-support-code {
   display: grid;
   gap: 4px;
@@ -828,6 +836,42 @@ button.button-small {
   font-size: 18px;
   letter-spacing: 0.18em;
   color: var(--accent-dark);
+}
+
+.remote-support-surface {
+  min-height: 120px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg);
+  outline: none;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.remote-support-surface:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.remote-support-surface img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.remote-support-surface--disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+button.warning {
+  background: color-mix(in srgb, var(--danger) 82%, var(--card));
+  border-color: color-mix(in srgb, var(--danger) 70%, var(--line));
+}
+
+button.warning:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, var(--card));
 }
 
 .token-status {
@@ -1513,12 +1557,11 @@ button.loading:disabled {
 
 .todo-section {
   gap: 10px;
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--accent-light) 34%, var(--card)) 0%,
-    var(--card) 22%
-  );
+  padding: 5px;
+}
+
+.todo-section .section-header {
+  gap: 2px;
 }
 
 .todo-header {
@@ -2226,8 +2269,8 @@ span.todo-candidate-link {
 }
 
 .close-button:disabled {
-  background: #c0bfbd;
-  border-color: #a8a8a8;
+  background: #c0bfbd95;
+  border-color: #a8a8a895;
   cursor: not-allowed;
   opacity: 1;
 }

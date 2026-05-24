@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Remote Network</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; }
+      .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 10px; }
+      .toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .payload { width: 28px; text-align: center; }
+      button.icon-btn { border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <strong>Remote network stream</strong>
+      <label><input type="checkbox" id="include-payloads" /> Include payloads</label>
+      <button id="clear" type="button">Clear</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Status</th>
+          <th>Method</th>
+          <th>Type</th>
+          <th>Load ms</th>
+          <th>URL</th>
+          <th class="payload">Payload</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <script type="module" src="./remote-network.js"></script>
+  </body>
+</html>

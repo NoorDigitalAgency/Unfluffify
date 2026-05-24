@@ -160,6 +160,17 @@ const initialViewState = {
   unregisterCurrentTabDisabled: false,
   remoteSupportCode: "",
   remoteSupportRequested: false,
+  remoteSupportJoinCode: "",
+  remoteSupportMode: "inactive",
+  remoteSupportRole: "",
+  remoteSupportSessionActive: false,
+  remoteSupportStatusText: "",
+  remoteSupportConnected: false,
+  remoteSupportStreaming: false,
+  remoteSupportIncludePayloads: false,
+  remoteSupportPreviewImage: "",
+  remoteSupportControlDisabled: true,
+  remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
   toastMessage: "",
@@ -454,6 +465,9 @@ function renderThemeModeButtons(view, handlers) {
 }
 
 function renderRemoteSupportSection(view, handlers) {
+  const supporting = view.remoteSupportMode === "supporting";
+  const beingSupported = view.remoteSupportMode === "being_supported";
+  const sessionActive = Boolean(view.remoteSupportSessionActive);
   return h(
     "section",
     { class: "card remote-support-card" },
@@ -465,10 +479,51 @@ function renderRemoteSupportSection(view, handlers) {
         id: "remote-support-request",
         type: "button",
         class: "full-width",
+        disabled: sessionActive,
         onClick: handlers.onRemoteSupportRequest
       },
       icon("monitor-share"),
       PopupText.configuration.remoteSupportButton
+    ),
+    h(
+      "label",
+      { class: "field" },
+      h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
+      h(
+        "div",
+        { class: "input-row" },
+        h("input", {
+          id: "remote-support-join-code",
+          type: "text",
+          placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
+          value: view.remoteSupportJoinCode || "",
+          disabled: sessionActive,
+          onInput: handlers.onRemoteSupportJoinCodeInput
+        }),
+        h(
+          "button",
+          {
+            id: "remote-support-join",
+            type: "button",
+            disabled: sessionActive || !view.remoteSupportJoinCode,
+            onClick: handlers.onRemoteSupportJoin
+          },
+          icon("account-switch"),
+          PopupText.configuration.remoteSupportJoinButton
+        )
+      )
+    ),
+    h(
+      "label",
+      { class: "toggle tiny" },
+      h("input", {
+        id: "remote-support-include-payloads",
+        type: "checkbox",
+        checked: Boolean(view.remoteSupportIncludePayloads),
+        disabled: beingSupported,
+        onChange: handlers.onRemoteSupportIncludePayloadsChange
+      }),
+      h("span", null, PopupText.configuration.remoteSupportIncludePayloads)
     ),
     view.remoteSupportRequested
       ? h(
@@ -476,8 +531,53 @@ function renderRemoteSupportSection(view, handlers) {
           { class: "remote-support-code", role: "status", "aria-live": "polite" },
           h("span", null, PopupText.configuration.remoteSupportCodeLabel),
           h("strong", null, view.remoteSupportCode || "------"),
-          h("span", { class: "hint" }, PopupText.configuration.remoteSupportUnavailable)
+          h("span", { class: "hint" }, PopupText.configuration.remoteSupportCodeHint)
         )
+      : null,
+    view.remoteSupportStatusText
+      ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
+      : null,
+    view.remoteSupportError
+      ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
+      : null,
+    supporting
+      ? h(
+          "div",
+          {
+            id: "remote-support-control-surface",
+            class: classNames(
+              "remote-support-surface",
+              view.remoteSupportControlDisabled && "remote-support-surface--disabled"
+            ),
+            tabIndex: 0,
+            onMouseMove: handlers.onRemoteSupportSurfaceMouseMove,
+            onClick: handlers.onRemoteSupportSurfaceClick,
+            onWheel: handlers.onRemoteSupportSurfaceWheel,
+            onKeyDown: handlers.onRemoteSupportSurfaceKeyDown
+          },
+          view.remoteSupportPreviewImage
+            ? h("img", {
+                src: view.remoteSupportPreviewImage,
+                alt: PopupText.configuration.remoteSupportSurfaceAlt
+              })
+            : h("div", { class: "hint" }, PopupText.configuration.remoteSupportSurfaceWaiting)
+        )
+      : null,
+    sessionActive
+      ? h(
+          "button",
+          {
+            id: "remote-support-end",
+            type: "button",
+            class: "full-width warning",
+            onClick: handlers.onRemoteSupportEnd
+          },
+          icon("close-octagon"),
+          PopupText.configuration.remoteSupportEndButton
+        )
+      : null,
+    beingSupported
+      ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportBeingSupportedHint)
       : null
   );
 }
@@ -874,7 +974,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
             onClick: handlers.onUnregisterCurrentTab
           }
         )

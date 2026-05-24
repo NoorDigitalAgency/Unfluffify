@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Remote Console</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; }
+      .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; }
+      .list { padding: 8px; display: grid; gap: 6px; }
+      .item { border: 1px solid #ddd; border-radius: 6px; padding: 6px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .item strong { margin-right: 6px; }
+      .muted { color: #666; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <strong>Remote console stream</strong>
+      <button id="clear" type="button">Clear</button>
+    </div>
+    <div id="list" class="list"></div>
+    <script type="module" src="./remote-console.js"></script>
+  </body>
+</html>
