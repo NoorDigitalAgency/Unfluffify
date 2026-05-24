@@ -17,7 +17,18 @@ function appendEntry(entry) {
   const message = typeof entry.message === "string" ? entry.message : "";
   const timestamp = Number(entry.timestamp) || Date.now();
   const date = new Date(timestamp);
-  item.innerHTML = `<div><strong>${level.toUpperCase()}</strong><span class="muted">${date.toISOString()}</span></div><div>${message}</div>`;
+  const headerRow = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = level.toUpperCase();
+  const muted = document.createElement("span");
+  muted.className = "muted";
+  muted.textContent = date.toISOString();
+  headerRow.appendChild(strong);
+  headerRow.appendChild(muted);
+  const messageRow = document.createElement("div");
+  messageRow.textContent = message;
+  item.appendChild(headerRow);
+  item.appendChild(messageRow);
   list.prepend(item);
 }
 
