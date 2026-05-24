@@ -1,6 +1,7 @@
 import {
   REMOTE_SUPPORT_FRAME_INTERVAL_MS,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
+  REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING,
   REMOTE_SUPPORT_PAYLOAD_MAX_BYTES,
@@ -8,6 +9,7 @@ import {
   REMOTE_SUPPORT_PORT_NETWORK,
   REMOTE_SUPPORT_ROLE_REQUESTER,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
+  REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
   createInactiveRemoteSupportState,
   isAjaxResourceType,
@@ -159,7 +161,10 @@ function sendDataMessage(type, payload = {}) {
     return false;
   }
   const raw = serializeRemoteSupportMessage(type, payload);
-  if (typeof dataChannel.bufferedAmount === "number" && dataChannel.bufferedAmount > 3_000_000) {
+  if (
+    typeof dataChannel.bufferedAmount === "number" &&
+    dataChannel.bufferedAmount > REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
+  ) {
     return false;
   }
   try {
@@ -757,7 +762,7 @@ function emitNetworkTelemetry(details, options = {}) {
     pending.requestPayload
   ) {
     const nextBudget = payloadBudgetBytes + pending.requestPayload.length;
-    if (nextBudget <= 10 * 1024 * 1024) {
+    if (nextBudget <= REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
       payloadBudgetBytes = nextBudget;
       payload = {
         request: pending.requestPayload,

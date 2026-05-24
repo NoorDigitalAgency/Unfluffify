@@ -9,6 +9,7 @@ export const REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS = 7 * 60 * 1000;
 export const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
 export const REMOTE_SUPPORT_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024;
 export const REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export const REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES = 3 * 1024 * 1024;
 
 export const REMOTE_SUPPORT_PORT_CONSOLE = "unfluffify-remote-support-console";
 export const REMOTE_SUPPORT_PORT_NETWORK = "unfluffify-remote-support-network";

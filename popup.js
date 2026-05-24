@@ -2412,9 +2412,11 @@ async function refreshUiInner() {
     remoteSupportState &&
     remoteSupportState.connected
   );
-  nextViewState.remoteSupportStatusText = nextViewState.remoteSupportSessionActive
-    ? `${remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED ? "Being supported" : "Supporting"}${nextViewState.remoteSupportConnected ? " • connected" : " • waiting for peer"}`
-    : "";
+  nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
+    active: nextViewState.remoteSupportSessionActive,
+    mode: remoteSupportMode,
+    connected: nextViewState.remoteSupportConnected
+  });
   nextViewState.remoteSupportError = (remoteSupportState && remoteSupportState.error) || "";
   const baseUrlReady = Boolean(state.currentBaseUrl);
   const baseField = {
@@ -3533,6 +3535,11 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
           error: ""
         };
   const supporting = nextState.mode === REMOTE_SUPPORT_MODE_SUPPORTING;
+  const statusText = buildRemoteSupportStatusText({
+    active: Boolean(nextState.active),
+    mode: nextState.mode || "inactive",
+    connected: Boolean(nextState.connected)
+  });
   uiModule.setViewState({
     remoteSupportSessionActive: Boolean(nextState.active),
     remoteSupportMode: nextState.mode || "inactive",
@@ -3545,11 +3552,20 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
       ? Boolean(nextState.includePayloads)
       : Boolean(uiModule.getViewState().remoteSupportIncludePayloads),
     remoteSupportControlDisabled: !supporting || !nextState.connected,
-    remoteSupportStatusText: nextState.active
-      ? `${nextState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED ? "Being supported" : "Supporting"}${nextState.connected ? " • connected" : " • waiting for peer"}`
-      : "",
+    remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
+}
+
+function buildRemoteSupportStatusText(stateValue) {
+  if (!stateValue || !stateValue.active) {
+    return "";
+  }
+  const mode = stateValue.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+    ? "Being supported"
+    : "Supporting";
+  const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
+  return `${mode}${connectedLabel}`;
 }
 
 async function fetchRemoteSupportState() {
