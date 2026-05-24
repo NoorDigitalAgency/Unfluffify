@@ -399,15 +399,27 @@ function createRemoteSupportRequestHeaders(endpointUrl, accessToken) {
 
 function resolveWebSocketUrl(baseUrl, explicitUrl, accessToken) {
   const trimmedExplicitUrl = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
+  let parsedBaseUrl = null;
   let parsedUrl = null;
 
   try {
-    parsedUrl = new URL(trimmedExplicitUrl || "/webrtc", baseUrl);
+    try {
+      parsedBaseUrl = new URL(baseUrl);
+    } catch (error) {
+      parsedBaseUrl = null;
+    }
+
+    parsedUrl = new URL(trimmedExplicitUrl || "/webrtc", parsedBaseUrl || baseUrl);
   } catch (error) {
     parsedUrl = new URL("/webrtc", baseUrl);
   }
 
-  parsedUrl.protocol = parsedUrl.protocol === "https:" ? "wss:" : "ws:";
+  const preferSecureSocket =
+    parsedUrl.protocol === "https:" ||
+    parsedUrl.protocol === "wss:" ||
+    Boolean(parsedBaseUrl && parsedBaseUrl.protocol === "https:");
+
+  parsedUrl.protocol = preferSecureSocket ? "wss:" : "ws:";
 
   const hasEmbeddedCredentials = Boolean(parsedUrl.username);
   if (!hasEmbeddedCredentials && typeof accessToken === "string" && accessToken.trim()) {

@@ -159,6 +159,49 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
   }
 });
 
+test("remoteSupportRequestCode upgrades insecure websocket urls returned for https endpoints", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_tls_upgrade",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "ws://api.example.com/webrtc?token=test"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 8,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 8 } }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(transportMessages.length, 1);
+    assert.equal(transportMessages[0].session.wsUrl, "wss://api.example.com/webrtc?token=token-value");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remote support transport events drive session teardown without hanging the popup request", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
