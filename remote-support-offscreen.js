@@ -197,26 +197,21 @@ function bindDataChannel(runtime, channel) {
   };
 
   channel.onclose = () => {
-    if (!getTransportRuntime(runtime.sessionId)) {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime || activeRuntime.shuttingDown) {
       return;
     }
 
-    postTransportEvent({
-      type: "channel-close",
-      sessionId: runtime.sessionId
-    });
+    handleFatalTransportError(runtime.sessionId, "Remote support data channel closed");
   };
 
   channel.onerror = () => {
-    if (!getTransportRuntime(runtime.sessionId)) {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime || activeRuntime.shuttingDown) {
       return;
     }
 
-    postTransportEvent({
-      type: "transport-error",
-      sessionId: runtime.sessionId,
-      error: "Remote support data channel failed"
-    });
+    handleFatalTransportError(runtime.sessionId, "Remote support data channel failed");
   };
 
   channel.onmessage = (event) => {
@@ -423,6 +418,20 @@ async function connectSignalingSocket(runtime) {
         type: "partner-ready",
         sessionId: runtime.sessionId
       });
+      return;
+    }
+
+    if (message.type === "session-ended") {
+      const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+      if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
+        return;
+      }
+
+      await shutdownTransport(
+        runtime.sessionId,
+        isNonEmptyString(payload.reason) ? payload.reason : "Session ended",
+        { notifyBackground: true }
+      );
       return;
     }
 

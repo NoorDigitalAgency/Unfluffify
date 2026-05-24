@@ -304,3 +304,286 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
     globalThis.window = originalWindow;
   }
 });
+
+test("remote support offscreen tears down both sides when the data channel fails or the server ends the session", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const connectedPortNames = [];
+  const backgroundEvents = [];
+  const dataChannels = [];
+  const sockets = [];
+
+  class FakeDataChannel {
+    constructor() {
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel() {
+      const channel = new FakeDataChannel();
+      dataChannels.push(channel);
+      return channel;
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      this.iceCandidate = candidate;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+      sockets.push(this);
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect({ name }) {
+        connectedPortNames.push(name);
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-ended`);
+
+    assert.deepEqual(connectedPortNames, [REMOTE_SUPPORT_PORT_TRANSPORT]);
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+
+    let startResponse;
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_error",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one"
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(dataChannels.length, 1);
+    assert.equal(sockets.length, 1);
+
+    dataChannels[0].onerror();
+    await delay(0);
+
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "transport-error" &&
+          message.event.sessionId === "sess_error" &&
+          message.event.error === "Remote support data channel failed"
+      ),
+      true
+    );
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "session-ended" &&
+          message.event.sessionId === "sess_error" &&
+          message.event.reason === "Remote support data channel failed"
+      ),
+      true
+    );
+
+    let afterErrorSendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_error",
+        messageType: "command",
+        payload: { type: "pointer-click", x: 0.5, y: 0.5 }
+      },
+      {},
+      (value) => {
+        afterErrorSendResponse = value;
+      }
+    );
+
+    assert.deepEqual(afterErrorSendResponse, { ok: false });
+
+    backgroundEvents.length = 0;
+
+    let secondStartResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_remote_end",
+          supportCode: "222222",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=two"
+        }
+      },
+      {},
+      (value) => {
+        secondStartResponse = value;
+      }
+    );
+
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(secondStartResponse, { ok: true });
+    assert.equal(sockets.length, 2);
+
+    sockets[1].onmessage({
+      data: JSON.stringify({
+        type: "session-ended",
+        payload: {
+          sessionId: "sess_remote_end",
+          reason: "requester disconnected"
+        }
+      })
+    });
+    await delay(0);
+
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "session-ended" &&
+          message.event.sessionId === "sess_remote_end" &&
+          message.event.reason === "requester disconnected"
+      ),
+      true
+    );
+
+    let afterRemoteEndSendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_remote_end",
+        messageType: "command",
+        payload: { type: "pointer-click", x: 0.4, y: 0.4 }
+      },
+      {},
+      (value) => {
+        afterRemoteEndSendResponse = value;
+      }
+    );
+
+    assert.deepEqual(afterRemoteEndSendResponse, { ok: false });
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});
