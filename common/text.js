@@ -363,10 +363,18 @@ export const PopupText = Object.freeze({
     themeModeLight: "Light", // Theme mode option that forces light mode.
     themeModeDark: "Dark", // Theme mode option that forces dark mode.
     remoteSupportSectionTitle: "Remote Support", // Section title for support-code requests.
-    remoteSupportHint: "Request a one-time support code to share with Noor support. Screen sharing/control will connect through the configuration backend when available.", // Helper text for the remote support request.
+    remoteSupportHint: "Request a one-time code or join with a support code to start a WebRTC remote support session.", // Helper text for the remote support request.
     remoteSupportButton: "Request remote support", // Button label that generates a support request code.
     remoteSupportCodeLabel: "Share this code:", // Label shown before the generated support code.
-    remoteSupportUnavailable: "Remote control requires the configuration backend support service.", // Hint shown while backend support is unavailable.
+    remoteSupportCodeHint: "Code validity is controlled by the backend (expected: 10 minutes).", // Hint shown after generating support code.
+    remoteSupportJoinCodeLabel: "Join with support code", // Label for the support code input used by supporters.
+    remoteSupportJoinCodePlaceholder: "Enter support code", // Placeholder for supporter support-code input.
+    remoteSupportJoinButton: "Join support", // Button label for joining a support session.
+    remoteSupportIncludePayloads: "Include AJAX payloads", // Toggle label for payload streaming.
+    remoteSupportEndButton: "End support session", // Button label for ending an active session.
+    remoteSupportBeingSupportedHint: "This tab is currently controlled remotely for extension-owned interactions.", // Hint shown in being-supported mode.
+    remoteSupportSurfaceAlt: "Remote supported tab preview", // Alt text for remote control preview image.
+    remoteSupportSurfaceWaiting: "Waiting for remote tab stream...", // Placeholder text shown until frame streaming starts.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.

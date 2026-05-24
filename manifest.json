@@ -12,6 +12,7 @@
     "tabs",
     "scripting",
     "debugger",
+    "webRequest",
     "browsingData",
     "webNavigation",
     "activeTab"
@@ -23,6 +24,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "devtools_page": "devtools/devtools.html",
   "content_scripts": [
     {
       "matches": [

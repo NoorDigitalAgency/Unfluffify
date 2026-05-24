@@ -34,10 +34,39 @@ import {
 } from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 import { normalizeSilentHighlightOptions } from "./common/silent-highlight-options.js";
+import {
+  handleRemoteSupportBackgroundMessage,
+  handleRemoteSupportTabRemoved,
+  initRemoteSupportBackground
+} from "./common/remote-support-background.js";
+
+initRemoteSupportBackground();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
     return;
+  }
+
+  handleRemoteSupportBackgroundMessage(message, sender)
+    .then((result) => {
+      if (!result) {
+        return;
+      }
+      sendResponse(result);
+    })
+    .catch(() => {
+      sendResponse({ ok: false, error: "Remote support request failed" });
+    });
+  if (
+    message.type === "getRemoteSupportState" ||
+    message.type === "remoteSupportRequestCode" ||
+    message.type === "remoteSupportJoin" ||
+    message.type === "remoteSupportEnd" ||
+    message.type === "remoteSupportSendCommand" ||
+    message.type === "remoteSupportSetIncludePayloads" ||
+    message.type === "remoteSupportTelemetryFromContent"
+  ) {
+    return true;
   }
 
   if (message.type === "getTabState") {
@@ -383,6 +412,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
   utils.storageRemove(chrome.storage.session, [key, initialKey, deviceKey, scriptKey]).then();
+  handleRemoteSupportTabRemoved(tabId).then();
 });
 
 async function disableExtensionAndDeviceEmulationOnTopLevelNavigation(details) {
