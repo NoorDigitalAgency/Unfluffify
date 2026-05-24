@@ -13,6 +13,7 @@ export const REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES = 3 * 1024 * 1024;
 
 export const REMOTE_SUPPORT_PORT_CONSOLE = "unfluffify-remote-support-console";
 export const REMOTE_SUPPORT_PORT_NETWORK = "unfluffify-remote-support-network";
+export const REMOTE_SUPPORT_PORT_TRANSPORT = "unfluffify-remote-support-transport";
 
 export function createInactiveRemoteSupportState() {
   return {

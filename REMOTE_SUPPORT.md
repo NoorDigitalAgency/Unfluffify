@@ -5,6 +5,7 @@ This document defines the extension-side remote support implementation and the e
 ## Implemented extension behavior
 
 - Remote support uses a WebRTC `RTCPeerConnection` + `DataChannel`.
+- In MV3, the WebRTC transport runs inside an offscreen document rather than the background service worker, because the service worker does not expose `RTCPeerConnection`.
 - Two fixed roles:
   - **Requester** → becomes **being_supported**.
   - **Supporter** (joins with support code) → becomes **supporting**.

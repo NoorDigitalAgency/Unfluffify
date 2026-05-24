@@ -1,12 +1,12 @@
 import {
   REMOTE_SUPPORT_FRAME_INTERVAL_MS,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
-  REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING,
   REMOTE_SUPPORT_PAYLOAD_MAX_BYTES,
   REMOTE_SUPPORT_PORT_CONSOLE,
   REMOTE_SUPPORT_PORT_NETWORK,
+  REMOTE_SUPPORT_PORT_TRANSPORT,
   REMOTE_SUPPORT_ROLE_REQUESTER,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
@@ -14,19 +14,21 @@ import {
   createInactiveRemoteSupportState,
   isAjaxResourceType,
   normalizeRemoteSupportCode,
-  parseRemoteSupportMessage,
   resolveEndpointUrl,
-  serializeRemoteSupportMessage
 } from "./remote-support.js";
+
+const REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH = "remote-support-offscreen.html";
+const REMOTE_SUPPORT_OFFSCREEN_TARGET = "remoteSupportOffscreen";
+const REMOTE_SUPPORT_OFFSCREEN_SOURCE = "remoteSupportOffscreen";
 
 const sessionState = createInactiveRemoteSupportState();
 
-let signalingSocket = null;
-let peerConnection = null;
-let dataChannel = null;
 let frameIntervalId = 0;
 let inactivityIntervalId = 0;
 let payloadBudgetBytes = 0;
+let offscreenKeepAlivePort = null;
+let creatingOffscreenDocument = null;
+let offscreenDisconnectExpected = false;
 
 const networkPendingRequests = new Map();
 const consolePorts = new Set();
@@ -51,48 +53,6 @@ function resetRuntimeResources() {
     globalThis.clearInterval(inactivityIntervalId);
     inactivityIntervalId = 0;
   }
-  if (dataChannel) {
-    try {
-      dataChannel.onopen = null;
-      dataChannel.onclose = null;
-      dataChannel.onmessage = null;
-      dataChannel.onerror = null;
-      if (dataChannel.readyState === "open" || dataChannel.readyState === "connecting") {
-        dataChannel.close();
-      }
-    } catch {
-      // Ignore close errors.
-    }
-  }
-  dataChannel = null;
-  if (peerConnection) {
-    try {
-      peerConnection.onicecandidate = null;
-      peerConnection.onconnectionstatechange = null;
-      peerConnection.ondatachannel = null;
-      peerConnection.close();
-    } catch {
-      // Ignore close errors.
-    }
-  }
-  peerConnection = null;
-  if (signalingSocket) {
-    try {
-      signalingSocket.onopen = null;
-      signalingSocket.onmessage = null;
-      signalingSocket.onerror = null;
-      signalingSocket.onclose = null;
-      if (
-        signalingSocket.readyState === WebSocket.OPEN ||
-        signalingSocket.readyState === WebSocket.CONNECTING
-      ) {
-        signalingSocket.close();
-      }
-    } catch {
-      // Ignore close errors.
-    }
-  }
-  signalingSocket = null;
   networkPendingRequests.clear();
   payloadBudgetBytes = 0;
 }
@@ -142,33 +102,128 @@ function shouldHandleForSessionTab(tabId) {
   );
 }
 
-function sendSignal(type, payload) {
-  if (!signalingSocket || signalingSocket.readyState !== WebSocket.OPEN) {
+function getRemoteSupportErrorMessage(error, fallback) {
+  return (error && error.message) || fallback;
+}
+
+function isCurrentSession(sessionId) {
+  return Boolean(sessionState.active) && sessionState.sessionId === sessionId;
+}
+
+function isRemoteSupportOffscreenSender(sender) {
+  if (!sender || typeof sender.url !== "string" || !chrome.runtime || typeof chrome.runtime.getURL !== "function") {
+    return false;
+  }
+  return sender.url === chrome.runtime.getURL(REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH);
+}
+
+async function hasRemoteSupportOffscreenDocument() {
+  if (chrome.runtime && typeof chrome.runtime.getContexts === "function" && typeof chrome.runtime.getURL === "function") {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [chrome.runtime.getURL(REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH)]
+    });
+    return contexts.length > 0;
+  }
+
+  return Boolean(offscreenKeepAlivePort);
+}
+
+async function ensureRemoteSupportOffscreenDocument() {
+  if (await hasRemoteSupportOffscreenDocument()) {
     return;
   }
-  signalingSocket.send(
-    serializeRemoteSupportMessage("signal", {
-      signalType: type,
-      sessionId: sessionState.sessionId,
-      role: sessionState.role,
-      ...payload
-    })
-  );
+
+  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    throw new Error("Chrome offscreen documents are not available for remote support");
+  }
+
+  if (!creatingOffscreenDocument) {
+    creatingOffscreenDocument = chrome.offscreen.createDocument({
+      url: REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH,
+      reasons: ["WEB_RTC"],
+      justification: "Run remote support WebRTC connections outside the MV3 service worker"
+    }).finally(() => {
+      creatingOffscreenDocument = null;
+    });
+  }
+
+  await creatingOffscreenDocument;
+}
+
+async function closeRemoteSupportOffscreenDocument() {
+  if (!await hasRemoteSupportOffscreenDocument()) {
+    return;
+  }
+
+  if (!chrome.offscreen || typeof chrome.offscreen.closeDocument !== "function") {
+    return;
+  }
+
+  offscreenDisconnectExpected = true;
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch {
+    // Ignore close races when the document is already gone.
+  } finally {
+    offscreenKeepAlivePort = null;
+    offscreenDisconnectExpected = false;
+  }
+}
+
+async function sendRemoteSupportOffscreenRequest(message) {
+  await ensureRemoteSupportOffscreenDocument();
+
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      ...message,
+      target: REMOTE_SUPPORT_OFFSCREEN_TARGET
+    });
+  } catch (error) {
+    throw new Error(getRemoteSupportErrorMessage(error, "Remote support transport request failed"));
+  }
+
+  if (!response || response.ok !== true) {
+    throw new Error((response && response.error) || "Remote support transport request failed");
+  }
+
+  return response;
+}
+
+async function stopRemoteSupportTransport(reason = "Session ended", closeDocument = false) {
+  if (await hasRemoteSupportOffscreenDocument()) {
+    try {
+      await chrome.runtime.sendMessage({
+        target: REMOTE_SUPPORT_OFFSCREEN_TARGET,
+        type: "remoteSupportTransportStop",
+        reason
+      });
+    } catch {
+      // Ignore transport shutdown races when the document is already gone.
+    }
+  }
+
+  if (closeDocument) {
+    await closeRemoteSupportOffscreenDocument();
+  }
 }
 
 function sendDataMessage(type, payload = {}) {
-  if (!dataChannel || dataChannel.readyState !== "open") {
+  if (!sessionState.active) {
     return false;
   }
-  const raw = serializeRemoteSupportMessage(type, payload);
-  if (
-    typeof dataChannel.bufferedAmount === "number" &&
-    dataChannel.bufferedAmount > REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
-  ) {
-    return false;
-  }
+
   try {
-    dataChannel.send(raw);
+    chrome.runtime.sendMessage({
+      target: REMOTE_SUPPORT_OFFSCREEN_TARGET,
+      type: "remoteSupportTransportSendData",
+      sessionId: sessionState.sessionId,
+      messageType: type,
+      payload
+    }).then().catch(() => {
+      // Ignore transport races; the session state will be updated by transport events.
+    });
     updateActivity();
     return true;
   } catch {
@@ -224,88 +279,6 @@ function handleIncomingDataMessage(message) {
   }
 }
 
-function bindDataChannel(channel) {
-  dataChannel = channel;
-  dataChannel.onopen = () => {
-    sessionState.connected = true;
-    sessionState.partnerConnected = true;
-    sessionState.streaming = sessionState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
-    if (sessionState.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
-      sendDataMessage("control-include-payloads", {
-        enabled: Boolean(sessionState.includePayloads)
-      });
-    }
-    updateActivity();
-    broadcastState();
-  };
-  dataChannel.onclose = () => {
-    sessionState.connected = false;
-    sessionState.streaming = false;
-    broadcastState();
-  };
-  dataChannel.onerror = () => {
-    sessionState.error = "Remote data channel error";
-    broadcastState();
-  };
-  dataChannel.onmessage = (event) => {
-    const message = parseRemoteSupportMessage(event && event.data);
-    if (!message) {
-      return;
-    }
-    updateActivity();
-    handleIncomingDataMessage(message);
-  };
-}
-
-async function ensurePeerConnection(offerer) {
-  if (peerConnection) {
-    return peerConnection;
-  }
-  if (typeof RTCPeerConnection !== "function") {
-    throw new Error("WebRTC peer connection is not available in the extension background");
-  }
-  peerConnection = new RTCPeerConnection({
-    iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }]
-  });
-
-  peerConnection.onicecandidate = (event) => {
-    if (!event || !event.candidate) {
-      return;
-    }
-    sendSignal("ice", { candidate: event.candidate });
-  };
-
-  peerConnection.onconnectionstatechange = () => {
-    const state = peerConnection ? peerConnection.connectionState : "closed";
-    if (state === "connected") {
-      sessionState.connected = true;
-      sessionState.partnerConnected = true;
-      updateActivity();
-      broadcastState();
-      return;
-    }
-    if (state === "failed" || state === "disconnected" || state === "closed") {
-      terminateRemoteSupportSession("Connection ended").then();
-    }
-  };
-
-  if (offerer) {
-    const channel = peerConnection.createDataChannel("remote-support", {
-      ordered: true
-    });
-    bindDataChannel(channel);
-  } else {
-    peerConnection.ondatachannel = (event) => {
-      if (!event || !event.channel) {
-        return;
-      }
-      bindDataChannel(event.channel);
-    };
-  }
-
-  return peerConnection;
-}
-
 function startInactivityMonitor() {
   if (inactivityIntervalId) {
     globalThis.clearInterval(inactivityIntervalId);
@@ -331,7 +304,7 @@ function startFrameStreaming() {
     if (!sessionState.active || !sessionState.tabId) {
       return;
     }
-    if (!dataChannel || dataChannel.readyState !== "open") {
+    if (!sessionState.connected) {
       return;
     }
     let tab;
@@ -364,125 +337,74 @@ function stopFrameStreaming() {
   frameIntervalId = 0;
 }
 
-function getRemoteSupportErrorMessage(error, fallback) {
-  return (error && error.message) || fallback;
-}
+async function handleTransportEvent(message, sender) {
+  if (!isRemoteSupportOffscreenSender(sender)) {
+    return { ok: false };
+  }
 
-function isCurrentSession(sessionId) {
-  return Boolean(sessionState.active) && sessionState.sessionId === sessionId;
-}
+  const event = message && message.event && typeof message.event === "object"
+    ? message.event
+    : null;
+  if (!event) {
+    return { ok: false };
+  }
 
-async function connectSignalingSocket({ wsUrl, role, supportCode }) {
-  return new Promise((resolve, reject) => {
-    try {
-      signalingSocket = new WebSocket(wsUrl);
-    } catch (error) {
-      reject(new Error("Unable to open signaling channel"));
-      return;
+  const eventSessionId = typeof event.sessionId === "string" ? event.sessionId : "";
+  if (eventSessionId && !isCurrentSession(eventSessionId)) {
+    return { ok: true };
+  }
+
+  if (event.type === "partner-ready") {
+    sessionState.partnerConnected = true;
+    updateActivity();
+    broadcastState();
+    return { ok: true };
+  }
+
+  if (event.type === "channel-open") {
+    sessionState.connected = true;
+    sessionState.partnerConnected = true;
+    sessionState.streaming = sessionState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
+    updateActivity();
+    broadcastState();
+    if (sessionState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+      startFrameStreaming();
     }
+    if (sessionState.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
+      sendDataMessage("control-include-payloads", {
+        enabled: Boolean(sessionState.includePayloads)
+      });
+    }
+    return { ok: true };
+  }
 
-    let resolved = false;
+  if (event.type === "channel-close") {
+    sessionState.connected = false;
+    sessionState.streaming = false;
+    broadcastState();
+    return { ok: true };
+  }
 
-    signalingSocket.onopen = async () => {
-      try {
-        signalingSocket.send(
-          serializeRemoteSupportMessage("register", {
-            sessionId: sessionState.sessionId,
-            supportCode,
-            role
-          })
-        );
+  if (event.type === "incoming-message") {
+    updateActivity();
+    handleIncomingDataMessage(event.message || null);
+    return { ok: true };
+  }
 
-        const offerer = role === REMOTE_SUPPORT_ROLE_SUPPORTER;
-        const pc = await ensurePeerConnection(offerer);
-        if (offerer) {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendSignal("offer", { description: pc.localDescription });
-        }
+  if (event.type === "transport-error") {
+    sessionState.error = typeof event.error === "string" ? event.error : "Remote support transport error";
+    broadcastState();
+    return { ok: true };
+  }
 
-        if (!resolved) {
-          resolved = true;
-          resolve();
-        }
-      } catch (error) {
-        if (!resolved) {
-          resolved = true;
-          reject(new Error(getRemoteSupportErrorMessage(error, "Unable to initialize remote support signaling")));
-        }
-        try {
-          signalingSocket.close();
-        } catch {
-          // Ignore close races during startup failure.
-        }
-      }
-    };
+  if (event.type === "session-ended") {
+    await terminateRemoteSupportSession(
+      typeof event.reason === "string" ? event.reason : "Connection ended"
+    );
+    return { ok: true };
+  }
 
-    signalingSocket.onmessage = async (event) => {
-      const message = parseRemoteSupportMessage(event && event.data);
-      if (!message) {
-        return;
-      }
-
-      if (message.type === "partner-ready") {
-        sessionState.partnerConnected = true;
-        updateActivity();
-        broadcastState();
-        return;
-      }
-
-      if (message.type !== "signal") {
-        return;
-      }
-
-      const payload = message.payload || {};
-      if (payload.sessionId !== sessionState.sessionId) {
-        return;
-      }
-
-      const pc = await ensurePeerConnection(role === REMOTE_SUPPORT_ROLE_SUPPORTER);
-      const signalType = payload.signalType;
-
-      if (signalType === "offer" && payload.description) {
-        await pc.setRemoteDescription(payload.description);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        sendSignal("answer", { description: pc.localDescription });
-        return;
-      }
-
-      if (signalType === "answer" && payload.description) {
-        await pc.setRemoteDescription(payload.description);
-        return;
-      }
-
-      if (signalType === "ice" && payload.candidate) {
-        try {
-          await pc.addIceCandidate(payload.candidate);
-        } catch {
-          // Ignore malformed or stale candidates.
-        }
-      }
-    };
-
-    signalingSocket.onerror = () => {
-      sessionState.error = "Signaling connection error";
-      broadcastState();
-    };
-
-    signalingSocket.onclose = () => {
-      if (!sessionState.active) {
-        return;
-      }
-      if (!resolved) {
-        reject(new Error("Signaling channel closed"));
-        return;
-      }
-      sessionState.connected = false;
-      sessionState.streaming = false;
-      broadcastState();
-    };
-  });
+  return { ok: true };
 }
 
 async function fetchSupportSessionInit({ endpointBaseUrl, token, path, body }) {
@@ -544,6 +466,7 @@ async function beginSession({
   includePayloads,
   wsUrl
 }) {
+  await stopRemoteSupportTransport("Session restarted");
   resetRuntimeResources();
 
   Object.assign(sessionState, {
@@ -563,34 +486,30 @@ async function beginSession({
   await setContentModeForSessionTab(true);
   startInactivityMonitor();
 
-  const currentSessionId = sessionId;
-  void connectSignalingSocket({
-    wsUrl,
-    role,
-    supportCode
-  })
-    .then(() => {
-      if (!isCurrentSession(currentSessionId)) {
-        return;
+  try {
+    await sendRemoteSupportOffscreenRequest({
+      type: "remoteSupportTransportStart",
+      session: {
+        sessionId,
+        supportCode,
+        role,
+        wsUrl
       }
-      if (mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-        startFrameStreaming();
-      }
-      broadcastState();
-    })
-    .catch((error) => {
-      if (!isCurrentSession(currentSessionId)) {
-        return;
-      }
-      terminateRemoteSupportSession(
-        getRemoteSupportErrorMessage(error, "Unable to start remote support session")
-      ).then();
     });
+  } catch (error) {
+    await terminateRemoteSupportSession(
+      getRemoteSupportErrorMessage(error, "Unable to start remote support session")
+    );
+    throw error;
+  }
+
+  broadcastState();
 }
 
 export async function terminateRemoteSupportSession(reason = "Session ended") {
   const hadActiveSession = Boolean(sessionState.active);
   stopFrameStreaming();
+  await stopRemoteSupportTransport(reason, true);
   resetRuntimeResources();
   const previousTabId = sessionState.tabId;
   Object.assign(sessionState, {
@@ -855,6 +774,19 @@ function handlePortConnection(port) {
   if (!port) {
     return;
   }
+  if (port.name === REMOTE_SUPPORT_PORT_TRANSPORT) {
+    offscreenKeepAlivePort = port;
+    port.onDisconnect.addListener(() => {
+      if (offscreenKeepAlivePort !== port) {
+        return;
+      }
+      offscreenKeepAlivePort = null;
+      if (!offscreenDisconnectExpected && sessionState.active) {
+        terminateRemoteSupportSession("Remote support transport disconnected").then();
+      }
+    });
+    return;
+  }
   if (port.name === REMOTE_SUPPORT_PORT_CONSOLE) {
     consolePorts.add(port);
   } else if (port.name === REMOTE_SUPPORT_PORT_NETWORK) {
@@ -906,6 +838,10 @@ export function initRemoteSupportBackground() {
 export async function handleRemoteSupportBackgroundMessage(message, sender) {
   if (!message || typeof message.type !== "string") {
     return null;
+  }
+
+  if (message.type === "remoteSupportTransportEvent") {
+    return handleTransportEvent(message, sender);
   }
 
   if (message.type === "getRemoteSupportState") {

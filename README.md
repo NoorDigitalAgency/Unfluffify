@@ -54,7 +54,12 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`silent-highlight-options.js`** - Silent highlight visual configuration
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
 - **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
-- **`remote-support-background.js`** - Background-side session orchestration: WebRTC signaling, frame streaming, telemetry routing, and remote command replay
+- **`remote-support-background.js`** - Background-side session orchestration: session state, frame streaming, telemetry routing, remote command replay, and offscreen transport coordination
+
+### Offscreen Transport
+
+- **`remote-support-offscreen.html`** - Hidden MV3 offscreen document used to host the WebRTC runtime
+- **`remote-support-offscreen.js`** - WebRTC signaling/data-channel transport running in the offscreen document because the service worker does not expose `RTCPeerConnection`
 
 ### Content Scripts (`/content`)
 
@@ -71,6 +76,8 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 - **`remote-support.test.js`** - Coverage for remote support utilities: constants, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
+- **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap and transport-event handling
+- **`remote-support-offscreen.test.js`** - Smoke coverage for the offscreen WebRTC transport document boot path
 
 ### Popup UI (`/popup`)
 

@@ -3,39 +3,89 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  initRemoteSupportBackground,
   handleRemoteSupportBackgroundMessage,
   terminateRemoteSupportSession
 } from "../common/remote-support-background.js";
 
-test("remoteSupportRequestCode resolves before signaling socket opens", async () => {
+function createChromeMock() {
+  const runtimeConnectListeners = [];
+  const runtimeEvents = [];
+  const transportMessages = [];
+  let offscreenDocumentOpen = false;
+  let keepAlivePort = null;
+
+  const chromeMock = {
+    runtime: {
+      lastError: null,
+      getURL(path) {
+        return `chrome-extension://test-id/${path}`;
+      },
+      async getContexts() {
+        return offscreenDocumentOpen
+          ? [{ contextType: "OFFSCREEN_DOCUMENT", documentUrl: chromeMock.runtime.getURL("remote-support-offscreen.html") }]
+          : [];
+      },
+      sendMessage(message) {
+        if (message && message.target === "remoteSupportOffscreen") {
+          transportMessages.push(message);
+          return Promise.resolve({ ok: true });
+        }
+        runtimeEvents.push(message);
+        return Promise.resolve({ ok: true });
+      },
+      onConnect: {
+        addListener(listener) {
+          runtimeConnectListeners.push(listener);
+        }
+      }
+    },
+    offscreen: {
+      async createDocument() {
+        offscreenDocumentOpen = true;
+        keepAlivePort = {
+          name: "unfluffify-remote-support-transport",
+          onDisconnect: {
+            addListener(listener) {
+              keepAlivePort._disconnectListener = listener;
+            }
+          }
+        };
+        runtimeConnectListeners.forEach((listener) => listener(keepAlivePort));
+      },
+      async closeDocument() {
+        offscreenDocumentOpen = false;
+        if (keepAlivePort && typeof keepAlivePort._disconnectListener === "function") {
+          keepAlivePort._disconnectListener();
+        }
+      }
+    },
+    tabs: {
+      sendMessage() {
+        return Promise.resolve();
+      }
+    },
+    webRequest: {
+      onBeforeRequest: { addListener() {} },
+      onCompleted: { addListener() {} },
+      onErrorOccurred: { addListener() {} }
+    }
+  };
+
+  return {
+    chromeMock,
+    runtimeEvents,
+    transportMessages
+  };
+}
+
+test("remoteSupportRequestCode resolves through the offscreen transport bootstrap", async () => {
   const originalFetch = globalThis.fetch;
-  const originalWebSocket = globalThis.WebSocket;
   const originalChrome = globalThis.chrome;
 
   const timeoutMarker = Symbol("timeout");
 
-  class PendingWebSocket {
-    static OPEN = 1;
-    static CONNECTING = 0;
-
-    constructor(url) {
-      this.url = url;
-      this.readyState = PendingWebSocket.CONNECTING;
-      this.onopen = null;
-      this.onmessage = null;
-      this.onerror = null;
-      this.onclose = null;
-    }
-
-    send() {}
-
-    close() {
-      this.readyState = 3;
-      if (typeof this.onclose === "function") {
-        this.onclose();
-      }
-    }
-  }
+  const { chromeMock, transportMessages } = createChromeMock();
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -49,20 +99,8 @@ test("remoteSupportRequestCode resolves before signaling socket opens", async ()
     }
   });
 
-  globalThis.WebSocket = PendingWebSocket;
-  globalThis.chrome = {
-    runtime: {
-      lastError: null,
-      sendMessage() {
-        return Promise.resolve();
-      }
-    },
-    tabs: {
-      sendMessage() {
-        return Promise.resolve();
-      }
-    }
-  };
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
 
   try {
     const response = await Promise.race([
@@ -84,49 +122,21 @@ test("remoteSupportRequestCode resolves before signaling socket opens", async ()
     assert.equal(response.state.active, true);
     assert.equal(response.state.supportCode, "123456");
     assert.equal(response.state.connected, false);
+    assert.equal(transportMessages.length, 1);
+    assert.equal(transportMessages[0].type, "remoteSupportTransportStart");
+    assert.equal(transportMessages[0].session.supportCode, "123456");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
-    globalThis.WebSocket = originalWebSocket;
     globalThis.chrome = originalChrome;
   }
 });
 
-test("remote support startup failure is surfaced through session state instead of hanging", async () => {
+test("remote support transport events drive session teardown without hanging the popup request", async () => {
   const originalFetch = globalThis.fetch;
-  const originalWebSocket = globalThis.WebSocket;
   const originalChrome = globalThis.chrome;
-  const originalPeerConnection = globalThis.RTCPeerConnection;
 
-  class OpeningWebSocket {
-    static OPEN = 1;
-    static CONNECTING = 0;
-
-    constructor(url) {
-      this.url = url;
-      this.readyState = OpeningWebSocket.CONNECTING;
-      this.onopen = null;
-      this.onmessage = null;
-      this.onerror = null;
-      this.onclose = null;
-
-      queueMicrotask(() => {
-        this.readyState = OpeningWebSocket.OPEN;
-        if (typeof this.onopen === "function") {
-          this.onopen();
-        }
-      });
-    }
-
-    send() {}
-
-    close() {
-      this.readyState = 3;
-      if (typeof this.onclose === "function") {
-        this.onclose();
-      }
-    }
-  }
+  const { chromeMock, runtimeEvents } = createChromeMock();
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -140,21 +150,8 @@ test("remote support startup failure is surfaced through session state instead o
     }
   });
 
-  globalThis.WebSocket = OpeningWebSocket;
-  globalThis.RTCPeerConnection = undefined;
-  globalThis.chrome = {
-    runtime: {
-      lastError: null,
-      sendMessage() {
-        return Promise.resolve();
-      }
-    },
-    tabs: {
-      sendMessage() {
-        return Promise.resolve();
-      }
-    }
-  };
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
 
   try {
     const response = await handleRemoteSupportBackgroundMessage(
@@ -169,7 +166,23 @@ test("remote support startup failure is surfaced through session state instead o
     );
 
     assert.equal(response.ok, true);
-    await delay(0);
+    assert.equal(runtimeEvents.length > 0, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "session-ended",
+          sessionId: "sess_failure",
+          reason: "Connection ended"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
     await delay(0);
 
     const stateResponse = await handleRemoteSupportBackgroundMessage(
@@ -179,12 +192,10 @@ test("remote support startup failure is surfaced through session state instead o
 
     assert.equal(stateResponse.ok, true);
     assert.equal(stateResponse.state.active, false);
-    assert.match(stateResponse.state.error, /WebRTC peer connection/i);
+    assert.match(stateResponse.state.error, /Connection ended/i);
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
-    globalThis.WebSocket = originalWebSocket;
     globalThis.chrome = originalChrome;
-    globalThis.RTCPeerConnection = originalPeerConnection;
   }
 });
