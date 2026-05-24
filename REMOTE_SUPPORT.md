@@ -104,13 +104,28 @@ Response body (expected):
   "sessionId": "sess_...",
   "supportCode": "123456",
   "expiresAt": "2026-05-24T08:10:00.000Z",
-  "webrtcWsUrl": "wss://api.example.com/webrtc?token=..."
+  "webrtcWsUrl": "wss://api.example.com/webrtc?token=...",
+  "iceServers": [
+    {
+      "urls": [
+        "turn:turn.example.com:3478?transport=udp",
+        "turn:turn.example.com:3478?transport=tcp"
+      ],
+      "username": "support-user",
+      "credential": "support-secret"
+    },
+    {
+      "urls": ["stun:stun.cloudflare.com:3478"]
+    }
+  ]
 }
 ```
 
 Notes:
 - `supportCode` should be valid for initiation for ~10 minutes.
 - If `webrtcWsUrl` is omitted, extension falls back to `<config-endpoint>/webrtc?token=...`.
+- `iceServers` is optional but should be returned when possible. The extension treats server-provided entries as preferred and automatically appends built-in public STUN fallbacks.
+- For cross-network support, the backend should publish at least one TURN server in `iceServers`; STUN-only fallbacks help with ordinary NAT traversal but are not enough for the hardest network combinations.
 
 ### POST `/support`
 
@@ -133,7 +148,20 @@ Response body (expected):
   "sessionId": "sess_...",
   "supportCode": "123456",
   "expiresAt": "2026-05-24T08:10:00.000Z",
-  "webrtcWsUrl": "wss://api.example.com/webrtc?token=..."
+  "webrtcWsUrl": "wss://api.example.com/webrtc?token=...",
+  "iceServers": [
+    {
+      "urls": [
+        "turn:turn.example.com:3478?transport=udp",
+        "turn:turn.example.com:3478?transport=tcp"
+      ],
+      "username": "support-user",
+      "credential": "support-secret"
+    },
+    {
+      "urls": ["stun:stun.cloudflare.com:3478"]
+    }
+  ]
 }
 ```
 

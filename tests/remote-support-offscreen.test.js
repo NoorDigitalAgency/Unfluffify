@@ -14,6 +14,7 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   const connectedPortNames = [];
   const backgroundEvents = [];
   const dataChannels = [];
+  const peerConnectionConfigs = [];
 
   class FakeDataChannel {
     constructor() {
@@ -45,7 +46,8 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   }
 
   class FakeRTCPeerConnection {
-    constructor() {
+    constructor(configuration) {
+      peerConnectionConfigs.push(configuration);
       this.connectionState = "new";
       this.localDescription = null;
       this.remoteDescription = null;
@@ -161,7 +163,17 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
           sessionId: "sess_one",
           supportCode: "111111",
           role: "supporter",
-          wsUrl: "wss://api.example.com/webrtc?token=one"
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [
+            {
+              urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+              username: "support-user",
+              credential: "support-secret"
+            },
+            {
+              urls: ["stun:stun.cloudflare.com:3478"]
+            }
+          ]
         }
       },
       {},
@@ -195,6 +207,29 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
     assert.deepEqual(startResponseOne, { ok: true });
     assert.deepEqual(startResponseTwo, { ok: true });
     assert.equal(dataChannels.length, 2);
+    assert.deepEqual(peerConnectionConfigs[0], {
+      iceServers: [
+        {
+          urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+          username: "support-user",
+          credential: "support-secret"
+        },
+        { urls: ["stun:stun.cloudflare.com:3478"] },
+        { urls: ["stun:stun.l.google.com:19302"] },
+        { urls: ["stun:stun1.l.google.com:19302"] },
+        { urls: ["stun:global.stun.twilio.com:3478"] }
+      ],
+      iceCandidatePoolSize: 4
+    });
+    assert.deepEqual(peerConnectionConfigs[1], {
+      iceServers: [
+        { urls: ["stun:stun.cloudflare.com:3478"] },
+        { urls: ["stun:stun.l.google.com:19302"] },
+        { urls: ["stun:stun1.l.google.com:19302"] },
+        { urls: ["stun:global.stun.twilio.com:3478"] }
+      ],
+      iceCandidatePoolSize: 4
+    });
 
     let sendResponseOne;
     let sendResponseTwo;

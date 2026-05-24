@@ -941,7 +941,8 @@ export async function handleRequestSupportCode(message) {
         sessionId,
         supportCode,
         role: "requester",
-        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken)
+        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
+        iceServers: payload.iceServers
       }
     });
   } catch (error) {
@@ -1046,7 +1047,8 @@ export async function handleJoinSupportSession(message) {
         sessionId,
         supportCode,
         role: "supporter",
-        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken)
+        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
+        iceServers: payload.iceServers
       }
     });
   } catch (error) {

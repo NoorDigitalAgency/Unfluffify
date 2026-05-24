@@ -1,6 +1,12 @@
 import { REMOTE_SUPPORT_PORT_TRANSPORT } from "./common/remote-support.js";
 
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
+const DEFAULT_REMOTE_SUPPORT_ICE_SERVERS = [
+  { urls: ["stun:stun.cloudflare.com:3478"] },
+  { urls: ["stun:stun.l.google.com:19302"] },
+  { urls: ["stun:stun1.l.google.com:19302"] },
+  { urls: ["stun:global.stun.twilio.com:3478"] }
+];
 
 const transportSessions = new Map();
 
@@ -35,12 +41,105 @@ function getTransportRuntime(sessionId) {
   return transportSessions.get(sessionId.trim()) || null;
 }
 
+function cloneIceServer(entry) {
+  return {
+    ...entry,
+    urls: [...entry.urls]
+  };
+}
+
+function createIceServerKey(entry) {
+  return `${entry.urls.join("\u001f")}\u001e${entry.username || ""}\u001e${entry.credential || ""}`;
+}
+
+function normalizeIceServerEntries(iceServers) {
+  const normalized = [];
+  const seenKeys = new Set();
+
+  for (const candidate of Array.isArray(iceServers) ? iceServers : []) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (typeof candidate === "string") {
+      const trimmedValue = candidate.trim();
+      if (trimmedValue) {
+        normalized.push({ urls: [trimmedValue] });
+      }
+      continue;
+    }
+
+    if (typeof candidate !== "object") {
+      continue;
+    }
+
+    const rawUrls = Array.isArray(candidate.urls)
+      ? candidate.urls
+      : [candidate.urls];
+    const urls = rawUrls
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (!urls.length) {
+      continue;
+    }
+
+    const normalizedEntry = { urls };
+
+    if (isNonEmptyString(candidate.username)) {
+      normalizedEntry.username = candidate.username.trim();
+    }
+
+    if (isNonEmptyString(candidate.credential)) {
+      normalizedEntry.credential = candidate.credential.trim();
+    }
+
+    const entryKey = createIceServerKey(normalizedEntry);
+    if (seenKeys.has(entryKey)) {
+      continue;
+    }
+
+    seenKeys.add(entryKey);
+    normalized.push(normalizedEntry);
+  }
+
+  return normalized;
+}
+
+function normalizeIceServers(iceServers) {
+  const normalized = [
+    ...normalizeIceServerEntries(iceServers),
+    ...normalizeIceServerEntries(DEFAULT_REMOTE_SUPPORT_ICE_SERVERS)
+  ];
+
+  if (!normalized.length) {
+    return DEFAULT_REMOTE_SUPPORT_ICE_SERVERS.map(cloneIceServer);
+  }
+
+  const merged = [];
+  const seenKeys = new Set();
+
+  for (const candidate of normalized) {
+    const entryKey = createIceServerKey(candidate);
+    if (seenKeys.has(entryKey)) {
+      continue;
+    }
+
+    seenKeys.add(entryKey);
+    merged.push(cloneIceServer(candidate));
+  }
+
+  return merged;
+}
+
 function createTransportRuntime(session) {
   return {
     sessionId: session.sessionId.trim(),
     supportCode: session.supportCode.trim(),
     role: session.role,
     wsUrl: session.wsUrl.trim(),
+    iceServers: normalizeIceServers(session.iceServers),
     signalingSocket: null,
     peerConnection: null,
     dataChannel: null,
@@ -237,7 +336,10 @@ async function ensurePeerConnection(runtime, offerer) {
     throw new Error("WebRTC is unavailable in the offscreen document");
   }
 
-  const peerConnection = new RTCPeerConnection();
+  const peerConnection = new RTCPeerConnection({
+    iceServers: runtime.iceServers,
+    iceCandidatePoolSize: 4
+  });
   runtime.peerConnection = peerConnection;
 
   peerConnection.onicecandidate = (event) => {

@@ -121,7 +121,14 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
         sessionId: "sess_pending",
         supportCode: "123456",
         expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [
+          {
+            urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+            username: "support-user",
+            credential: "support-secret"
+          }
+        ]
       };
     }
   });
@@ -152,6 +159,13 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
     assert.equal(transportMessages.length, 1);
     assert.equal(transportMessages[0].type, "remoteSupportTransportStart");
     assert.equal(transportMessages[0].session.supportCode, "123456");
+    assert.deepEqual(transportMessages[0].session.iceServers, [
+      {
+        urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+        username: "support-user",
+        credential: "support-secret"
+      }
+    ]);
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
@@ -281,13 +295,27 @@ test("remote support keeps concurrent sessions isolated by tab", async () => {
       sessionId: "sess_requester",
       supportCode: "111111",
       expiresAt: "2026-05-24T08:10:00.000Z",
-      webrtcWsUrl: "wss://api.example.com/webrtc?token=requester"
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=requester",
+      iceServers: [
+        {
+          urls: ["turn:requester.example.com:3478?transport=udp"],
+          username: "requester-user",
+          credential: "requester-secret"
+        }
+      ]
     },
     {
       sessionId: "sess_supporter",
       supportCode: "222222",
       expiresAt: "2026-05-24T08:11:00.000Z",
-      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter"
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter",
+      iceServers: [
+        {
+          urls: ["turn:supporter.example.com:3478?transport=tcp"],
+          username: "supporter-user",
+          credential: "supporter-secret"
+        }
+      ]
     }
   ];
 
@@ -327,6 +355,20 @@ test("remote support keeps concurrent sessions isolated by tab", async () => {
     assert.equal(requesterResponse.ok, true);
     assert.equal(supporterResponse.ok, true);
     assert.equal(transportMessages.filter((message) => message.type === "remoteSupportTransportStart").length, 2);
+    assert.deepEqual(transportMessages[0].session.iceServers, [
+      {
+        urls: ["turn:requester.example.com:3478?transport=udp"],
+        username: "requester-user",
+        credential: "requester-secret"
+      }
+    ]);
+    assert.deepEqual(transportMessages[1].session.iceServers, [
+      {
+        urls: ["turn:supporter.example.com:3478?transport=tcp"],
+        username: "supporter-user",
+        credential: "supporter-secret"
+      }
+    ]);
 
     const requesterState = await handleRemoteSupportBackgroundMessage(
       { type: "getRemoteSupportState", tabId: 21 },
