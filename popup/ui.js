@@ -974,7 +974,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
             onClick: handlers.onUnregisterCurrentTab
           }
         )
