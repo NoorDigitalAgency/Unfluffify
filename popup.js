@@ -3729,10 +3729,10 @@ function handleRemoteSupportSurfaceKeyDown(event) {
   if (!event || !event.key) {
     return;
   }
+  event.preventDefault();
   if (uiModule.getViewState().remoteSupportControlDisabled) {
     return;
   }
-  event.preventDefault();
   sendRemoteSupportCommand({
     type: "key",
     key: String(event.key),

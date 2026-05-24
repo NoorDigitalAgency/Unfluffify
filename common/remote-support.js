@@ -86,7 +86,8 @@ export function clampPayloadSize(value, maxBytes = REMOTE_SUPPORT_PAYLOAD_MAX_BY
   if (typeof value !== "string" || !value) {
     return "";
   }
-  if (new TextEncoder().encode(value).length <= maxBytes) {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).length <= maxBytes) {
     return value;
   }
   // Binary-search for the largest prefix whose UTF-8 byte length fits maxBytes.
@@ -94,7 +95,7 @@ export function clampPayloadSize(value, maxBytes = REMOTE_SUPPORT_PAYLOAD_MAX_BY
   let hi = value.length;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    if (new TextEncoder().encode(value.slice(0, mid)).length <= maxBytes) {
+    if (encoder.encode(value.slice(0, mid)).length <= maxBytes) {
       lo = mid;
     } else {
       hi = mid - 1;
