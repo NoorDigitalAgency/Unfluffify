@@ -1,12 +1,6 @@
 import { REMOTE_SUPPORT_PORT_TRANSPORT } from "./common/remote-support.js";
 
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
-const DEFAULT_REMOTE_SUPPORT_ICE_SERVERS = [
-  { urls: ["stun:stun.cloudflare.com:3478"] },
-  { urls: ["stun:stun.l.google.com:19302"] },
-  { urls: ["stun:stun1.l.google.com:19302"] },
-  { urls: ["stun:global.stun.twilio.com:3478"] }
-];
 
 const transportSessions = new Map();
 
@@ -39,13 +33,6 @@ function getTransportRuntime(sessionId) {
   }
 
   return transportSessions.get(sessionId.trim()) || null;
-}
-
-function cloneIceServer(entry) {
-  return {
-    ...entry,
-    urls: [...entry.urls]
-  };
 }
 
 function createIceServerKey(entry) {
@@ -108,29 +95,7 @@ function normalizeIceServerEntries(iceServers) {
 }
 
 function normalizeIceServers(iceServers) {
-  const normalized = [
-    ...normalizeIceServerEntries(iceServers),
-    ...normalizeIceServerEntries(DEFAULT_REMOTE_SUPPORT_ICE_SERVERS)
-  ];
-
-  if (!normalized.length) {
-    return DEFAULT_REMOTE_SUPPORT_ICE_SERVERS.map(cloneIceServer);
-  }
-
-  const merged = [];
-  const seenKeys = new Set();
-
-  for (const candidate of normalized) {
-    const entryKey = createIceServerKey(candidate);
-    if (seenKeys.has(entryKey)) {
-      continue;
-    }
-
-    seenKeys.add(entryKey);
-    merged.push(cloneIceServer(candidate));
-  }
-
-  return merged;
+  return normalizeIceServerEntries(iceServers);
 }
 
 function createTransportRuntime(session) {
