@@ -702,11 +702,36 @@ function handleTelemetryFromContent(message, sender) {
     return { ok: true };
   }
   const channel = message.channel === "network" ? "network" : "console";
-  const entry = message.entry && typeof message.entry === "object" ? message.entry : {};
-  sendDataMessage("telemetry", {
-    channel,
-    entry
-  });
+  const rawEntry = message.entry && typeof message.entry === "object" ? message.entry : {};
+
+  // Strip payload when the user has disabled AJAX payload collection.
+  let entry;
+  if (!sessionState.includePayloads || !rawEntry.payload) {
+    entry = { ...rawEntry, payload: null };
+  } else {
+    // Enforce per-entry size budget on payload fields.
+    const requestStr = clampPayloadSize(
+      typeof rawEntry.payload.request === "string" ? rawEntry.payload.request : "",
+      REMOTE_SUPPORT_PAYLOAD_MAX_BYTES
+    );
+    const responseStr = clampPayloadSize(
+      typeof rawEntry.payload.response === "string" ? rawEntry.payload.response : "",
+      REMOTE_SUPPORT_PAYLOAD_MAX_BYTES
+    );
+    const entryPayloadBytes = new TextEncoder().encode(requestStr + responseStr).length;
+    const nextBudget = payloadBudgetBytes + entryPayloadBytes;
+    if (nextBudget <= REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
+      payloadBudgetBytes = nextBudget;
+      entry = {
+        ...rawEntry,
+        payload: requestStr || responseStr ? { request: requestStr, response: responseStr } : null
+      };
+    } else {
+      entry = { ...rawEntry, payload: null };
+    }
+  }
+
+  sendDataMessage("telemetry", { channel, entry });
   return { ok: true };
 }
 

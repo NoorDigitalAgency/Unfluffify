@@ -3688,6 +3688,9 @@ async function sendRemoteSupportCommand(command) {
 }
 
 function handleRemoteSupportSurfaceMouseMove(event) {
+  if (uiModule.getViewState().remoteSupportControlDisabled) {
+    return;
+  }
   const pointer = createRemotePointerPayload(event);
   if (!pointer) {
     return;
@@ -3696,6 +3699,9 @@ function handleRemoteSupportSurfaceMouseMove(event) {
 }
 
 function handleRemoteSupportSurfaceClick(event) {
+  if (uiModule.getViewState().remoteSupportControlDisabled) {
+    return;
+  }
   const pointer = createRemotePointerPayload(event);
   if (!pointer) {
     return;
@@ -3709,6 +3715,9 @@ function handleRemoteSupportSurfaceClick(event) {
 
 function handleRemoteSupportSurfaceWheel(event) {
   event.preventDefault();
+  if (uiModule.getViewState().remoteSupportControlDisabled) {
+    return;
+  }
   sendRemoteSupportCommand({
     type: "scroll",
     deltaX: Number(event.deltaX) || 0,
@@ -3720,6 +3729,10 @@ function handleRemoteSupportSurfaceKeyDown(event) {
   if (!event || !event.key) {
     return;
   }
+  if (uiModule.getViewState().remoteSupportControlDisabled) {
+    return;
+  }
+  event.preventDefault();
   sendRemoteSupportCommand({
     type: "key",
     key: String(event.key),

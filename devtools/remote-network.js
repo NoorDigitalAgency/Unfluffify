@@ -18,7 +18,7 @@ function downloadPayload(entry) {
   anchor.href = url;
   anchor.download = `remote-payload-${Date.now()}.json`;
   anchor.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function appendEntry(entry) {
@@ -74,7 +74,18 @@ function appendEntry(entry) {
 }
 
 port.onMessage.addListener((message) => {
-  if (!message || message.type !== "remoteSupportNetworkEntry") {
+  if (!message) {
+    return;
+  }
+  if (message.type === "remoteSupportStateChanged") {
+    const s = message.state;
+    if (s && includePayloads) {
+      includePayloads.checked = Boolean(s.includePayloads);
+      includePayloads.disabled = !(s.active && s.mode === "supporting");
+    }
+    return;
+  }
+  if (message.type !== "remoteSupportNetworkEntry") {
     return;
   }
   appendEntry(message.entry || {});
