@@ -15,11 +15,12 @@ function createChromeMock() {
   let offscreenDocumentOpen = false;
   let keepAlivePort = null;
 
-  function createPort(name) {
+  function createPort(name, senderTabId = null) {
     const messageListeners = [];
     const disconnectListeners = [];
     return {
       name,
+      sender: senderTabId === null ? null : { tab: { id: senderTabId } },
       postedMessages: [],
       onMessage: {
         addListener(listener) {
@@ -95,8 +96,8 @@ function createChromeMock() {
 
   return {
     chromeMock,
-    connectPort(name) {
-      const port = createPort(name);
+    connectPort(name, senderTabId = null) {
+      const port = createPort(name, senderTabId);
       runtimeConnectListeners.forEach((listener) => listener(port));
       return port;
     },
@@ -212,7 +213,7 @@ test("remote support transport events drive session teardown without hanging the
     await delay(0);
 
     const stateResponse = await handleRemoteSupportBackgroundMessage(
-      { type: "getRemoteSupportState" },
+      { type: "getRemoteSupportState", tabId: 9 },
       {}
     );
 
@@ -227,21 +228,128 @@ test("remote support transport events drive session teardown without hanging the
   }
 });
 
-test("network devtools panel is the only include-payloads writer for supporting sessions", async () => {
+test("remote support keeps concurrent sessions isolated by tab", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+  const responses = [
+    {
+      sessionId: "sess_requester",
+      supportCode: "111111",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=requester"
+    },
+    {
+      sessionId: "sess_supporter",
+      supportCode: "222222",
+      expiresAt: "2026-05-24T08:11:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter"
+    }
+  ];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return responses.shift();
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requesterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 21,
+        pageUrl: "https://example.com/a"
+      },
+      { tab: { id: 21 } }
+    );
+
+    const supporterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 22,
+        supportCode: "222222"
+      },
+      { tab: { id: 22 } }
+    );
+
+    assert.equal(requesterResponse.ok, true);
+    assert.equal(supporterResponse.ok, true);
+    assert.equal(transportMessages.filter((message) => message.type === "remoteSupportTransportStart").length, 2);
+
+    const requesterState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 21 },
+      {}
+    );
+    const supporterState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 22 },
+      {}
+    );
+
+    assert.equal(requesterState.state.sessionId, "sess_requester");
+    assert.equal(requesterState.state.mode, "being_supported");
+    assert.equal(supporterState.state.sessionId, "sess_supporter");
+    assert.equal(supporterState.state.mode, "supporting");
+
+    await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportEnd", tabId: 21 },
+      {}
+    );
+
+    const endedRequesterState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 21 },
+      {}
+    );
+    const stillActiveSupporterState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 22 },
+      {}
+    );
+
+    assert.equal(endedRequesterState.state.active, false);
+    assert.equal(endedRequesterState.state.tabId, 21);
+    assert.equal(stillActiveSupporterState.state.active, true);
+    assert.equal(stillActiveSupporterState.state.sessionId, "sess_supporter");
+    assert.equal(transportMessages.some((message) => message.type === "remoteSupportTransportStop" && message.sessionId === "sess_requester"), true);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("network devtools panel is the only include-payloads writer for its attached supporting session", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
 
   const { chromeMock, connectPort, transportMessages } = createChromeMock();
 
+  const responses = [
+    {
+      sessionId: "sess_supporter_a",
+      supportCode: "222333",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=a"
+    },
+    {
+      sessionId: "sess_supporter_b",
+      supportCode: "333444",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=b"
+    }
+  ];
+
   globalThis.fetch = async () => ({
     ok: true,
     async json() {
-      return {
-        sessionId: "sess_supporter",
-        supportCode: "222333",
-        expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
-      };
+      return responses.shift();
     }
   });
 
@@ -264,28 +372,53 @@ test("network devtools panel is the only include-payloads writer for supporting 
     assert.equal(joinResponse.ok, true);
     assert.equal(joinResponse.state.includePayloads, false);
 
+    const secondJoinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 13,
+        supportCode: "333444"
+      },
+      { tab: { id: 13 } }
+    );
+
+    assert.equal(secondJoinResponse.ok, true);
+
     const consolePort = connectPort("unfluffify-remote-support-console");
+    consolePort.emitMessage({ type: "remoteSupportAttach", tabId: 12 });
     consolePort.emitMessage({ type: "setIncludePayloads", enabled: true });
 
     let stateResponse = await handleRemoteSupportBackgroundMessage(
-      { type: "getRemoteSupportState" },
+      { type: "getRemoteSupportState", tabId: 12 },
       {}
     );
     assert.equal(stateResponse.state.includePayloads, false);
 
     const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 12 });
     assert.equal(networkPort.postedMessages[0].type, "remoteSupportStateChanged");
     assert.equal(networkPort.postedMessages[0].state.includePayloads, false);
 
+    const secondNetworkPort = connectPort("unfluffify-remote-support-network");
+    secondNetworkPort.emitMessage({ type: "remoteSupportAttach", tabId: 13 });
+
     networkPort.emitMessage({ type: "setIncludePayloads", enabled: true });
+    await delay(0);
 
     stateResponse = await handleRemoteSupportBackgroundMessage(
-      { type: "getRemoteSupportState" },
+      { type: "getRemoteSupportState", tabId: 12 },
+      {}
+    );
+    const secondStateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 13 },
       {}
     );
     assert.equal(stateResponse.state.includePayloads, true);
+    assert.equal(secondStateResponse.state.includePayloads, false);
     assert.equal(transportMessages.at(-1).type, "remoteSupportTransportSendData");
     assert.equal(transportMessages.at(-1).messageType, "control-include-payloads");
+    assert.equal(transportMessages.at(-1).sessionId, "sess_supporter_a");
     assert.deepEqual(transportMessages.at(-1).payload, { enabled: true });
   } finally {
     await terminateRemoteSupportSession("Test cleanup");

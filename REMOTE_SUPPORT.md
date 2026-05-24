@@ -6,6 +6,7 @@ This document defines the extension-side remote support implementation and the e
 
 - Remote support uses a WebRTC `RTCPeerConnection` + `DataChannel`.
 - In MV3, the WebRTC transport runs inside an offscreen document rather than the background service worker, because the service worker does not expose `RTCPeerConnection`.
+- The background and offscreen runtimes both keep a session map, so one extension profile can host multiple concurrent support sessions as long as each session is isolated to its own browser tab.
 - Two fixed roles:
   - **Requester** → becomes **being_supported**.
   - **Supporter** (joins with support code) → becomes **supporting**.
@@ -14,9 +15,11 @@ This document defines the extension-side remote support implementation and the e
   - `inactive`
   - `being_supported`
   - `supporting`
+- Popup state queries, end-session actions, and remote commands are scoped to the current tab.
+- DevTools console/network panels attach to the inspected tab and only receive state and telemetry for that tab's active support session.
 - Session ends when either side terminates, the tab closes, or inactivity timeout is reached.
 - Inactivity timeout: **7 minutes** without remote activity.
-- Active tab only.
+- One active session per tab.
 - Being-supported mode blocks local extension-owned interactions on page UI.
 - Supporting mode disables regular popup controls and uses remote control surface.
 
@@ -27,6 +30,7 @@ This document defines the extension-side remote support implementation and the e
 - Being-supported side captures visible tab frames (`chrome.tabs.captureVisibleTab`) every ~250ms.
 - Frames are sent over WebRTC data channel (`type: frame`).
 - Supporting side renders the latest frame in popup control surface.
+- Each requester tab only captures and emits frames for its own session.
 
 ### 2) Remote commands
 
@@ -49,11 +53,13 @@ Two extension DevTools panels are added:
 
 1. **Unfluffify Console**
    - Shows streamed console events with level + timestamp.
+  - The panel attaches to the inspected tab and only shows entries for that tab's active supporting session.
 
 2. **Unfluffify Network**
    - Shows url, status code, method, type, timestamps, load time.
    - Includes **Include AJAX payloads** toggle.
    - Per-row payload download button (icon-only) when payload exists.
+  - The payload toggle only controls the supporting session attached to that DevTools instance.
 
 ## Payload policy
 

@@ -16,6 +16,7 @@ Remote support design, security guarantees, and backend endpoint expectations ar
 - **Data Persistence**: Save and sync markings across page navigation
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
 - **Remote Support**: WebRTC-based session allowing a supporter to open the dedicated support page, enter a support code, view a live tab preview, stream console/network telemetry, and send remote control inputs
+- **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
 
 ## Installation (Developer Mode)
 
@@ -34,6 +35,7 @@ npm test
 
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
+The remote-support regressions also cover tab-scoped background state and concurrent offscreen transport sessions.
 
 ## Project Structure
 
@@ -54,12 +56,12 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`silent-highlight-options.js`** - Silent highlight visual configuration
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
 - **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
-- **`remote-support-background.js`** - Background-side session orchestration: session state, frame streaming, telemetry routing, remote command replay, and offscreen transport coordination
+- **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, remote command replay, DevTools attachment, and offscreen transport coordination
 
 ### Offscreen Transport
 
 - **`remote-support-offscreen.html`** - Hidden MV3 offscreen document used to host the WebRTC runtime
-- **`remote-support-offscreen.js`** - WebRTC signaling/data-channel transport running in the offscreen document because the service worker does not expose `RTCPeerConnection`
+- **`remote-support-offscreen.js`** - Multiplexed WebRTC signaling/data-channel transport running in the offscreen document because the service worker does not expose `RTCPeerConnection`
 
 ### Content Scripts (`/content`)
 
@@ -76,8 +78,8 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 - **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
-- **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap and transport-event handling
-- **`remote-support-offscreen.test.js`** - Smoke coverage for the offscreen WebRTC transport document boot path
+- **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap, tab-scoped session isolation, DevTools routing, and transport-event handling
+- **`remote-support-offscreen.test.js`** - Coverage for concurrent session handling in the offscreen WebRTC transport document
 
 ### Popup UI (`/popup`)
 

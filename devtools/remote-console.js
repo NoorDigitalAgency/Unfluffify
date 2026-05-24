@@ -6,6 +6,16 @@ const clearButton = document.getElementById("clear");
 const port = chrome.runtime.connect({
   name: REMOTE_SUPPORT_PORT_CONSOLE
 });
+const inspectedTabId = chrome.devtools && chrome.devtools.inspectedWindow
+  ? chrome.devtools.inspectedWindow.tabId
+  : null;
+
+if (Number.isFinite(inspectedTabId)) {
+  port.postMessage({
+    type: "remoteSupportAttach",
+    tabId: inspectedTabId
+  });
+}
 
 function appendEntry(entry) {
   if (!list) {

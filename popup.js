@@ -3568,8 +3568,11 @@ function buildRemoteSupportStatusText(stateValue) {
   return `${mode}${connectedLabel}`;
 }
 
-async function fetchRemoteSupportState() {
-  const response = await messages.sendRuntimeMessage({ type: "getRemoteSupportState" });
+async function fetchRemoteSupportState(tabId = state.currentTab && state.currentTab.id) {
+  const response = await messages.sendRuntimeMessage({
+    type: "getRemoteSupportState",
+    tabId: Number.isFinite(tabId) ? tabId : undefined
+  });
   if (!response || !response.ok) {
     return null;
   }
@@ -3658,7 +3661,10 @@ async function handleRemoteSupportJoin() {
 }
 
 async function handleRemoteSupportEnd() {
-  await messages.sendRuntimeMessage({ type: "remoteSupportEnd" });
+  await messages.sendRuntimeMessage({
+    type: "remoteSupportEnd",
+    tabId: state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : undefined
+  });
   state.remoteSupportState = await fetchRemoteSupportState();
   state.remoteSupportLastFrame = "";
   syncRemoteSupportViewState(state.remoteSupportState);
@@ -3684,7 +3690,8 @@ async function sendRemoteSupportCommand(command) {
   }
   await messages.sendRuntimeMessage({
     type: "remoteSupportSendCommand",
-    command
+    command,
+    tabId: state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : undefined
   });
 }
 
@@ -5421,14 +5428,27 @@ async function init() {
       return;
     }
     if (message && message.type === "remoteSupportStateChanged") {
+      const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+        ? state.currentTab.id
+        : null;
+      if (currentTabId !== null && Number.isFinite(message.tabId) && Number(message.tabId) !== currentTabId) {
+        return;
+      }
       state.remoteSupportState = message.state || null;
       syncRemoteSupportViewState(state.remoteSupportState);
       scheduleRefresh();
       return;
     }
     if (message && message.type === "remoteSupportFrame") {
-      const frame = message.frame || null;
-      const image = frame && typeof frame.dataUrl === "string" ? frame.dataUrl : "";
+      const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+        ? state.currentTab.id
+        : null;
+      if (currentTabId !== null && Number.isFinite(message.tabId) && Number(message.tabId) !== currentTabId) {
+        return;
+      }
+      const image = typeof message.frame === "string"
+        ? message.frame
+        : (message.frame && typeof message.frame.dataUrl === "string" ? message.frame.dataUrl : "");
       state.remoteSupportLastFrame = image;
       const scopedState = scopeRemoteSupportStateToTab(
         state.remoteSupportState,

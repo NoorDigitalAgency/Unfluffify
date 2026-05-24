@@ -5,6 +5,16 @@ const includePayloads = document.getElementById("include-payloads");
 const clearButton = document.getElementById("clear");
 
 const port = chrome.runtime.connect({ name: REMOTE_SUPPORT_PORT_NETWORK });
+const inspectedTabId = chrome.devtools && chrome.devtools.inspectedWindow
+  ? chrome.devtools.inspectedWindow.tabId
+  : null;
+
+if (Number.isFinite(inspectedTabId)) {
+  port.postMessage({
+    type: "remoteSupportAttach",
+    tabId: inspectedTabId
+  });
+}
 
 function downloadPayload(entry) {
   if (!entry || !entry.payload) {
