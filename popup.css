@@ -1626,8 +1626,8 @@ button.loading:disabled {
 }
 
 .todo-status-line--pending {
-  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
-  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
+  background: color-mix(in srgb, var(--muted) 60%, var(--card));
+  border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
   color: var(--card);
 }
 
@@ -1769,8 +1769,8 @@ button.loading:disabled {
 }
 
 .todo-subsection-count--pending {
-  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
-  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
+  background: color-mix(in srgb, var(--muted) 60%, var(--card));
+  border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
   color: var(--card);
 }
 
@@ -1811,11 +1811,6 @@ button.loading:disabled {
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent-light) 70%, var(--card));
-}
-
-.todo-candidate + .todo-candidate {
-  border-top: 0;
-  margin-top: 2px;
 }
 
 .todo-candidate-copy {
