@@ -6,7 +6,7 @@
   --ink-base: light-dark(#172033, #edf2fa);
   --muted-base: light-dark(#667186, #9aa8ba);
   --line-base: light-dark(#dce3ee, #303c4f);
-  --accent: light-dark(#2f62a3, #3367a8);
+  --accent: light-dark(#2f62a3, #588ccc);
   --accent-dark: light-dark(#1c477a, #9fc3ee);
   --accent-light: light-dark(#dfe9f7, #1e3b5e);
   --success: light-dark(#1f7a63, #4cc39f);
@@ -22,7 +22,7 @@
   --ink-base: light-dark(#18211f, #edf7f3);
   --muted-base: light-dark(#60726e, #9cafaa);
   --line-base: light-dark(#d7e2df, #2d403a);
-  --accent: light-dark(#0b7563, #15806b);
+  --accent: light-dark(#0b7563, #19987f);
   --accent-dark: light-dark(#064e43, #80d7c2);
   --accent-light: light-dark(#d9efea, #173d34);
   --success: light-dark(#18794e, #64d986);
@@ -38,7 +38,7 @@
   --ink-base: light-dark(#241f21, #f8eeee);
   --muted-base: light-dark(#756b6d, #b3a1a5);
   --line-base: light-dark(#e3dcda, #45353a);
-  --accent: light-dark(#a93f5f, #9c3655);
+  --accent: light-dark(#a93f5f, #cb6886);
   --accent-dark: light-dark(#7d2944, #f0a6ba);
   --accent-light: light-dark(#f4dde5, #431927);
   --success: light-dark(#2f7d4f, #55c984);
@@ -54,7 +54,7 @@
   --ink-base: light-dark(#1b2226, #eef3f4);
   --muted-base: light-dark(#687276, #9ba8ad);
   --line-base: light-dark(#dde5e8, #344047);
-  --accent: light-dark(#006aa7, #23637f);
+  --accent: light-dark(#006aa7, #3492bb);
   --accent-dark: light-dark(#004b78, #9ec7dc);
   --accent-light: light-dark(#dcebf2, #173242);
   --success: light-dark(#2d7a4f, #65c98a);
@@ -70,7 +70,7 @@
   --ink-base: light-dark(#202126, #f2f1f7);
   --muted-base: light-dark(#6e717a, #a3a2ad);
   --line-base: light-dark(#e1e3e8, #3a3a47);
-  --accent: light-dark(#7b4e92, #7c5195);
+  --accent: light-dark(#7b4e92, #a17bb7);
   --accent-dark: light-dark(#59356d, #cfafe0);
   --accent-light: light-dark(#eee4f3, #35213f);
   --success: light-dark(#247a57, #5dc28f);
