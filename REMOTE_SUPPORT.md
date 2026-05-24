@@ -1,6 +1,6 @@
 # Remote Support (WebRTC) Design and Endpoint Contract
 
-This document defines the extension-side remote support implementation and the expected backend contracts for `/request-support`, `/support`, and `/webrtc`.
+This document defines the extension-side remote support implementation and the expected backend contracts for `/request-support`, `GET /support`, `POST /support`, and `/webrtc`.
 
 ## Implemented extension behavior
 
@@ -9,6 +9,7 @@ This document defines the extension-side remote support implementation and the e
 - Two fixed roles:
   - **Requester** → becomes **being_supported**.
   - **Supporter** (joins with support code) → becomes **supporting**.
+- Supporter-side join UI is only shown when the popup is opened on the configured backend support page (`GET /support`). On all other tabs, the popup only shows the requester-side "Request remote support" action.
 - Session modes:
   - `inactive`
   - `being_supported`
@@ -65,6 +66,16 @@ Two extension DevTools panels are added:
 
 > Auth: Bearer JWT in `Authorization` header for HTTP. For websocket, token can be passed in `?token=...`.
 
+### GET `/support`
+
+Used by supporter side as the dedicated browser tab for joining and controlling a remote session.
+
+Expected behavior:
+
+- Returns an HTML page.
+- Does not require authentication.
+- The extension popup uses the current tab URL to detect this page and reveal the join-code UI.
+
 ### POST `/request-support`
 
 Used by requester side.
@@ -97,7 +108,7 @@ Notes:
 
 ### POST `/support`
 
-Used by supporter side with support code.
+Used by supporter side with support code after opening the dedicated `GET /support` page in a tab.
 
 Request body (example):
 

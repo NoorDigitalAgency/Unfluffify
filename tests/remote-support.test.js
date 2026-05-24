@@ -6,12 +6,15 @@ import {
   REMOTE_SUPPORT_FRAME_INTERVAL_MS,
   REMOTE_SUPPORT_PAYLOAD_MAX_BYTES,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
+  REMOTE_SUPPORT_PAGE_PATH,
   REMOTE_SUPPORT_MODE_INACTIVE,
   REMOTE_SUPPORT_MODE_SUPPORTING,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
   REMOTE_SUPPORT_ROLE_REQUESTER,
   createInactiveRemoteSupportState,
+  getRemoteSupportPageUrl,
+  isRemoteSupportPageUrl,
   isAjaxResourceType,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
@@ -166,6 +169,42 @@ test("resolveEndpointUrl returns empty string when path is falsy", () => {
 
 test("resolveEndpointUrl returns empty string for an invalid base URL", () => {
   assert.equal(resolveEndpointUrl("not-a-url", "/path"), "");
+});
+
+test("remote support page path is /support", () => {
+  assert.equal(REMOTE_SUPPORT_PAGE_PATH, "/support");
+});
+
+test("getRemoteSupportPageUrl resolves the support page from the configured endpoint", () => {
+  assert.equal(
+    getRemoteSupportPageUrl("https://api.example.com"),
+    "https://api.example.com/support"
+  );
+});
+
+test("isRemoteSupportPageUrl matches the configured support page URL", () => {
+  assert.equal(
+    isRemoteSupportPageUrl("https://api.example.com/support", "https://api.example.com"),
+    true
+  );
+});
+
+test("isRemoteSupportPageUrl ignores query strings and trailing slashes on the current tab URL", () => {
+  assert.equal(
+    isRemoteSupportPageUrl("https://api.example.com/support/?code=123456", "https://api.example.com"),
+    true
+  );
+});
+
+test("isRemoteSupportPageUrl rejects unrelated origins and paths", () => {
+  assert.equal(
+    isRemoteSupportPageUrl("https://www.example.com/support", "https://api.example.com"),
+    false
+  );
+  assert.equal(
+    isRemoteSupportPageUrl("https://api.example.com/help", "https://api.example.com"),
+    false
+  );
 });
 
 // ──────────────────────────────────────────────────────────────

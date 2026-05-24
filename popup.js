@@ -66,6 +66,7 @@ import {
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
 import {
+  isRemoteSupportPageUrl,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING
 } from "./common/remote-support.js";
@@ -2377,6 +2378,7 @@ async function refreshUiInner() {
   const refs = uiModule.getRefs();
   const remoteSupportState = await fetchRemoteSupportState();
   state.remoteSupportState = remoteSupportState;
+  const remoteSupportPageVisible = isRemoteSupportPageUrl(pageUrl, configEndpointValue);
   const nextViewState = {
     currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
@@ -2399,6 +2401,7 @@ async function refreshUiInner() {
   nextViewState.remoteSupportRequested = Boolean(remoteSupportState && remoteSupportState.supportCode);
   nextViewState.remoteSupportCode = (remoteSupportState && remoteSupportState.supportCode) || "";
   nextViewState.remoteSupportJoinCode = state.remoteSupportJoinCode || view.remoteSupportJoinCode || "";
+  nextViewState.remoteSupportPageVisible = remoteSupportPageVisible;
   nextViewState.remoteSupportConnected = Boolean(remoteSupportState && remoteSupportState.connected);
   nextViewState.remoteSupportStreaming = Boolean(remoteSupportState && remoteSupportState.streaming);
   nextViewState.remoteSupportIncludePayloads = Boolean(

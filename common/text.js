@@ -363,7 +363,7 @@ export const PopupText = Object.freeze({
     themeModeLight: "Light", // Theme mode option that forces light mode.
     themeModeDark: "Dark", // Theme mode option that forces dark mode.
     remoteSupportSectionTitle: "Remote Support", // Section title for support-code requests.
-    remoteSupportHint: "Request a one-time code or join with a support code to start a WebRTC remote support session.", // Helper text for the remote support request.
+    remoteSupportHint: "Request a one-time code from the tab being supported. To join a session, open the configured /support page in a tab and enter the support code there.", // Helper text for the remote support request.
     remoteSupportButton: "Request remote support", // Button label that generates a support request code.
     remoteSupportCodeLabel: "Share this code:", // Label shown before the generated support code.
     remoteSupportCodeHint: "Code validity is controlled by the backend (expected: 10 minutes).", // Hint shown after generating support code.

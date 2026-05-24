@@ -161,6 +161,7 @@ const initialViewState = {
   remoteSupportCode: "",
   remoteSupportRequested: false,
   remoteSupportJoinCode: "",
+  remoteSupportPageVisible: false,
   remoteSupportMode: "inactive",
   remoteSupportRole: "",
   remoteSupportSessionActive: false,
@@ -468,51 +469,53 @@ function renderRemoteSupportSection(view, handlers) {
   const supporting = view.remoteSupportMode === "supporting";
   const beingSupported = view.remoteSupportMode === "being_supported";
   const sessionActive = Boolean(view.remoteSupportSessionActive);
+  const supportPageVisible = Boolean(view.remoteSupportPageVisible);
   return h(
     "section",
     { class: "card remote-support-card" },
     h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
     h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
-    h(
-      "button",
-      {
-        id: "remote-support-request",
-        type: "button",
-        class: "full-width",
-        disabled: sessionActive,
-        onClick: handlers.onRemoteSupportRequest
-      },
-      icon("monitor-share"),
-      PopupText.configuration.remoteSupportButton
-    ),
-    h(
-      "label",
-      { class: "field" },
-      h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
-      h(
-        "div",
-        { class: "input-row" },
-        h("input", {
-          id: "remote-support-join-code",
-          type: "text",
-          placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
-          value: view.remoteSupportJoinCode || "",
-          disabled: sessionActive,
-          onInput: handlers.onRemoteSupportJoinCodeInput
-        }),
-        h(
+    supportPageVisible
+      ? h(
+          "label",
+          { class: "field" },
+          h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
+          h(
+            "div",
+            { class: "input-row" },
+            h("input", {
+              id: "remote-support-join-code",
+              type: "text",
+              placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
+              value: view.remoteSupportJoinCode || "",
+              disabled: sessionActive,
+              onInput: handlers.onRemoteSupportJoinCodeInput
+            }),
+            h(
+              "button",
+              {
+                id: "remote-support-join",
+                type: "button",
+                disabled: sessionActive || !view.remoteSupportJoinCode,
+                onClick: handlers.onRemoteSupportJoin
+              },
+              icon("account-switch"),
+              PopupText.configuration.remoteSupportJoinButton
+            )
+          )
+        )
+      : h(
           "button",
           {
-            id: "remote-support-join",
+            id: "remote-support-request",
             type: "button",
-            disabled: sessionActive || !view.remoteSupportJoinCode,
-            onClick: handlers.onRemoteSupportJoin
+            class: "full-width",
+            disabled: sessionActive,
+            onClick: handlers.onRemoteSupportRequest
           },
-          icon("account-switch"),
-          PopupText.configuration.remoteSupportJoinButton
-        )
-      )
-    ),
+          icon("monitor-share"),
+          PopupText.configuration.remoteSupportButton
+        ),
     h(
       "label",
       { class: "toggle tiny" },

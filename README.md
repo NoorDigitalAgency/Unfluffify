@@ -15,7 +15,7 @@ Remote support design, security guarantees, and backend endpoint expectations ar
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
-- **Remote Support**: WebRTC-based session allowing a supporter to view a live tab preview, stream console/network telemetry, and send remote control inputs
+- **Remote Support**: WebRTC-based session allowing a supporter to open the dedicated support page, enter a support code, view a live tab preview, stream console/network telemetry, and send remote control inputs
 
 ## Installation (Developer Mode)
 
@@ -75,7 +75,7 @@ Run this command before opening or updating a pull request to catch regressions 
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
-- **`remote-support.test.js`** - Coverage for remote support utilities: constants, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
+- **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
 - **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap and transport-event handling
 - **`remote-support-offscreen.test.js`** - Smoke coverage for the offscreen WebRTC transport document boot path
 

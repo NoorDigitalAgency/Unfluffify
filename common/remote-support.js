@@ -14,6 +14,7 @@ export const REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES = 3 * 1024 * 1024;
 export const REMOTE_SUPPORT_PORT_CONSOLE = "unfluffify-remote-support-console";
 export const REMOTE_SUPPORT_PORT_NETWORK = "unfluffify-remote-support-network";
 export const REMOTE_SUPPORT_PORT_TRANSPORT = "unfluffify-remote-support-transport";
+export const REMOTE_SUPPORT_PAGE_PATH = "/support";
 
 export function createInactiveRemoteSupportState() {
   return {
@@ -60,6 +61,26 @@ export function resolveEndpointUrl(baseUrl, path) {
   }
 }
 
+export function getRemoteSupportPageUrl(baseUrl) {
+  return resolveEndpointUrl(baseUrl, REMOTE_SUPPORT_PAGE_PATH);
+}
+
+export function isRemoteSupportPageUrl(pageUrl, endpointBaseUrl) {
+  const expectedUrl = getRemoteSupportPageUrl(endpointBaseUrl);
+  if (!expectedUrl || !pageUrl) {
+    return false;
+  }
+
+  try {
+    const current = new URL(pageUrl);
+    const expected = new URL(expectedUrl);
+    return current.origin === expected.origin &&
+      normalizeComparablePath(current.pathname) === normalizeComparablePath(expected.pathname);
+  } catch (error) {
+    return false;
+  }
+}
+
 export function serializeRemoteSupportMessage(type, payload = {}) {
   return JSON.stringify({
     type,
@@ -103,4 +124,12 @@ export function clampPayloadSize(value, maxBytes = REMOTE_SUPPORT_PAYLOAD_MAX_BY
     }
   }
   return value.slice(0, lo);
+}
+
+function normalizeComparablePath(pathname) {
+  if (!pathname || pathname === "/") {
+    return "/";
+  }
+
+  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }
