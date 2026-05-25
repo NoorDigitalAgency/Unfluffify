@@ -5082,7 +5082,7 @@ function isViewportScrollEvent(event) {
   return false;
 }
 
-export function handleScroll(event) {
+export function handleScroll(event, options = {}) {
   if (!state.enabled || state.aiPopover || !state.overlay) {
     return;
   }
@@ -5092,10 +5092,13 @@ export function handleScroll(event) {
     // full overlay redraw. This avoids flicker/redraw storms unrelated to page scroll.
     return;
   }
-  const hideDuringScroll = isViewportScroll;
+  const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
     state.overlay.classList.add("uf-scrolling");
+  } else if (!hideDuringScroll && state.isScrolling) {
+    state.isScrolling = false;
+    state.overlay.classList.remove("uf-scrolling");
   }
   if (state.scrollHideTimer) {
     window.clearTimeout(state.scrollHideTimer);

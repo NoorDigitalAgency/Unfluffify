@@ -23,10 +23,7 @@ import {
   resolveEndpointUrl
 } from "./remote-support.js";
 
-const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
 const REMOTE_SUPPORT_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024;
-const REMOTE_SUPPORT_CAPTURE_IMAGE_FORMAT = "jpeg";
-const REMOTE_SUPPORT_CAPTURE_IMAGE_QUALITY = 60;
 const REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH = "remote-support-offscreen.html";
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_VIEWER_TRANSPORT_START_MESSAGE = "remoteSupportViewerTransportStart";
@@ -131,7 +128,6 @@ function createSessionRuntime({
     sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     usesVideoStream: false,
-    frameIntervalId: 0,
     inactivityIntervalId: 0,
     payloadBudgetBytes: 0,
     networkPendingRequests: new Map()
@@ -242,11 +238,6 @@ function trackRuntime(runtime) {
 }
 
 function clearRuntimeIntervals(runtime) {
-  if (runtime.frameIntervalId) {
-    clearInterval(runtime.frameIntervalId);
-    runtime.frameIntervalId = 0;
-  }
-
   if (runtime.inactivityIntervalId) {
     clearInterval(runtime.inactivityIntervalId);
     runtime.inactivityIntervalId = 0;
@@ -846,17 +837,6 @@ async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session 
   }
 }
 
-function shouldStreamFrames(runtime) {
-  return Boolean(
-    runtime &&
-      runtime.state.active &&
-      runtime.state.connected &&
-      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-      runtime.state.role === "requester" &&
-      !runtime.usesVideoStream
-  );
-}
-
 function shouldApplyInactiveContentMode(runtime) {
   return Boolean(
     runtime &&
@@ -957,69 +937,6 @@ async function sendDataMessage(runtime, type, payload, channelKey = "") {
   } catch (error) {
     return false;
   }
-}
-
-function stopFrameStreaming(runtime) {
-  if (!runtime || !runtime.frameIntervalId) {
-    return;
-  }
-
-  clearInterval(runtime.frameIntervalId);
-  runtime.frameIntervalId = 0;
-  runtime.state.streaming = false;
-}
-
-function captureVisibleTabFrame(tab) {
-  return new Promise((resolve) => {
-    chrome.tabs.captureVisibleTab(
-      tab.windowId,
-      {
-        format: REMOTE_SUPPORT_CAPTURE_IMAGE_FORMAT,
-        quality: REMOTE_SUPPORT_CAPTURE_IMAGE_QUALITY
-      },
-      (dataUrl) => {
-        if (chrome.runtime.lastError || typeof dataUrl !== "string" || !dataUrl) {
-          resolve(null);
-          return;
-        }
-
-        resolve(dataUrl);
-      }
-    );
-  });
-}
-
-function startFrameStreaming(runtime) {
-  if (!shouldStreamFrames(runtime) || runtime.frameIntervalId) {
-    return;
-  }
-
-  runtime.state.streaming = true;
-  runtime.frameIntervalId = setInterval(async () => {
-    if (!shouldStreamFrames(runtime) || runtime.state.tabId === null) {
-      stopFrameStreaming(runtime);
-      broadcastRuntimeState(runtime);
-      return;
-    }
-
-    let tab;
-    try {
-      tab = await chrome.tabs.get(runtime.state.tabId);
-    } catch (error) {
-      return;
-    }
-
-    if (!tab || !tab.active) {
-      return;
-    }
-
-    const frame = await captureVisibleTabFrame(tab);
-    if (!frame) {
-      return;
-    }
-
-    await sendDataMessage(runtime, "frame", { dataUrl: frame });
-  }, REMOTE_SUPPORT_FRAME_INTERVAL_MS);
 }
 
 function stopInactivityMonitor(runtime) {
@@ -1373,7 +1290,10 @@ export async function handleRequestSupportCode(message) {
   if (!reused) {
     try {
       const mediaStreamId = await requestTabCaptureStreamId(tabId);
-      runtime.usesVideoStream = Boolean(mediaStreamId);
+      if (!mediaStreamId) {
+        throw new Error("Remote support tab capture is unavailable");
+      }
+      runtime.usesVideoStream = true;
       const transportStartResponse = await sendRemoteSupportTransportStartRequest(runtime, {
         sessionId,
         supportCode,
@@ -1562,9 +1482,6 @@ export async function handleTransportEvent(message) {
       if (runtime.usesVideoStream) {
         runtime.state.streaming = true;
       }
-      if (shouldStreamFrames(runtime)) {
-        startFrameStreaming(runtime);
-      }
     }
 
     broadcastRuntimeState(runtime);
@@ -1598,7 +1515,6 @@ export async function handleTransportEvent(message) {
   if (event.type === "channel-close" || event.type === "remoteSupportTransportChannelClose") {
     runtime.state.connected = false;
     runtime.state.streaming = false;
-    stopFrameStreaming(runtime);
     broadcastRuntimeState(runtime);
     return { ok: true };
   }

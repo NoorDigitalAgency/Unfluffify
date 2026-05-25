@@ -227,6 +227,54 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
   }
 });
 
+test("remoteSupportRequestCode fails instead of falling back to screenshot frames when tab capture is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+  chromeMock.tabCapture.getMediaStreamId = async () => "";
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_missing_tab_capture",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 7,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 7 } }
+    );
+
+    assert.equal(response.ok, false);
+    assert.match(response.error, /tab capture/i);
+    assert.equal(
+      transportMessages.some((message) => message.type === "remoteSupportTransportStart"),
+      false
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remoteSupportRequestCode reuses the offscreen keep-alive port created during document bootstrap", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

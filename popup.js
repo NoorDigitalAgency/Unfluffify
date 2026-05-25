@@ -2835,7 +2835,6 @@ async function refreshUiInner() {
     !tabInScope ||
     remoteConfigRetryBlocked ||
     pageTypeUiBlocked ||
-    remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED ||
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
   const configurationUiDisabled = aiBusy;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
