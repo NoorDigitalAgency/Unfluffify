@@ -190,6 +190,7 @@ let remoteSupportSupportPageSidebarVideoActive = false;
 let remoteSupportSupportPageSidebarFrameVersion = 0;
 let remoteSupportSupportPageSidebarPointerMoveRaf = 0;
 let remoteSupportSupportPagePendingSidebarPointerMove = null;
+let remoteSupportCommandReplayDepth = 0;
 let remoteSupportLastResolvedCursorPoint = null;
 let remoteSupportLastPublishedCursorSnapshotKey = "";
 
@@ -2540,9 +2541,14 @@ function executeRemoteSupportCommand(command) {
     const target = document.activeElement && document.activeElement.nodeType === 1
       ? document.activeElement
       : document.documentElement;
-    target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-    applyRemoteTextInputCommand(target, command);
-    target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+    remoteSupportCommandReplayDepth += 1;
+    try {
+      target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+      applyRemoteTextInputCommand(target, command);
+      target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+    } finally {
+      remoteSupportCommandReplayDepth = Math.max(0, remoteSupportCommandReplayDepth - 1);
+    }
   }
 }
 
@@ -5911,7 +5917,7 @@ export function main() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (shouldBlockLocalRemoteSupportInput()) {
+    if (shouldBlockLocalRemoteSupportInput() && !remoteSupportCommandReplayDepth) {
       if (event.isTrusted) {
         event.preventDefault();
         event.stopPropagation();
