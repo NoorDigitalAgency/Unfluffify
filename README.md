@@ -76,6 +76,7 @@ The remote-support regressions also cover tab-scoped background state, concurren
 - **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability and parent-boundary selection
 - **`submission-rules.test.js`** - Regression coverage for final AI submission include/exclude row decisions
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards used by marking and submission
+- **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
