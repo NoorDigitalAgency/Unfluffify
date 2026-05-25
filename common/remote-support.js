@@ -53,6 +53,23 @@ function normalizeRemoteSupportCursorValue(value, maxLength = 512) {
     : "";
 }
 
+function normalizeRemoteSupportCursorOwner(value) {
+  return value === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    : value === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      : "";
+}
+
+function normalizeRemoteSupportCursorCoordinate(value) {
+  const normalizedValue = Number(value);
+  if (!Number.isFinite(normalizedValue)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(1, normalizedValue));
+}
+
 function normalizeRemoteSupportSidebarRows(rows) {
   const normalizedRows = [];
 
@@ -138,7 +155,10 @@ export function normalizeRemoteSupportSidebarSnapshot(snapshotLike) {
 export function createInactiveRemoteSupportCursorSnapshot() {
   return {
     active: false,
-    cursor: ""
+    cursor: "",
+    x: null,
+    y: null,
+    owner: ""
   };
 }
 
@@ -150,9 +170,15 @@ export function normalizeRemoteSupportCursorSnapshot(snapshotLike) {
 
   normalized.active = Boolean(normalized.active);
   normalized.cursor = normalizeRemoteSupportCursorValue(normalized.cursor);
+  normalized.x = normalizeRemoteSupportCursorCoordinate(normalized.x);
+  normalized.y = normalizeRemoteSupportCursorCoordinate(normalized.y);
+  normalized.owner = normalizeRemoteSupportCursorOwner(normalized.owner);
 
   if (!normalized.active) {
     normalized.cursor = "";
+    normalized.x = null;
+    normalized.y = null;
+    normalized.owner = "";
   }
 
   return normalized;

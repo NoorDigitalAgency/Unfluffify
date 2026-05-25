@@ -164,6 +164,7 @@ let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
 let remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
+let remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
 let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 let remoteSupportSupportPageJoinCode = "";
 let remoteSupportSupportPageJoinLoading = false;
@@ -193,6 +194,8 @@ let remoteSupportSupportPagePendingSidebarPointerMove = null;
 let remoteSupportCommandReplayDepth = 0;
 let remoteSupportLastResolvedCursorPoint = null;
 let remoteSupportLastPublishedCursorSnapshotKey = "";
+let remoteSupportPendingRequesterCursorPoint = null;
+let remoteSupportRequesterCursorRaf = 0;
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
@@ -288,6 +291,7 @@ function updateRemoteSupportSupportPageViewerVideoState({ active = false, width 
   remoteSupportSupportPageViewerIntrinsicHeight = Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0;
   syncRemoteSupportSupportPageViewerVisibility();
   syncRemoteSupportSupportPageFrame();
+  syncRemoteSupportSupportPageCursorOverlay();
 }
 
 function updateRemoteSupportSupportPageSidebarVideoState({ active = false, width = 0, height = 0 } = {}) {
@@ -299,6 +303,96 @@ function updateRemoteSupportSupportPageSidebarVideoState({ active = false, width
     clearRemoteSupportSupportPageSidebarCanvas();
   }
   renderRemoteSupportSupportPageSidebar();
+}
+
+function normalizeRemoteSupportPointRatio(value) {
+  const normalizedValue = Number(value);
+  if (!Number.isFinite(normalizedValue)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(1, normalizedValue));
+}
+
+function getRemoteSupportCursorKind(cursorValue) {
+  const normalizedCursor = String(cursorValue || "").toLowerCase();
+  if (!normalizedCursor || normalizedCursor === "auto" || normalizedCursor === "default") {
+    return "default";
+  }
+  if (normalizedCursor.includes("not-allowed") || normalizedCursor.includes("no-drop")) {
+    return "blocked";
+  }
+  if (normalizedCursor.includes("wait") || normalizedCursor.includes("progress")) {
+    return "wait";
+  }
+  if (normalizedCursor.includes("text") || normalizedCursor.includes("vertical-text")) {
+    return "text";
+  }
+  if (normalizedCursor.includes("pointer")) {
+    return "pointer";
+  }
+  if (normalizedCursor.includes("move") || normalizedCursor.includes("grab")) {
+    return "move";
+  }
+  if (normalizedCursor.includes("resize")) {
+    return "resize";
+  }
+  if (normalizedCursor.includes("crosshair")) {
+    return "crosshair";
+  }
+  if (normalizedCursor.includes("help")) {
+    return "help";
+  }
+
+  return "custom";
+}
+
+function getRemoteSupportCursorStatusLabel(cursorValue) {
+  const kind = getRemoteSupportCursorKind(cursorValue);
+  if (kind === "default") {
+    return "";
+  }
+  if (kind === "blocked") {
+    return "not allowed";
+  }
+
+  return kind;
+}
+
+function applyRemoteSupportCursorPresentation(cursor, snapshotLike) {
+  if (!cursor) {
+    return;
+  }
+
+  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
+  const cursorValue = snapshot.cursor || "default";
+  const cursorKind = getRemoteSupportCursorKind(cursorValue);
+  const cursorLabel = getRemoteSupportCursorStatusLabel(cursorValue);
+
+  cursor.dataset.ufRemoteSupportCursorKind = cursorKind;
+  cursor.dataset.ufRemoteSupportCursorOwner = snapshot.owner || "";
+  cursor.style.cursor = cursorValue;
+  if (cursorLabel) {
+    cursor.setAttribute("data-cursor-label", cursorLabel);
+  } else {
+    cursor.removeAttribute("data-cursor-label");
+  }
+}
+
+function buildRemoteSupportCursorSnapshot({
+  active = true,
+  cursor = "",
+  x = null,
+  y = null,
+  owner = ""
+} = {}) {
+  return normalizeRemoteSupportCursorSnapshot({
+    active,
+    cursor,
+    x,
+    y,
+    owner
+  });
 }
 
 function isRemoteSupportFrameBitmap(value) {
@@ -418,6 +512,7 @@ function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote su
   remoteSupportSupportPageViewerReady = false;
   resolveRemoteSupportSupportPageViewerWaiters(false);
   clearRemoteSupportSupportPageViewerPendingRequests(errorMessage);
+  remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
   updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
   remoteSupportSupportPageSidebarLastFrame = "";
   clearRemoteSupportSupportPageSidebarCanvas();
@@ -758,6 +853,11 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
   if (!active || remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
     remoteSupportLastResolvedCursorPoint = null;
     remoteSupportLastPublishedCursorSnapshotKey = "";
+    remoteSupportPendingRequesterCursorPoint = null;
+    if (remoteSupportRequesterCursorRaf) {
+      window.cancelAnimationFrame(remoteSupportRequesterCursorRaf);
+      remoteSupportRequesterCursorRaf = 0;
+    }
   }
 
   if (isBeingSupportedMode()) {
@@ -805,16 +905,79 @@ function ensureRemoteSupportCursor() {
     style.textContent = `
       #${REMOTE_SUPPORT_CURSOR_ID} {
         position: fixed;
-        width: 14px;
-        height: 14px;
-        margin: -7px 0 0 -7px;
-        border-radius: 50%;
-        border: 2px solid #ffffff;
-        background: #3a7cff;
-        box-shadow: 0 0 0 2px rgba(58, 124, 255, 0.35);
+        width: 22px;
+        height: 22px;
+        margin: 0;
+        color: #3a7cff;
         pointer-events: none;
         z-index: 2147483647;
         transform: translate3d(-100px, -100px, 0);
+        filter: drop-shadow(0 2px 5px rgba(2, 6, 14, 0.55));
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        border-top: 18px solid currentColor;
+        border-right: 11px solid transparent;
+        transform: rotate(-14deg);
+        transform-origin: 1px 1px;
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}::after {
+        content: attr(data-cursor-label);
+        position: absolute;
+        left: 15px;
+        top: 16px;
+        max-width: 96px;
+        padding: 3px 6px;
+        border-radius: 999px;
+        background: rgba(4, 8, 15, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: #ffffff;
+        font: 700 10px/1.2 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+        white-space: nowrap;
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}:not([data-cursor-label])::after {
+        display: none;
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="text"]::before {
+        left: 6px;
+        top: -2px;
+        width: 4px;
+        height: 25px;
+        border: 0;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: -5px 0 0 -3px #ffffff, 5px 0 0 -3px #ffffff;
+        transform: none;
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="blocked"]::before,
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="wait"]::before {
+        width: 18px;
+        height: 18px;
+        border: 3px solid currentColor;
+        border-radius: 50%;
+        background: transparent;
+        transform: none;
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="blocked"]::before {
+        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+      }
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="move"]::before,
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="resize"]::before,
+      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="crosshair"]::before {
+        left: 1px;
+        top: 10px;
+        width: 22px;
+        height: 3px;
+        border: 0;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: 0 -9px 0 -1px currentColor, 0 9px 0 -1px currentColor;
+        transform: none;
       }
       #${REMOTE_SUPPORT_CURSOR_ID}[hidden] {
         display: none;
@@ -833,15 +996,29 @@ function ensureRemoteSupportCursor() {
   return cursor;
 }
 
-function setRemoteSupportCursorPosition(xRatio, yRatio) {
+function setRemoteSupportCursorPosition(xRatio, yRatio, snapshotLike = {}) {
   const cursor = ensureRemoteSupportCursor();
   const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
   const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-  const x = Math.max(0, Math.min(1, Number(xRatio) || 0)) * viewportWidth;
-  const y = Math.max(0, Math.min(1, Number(yRatio) || 0)) * viewportHeight;
+  const normalizedX = normalizeRemoteSupportPointRatio(xRatio) ?? 0;
+  const normalizedY = normalizeRemoteSupportPointRatio(yRatio) ?? 0;
+  const x = normalizedX * viewportWidth;
+  const y = normalizedY * viewportHeight;
+  applyRemoteSupportCursorPresentation(cursor, {
+    active: true,
+    x: normalizedX,
+    y: normalizedY,
+    owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
+    ...snapshotLike
+  });
   cursor.hidden = false;
   cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-  return { x, y };
+  return {
+    x,
+    y,
+    xRatio: normalizedX,
+    yRatio: normalizedY
+  };
 }
 
 function hideRemoteSupportCursor() {
@@ -851,16 +1028,24 @@ function hideRemoteSupportCursor() {
   }
 }
 
-function buildRemoteSupportCursorSnapshotAtPoint(clientX, clientY) {
+function buildRemoteSupportCursorSnapshotAtPoint(clientX, clientY, options = {}) {
   const target = document.elementFromPoint(clientX, clientY);
   if (!target || target.nodeType !== 1) {
     return createInactiveRemoteSupportCursorSnapshot();
   }
 
+  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
+  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+  const xRatio = normalizeRemoteSupportPointRatio(options.xRatio) ?? Math.max(0, Math.min(1, clientX / viewportWidth));
+  const yRatio = normalizeRemoteSupportPointRatio(options.yRatio) ?? Math.max(0, Math.min(1, clientY / viewportHeight));
+
   try {
-    return normalizeRemoteSupportCursorSnapshot({
+    return buildRemoteSupportCursorSnapshot({
       active: true,
-      cursor: window.getComputedStyle(target).cursor || ""
+      cursor: window.getComputedStyle(target).cursor || "",
+      x: xRatio,
+      y: yRatio,
+      owner: options.owner || remoteSupportControlOwner
     });
   } catch (error) {
     return createInactiveRemoteSupportCursorSnapshot();
@@ -894,19 +1079,31 @@ async function publishRemoteSupportCursorSnapshot(snapshotLike) {
   return false;
 }
 
-async function syncRemoteSupportCursorSnapshotForPoint(point) {
+async function syncRemoteSupportCursorSnapshotForPoint(point, options = {}) {
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
     return false;
   }
 
   remoteSupportLastResolvedCursorPoint = {
     x: Number(point.x),
-    y: Number(point.y)
+    y: Number(point.y),
+    xRatio: normalizeRemoteSupportPointRatio(point.xRatio ?? options.xRatio),
+    yRatio: normalizeRemoteSupportPointRatio(point.yRatio ?? options.yRatio),
+    owner: options.owner || remoteSupportControlOwner
   };
 
-  return publishRemoteSupportCursorSnapshot(
-    buildRemoteSupportCursorSnapshotAtPoint(point.x, point.y)
-  );
+  const snapshot = buildRemoteSupportCursorSnapshotAtPoint(point.x, point.y, {
+    owner: options.owner || remoteSupportControlOwner,
+    xRatio: remoteSupportLastResolvedCursorPoint.xRatio,
+    yRatio: remoteSupportLastResolvedCursorPoint.yRatio
+  });
+
+  if (snapshot.active && snapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER && shouldBlockLocalRemoteSupportInput()) {
+    const cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
+    applyRemoteSupportCursorPresentation(cursor, snapshot);
+  }
+
+  return publishRemoteSupportCursorSnapshot(snapshot);
 }
 
 function scheduleRemoteSupportCursorSnapshotRefresh() {
@@ -915,7 +1112,53 @@ function scheduleRemoteSupportCursorSnapshotRefresh() {
   }
 
   window.requestAnimationFrame(() => {
-    void syncRemoteSupportCursorSnapshotForPoint(remoteSupportLastResolvedCursorPoint);
+    void syncRemoteSupportCursorSnapshotForPoint(remoteSupportLastResolvedCursorPoint, {
+      owner: remoteSupportLastResolvedCursorPoint.owner,
+      xRatio: remoteSupportLastResolvedCursorPoint.xRatio,
+      yRatio: remoteSupportLastResolvedCursorPoint.yRatio
+    });
+  });
+}
+
+function shouldPublishRequesterCursorSnapshot() {
+  return isBeingSupportedMode() && remoteSupportControlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
+}
+
+function queueRequesterCursorSnapshot(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return;
+  }
+
+  remoteSupportPendingRequesterCursorPoint = {
+    x: Number(point.x),
+    y: Number(point.y)
+  };
+  if (remoteSupportRequesterCursorRaf) {
+    return;
+  }
+
+  remoteSupportRequesterCursorRaf = window.requestAnimationFrame(() => {
+    remoteSupportRequesterCursorRaf = 0;
+    const nextPoint = remoteSupportPendingRequesterCursorPoint;
+    remoteSupportPendingRequesterCursorPoint = null;
+    if (!nextPoint || !shouldPublishRequesterCursorSnapshot()) {
+      return;
+    }
+
+    void syncRemoteSupportCursorSnapshotForPoint(nextPoint, {
+      owner: REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    });
+  });
+}
+
+function handleRemoteSupportRequesterCursorMove(event) {
+  if (!shouldPublishRequesterCursorSnapshot() || !event || !event.isTrusted) {
+    return;
+  }
+
+  queueRequesterCursorSnapshot({
+    x: Number(event.clientX),
+    y: Number(event.clientY)
   });
 }
 
@@ -1229,6 +1472,94 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__viewer {
       pointer-events: none;
       z-index: 2;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 22px;
+      height: 22px;
+      z-index: 4;
+      color: #3a7cff;
+      pointer-events: none;
+      transform: translate3d(-100px, -100px, 0);
+      filter: drop-shadow(0 2px 5px rgba(2, 6, 14, 0.62));
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 0;
+      height: 0;
+      border-top: 18px solid currentColor;
+      border-right: 11px solid transparent;
+      transform: rotate(-14deg);
+      transform-origin: 1px 1px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor::after {
+      content: attr(data-cursor-label);
+      position: absolute;
+      left: 15px;
+      top: 16px;
+      max-width: 96px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: rgba(4, 8, 15, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor:not([data-cursor-label])::after,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[hidden] {
+      display: none;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="text"]::before {
+      left: 6px;
+      top: -2px;
+      width: 4px;
+      height: 25px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: -5px 0 0 -3px #ffffff, 5px 0 0 -3px #ffffff;
+      transform: none;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="blocked"]::before,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="wait"]::before {
+      width: 18px;
+      height: 18px;
+      border: 3px solid currentColor;
+      border-radius: 50%;
+      background: transparent;
+      transform: none;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="blocked"]::before {
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.82);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="move"]::before,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="resize"]::before,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="crosshair"]::before {
+      left: 1px;
+      top: 10px;
+      width: 22px;
+      height: 3px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 -9px 0 -1px currentColor, 0 9px 0 -1px currentColor;
+      transform: none;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
@@ -1855,6 +2186,7 @@ function ensureRemoteSupportSupportPageUi() {
             <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
               <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
               <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
+              <div id="uf-support-page-cursor" class="uf-support-page__cursor" hidden aria-hidden="true" data-uf-extension-ui="true"></div>
               <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Pointer, scroll, and keyboard input on this surface are sent to the remote page once the session is connected.</p>
@@ -1881,12 +2213,14 @@ function ensureRemoteSupportSupportPageUi() {
       sidebarPlaceholder: root.querySelector("#uf-support-page-sidebar-placeholder"),
       surface: root.querySelector("#uf-support-page-surface"),
       viewer: root.querySelector("#uf-support-page-viewer"),
+      cursor: root.querySelector("#uf-support-page-cursor"),
       frame: root.querySelector("#uf-support-page-frame"),
       placeholder: root.querySelector("#uf-support-page-placeholder")
     };
 
     remoteSupportSupportPageElements.frame.decoding = "async";
     initializeRemoteSupportSupportPageViewer(remoteSupportSupportPageElements.viewer);
+    window.addEventListener("resize", syncRemoteSupportSupportPageSurfaceCursor);
 
     remoteSupportSupportPageElements.joinForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1909,6 +2243,7 @@ function ensureRemoteSupportSupportPageUi() {
       if (!pointer) {
         return;
       }
+      updateRemoteSupportSupportPageLocalCursorSnapshot(pointer);
       queueRemoteSupportSupportPagePointerMove(pointer);
     });
     remoteSupportSupportPageElements.surface.addEventListener("click", (event) => {
@@ -1919,6 +2254,7 @@ function ensureRemoteSupportSupportPageUi() {
       if (!pointer) {
         return;
       }
+      updateRemoteSupportSupportPageLocalCursorSnapshot(pointer);
       remoteSupportSupportPageElements.surface.focus({ preventScroll: true });
       sendRemoteSupportSupportPageCommand({
         type: "pointer-click",
@@ -2263,12 +2599,12 @@ function renderRemoteSupportSupportPageSidebar() {
 }
 
 function getRemoteSupportSupportPageSurfaceCursorValue() {
-  if (!remoteSupportSupportPageState.active) {
+  const snapshot = getRemoteSupportSupportPageEffectiveCursorSnapshot();
+  if (!snapshot.active || !snapshot.cursor) {
     return "auto";
   }
 
-  const snapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
-  return snapshot.active && snapshot.cursor ? snapshot.cursor : "auto";
+  return snapshot.cursor;
 }
 
 function syncRemoteSupportSupportPageSurfaceCursor() {
@@ -2278,6 +2614,88 @@ function syncRemoteSupportSupportPageSurfaceCursor() {
   }
 
   elements.surface.style.cursor = getRemoteSupportSupportPageSurfaceCursorValue();
+  syncRemoteSupportSupportPageCursorOverlay();
+}
+
+function getRemoteSupportSupportPageEffectiveCursorSnapshot() {
+  if (!remoteSupportSupportPageState.active) {
+    return createInactiveRemoteSupportCursorSnapshot();
+  }
+
+  const remoteSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
+  const localSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageLocalCursorSnapshot);
+  const controlOwner = remoteSupportSupportPageState.controlOwner;
+
+  if (controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER) {
+    if (remoteSnapshot.active && remoteSnapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER) {
+      return remoteSnapshot;
+    }
+    if (localSnapshot.active) {
+      return buildRemoteSupportCursorSnapshot({
+        ...localSnapshot,
+        cursor: remoteSnapshot.cursor || localSnapshot.cursor,
+        owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      });
+    }
+    return createInactiveRemoteSupportCursorSnapshot();
+  }
+
+  if (controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER) {
+    if (
+      remoteSnapshot.active &&
+      (remoteSnapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER || !remoteSnapshot.owner)
+    ) {
+      return buildRemoteSupportCursorSnapshot({
+        ...remoteSnapshot,
+        owner: REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+      });
+    }
+    return createInactiveRemoteSupportCursorSnapshot();
+  }
+
+  return createInactiveRemoteSupportCursorSnapshot();
+}
+
+function syncRemoteSupportSupportPageCursorOverlay() {
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements || !elements.surface || !elements.cursor) {
+    return;
+  }
+
+  const snapshot = getRemoteSupportSupportPageEffectiveCursorSnapshot();
+  if (
+    !snapshot.active ||
+    !Number.isFinite(Number(snapshot.x)) ||
+    !Number.isFinite(Number(snapshot.y))
+  ) {
+    elements.cursor.hidden = true;
+    return;
+  }
+
+  const surfaceRect = elements.surface.getBoundingClientRect();
+  const remoteRect = getRemoteSupportSupportPageSurfaceRect(elements.surface, elements.frame);
+  const x = (remoteRect.left - surfaceRect.left) + (Math.max(0, Math.min(1, Number(snapshot.x))) * Math.max(1, remoteRect.width || 1));
+  const y = (remoteRect.top - surfaceRect.top) + (Math.max(0, Math.min(1, Number(snapshot.y))) * Math.max(1, remoteRect.height || 1));
+
+  applyRemoteSupportCursorPresentation(elements.cursor, snapshot);
+  elements.cursor.hidden = false;
+  elements.cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+}
+
+function updateRemoteSupportSupportPageLocalCursorSnapshot(pointer) {
+  if (!pointer || !Number.isFinite(Number(pointer.x)) || !Number.isFinite(Number(pointer.y))) {
+    return;
+  }
+
+  const remoteSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
+  remoteSupportSupportPageLocalCursorSnapshot = buildRemoteSupportCursorSnapshot({
+    active: true,
+    x: pointer.x,
+    y: pointer.y,
+    cursor: remoteSnapshot.cursor,
+    owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+  });
+  syncRemoteSupportSupportPageSurfaceCursor();
 }
 
 function syncRemoteSupportSupportPageFrame() {
@@ -2322,6 +2740,7 @@ function syncRemoteSupportSupportPageFrame() {
 
 function scheduleRemoteSupportSupportPageFrameRender() {
   syncRemoteSupportSupportPageFrame();
+  syncRemoteSupportSupportPageCursorOverlay();
 }
 
 function renderRemoteSupportSupportPage() {
@@ -2365,12 +2784,17 @@ function renderRemoteSupportSupportPage() {
 }
 
 function applyRemoteSupportSupportPageState(nextState) {
+  const previousControlOwner = remoteSupportSupportPageState.controlOwner;
   remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState(nextState);
   if (Number.isFinite(remoteSupportSupportPageState.tabId)) {
     remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
   }
+  if (previousControlOwner !== remoteSupportSupportPageState.controlOwner) {
+    remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
+  }
   if (!remoteSupportSupportPageState.active) {
     remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
+    remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
     remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
     remoteSupportSupportPageSidebarLastFrame = "";
@@ -6060,6 +6484,7 @@ export function main() {
     }
     handleSilentSelectorClickCopy(event);
   }, true);
+  document.addEventListener("mousemove", handleRemoteSupportRequesterCursorMove, true);
   document.addEventListener("mousedown", handleBlockedLocalExtensionInteraction, true);
   document.addEventListener("mouseup", handleBlockedLocalExtensionInteraction, true);
   document.addEventListener("click", handleBlockedLocalExtensionInteraction, true);

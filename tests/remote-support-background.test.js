@@ -1418,7 +1418,10 @@ test("remote support replays requester cursor snapshots on the page channel and 
         tabId: 18,
         snapshot: {
           active: true,
-          cursor: 'url("https://example.com/cursor.cur") 4 4, pointer'
+          cursor: 'url("https://example.com/cursor.cur") 4 4, pointer',
+          x: 0.4,
+          y: 0.6,
+          owner: "supporter"
         }
       },
       { tab: { id: 18 } }
@@ -1466,7 +1469,10 @@ test("remote support replays requester cursor snapshots on the page channel and 
           message.messageType === "cursor-state" &&
           message.payload &&
           message.payload.snapshot &&
-          message.payload.snapshot.cursor === 'url("https://example.com/cursor.cur") 4 4, pointer'
+          message.payload.snapshot.cursor === 'url("https://example.com/cursor.cur") 4 4, pointer' &&
+          message.payload.snapshot.x === 0.4 &&
+          message.payload.snapshot.y === 0.6 &&
+          message.payload.snapshot.owner === "supporter"
       ),
       true
     );
@@ -1493,7 +1499,10 @@ test("remote support replays requester cursor snapshots on the page channel and 
         payload: {
           snapshot: {
             active: true,
-            cursor: "text"
+            cursor: "text",
+            x: 0.2,
+            y: 0.8,
+            owner: "requester"
           }
         }
       }
@@ -1506,7 +1515,10 @@ test("remote support replays requester cursor snapshots on the page channel and 
           message &&
           message.type === "remoteSupportCursorStateChanged" &&
           message.snapshot &&
-          message.snapshot.cursor === "text"
+          message.snapshot.cursor === "text" &&
+          message.snapshot.x === 0.2 &&
+          message.snapshot.y === 0.8 &&
+          message.snapshot.owner === "requester"
       ),
       true
     );
