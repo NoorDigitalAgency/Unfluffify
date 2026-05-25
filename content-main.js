@@ -624,7 +624,11 @@ function ensureRemoteSupportSupportPageStyles() {
       background: #04080f;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__placeholder {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface .uf-support-page__placeholder {
+      visibility: visible;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface.is-disabled .uf-support-page__placeholder {
       position: absolute;
       inset: 0;
       display: grid;
@@ -637,6 +641,7 @@ function ensureRemoteSupportSupportPageStyles() {
       background:
         radial-gradient(circle at top, rgba(108, 169, 255, 0.18), transparent 36%),
         linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(7, 12, 20, 0.98));
+      visibility: hidden;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice {
@@ -665,6 +670,10 @@ function ensureRemoteSupportSupportPageStyles() {
       #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
         min-height: 56vh;
       }
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface.is-disabled img {
+      visibility: hidden;
     }
   `;
   (document.head || document.documentElement).appendChild(style);
