@@ -592,6 +592,81 @@ function renderRemoteSupportSection(view, handlers) {
   );
 }
 
+function renderRemoteSupportControllerView(view, handlers) {
+  const controlDisabled = Boolean(view.remoteSupportControlDisabled);
+
+  return h(
+    "section",
+    {
+      class: "remote-support-controller",
+      ref: (el) => {
+        refs.remoteSupportSection = el;
+      }
+    },
+    h(
+      "div",
+      { class: "remote-support-controller__toolbar" },
+      h(
+        "div",
+        { class: "remote-support-controller__meta" },
+        h(
+          "div",
+          { class: "section-title" },
+          icon("monitor-share", "field-icon"),
+          PopupText.configuration.remoteSupportSectionTitle
+        ),
+        view.remoteSupportStatusText
+          ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
+          : null,
+        view.remoteSupportRequested
+          ? h(
+              "div",
+              { class: "remote-support-code remote-support-code--compact", role: "status", "aria-live": "polite" },
+              h("span", null, PopupText.configuration.remoteSupportCodeLabel),
+              h("strong", null, view.remoteSupportCode || "------")
+            )
+          : null,
+        view.remoteSupportError
+          ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
+          : null
+      ),
+      h(
+        "button",
+        {
+          id: "remote-support-end",
+          type: "button",
+          class: "warning remote-support-controller__end",
+          onClick: handlers.onRemoteSupportEnd
+        },
+        icon("close-octagon"),
+        PopupText.configuration.remoteSupportEndButton
+      )
+    ),
+    h(
+      "div",
+      {
+        id: "remote-support-control-surface",
+        class: classNames(
+          "remote-support-surface",
+          "remote-support-controller__surface",
+          controlDisabled && "remote-support-surface--disabled"
+        ),
+        tabIndex: 0,
+        onMouseMove: handlers.onRemoteSupportSurfaceMouseMove,
+        onClick: handlers.onRemoteSupportSurfaceClick,
+        onWheel: handlers.onRemoteSupportSurfaceWheel,
+        onKeyDown: handlers.onRemoteSupportSurfaceKeyDown
+      },
+      view.remoteSupportPreviewImage
+        ? h("img", {
+            src: view.remoteSupportPreviewImage,
+            alt: PopupText.configuration.remoteSupportSurfaceAlt
+          })
+        : h("div", { class: "hint" }, PopupText.configuration.remoteSupportSurfaceWaiting)
+    )
+  );
+}
+
 function renderRenderModeEditor(view, handlers) {
   return h(
     Fragment,
@@ -967,13 +1042,16 @@ function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
   const previewVisible = view.previewBlocked || view.previewActive;
   const configurationView = view.currentView === View.Configuration;
+  const remoteControllerVisible =
+    view.remoteSupportMode === "supporting" &&
+    view.remoteSupportSessionActive;
 
   return h(
     Fragment,
     null,
     h(
       "div",
-      { class: "app" },
+      { class: classNames("app", remoteControllerVisible && "app--remote-controller") },
       h(
         "div",
         { class: "close-bar" },
@@ -984,7 +1062,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
             onClick: handlers.onUnregisterCurrentTab
           }
         )
@@ -998,6 +1076,7 @@ function App({ state: view, actions: handlers }) {
           h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
         ),
         !previewVisible &&
+          !remoteControllerVisible &&
           h(
             "div",
             { class: "header-actions" },
@@ -1082,6 +1161,8 @@ function App({ state: view, actions: handlers }) {
       ),
       previewVisible
         ? renderPreviewSidebar(view, handlers)
+        : remoteControllerVisible
+          ? renderRemoteSupportControllerView(view, handlers)
         : view.currentView === View.Marking
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration

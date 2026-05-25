@@ -199,10 +199,147 @@ function hideRemoteSupportCursor() {
   }
 }
 
-function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
-  if (!target || target.nodeType !== 1 || !isExtensionUiNode(target)) {
+function focusRemoteTarget(target) {
+  if (!target || typeof target.focus !== "function") {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+  } catch {
+    target.focus();
+  }
+}
+
+function isIntrinsicInteractiveElement(target) {
+  if (!target || target.nodeType !== 1) {
     return false;
   }
+
+  const tagName = String(target.tagName || "").toLowerCase();
+  return ["a", "button", "input", "label", "option", "select", "summary", "textarea"].includes(tagName);
+}
+
+function isTextEditableElement(target) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  const tagName = String(target.tagName || "").toLowerCase();
+  if (tagName === "textarea") {
+    return true;
+  }
+
+  if (tagName !== "input") {
+    return false;
+  }
+
+  const type = String(target.type || "text").toLowerCase();
+  return ![
+    "button",
+    "checkbox",
+    "color",
+    "file",
+    "hidden",
+    "image",
+    "radio",
+    "range",
+    "reset",
+    "submit"
+  ].includes(type);
+}
+
+function dispatchEditableInputEvent(target) {
+  target.dispatchEvent(new Event("input", {
+    bubbles: true,
+    cancelable: false,
+    composed: true
+  }));
+}
+
+function applyRemoteTextInputCommand(target, command) {
+  if (!isTextEditableElement(target) || !command || command.ctrlKey || command.altKey || command.metaKey) {
+    return false;
+  }
+
+  focusRemoteTarget(target);
+
+  if (target.isContentEditable && typeof document.execCommand === "function") {
+    const key = String(command.key || "");
+    if (key.length === 1) {
+      document.execCommand("insertText", false, key);
+      return true;
+    }
+    if (key === "Backspace") {
+      document.execCommand("delete", false);
+      return true;
+    }
+    if (key === "Delete") {
+      document.execCommand("forwardDelete", false);
+      return true;
+    }
+    if (key === "Enter") {
+      document.execCommand("insertLineBreak", false);
+      return true;
+    }
+    return false;
+  }
+
+  const value = typeof target.value === "string" ? target.value : "";
+  const selectionStart = Number.isInteger(target.selectionStart) ? target.selectionStart : value.length;
+  const selectionEnd = Number.isInteger(target.selectionEnd) ? target.selectionEnd : selectionStart;
+  const key = String(command.key || "");
+
+  let nextValue = value;
+  let nextCaret = selectionStart;
+
+  if (key.length === 1) {
+    nextValue = `${value.slice(0, selectionStart)}${key}${value.slice(selectionEnd)}`;
+    nextCaret = selectionStart + key.length;
+  } else if (key === "Backspace") {
+    if (selectionStart !== selectionEnd) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart;
+    } else if (selectionStart > 0) {
+      nextValue = `${value.slice(0, selectionStart - 1)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart - 1;
+    }
+  } else if (key === "Delete") {
+    if (selectionStart !== selectionEnd) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart;
+    } else if (selectionStart < value.length) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionStart + 1)}`;
+      nextCaret = selectionStart;
+    }
+  } else if (key === "Enter" && String(target.tagName || "").toLowerCase() === "textarea") {
+    nextValue = `${value.slice(0, selectionStart)}\n${value.slice(selectionEnd)}`;
+    nextCaret = selectionStart + 1;
+  } else {
+    return false;
+  }
+
+  if (nextValue === value) {
+    return true;
+  }
+
+  target.value = nextValue;
+  if (typeof target.setSelectionRange === "function") {
+    target.setSelectionRange(nextCaret, nextCaret);
+  }
+  dispatchEditableInputEvent(target);
+  return true;
+}
+
+function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+  focusRemoteTarget(target);
   const mouseEventInit = {
     bubbles: true,
     cancelable: true,
@@ -213,6 +350,12 @@ function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
   };
   target.dispatchEvent(new MouseEvent("mousedown", mouseEventInit));
   target.dispatchEvent(new MouseEvent("mouseup", mouseEventInit));
+
+  if (isIntrinsicInteractiveElement(target) && typeof target.click === "function") {
+    target.click();
+    return true;
+  }
+
   target.dispatchEvent(new MouseEvent("click", mouseEventInit));
   return true;
 }
@@ -258,22 +401,16 @@ function executeRemoteSupportCommand(command) {
       ? document.activeElement
       : document.documentElement;
     target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+    applyRemoteTextInputCommand(target, command);
     target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
   }
 }
 
 function handleBlockedLocalExtensionInteraction(event) {
-  if (!isBeingSupportedMode() || !event) {
+  if (!isBeingSupportedMode() || !event || !event.isTrusted) {
     return;
   }
-  const target = event.target && event.target.nodeType === 1
-    ? event.target
-    : event.target && event.target.parentElement
-      ? event.target.parentElement
-      : null;
-  if (!target || !isExtensionUiNode(target)) {
-    return;
-  }
+
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
@@ -3624,6 +3761,15 @@ export function main() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (isBeingSupportedMode()) {
+      if (event.isTrusted) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
+      return;
+    }
+
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {
       return;
@@ -3722,6 +3868,9 @@ export function main() {
       remoteSupportRole = message.active ? String(message.role || "") : "";
       remoteSupportIncludePayloads = message.active ? Boolean(message.includePayloads) : false;
       if (isBeingSupportedMode()) {
+        if (document.activeElement && typeof document.activeElement.blur === "function") {
+          document.activeElement.blur();
+        }
         installRemoteSupportTelemetryBridge();
       } else {
         hideRemoteSupportCursor();

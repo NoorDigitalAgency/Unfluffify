@@ -71,6 +71,10 @@ body.is-busy {
   overflow: visible;
 }
 
+.app--remote-controller {
+  min-height: 560px;
+}
+
 .app-header {
   display: flex;
   align-items: flex-start;
@@ -841,6 +845,35 @@ button.button-small {
   gap: 8px;
 }
 
+.remote-support-controller {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.remote-support-controller__toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.remote-support-controller__meta {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.remote-support-controller__end {
+  flex-shrink: 0;
+}
+
 .remote-support-card .field {
   margin-bottom: 0;
 }
@@ -860,6 +893,16 @@ button.button-small {
   font-size: 18px;
   letter-spacing: 0.18em;
   color: var(--accent-dark);
+}
+
+.remote-support-code--compact {
+  display: inline-grid;
+  width: fit-content;
+}
+
+.remote-support-code--compact strong {
+  font-size: 14px;
+  letter-spacing: 0.12em;
 }
 
 .remote-support-surface {
@@ -884,6 +927,19 @@ button.button-small {
   width: 100%;
   height: auto;
   display: block;
+}
+
+.remote-support-controller__surface {
+  min-height: 420px;
+  align-self: stretch;
+  background: #0f172a;
+}
+
+.remote-support-controller__surface img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0f172a;
 }
 
 .remote-support-surface--disabled {
