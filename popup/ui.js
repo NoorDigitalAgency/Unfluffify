@@ -165,6 +165,7 @@ const initialViewState = {
   remoteSupportRequestLoading: false,
   remoteSupportJoinCode: "",
   remoteSupportJoinLoading: false,
+  remoteSupportVisible: false,
   remoteSupportPageVisible: false,
   remoteSupportAutoFocus: false,
   remoteSupportMode: "inactive",
@@ -470,6 +471,10 @@ function renderThemeModeButtons(view, handlers) {
 }
 
 function renderRemoteSupportSection(view, handlers) {
+  if (!view.remoteSupportVisible) {
+    return null;
+  }
+
   const supporting = view.remoteSupportMode === "supporting";
   const beingSupported = view.remoteSupportMode === "being_supported";
   const requesting = Boolean(view.remoteSupportRequestLoading);

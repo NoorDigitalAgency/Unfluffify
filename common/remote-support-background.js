@@ -506,6 +506,14 @@ async function connectRemoteSupportKeepAlivePort() {
 
   await ensureRemoteSupportOffscreenDocument();
 
+  if (offscreenKeepAlivePort) {
+    return;
+  }
+
+  if (!chrome.runtime || typeof chrome.runtime.connect !== "function") {
+    throw new Error("Remote support transport port API unavailable");
+  }
+
   const port = chrome.runtime.connect({ name: REMOTE_SUPPORT_PORT_TRANSPORT });
   offscreenKeepAlivePort = port;
 
@@ -515,6 +523,10 @@ async function connectRemoteSupportKeepAlivePort() {
     }
 
     if (offscreenDisconnectExpected) {
+      return;
+    }
+
+    if (offscreenKeepAlivePort && offscreenKeepAlivePort !== port) {
       return;
     }
 
@@ -1271,15 +1283,17 @@ export function handlePortConnection(port) {
   }
 
   if (port.name === REMOTE_SUPPORT_PORT_TRANSPORT) {
-    if (offscreenKeepAlivePort && offscreenKeepAlivePort !== port) {
+    const previousPort = offscreenKeepAlivePort;
+    offscreenKeepAlivePort = port;
+
+    if (previousPort && previousPort !== port) {
       try {
-        offscreenKeepAlivePort.disconnect();
+        previousPort.disconnect();
       } catch (error) {
         // Ignore disconnect races.
       }
     }
 
-    offscreenKeepAlivePort = port;
     port.onDisconnect.addListener(() => {
       if (offscreenKeepAlivePort === port) {
         offscreenKeepAlivePort = null;

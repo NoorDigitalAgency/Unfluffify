@@ -2404,6 +2404,7 @@ async function refreshUiInner() {
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
+  nextViewState.remoteSupportVisible = Boolean(tokenValue);
   nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
   nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
   nextViewState.remoteSupportJoinCode = state.remoteSupportJoinCode || view.remoteSupportJoinCode || "";

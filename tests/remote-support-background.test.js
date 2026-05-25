@@ -8,10 +8,12 @@ import {
   terminateRemoteSupportSession
 } from "../common/remote-support-background.js";
 
-function createChromeMock() {
+function createChromeMock(options = {}) {
+  const { autoConnectOffscreenKeepAlive = true } = options;
   const runtimeConnectListeners = [];
   const runtimeEvents = [];
   const transportMessages = [];
+  const runtimeConnectCalls = [];
   let offscreenDocumentOpen = false;
   let keepAlivePort = null;
 
@@ -63,6 +65,14 @@ function createChromeMock() {
         runtimeEvents.push(message);
         return Promise.resolve({ ok: true });
       },
+      connect(connectInfo) {
+        const port = createPort(connectInfo && connectInfo.name ? connectInfo.name : "");
+        runtimeConnectCalls.push({
+          name: port.name,
+          port
+        });
+        return port;
+      },
       onConnect: {
         addListener(listener) {
           runtimeConnectListeners.push(listener);
@@ -72,8 +82,10 @@ function createChromeMock() {
     offscreen: {
       async createDocument() {
         offscreenDocumentOpen = true;
-        keepAlivePort = createPort("unfluffify-remote-support-transport");
-        runtimeConnectListeners.forEach((listener) => listener(keepAlivePort));
+        if (autoConnectOffscreenKeepAlive) {
+          keepAlivePort = createPort("unfluffify-remote-support-transport");
+          runtimeConnectListeners.forEach((listener) => listener(keepAlivePort));
+        }
       },
       async closeDocument() {
         offscreenDocumentOpen = false;
@@ -101,6 +113,7 @@ function createChromeMock() {
       runtimeConnectListeners.forEach((listener) => listener(port));
       return port;
     },
+    runtimeConnectCalls,
     runtimeEvents,
     transportMessages
   };
@@ -166,6 +179,105 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
         credential: "support-secret"
       }
     ]);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("remoteSupportRequestCode reuses the offscreen keep-alive port created during document bootstrap", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, runtimeConnectCalls } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_keepalive_reuse",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 10,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 10 } }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(runtimeConnectCalls.length, 0);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("late offscreen keep-alive replacement does not tear down an active support session", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, connectPort, runtimeConnectCalls } = createChromeMock({
+    autoConnectOffscreenKeepAlive: false
+  });
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_late_keepalive",
+        supportCode: "654321",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 14,
+        supportCode: "654321"
+      },
+      { tab: { id: 14 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+    assert.equal(runtimeConnectCalls.length, 1);
+
+    connectPort("unfluffify-remote-support-transport");
+    await delay(0);
+
+    const stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 14 },
+      {}
+    );
+
+    assert.equal(stateResponse.ok, true);
+    assert.equal(stateResponse.state.active, true);
+    assert.equal(stateResponse.state.sessionId, "sess_late_keepalive");
+    assert.equal(stateResponse.state.error, "");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
