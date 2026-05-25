@@ -1199,7 +1199,7 @@ test("supporting sessions wait for the primary transport channel before marking 
 test("remote support handoff updates shared ownership and blocks supporter commands until control returns", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
-  const { chromeMock, transportMessages } = createChromeMock();
+  const { chromeMock, tabMessages, transportMessages } = createChromeMock();
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -1246,6 +1246,21 @@ test("remote support handoff updates shared ownership and blocks supporter comma
       }
     );
 
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "video-state",
+          sessionId: "sess_control_owner",
+          active: true
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
     const handoffResponse = await handleRemoteSupportBackgroundMessage(
       {
         type: "remoteSupportSetControlOwner",
@@ -1257,6 +1272,7 @@ test("remote support handoff updates shared ownership and blocks supporter comma
 
     assert.equal(handoffResponse.ok, true);
     assert.equal(handoffResponse.state.controlOwner, "requester");
+    assert.equal(handoffResponse.state.streaming, true);
     assert.equal(
       transportMessages.some(
         (message) =>
@@ -1279,6 +1295,111 @@ test("remote support handoff updates shared ownership and blocks supporter comma
     );
 
     assert.equal(blockedCommandResponse.ok, false);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "incoming-message",
+          sessionId: "sess_control_owner",
+          channelKey: "page",
+          message: {
+            type: "frame",
+            payload: { dataUrl: "data:image/webp;base64,screen-after-handoff" }
+          }
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "incoming-message",
+          sessionId: "sess_control_owner",
+          channelKey: "page",
+          message: {
+            type: "cursor-state",
+            payload: {
+              snapshot: {
+                active: true,
+                cursor: "pointer",
+                x: 0.33,
+                y: 0.44,
+                owner: "requester"
+              }
+            }
+          }
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "incoming-message",
+          sessionId: "sess_control_owner",
+          channelKey: "sidebar",
+          message: {
+            type: "sidebar-state",
+            payload: {
+              snapshot: {
+                active: true,
+                currentView: "Requester Sidebar",
+                summaryRows: [{ label: "Control", value: "Requester" }]
+              }
+            }
+          }
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 63 &&
+          message &&
+          message.type === "remoteSupportFrame" &&
+          message.frame === "data:image/webp;base64,screen-after-handoff"
+      ),
+      true
+    );
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 63 &&
+          message &&
+          message.type === "remoteSupportCursorStateChanged" &&
+          message.snapshot &&
+          message.snapshot.owner === "requester" &&
+          message.snapshot.cursor === "pointer"
+      ),
+      true
+    );
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 63 &&
+          message &&
+          message.type === "remoteSupportSidebarStateChanged" &&
+          message.snapshot &&
+          message.snapshot.currentView === "Requester Sidebar"
+      ),
+      true
+    );
 
     const takeControlResponse = await handleRemoteSupportBackgroundMessage(
       {

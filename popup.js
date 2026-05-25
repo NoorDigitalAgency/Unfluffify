@@ -3914,6 +3914,51 @@ function showRemoteSupportSidebarCursor(point, { click = false } = {}) {
   }, 2500);
 }
 
+function shouldMirrorLocalRemoteSupportSidebarPointer() {
+  const publicationContext = getRemoteSupportSidebarPublicationContext();
+  return Boolean(
+    publicationContext &&
+    publicationContext.tabId !== null &&
+    publicationContext.state &&
+    publicationContext.state.active &&
+    publicationContext.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+    publicationContext.state.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+  );
+}
+
+function getLocalRemoteSupportSidebarPointer(event) {
+  if (!event || !event.isTrusted || !shouldMirrorLocalRemoteSupportSidebarPointer()) {
+    return null;
+  }
+
+  const width = Math.max(1, Math.round(window.innerWidth || document.documentElement.clientWidth || 1));
+  const height = Math.max(1, Math.round(window.innerHeight || document.documentElement.clientHeight || 1));
+  return {
+    x: Math.max(0, Math.min(width, Number(event.clientX) || 0)),
+    y: Math.max(0, Math.min(height, Number(event.clientY) || 0))
+  };
+}
+
+function handleLocalRemoteSupportSidebarPointerMove(event) {
+  const point = getLocalRemoteSupportSidebarPointer(event);
+  if (!point) {
+    return;
+  }
+
+  showRemoteSupportSidebarCursor(point);
+  scheduleRemoteSupportSidebarStreamCapture();
+}
+
+function handleLocalRemoteSupportSidebarClick(event) {
+  const point = getLocalRemoteSupportSidebarPointer(event);
+  if (!point) {
+    return;
+  }
+
+  showRemoteSupportSidebarCursor(point, { click: true });
+  scheduleRemoteSupportSidebarStreamCapture();
+}
+
 function ensureRemoteSupportSidebarStreamObservation() {
   if (!remoteSupportSidebarStreamListenersBound) {
     remoteSupportSidebarStreamListenersBound = true;
@@ -3930,6 +3975,8 @@ function ensureRemoteSupportSidebarStreamObservation() {
     document.addEventListener("change", () => {
       scheduleRemoteSupportSidebarStreamCapture();
     }, true);
+    document.addEventListener("mousemove", handleLocalRemoteSupportSidebarPointerMove, true);
+    document.addEventListener("click", handleLocalRemoteSupportSidebarClick, true);
   }
 
   if (remoteSupportSidebarStreamObserver || typeof MutationObserver !== "function" || !document.documentElement) {
