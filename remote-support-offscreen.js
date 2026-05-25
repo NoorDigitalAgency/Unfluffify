@@ -26,6 +26,10 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function normalizeTransportStateValue(value) {
+  return isNonEmptyString(value) ? value.trim() : "";
+}
+
 function hasActiveSessions() {
   return transportSessions.size > 0;
 }
@@ -142,8 +146,103 @@ function createTransportRuntime(session) {
     signalingSocket: null,
     peerConnection: null,
     dataChannel: null,
+    lastPeerConnectionState: "",
+    lastIceConnectionState: "",
+    lastIceGatheringState: "",
+    lastSignalingState: "",
+    lastDataChannelState: "",
+    lastIceCandidateError: "",
     shuttingDown: false
   };
+}
+
+function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && runtime.peerConnection) {
+  if (!runtime || !peerConnection) {
+    return;
+  }
+
+  runtime.lastPeerConnectionState = normalizeTransportStateValue(peerConnection.connectionState);
+  runtime.lastIceConnectionState = normalizeTransportStateValue(peerConnection.iceConnectionState);
+  runtime.lastIceGatheringState = normalizeTransportStateValue(peerConnection.iceGatheringState);
+  runtime.lastSignalingState = normalizeTransportStateValue(peerConnection.signalingState);
+}
+
+function updateDataChannelDiagnostics(runtime, channel = runtime && runtime.dataChannel) {
+  if (!runtime || !channel) {
+    return;
+  }
+
+  runtime.lastDataChannelState = normalizeTransportStateValue(channel.readyState);
+}
+
+function formatIceCandidateError(event) {
+  if (!event || typeof event !== "object") {
+    return "";
+  }
+
+  const parts = [];
+
+  if (Number.isFinite(event.errorCode)) {
+    parts.push(`code=${event.errorCode}`);
+  }
+
+  if (isNonEmptyString(event.errorText)) {
+    parts.push(event.errorText.trim());
+  }
+
+  if (isNonEmptyString(event.url)) {
+    parts.push(event.url.trim());
+  }
+
+  if (isNonEmptyString(event.address)) {
+    parts.push(event.address.trim());
+  }
+
+  if (Number.isFinite(event.port)) {
+    parts.push(`port=${event.port}`);
+  }
+
+  return parts.join(" | ");
+}
+
+function getTransportDiagnostics(runtime) {
+  if (!runtime) {
+    return "";
+  }
+
+  const diagnostics = [];
+
+  if (runtime.lastPeerConnectionState && runtime.lastPeerConnectionState !== "new") {
+    diagnostics.push(`connection=${runtime.lastPeerConnectionState}`);
+  }
+
+  if (runtime.lastIceConnectionState && runtime.lastIceConnectionState !== "new") {
+    diagnostics.push(`ice=${runtime.lastIceConnectionState}`);
+  }
+
+  if (runtime.lastIceGatheringState && runtime.lastIceGatheringState !== "new") {
+    diagnostics.push(`gathering=${runtime.lastIceGatheringState}`);
+  }
+
+  if (runtime.lastSignalingState && runtime.lastSignalingState !== "stable") {
+    diagnostics.push(`signaling=${runtime.lastSignalingState}`);
+  }
+
+  if (runtime.lastDataChannelState && runtime.lastDataChannelState !== "open") {
+    diagnostics.push(`data=${runtime.lastDataChannelState}`);
+  }
+
+  if (runtime.lastIceCandidateError) {
+    diagnostics.push(`iceError=${runtime.lastIceCandidateError}`);
+  }
+
+  return diagnostics.join(", ");
+}
+
+function formatTransportError(runtime, error, fallback) {
+  const baseMessage = normalizeErrorMessage(error, fallback);
+  const diagnostics = getTransportDiagnostics(runtime);
+  return diagnostics ? `${baseMessage} (${diagnostics})` : baseMessage;
 }
 
 function hasRemoteDescription(peerConnection) {
@@ -254,6 +353,7 @@ function resetTransportResources(runtime) {
   runtime.peerConnection = null;
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
+  runtime.lastIceCandidateError = "";
 }
 
 function sendSignal(runtime, signalType, payload = {}) {
@@ -302,8 +402,10 @@ function bindDataChannel(runtime, channel) {
 
   runtime.dataChannel = channel;
   channel.binaryType = "arraybuffer";
+  updateDataChannelDiagnostics(runtime, channel);
 
   channel.onopen = () => {
+    updateDataChannelDiagnostics(runtime, channel);
     postTransportEvent({
       type: "channel-open",
       sessionId: runtime.sessionId
@@ -316,7 +418,8 @@ function bindDataChannel(runtime, channel) {
       return;
     }
 
-    handleFatalTransportError(runtime.sessionId, "Remote support data channel closed");
+    updateDataChannelDiagnostics(activeRuntime, channel);
+    handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel closed"));
   };
 
   channel.onerror = () => {
@@ -325,7 +428,8 @@ function bindDataChannel(runtime, channel) {
       return;
     }
 
-    handleFatalTransportError(runtime.sessionId, "Remote support data channel failed");
+    updateDataChannelDiagnostics(activeRuntime, channel);
+    handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel failed"));
   };
 
   channel.onmessage = (event) => {
@@ -356,6 +460,7 @@ async function ensurePeerConnection(runtime, offerer) {
     iceCandidatePoolSize: 4
   });
   runtime.peerConnection = peerConnection;
+  updatePeerConnectionDiagnostics(runtime, peerConnection);
 
   peerConnection.onicecandidate = (event) => {
     if (!event || !event.candidate) {
@@ -367,13 +472,30 @@ async function ensurePeerConnection(runtime, offerer) {
     });
   };
 
+  peerConnection.onicecandidateerror = (event) => {
+    runtime.lastIceCandidateError = formatIceCandidateError(event);
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    updatePeerConnectionDiagnostics(runtime, peerConnection);
+  };
+
+  peerConnection.onicegatheringstatechange = () => {
+    updatePeerConnectionDiagnostics(runtime, peerConnection);
+  };
+
+  peerConnection.onsignalingstatechange = () => {
+    updatePeerConnectionDiagnostics(runtime, peerConnection);
+  };
+
   peerConnection.onconnectionstatechange = () => {
+    updatePeerConnectionDiagnostics(runtime, peerConnection);
     if (!getTransportRuntime(runtime.sessionId) || runtime.shuttingDown) {
       return;
     }
 
     if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState)) {
-      handleFatalTransportError(runtime.sessionId, "Peer connection closed");
+      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, "Peer connection closed"));
     }
   };
 
@@ -489,7 +611,7 @@ async function connectSignalingSocket(runtime) {
       postTransportEvent({
         type: "transport-error",
         sessionId: runtime.sessionId,
-        error: "Remote support signaling error"
+        error: formatTransportError(runtime, "Remote support signaling error")
       });
     };
 
@@ -503,7 +625,7 @@ async function connectSignalingSocket(runtime) {
         return;
       }
 
-      handleFatalTransportError(runtime.sessionId, "Signaling channel closed");
+      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, "Signaling channel closed"));
     };
   });
 
@@ -523,6 +645,7 @@ async function connectSignalingSocket(runtime) {
   if (offerer) {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
+    updatePeerConnectionDiagnostics(runtime, peerConnection);
     sendSignal(runtime, "offer", {
       description: offer
     });
@@ -574,10 +697,12 @@ async function connectSignalingSocket(runtime) {
 
       if (payload.signalType === "offer" && payload.description) {
         await activePeerConnection.setRemoteDescription(payload.description);
+        updatePeerConnectionDiagnostics(runtime, activePeerConnection);
         await flushPendingIceCandidates(runtime, activePeerConnection);
 
         const answer = await activePeerConnection.createAnswer();
         await activePeerConnection.setLocalDescription(answer);
+        updatePeerConnectionDiagnostics(runtime, activePeerConnection);
         sendSignal(runtime, "answer", {
           description: answer
         });
@@ -586,6 +711,7 @@ async function connectSignalingSocket(runtime) {
 
       if (payload.signalType === "answer" && payload.description) {
         await activePeerConnection.setRemoteDescription(payload.description);
+        updatePeerConnectionDiagnostics(runtime, activePeerConnection);
         await flushPendingIceCandidates(runtime, activePeerConnection);
         return;
       }
@@ -599,7 +725,8 @@ async function connectSignalingSocket(runtime) {
         await activePeerConnection.addIceCandidate(payload.candidate);
       }
     } catch (error) {
-      handleFatalTransportError(runtime.sessionId, error);
+      updatePeerConnectionDiagnostics(runtime, runtime.peerConnection);
+      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, error, "Remote support transport failed"));
     }
   };
 }
