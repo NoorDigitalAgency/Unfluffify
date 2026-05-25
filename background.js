@@ -50,6 +50,7 @@ const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "remoteSupportUpdateCursorSnapshot",
   "remoteSupportUpdateSidebarSnapshot",
   "remoteSupportSendCommand",
+  "remoteSupportDismissError",
   "remoteSupportExtensionTelemetry",
   "remoteSupportTransportEvent"
 ]);

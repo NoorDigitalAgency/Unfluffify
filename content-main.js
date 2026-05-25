@@ -1591,6 +1591,53 @@ function ensureRemoteSupportSupportPageStyles() {
       border: 1px solid rgba(236, 88, 107, 0.24);
       color: #ffc3cb;
       line-height: 1.5;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      margin: -4px -6px -4px 4px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #ffc3cb;
+      cursor: pointer;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss::before,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 14px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss::before {
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss::after {
+      transform: translate(-50%, -50%) rotate(-45deg);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss:hover {
+      background: rgba(236, 88, 107, 0.18);
+      color: #ffffff;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss:focus-visible {
+      outline: 2px solid #ffffff;
+      outline-offset: 2px;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-sim {
@@ -2104,6 +2151,30 @@ async function handleRemoteSupportSupportPageControlToggle() {
   await setRemoteSupportControlOwner(nextOwner);
 }
 
+async function dismissRemoteSupportSupportPageError() {
+  remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+    ...remoteSupportSupportPageState,
+    error: ""
+  });
+  renderRemoteSupportSupportPage();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportDismissError",
+      tabId: Number.isFinite(remoteSupportSupportPageTabId) ? remoteSupportSupportPageTabId : undefined,
+      sessionId: remoteSupportSupportPageState.active && typeof remoteSupportSupportPageState.sessionId === "string"
+        ? remoteSupportSupportPageState.sessionId
+        : ""
+    });
+
+    if (response && response.ok) {
+      applyRemoteSupportSupportPageState(response.state || null);
+    }
+  } catch (error) {
+    // Keep the local dismissal if the background snapshot was already cleared.
+  }
+}
+
 function ensureRemoteSupportSupportPageUi() {
   if (!isRemoteSupportSupportPage() || !document.body) {
     return null;
@@ -2162,7 +2233,10 @@ function ensureRemoteSupportSupportPageUi() {
                 <input id="uf-support-page-join-code" type="text" autocomplete="one-time-code" inputmode="numeric" placeholder="Enter support code" data-uf-extension-ui="true">
                 <button id="uf-support-page-join-button" class="uf-support-page__button" type="submit" data-uf-extension-ui="true">Join support</button>
               </form>
-              <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true"></div>
+              <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
+                <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
+                <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
+              </div>
             </div>
             <div class="uf-support-page__card uf-support-page__sidebar-card" data-uf-extension-ui="true">
               <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
@@ -2198,6 +2272,8 @@ function ensureRemoteSupportSupportPageUi() {
       joinInput: root.querySelector("#uf-support-page-join-code"),
       joinButton: root.querySelector("#uf-support-page-join-button"),
       error: root.querySelector("#uf-support-page-error"),
+      errorText: root.querySelector("#uf-support-page-error-text"),
+      errorDismiss: root.querySelector("#uf-support-page-error-dismiss"),
       controlButton: root.querySelector("#uf-support-page-control"),
       endButton: root.querySelector("#uf-support-page-end"),
       sidebarSimulation: root.querySelector("#uf-support-page-sidebar-sim"),
@@ -2227,6 +2303,10 @@ function ensureRemoteSupportSupportPageUi() {
     remoteSupportSupportPageElements.controlButton.addEventListener("click", (event) => {
       event.preventDefault();
       handleRemoteSupportSupportPageControlToggle().then();
+    });
+    remoteSupportSupportPageElements.errorDismiss.addEventListener("click", (event) => {
+      event.preventDefault();
+      dismissRemoteSupportSupportPageError().then();
     });
     remoteSupportSupportPageElements.surface.addEventListener("mousemove", (event) => {
       if (!canControlFromRemoteSupportSupportPage()) {
@@ -2764,7 +2844,9 @@ function renderRemoteSupportSupportPage() {
   elements.endButton.hidden = !active;
   elements.endButton.disabled = !active;
   elements.error.hidden = !errorText;
-  elements.error.textContent = errorText;
+  if (elements.errorText) {
+    elements.errorText.textContent = errorText;
+  }
 
   elements.surface.classList.toggle("is-disabled", !canControl);
   elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");

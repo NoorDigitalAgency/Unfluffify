@@ -218,6 +218,30 @@ function icon(name, extraClass = "") {
   });
 }
 
+function renderRemoteSupportErrorNotice(view, handlers) {
+  const message = typeof view.remoteSupportError === "string" ? view.remoteSupportError.trim() : "";
+  if (!message) {
+    return null;
+  }
+
+  return h(
+    "div",
+    { class: "notice notice--dismissible", role: "status", "aria-live": "polite" },
+    h("span", { class: "notice__content" }, message),
+    h(
+      "button",
+      {
+        type: "button",
+        class: "notice__dismiss",
+        "aria-label": PopupText.configuration.dismissNoticeLabel,
+        title: PopupText.configuration.dismissNoticeLabel,
+        onClick: handlers.onRemoteSupportErrorDismiss
+      },
+      icon("close")
+    )
+  );
+}
+
 function editToggleIcon(actionText) {
   return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
 }
@@ -532,9 +556,7 @@ function renderRemoteSupportSection(view, handlers) {
     view.remoteSupportStatusText
       ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
       : null,
-    view.remoteSupportError
-      ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
-      : null,
+    renderRemoteSupportErrorNotice(view, handlers),
     supporting
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
@@ -605,9 +627,7 @@ function renderRemoteSupportControllerView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        view.remoteSupportError
-          ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
-          : null
+        renderRemoteSupportErrorNotice(view, handlers)
       ),
       h(
         "button",
@@ -657,9 +677,7 @@ function renderRemoteSupportedView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        view.remoteSupportError
-          ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
-          : null
+        renderRemoteSupportErrorNotice(view, handlers)
       ),
       h(
         "div",

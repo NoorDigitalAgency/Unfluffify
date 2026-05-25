@@ -627,6 +627,24 @@ test("remote support transport events drive session teardown without hanging the
     assert.equal(stateResponse.state.active, false);
     assert.equal(stateResponse.state.tabId, 9);
     assert.match(stateResponse.state.error, /Connection ended/i);
+
+    const dismissResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportDismissError", tabId: 9 },
+      {}
+    );
+
+    assert.equal(dismissResponse.ok, true);
+    assert.equal(dismissResponse.state.active, false);
+    assert.equal(dismissResponse.state.tabId, 9);
+    assert.equal(dismissResponse.state.error, "");
+
+    const clearedStateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 9 },
+      {}
+    );
+
+    assert.equal(clearedStateResponse.ok, true);
+    assert.equal(clearedStateResponse.state.error, "");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;

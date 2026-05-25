@@ -1006,6 +1006,61 @@ async function setRuntimeControlOwner(runtime, controlOwner, { syncRemote = fals
   return true;
 }
 
+function clearTabSnapshotError(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return null;
+  }
+
+  const snapshot = getTabSnapshot(normalizedTabId);
+  if (snapshot.error) {
+    rememberTabSnapshot(normalizedTabId, {
+      ...snapshot,
+      error: ""
+    });
+    broadcastTabState(normalizedTabId);
+  }
+
+  return getTabSnapshot(normalizedTabId);
+}
+
+function dismissRemoteSupportError(message, sender) {
+  const runtime = resolveRuntimeTarget(message, sender);
+  if (runtime) {
+    if (runtime.state.error) {
+      runtime.state.error = "";
+      broadcastRuntimeState(runtime);
+    }
+
+    return {
+      ok: true,
+      state: getRuntimePublicState(runtime)
+    };
+  }
+
+  const tabId = normalizeTabId(message.tabId ?? (sender && sender.tab && sender.tab.id));
+  const snapshot = clearTabSnapshotError(tabId);
+  if (snapshot) {
+    return {
+      ok: true,
+      state: snapshot
+    };
+  }
+
+  if (tabSnapshots.size === 1) {
+    const [onlyTabId] = tabSnapshots.keys();
+    return {
+      ok: true,
+      state: clearTabSnapshotError(onlyTabId)
+    };
+  }
+
+  return {
+    ok: true,
+    state: getStateForMessage(message, sender)
+  };
+}
+
 function isPrimaryTransportChannelKey(channelKey) {
   if (typeof channelKey !== "string") {
     return true;
@@ -1813,6 +1868,10 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
       ok: updated,
       state: getRuntimePublicState(runtime)
     };
+  }
+
+  if (message.type === "remoteSupportDismissError") {
+    return dismissRemoteSupportError(message, sender);
   }
 
   if (message.type === "remoteSupportExtensionTelemetry") {

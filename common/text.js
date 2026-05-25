@@ -376,6 +376,7 @@ export const PopupText = Object.freeze({
     remoteSupportTakeOverButton: "Take over control", // Button label shown when the supportee reclaims local control.
     remoteSupportHandOffButton: "Hand off control", // Button label shown when the supportee gives control back to the supporter.
     remoteSupportControlledModeHint: "Use this view to end the session or switch who currently controls the page.", // Helper text shown in the supportee remote-controlled sidebar mode.
+    dismissNoticeLabel: "Dismiss notice", // Accessibility label for icon-only temporary warning dismiss buttons.
     remoteSupportSurfaceAlt: "Remote supported tab preview", // Alt text for remote control preview image.
     remoteSupportSurfaceWaiting: "Waiting for remote tab stream...", // Placeholder text shown until frame streaming starts.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.

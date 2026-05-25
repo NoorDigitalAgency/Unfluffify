@@ -4618,6 +4618,42 @@ async function handleRemoteSupportControlToggle() {
   await refreshUi();
 }
 
+async function handleRemoteSupportErrorDismiss(event) {
+  if (event && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  if (event && typeof event.stopPropagation === "function") {
+    event.stopPropagation();
+  }
+
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (currentTabId === null) {
+    uiModule.setViewState({ remoteSupportError: "" });
+    return;
+  }
+
+  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  uiModule.setViewState({ remoteSupportError: "" });
+
+  try {
+    const response = await messages.sendRuntimeMessage({
+      type: "remoteSupportDismissError",
+      tabId: currentTabId,
+      sessionId: typeof scopedState.sessionId === "string" ? scopedState.sessionId : ""
+    });
+    if (response && response.ok) {
+      state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
+      syncRemoteSupportViewState(state.remoteSupportState);
+      await refreshUi();
+      return;
+    }
+  } catch {
+    // Keep the local dismissal even if the background snapshot is already gone.
+  }
+}
+
 function createRemotePointerPayload(event) {
   if (!event || !event.currentTarget || typeof event.currentTarget.getBoundingClientRect !== "function") {
     return null;
@@ -6219,6 +6255,7 @@ async function init() {
     onRemoteSupportJoin: handleRemoteSupportJoin,
     onRemoteSupportEnd: handleRemoteSupportEnd,
     onRemoteSupportControlToggle: handleRemoteSupportControlToggle,
+    onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
     onRemoteSupportSurfaceMouseMove: handleRemoteSupportSurfaceMouseMove,
     onRemoteSupportSurfaceClick: handleRemoteSupportSurfaceClick,
     onRemoteSupportSurfaceWheel: handleRemoteSupportSurfaceWheel,

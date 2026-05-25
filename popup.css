@@ -597,6 +597,47 @@ button.button-small {
   justify-items: start;
 }
 
+.notice--dismissible {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.notice__content {
+  min-width: 0;
+}
+
+.notice__dismiss {
+  width: 24px;
+  height: 24px;
+  margin: -3px -4px -3px 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--warn);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.notice__dismiss:hover {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--text);
+}
+
+.notice__dismiss:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+
+.notice__dismiss .btn-icon {
+  margin-right: 0;
+}
+
 .notice__action {
   padding: 0;
   border: 0;
