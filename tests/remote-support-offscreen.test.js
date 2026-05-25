@@ -18,6 +18,7 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   const backgroundEvents = [];
   const dataChannels = [];
   const peerConnectionConfigs = [];
+  const sockets = [];
 
   class FakeDataChannel {
     constructor() {
@@ -101,6 +102,8 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       this.onmessage = null;
       this.onerror = null;
       this.onclose = null;
+      this.sent = [];
+      sockets.push(this);
 
       queueMicrotask(() => {
         this.readyState = OpenWebSocket.OPEN;
@@ -110,7 +113,9 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       });
     }
 
-    send() {}
+    send(rawValue) {
+      this.sent.push(JSON.parse(rawValue));
+    }
 
     close() {
       this.readyState = 3;
@@ -314,7 +319,8 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
         target: "remoteSupportOffscreen",
         type: "remoteSupportTransportStop",
         sessionId: "sess_one",
-        reason: "Session ended"
+        reason: "Session ended",
+        notifyPeer: true
       },
       {},
       (value) => {
@@ -325,6 +331,17 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
     await delay(0);
 
     assert.deepEqual(stopResponse, { ok: true });
+    assert.equal(
+      sockets[0].sent.some(
+        (message) =>
+          message.type === "session-ended" &&
+          message.payload &&
+          message.payload.sessionId === "sess_one" &&
+          message.payload.role === "supporter" &&
+          message.payload.reason === "Session ended"
+      ),
+      true
+    );
 
     let stoppedSessionSendResponse;
     let remainingSessionSendResponse;

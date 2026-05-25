@@ -124,6 +124,7 @@ function createChromeMock(options = {}) {
             type: "remoteSupportTransportStop",
             sessionId: message.sessionId,
             reason: message.reason,
+            notifyPeer: Boolean(message.notifyPeer),
             tabId
           });
           return Promise.resolve({ ok: true });
@@ -874,6 +875,7 @@ test("supporter sessions can be ended by session id even when the viewer stop re
         type: "remoteSupportTransportStop",
         sessionId: message.sessionId,
         reason: message.reason,
+        notifyPeer: Boolean(message.notifyPeer),
         tabId,
         failed: true
       });
@@ -952,6 +954,7 @@ test("supporter sessions can be ended by session id even when the viewer stop re
         (message) =>
           message.type === "remoteSupportTransportStop" &&
           message.sessionId === "sess_supporter_end" &&
+            message.notifyPeer === true &&
           message.failed === true
       ),
       true

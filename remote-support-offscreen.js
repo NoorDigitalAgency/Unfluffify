@@ -1107,6 +1107,27 @@ function sendSignal(runtime, signalType, payload = {}) {
   }
 }
 
+function sendSessionEnded(runtime, reason = "Session ended") {
+  if (!runtime || !runtime.signalingSocket || runtime.signalingSocket.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+
+  try {
+    runtime.signalingSocket.send(JSON.stringify({
+      type: "session-ended",
+      timestamp: Date.now(),
+      payload: {
+        sessionId: runtime.sessionId,
+        role: runtime.role,
+        reason: isNonEmptyString(reason) ? reason.trim() : "Session ended"
+      }
+    }));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function parseTransportMessage(rawMessage) {
   if (typeof rawMessage !== "string" || !rawMessage.trim()) {
     return null;
@@ -1409,6 +1430,10 @@ async function shutdownTransport(sessionId, reason = "Session ended", options = 
     return;
   }
 
+  if (options.notifyPeer) {
+    sendSessionEnded(runtime, reason);
+  }
+
   runtime.shuttingDown = true;
   resetTransportResources(runtime);
   transportSessions.delete(runtime.sessionId);
@@ -1665,8 +1690,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "remoteSupportTransportStop") {
     const promise = isNonEmptyString(message.sessionId)
-      ? shutdownTransport(message.sessionId, isNonEmptyString(message.reason) ? message.reason : "Session ended")
-      : shutdownAllTransports(isNonEmptyString(message.reason) ? message.reason : "Session ended");
+      ? shutdownTransport(message.sessionId, isNonEmptyString(message.reason) ? message.reason : "Session ended", { notifyPeer: Boolean(message.notifyPeer) })
+      : shutdownAllTransports(isNonEmptyString(message.reason) ? message.reason : "Session ended", { notifyPeer: Boolean(message.notifyPeer) });
 
     promise
       .then(() => {

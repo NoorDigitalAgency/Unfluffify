@@ -811,7 +811,8 @@ async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session 
       await sendRemoteSupportViewerRequest(runtime.state.tabId, {
         type: REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE,
         sessionId: runtime.state.sessionId,
-        reason
+        reason,
+        notifyPeer: true
       });
     } catch (error) {
       // Ignore viewer stop failures during teardown.
@@ -830,7 +831,8 @@ async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session 
     await sendRemoteSupportOffscreenRequest({
       type: "remoteSupportTransportStop",
       sessionId,
-      reason
+      reason,
+      notifyPeer: true
     });
   } catch (error) {
     // Ignore transport stop failures during teardown.
