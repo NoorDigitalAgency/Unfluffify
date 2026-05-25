@@ -134,14 +134,70 @@ let aiPreviewState = createAiPreviewState();
 const REMOTE_SUPPORT_PAGE_BRIDGE_EVENT = "unfluffify:remote-support:telemetry";
 const REMOTE_SUPPORT_CURSOR_ID = "unfluffify-remote-support-cursor";
 const REMOTE_SUPPORT_CURSOR_STYLE_ID = "unfluffify-remote-support-cursor-style";
+const REMOTE_SUPPORT_TERMINATE_BUTTON_ID = "unfluffify-remote-support-terminate";
+const REMOTE_SUPPORT_TERMINATE_STYLE_ID = "unfluffify-remote-support-terminate-style";
+const REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR = 'meta[name="unfluffify-remote-support-page"][content="support"]';
+const REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID = "unfluffify-support-page-app";
+const REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID = "unfluffify-remote-support-page-root";
+const REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID = "unfluffify-remote-support-page-style";
+const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallback";
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
 let remoteSupportIncludePayloads = false;
 let remoteSupportBridgeNonce = "";
+let remoteSupportTerminatePending = false;
+let remoteSupportSupportPageTabId = null;
+let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
+let remoteSupportSupportPageJoinCode = "";
+let remoteSupportSupportPageJoinLoading = false;
+let remoteSupportSupportPageLastFrame = "";
+let remoteSupportSupportPageElements = null;
+let remoteSupportSupportPagePointerMoveRaf = 0;
+let remoteSupportSupportPagePendingPointerMove = null;
+
+function createRemoteSupportSupportPageState(tabId = null) {
+  return {
+    active: false,
+    mode: "inactive",
+    role: "",
+    tabId: Number.isFinite(tabId) ? Math.trunc(tabId) : null,
+    sessionId: "",
+    supportCode: "",
+    expiresAt: "",
+    connected: false,
+    partnerConnected: false,
+    streaming: false,
+    includePayloads: false,
+    error: "",
+    lastActivityAt: 0
+  };
+}
+
+function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remoteSupportSupportPageTabId) {
+  const normalized = {
+    ...createRemoteSupportSupportPageState(fallbackTabId),
+    ...(stateLike && typeof stateLike === "object" ? stateLike : {})
+  };
+
+  normalized.active = Boolean(normalized.active);
+  normalized.connected = Boolean(normalized.connected);
+  normalized.partnerConnected = Boolean(normalized.partnerConnected);
+  normalized.streaming = Boolean(normalized.streaming);
+  normalized.includePayloads = Boolean(normalized.includePayloads);
+  normalized.tabId = Number.isFinite(Number(normalized.tabId))
+    ? Math.trunc(Number(normalized.tabId))
+    : (Number.isFinite(fallbackTabId) ? Math.trunc(fallbackTabId) : null);
+
+  return normalized;
+}
 
 function isBeingSupportedMode() {
   return remoteSupportMode === "being_supported";
+}
+
+function isRemoteSupportSupportPage() {
+  return Boolean(document.querySelector(REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR));
 }
 
 function ensureRemoteSupportCursor() {
@@ -197,6 +253,782 @@ function hideRemoteSupportCursor() {
   if (cursor) {
     cursor.hidden = true;
   }
+}
+
+function ensureRemoteSupportTerminateButton() {
+  if (!document.body) {
+    return null;
+  }
+
+  let style = document.getElementById(REMOTE_SUPPORT_TERMINATE_STYLE_ID);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = REMOTE_SUPPORT_TERMINATE_STYLE_ID;
+    style.setAttribute("data-uf-extension-ui", "true");
+    style.textContent = `
+      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID} {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 2147483647;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 999px;
+        background: #cf2338;
+        color: #ffffff;
+        font: 600 13px/1.1 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+        box-shadow: 0 12px 32px rgba(126, 14, 27, 0.35);
+        cursor: pointer;
+      }
+      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID}:hover {
+        background: #b91d31;
+      }
+      #${REMOTE_SUPPORT_TERMINATE_BUTTON_ID}:disabled {
+        cursor: wait;
+        opacity: 0.8;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  let button = document.getElementById(REMOTE_SUPPORT_TERMINATE_BUTTON_ID);
+  if (!button) {
+    button = document.createElement("button");
+    button.id = REMOTE_SUPPORT_TERMINATE_BUTTON_ID;
+    button.type = "button";
+    button.textContent = "Terminate session";
+    button.setAttribute("data-uf-extension-ui", "true");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (remoteSupportTerminatePending) {
+        return;
+      }
+
+      remoteSupportTerminatePending = true;
+      syncRemoteSupportTerminateButton();
+      chrome.runtime.sendMessage({
+        type: "remoteSupportEnd"
+      }).catch(() => {
+        // Ignore transport teardown races.
+      }).finally(() => {
+        remoteSupportTerminatePending = false;
+        syncRemoteSupportTerminateButton();
+      });
+    });
+    (document.body || document.documentElement).appendChild(button);
+  }
+
+  return button;
+}
+
+function syncRemoteSupportTerminateButton() {
+  const button = isBeingSupportedMode() ? ensureRemoteSupportTerminateButton() : document.getElementById(REMOTE_SUPPORT_TERMINATE_BUTTON_ID);
+  if (!button) {
+    return;
+  }
+
+  button.hidden = !isBeingSupportedMode();
+  button.disabled = remoteSupportTerminatePending;
+}
+
+function ensureRemoteSupportSupportPageStyles() {
+  let style = document.getElementById(REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID);
+  if (style) {
+    return style;
+  }
+
+  style = document.createElement("style");
+  style.id = REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID;
+  style.setAttribute("data-uf-extension-ui", "true");
+  style.textContent = `
+    html[data-uf-remote-support-page="true"],
+    body[data-uf-remote-support-page="true"] {
+      margin: 0;
+      min-height: 100vh;
+      background: #09111d;
+    }
+
+    body[data-uf-remote-support-page="true"] {
+      display: block;
+      padding: 0;
+    }
+
+    body[data-uf-remote-support-page="true"] > #${REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID} {
+      display: block;
+      min-height: 100vh;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} {
+      min-height: 100vh;
+      color: #e8edf6;
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} * {
+      box-sizing: border-box;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page {
+      min-height: 100vh;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top left, rgba(84, 132, 212, 0.26), transparent 32%),
+        linear-gradient(180deg, #09111d 0%, #101a2b 100%);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__eyebrow {
+      display: inline-flex;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(108, 169, 255, 0.16);
+      color: #9dc7ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__title {
+      margin: 14px 0 10px;
+      font-size: clamp(32px, 5vw, 54px);
+      line-height: 1.02;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__lede,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__caption,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__status {
+      margin: 0;
+      max-width: 64rem;
+      color: #b7c6dd;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__rail,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage {
+      min-width: 0;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
+      border: 1px solid rgba(182, 209, 246, 0.14);
+      border-radius: 24px;
+      background: rgba(8, 16, 27, 0.84);
+      box-shadow: 0 24px 60px rgba(5, 10, 19, 0.35);
+      backdrop-filter: blur(18px);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card {
+      padding: 20px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta {
+      display: grid;
+      gap: 14px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7ea4d4;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-value {
+      margin-top: 6px;
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__form {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__form input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(143, 177, 222, 0.22);
+      background: rgba(15, 25, 40, 0.9);
+      color: #ffffff;
+      font-size: 18px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__form input:focus,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface:focus-visible {
+      outline: 2px solid #6ca9ff;
+      outline-offset: 2px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__button,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__end {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__button {
+      background: #6ca9ff;
+      color: #08111c;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__button:disabled,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__end:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__end {
+      background: #cf2338;
+      color: #ffffff;
+      box-shadow: 0 14px 32px rgba(126, 14, 27, 0.24);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__end[hidden] {
+      display: none;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
+      position: relative;
+      min-height: 70vh;
+      overflow: hidden;
+      display: grid;
+      place-items: stretch;
+      padding: 0;
+      user-select: none;
+      cursor: crosshair;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface.is-disabled {
+      cursor: not-allowed;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      background: #04080f;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      text-align: center;
+      color: #c4d1e3;
+      font-size: 18px;
+      line-height: 1.6;
+      background:
+        radial-gradient(circle at top, rgba(108, 169, 255, 0.18), transparent 36%),
+        linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(7, 12, 20, 0.98));
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(207, 35, 56, 0.14);
+      border: 1px solid rgba(236, 88, 107, 0.24);
+      color: #ffc3cb;
+      line-height: 1.5;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__caption {
+      margin-top: 14px;
+    }
+
+    @media (max-width: 1080px) {
+      #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__layout {
+        grid-template-columns: 1fr;
+      }
+
+      #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__hero {
+        flex-direction: column;
+      }
+
+      #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
+        min-height: 56vh;
+      }
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+  return style;
+}
+
+function buildRemoteSupportSupportPageStatusText() {
+  if (!remoteSupportSupportPageState.active) {
+    return "Enter the six-digit support code to turn this page into the live remote view.";
+  }
+
+  if (remoteSupportSupportPageState.mode === "supporting") {
+    return remoteSupportSupportPageState.connected
+      ? "Connected. Pointer, scroll, and keyboard input on this surface are sent to the remote page."
+      : "Support session started. Waiting for the requester to finish connecting.";
+  }
+
+  if (remoteSupportSupportPageState.mode === "being_supported") {
+    return "This page is currently being supported remotely.";
+  }
+
+  return "Remote support is active.";
+}
+
+function buildRemoteSupportSupportPageSurfaceText() {
+  if (!remoteSupportSupportPageState.active) {
+    return "Start or join a support session to make this page mirror the remote tab.";
+  }
+
+  if (!remoteSupportSupportPageState.connected) {
+    return "Waiting for the remote page to connect...";
+  }
+
+  return "Connected. Waiting for the first remote frame...";
+}
+
+function canControlFromRemoteSupportSupportPage() {
+  return Boolean(
+    remoteSupportSupportPageState.active &&
+    remoteSupportSupportPageState.mode === "supporting" &&
+    remoteSupportSupportPageState.connected
+  );
+}
+
+function createRemoteSupportSupportPagePointerPayload(event) {
+  if (!event || !event.currentTarget || typeof event.currentTarget.getBoundingClientRect !== "function") {
+    return null;
+  }
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const width = Math.max(1, rect.width || 1);
+  const height = Math.max(1, rect.height || 1);
+  const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / width));
+  const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / height));
+  return { x, y };
+}
+
+async function sendRemoteSupportSupportPageCommand(command) {
+  if (!canControlFromRemoteSupportSupportPage() || !command) {
+    return false;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportSendCommand",
+      command
+    });
+    return Boolean(response && response.ok);
+  } catch (error) {
+    return false;
+  }
+}
+
+function queueRemoteSupportSupportPagePointerMove(pointer) {
+  remoteSupportSupportPagePendingPointerMove = pointer;
+  if (remoteSupportSupportPagePointerMoveRaf) {
+    return;
+  }
+
+  remoteSupportSupportPagePointerMoveRaf = window.requestAnimationFrame(() => {
+    remoteSupportSupportPagePointerMoveRaf = 0;
+    const nextPointer = remoteSupportSupportPagePendingPointerMove;
+    remoteSupportSupportPagePendingPointerMove = null;
+    if (!nextPointer) {
+      return;
+    }
+
+    sendRemoteSupportSupportPageCommand({
+      type: "pointer-move",
+      ...nextPointer
+    }).then();
+  });
+}
+
+function handleRemoteSupportSupportPageJoinCodeInput(event) {
+  remoteSupportSupportPageJoinCode = event && event.target && typeof event.target.value === "string"
+    ? event.target.value.trim().toUpperCase()
+    : "";
+  if (remoteSupportSupportPageElements && remoteSupportSupportPageElements.joinInput) {
+    remoteSupportSupportPageElements.joinInput.value = remoteSupportSupportPageJoinCode;
+  }
+}
+
+async function handleRemoteSupportSupportPageJoin() {
+  if (remoteSupportSupportPageJoinLoading) {
+    return;
+  }
+
+  if (!Number.isFinite(remoteSupportSupportPageTabId)) {
+    await refreshRemoteSupportSupportPageState();
+  }
+
+  const supportCode = remoteSupportSupportPageJoinCode.trim();
+  if (!supportCode) {
+    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+      ...remoteSupportSupportPageState,
+      error: "Enter a valid six-digit support code before joining."
+    });
+    renderRemoteSupportSupportPage();
+    return;
+  }
+
+  const {
+    tokenValue,
+    configEndpointValue
+  } = await loadGlobalAiSettingsForContent();
+
+  if (!configEndpointValue) {
+    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+      ...remoteSupportSupportPageState,
+      error: "Set the Configuration Endpoint in Unfluffify before joining support."
+    });
+    renderRemoteSupportSupportPage();
+    return;
+  }
+
+  if (!tokenValue) {
+    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+      ...remoteSupportSupportPageState,
+      error: "Sign in to Unfluffify before joining a support session."
+    });
+    renderRemoteSupportSupportPage();
+    return;
+  }
+
+  remoteSupportSupportPageJoinLoading = true;
+  renderRemoteSupportSupportPage();
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportJoin",
+      endpointValue: configEndpointValue,
+      tokenValue,
+      tabId: remoteSupportSupportPageTabId,
+      supportCode
+    });
+
+    if (!response || !response.ok) {
+      remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+        ...remoteSupportSupportPageState,
+        error: (response && response.error) || "Unable to join support session"
+      });
+      renderRemoteSupportSupportPage();
+      return;
+    }
+
+    remoteSupportSupportPageJoinCode = "";
+    applyRemoteSupportSupportPageState(response.state || null);
+  } catch (error) {
+    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+      ...remoteSupportSupportPageState,
+      error: error && error.message ? error.message : "Unable to join support session"
+    });
+    renderRemoteSupportSupportPage();
+  } finally {
+    remoteSupportSupportPageJoinLoading = false;
+    renderRemoteSupportSupportPage();
+  }
+}
+
+async function handleRemoteSupportSupportPageEnd() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportEnd"
+    });
+
+    if (response && response.ok) {
+      applyRemoteSupportSupportPageState(response.state || null);
+      return;
+    }
+  } catch (error) {
+    // Fall through to a state refresh.
+  }
+
+  await refreshRemoteSupportSupportPageState();
+}
+
+function ensureRemoteSupportSupportPageUi() {
+  if (!isRemoteSupportSupportPage() || !document.body) {
+    return null;
+  }
+
+  ensureRemoteSupportSupportPageStyles();
+  document.documentElement.setAttribute("data-uf-remote-support-page", "true");
+  document.body.setAttribute("data-uf-remote-support-page", "true");
+
+  const fallback = document.getElementById(REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID);
+  if (fallback) {
+    fallback.hidden = true;
+  }
+
+  let appHost = document.getElementById(REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID);
+  if (!appHost) {
+    appHost = document.createElement("div");
+    appHost.id = REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID;
+    appHost.setAttribute("data-uf-extension-ui", "true");
+    document.body.prepend(appHost);
+  }
+
+  let root = document.getElementById(REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID;
+    root.setAttribute("data-uf-extension-ui", "true");
+    root.innerHTML = `
+      <div class="uf-support-page" data-uf-extension-ui="true">
+        <section class="uf-support-page__hero" data-uf-extension-ui="true">
+          <div data-uf-extension-ui="true">
+            <div class="uf-support-page__eyebrow" data-uf-extension-ui="true">Remote Support</div>
+            <h1 class="uf-support-page__title" data-uf-extension-ui="true">Control the live page from here.</h1>
+            <p class="uf-support-page__lede" data-uf-extension-ui="true">This tab is now the supporter surface. The remote page appears here and your input is forwarded to the requester page.</p>
+          </div>
+          <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
+        </section>
+        <section class="uf-support-page__layout" data-uf-extension-ui="true">
+          <aside class="uf-support-page__rail" data-uf-extension-ui="true">
+            <div class="uf-support-page__card" data-uf-extension-ui="true">
+              <div class="uf-support-page__meta" data-uf-extension-ui="true">
+                <div data-uf-extension-ui="true">
+                  <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Status</div>
+                  <p id="uf-support-page-status" class="uf-support-page__status" data-uf-extension-ui="true"></p>
+                </div>
+                <div id="uf-support-page-code-block" data-uf-extension-ui="true" hidden>
+                  <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support code</div>
+                  <div id="uf-support-page-code" class="uf-support-page__meta-value" data-uf-extension-ui="true">------</div>
+                </div>
+              </div>
+              <form id="uf-support-page-join-form" class="uf-support-page__form" data-uf-extension-ui="true">
+                <label class="uf-support-page__meta-label" for="uf-support-page-join-code" data-uf-extension-ui="true">Join with support code</label>
+                <input id="uf-support-page-join-code" type="text" autocomplete="one-time-code" inputmode="numeric" placeholder="Enter support code" data-uf-extension-ui="true">
+                <button id="uf-support-page-join-button" class="uf-support-page__button" type="submit" data-uf-extension-ui="true">Join support</button>
+              </form>
+              <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true"></div>
+            </div>
+          </aside>
+          <div class="uf-support-page__stage" data-uf-extension-ui="true">
+            <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
+              <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
+              <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
+            </div>
+            <p class="uf-support-page__caption" data-uf-extension-ui="true">Pointer, scroll, and keyboard input on this surface are sent to the remote page once the session is connected.</p>
+          </div>
+        </section>
+      </div>
+    `;
+    appHost.replaceChildren(root);
+
+    remoteSupportSupportPageElements = {
+      root,
+      status: root.querySelector("#uf-support-page-status"),
+      codeBlock: root.querySelector("#uf-support-page-code-block"),
+      codeValue: root.querySelector("#uf-support-page-code"),
+      joinForm: root.querySelector("#uf-support-page-join-form"),
+      joinInput: root.querySelector("#uf-support-page-join-code"),
+      joinButton: root.querySelector("#uf-support-page-join-button"),
+      error: root.querySelector("#uf-support-page-error"),
+      endButton: root.querySelector("#uf-support-page-end"),
+      surface: root.querySelector("#uf-support-page-surface"),
+      frame: root.querySelector("#uf-support-page-frame"),
+      placeholder: root.querySelector("#uf-support-page-placeholder")
+    };
+
+    remoteSupportSupportPageElements.joinForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      handleRemoteSupportSupportPageJoin().then();
+    });
+    remoteSupportSupportPageElements.joinInput.addEventListener("input", handleRemoteSupportSupportPageJoinCodeInput);
+    remoteSupportSupportPageElements.endButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      handleRemoteSupportSupportPageEnd().then();
+    });
+    remoteSupportSupportPageElements.surface.addEventListener("mousemove", (event) => {
+      if (!canControlFromRemoteSupportSupportPage()) {
+        return;
+      }
+      const pointer = createRemoteSupportSupportPagePointerPayload(event);
+      if (!pointer) {
+        return;
+      }
+      queueRemoteSupportSupportPagePointerMove(pointer);
+    });
+    remoteSupportSupportPageElements.surface.addEventListener("click", (event) => {
+      if (!canControlFromRemoteSupportSupportPage()) {
+        return;
+      }
+      const pointer = createRemoteSupportSupportPagePointerPayload(event);
+      if (!pointer) {
+        return;
+      }
+      remoteSupportSupportPageElements.surface.focus({ preventScroll: true });
+      sendRemoteSupportSupportPageCommand({
+        type: "pointer-click",
+        ...pointer,
+        button: Number.isFinite(event.button) ? event.button : 0
+      }).then();
+    });
+    remoteSupportSupportPageElements.surface.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      if (!canControlFromRemoteSupportSupportPage()) {
+        return;
+      }
+      sendRemoteSupportSupportPageCommand({
+        type: "scroll",
+        deltaX: Number(event.deltaX) || 0,
+        deltaY: Number(event.deltaY) || 0
+      }).then();
+    }, { passive: false });
+    remoteSupportSupportPageElements.surface.addEventListener("keydown", (event) => {
+      if (!event || !event.key) {
+        return;
+      }
+      event.preventDefault();
+      if (!canControlFromRemoteSupportSupportPage()) {
+        return;
+      }
+      sendRemoteSupportSupportPageCommand({
+        type: "key",
+        key: String(event.key),
+        code: String(event.code || ""),
+        ctrlKey: Boolean(event.ctrlKey),
+        altKey: Boolean(event.altKey),
+        shiftKey: Boolean(event.shiftKey),
+        metaKey: Boolean(event.metaKey)
+      }).then();
+    });
+    remoteSupportSupportPageElements.surface.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+  }
+
+  return remoteSupportSupportPageElements;
+}
+
+function renderRemoteSupportSupportPage() {
+  const elements = ensureRemoteSupportSupportPageUi();
+  if (!elements) {
+    return;
+  }
+
+  const active = Boolean(remoteSupportSupportPageState.active);
+  const canControl = canControlFromRemoteSupportSupportPage();
+  const errorText = typeof remoteSupportSupportPageState.error === "string"
+    ? remoteSupportSupportPageState.error.trim()
+    : "";
+
+  elements.status.textContent = buildRemoteSupportSupportPageStatusText();
+  elements.codeBlock.hidden = !active;
+  elements.codeValue.textContent = remoteSupportSupportPageState.supportCode || "------";
+  elements.joinForm.hidden = active;
+  elements.joinInput.value = remoteSupportSupportPageJoinCode;
+  elements.joinInput.disabled = active || remoteSupportSupportPageJoinLoading;
+  elements.joinButton.disabled = active || remoteSupportSupportPageJoinLoading || !remoteSupportSupportPageJoinCode || !Number.isFinite(remoteSupportSupportPageTabId);
+  elements.joinButton.textContent = remoteSupportSupportPageJoinLoading ? "Joining..." : "Join support";
+  elements.endButton.hidden = !active;
+  elements.endButton.disabled = !active;
+  elements.error.hidden = !errorText;
+  elements.error.textContent = errorText;
+
+  elements.surface.classList.toggle("is-disabled", !canControl);
+  elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");
+  elements.surface.tabIndex = canControl ? 0 : -1;
+
+  if (active && remoteSupportSupportPageLastFrame) {
+    if (elements.frame.getAttribute("src") !== remoteSupportSupportPageLastFrame) {
+      elements.frame.setAttribute("src", remoteSupportSupportPageLastFrame);
+    }
+    elements.frame.hidden = false;
+    elements.placeholder.hidden = true;
+  } else {
+    elements.frame.hidden = true;
+    elements.frame.removeAttribute("src");
+    elements.placeholder.hidden = false;
+    elements.placeholder.textContent = buildRemoteSupportSupportPageSurfaceText();
+  }
+}
+
+function applyRemoteSupportSupportPageState(nextState) {
+  remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState(nextState);
+  if (Number.isFinite(remoteSupportSupportPageState.tabId)) {
+    remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
+  }
+  if (!remoteSupportSupportPageState.active) {
+    remoteSupportSupportPageLastFrame = "";
+  }
+  renderRemoteSupportSupportPage();
+}
+
+async function refreshRemoteSupportSupportPageState() {
+  if (!isRemoteSupportSupportPage()) {
+    return;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "getRemoteSupportState"
+    });
+
+    if (!response || !response.ok) {
+      applyRemoteSupportSupportPageState({
+        ...remoteSupportSupportPageState,
+        error: "Unable to load the current remote support state."
+      });
+      return;
+    }
+
+    applyRemoteSupportSupportPageState(response.state || null);
+  } catch (error) {
+    applyRemoteSupportSupportPageState({
+      ...remoteSupportSupportPageState,
+      error: error && error.message ? error.message : "Unable to load the current remote support state."
+    });
+  }
+}
+
+function initializeRemoteSupportSupportPage() {
+  if (!isRemoteSupportSupportPage()) {
+    return;
+  }
+
+  if (!document.body) {
+    window.addEventListener("DOMContentLoaded", initializeRemoteSupportSupportPage, { once: true });
+    return;
+  }
+
+  ensureRemoteSupportSupportPageUi();
+  renderRemoteSupportSupportPage();
+  refreshRemoteSupportSupportPageState().then();
 }
 
 function focusRemoteTarget(target) {
@@ -411,6 +1243,11 @@ function handleBlockedLocalExtensionInteraction(event) {
     return;
   }
 
+  const target = event.target && event.target.nodeType === 1 ? event.target : null;
+  if (target && typeof target.closest === "function" && target.closest('[data-uf-extension-ui="true"]')) {
+    return;
+  }
+
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
@@ -561,11 +1398,13 @@ function installRemoteSupportTelemetryBridge() {
 async function loadGlobalAiSettingsForContent() {
   const stored = await utils.storageGet(chrome.storage.sync, {
     globalStageBase: "",
-    globalToken: ""
+    globalToken: "",
+    globalConfigEndpoint: ""
   });
   return {
     stageBaseValue: typeof stored.globalStageBase === "string" ? stored.globalStageBase.trim() : "",
-    tokenValue: typeof stored.globalToken === "string" ? stored.globalToken.trim() : ""
+    tokenValue: typeof stored.globalToken === "string" ? stored.globalToken.trim() : "",
+    configEndpointValue: typeof stored.globalConfigEndpoint === "string" ? stored.globalConfigEndpoint.trim() : ""
   };
 }
 
@@ -3753,6 +4592,8 @@ export function main() {
   }
   state.initialized = true;
 
+  initializeRemoteSupportSupportPage();
+
   core.refreshFromTabState().then(() => {
     refreshEnabledAiHighlights();
     syncSilentHighlightVisibilityFromTabState().then(() => {
@@ -3829,6 +4670,37 @@ export function main() {
       return;
     }
 
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportStateChanged") {
+      if (
+        Number.isFinite(remoteSupportSupportPageTabId) &&
+        Number.isFinite(message.tabId) &&
+        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
+      ) {
+        return;
+      }
+
+      applyRemoteSupportSupportPageState(message.state || null);
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportFrame") {
+      if (
+        Number.isFinite(remoteSupportSupportPageTabId) &&
+        Number.isFinite(message.tabId) &&
+        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
+      ) {
+        return;
+      }
+
+      remoteSupportSupportPageLastFrame = typeof message.frame === "string"
+        ? message.frame
+        : (message.frame && typeof message.frame.dataUrl === "string" ? message.frame.dataUrl : "");
+      renderRemoteSupportSupportPage();
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === "setEnabled") {
       if (message.enabled) {
         state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
@@ -3863,10 +4735,19 @@ export function main() {
       return true;
     }
 
-    if (message.type === "remoteSupportModeChanged") {
-      remoteSupportMode = message.active ? String(message.mode || "inactive") : "inactive";
-      remoteSupportRole = message.active ? String(message.role || "") : "";
-      remoteSupportIncludePayloads = message.active ? Boolean(message.includePayloads) : false;
+    if (message.type === "remoteSupportState" || message.type === "remoteSupportModeChanged") {
+      const remoteSupportState =
+        message.type === "remoteSupportState" && message.state && typeof message.state === "object"
+          ? message.state
+          : message;
+      const active = Boolean(
+        typeof remoteSupportState.active === "boolean"
+          ? remoteSupportState.active
+          : String(remoteSupportState.mode || "inactive") !== "inactive"
+      );
+      remoteSupportMode = active ? String(remoteSupportState.mode || "inactive") : "inactive";
+      remoteSupportRole = active ? String(remoteSupportState.role || "") : "";
+      remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
       if (isBeingSupportedMode()) {
         if (document.activeElement && typeof document.activeElement.blur === "function") {
           document.activeElement.blur();
@@ -3875,11 +4756,12 @@ export function main() {
       } else {
         hideRemoteSupportCursor();
       }
+      syncRemoteSupportTerminateButton();
       sendResponse({ ok: true, mode: remoteSupportMode, role: remoteSupportRole });
       return;
     }
 
-    if (message.type === "remoteSupportExecuteCommand") {
+    if (message.type === "remoteSupportCommand" || message.type === "remoteSupportExecuteCommand") {
       executeRemoteSupportCommand(message.command || null);
       sendResponse({ ok: true });
       return;

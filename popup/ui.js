@@ -492,36 +492,7 @@ function renderRemoteSupportSection(view, handlers) {
     h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
     h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
     supportPageVisible
-      ? h(
-          "label",
-          { class: "field" },
-          h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
-          h(
-            "div",
-            { class: "input-row" },
-            h("input", {
-              id: "remote-support-join-code",
-              type: "text",
-              placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
-              value: view.remoteSupportJoinCode || "",
-              disabled: sessionActive || joining,
-              onInput: handlers.onRemoteSupportJoinCodeInput
-            }),
-            h(
-              "button",
-              {
-                id: "remote-support-join",
-                type: "button",
-                class: classNames(joining && "loading"),
-                disabled: sessionActive || joining || !view.remoteSupportJoinCode,
-                "aria-busy": joining ? "true" : "false",
-                onClick: handlers.onRemoteSupportJoin
-              },
-              icon(joining ? "loading" : "account-switch", joining ? "mdi-spin" : ""),
-              PopupText.configuration.remoteSupportJoinButton
-            )
-          )
-        )
+      ? h("div", { class: "notice" }, PopupText.configuration.remoteSupportPageControlHint)
       : h(
           "button",
           {
@@ -551,27 +522,7 @@ function renderRemoteSupportSection(view, handlers) {
       ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
       : null,
     supporting
-      ? h(
-          "div",
-          {
-            id: "remote-support-control-surface",
-            class: classNames(
-              "remote-support-surface",
-              view.remoteSupportControlDisabled && "remote-support-surface--disabled"
-            ),
-            tabIndex: 0,
-            onMouseMove: handlers.onRemoteSupportSurfaceMouseMove,
-            onClick: handlers.onRemoteSupportSurfaceClick,
-            onWheel: handlers.onRemoteSupportSurfaceWheel,
-            onKeyDown: handlers.onRemoteSupportSurfaceKeyDown
-          },
-          view.remoteSupportPreviewImage
-            ? h("img", {
-                src: view.remoteSupportPreviewImage,
-                alt: PopupText.configuration.remoteSupportSurfaceAlt
-              })
-            : h("div", { class: "hint" }, PopupText.configuration.remoteSupportSurfaceWaiting)
-        )
+      ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
     sessionActive
       ? h(
@@ -593,8 +544,6 @@ function renderRemoteSupportSection(view, handlers) {
 }
 
 function renderRemoteSupportControllerView(view, handlers) {
-  const controlDisabled = Boolean(view.remoteSupportControlDisabled);
-
   return h(
     "section",
     {
@@ -642,28 +591,7 @@ function renderRemoteSupportControllerView(view, handlers) {
         PopupText.configuration.remoteSupportEndButton
       )
     ),
-    h(
-      "div",
-      {
-        id: "remote-support-control-surface",
-        class: classNames(
-          "remote-support-surface",
-          "remote-support-controller__surface",
-          controlDisabled && "remote-support-surface--disabled"
-        ),
-        tabIndex: 0,
-        onMouseMove: handlers.onRemoteSupportSurfaceMouseMove,
-        onClick: handlers.onRemoteSupportSurfaceClick,
-        onWheel: handlers.onRemoteSupportSurfaceWheel,
-        onKeyDown: handlers.onRemoteSupportSurfaceKeyDown
-      },
-      view.remoteSupportPreviewImage
-        ? h("img", {
-            src: view.remoteSupportPreviewImage,
-            alt: PopupText.configuration.remoteSupportSurfaceAlt
-          })
-        : h("div", { class: "hint" }, PopupText.configuration.remoteSupportSurfaceWaiting)
-    )
+    h("div", { class: "notice", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportPageControlHint)
   );
 }
 
