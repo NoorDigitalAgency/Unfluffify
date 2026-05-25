@@ -1320,9 +1320,16 @@ function ensureRemoteSupportSupportPageStyles() {
       text-align: center;
       color: #b7c6dd;
       line-height: 1.6;
+      overflow: auto;
       background:
         radial-gradient(circle at top, rgba(108, 169, 255, 0.14), transparent 34%),
         linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(7, 12, 20, 0.98));
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder-surface.has-snapshot {
+      display: block;
+      padding: 12px;
+      text-align: left;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-caption {
@@ -2096,6 +2103,122 @@ function appendRemoteSupportSupportPageSidebarSection(parent, title, items) {
   parent.appendChild(section);
 }
 
+function replaceRemoteSupportSupportPageChildren(parent, children = []) {
+  if (!parent) {
+    return;
+  }
+
+  parent.textContent = "";
+  children.forEach((child) => {
+    if (child) {
+      parent.appendChild(child);
+    }
+  });
+}
+
+function setRemoteSupportSupportPageSidebarPlaceholderText(placeholder, text) {
+  if (!placeholder) {
+    return;
+  }
+
+  placeholder.classList.remove("has-snapshot");
+  placeholder.textContent = text;
+}
+
+function renderRemoteSupportSupportPageSidebarSnapshot(placeholder, snapshot) {
+  if (!placeholder) {
+    return;
+  }
+
+  placeholder.classList.add("has-snapshot");
+
+  const shell = document.createElement("div");
+  shell.className = "uf-support-page__sidebar-shell";
+  shell.setAttribute("data-uf-extension-ui", "true");
+
+  const header = document.createElement("div");
+  header.className = "uf-support-page__sidebar-header";
+  header.setAttribute("data-uf-extension-ui", "true");
+  header.append(
+    createRemoteSupportSupportPageTextNode("h3", "uf-support-page__sidebar-title", "Unfluffify sidebar"),
+    createRemoteSupportSupportPageTextNode("span", "uf-support-page__sidebar-pill", snapshot.currentView || "Live")
+  );
+  shell.appendChild(header);
+
+  const details = document.createElement("div");
+  details.className = "uf-support-page__sidebar-details";
+  details.setAttribute("data-uf-extension-ui", "true");
+  appendRemoteSupportSupportPageSidebarDetail(details, "Page", snapshot.currentPageUrl);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Base URL", snapshot.currentBaseUrl);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Mode", snapshot.renderModeValue);
+  if (details.children.length) {
+    shell.appendChild(details);
+  }
+
+  const statusItems = [
+    snapshot.remoteSupportStatusText,
+    snapshot.pageDraftStatusText,
+    snapshot.syncLoadStatusText,
+    snapshot.syncSaveStatusText,
+    ...snapshot.notices
+  ].filter(Boolean);
+  if (statusItems.length) {
+    const statusList = document.createElement("ul");
+    statusList.className = "uf-support-page__sidebar-status-list";
+    statusList.setAttribute("data-uf-extension-ui", "true");
+    statusItems.forEach((item) => {
+      statusList.appendChild(createRemoteSupportSupportPageTextNode("li", "", item));
+    });
+    shell.appendChild(statusList);
+  }
+
+  if (Array.isArray(snapshot.summaryRows) && snapshot.summaryRows.length) {
+    const rows = document.createElement("div");
+    rows.className = "uf-support-page__sidebar-rows";
+    rows.setAttribute("data-uf-extension-ui", "true");
+    snapshot.summaryRows.forEach((row) => {
+      const label = row && typeof row.label === "string" ? row.label : "";
+      const value = row && typeof row.value === "string" ? row.value : "";
+      if (!label && !value) {
+        return;
+      }
+
+      const rowNode = document.createElement("div");
+      rowNode.className = "uf-support-page__sidebar-row";
+      rowNode.setAttribute("data-uf-extension-ui", "true");
+      rowNode.append(
+        createRemoteSupportSupportPageTextNode("span", "", label),
+        createRemoteSupportSupportPageTextNode("strong", "", value)
+      );
+      rows.appendChild(rowNode);
+    });
+    if (rows.children.length) {
+      shell.appendChild(rows);
+    }
+  }
+
+  const sections = document.createElement("div");
+  sections.className = "uf-support-page__sidebar-sections";
+  sections.setAttribute("data-uf-extension-ui", "true");
+  appendRemoteSupportSupportPageSidebarSection(sections, "Marked pages", snapshot.markedPages);
+  appendRemoteSupportSupportPageSidebarSection(sections, "Page type groups", snapshot.pageTypeGroups);
+  if (sections.children.length) {
+    shell.appendChild(sections);
+  }
+
+  if (shell.children.length <= 1) {
+    shell.appendChild(
+      createRemoteSupportSupportPageTextNode(
+        "div",
+        "uf-support-page__sidebar-placeholder",
+        "Sidebar state is connected. Waiting for live video frames from the requester side panel."
+      )
+    );
+  }
+
+  replaceRemoteSupportSupportPageChildren(placeholder, [shell]);
+}
+
 function renderRemoteSupportSupportPageSidebar() {
   const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
   if (!elements || !elements.sidebarSurface || !elements.sidebarFrame || !elements.sidebarPlaceholder) {
@@ -2121,16 +2244,22 @@ function renderRemoteSupportSupportPageSidebar() {
   elements.sidebarPlaceholder.hidden = false;
 
   if (!remoteSupportSupportPageState.active) {
-    elements.sidebarPlaceholder.textContent = "Join a support session to mirror the supportee's Unfluffify sidebar here.";
+    setRemoteSupportSupportPageSidebarPlaceholderText(
+      elements.sidebarPlaceholder,
+      "Join a support session to mirror the supportee's Unfluffify sidebar here."
+    );
     return;
   }
 
   if (snapshot.active) {
-    elements.sidebarPlaceholder.textContent = "Connected. Waiting for the live remote sidebar surface. If it does not appear, open the Unfluffify side panel on the requester tab.";
+    renderRemoteSupportSupportPageSidebarSnapshot(elements.sidebarPlaceholder, snapshot);
     return;
   }
 
-  elements.sidebarPlaceholder.textContent = "Waiting for the requester to publish a live Unfluffify sidebar surface. Open the Unfluffify side panel on the requester tab if it is not already open.";
+  setRemoteSupportSupportPageSidebarPlaceholderText(
+    elements.sidebarPlaceholder,
+    "Waiting for the requester to publish a live Unfluffify sidebar surface. Open the Unfluffify side panel on the requester tab if it is not already open."
+  );
 }
 
 function getRemoteSupportSupportPageSurfaceCursorValue() {

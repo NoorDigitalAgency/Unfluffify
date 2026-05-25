@@ -907,6 +907,9 @@ async function drawRequesterSidebarFrame(runtime, frame, width, height) {
       runtime.sidebarCaptureCanvas.width,
       runtime.sidebarCaptureCanvas.height
     );
+    if (runtime.sidebarCaptureTrack && typeof runtime.sidebarCaptureTrack.requestFrame === "function") {
+      runtime.sidebarCaptureTrack.requestFrame();
+    }
   } finally {
     closeFrameSource(source);
   }

@@ -3635,15 +3635,8 @@ function normalizeRemoteSupportSidebarListItem(candidate) {
 }
 
 function buildRemoteSupportSidebarSnapshot(viewState = uiModule.getViewState()) {
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  if (
-    currentTabId === null ||
-    !scopedState.active ||
-    scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
-  ) {
+  const publicationContext = getRemoteSupportSidebarPublicationContext();
+  if (!publicationContext || publicationContext.tabId === null) {
     return createInactiveRemoteSupportSidebarSnapshot();
   }
 
@@ -3753,19 +3746,44 @@ function buildRemoteSupportSidebarSnapshot(viewState = uiModule.getViewState()) 
 }
 
 function getRemoteSupportSidebarStreamTabId(remoteSupportState = state.remoteSupportState) {
+  const publicationContext = getRemoteSupportSidebarPublicationContext(remoteSupportState);
+  return publicationContext ? publicationContext.tabId : null;
+}
+
+function getRemoteSupportSidebarPublicationContext(remoteSupportState = state.remoteSupportState) {
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
   const scopedState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  if (
-    currentTabId === null ||
-    !scopedState.active ||
-    scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
-  ) {
-    return null;
+  if (currentTabId !== null && scopedState.active && scopedState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return {
+      tabId: currentTabId,
+      state: scopedState
+    };
   }
 
-  return currentTabId;
+  const stateTabId = remoteSupportState && Number.isFinite(Number(remoteSupportState.tabId))
+    ? Math.trunc(Number(remoteSupportState.tabId))
+    : null;
+  if (stateTabId === null || stateTabId === currentTabId) {
+    return {
+      tabId: null,
+      state: null
+    };
+  }
+
+  const remoteScopedState = scopeRemoteSupportStateToTab(remoteSupportState, stateTabId);
+  if (remoteScopedState.active && remoteScopedState.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return {
+      tabId: stateTabId,
+      state: remoteScopedState
+    };
+  }
+
+  return {
+    tabId: null,
+    state: null
+  };
 }
 
 function ensureRemoteSupportSidebarStreamChannel() {
@@ -4341,9 +4359,7 @@ async function flushRemoteSupportSidebarSnapshotSync() {
     return;
   }
 
-  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
+  const tabId = getRemoteSupportSidebarStreamTabId();
   if (tabId === null) {
     return;
   }
