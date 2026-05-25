@@ -376,6 +376,239 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   }
 });
 
+test("remote support offscreen queues ICE candidates received before the remote description", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const connectedPortNames = [];
+  const backgroundEvents = [];
+  const sockets = [];
+  const peerConnections = [];
+
+  class FakeDataChannel {
+    constructor() {
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+      this.appliedIceCandidates = [];
+      peerConnections.push(this);
+    }
+
+    createDataChannel() {
+      return new FakeDataChannel();
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      if (!this.remoteDescription) {
+        throw new Error("Remote description required before ICE");
+      }
+
+      this.appliedIceCandidates.push(candidate);
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+      sockets.push(this);
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect({ name }) {
+        connectedPortNames.push(name);
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-queued-ice`);
+
+    assert.deepEqual(connectedPortNames, [REMOTE_SUPPORT_PORT_TRANSPORT]);
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_queued_ice",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(sockets.length, 1);
+    assert.equal(peerConnections.length, 1);
+
+    const candidate = {
+      candidate: "candidate:1 1 UDP 2122252543 203.0.113.1 3478 typ host",
+      sdpMid: "0",
+      sdpMLineIndex: 0
+    };
+
+    sockets[0].onmessage({
+      data: JSON.stringify({
+        type: "signal",
+        payload: {
+          signalType: "ice",
+          sessionId: "sess_queued_ice",
+          role: "requester",
+          candidate
+        }
+      })
+    });
+
+    await delay(0);
+
+    assert.deepEqual(peerConnections[0].appliedIceCandidates, []);
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "transport-error"
+      ),
+      false
+    );
+
+    sockets[0].onmessage({
+      data: JSON.stringify({
+        type: "signal",
+        payload: {
+          signalType: "answer",
+          sessionId: "sess_queued_ice",
+          role: "requester",
+          description: {
+            type: "answer",
+            sdp: "answer-sdp"
+          }
+        }
+      })
+    });
+
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(peerConnections[0].appliedIceCandidates, [candidate]);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});
+
 test("remote support offscreen rejects start requests without ICE servers", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;

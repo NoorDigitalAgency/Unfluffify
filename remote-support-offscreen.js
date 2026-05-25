@@ -138,11 +138,27 @@ function createTransportRuntime(session) {
     role: session.role,
     wsUrl: session.wsUrl.trim(),
     iceServers: normalizeIceServers(session.iceServers),
+    pendingIceCandidates: [],
     signalingSocket: null,
     peerConnection: null,
     dataChannel: null,
     shuttingDown: false
   };
+}
+
+function hasRemoteDescription(peerConnection) {
+  return Boolean(peerConnection && peerConnection.remoteDescription);
+}
+
+async function flushPendingIceCandidates(runtime, peerConnection = runtime && runtime.peerConnection) {
+  if (!runtime || !peerConnection || !hasRemoteDescription(peerConnection)) {
+    return;
+  }
+
+  while (runtime.pendingIceCandidates.length) {
+    const candidate = runtime.pendingIceCandidates.shift();
+    await peerConnection.addIceCandidate(candidate);
+  }
 }
 
 function postTransportEvent(event) {
@@ -236,6 +252,7 @@ function resetTransportResources(runtime) {
 
   runtime.dataChannel = null;
   runtime.peerConnection = null;
+  runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
 }
 
@@ -516,61 +533,73 @@ async function connectSignalingSocket(runtime) {
       return;
     }
 
-    const message = parseTransportMessage(event && event.data);
-    if (!message) {
-      return;
-    }
-
-    if (message.type === "partner-ready") {
-      postTransportEvent({
-        type: "partner-ready",
-        sessionId: runtime.sessionId
-      });
-      return;
-    }
-
-    if (message.type === "session-ended") {
-      const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
-      if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
+    try {
+      const message = parseTransportMessage(event && event.data);
+      if (!message) {
         return;
       }
 
-      await shutdownTransport(
-        runtime.sessionId,
-        isNonEmptyString(payload.reason) ? payload.reason : "Session ended",
-        { notifyBackground: true }
-      );
-      return;
-    }
+      if (message.type === "partner-ready") {
+        postTransportEvent({
+          type: "partner-ready",
+          sessionId: runtime.sessionId
+        });
+        return;
+      }
 
-    if (message.type !== "signal") {
-      return;
-    }
+      if (message.type === "session-ended") {
+        const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+        if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
+          return;
+        }
 
-    const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
-    if (payload.sessionId !== runtime.sessionId) {
-      return;
-    }
+        await shutdownTransport(
+          runtime.sessionId,
+          isNonEmptyString(payload.reason) ? payload.reason : "Session ended",
+          { notifyBackground: true }
+        );
+        return;
+      }
 
-    const activePeerConnection = await ensurePeerConnection(runtime, offerer);
+      if (message.type !== "signal") {
+        return;
+      }
 
-    if (payload.signalType === "offer" && payload.description) {
-      await activePeerConnection.setRemoteDescription(payload.description);
-      const answer = await activePeerConnection.createAnswer();
-      await activePeerConnection.setLocalDescription(answer);
-      sendSignal(runtime, "answer", {
-        description: answer
-      });
-      return;
-    }
+      const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+      if (payload.sessionId !== runtime.sessionId) {
+        return;
+      }
 
-    if (payload.signalType === "answer" && payload.description) {
-      await activePeerConnection.setRemoteDescription(payload.description);
-      return;
-    }
+      const activePeerConnection = await ensurePeerConnection(runtime, offerer);
 
-    if (payload.signalType === "ice" && payload.candidate) {
-      await activePeerConnection.addIceCandidate(payload.candidate);
+      if (payload.signalType === "offer" && payload.description) {
+        await activePeerConnection.setRemoteDescription(payload.description);
+        await flushPendingIceCandidates(runtime, activePeerConnection);
+
+        const answer = await activePeerConnection.createAnswer();
+        await activePeerConnection.setLocalDescription(answer);
+        sendSignal(runtime, "answer", {
+          description: answer
+        });
+        return;
+      }
+
+      if (payload.signalType === "answer" && payload.description) {
+        await activePeerConnection.setRemoteDescription(payload.description);
+        await flushPendingIceCandidates(runtime, activePeerConnection);
+        return;
+      }
+
+      if (payload.signalType === "ice" && payload.candidate) {
+        if (!hasRemoteDescription(activePeerConnection)) {
+          runtime.pendingIceCandidates.push(payload.candidate);
+          return;
+        }
+
+        await activePeerConnection.addIceCandidate(payload.candidate);
+      }
+    } catch (error) {
+      handleFatalTransportError(runtime.sessionId, error);
     }
   };
 }
