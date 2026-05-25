@@ -44,3 +44,33 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
   });
   return broadestMarkableAncestor;
 }
+
+export function isEligibleExpandedExclusionBoundary(options = {}) {
+  const hasDirectOwnText = Boolean(options.hasDirectOwnText);
+  const textualDescendantCount = Number.isFinite(options.textualDescendantCount)
+    ? Math.max(0, Math.trunc(options.textualDescendantCount))
+    : 0;
+  return hasDirectOwnText || textualDescendantCount > 1;
+}
+
+export function shouldAllowExplicitIncludeDescendantTarget(options = {}) {
+  if (!options.insideExplicitIncludeAncestor) {
+    return true;
+  }
+  return Boolean(options.isExactExplicitInclude);
+}
+
+export function getExplicitMarkingPresentation(options = {}) {
+  const type = options.type === "include" ? "include" : "exclude";
+  const visible = Boolean(options.visible);
+  if (visible) {
+    return {
+      ghost: false,
+      className: type === "include" ? "uf-explicit-include" : "uf-explicit-exclude"
+    };
+  }
+  return {
+    ghost: true,
+    className: type === "include" ? "uf-ghost-include" : "uf-ghost-exclude"
+  };
+}

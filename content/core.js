@@ -16,6 +16,9 @@ import {
 } from "./shared-inclusion.js";
 import {
   chooseExcludeParentBoundaryTarget,
+  getExplicitMarkingPresentation,
+  isEligibleExpandedExclusionBoundary,
+  shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
@@ -2150,7 +2153,7 @@ function isExplicitlyExcludedElement(el, excludedSet) {
   return Boolean(xpath && excludedSet.has(xpath));
 }
 
-function getMutationRenderMode(mutations) {
+export function getMutationRenderMode(mutations) {
   let mode = "none";
   for (const mutation of mutations) {
     const targetNode =
@@ -2168,7 +2171,7 @@ function getMutationRenderMode(mutations) {
       ) {
         return "rebuild";
       }
-      if (name === "hidden" || name === "aria-hidden") {
+      if (name === "hidden" || name === "aria-hidden" || name === "style") {
         mode = "reposition";
       }
       continue;
@@ -2215,6 +2218,18 @@ function isExplicitlyIncludedElement(el, includeSet) {
   return Boolean(xpath && includeSet.has(xpath));
 }
 
+function isWithinExplicitIncludeXpath(xpath, includeSet) {
+  if (!xpath || !includeSet || includeSet.size === 0) {
+    return false;
+  }
+  for (const includeXpath of includeSet) {
+    if (includeXpath && includeXpath !== xpath && isXPathDescendant(includeXpath, xpath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function createOverlay() {
   if (state.overlay) {
     return;
@@ -2255,6 +2270,15 @@ function createOverlay() {
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
+      #unfluffify-overlay .uf-layer[data-layer="ghost"] { z-index: 1; }
+      #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
+      #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
+      #unfluffify-overlay .uf-layer[data-layer="ai-content-excluded"] { z-index: 4; }
+      #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
+      #unfluffify-overlay .uf-layer[data-layer="ai-content"] { z-index: 6; }
+      #unfluffify-overlay .uf-layer[data-layer="explicit-include"] { z-index: 7; }
+      #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 8; }
+      #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
         opacity: 0;
       }
@@ -2284,8 +2308,18 @@ function createOverlay() {
         background: rgba(183, 28, 28, 0.12);
       }
       #unfluffify-overlay .uf-hard-locked {
-        border: 2px dashed #9c6b6b;
-        background: rgba(183, 28, 28, 0.08);
+        border: 1px dashed rgba(156, 107, 107, 0.45);
+        background: transparent;
+      }
+      #unfluffify-overlay .uf-ghost-exclude {
+        border: 2px dashed rgba(198, 40, 40, 0.45);
+        background: transparent;
+        opacity: 0.55;
+      }
+      #unfluffify-overlay .uf-ghost-include {
+        border: 2px dotted rgba(46, 125, 50, 0.45);
+        background: transparent;
+        opacity: 0.55;
       }
       #unfluffify-overlay .uf-default {
         border: 1px solid #2e7d32;
@@ -2356,6 +2390,7 @@ function createOverlay() {
   overlay.id = "unfluffify-overlay";
 
   const layerKeys = [
+    "ghost",
     "hard",
     "explicit-exclude",
     "explicit-include",
@@ -3046,7 +3081,10 @@ function hasMultipleMarkableDescendants(el) {
     }
     if (isSelfMarkableWithoutParentMode(node, options)) {
       markableCount += 1;
-      if (markableCount >= 1) {
+      if (isEligibleExpandedExclusionBoundary({
+        hasDirectOwnText: hasDirectText(el),
+        textualDescendantCount: markableCount
+      })) {
         return true;
       }
     }
@@ -3250,12 +3288,20 @@ function getMarkableTarget(x, y, options) {
         xpath && excludedSet && excludedSet.size > 0 && excludedSet.has(xpath);
       const explicitlyIncluded =
         xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
+      const withinExplicitIncludedParent =
+        xpath && includeSet && includeSet.size > 0 && isWithinExplicitIncludeXpath(xpath, includeSet);
       const withinExplicitExcludedParent =
         !allowExcludedParentChildren &&
         xpath &&
         explicitParentSet &&
         explicitParentSet.size > 0 &&
         isWithinExplicitExcludedXpath(xpath, explicitParentSet);
+      if (!shouldAllowExplicitIncludeDescendantTarget({
+        insideExplicitIncludeAncestor: withinExplicitIncludedParent,
+        isExactExplicitInclude: explicitlyIncluded
+      })) {
+        continue;
+      }
       if (withinExplicitExcludedParent && !explicitlyIncluded) {
         continue;
       }
@@ -3284,6 +3330,13 @@ function getMarkableTarget(x, y, options) {
         allowExplicitTarget && isExplicitlyExcludedElement(el, excludedSet);
     const explicitlyIncluded =
         allowExplicitTarget && isExplicitlyIncludedElement(el, includeSet);
+    const xpath = includeSet && includeSet.size > 0 ? getXPath(el) : "";
+    if (!shouldAllowExplicitIncludeDescendantTarget({
+      insideExplicitIncludeAncestor: isWithinExplicitIncludeXpath(xpath, includeSet),
+      isExactExplicitInclude: Boolean(xpath && includeSet && includeSet.has(xpath))
+    })) {
+      continue;
+    }
     if (
       requireExcludedAncestor &&
       !explicitlyExcluded &&
@@ -4085,6 +4138,7 @@ function renderHighlightsInner() {
     }
   }
 
+  const hiddenStoredExplicitInclude = [];
   const filteredExplicitInclude = [];
   for (const el of explicitInclude) {
     if (
@@ -4093,6 +4147,10 @@ function renderHighlightsInner() {
       !isWithinElementSet(el, consentExcluded) &&
       !explicitExclude.has(el)
     ) {
+      if (!isVisible(el)) {
+        hiddenStoredExplicitInclude.push(el);
+        continue;
+      }
       filteredExplicitInclude.push(el);
     }
   }
@@ -4101,8 +4159,7 @@ function renderHighlightsInner() {
     : [];
 
   const hardExcludedSet = new Set([
-    ...immutableExcluded,
-    ...hiddenStoredExplicitExclude
+    ...immutableExcluded
   ]);
 
   const defaultTargets = collectDefaultHighlightTargets(document.body, {
@@ -4120,6 +4177,12 @@ function renderHighlightsInner() {
   });
 
   const collections = {
+    ghostExcludeElements: hiddenStoredExplicitExclude.filter((el) =>
+      hasRenderableTextForHighlight(el, null, null, null)
+    ),
+    ghostIncludeElements: hiddenStoredExplicitInclude.filter((el) =>
+      hasRenderableTextForHighlight(el, null, null, null)
+    ),
     hardElements: Array.from(hardExcludedSet).filter((el) =>
       !isWithinElementSet(el, consentExcluded) &&
       hasRenderableTextForHighlight(el, null, null, null)
@@ -4158,6 +4221,7 @@ function repositionHighlights(collections) {
 }
 
 function drawCollections(collections, getRects) {
+  const layerGhostState = beginLayerRender(state.layers["ghost"]);
   const layerHardState = beginLayerRender(state.layers["hard"]);
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
@@ -4165,6 +4229,26 @@ function drawCollections(collections, getRects) {
   const layerAiContentExcludedState = beginLayerRender(state.layers["ai-content-excluded"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
+
+  for (const el of collections.ghostExcludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude", visible: false });
+      drawMultiRectReuse(
+        layerGhostState, rects, presentation.className, el, "ghost-exclude", null
+      );
+    }
+  }
+
+  for (const el of collections.ghostIncludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", visible: false });
+      drawMultiRectReuse(
+        layerGhostState, rects, presentation.className, el, "ghost-include", null
+      );
+    }
+  }
 
   for (const el of collections.hardElements) {
     const rects = getRects(el);
@@ -4178,8 +4262,14 @@ function drawCollections(collections, getRects) {
   for (const el of collections.explicitExcludeElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude", visible: true });
       drawMultiRectReuse(
-        layerExplicitExcludeState, rects, "uf-explicit-exclude", el, "explicit-exclude", markedElements
+        layerExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "explicit-exclude",
+        markedElements
       );
     }
   }
@@ -4187,10 +4277,11 @@ function drawCollections(collections, getRects) {
   for (const el of collections.explicitIncludeElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", visible: true });
       drawMultiRectReuse(
         layerExplicitIncludeState,
         rects,
-        "uf-explicit-include",
+        presentation.className,
         el,
         "explicit-include",
         markedElements
@@ -4244,6 +4335,7 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  finalizeLayerRender(layerGhostState);
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
@@ -4290,7 +4382,7 @@ function startObservers() {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["class", "id", "hidden", "aria-hidden"]
+        attributeFilter: ["class", "id", "hidden", "aria-hidden", "style"]
       });
     } catch (error) {
       // Silently handle if body is not available

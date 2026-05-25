@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { isVisible, state } from "../content/core.js";
+import { getMutationRenderMode, isVisible, state } from "../content/core.js";
 
 const defaultStyle = {
   display: "block",
@@ -33,6 +33,9 @@ function createElement(options = {}) {
     },
     getAttribute(name) {
       return attrs.has(name) ? attrs.get(name) : null;
+    },
+    hasAttribute(name) {
+      return attrs.has(name);
     },
     getBoundingClientRect() {
       return options.rect || { top: 0, right: 100, bottom: 20, left: 0, width: 100, height: 20 };
@@ -98,5 +101,20 @@ test("visibility collapse fails the visibility guard", () => {
   withVisibilityDom(({ body }) => {
     const element = createElement({ parentElement: body, style: { visibility: "collapse" } });
     assert.equal(isVisible(element), false);
+  });
+});
+
+test("style mutations trigger overlay repositioning for dynamic visibility changes", () => {
+  withVisibilityDom(({ body }) => {
+    assert.equal(
+      getMutationRenderMode([
+        {
+          type: "attributes",
+          attributeName: "style",
+          target: body
+        }
+      ]),
+      "reposition"
+    );
   });
 });
