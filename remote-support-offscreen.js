@@ -10,7 +10,6 @@ const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
-const REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_RATE = 12;
 const REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH = 420;
 const REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT = 760;
 
@@ -738,7 +737,7 @@ async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
   runtime.sidebarCaptureContext = context;
   setRequesterSidebarCaptureSize(runtime, REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH, REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT);
 
-  const stream = canvas.captureStream(REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_RATE);
+  const stream = canvas.captureStream();
   const track = stream && typeof stream.getVideoTracks === "function"
     ? stream.getVideoTracks()[0]
     : null;

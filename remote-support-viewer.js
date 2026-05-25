@@ -6,7 +6,6 @@ import {
 
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
-const REMOTE_SUPPORT_SIDEBAR_FRAME_INTERVAL_MS = 90;
 
 const dataChannelTextEncoder = new TextEncoder();
 
@@ -261,7 +260,8 @@ function createTransportRuntime(session) {
     remoteStream: null,
     sidebarStream: null,
     remoteVideoSurfaceCount: 0,
-    sidebarFrameTimer: 0,
+    sidebarFrameRequestId: 0,
+    sidebarFrameRafId: 0,
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
@@ -668,9 +668,7 @@ function resetTransportResources(runtime) {
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
   detachRemoteStream();
-  if (runtime.sidebarFrameTimer) {
-    window.clearTimeout(runtime.sidebarFrameTimer);
-  }
+  cancelSidebarFrameRelay(runtime);
 
   runtime.dataChannels.clear();
   runtime.peerConnection = null;
@@ -679,7 +677,8 @@ function resetTransportResources(runtime) {
   runtime.remoteStream = null;
   runtime.sidebarStream = null;
   runtime.remoteVideoSurfaceCount = 0;
-  runtime.sidebarFrameTimer = 0;
+  runtime.sidebarFrameRequestId = 0;
+  runtime.sidebarFrameRafId = 0;
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
 }
@@ -710,13 +709,39 @@ function sendResponse(requestId, response) {
   postPortMessage({ type: "response", requestId, response });
 }
 
-function scheduleSidebarFrameRelay(runtime) {
-  if (!runtime || runtime.sidebarFrameTimer) {
+function cancelSidebarFrameRelay(runtime) {
+  if (!runtime) {
     return;
   }
 
-  runtime.sidebarFrameTimer = window.setTimeout(() => {
-    runtime.sidebarFrameTimer = 0;
+  const elements = ensureViewerElements();
+  const video = elements.sidebarVideo;
+  if (
+    runtime.sidebarFrameRequestId &&
+    video &&
+    typeof video.cancelVideoFrameCallback === "function"
+  ) {
+    try {
+      video.cancelVideoFrameCallback(runtime.sidebarFrameRequestId);
+    } catch (error) {
+      // Ignore callback cancellation races.
+    }
+  }
+
+  if (runtime.sidebarFrameRafId) {
+    window.cancelAnimationFrame(runtime.sidebarFrameRafId);
+  }
+
+  runtime.sidebarFrameRequestId = 0;
+  runtime.sidebarFrameRafId = 0;
+}
+
+function scheduleSidebarFrameRelay(runtime) {
+  if (!runtime || runtime.sidebarFrameRequestId || runtime.sidebarFrameRafId) {
+    return;
+  }
+
+  const relayFrame = () => {
     const currentRuntime = getTransportRuntime(runtime.sessionId);
     if (!currentRuntime || currentRuntime.shuttingDown) {
       return;
@@ -755,7 +780,22 @@ function scheduleSidebarFrameRelay(runtime) {
     }
 
     scheduleSidebarFrameRelay(currentRuntime);
-  }, REMOTE_SUPPORT_SIDEBAR_FRAME_INTERVAL_MS);
+  };
+
+  const elements = ensureViewerElements();
+  const video = elements.sidebarVideo;
+  if (video && typeof video.requestVideoFrameCallback === "function") {
+    runtime.sidebarFrameRequestId = video.requestVideoFrameCallback(() => {
+      runtime.sidebarFrameRequestId = 0;
+      relayFrame();
+    });
+    return;
+  }
+
+  runtime.sidebarFrameRafId = window.requestAnimationFrame(() => {
+    runtime.sidebarFrameRafId = 0;
+    relayFrame();
+  });
 }
 
 function attachRemoteStream(runtime, streamLike, track = null) {

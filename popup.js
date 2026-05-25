@@ -91,7 +91,6 @@ const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
-const REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_INTERVAL_MS = 90;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY = 0.72;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
@@ -163,8 +162,11 @@ let pendingRemoteSupportSidebarSnapshot = null;
 let pendingRemoteSupportSidebarSnapshotKey = "";
 let lastRemoteSupportSidebarSnapshotKey = "";
 let remoteSupportSidebarStreamChannel = null;
-let remoteSupportSidebarStreamTimer = 0;
+let remoteSupportSidebarStreamAnimationFrame = 0;
 let remoteSupportSidebarStreamCaptureInFlight = false;
+let remoteSupportSidebarStreamDirty = false;
+let remoteSupportSidebarStreamObserver = null;
+let remoteSupportSidebarStreamListenersBound = false;
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -3803,10 +3805,45 @@ function postRemoteSupportSidebarStreamMessage(message) {
 }
 
 function stopRemoteSupportSidebarStreamPublishing() {
-  if (remoteSupportSidebarStreamTimer) {
-    window.clearTimeout(remoteSupportSidebarStreamTimer);
-    remoteSupportSidebarStreamTimer = 0;
+  if (remoteSupportSidebarStreamAnimationFrame) {
+    window.cancelAnimationFrame(remoteSupportSidebarStreamAnimationFrame);
+    remoteSupportSidebarStreamAnimationFrame = 0;
   }
+
+  remoteSupportSidebarStreamDirty = false;
+}
+
+function ensureRemoteSupportSidebarStreamObservation() {
+  if (!remoteSupportSidebarStreamListenersBound) {
+    remoteSupportSidebarStreamListenersBound = true;
+
+    window.addEventListener("resize", () => {
+      scheduleRemoteSupportSidebarStreamCapture();
+    });
+    document.addEventListener("scroll", () => {
+      scheduleRemoteSupportSidebarStreamCapture();
+    }, true);
+    document.addEventListener("input", () => {
+      scheduleRemoteSupportSidebarStreamCapture();
+    }, true);
+    document.addEventListener("change", () => {
+      scheduleRemoteSupportSidebarStreamCapture();
+    }, true);
+  }
+
+  if (remoteSupportSidebarStreamObserver || typeof MutationObserver !== "function" || !document.documentElement) {
+    return;
+  }
+
+  remoteSupportSidebarStreamObserver = new MutationObserver(() => {
+    scheduleRemoteSupportSidebarStreamCapture();
+  });
+  remoteSupportSidebarStreamObserver.observe(document.documentElement, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
 }
 
 function focusRemoteSupportSidebarTarget(target) {
@@ -4158,15 +4195,25 @@ function scheduleRemoteSupportSidebarStreamCapture() {
     return;
   }
 
+  ensureRemoteSupportSidebarStreamObservation();
   ensureRemoteSupportSidebarStreamChannel();
-  if (remoteSupportSidebarStreamTimer || remoteSupportSidebarStreamCaptureInFlight) {
+  remoteSupportSidebarStreamDirty = true;
+
+  if (remoteSupportSidebarStreamAnimationFrame || remoteSupportSidebarStreamCaptureInFlight) {
     return;
   }
 
-  remoteSupportSidebarStreamTimer = window.setTimeout(() => {
-    remoteSupportSidebarStreamTimer = 0;
-    flushRemoteSupportSidebarStreamCapture(activeTabId).then();
-  }, REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_INTERVAL_MS);
+  remoteSupportSidebarStreamAnimationFrame = window.requestAnimationFrame(() => {
+    remoteSupportSidebarStreamAnimationFrame = 0;
+    const nextTabId = getRemoteSupportSidebarStreamTabId();
+    if (nextTabId === null) {
+      stopRemoteSupportSidebarStreamPublishing();
+      return;
+    }
+
+    remoteSupportSidebarStreamDirty = false;
+    flushRemoteSupportSidebarStreamCapture(nextTabId).then();
+  });
 }
 
 async function flushRemoteSupportSidebarStreamCapture(tabId) {
@@ -4197,7 +4244,9 @@ async function flushRemoteSupportSidebarStreamCapture(tabId) {
     // Ignore transient capture failures while the popup is rerendering.
   } finally {
     remoteSupportSidebarStreamCaptureInFlight = false;
-    scheduleRemoteSupportSidebarStreamCapture();
+    if (remoteSupportSidebarStreamDirty) {
+      scheduleRemoteSupportSidebarStreamCapture();
+    }
   }
 }
 
