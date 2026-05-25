@@ -566,13 +566,21 @@ async function startTransport(session) {
     throw new Error("Missing remote support signaling url");
   }
 
+  const iceServers = normalizeIceServers(session.iceServers);
+  if (!iceServers.length) {
+    throw new Error("Missing remote support ICE servers");
+  }
+
   connectKeepAlivePort();
 
   if (getTransportRuntime(session.sessionId)) {
     await shutdownTransport(session.sessionId, "Session restarted");
   }
 
-  const runtime = createTransportRuntime(session);
+  const runtime = createTransportRuntime({
+    ...session,
+    iceServers
+  });
   transportSessions.set(runtime.sessionId, runtime);
 
   void connectSignalingSocket(runtime).catch((error) => {

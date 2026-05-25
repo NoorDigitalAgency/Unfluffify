@@ -430,6 +430,61 @@ function resolveWebSocketUrl(baseUrl, explicitUrl, accessToken) {
   return parsedUrl.toString();
 }
 
+function createIceServerKey(entry) {
+  return `${entry.urls.join("\u001f")}\u001e${entry.username || ""}\u001e${entry.credential || ""}`;
+}
+
+function normalizeRemoteSupportIceServers(iceServers) {
+  const normalized = [];
+  const seenKeys = new Set();
+
+  for (const candidate of Array.isArray(iceServers) ? iceServers : []) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const rawUrls = Array.isArray(candidate.urls)
+      ? candidate.urls
+      : [candidate.urls];
+    const urls = rawUrls
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (!urls.length) {
+      continue;
+    }
+
+    const normalizedEntry = { urls };
+
+    if (typeof candidate.username === "string" && candidate.username.trim()) {
+      normalizedEntry.username = candidate.username.trim();
+    }
+
+    if (typeof candidate.credential === "string" && candidate.credential.trim()) {
+      normalizedEntry.credential = candidate.credential.trim();
+    }
+
+    const entryKey = createIceServerKey(normalizedEntry);
+    if (seenKeys.has(entryKey)) {
+      continue;
+    }
+
+    seenKeys.add(entryKey);
+    normalized.push(normalizedEntry);
+  }
+
+  return normalized;
+}
+
+function assertSuccessfulOffscreenResponse(response, fallback) {
+  if (response && response.ok) {
+    return;
+  }
+
+  throw new Error(getRemoteSupportErrorMessage(response && response.error, fallback));
+}
+
 async function hasRemoteSupportOffscreenDocument() {
   if (!chrome.offscreen || typeof chrome.runtime.getContexts !== "function") {
     return false;
@@ -938,6 +993,14 @@ export async function handleRequestSupportCode(message) {
     };
   }
 
+  const iceServers = normalizeRemoteSupportIceServers(payload.iceServers);
+  if (!iceServers.length) {
+    return {
+      ok: false,
+      error: "Support response is missing ICE configuration"
+    };
+  }
+
   const runtime = await beginSession({
     mode: REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
     role: "requester",
@@ -948,16 +1011,17 @@ export async function handleRequestSupportCode(message) {
   });
 
   try {
-    await sendRemoteSupportOffscreenRequest({
+    const transportStartResponse = await sendRemoteSupportOffscreenRequest({
       type: "remoteSupportTransportStart",
       session: {
         sessionId,
         supportCode,
         role: "requester",
         wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
-        iceServers: payload.iceServers
+        iceServers
       }
     });
+    assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
   } catch (error) {
     await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
     return {
@@ -1044,6 +1108,14 @@ export async function handleJoinSupportSession(message) {
     };
   }
 
+  const iceServers = normalizeRemoteSupportIceServers(payload.iceServers);
+  if (!iceServers.length) {
+    return {
+      ok: false,
+      error: "Support response is missing ICE configuration"
+    };
+  }
+
   const runtime = await beginSession({
     mode: REMOTE_SUPPORT_MODE_SUPPORTING,
     role: "supporter",
@@ -1054,16 +1126,17 @@ export async function handleJoinSupportSession(message) {
   });
 
   try {
-    await sendRemoteSupportOffscreenRequest({
+    const transportStartResponse = await sendRemoteSupportOffscreenRequest({
       type: "remoteSupportTransportStart",
       session: {
         sessionId,
         supportCode,
         role: "supporter",
         wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
-        iceServers: payload.iceServers
+        iceServers
       }
     });
+    assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
   } catch (error) {
     await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
     return {

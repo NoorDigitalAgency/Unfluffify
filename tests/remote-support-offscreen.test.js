@@ -192,7 +192,12 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
           sessionId: "sess_two",
           supportCode: "222222",
           role: "supporter",
-          wsUrl: "wss://api.example.com/webrtc?token=two"
+          wsUrl: "wss://api.example.com/webrtc?token=two",
+          iceServers: [
+            {
+              urls: ["stun:stun.cloudflare.com:3478"]
+            }
+          ]
         }
       },
       {},
@@ -222,7 +227,9 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       iceCandidatePoolSize: 4
     });
     assert.deepEqual(peerConnectionConfigs[1], {
-      iceServers: [],
+      iceServers: [
+        { urls: ["stun:stun.cloudflare.com:3478"] }
+      ],
       iceCandidatePoolSize: 4
     });
 
@@ -327,6 +334,117 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       ),
       true
     );
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});
+
+test("remote support offscreen rejects start requests without ICE servers", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const connectedPortNames = [];
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel() {
+      throw new Error("should not create data channel without ICE servers");
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect({ name }) {
+        connectedPortNames.push(name);
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage() {
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-missing-ice`);
+
+    assert.deepEqual(connectedPortNames, [REMOTE_SUPPORT_PORT_TRANSPORT]);
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_missing_ice",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one"
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: false, error: "Missing remote support ICE servers" });
   } finally {
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;
@@ -487,7 +605,8 @@ test("remote support offscreen tears down both sides when the data channel fails
           sessionId: "sess_error",
           supportCode: "111111",
           role: "supporter",
-          wsUrl: "wss://api.example.com/webrtc?token=one"
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
         }
       },
       {},
@@ -557,7 +676,8 @@ test("remote support offscreen tears down both sides when the data channel fails
           sessionId: "sess_remote_end",
           supportCode: "222222",
           role: "supporter",
-          wsUrl: "wss://api.example.com/webrtc?token=two"
+          wsUrl: "wss://api.example.com/webrtc?token=two",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
         }
       },
       {},
@@ -768,7 +888,8 @@ test("remote support offscreen skips sends while the data channel buffer is over
           sessionId: "sess_buffered",
           supportCode: "111111",
           role: "supporter",
-          wsUrl: "wss://api.example.com/webrtc?token=one"
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
         }
       },
       {},

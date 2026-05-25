@@ -124,8 +124,8 @@ Response body (expected):
 Notes:
 - `supportCode` should be valid for initiation for ~10 minutes.
 - If `webrtcWsUrl` is omitted, extension falls back to `<config-endpoint>/webrtc?token=...`.
-- `iceServers` is optional but should be returned when possible. The extension treats server-provided entries as preferred and automatically appends built-in public STUN fallbacks.
-- For cross-network support, the backend should publish at least one TURN server in `iceServers`; STUN-only fallbacks help with ordinary NAT traversal but are not enough for the hardest network combinations.
+- `iceServers` is required. If the backend returns an empty or invalid list, the extension aborts remote-support bootstrap instead of appending public STUN fallbacks.
+- For cross-network support, the backend should publish at least one TURN server in `iceServers`; STUN-only configurations are usually not enough for the hardest network combinations.
 
 ### POST `/support`
 

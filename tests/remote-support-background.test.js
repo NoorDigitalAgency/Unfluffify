@@ -9,7 +9,7 @@ import {
 } from "../common/remote-support-background.js";
 
 function createChromeMock(options = {}) {
-  const { autoConnectOffscreenKeepAlive = true } = options;
+  const { autoConnectOffscreenKeepAlive = true, offscreenResponse = null } = options;
   const runtimeConnectListeners = [];
   const runtimeEvents = [];
   const transportMessages = [];
@@ -60,7 +60,7 @@ function createChromeMock(options = {}) {
       sendMessage(message) {
         if (message && message.target === "remoteSupportOffscreen") {
           transportMessages.push(message);
-          return Promise.resolve({ ok: true });
+          return Promise.resolve(typeof offscreenResponse === "function" ? offscreenResponse(message) : { ok: true });
         }
         runtimeEvents.push(message);
         return Promise.resolve({ ok: true });
@@ -199,7 +199,8 @@ test("remoteSupportRequestCode reuses the offscreen keep-alive port created duri
         sessionId: "sess_keepalive_reuse",
         supportCode: "123456",
         expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
       };
     }
   });
@@ -240,7 +241,8 @@ test("remoteSupportRequestCode falls back to the endpoint websocket url when the
       return {
         sessionId: "sess_fallback_ws",
         supportCode: "123456",
-        expiresAt: "2026-05-24T08:10:00.000Z"
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
       };
     }
   });
@@ -270,6 +272,50 @@ test("remoteSupportRequestCode falls back to the endpoint websocket url when the
   }
 });
 
+test("remoteSupportRequestCode fails when the support response omits iceServers", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, runtimeConnectCalls, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_missing_ice",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 15,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 15 } }
+    );
+
+    assert.equal(response.ok, false);
+    assert.equal(response.error, "Support response is missing ICE configuration");
+    assert.equal(runtimeConnectCalls.length, 0);
+    assert.equal(transportMessages.length, 0);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("late offscreen keep-alive replacement does not tear down an active support session", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -285,7 +331,8 @@ test("late offscreen keep-alive replacement does not tear down an active support
         sessionId: "sess_late_keepalive",
         supportCode: "654321",
         expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
       };
     }
   });
@@ -340,7 +387,8 @@ test("remoteSupportRequestCode upgrades insecure websocket urls returned for htt
         sessionId: "sess_tls_upgrade",
         supportCode: "123456",
         expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "ws://api.example.com/webrtc?token=test"
+        webrtcWsUrl: "ws://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
       };
     }
   });
@@ -383,7 +431,8 @@ test("remote support transport events drive session teardown without hanging the
         sessionId: "sess_failure",
         supportCode: "654321",
         expiresAt: "2026-05-24T08:10:00.000Z",
-        webrtcWsUrl: "wss://api.example.com/webrtc?token=test"
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
       };
     }
   });
@@ -575,13 +624,15 @@ test("network devtools panel is the only include-payloads writer for its attache
       sessionId: "sess_supporter_a",
       supportCode: "222333",
       expiresAt: "2026-05-24T08:10:00.000Z",
-      webrtcWsUrl: "wss://api.example.com/webrtc?token=a"
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=a",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
     },
     {
       sessionId: "sess_supporter_b",
       supportCode: "333444",
       expiresAt: "2026-05-24T08:10:00.000Z",
-      webrtcWsUrl: "wss://api.example.com/webrtc?token=b"
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=b",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
     }
   ];
 
