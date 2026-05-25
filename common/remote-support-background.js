@@ -422,7 +422,8 @@ function resolveWebSocketUrl(baseUrl, explicitUrl, accessToken) {
   parsedUrl.protocol = preferSecureSocket ? "wss:" : "ws:";
 
   const hasEmbeddedCredentials = Boolean(parsedUrl.username);
-  if (!hasEmbeddedCredentials && typeof accessToken === "string" && accessToken.trim()) {
+  const hasTokenQuery = parsedUrl.searchParams.has("token");
+  if (!hasEmbeddedCredentials && !hasTokenQuery && typeof accessToken === "string" && accessToken.trim()) {
     parsedUrl.searchParams.set("token", accessToken.trim());
   }
 

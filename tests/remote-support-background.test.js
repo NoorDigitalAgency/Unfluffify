@@ -228,6 +228,48 @@ test("remoteSupportRequestCode reuses the offscreen keep-alive port created duri
   }
 });
 
+test("remoteSupportRequestCode falls back to the endpoint websocket url when the server omits webrtcWsUrl", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_fallback_ws",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z"
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 11,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 11 } }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(transportMessages.length, 1);
+    assert.equal(transportMessages[0].session.wsUrl, "wss://api.example.com/webrtc?token=token-value");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("late offscreen keep-alive replacement does not tear down an active support session", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -320,7 +362,7 @@ test("remoteSupportRequestCode upgrades insecure websocket urls returned for htt
 
     assert.equal(response.ok, true);
     assert.equal(transportMessages.length, 1);
-    assert.equal(transportMessages[0].session.wsUrl, "wss://api.example.com/webrtc?token=token-value");
+    assert.equal(transportMessages[0].session.wsUrl, "wss://api.example.com/webrtc?token=test");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
