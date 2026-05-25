@@ -13,9 +13,11 @@ import {
   REMOTE_SUPPORT_PORT_TRANSPORT,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
+  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   createInactiveRemoteSupportSidebarSnapshot,
   isAjaxResourceType,
+  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl
@@ -111,6 +113,7 @@ function createSessionRuntime({
       error: "",
       lastActivityAt: Date.now()
     }),
+    cursorSnapshot: createInactiveRemoteSupportCursorSnapshot(),
     sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     frameIntervalId: 0,
@@ -329,6 +332,25 @@ function broadcastSidebarSnapshot(runtime, snapshotLike = runtime && runtime.sid
   postRuntimeEventToTab(runtime.state.tabId, event);
 }
 
+function broadcastCursorSnapshot(runtime, snapshotLike = runtime && runtime.cursorSnapshot) {
+  if (!runtime || runtime.state.tabId === null) {
+    return;
+  }
+
+  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
+  runtime.cursorSnapshot = snapshot;
+
+  const event = {
+    type: "remoteSupportCursorStateChanged",
+    snapshot,
+    tabId: runtime.state.tabId,
+    sessionId: runtime.state.sessionId
+  };
+
+  publishRuntimeEvent(event);
+  postRuntimeEventToTab(runtime.state.tabId, event);
+}
+
 async function syncRequesterSidebarSnapshot(runtime) {
   if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
     return false;
@@ -345,6 +367,25 @@ async function syncRequesterSidebarSnapshot(runtime) {
     "sidebar-state",
     { snapshot },
     REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
+  );
+}
+
+async function syncRequesterCursorSnapshot(runtime) {
+  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return false;
+  }
+
+  const snapshot = normalizeRemoteSupportCursorSnapshot(runtime.cursorSnapshot);
+  runtime.cursorSnapshot = snapshot;
+  if (!snapshot.active) {
+    return false;
+  }
+
+  return sendDataMessage(
+    runtime,
+    "cursor-state",
+    { snapshot },
+    REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
   );
 }
 
@@ -941,6 +982,18 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
     return;
   }
 
+  if (message.type === "cursor-state") {
+    if (!isPrimaryTransportChannelKey(channelKey)) {
+      return;
+    }
+
+    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(
+      message.payload && message.payload.snapshot
+    );
+    broadcastCursorSnapshot(runtime, runtime.cursorSnapshot);
+    return;
+  }
+
   if (message.type === "sidebar-state") {
     runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(
       message.payload && message.payload.snapshot
@@ -1387,6 +1440,13 @@ export async function handleTransportEvent(message) {
       });
     }
 
+      if (
+        runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+        isPrimaryTransportChannelKey(event.channelKey)
+      ) {
+        await syncRequesterCursorSnapshot(runtime);
+      }
+
     if (
       runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
       event.channelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
@@ -1677,6 +1737,17 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
 
     runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
     await syncRequesterSidebarSnapshot(runtime);
+    return { ok: true };
+  }
+
+  if (message.type === "remoteSupportUpdateCursorSnapshot") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+      return { ok: false };
+    }
+
+    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(message.snapshot);
+    await syncRequesterCursorSnapshot(runtime);
     return { ok: true };
   }
 

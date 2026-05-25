@@ -1168,6 +1168,166 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
   }
 });
 
+test("remote support replays requester cursor snapshots on the page channel and forwards incoming cursor snapshots to the support page", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalFetch = globalThis.fetch;
+
+  const { chromeMock, tabMessages, transportMessages } = createChromeMock();
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            sessionId: "sess_requester_cursor",
+            supportCode: "112233",
+            expiresAt: "2026-05-24T08:10:00.000Z",
+            webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+            iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+          };
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          sessionId: "sess_supporter_cursor",
+          supportCode: "112233",
+          expiresAt: "2026-05-24T08:10:00.000Z",
+          webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        };
+      }
+    };
+  };
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 18,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+
+    const cursorResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportUpdateCursorSnapshot",
+        tabId: 18,
+        snapshot: {
+          active: true,
+          cursor: 'url("https://example.com/cursor.cur") 4 4, pointer'
+        }
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(cursorResponse.ok, true);
+    const cursorSendCountBeforeChannelOpen = transportMessages.filter(
+      (message) =>
+        message.type === "remoteSupportTransportSendData" &&
+        message.sessionId === "sess_requester_cursor" &&
+        message.channelKey === "page" &&
+        message.messageType === "cursor-state"
+    ).length;
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "channel-open",
+          sessionId: "sess_requester_cursor",
+          channelKey: "page"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const cursorSendCountAfterChannelOpen = transportMessages.filter(
+      (message) =>
+        message.type === "remoteSupportTransportSendData" &&
+        message.sessionId === "sess_requester_cursor" &&
+        message.channelKey === "page" &&
+        message.messageType === "cursor-state"
+    ).length;
+
+    assert.equal(cursorSendCountAfterChannelOpen > cursorSendCountBeforeChannelOpen, true);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_requester_cursor" &&
+          message.channelKey === "page" &&
+          message.messageType === "cursor-state" &&
+          message.payload &&
+          message.payload.snapshot &&
+          message.payload.snapshot.cursor === 'url("https://example.com/cursor.cur") 4 4, pointer'
+      ),
+      true
+    );
+
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 77,
+        supportCode: "112233"
+      },
+      { tab: { id: 77 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+
+    await handleTransportEvent({
+      type: "incoming-message",
+      sessionId: "sess_supporter_cursor",
+      channelKey: "page",
+      message: {
+        type: "cursor-state",
+        payload: {
+          snapshot: {
+            active: true,
+            cursor: "text"
+          }
+        }
+      }
+    });
+
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 77 &&
+          message &&
+          message.type === "remoteSupportCursorStateChanged" &&
+          message.snapshot &&
+          message.snapshot.cursor === "text"
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remote support forwards runtime state and frames to the bound tab", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

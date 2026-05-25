@@ -47,6 +47,12 @@ function normalizeRemoteSupportSidebarText(value, maxLength = 240) {
     : "";
 }
 
+function normalizeRemoteSupportCursorValue(value, maxLength = 512) {
+  return typeof value === "string"
+    ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, maxLength)
+    : "";
+}
+
 function normalizeRemoteSupportSidebarRows(rows) {
   const normalizedRows = [];
 
@@ -125,6 +131,29 @@ export function normalizeRemoteSupportSidebarSnapshot(snapshotLike) {
   normalized.markedPages = normalizeRemoteSupportSidebarItems(normalized.markedPages);
   normalized.pageTypeGroups = normalizeRemoteSupportSidebarItems(normalized.pageTypeGroups);
   normalized.notices = normalizeRemoteSupportSidebarItems(normalized.notices, 220);
+
+  return normalized;
+}
+
+export function createInactiveRemoteSupportCursorSnapshot() {
+  return {
+    active: false,
+    cursor: ""
+  };
+}
+
+export function normalizeRemoteSupportCursorSnapshot(snapshotLike) {
+  const normalized = {
+    ...createInactiveRemoteSupportCursorSnapshot(),
+    ...(snapshotLike && typeof snapshotLike === "object" ? snapshotLike : {})
+  };
+
+  normalized.active = Boolean(normalized.active);
+  normalized.cursor = normalizeRemoteSupportCursorValue(normalized.cursor);
+
+  if (!normalized.active) {
+    normalized.cursor = "";
+  }
 
   return normalized;
 }

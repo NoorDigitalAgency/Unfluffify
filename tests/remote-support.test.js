@@ -12,11 +12,13 @@ import {
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
   REMOTE_SUPPORT_ROLE_REQUESTER,
+  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   getRemoteSupportPageUrl,
   isRemoteSupportStateForTab,
   isRemoteSupportPageUrl,
   isAjaxResourceType,
+  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
   scopeRemoteSupportStateToTab,
@@ -74,6 +76,36 @@ test("createInactiveRemoteSupportState returns a fresh object each call", () => 
   assert.notEqual(a, b);
   a.sessionId = "mutated";
   assert.equal(b.sessionId, "");
+});
+
+test("createInactiveRemoteSupportCursorSnapshot returns the correct inactive shape", () => {
+  assert.deepEqual(createInactiveRemoteSupportCursorSnapshot(), {
+    active: false,
+    cursor: ""
+  });
+});
+
+test("normalizeRemoteSupportCursorSnapshot keeps valid cursor strings and strips control characters", () => {
+  assert.deepEqual(
+    normalizeRemoteSupportCursorSnapshot({
+      active: true,
+      cursor: '  url("https://example.com/cursor.cur") 4 4, pointer\n'
+    }),
+    {
+      active: true,
+      cursor: 'url("https://example.com/cursor.cur") 4 4, pointer'
+    }
+  );
+});
+
+test("normalizeRemoteSupportCursorSnapshot clears the cursor when inactive", () => {
+  assert.deepEqual(
+    normalizeRemoteSupportCursorSnapshot({ active: false, cursor: "text" }),
+    {
+      active: false,
+      cursor: ""
+    }
+  );
 });
 
 // ──────────────────────────────────────────────────────────────

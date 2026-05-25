@@ -31,7 +31,9 @@ import {
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
 import {
+  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportSidebarSnapshot,
+  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
@@ -158,6 +160,7 @@ let remoteSupportBridgeNonce = "";
 let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
+let remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
 let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 let remoteSupportSupportPageJoinCode = "";
 let remoteSupportSupportPageJoinLoading = false;
@@ -168,6 +171,8 @@ let remoteSupportSupportPageFrameRenderTimer = 0;
 let remoteSupportSupportPageLastFrameRenderAt = 0;
 let remoteSupportSupportPagePointerMoveRaf = 0;
 let remoteSupportSupportPagePendingPointerMove = null;
+let remoteSupportLastResolvedCursorPoint = null;
+let remoteSupportLastPublishedCursorSnapshotKey = "";
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
@@ -243,6 +248,11 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
       ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
       : "";
   remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
+
+  if (!active || remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    remoteSupportLastResolvedCursorPoint = null;
+    remoteSupportLastPublishedCursorSnapshotKey = "";
+  }
 
   if (isBeingSupportedMode()) {
     if (document.activeElement && typeof document.activeElement.blur === "function") {
@@ -330,6 +340,74 @@ function hideRemoteSupportCursor() {
   if (cursor) {
     cursor.hidden = true;
   }
+}
+
+function buildRemoteSupportCursorSnapshotAtPoint(clientX, clientY) {
+  const target = document.elementFromPoint(clientX, clientY);
+  if (!target || target.nodeType !== 1) {
+    return createInactiveRemoteSupportCursorSnapshot();
+  }
+
+  try {
+    return normalizeRemoteSupportCursorSnapshot({
+      active: true,
+      cursor: window.getComputedStyle(target).cursor || ""
+    });
+  } catch (error) {
+    return createInactiveRemoteSupportCursorSnapshot();
+  }
+}
+
+async function publishRemoteSupportCursorSnapshot(snapshotLike) {
+  if (!isBeingSupportedMode()) {
+    return false;
+  }
+
+  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
+  const snapshotKey = JSON.stringify(snapshot);
+  if (snapshotKey === remoteSupportLastPublishedCursorSnapshotKey) {
+    return true;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportUpdateCursorSnapshot",
+      snapshot
+    });
+    if (response && response.ok) {
+      remoteSupportLastPublishedCursorSnapshotKey = snapshotKey;
+      return true;
+    }
+  } catch (error) {
+    // Ignore transient message delivery failures while the background reloads.
+  }
+
+  return false;
+}
+
+async function syncRemoteSupportCursorSnapshotForPoint(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return false;
+  }
+
+  remoteSupportLastResolvedCursorPoint = {
+    x: Number(point.x),
+    y: Number(point.y)
+  };
+
+  return publishRemoteSupportCursorSnapshot(
+    buildRemoteSupportCursorSnapshotAtPoint(point.x, point.y)
+  );
+}
+
+function scheduleRemoteSupportCursorSnapshotRefresh() {
+  if (!remoteSupportLastResolvedCursorPoint) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    void syncRemoteSupportCursorSnapshotForPoint(remoteSupportLastResolvedCursorPoint);
+  });
 }
 
 function ensureRemoteSupportTerminateButton() {
@@ -620,11 +698,11 @@ function ensureRemoteSupportSupportPageStyles() {
       place-items: stretch;
       padding: 0;
       user-select: none;
-      cursor: crosshair;
+      cursor: auto;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface.is-disabled {
-      cursor: not-allowed;
+      opacity: 0.9;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
@@ -1405,6 +1483,24 @@ function renderRemoteSupportSupportPageSidebar() {
   host.appendChild(shell);
 }
 
+function getRemoteSupportSupportPageSurfaceCursorValue() {
+  if (!remoteSupportSupportPageState.active) {
+    return "auto";
+  }
+
+  const snapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
+  return snapshot.active && snapshot.cursor ? snapshot.cursor : "auto";
+}
+
+function syncRemoteSupportSupportPageSurfaceCursor() {
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements || !elements.surface) {
+    return;
+  }
+
+  elements.surface.style.cursor = getRemoteSupportSupportPageSurfaceCursorValue();
+}
+
 function clearRemoteSupportSupportPageFrameRenderTimer() {
   if (!remoteSupportSupportPageFrameRenderTimer) {
     return;
@@ -1514,6 +1610,7 @@ function renderRemoteSupportSupportPage() {
   elements.surface.classList.toggle("is-disabled", !canControl);
   elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");
   elements.surface.tabIndex = canControl ? 0 : -1;
+  syncRemoteSupportSupportPageSurfaceCursor();
   renderRemoteSupportSupportPageSidebar();
 
   scheduleRemoteSupportSupportPageFrameRender({ immediate: true });
@@ -1525,6 +1622,7 @@ function applyRemoteSupportSupportPageState(nextState) {
     remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
   }
   if (!remoteSupportSupportPageState.active) {
+    remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
     remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
   }
@@ -1743,13 +1841,16 @@ function executeRemoteSupportCommand(command) {
     return;
   }
   if (type === "pointer-move") {
-    setRemoteSupportCursorPosition(command.x, command.y);
+    const point = setRemoteSupportCursorPosition(command.x, command.y);
+    void syncRemoteSupportCursorSnapshotForPoint(point);
     return;
   }
   if (type === "pointer-click") {
     const point = setRemoteSupportCursorPosition(command.x, command.y);
     const target = document.elementFromPoint(point.x, point.y);
     dispatchRemotePointerClick(target, point.x, point.y, Number(command.button) || 0);
+    void syncRemoteSupportCursorSnapshotForPoint(point);
+    scheduleRemoteSupportCursorSnapshotRefresh();
     return;
   }
   if (type === "scroll") {
@@ -1758,6 +1859,7 @@ function executeRemoteSupportCommand(command) {
       top: Number(command.deltaY) || 0,
       behavior: "auto"
     });
+    scheduleRemoteSupportCursorSnapshotRefresh();
     return;
   }
   if (type === "key") {
@@ -5255,6 +5357,21 @@ export function main() {
 
       remoteSupportSupportPageSidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
       renderRemoteSupportSupportPageSidebar();
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportCursorStateChanged") {
+      if (
+        Number.isFinite(remoteSupportSupportPageTabId) &&
+        Number.isFinite(message.tabId) &&
+        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
+      ) {
+        return;
+      }
+
+      remoteSupportSupportPageCursorSnapshot = normalizeRemoteSupportCursorSnapshot(message.snapshot);
+      syncRemoteSupportSupportPageSurfaceCursor();
       sendResponse({ ok: true });
       return;
     }
