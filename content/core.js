@@ -4753,6 +4753,9 @@ function isVisibleUncached(el) {
   }
   let node = el;
   while (node && node.nodeType === 1) {
+    if (node.hidden || node.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
     if (
         node.classList &&
         (node.classList.contains("sr-only") ||
@@ -4761,7 +4764,7 @@ function isVisibleUncached(el) {
       return false;
     }
     const style = window.getComputedStyle(node);
-    if (style.display === "none" || style.visibility === "hidden") {
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
       return false;
     }
     if (parseFloat(style.opacity) === 0) {

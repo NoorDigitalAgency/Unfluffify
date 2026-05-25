@@ -77,6 +77,7 @@ Important rules:
 - `xpaths` holds both generated and explicit exclude-state items.
 - `includeXpaths` is the canonical list of explicit includes.
 - A given subtree is normalized so that broader and narrower markings do not coexist redundantly.
+- `submissionXpaths` is the final AI payload boundary list. Invisible explicit includes are submitted as excluded rows, not included rows, so stale user overrides cannot pull hidden DOM into content detection.
 
 ## Markable Elements
 
@@ -259,6 +260,8 @@ The pure decision rules that are most likely to regress are covered by Node test
 
 - `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
 - `tests/marking-rules.test.js` also locks in the one-shot suppression rule that keeps AI preview restore from auto-seeding a new draft.
+- `tests/submission-rules.test.js` locks in the final AI submission row decisions for explicit excludes, explicit includes, hidden content, and excluded ancestors.
+- `tests/core-visibility.test.js` locks in visibility semantics for hidden attributes, `aria-hidden`, and collapsed visibility.
 - `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that temporarily hidden excluded nodes must remain collectable as silent-highlight sources.

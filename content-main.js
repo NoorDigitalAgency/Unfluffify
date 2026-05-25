@@ -48,6 +48,7 @@ import {
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
 } from "./content/silent-highlight-rules.js";
+import { resolveAiSubmissionRowState } from "./content/submission-rules.js";
 
 const { state } = core;
 
@@ -6084,37 +6085,33 @@ function collectAiSubmissionXpathsForCurrentPage() {
       continue;
     }
     const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
-    if (explicitlyExcluded) {
-      pushRow(xpath, true);
-      continue;
-    }
     const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
     const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
-    // Descendants of an excluded subtree (explicit or hidden/auto-detected)
-    // are omitted by default to keep the saved payload shallow and stable.
-    // keep the saved payload shallow and stable. The only exception is an
-    // explicit include override on that descendant.
-    if (insideExcludedAncestorRow && !explicitlyIncluded) {
-      continue;
+    let visibleToUser = false;
+    let isMarkableTextual = false;
+    if (!explicitlyExcluded) {
+      visibleToUser = core.isVisible(node);
+      if (!explicitlyIncluded && !insideExcludedAncestorRow) {
+        isMarkableTextual = core.isMarkableElement(node, state.config, {
+          allowParent: false,
+          allowImmutableChildren: false,
+          // Hidden subtrees can still contain meaningful text content that must be
+          // sent as excluded. We keep the snapshot shallow via ancestor-row suppression above.
+          ignoreVisibilityForInclusionDetection: !visibleToUser
+        });
+      }
     }
-    if (explicitlyIncluded) {
-      // Explicit includes persist while the element exists, regardless of visibility.
-      pushRow(xpath, false);
-      continue;
-    }
-    const visibleToUser = core.isVisible(node);
-    const isMarkableTextual = core.isMarkableElement(node, state.config, {
-      allowParent: false,
-      allowImmutableChildren: false,
-      // Hidden subtrees can still contain meaningful text content that must be
-      // sent as excluded. We keep the snapshot shallow via ancestor-row suppression above.
-      ignoreVisibilityForInclusionDetection: !visibleToUser
+    const submissionRow = resolveAiSubmissionRowState({
+      explicitlyExcluded,
+      explicitlyIncluded,
+      insideExcludedAncestor: insideExcludedAncestorRow,
+      visibleToUser,
+      markableTextual: isMarkableTextual
     });
-    if (!isMarkableTextual) {
+    if (!submissionRow.shouldSubmit) {
       continue;
     }
-    // Non-explicit textual elements: visible => included, hidden => excluded.
-    pushRow(xpath, !visibleToUser);
+    pushRow(xpath, submissionRow.excluded);
   }
   return rows;
 }
