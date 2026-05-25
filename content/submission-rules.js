@@ -1,22 +1,29 @@
 export function resolveAiSubmissionRowState(options = {}) {
+  const explicitlyIncluded = Boolean(options.explicitlyIncluded);
+
+  if (explicitlyIncluded) {
+    return { shouldSubmit: true, excluded: false };
+  }
+
+  if (options.insideExcludedAncestor) {
+    return { shouldSubmit: false, excluded: false };
+  }
+
   if (options.explicitlyExcluded) {
     return { shouldSubmit: true, excluded: true };
   }
 
-  const explicitlyIncluded = Boolean(options.explicitlyIncluded);
-  const visibleToUser = Boolean(options.visibleToUser);
-
-  if (options.insideExcludedAncestor && !explicitlyIncluded) {
-    return { shouldSubmit: false, excluded: false };
-  }
-
-  if (explicitlyIncluded) {
-    return { shouldSubmit: true, excluded: !visibleToUser };
+  if (
+    options.consentExcludedRoot ||
+    options.immutableExcludedRoot ||
+    options.hiddenToggleableRoot
+  ) {
+    return { shouldSubmit: true, excluded: true };
   }
 
   if (!options.markableTextual) {
     return { shouldSubmit: false, excluded: false };
   }
 
-  return { shouldSubmit: true, excluded: !visibleToUser };
+  return { shouldSubmit: true, excluded: false };
 }

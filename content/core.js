@@ -4523,12 +4523,20 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
 
 /**
  * Checks if an element is a default toggleable excluded element (e.g., header, footer, nav).
- * @private
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches a toggleable default exclusion
  */
-function isDefaultToggleableExcludedElement(el) {
+export function isDefaultToggleableExcludedElement(el) {
   return matchesToggleableDefaultExcluded(el);
+}
+
+/**
+ * Checks if an element matches immutable exclusion selectors.
+ * @param {Element} el - The element to check
+ * @returns {boolean} True if the element matches an immutable exclusion
+ */
+export function isImmutableExcludedElement(el) {
+  return matchesImmutableExcluded(el);
 }
 
 export function isPageDraftDirty(pageUrl) {

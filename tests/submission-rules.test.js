@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 
 import { resolveAiSubmissionRowState } from "../content/submission-rules.js";
 
-test("explicit exclusions always submit as excluded", () => {
+test("explicit exclusions submit as excluded when not explicitly included", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: true,
-      explicitlyIncluded: true,
+      explicitlyIncluded: false,
       insideExcludedAncestor: false,
       visibleToUser: true,
       markableTextual: true
@@ -22,23 +22,48 @@ test("visible explicit includes submit as included content", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: true,
       insideExcludedAncestor: true,
-      visibleToUser: true,
       markableTextual: false
     }),
     { shouldSubmit: true, excluded: false }
   );
 });
 
-test("hidden explicit includes submit as excluded content", () => {
+test("hidden explicit includes still submit as included content", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: true,
       insideExcludedAncestor: false,
-      visibleToUser: false,
       markableTextual: false
     }),
-    { shouldSubmit: true, excluded: true }
+    { shouldSubmit: true, excluded: false }
+  );
+});
+
+test("explicit includes win when a node is also explicitly excluded", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: true,
+      explicitlyIncluded: true,
+      insideExcludedAncestor: false,
+      markableTextual: false
+    }),
+    { shouldSubmit: true, excluded: false }
+  );
+});
+
+test("explicit includes win over exclusion-root classification", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: true,
+      insideExcludedAncestor: false,
+      consentExcludedRoot: true,
+      immutableExcludedRoot: true,
+      hiddenToggleableRoot: true,
+      markableTextual: false
+    }),
+    { shouldSubmit: true, excluded: false }
   );
 });
 
@@ -55,29 +80,40 @@ test("descendants inside excluded ancestors are omitted unless explicitly includ
   );
 });
 
+test("explicitly-excluded descendants inside excluded ancestors are suppressed", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: true,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: true,
+      visibleToUser: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: false, excluded: false }
+  );
+});
+
 test("implicit visible textual content submits as included", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
-      visibleToUser: true,
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: false }
   );
 });
 
-test("implicit hidden textual content submits as excluded", () => {
+test("implicit hidden textual content still submits as included content", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
-      visibleToUser: false,
       markableTextual: true
     }),
-    { shouldSubmit: true, excluded: true }
+    { shouldSubmit: true, excluded: false }
   );
 });
 
@@ -87,8 +123,60 @@ test("non-textual implicit nodes are omitted", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
-      visibleToUser: true,
       markableTextual: false
+    }),
+    { shouldSubmit: false, excluded: false }
+  );
+});
+
+test("consent roots always submit as excluded", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      consentExcludedRoot: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: true, excluded: true }
+  );
+});
+
+test("immutable exclusion roots always submit as excluded", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      immutableExcludedRoot: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: true, excluded: true }
+  );
+});
+
+test("hidden toggleable roots submit as excluded", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      hiddenToggleableRoot: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: true, excluded: true }
+  );
+});
+
+test("implicit exclusion roots do not duplicate inside excluded ancestors", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: true,
+      immutableExcludedRoot: true,
+      hiddenToggleableRoot: true,
+      markableTextual: true
     }),
     { shouldSubmit: false, excluded: false }
   );

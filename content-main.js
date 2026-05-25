@@ -6078,25 +6078,32 @@ function collectAiSubmissionXpathsForCurrentPage() {
     if (!xpath) {
       continue;
     }
-    if (isWithinConsentBoundary(node)) {
-      if (node.hasAttribute(core.CONSENT_HIDDEN_ATTR) && !hasExcludedAncestorRow(xpath)) {
-        pushRow(xpath, true);
-      }
-      continue;
-    }
     const explicitlyExcluded = explicitExcludedXpaths.has(xpath);
     const explicitlyIncluded = explicitIncludedXpaths.has(xpath);
     const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
+    const withinConsentBoundary = isWithinConsentBoundary(node);
     let visibleToUser = false;
+    let hiddenToggleableRoot = false;
+    let immutableExcludedRoot = false;
     let isMarkableTextual = false;
     if (!explicitlyExcluded) {
       visibleToUser = core.isVisible(node);
-      if (!explicitlyIncluded && !insideExcludedAncestorRow) {
+      immutableExcludedRoot = core.isImmutableExcludedElement(node);
+      hiddenToggleableRoot = core.isDefaultToggleableExcludedElement(node) &&
+        !visibleToUser;
+      if (
+        !explicitlyIncluded &&
+        !insideExcludedAncestorRow &&
+        !withinConsentBoundary &&
+        !immutableExcludedRoot &&
+        !hiddenToggleableRoot
+      ) {
         isMarkableTextual = core.isMarkableElement(node, state.config, {
           allowParent: false,
           allowImmutableChildren: false,
-          // Hidden subtrees can still contain meaningful text content that must be
-          // sent as excluded. We keep the snapshot shallow via ancestor-row suppression above.
+          // Submission includes all textual boundaries that are not excluded roots.
+          // Visibility is ignored here so hidden-but-textual content can still be
+          // represented as content unless a stronger exclusion rule claims the root.
           ignoreVisibilityForInclusionDetection: !visibleToUser
         });
       }
@@ -6105,7 +6112,10 @@ function collectAiSubmissionXpathsForCurrentPage() {
       explicitlyExcluded,
       explicitlyIncluded,
       insideExcludedAncestor: insideExcludedAncestorRow,
-      visibleToUser,
+      consentExcludedRoot: withinConsentBoundary &&
+        node.hasAttribute(core.CONSENT_HIDDEN_ATTR),
+      immutableExcludedRoot,
+      hiddenToggleableRoot,
       markableTextual: isMarkableTextual
     });
     if (!submissionRow.shouldSubmit) {
