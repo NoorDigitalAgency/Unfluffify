@@ -341,6 +341,8 @@ function createTransportRuntime(session) {
     sidebarCaptureHeight: 0,
     sidebarFrameVersion: 0,
     dataChannels: new Map(),
+    dataChannelBindingIds: new Map(),
+    nextDataChannelBindingId: 0,
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
@@ -641,6 +643,17 @@ function closeDataChannel(channel) {
   }
 }
 
+function clearDataChannelHandlers(channel) {
+  if (!channel) {
+    return;
+  }
+
+  channel.onopen = null;
+  channel.onclose = null;
+  channel.onerror = null;
+  channel.onmessage = null;
+}
+
 function closePeerConnection(peerConnection) {
   if (!peerConnection || typeof peerConnection.close !== "function") {
     return;
@@ -727,10 +740,14 @@ async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
     return;
   }
 
+  if (typeof document !== "object" || typeof document.createElement !== "function") {
+    return;
+  }
+
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { alpha: false });
   if (!context || typeof canvas.captureStream !== "function") {
-    throw new Error("Remote support sidebar capture is unavailable");
+    return;
   }
 
   runtime.sidebarCaptureCanvas = canvas;
@@ -745,7 +762,7 @@ async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
     stopLocalCaptureStream(stream);
     runtime.sidebarCaptureCanvas = null;
     runtime.sidebarCaptureContext = null;
-    throw new Error("Remote support sidebar capture did not provide a video track");
+    return;
   }
 
   if ("contentHint" in track && !track.contentHint) {
@@ -844,6 +861,7 @@ function resetTransportResources(runtime) {
   stopLocalCaptureStream(runtime.sidebarCaptureStream);
 
   runtime.dataChannels.clear();
+  runtime.dataChannelBindingIds.clear();
   runtime.peerConnection = null;
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
@@ -856,6 +874,7 @@ function resetTransportResources(runtime) {
   runtime.sidebarCaptureWidth = 0;
   runtime.sidebarCaptureHeight = 0;
   runtime.sidebarFrameVersion = 0;
+  runtime.nextDataChannelBindingId = 0;
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
 }
@@ -971,10 +990,13 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
   const normalizedChannelKey = isNonEmptyString(channelKey)
     ? channelKey.trim()
     : getDefaultDataChannelKey(runtime);
+  const bindingId = (runtime.nextDataChannelBindingId += 1);
   const existingChannel = getDataChannel(runtime, normalizedChannelKey);
   runtime.dataChannels.set(normalizedChannelKey, channel);
+  runtime.dataChannelBindingIds.set(normalizedChannelKey, bindingId);
 
   if (existingChannel && existingChannel !== channel) {
+    clearDataChannelHandlers(existingChannel);
     closeDataChannel(existingChannel);
   }
 
@@ -982,6 +1004,15 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
   updateDataChannelDiagnostics(runtime, channel, normalizedChannelKey);
 
   channel.onopen = () => {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (
+      !activeRuntime ||
+      activeRuntime.shuttingDown ||
+      activeRuntime.dataChannelBindingIds.get(normalizedChannelKey) !== bindingId
+    ) {
+      return;
+    }
+
     updateDataChannelDiagnostics(runtime, channel, normalizedChannelKey);
     postTransportEvent({
       type: "channel-open",
@@ -992,7 +1023,11 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
 
   channel.onclose = () => {
     const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
+    if (
+      !activeRuntime ||
+      activeRuntime.shuttingDown ||
+      activeRuntime.dataChannelBindingIds.get(normalizedChannelKey) !== bindingId
+    ) {
       return;
     }
 
@@ -1006,7 +1041,11 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
 
   channel.onerror = () => {
     const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
+    if (
+      !activeRuntime ||
+      activeRuntime.shuttingDown ||
+      activeRuntime.dataChannelBindingIds.get(normalizedChannelKey) !== bindingId
+    ) {
       return;
     }
 
@@ -1019,6 +1058,15 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
   };
 
   channel.onmessage = (event) => {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (
+      !activeRuntime ||
+      activeRuntime.shuttingDown ||
+      activeRuntime.dataChannelBindingIds.get(normalizedChannelKey) !== bindingId
+    ) {
+      return;
+    }
+
     const parsedMessage = parseTransportMessage(event && event.data);
     if (!parsedMessage) {
       return;
