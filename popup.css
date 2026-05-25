@@ -990,6 +990,8 @@ select {
 select option {
   font-family: inherit;
 }
+
+select:focus {
   border-color: var(--accent);
 }
 
