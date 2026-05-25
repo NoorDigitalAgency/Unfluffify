@@ -1913,6 +1913,7 @@ test("remote support offscreen attaches a requester tab capture video track when
   const runtimeMessageListeners = [];
   const peerConnections = [];
   let capturedConstraints = null;
+  let senderParameters = null;
 
   const fakeTrack = {
     contentHint: "",
@@ -1941,8 +1942,16 @@ test("remote support offscreen attaches a requester tab capture video track when
     }
 
     addTrack(track, stream) {
-      this.addedTracks.push({ track, stream });
-      return {};
+      const sender = {
+        getParameters() {
+          return {};
+        },
+        async setParameters(parameters) {
+          senderParameters = parameters;
+        }
+      };
+      this.addedTracks.push({ track, stream, sender });
+      return sender;
     }
 
     async setRemoteDescription(description) {
@@ -2073,7 +2082,9 @@ test("remote support offscreen attaches a requester tab capture video track when
     assert.equal(capturedConstraints.audio, false);
     assert.equal(capturedConstraints.video.mandatory.chromeMediaSource, "tab");
     assert.equal(capturedConstraints.video.mandatory.chromeMediaSourceId, "stream-18");
-    assert.equal(capturedConstraints.video.mandatory.maxFrameRate, 30);
+    assert.equal(capturedConstraints.video.mandatory.maxFrameRate, 60);
+    assert.equal(fakeTrack.contentHint, "motion");
+    assert.equal(senderParameters.degradationPreference, "maintain-framerate");
   } finally {
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;

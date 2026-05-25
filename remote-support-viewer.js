@@ -263,6 +263,8 @@ function createTransportRuntime(session) {
     remoteVideoSurfaceCount: 0,
     sidebarFrameRequestId: 0,
     sidebarFrameRafId: 0,
+    sidebarFrameVersion: 0,
+    sidebarFrameInFlight: false,
     pendingFatalTransportTimer: 0,
     pendingFatalTransportReason: "",
     lastPeerConnectionState: "",
@@ -510,16 +512,19 @@ async function flushPendingIceCandidates(runtime, peerConnection = runtime && ru
   }
 }
 
-function postPortMessage(message) {
+function postPortMessage(message, transfer = []) {
   if (!controlPort) {
-    return;
+    return false;
   }
 
   try {
-    controlPort.postMessage(message);
+    controlPort.postMessage(message, transfer);
+    return true;
   } catch (error) {
     // Ignore parent messaging failures.
   }
+
+  return false;
 }
 
 function postTransportEvent(event) {
@@ -546,18 +551,41 @@ function postSidebarVideoState(runtime, active, width = 0, height = 0) {
   });
 }
 
-function postSidebarFrame(runtime, dataUrl, width = 0, height = 0) {
-  if (!isNonEmptyString(dataUrl)) {
+function closeFrameBitmap(bitmap) {
+  if (!bitmap || typeof bitmap.close !== "function") {
     return;
   }
 
-  postPortMessage({
+  try {
+    bitmap.close();
+  } catch (error) {
+    // Ignore decoded frame cleanup mismatches.
+  }
+}
+
+function postSidebarFrame(runtime, frame, width = 0, height = 0) {
+  if (!frame || typeof frame !== "object") {
+    return false;
+  }
+
+  const message = {
     type: "sidebar-frame",
     sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
-    dataUrl,
     width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
     height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
-  });
+  };
+
+  const transfer = [];
+  if (frame.bitmap) {
+    message.bitmap = frame.bitmap;
+    transfer.push(frame.bitmap);
+  } else if (isNonEmptyString(frame.dataUrl)) {
+    message.dataUrl = frame.dataUrl;
+  } else {
+    return false;
+  }
+
+  return postPortMessage(message, transfer);
 }
 
 function ensureViewerElements() {
@@ -736,6 +764,8 @@ function resetTransportResources(runtime) {
   runtime.remoteVideoSurfaceCount = 0;
   runtime.sidebarFrameRequestId = 0;
   runtime.sidebarFrameRafId = 0;
+  runtime.sidebarFrameVersion = 0;
+  runtime.sidebarFrameInFlight = false;
   runtime.pendingFatalTransportTimer = 0;
   runtime.pendingFatalTransportReason = "";
   runtime.lastIceCandidateError = "";
@@ -796,11 +826,11 @@ function cancelSidebarFrameRelay(runtime) {
 }
 
 function scheduleSidebarFrameRelay(runtime) {
-  if (!runtime || runtime.sidebarFrameRequestId || runtime.sidebarFrameRafId) {
+  if (!runtime || runtime.sidebarFrameRequestId || runtime.sidebarFrameRafId || runtime.sidebarFrameInFlight) {
     return;
   }
 
-  const relayFrame = () => {
+  const relayFrame = async () => {
     const currentRuntime = getTransportRuntime(runtime.sessionId);
     if (!currentRuntime || currentRuntime.shuttingDown) {
       return;
@@ -831,14 +861,37 @@ function scheduleSidebarFrameRelay(runtime) {
       return;
     }
 
+    currentRuntime.sidebarFrameInFlight = true;
+    const currentFrameVersion = (currentRuntime.sidebarFrameVersion += 1);
     try {
       context.drawImage(video, 0, 0, width, height);
-      postSidebarFrame(currentRuntime, canvas.toDataURL("image/webp", 0.72), width, height);
+      if (typeof createImageBitmap === "function") {
+        const bitmap = await createImageBitmap(canvas);
+        const activeRuntime = getTransportRuntime(runtime.sessionId);
+        if (!activeRuntime || activeRuntime.shuttingDown || activeRuntime.sidebarFrameVersion !== currentFrameVersion) {
+          closeFrameBitmap(bitmap);
+          return;
+        }
+
+        if (!postSidebarFrame(activeRuntime, { bitmap }, width, height)) {
+          closeFrameBitmap(bitmap);
+        }
+      } else {
+        postSidebarFrame(currentRuntime, { dataUrl: canvas.toDataURL("image/webp", 0.72) }, width, height);
+      }
     } catch (error) {
       // Ignore transient draw races while tracks are updating.
+    } finally {
+      const activeRuntime = getTransportRuntime(runtime.sessionId);
+      if (activeRuntime) {
+        activeRuntime.sidebarFrameInFlight = false;
+      }
     }
 
-    scheduleSidebarFrameRelay(currentRuntime);
+    const nextRuntime = getTransportRuntime(runtime.sessionId);
+    if (nextRuntime && !nextRuntime.shuttingDown) {
+      scheduleSidebarFrameRelay(nextRuntime);
+    }
   };
 
   const elements = ensureViewerElements();

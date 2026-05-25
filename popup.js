@@ -4123,7 +4123,7 @@ function syncRemoteSupportSidebarCloneState(sourceRoot, cloneRoot) {
   }
 }
 
-async function renderRemoteSupportSidebarStreamDataUrl(width, height) {
+async function renderRemoteSupportSidebarStreamFrame(width, height) {
   const clone = document.documentElement.cloneNode(true);
   clone.querySelectorAll("script").forEach((node) => {
     node.remove();
@@ -4173,7 +4173,19 @@ async function renderRemoteSupportSidebarStreamDataUrl(width, height) {
           }
 
           context.drawImage(image, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/webp", REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY));
+          if (typeof canvas.toBlob === "function") {
+            canvas.toBlob((blob) => {
+              if (blob) {
+                resolve({ blob });
+                return;
+              }
+
+              resolve({ dataUrl: canvas.toDataURL("image/webp", REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY) });
+            }, "image/webp", REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY);
+            return;
+          }
+
+          resolve({ dataUrl: canvas.toDataURL("image/webp", REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY) });
         } catch (error) {
           reject(error);
         }
@@ -4231,14 +4243,14 @@ async function flushRemoteSupportSidebarStreamCapture(tabId) {
   try {
     const root = document.documentElement;
     const width = Math.max(1, Math.round(Number(root && root.clientWidth) || window.innerWidth || 1));
-    const height = Math.max(1, Math.round(Number(root && root.scrollHeight) || Number(root && root.clientHeight) || window.innerHeight || 1));
-    const dataUrl = await renderRemoteSupportSidebarStreamDataUrl(width, height);
+    const height = Math.max(1, Math.round(Number(root && root.clientHeight) || window.innerHeight || 1));
+    const frame = await renderRemoteSupportSidebarStreamFrame(width, height);
     postRemoteSupportSidebarStreamMessage({
       type: "frame",
       tabId,
       width,
       height,
-      dataUrl
+      ...frame
     });
   } catch {
     // Ignore transient capture failures while the popup is rerendering.

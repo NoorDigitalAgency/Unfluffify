@@ -13,6 +13,7 @@ const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-si
 const REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH = 420;
 const REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT = 760;
 const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
+const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -699,6 +700,39 @@ function stopLocalCaptureStream(stream) {
   }
 }
 
+function configureLowLatencyVideoTrack(track) {
+  if (!track || !("contentHint" in track)) {
+    return;
+  }
+
+  try {
+    track.contentHint = "motion";
+  } catch (error) {
+    // Ignore contentHint support mismatches.
+  }
+}
+
+function configureLowLatencyVideoSender(sender) {
+  if (
+    !sender ||
+    typeof sender.getParameters !== "function" ||
+    typeof sender.setParameters !== "function"
+  ) {
+    return;
+  }
+
+  try {
+    const parameters = sender.getParameters() || {};
+    parameters.degradationPreference = "maintain-framerate";
+    const setParametersResult = sender.setParameters(parameters);
+    if (setParametersResult && typeof setParametersResult.catch === "function") {
+      void setParametersResult.catch(() => {});
+    }
+  } catch (error) {
+    // Ignore sender parameter mismatches in older WebRTC implementations.
+  }
+}
+
 function clearRequesterSidebarCaptureSurface(runtime) {
   if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext) {
     return;
@@ -768,59 +802,114 @@ async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
     return;
   }
 
-  if ("contentHint" in track && !track.contentHint) {
-    try {
-      track.contentHint = "detail";
-    } catch (error) {
-      // Ignore contentHint support mismatches.
-    }
-  }
+  configureLowLatencyVideoTrack(track);
 
   runtime.sidebarCaptureStream = stream;
   runtime.sidebarCaptureTrack = track;
   clearRequesterSidebarCaptureSurface(runtime);
 
   if (typeof peerConnection.addTrack === "function") {
-    peerConnection.addTrack(track, stream);
+    configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
   }
 }
 
-async function drawRequesterSidebarFrame(runtime, frameDataUrl, width, height) {
-  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext || !isNonEmptyString(frameDataUrl)) {
+function isImageBitmapLike(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof value.width === "number" &&
+    typeof value.height === "number" &&
+    typeof value.close === "function"
+  );
+}
+
+function isBlobLike(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof value.size === "number" &&
+    typeof value.type === "string"
+  );
+}
+
+function closeFrameSource(source) {
+  if (!source || typeof source.close !== "function") {
+    return;
+  }
+
+  try {
+    source.close();
+  } catch (error) {
+    // Ignore decoded frame cleanup mismatches.
+  }
+}
+
+async function createRequesterSidebarFrameSource(frame) {
+  if (!frame || typeof frame !== "object") {
+    return null;
+  }
+
+  if (isImageBitmapLike(frame.bitmap)) {
+    return frame.bitmap;
+  }
+
+  if (isBlobLike(frame.blob) && typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(frame.blob);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  if (!isNonEmptyString(frame.dataUrl) || typeof Image !== "function") {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      resolve(image);
+    };
+    image.onerror = () => {
+      resolve(null);
+    };
+    image.src = frame.dataUrl;
+  });
+}
+
+async function drawRequesterSidebarFrame(runtime, frame, width, height) {
+  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext || !frame || typeof frame !== "object") {
     return;
   }
 
   setRequesterSidebarCaptureSize(runtime, width, height);
   const currentFrameVersion = (runtime.sidebarFrameVersion += 1);
+  const source = await createRequesterSidebarFrameSource(frame);
+  if (!source) {
+    return;
+  }
 
-  await new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      if (runtime.sidebarFrameVersion !== currentFrameVersion || !runtime.sidebarCaptureContext || !runtime.sidebarCaptureCanvas) {
-        resolve();
-        return;
-      }
+  try {
+    if (runtime.sidebarFrameVersion !== currentFrameVersion || !runtime.sidebarCaptureContext || !runtime.sidebarCaptureCanvas) {
+      return;
+    }
 
-      runtime.sidebarCaptureContext.clearRect(
-        0,
-        0,
-        runtime.sidebarCaptureCanvas.width,
-        runtime.sidebarCaptureCanvas.height
-      );
-      runtime.sidebarCaptureContext.drawImage(
-        image,
-        0,
-        0,
-        runtime.sidebarCaptureCanvas.width,
-        runtime.sidebarCaptureCanvas.height
-      );
-      resolve();
-    };
-    image.onerror = () => {
-      resolve();
-    };
-    image.src = frameDataUrl;
-  });
+    runtime.sidebarCaptureContext.clearRect(
+      0,
+      0,
+      runtime.sidebarCaptureCanvas.width,
+      runtime.sidebarCaptureCanvas.height
+    );
+    runtime.sidebarCaptureContext.drawImage(
+      source,
+      0,
+      0,
+      runtime.sidebarCaptureCanvas.width,
+      runtime.sidebarCaptureCanvas.height
+    );
+  } finally {
+    closeFrameSource(source);
+  }
 }
 
 function handleRequesterSidebarMirrorCommand(runtime, command) {
@@ -846,7 +935,7 @@ function handleSidebarStreamMessage(message) {
   }
 
   if (message.type === "frame") {
-    void drawRequesterSidebarFrame(runtime, message.dataUrl, message.width, message.height);
+    void drawRequesterSidebarFrame(runtime, message, message.width, message.height);
   }
 }
 
@@ -962,7 +1051,7 @@ async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
       mandatory: {
         chromeMediaSource: "tab",
         chromeMediaSourceId: runtime.mediaStreamId,
-        maxFrameRate: 30
+        maxFrameRate: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE
       }
     }
   });
@@ -975,13 +1064,7 @@ async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
     throw new Error("Remote support tab capture did not provide a video track");
   }
 
-  if ("contentHint" in track && !track.contentHint) {
-    try {
-      track.contentHint = "detail";
-    } catch (error) {
-      // Ignore contentHint support mismatches.
-    }
-  }
+  configureLowLatencyVideoTrack(track);
 
   runtime.localCaptureStream = stream;
   runtime.localCaptureTrack = track;
@@ -998,7 +1081,7 @@ async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
   }
 
   if (typeof peerConnection.addTrack === "function") {
-    peerConnection.addTrack(track, stream);
+    configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
   }
 }
 
