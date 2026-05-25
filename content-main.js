@@ -1475,7 +1475,10 @@ async function handleRemoteSupportSupportPageJoin() {
 async function handleRemoteSupportSupportPageEnd() {
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "remoteSupportEnd"
+      type: "remoteSupportEnd",
+      sessionId: typeof remoteSupportSupportPageState.sessionId === "string"
+        ? remoteSupportSupportPageState.sessionId
+        : ""
     });
 
     if (response && response.ok) {

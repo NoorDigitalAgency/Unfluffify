@@ -620,7 +620,6 @@ function shouldUseViewerTransport(runtime) {
   return Boolean(
     runtime &&
       runtime.state &&
-      runtime.state.active &&
       runtime.state.mode === REMOTE_SUPPORT_MODE_SUPPORTING &&
       runtime.state.role === "supporter" &&
       runtime.state.tabId !== null
@@ -817,11 +816,15 @@ async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session 
     : runtimeOrSessionId;
 
   if (shouldUseViewerTransport(runtime)) {
-    await sendRemoteSupportViewerRequest(runtime.state.tabId, {
-      type: REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE,
-      sessionId: runtime.state.sessionId,
-      reason
-    });
+    try {
+      await sendRemoteSupportViewerRequest(runtime.state.tabId, {
+        type: REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE,
+        sessionId: runtime.state.sessionId,
+        reason
+      });
+    } catch (error) {
+      // Ignore viewer stop failures during teardown.
+    }
     return;
   }
 

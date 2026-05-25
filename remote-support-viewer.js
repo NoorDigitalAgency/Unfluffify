@@ -6,6 +6,7 @@ import {
 
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
+const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 
 const dataChannelTextEncoder = new TextEncoder();
 
@@ -262,6 +263,8 @@ function createTransportRuntime(session) {
     remoteVideoSurfaceCount: 0,
     sidebarFrameRequestId: 0,
     sidebarFrameRafId: 0,
+    pendingFatalTransportTimer: 0,
+    pendingFatalTransportReason: "",
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
@@ -657,10 +660,64 @@ function closeSignalingSocket(socket) {
   }
 }
 
+function clearPendingFatalTransport(runtime) {
+  if (!runtime || !runtime.pendingFatalTransportTimer) {
+    return;
+  }
+
+  window.clearTimeout(runtime.pendingFatalTransportTimer);
+  runtime.pendingFatalTransportTimer = 0;
+  runtime.pendingFatalTransportReason = "";
+}
+
+function shouldAwaitSessionEnded(runtime) {
+  return Boolean(
+    runtime &&
+    runtime.signalingSocket &&
+    runtime.signalingSocket.readyState === WebSocket.OPEN
+  );
+}
+
+function scheduleFatalTransportError(sessionId, error, options = {}) {
+  const runtime = getTransportRuntime(sessionId);
+  if (!runtime || runtime.shuttingDown) {
+    return;
+  }
+
+  const reason = normalizeErrorMessage(error, "Remote support transport failed");
+  const allowGrace = Boolean(options.allowGrace);
+  if (!allowGrace || !shouldAwaitSessionEnded(runtime)) {
+    handleFatalTransportError(sessionId, reason);
+    return;
+  }
+
+  if (
+    runtime.pendingFatalTransportTimer &&
+    runtime.pendingFatalTransportReason === reason
+  ) {
+    return;
+  }
+
+  clearPendingFatalTransport(runtime);
+  runtime.pendingFatalTransportReason = reason;
+  runtime.pendingFatalTransportTimer = window.setTimeout(() => {
+    const activeRuntime = getTransportRuntime(sessionId);
+    if (!activeRuntime || activeRuntime.shuttingDown) {
+      return;
+    }
+
+    activeRuntime.pendingFatalTransportTimer = 0;
+    activeRuntime.pendingFatalTransportReason = "";
+    handleFatalTransportError(sessionId, reason);
+  }, REMOTE_SUPPORT_SESSION_END_GRACE_MS);
+}
+
 function resetTransportResources(runtime) {
   if (!runtime) {
     return;
   }
+
+  clearPendingFatalTransport(runtime);
 
   for (const channel of runtime.dataChannels.values()) {
     closeDataChannel(channel);
@@ -679,6 +736,8 @@ function resetTransportResources(runtime) {
   runtime.remoteVideoSurfaceCount = 0;
   runtime.sidebarFrameRequestId = 0;
   runtime.sidebarFrameRafId = 0;
+  runtime.pendingFatalTransportTimer = 0;
+  runtime.pendingFatalTransportReason = "";
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
 }
@@ -938,7 +997,11 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
     }
 
     updateDataChannelDiagnostics(currentRuntime, channel, normalizedChannelKey);
-    handleFatalTransportError(runtime.sessionId, formatTransportError(currentRuntime, "Remote support data channel closed"));
+    scheduleFatalTransportError(
+      runtime.sessionId,
+      formatTransportError(currentRuntime, "Remote support data channel closed"),
+      { allowGrace: true }
+    );
   };
 
   channel.onerror = () => {
@@ -952,7 +1015,15 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
     }
 
     updateDataChannelDiagnostics(currentRuntime, channel, normalizedChannelKey);
-    handleFatalTransportError(runtime.sessionId, formatTransportError(currentRuntime, "Remote support data channel failed"));
+    scheduleFatalTransportError(
+      runtime.sessionId,
+      formatTransportError(currentRuntime, "Remote support data channel failed"),
+      {
+        allowGrace:
+          channel.readyState === "closing" ||
+          channel.readyState === "closed"
+      }
+    );
   };
 
   channel.onmessage = (event) => {
@@ -1021,8 +1092,20 @@ async function ensurePeerConnection(runtime, offerer) {
       return;
     }
 
-    if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState)) {
-      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, "Peer connection closed"));
+    if (peerConnection.connectionState === "failed") {
+      scheduleFatalTransportError(
+        runtime.sessionId,
+        formatTransportError(runtime, "Peer connection closed")
+      );
+      return;
+    }
+
+    if (["disconnected", "closed"].includes(peerConnection.connectionState)) {
+      scheduleFatalTransportError(
+        runtime.sessionId,
+        formatTransportError(runtime, "Peer connection closed"),
+        { allowGrace: true }
+      );
     }
   };
 
@@ -1225,6 +1308,20 @@ async function connectSignalingSocket(runtime) {
           type: "partner-ready",
           sessionId: runtime.sessionId
         });
+        return;
+      }
+
+      if (message.type === "session-ended") {
+        const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+        if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
+          return;
+        }
+
+        await shutdownTransport(
+          runtime.sessionId,
+          isNonEmptyString(payload.reason) ? payload.reason : "Session ended",
+          { notifyBackground: true }
+        );
         return;
       }
 

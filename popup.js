@@ -4409,9 +4409,16 @@ async function handleRemoteSupportJoin() {
 }
 
 async function handleRemoteSupportEnd() {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : undefined;
+  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
   await messages.sendRuntimeMessage({
     type: "remoteSupportEnd",
-    tabId: state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : undefined
+    tabId: currentTabId,
+    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
+      ? scopedRemoteSupportState.sessionId
+      : ""
   });
   state.remoteSupportState = await fetchRemoteSupportState();
   state.remoteSupportLastFrame = "";

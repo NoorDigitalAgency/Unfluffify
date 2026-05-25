@@ -814,6 +814,107 @@ test("network devtools panel is the only include-payloads writer for its attache
   }
 });
 
+test("supporter sessions can be ended by session id even when the viewer stop request fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+  const originalSendMessage = chromeMock.tabs.sendMessage;
+  chromeMock.tabs.sendMessage = (tabId, message) => {
+    if (message && message.type === "remoteSupportViewerTransportStop") {
+      transportMessages.push({
+        type: "remoteSupportTransportStop",
+        sessionId: message.sessionId,
+        reason: message.reason,
+        tabId,
+        failed: true
+      });
+      return Promise.reject(new Error("Remote support viewer unavailable"));
+    }
+
+    return originalSendMessage(tabId, message);
+  };
+
+  const responses = [
+    {
+      sessionId: "sess_supporter_end",
+      supportCode: "444555",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter-end",
+      iceServers: [
+        {
+          urls: ["turn:supporter.example.com:3478?transport=tcp"],
+          username: "supporter-user",
+          credential: "supporter-secret"
+        }
+      ]
+    }
+  ];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return responses.shift();
+    }
+  });
+  globalThis.chrome = chromeMock;
+
+  try {
+    const supporterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 22,
+        supportCode: "444555"
+      },
+      { tab: { id: 22 } }
+    );
+
+    assert.equal(supporterResponse.ok, true);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportStart" &&
+          message.session &&
+          message.session.sessionId === "sess_supporter_end"
+      ),
+      true
+    );
+
+    const endResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportEnd",
+        sessionId: "sess_supporter_end"
+      },
+      { tab: { id: 999 } }
+    );
+
+    assert.equal(endResponse.ok, true);
+
+    const endedSupporterState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 22 },
+      {}
+    );
+
+    assert.equal(endedSupporterState.state.active, false);
+    assert.equal(endedSupporterState.state.tabId, 22);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportStop" &&
+          message.sessionId === "sess_supporter_end" &&
+          message.failed === true
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("supporting sessions wait for the primary transport channel before marking connected", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
