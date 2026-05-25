@@ -892,12 +892,16 @@ button.button-small {
 }
 
 button.warning {
-  background: color-mix(in srgb, var(--danger) 82%, var(--card));
+  background: light-dark(var(--danger), color-mix(in srgb, var(--danger) 82%, var(--card)));
   border-color: color-mix(in srgb, var(--danger) 70%, var(--line));
+  color: light-dark(#ffffff, #000000);
 }
 
 button.warning:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 88%, var(--card));
+  background: light-dark(
+    color-mix(in srgb, var(--danger) 85%, #000000),
+    color-mix(in srgb, var(--danger) 88%, var(--card))
+  );
 }
 
 .token-status {
@@ -946,7 +950,7 @@ input[type="text"],
 input[type="email"],
 input[type="password"] {
   padding: 7px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
   font-family: inherit;
   font-size: 13px;
@@ -971,7 +975,7 @@ input[type="password"]:focus-visible {
 
 select {
   padding: 7px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
   font-family: inherit;
   font-size: 13px;
@@ -986,8 +990,6 @@ select {
 select option {
   font-family: inherit;
 }
-
-select:focus {
   border-color: var(--accent);
 }
 
