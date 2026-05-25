@@ -110,7 +110,7 @@ const THEME_CATALOG = Object.freeze([
   { value: "ocean", label: "Ocean", cluster: "cyan" },
   { value: "graphite", label: "Graphite", cluster: "cyan" },
   { value: "earthy", label: "Earthy", cluster: "green" },
-  { value: "happy", label: "Happy", cluster: "green" },
+  { value: "olive", label: "Olive", cluster: "green" },
   { value: "sunset", label: "Sunset", cluster: "warm" },
   { value: "clay-rose", label: "Clay Rose", cluster: "warm" },
   { value: "plum-steel", label: "Plum Steel", cluster: "violet" },

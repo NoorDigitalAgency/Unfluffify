@@ -174,7 +174,7 @@
   --warn: light-dark(#a43d09, #fb923c);
 }
 
-[data-theme="happy"] {
+[data-theme="olive"] {
   color-scheme: light dark;
   --bg: light-dark(#fff8f3, #150d0a);
   --bg-accent: light-dark(#ffefe1, #1f150e);
