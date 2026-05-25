@@ -73,9 +73,9 @@ The remote-support regressions also cover tab-scoped background state, concurren
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability and parent-boundary selection
+- **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability, parent-boundary selection, explicit-include descendant blocking, expanded exclusion eligibility, and hidden explicit ghost presentation
 - **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: exclusion roots (explicit, immutable, consent, hidden toggleable) plus included textual boundaries and explicit includes
-- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards used by marking and submission
+- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction

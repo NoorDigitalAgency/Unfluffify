@@ -26,3 +26,10 @@
 - Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
 - Exclusion roots include explicit excludes, immutable roots, hidden consent roots, toggleable default roots already excluded by markings, and toggleable roots that are currently invisible in mobile save mode.
 - Explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
+
+## Marking and Highlighting Rules
+
+- Expanded exclusion targets must own direct text or contain more than one textual descendant; a parent with one textual descendant and no root text is not eligible.
+- Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
+- Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
+- Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.

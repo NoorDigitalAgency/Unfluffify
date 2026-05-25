@@ -133,6 +133,8 @@ In exclude mode, `Shift+Click` means “choose a broader eligible ancestor inste
 
 This is how users intentionally move back up to a broader boundary such as a form or sidebar container.
 
+An expanded exclusion boundary must either own direct text at its root level or contain more than one textual descendant. A parent with no direct text and only one textual descendant is not a valid exclusion target, even if it has other non-textual children.
+
 For structured non-text wrappers whose direct children are the separate textual boundaries the user sees, `Shift+Click` prefers the nearest such grouping ancestor. This is what allows containers like button groups and list wrappers to be excluded as one logical block.
 
 When multiple toggleable default exclusions are nested, `Shift+Click` prefers the nearest toggleable default ancestor in the clicked subtree rather than jumping straight to the broadest one. That keeps intermediate boundaries such as `FORM` inside `ASIDE` and `NAV` inside `HEADER` reachable.
@@ -150,6 +152,7 @@ The effective rules are:
 - explicit targets are preferred first,
 - descendants inside excluded parents are allowed,
 - mixed-text ancestor promotion is enabled,
+- descendants inside explicit include parents are blocked until that explicit include is removed,
 - the result is the nearest meaningful content boundary.
 
 ### Exclude mode
@@ -158,6 +161,7 @@ The effective rules are:
 - direct clicks on the currently excluded element itself still resolve to that exact element,
 - direct clicks on a toggleable default boundary itself still resolve to that exact boundary when the user is intentionally selecting ancestors with `Shift`,
 - descendants inside excluded parents are still inspectable,
+- descendants inside explicit include parents are not inspectable or markable until the explicit include boundary is removed,
 - the default behavior is to drill down,
 - `Shift` is required to select a broader ancestor on purpose.
 
@@ -187,20 +191,11 @@ Reason:
 
 This is the rule that prevents `ASIDE -> FORM -> LABEL` hierarchies from snapping back to the ancestor while the user is trying to go down a level.
 
-### Include-boundary cleanup during exclusion
+### Explicit include boundary protection
 
-If a new exclusion is applied inside an explicit include subtree, the conflicting explicit include boundaries are removed before the exclusion is persisted.
+Explicit includes are closed content boundaries. Their descendants do not show hover targeting and cannot be marked as either explicit includes or explicit excludes while the ancestor include remains active.
 
-This applies to:
-
-- the exact same element,
-- explicit include ancestors of the new exclusion,
-- explicit include descendants of the new exclusion.
-
-Reason:
-
-- exclusion and inclusion boundaries must not overlap in contradictory ways,
-- clicking a descendant inside an explicit include should immediately convert that part of the subtree back into excluded content.
+The exact explicit include boundary itself remains targetable so the user can remove it. After the include is removed, the descendants return to their default or inherited marking behavior and may be marked normally.
 
 ### Descendant include cleanup during exclusion removal
 
@@ -224,6 +219,8 @@ When an explicit include is added:
 - the explicit include becomes the boundary for that subtree.
 
 Explicit includes always override default toggleable exclusions for the targeted subtree.
+
+If an element is temporarily hidden after being explicitly marked, the explicit marking remains stored while the element is present in the DOM. When the element still has a measurable box, it is rendered as a non-toggleable ghost marking: hidden includes use a semi-transparent dotted green border without a background, and hidden excludes use a semi-transparent dashed red border without a background. When it becomes visible again, the normal toggleable explicit marking returns.
 
 ## AI Selector Interpretation
 
@@ -268,14 +265,18 @@ An active full silent-highlight refresh always repaints the overlay, even if the
 
 Silent exclusion source selection is visibility-agnostic. Selector-excluded and inferred excluded boundaries stay in the silent-highlight source set even when they are temporarily non-drawable, such as Webflow-style `opacity: 0` fade-ins. Current visibility only affects whether rects are drawn at that moment, not whether the exclusion boundary is tracked.
 
+Marking overlay updates watch style attribute changes as well as class, id, hidden, aria-hidden, child-list, and text mutations. Opacity, visibility, displacement, and animation-driven style changes therefore trigger a redraw/reposition pass instead of leaving stale markings.
+
 ## Regression Coverage
 
 The pure decision rules that are most likely to regress are covered by Node tests:
 
 - `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
 - `tests/marking-rules.test.js` also locks in the one-shot suppression rule that keeps AI preview restore from auto-seeding a new draft.
+- `tests/marking-rules.test.js` also locks in expanded exclusion eligibility, explicit-include descendant blocking, and hidden explicit ghost presentation.
 - `tests/submission-rules.test.js` locks in the final AI submission row decisions for exclusion roots, explicit includes, hidden toggleable roots, consent roots, immutable roots, and excluded-ancestor suppression.
 - `tests/core-visibility.test.js` locks in visibility semantics for hidden attributes, `aria-hidden`, and collapsed visibility.
+- `tests/core-visibility.test.js` also locks in that style mutations trigger overlay repositioning for dynamic visibility changes.
 - `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that temporarily hidden excluded nodes must remain collectable as silent-highlight sources.
@@ -286,6 +287,7 @@ Run `npm test` from the repository root to execute the regression suite.
 
 The rendered overlay is split into these logical collections:
 
+- ghost explicit elements
 - hard elements
 - explicit exclude elements
 - explicit include elements
@@ -293,12 +295,15 @@ The rendered overlay is split into these logical collections:
 - AI excluded content elements
 - default elements
 
+### Ghost explicit elements
+
+Ghost explicit elements are hidden stored explicit includes or excludes that must remain persisted but are not currently toggleable. They render below normal markable layers with static semi-transparent borders and no backgrounds.
+
 ### Hard elements
 
-Hard elements are the union of:
+Hard elements are:
 
-- immutable exclusions,
-- hidden stored explicit excludes that must still be preserved.
+- immutable exclusions.
 
 These render in the hard-excluded layer.
 
@@ -338,15 +343,16 @@ They are the lowest-precedence visible content candidates that remain after remo
 
 When layers overlap, precedence is:
 
-1. Immutable and hard exclusions
-2. Consent exclusions
-3. Explicit excludes
-4. Explicit includes
-5. AI included content
-6. AI excluded descendants
-7. Default content highlights
+1. Ghost explicit markings
+2. Immutable and hard exclusions
+3. Default content highlights
+4. AI excluded descendants
+5. Explicit excludes
+6. AI included content
+7. Explicit includes
+8. Focus and hover targeting
 
-Lower-precedence layers do not replace higher-precedence decisions.
+Visual layers are ordered so immutable exclusions remain subtle, markable elements can appear above immutable overlaps, and inclusions remain easiest to see. Lower-precedence decision layers do not replace higher-precedence classification decisions.
 
 ## Rebuild And Persistence Flow
 
@@ -371,6 +377,7 @@ The rebuild is intentionally idempotent:
 
 - choose the deepest meaningful target,
 - allow drilling inside already excluded ancestors,
+- do not drill inside explicit include ancestors until that include is removed,
 - replace broader excludes with the newly chosen deeper exclude.
 
 ### If the user excludes with Shift
@@ -383,7 +390,8 @@ The rebuild is intentionally idempotent:
 
 - prefer explicit targets first,
 - prefer mixed-text ancestors over purely nested text descendants,
-- allow inclusion inside excluded parents as a deliberate override.
+- allow inclusion inside excluded parents as a deliberate override,
+- do not target descendants inside an existing explicit include until the include boundary is removed.
 
 ## Design Intent
 
