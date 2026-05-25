@@ -53,7 +53,7 @@ test("descendants inside excluded ancestors are omitted unless explicitly includ
   );
 });
 
-test("explicitly-excluded descendants inside excluded ancestors are omitted", () => {
+test("explicitly-excluded descendants inside excluded ancestors are suppressed", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: true,
