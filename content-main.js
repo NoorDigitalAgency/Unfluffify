@@ -1275,6 +1275,14 @@ function canControlFromRemoteSupportSupportPage() {
   );
 }
 
+function canControlSidebarFromRemoteSupportSupportPage() {
+  return Boolean(
+    canControlFromRemoteSupportSupportPage() &&
+    remoteSupportSupportPageSidebarVideoActive &&
+    remoteSupportSupportPageSidebarLastFrame
+  );
+}
+
 function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
   const fallbackRect = surface.getBoundingClientRect();
   const intrinsicWidth = Number.isFinite(Number(options.intrinsicWidth))
@@ -1694,10 +1702,12 @@ function ensureRemoteSupportSupportPageUi() {
     });
 
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("mousemove", (event) => {
-      if (!canControlFromRemoteSupportSupportPage()) {
+      if (!canControlSidebarFromRemoteSupportSupportPage()) {
         return;
       }
       const pointer = createRemoteSupportSupportPagePointerPayload(event, {
+        surface: remoteSupportSupportPageElements.sidebarSurface,
+        frame: remoteSupportSupportPageElements.sidebarFrame,
         intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
         intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
       });
@@ -1724,10 +1734,13 @@ function ensureRemoteSupportSupportPageUi() {
       });
     });
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("click", (event) => {
-      if (!canControlFromRemoteSupportSupportPage()) {
+      event.preventDefault();
+      if (!canControlSidebarFromRemoteSupportSupportPage()) {
         return;
       }
       const pointer = createRemoteSupportSupportPagePointerPayload(event, {
+        surface: remoteSupportSupportPageElements.sidebarSurface,
+        frame: remoteSupportSupportPageElements.sidebarFrame,
         intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
         intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
       });
@@ -1743,10 +1756,12 @@ function ensureRemoteSupportSupportPageUi() {
     });
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("wheel", (event) => {
       event.preventDefault();
-      if (!canControlFromRemoteSupportSupportPage()) {
+      if (!canControlSidebarFromRemoteSupportSupportPage()) {
         return;
       }
       const pointer = createRemoteSupportSupportPagePointerPayload(event, {
+        surface: remoteSupportSupportPageElements.sidebarSurface,
+        frame: remoteSupportSupportPageElements.sidebarFrame,
         intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
         intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
       });
@@ -1762,7 +1777,7 @@ function ensureRemoteSupportSupportPageUi() {
         return;
       }
       event.preventDefault();
-      if (!canControlFromRemoteSupportSupportPage()) {
+      if (!canControlSidebarFromRemoteSupportSupportPage()) {
         return;
       }
       sendRemoteSupportSupportPageCommand({
@@ -1838,7 +1853,7 @@ function renderRemoteSupportSupportPageSidebar() {
 
   const snapshot = normalizeRemoteSupportSidebarSnapshot(remoteSupportSupportPageSidebarSnapshot);
   const hasLiveSidebar = Boolean(remoteSupportSupportPageSidebarVideoActive && remoteSupportSupportPageSidebarLastFrame);
-  const canControl = canControlFromRemoteSupportSupportPage();
+  const canControl = canControlSidebarFromRemoteSupportSupportPage();
 
   elements.sidebarSurface.classList.toggle("is-disabled", !canControl);
   elements.sidebarSurface.setAttribute("aria-disabled", canControl ? "false" : "true");
@@ -1863,11 +1878,11 @@ function renderRemoteSupportSupportPageSidebar() {
   }
 
   if (snapshot.active) {
-    elements.sidebarPlaceholder.textContent = "Connected. Waiting for the live remote sidebar surface...";
+    elements.sidebarPlaceholder.textContent = "Connected. Waiting for the live remote sidebar surface. If it does not appear, open the Unfluffify side panel on the requester tab.";
     return;
   }
 
-  elements.sidebarPlaceholder.textContent = "Waiting for the requester sidebar to publish a live Unfluffify sidebar surface.";
+  elements.sidebarPlaceholder.textContent = "Waiting for the requester to publish a live Unfluffify sidebar surface. Open the Unfluffify side panel on the requester tab if it is not already open.";
 }
 
 function getRemoteSupportSupportPageSurfaceCursorValue() {
