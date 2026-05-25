@@ -1,8 +1,4 @@
 export function resolveAiSubmissionRowState(options = {}) {
-  if (options.explicitlyExcluded) {
-    return { shouldSubmit: true, excluded: true };
-  }
-
   const explicitlyIncluded = Boolean(options.explicitlyIncluded);
 
   if (explicitlyIncluded) {
@@ -11,6 +7,10 @@ export function resolveAiSubmissionRowState(options = {}) {
 
   if (options.insideExcludedAncestor) {
     return { shouldSubmit: false, excluded: false };
+  }
+
+  if (options.explicitlyExcluded) {
+    return { shouldSubmit: true, excluded: true };
   }
 
   if (

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 
 import { resolveAiSubmissionRowState } from "../content/submission-rules.js";
 
-test("explicit exclusions always submit as excluded", () => {
+test("explicit exclusions submit as excluded when not explicitly included", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: true,
-      explicitlyIncluded: true,
+      explicitlyIncluded: false,
       insideExcludedAncestor: false,
       visibleToUser: true,
       markableTextual: true
@@ -44,6 +44,18 @@ test("descendants inside excluded ancestors are omitted unless explicitly includ
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: false, excluded: false }
+  );
+});
+
+test("explicitly-excluded descendants inside excluded ancestors are omitted", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: true,
       explicitlyIncluded: false,
       insideExcludedAncestor: true,
       markableTextual: true
