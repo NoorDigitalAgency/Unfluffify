@@ -663,11 +663,12 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
     ? channelKey.trim()
     : getDefaultDataChannelKey(runtime);
   const existingChannel = getDataChannel(runtime, normalizedChannelKey);
+  runtime.dataChannels.set(normalizedChannelKey, channel);
+
   if (existingChannel && existingChannel !== channel) {
     closeDataChannel(existingChannel);
   }
 
-  runtime.dataChannels.set(normalizedChannelKey, channel);
   channel.binaryType = "arraybuffer";
   updateDataChannelDiagnostics(runtime, channel, normalizedChannelKey);
 
@@ -686,6 +687,10 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
       return;
     }
 
+    if (getDataChannel(activeRuntime, normalizedChannelKey) !== channel) {
+      return;
+    }
+
     updateDataChannelDiagnostics(activeRuntime, channel, normalizedChannelKey);
     handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel closed"));
   };
@@ -693,6 +698,10 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
   channel.onerror = () => {
     const activeRuntime = getTransportRuntime(runtime.sessionId);
     if (!activeRuntime || activeRuntime.shuttingDown) {
+      return;
+    }
+
+    if (getDataChannel(activeRuntime, normalizedChannelKey) !== channel) {
       return;
     }
 

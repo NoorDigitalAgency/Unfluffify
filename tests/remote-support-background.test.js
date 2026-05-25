@@ -1001,6 +1001,173 @@ test("remote support handoff updates shared ownership and blocks supporter comma
   }
 });
 
+test("remote support replays cached requester sidebar snapshots on sidebar channel open and forwards incoming sidebar snapshots to the support page", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, tabMessages, transportMessages } = createChromeMock();
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            sessionId: "sess_requester_sidebar",
+            supportCode: "112233",
+            expiresAt: "2026-05-24T08:10:00.000Z",
+            webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+            iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+          };
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          sessionId: "sess_supporter_sidebar",
+          supportCode: "112233",
+          expiresAt: "2026-05-24T08:10:00.000Z",
+          webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        };
+      }
+    };
+  };
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 18,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+    assert.deepEqual(
+      transportMessages[0].session.dataChannels,
+      [{ key: "page" }, { key: "sidebar" }]
+    );
+
+    const snapshotResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportUpdateSidebarSnapshot",
+        tabId: 18,
+        snapshot: {
+          active: true,
+          currentView: "Marking",
+          currentPageUrl: "https://example.com/page",
+          summaryRows: [{ label: "Extension", value: "Enabled" }]
+        }
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(snapshotResponse.ok, true);
+    const sidebarSendCountBeforeChannelOpen = transportMessages.filter(
+      (message) =>
+        message.type === "remoteSupportTransportSendData" &&
+        message.sessionId === "sess_requester_sidebar" &&
+        message.channelKey === "sidebar" &&
+        message.messageType === "sidebar-state"
+    ).length;
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "channel-open",
+          sessionId: "sess_requester_sidebar",
+          channelKey: "sidebar"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const sidebarSendCountAfterChannelOpen = transportMessages.filter(
+      (message) =>
+        message.type === "remoteSupportTransportSendData" &&
+        message.sessionId === "sess_requester_sidebar" &&
+        message.channelKey === "sidebar" &&
+        message.messageType === "sidebar-state"
+    ).length;
+
+    assert.equal(sidebarSendCountAfterChannelOpen > sidebarSendCountBeforeChannelOpen, true);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_requester_sidebar" &&
+          message.channelKey === "sidebar" &&
+          message.messageType === "sidebar-state" &&
+          message.payload &&
+          message.payload.snapshot &&
+          message.payload.snapshot.currentView === "Marking"
+      ),
+      true
+    );
+
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 77,
+        supportCode: "112233"
+      },
+      { tab: { id: 77 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+
+    await handleTransportEvent({
+      type: "incoming-message",
+      sessionId: "sess_supporter_sidebar",
+      channelKey: "sidebar",
+      message: {
+        type: "sidebar-state",
+        payload: {
+          snapshot: {
+            active: true,
+            currentView: "Configuration",
+            currentPageUrl: "https://example.com/remote",
+            summaryRows: [{ label: "Extension", value: "Disabled" }]
+          }
+        }
+      }
+    });
+
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 77 &&
+          message &&
+          message.type === "remoteSupportSidebarStateChanged" &&
+          message.snapshot &&
+          message.snapshot.currentView === "Configuration"
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remote support forwards runtime state and frames to the bound tab", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

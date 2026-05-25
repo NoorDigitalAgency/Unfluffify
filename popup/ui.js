@@ -188,6 +188,17 @@ const initialViewState = {
 
 let viewState = { ...initialViewState };
 let actions = {};
+const viewStateListeners = new Set();
+
+function notifyViewStateListeners() {
+  viewStateListeners.forEach((listener) => {
+    try {
+      listener(viewState);
+    } catch {
+      // Ignore listener failures so popup rendering keeps working.
+    }
+  });
+}
 
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
@@ -2223,6 +2234,7 @@ export function setViewState(patch) {
   const nextViewState = normalizeViewState({ ...viewState, ...patch });
   viewState = nextViewState;
   renderApp();
+  notifyViewStateListeners();
 }
 
 /**
@@ -2233,10 +2245,22 @@ export function setViewState(patch) {
 function updateViewState(updater) {
   viewState = normalizeViewState(updater(viewState));
   renderApp();
+  notifyViewStateListeners();
 }
 
 export function getViewState() {
   return viewState;
+}
+
+export function onViewStateChange(listener) {
+  if (typeof listener !== "function") {
+    return () => {};
+  }
+
+  viewStateListeners.add(listener);
+  return () => {
+    viewStateListeners.delete(listener);
+  };
 }
 
 export function getRefs() {

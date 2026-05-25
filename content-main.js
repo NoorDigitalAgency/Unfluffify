@@ -31,6 +31,8 @@ import {
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
 import {
+  createInactiveRemoteSupportSidebarSnapshot,
+  normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED
@@ -146,6 +148,7 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID = "unfluffify-support-page-app";
 const REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID = "unfluffify-remote-support-page-root";
 const REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID = "unfluffify-remote-support-page-style";
 const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallback";
+const REMOTE_SUPPORT_SUPPORT_PAGE_FRAME_RENDER_DEBOUNCE_MS = 120;
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
@@ -155,10 +158,14 @@ let remoteSupportBridgeNonce = "";
 let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
+let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 let remoteSupportSupportPageJoinCode = "";
 let remoteSupportSupportPageJoinLoading = false;
 let remoteSupportSupportPageLastFrame = "";
+let remoteSupportSupportPageRenderedFrame = "";
 let remoteSupportSupportPageElements = null;
+let remoteSupportSupportPageFrameRenderTimer = 0;
+let remoteSupportSupportPageLastFrameRenderAt = 0;
 let remoteSupportSupportPagePointerMoveRaf = 0;
 let remoteSupportSupportPagePendingPointerMove = null;
 
@@ -521,6 +528,10 @@ function ensureRemoteSupportSupportPageStyles() {
       padding: 20px;
     }
 
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
+      margin-top: 18px;
+    }
+
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta {
       display: grid;
       gap: 14px;
@@ -652,6 +663,133 @@ function ensureRemoteSupportSupportPageStyles() {
       border: 1px solid rgba(236, 88, 107, 0.24);
       color: #ffc3cb;
       line-height: 1.5;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-sim {
+      display: grid;
+      gap: 14px;
+      min-height: 180px;
+      margin-top: 12px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-shell {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(13, 22, 36, 0.92);
+      border: 1px solid rgba(143, 177, 222, 0.14);
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-title {
+      margin: 0;
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(108, 169, 255, 0.16);
+      color: #9dc7ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-details {
+      display: grid;
+      gap: 10px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail {
+      display: grid;
+      gap: 4px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail-label,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7ea4d4;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail-value {
+      color: #e8edf6;
+      font-size: 13px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-rows,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-sections {
+      display: grid;
+      gap: 10px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #b7c6dd;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-row strong {
+      color: #e8edf6;
+      font-weight: 600;
+      text-align: right;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-status-list,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-list {
+      display: grid;
+      gap: 8px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-status-list li,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-list li {
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(108, 169, 255, 0.08);
+      border: 1px solid rgba(143, 177, 222, 0.1);
+      color: #d8e3f2;
+      font-size: 13px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder {
+      display: grid;
+      place-items: center;
+      min-height: 180px;
+      padding: 20px;
+      border-radius: 20px;
+      border: 1px dashed rgba(143, 177, 222, 0.22);
+      background: rgba(13, 22, 36, 0.6);
+      color: #b7c6dd;
+      text-align: center;
+      line-height: 1.6;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__caption {
@@ -1011,6 +1149,10 @@ function ensureRemoteSupportSupportPageUi() {
               </form>
               <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true"></div>
             </div>
+            <div class="uf-support-page__card uf-support-page__sidebar-card" data-uf-extension-ui="true">
+              <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
+              <div id="uf-support-page-sidebar-sim" class="uf-support-page__sidebar-sim" data-uf-extension-ui="true"></div>
+            </div>
           </aside>
           <div class="uf-support-page__stage" data-uf-extension-ui="true">
             <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
@@ -1035,10 +1177,13 @@ function ensureRemoteSupportSupportPageUi() {
       error: root.querySelector("#uf-support-page-error"),
       controlButton: root.querySelector("#uf-support-page-control"),
       endButton: root.querySelector("#uf-support-page-end"),
+      sidebarSimulation: root.querySelector("#uf-support-page-sidebar-sim"),
       surface: root.querySelector("#uf-support-page-surface"),
       frame: root.querySelector("#uf-support-page-frame"),
       placeholder: root.querySelector("#uf-support-page-placeholder")
     };
+
+    remoteSupportSupportPageElements.frame.decoding = "async";
 
     remoteSupportSupportPageElements.joinForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1115,6 +1260,227 @@ function ensureRemoteSupportSupportPageUi() {
   return remoteSupportSupportPageElements;
 }
 
+function createRemoteSupportSupportPageTextNode(tagName, className, text) {
+  const node = document.createElement(tagName);
+  node.className = className;
+  node.setAttribute("data-uf-extension-ui", "true");
+  node.textContent = text;
+  return node;
+}
+
+function appendRemoteSupportSupportPageSidebarDetail(parent, label, value) {
+  if (!value) {
+    return;
+  }
+
+  const detail = document.createElement("div");
+  detail.className = "uf-support-page__sidebar-detail";
+  detail.setAttribute("data-uf-extension-ui", "true");
+  detail.append(
+    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-detail-label", label),
+    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-detail-value", value)
+  );
+  parent.appendChild(detail);
+}
+
+function appendRemoteSupportSupportPageSidebarSection(parent, title, items) {
+  if (!Array.isArray(items) || !items.length) {
+    return;
+  }
+
+  const section = document.createElement("section");
+  section.className = "uf-support-page__sidebar-section";
+  section.setAttribute("data-uf-extension-ui", "true");
+  section.appendChild(
+    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-section-title", title)
+  );
+
+  const list = document.createElement("ul");
+  list.className = "uf-support-page__sidebar-list";
+  list.setAttribute("data-uf-extension-ui", "true");
+  items.forEach((item) => {
+    const listItem = createRemoteSupportSupportPageTextNode("li", "", item);
+    list.appendChild(listItem);
+  });
+
+  section.appendChild(list);
+  parent.appendChild(section);
+}
+
+function renderRemoteSupportSupportPageSidebar() {
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements || !elements.sidebarSimulation) {
+    return;
+  }
+
+  const snapshot = normalizeRemoteSupportSidebarSnapshot(remoteSupportSupportPageSidebarSnapshot);
+  const host = elements.sidebarSimulation;
+  host.replaceChildren();
+
+  if (!remoteSupportSupportPageState.active) {
+    host.appendChild(
+      createRemoteSupportSupportPageTextNode(
+        "div",
+        "uf-support-page__sidebar-placeholder",
+        "Join a support session to mirror the supportee's Unfluffify sidebar here."
+      )
+    );
+    return;
+  }
+
+  if (!snapshot.active) {
+    host.appendChild(
+      createRemoteSupportSupportPageTextNode(
+        "div",
+        "uf-support-page__sidebar-placeholder",
+        "Waiting for the requester sidebar to publish its current Unfluffify state."
+      )
+    );
+    return;
+  }
+
+  const shell = document.createElement("div");
+  shell.className = "uf-support-page__sidebar-shell";
+  shell.setAttribute("data-uf-extension-ui", "true");
+
+  const header = document.createElement("div");
+  header.className = "uf-support-page__sidebar-header";
+  header.setAttribute("data-uf-extension-ui", "true");
+
+  const titleGroup = document.createElement("div");
+  titleGroup.setAttribute("data-uf-extension-ui", "true");
+  titleGroup.append(
+    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-detail-label", "Unfluffify"),
+    createRemoteSupportSupportPageTextNode("h2", "uf-support-page__sidebar-title", "Sidebar simulation")
+  );
+
+  header.appendChild(titleGroup);
+  if (snapshot.currentView) {
+    header.appendChild(
+      createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-pill", snapshot.currentView)
+    );
+  }
+  shell.appendChild(header);
+
+  const details = document.createElement("div");
+  details.className = "uf-support-page__sidebar-details";
+  details.setAttribute("data-uf-extension-ui", "true");
+  appendRemoteSupportSupportPageSidebarDetail(details, "Current page", snapshot.currentPageUrl);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Base URL", snapshot.currentBaseUrl);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Remote support", snapshot.remoteSupportStatusText);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Draft state", snapshot.pageDraftStatusText);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Config load", snapshot.syncLoadStatusText);
+  appendRemoteSupportSupportPageSidebarDetail(details, "Config save", snapshot.syncSaveStatusText);
+  if (details.childNodes.length) {
+    shell.appendChild(details);
+  }
+
+  if (Array.isArray(snapshot.summaryRows) && snapshot.summaryRows.length) {
+    const rows = document.createElement("div");
+    rows.className = "uf-support-page__sidebar-rows";
+    rows.setAttribute("data-uf-extension-ui", "true");
+    snapshot.summaryRows.forEach((row) => {
+      const rowNode = document.createElement("div");
+      rowNode.className = "uf-support-page__sidebar-row";
+      rowNode.setAttribute("data-uf-extension-ui", "true");
+      rowNode.append(
+        createRemoteSupportSupportPageTextNode("span", "", row.label),
+        createRemoteSupportSupportPageTextNode("strong", "", row.value)
+      );
+      rows.appendChild(rowNode);
+    });
+    shell.appendChild(rows);
+  }
+
+  const sections = document.createElement("div");
+  sections.className = "uf-support-page__sidebar-sections";
+  sections.setAttribute("data-uf-extension-ui", "true");
+  appendRemoteSupportSupportPageSidebarSection(sections, "Marked pages", snapshot.markedPages);
+  appendRemoteSupportSupportPageSidebarSection(sections, "Page types", snapshot.pageTypeGroups);
+  appendRemoteSupportSupportPageSidebarSection(sections, "Notices", snapshot.notices);
+  if (sections.childNodes.length) {
+    shell.appendChild(sections);
+  }
+
+  host.appendChild(shell);
+}
+
+function clearRemoteSupportSupportPageFrameRenderTimer() {
+  if (!remoteSupportSupportPageFrameRenderTimer) {
+    return;
+  }
+
+  window.clearTimeout(remoteSupportSupportPageFrameRenderTimer);
+  remoteSupportSupportPageFrameRenderTimer = 0;
+}
+
+function syncRemoteSupportSupportPageFrame() {
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements) {
+    return;
+  }
+
+  const nextFrame = remoteSupportSupportPageState.active ? remoteSupportSupportPageLastFrame : "";
+  if (nextFrame) {
+    if (remoteSupportSupportPageRenderedFrame !== nextFrame) {
+      remoteSupportSupportPageRenderedFrame = nextFrame;
+      if (elements.frame.getAttribute("src") !== nextFrame) {
+        elements.frame.setAttribute("src", nextFrame);
+      }
+    }
+    elements.frame.hidden = false;
+    elements.placeholder.hidden = true;
+    return;
+  }
+
+  remoteSupportSupportPageRenderedFrame = "";
+  remoteSupportSupportPageLastFrameRenderAt = 0;
+  elements.frame.hidden = true;
+  if (elements.frame.getAttribute("src")) {
+    elements.frame.removeAttribute("src");
+  }
+  elements.placeholder.hidden = false;
+  elements.placeholder.textContent = buildRemoteSupportSupportPageSurfaceText();
+}
+
+function flushRemoteSupportSupportPageFrameRender() {
+  clearRemoteSupportSupportPageFrameRenderTimer();
+  syncRemoteSupportSupportPageFrame();
+  remoteSupportSupportPageLastFrameRenderAt = remoteSupportSupportPageRenderedFrame
+    ? Date.now()
+    : 0;
+}
+
+function scheduleRemoteSupportSupportPageFrameRender({ immediate = false } = {}) {
+  if (immediate || !remoteSupportSupportPageState.active || !remoteSupportSupportPageLastFrame) {
+    flushRemoteSupportSupportPageFrameRender();
+    return;
+  }
+
+  if (remoteSupportSupportPageRenderedFrame === remoteSupportSupportPageLastFrame) {
+    return;
+  }
+
+  const elapsedMs = remoteSupportSupportPageLastFrameRenderAt
+    ? Date.now() - remoteSupportSupportPageLastFrameRenderAt
+    : Number.POSITIVE_INFINITY;
+  const remainingDelayMs = REMOTE_SUPPORT_SUPPORT_PAGE_FRAME_RENDER_DEBOUNCE_MS - elapsedMs;
+
+  if (remainingDelayMs <= 0) {
+    flushRemoteSupportSupportPageFrameRender();
+    return;
+  }
+
+  if (remoteSupportSupportPageFrameRenderTimer) {
+    return;
+  }
+
+  remoteSupportSupportPageFrameRenderTimer = window.setTimeout(() => {
+    remoteSupportSupportPageFrameRenderTimer = 0;
+    flushRemoteSupportSupportPageFrameRender();
+  }, remainingDelayMs);
+}
+
 function renderRemoteSupportSupportPage() {
   const elements = ensureRemoteSupportSupportPageUi();
   if (!elements) {
@@ -1148,19 +1514,9 @@ function renderRemoteSupportSupportPage() {
   elements.surface.classList.toggle("is-disabled", !canControl);
   elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");
   elements.surface.tabIndex = canControl ? 0 : -1;
+  renderRemoteSupportSupportPageSidebar();
 
-  if (active && remoteSupportSupportPageLastFrame) {
-    if (elements.frame.getAttribute("src") !== remoteSupportSupportPageLastFrame) {
-      elements.frame.setAttribute("src", remoteSupportSupportPageLastFrame);
-    }
-    elements.frame.hidden = false;
-    elements.placeholder.hidden = true;
-  } else {
-    elements.frame.hidden = true;
-    elements.frame.removeAttribute("src");
-    elements.placeholder.hidden = false;
-    elements.placeholder.textContent = buildRemoteSupportSupportPageSurfaceText();
-  }
+  scheduleRemoteSupportSupportPageFrameRender({ immediate: true });
 }
 
 function applyRemoteSupportSupportPageState(nextState) {
@@ -1169,6 +1525,7 @@ function applyRemoteSupportSupportPageState(nextState) {
     remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
   }
   if (!remoteSupportSupportPageState.active) {
+    remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
   }
   renderRemoteSupportSupportPage();
@@ -4882,7 +5239,22 @@ export function main() {
       remoteSupportSupportPageLastFrame = typeof message.frame === "string"
         ? message.frame
         : (message.frame && typeof message.frame.dataUrl === "string" ? message.frame.dataUrl : "");
-      renderRemoteSupportSupportPage();
+      scheduleRemoteSupportSupportPageFrameRender();
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportSidebarStateChanged") {
+      if (
+        Number.isFinite(remoteSupportSupportPageTabId) &&
+        Number.isFinite(message.tabId) &&
+        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
+      ) {
+        return;
+      }
+
+      remoteSupportSupportPageSidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
+      renderRemoteSupportSupportPageSidebar();
       sendResponse({ ok: true });
       return;
     }

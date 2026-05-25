@@ -10,6 +10,8 @@
 - The supported-tab content script must handle the current background message names `remoteSupportState` and `remoteSupportCommand`; relying only on older aliases breaks remote control silently.
 - After navigation, `content-main.js` must call `getRemoteSupportState` on startup because `content-loader.js` only imports it after `activateContentMain` and the background does not replay session state automatically.
 - If the initial remote-support rehydration runs before `document.body` exists, terminate-button sync must retry after `DOMContentLoaded`.
+- The supporter `/support` page should coalesce `remoteSupportFrame` updates into a throttled image-only sync path instead of rerendering the full page chrome for every frame.
+- The supportee popup/side panel is now the source for mirrored sidebar simulation state: it publishes debounced normalized sidebar snapshots to the background, which caches and replays them over the dedicated `sidebar` data channel and forwards them to the supporter `/support` page.
 
 ## Current Architecture Decisions
 
@@ -17,3 +19,4 @@
 - The supportee's actual Chrome side panel remains the authoritative Unfluffify sidebar during a session.
 - Control ownership is explicit: supporter or requester owns control at a given time; commands must be gated by that shared owner state.
 - Page reflection remains a live visual stream, not DOM mirroring.
+- Remote support sessions now explicitly start with `page` and `sidebar` RTC data channels at the app layer.

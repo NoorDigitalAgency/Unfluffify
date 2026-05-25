@@ -1675,3 +1675,230 @@ test("remote support offscreen supports multiple named data channels in one sess
     globalThis.window = originalWindow;
   }
 });
+
+test("remote support offscreen ignores close events from superseded data channels", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const backgroundEvents = [];
+  const peerConnections = [];
+
+  class FakeDataChannel {
+    constructor(label) {
+      this.label = label;
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+      this.sent = [];
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send(rawValue) {
+      this.sent.push(JSON.parse(rawValue));
+    }
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      peerConnections.push(this);
+      this.connectionState = "connected";
+      this.iceConnectionState = "connected";
+      this.iceGatheringState = "complete";
+      this.signalingState = "stable";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.sctp = { maxMessageSize: 65536 }; 
+      this.onicecandidate = null;
+      this.onicecandidateerror = null;
+      this.oniceconnectionstatechange = null;
+      this.onicegatheringstatechange = null;
+      this.onsignalingstatechange = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel() {
+      throw new Error("Requester should not create local data channels in this test");
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      this.iceCandidate = candidate;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-stale-channel-close`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_stale_page_channel",
+          supportCode: "111111",
+          role: "requester",
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+          dataChannels: [
+            { key: "page", label: "remote-support-page" },
+            { key: "sidebar", label: "remote-support-sidebar" }
+          ]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(peerConnections.length, 1);
+
+    const peerConnection = peerConnections[0];
+    const firstPageChannel = new FakeDataChannel("remote-support-page");
+    peerConnection.ondatachannel({ channel: firstPageChannel });
+    await delay(0);
+
+    const replacementPageChannel = new FakeDataChannel("remote-support-page");
+    peerConnection.ondatachannel({ channel: replacementPageChannel });
+    await delay(0);
+    await delay(0);
+
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "transport-error" &&
+          message.event.sessionId === "sess_stale_page_channel"
+      ),
+      false
+    );
+
+    let sendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_stale_page_channel",
+        channelKey: "page",
+        messageType: "command",
+        payload: { type: "scroll", deltaY: 20 }
+      },
+      {},
+      (value) => {
+        sendResponse = value;
+      }
+    );
+
+    assert.deepEqual(sendResponse, { ok: true });
+    assert.deepEqual(replacementPageChannel.sent, [
+      {
+        type: "command",
+        payload: { type: "scroll", deltaY: 20 }
+      }
+    ]);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});

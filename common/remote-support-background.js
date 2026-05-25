@@ -3,6 +3,7 @@ import {
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
+  REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_INACTIVE,
@@ -13,7 +14,9 @@ import {
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
   createInactiveRemoteSupportState,
+  createInactiveRemoteSupportSidebarSnapshot,
   isAjaxResourceType,
+  normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl
 } from "./remote-support.js";
@@ -108,6 +111,7 @@ function createSessionRuntime({
       error: "",
       lastActivityAt: Date.now()
     }),
+    sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     frameIntervalId: 0,
     inactivityIntervalId: 0,
@@ -304,6 +308,44 @@ function broadcastRuntimeState(runtime) {
 
   rememberTabSnapshot(runtime.state.tabId, runtime.state);
   broadcastTabState(runtime.state.tabId);
+}
+
+function broadcastSidebarSnapshot(runtime, snapshotLike = runtime && runtime.sidebarSnapshot) {
+  if (!runtime || runtime.state.tabId === null) {
+    return;
+  }
+
+  const snapshot = normalizeRemoteSupportSidebarSnapshot(snapshotLike);
+  runtime.sidebarSnapshot = snapshot;
+
+  const event = {
+    type: "remoteSupportSidebarStateChanged",
+    snapshot,
+    tabId: runtime.state.tabId,
+    sessionId: runtime.state.sessionId
+  };
+
+  publishRuntimeEvent(event);
+  postRuntimeEventToTab(runtime.state.tabId, event);
+}
+
+async function syncRequesterSidebarSnapshot(runtime) {
+  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return false;
+  }
+
+  const snapshot = normalizeRemoteSupportSidebarSnapshot(runtime.sidebarSnapshot);
+  runtime.sidebarSnapshot = snapshot;
+  if (!snapshot.active) {
+    return false;
+  }
+
+  return sendDataMessage(
+    runtime,
+    "sidebar-state",
+    { snapshot },
+    REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
+  );
 }
 
 function broadcastConsoleEntry(runtime, entry) {
@@ -899,6 +941,14 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
     return;
   }
 
+  if (message.type === "sidebar-state") {
+    runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(
+      message.payload && message.payload.snapshot
+    );
+    broadcastSidebarSnapshot(runtime, runtime.sidebarSnapshot);
+    return;
+  }
+
   if (message.type === "telemetry") {
     const channel = message.payload && message.payload.channel;
     const entry = message.payload && message.payload.entry;
@@ -992,6 +1042,7 @@ async function deactivateRuntime(runtime, reason) {
 
   clearRuntimeIntervals(runtime);
   clearRuntimeBuffers(runtime);
+  runtime.sidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 
   runtime.state.active = false;
   runtime.state.connected = false;
@@ -1137,7 +1188,11 @@ export async function handleRequestSupportCode(message) {
           supportCode,
           role: "requester",
           wsUrl,
-          iceServers
+          iceServers,
+          dataChannels: [
+            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
+            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+          ]
         }
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
@@ -1262,7 +1317,11 @@ export async function handleJoinSupportSession(message) {
           supportCode,
           role: "supporter",
           wsUrl,
-          iceServers
+          iceServers,
+          dataChannels: [
+            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
+            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+          ]
         }
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
@@ -1326,6 +1385,13 @@ export async function handleTransportEvent(message) {
       void sendDataMessage(runtime, "control-include-payloads", {
         enabled: Boolean(runtime.state.includePayloads)
       });
+    }
+
+    if (
+      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+      event.channelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
+    ) {
+      await syncRequesterSidebarSnapshot(runtime);
     }
 
     return { ok: true };
@@ -1601,6 +1667,17 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
 
     const sent = await sendDataMessage(runtime, "command", message.command || {});
     return { ok: sent };
+  }
+
+  if (message.type === "remoteSupportUpdateSidebarSnapshot") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+      return { ok: false };
+    }
+
+    runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
+    await syncRequesterSidebarSnapshot(runtime);
+    return { ok: true };
   }
 
   if (message.type === "remoteSupportSetControlOwner") {

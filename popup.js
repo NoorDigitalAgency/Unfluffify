@@ -66,6 +66,8 @@ import {
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
 import {
+  createInactiveRemoteSupportSidebarSnapshot,
+  normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   isRemoteSupportPageUrl,
@@ -87,6 +89,7 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
+const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -152,6 +155,10 @@ let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = PopupText.overlay.loadingPopup;
 let propertyPageTypesRequest = null;
+let remoteSupportSidebarSnapshotSyncTimer = 0;
+let pendingRemoteSupportSidebarSnapshot = null;
+let pendingRemoteSupportSidebarSnapshotKey = "";
+let lastRemoteSupportSidebarSnapshotKey = "";
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -3593,6 +3600,214 @@ function buildRemoteSupportStatusText(stateValue) {
   return `${mode}${connectedLabel}${controlLabel}`;
 }
 
+function normalizeRemoteSupportSidebarListItem(candidate) {
+  if (!candidate) {
+    return "";
+  }
+
+  if (typeof candidate === "string") {
+    return candidate.trim();
+  }
+
+  if (typeof candidate.label === "string" && candidate.label.trim()) {
+    return candidate.label.trim();
+  }
+
+  if (typeof candidate.title === "string" && candidate.title.trim()) {
+    return candidate.title.trim();
+  }
+
+  if (typeof candidate.url === "string" && candidate.url.trim()) {
+    return candidate.url.trim();
+  }
+
+  return "";
+}
+
+function buildRemoteSupportSidebarSnapshot(viewState = uiModule.getViewState()) {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  if (
+    currentTabId === null ||
+    !scopedState.active ||
+    scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+  ) {
+    return createInactiveRemoteSupportSidebarSnapshot();
+  }
+
+  const normalizedViewState = viewState && typeof viewState === "object"
+    ? viewState
+    : uiModule.getViewState();
+  const summaryRows = [
+    {
+      label: "Extension",
+      value: normalizedViewState.toggleEnabled ? "Enabled" : "Disabled"
+    },
+    {
+      label: "View",
+      value: typeof normalizedViewState.currentView === "string"
+        ? normalizedViewState.currentView
+        : ""
+    },
+    {
+      label: "Render mode",
+      value: typeof normalizedViewState.renderModeValue === "string"
+        ? normalizedViewState.renderModeValue
+        : "undetermined"
+    },
+    {
+      label: "Device emulation",
+      value: normalizedViewState.deviceEmulationEnabled
+        ? `${normalizedViewState.deviceMode || "mobile"} ${normalizedViewState.deviceScaleValue || ""}`.trim()
+        : "Off"
+    },
+    {
+      label: "Marked pages",
+      value: String(Array.isArray(normalizedViewState.markedPages) ? normalizedViewState.markedPages.length : 0)
+    },
+    {
+      label: "Todo groups",
+      value: String(Array.isArray(normalizedViewState.pageTypeGroups) ? normalizedViewState.pageTypeGroups.length : 0)
+    }
+  ];
+  const markedPages = Array.isArray(normalizedViewState.markedPages)
+    ? normalizedViewState.markedPages
+        .map((entry) => normalizeRemoteSupportSidebarListItem(entry))
+        .filter(Boolean)
+    : [];
+  const pageTypeGroups = Array.isArray(normalizedViewState.pageTypeGroups)
+    ? normalizedViewState.pageTypeGroups
+        .map((group) => {
+          if (!group || typeof group !== "object") {
+            return "";
+          }
+
+          const title = typeof group.title === "string" && group.title.trim()
+            ? group.title.trim()
+            : (typeof group.key === "string" ? group.key.trim() : "");
+          if (!title) {
+            return "";
+          }
+
+          const markedCount = Number.isFinite(group.markedCount)
+            ? Math.max(0, Math.trunc(group.markedCount))
+            : 0;
+          return group.missing
+            ? `${title} (${markedCount}, missing)`
+            : `${title} (${markedCount})`;
+        })
+        .filter(Boolean)
+    : [];
+  const notices = [
+    normalizedViewState.configurationNoticeText,
+    normalizedViewState.baseUrlNoticeText,
+    normalizedViewState.endpointNoticeText,
+    normalizedViewState.renderModeNoticeText,
+    normalizedViewState.remoteSupportError,
+    normalizedViewState.loginStatusText
+  ].filter((value) => typeof value === "string" && value.trim());
+
+  return normalizeRemoteSupportSidebarSnapshot({
+    active: true,
+    currentView: typeof normalizedViewState.currentView === "string"
+      ? normalizedViewState.currentView
+      : "",
+    currentPageUrl: typeof normalizedViewState.currentPageUrl === "string"
+      ? normalizedViewState.currentPageUrl
+      : "",
+    currentBaseUrl: typeof normalizedViewState.currentBaseUrl === "string"
+      ? normalizedViewState.currentBaseUrl
+      : "",
+    remoteSupportStatusText: typeof normalizedViewState.remoteSupportStatusText === "string"
+      ? normalizedViewState.remoteSupportStatusText
+      : "",
+    renderModeValue: typeof normalizedViewState.renderModeValue === "string"
+      ? normalizedViewState.renderModeValue
+      : "",
+    pageDraftStatusText: typeof normalizedViewState.pageDraftStatusText === "string"
+      ? normalizedViewState.pageDraftStatusText
+      : "",
+    syncLoadStatusText: typeof normalizedViewState.syncLoadStatusText === "string"
+      ? normalizedViewState.syncLoadStatusText
+      : "",
+    syncSaveStatusText: typeof normalizedViewState.syncSaveStatusText === "string"
+      ? normalizedViewState.syncSaveStatusText
+      : "",
+    summaryRows,
+    markedPages,
+    pageTypeGroups,
+    notices
+  });
+}
+
+async function flushRemoteSupportSidebarSnapshotSync() {
+  remoteSupportSidebarSnapshotSyncTimer = 0;
+
+  const snapshot = pendingRemoteSupportSidebarSnapshot;
+  const snapshotKey = pendingRemoteSupportSidebarSnapshotKey;
+  pendingRemoteSupportSidebarSnapshot = null;
+  pendingRemoteSupportSidebarSnapshotKey = "";
+
+  if (!snapshot || !snapshot.active) {
+    lastRemoteSupportSidebarSnapshotKey = "";
+    return;
+  }
+
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (tabId === null) {
+    return;
+  }
+
+  try {
+    const response = await messages.sendRuntimeMessage({
+      type: "remoteSupportUpdateSidebarSnapshot",
+      tabId,
+      snapshot
+    });
+    if (response && response.ok) {
+      lastRemoteSupportSidebarSnapshotKey = snapshotKey;
+    }
+  } catch {
+    // Ignore transient background or transport restarts.
+  }
+}
+
+function scheduleRemoteSupportSidebarSnapshotSync(viewState = uiModule.getViewState()) {
+  const snapshot = buildRemoteSupportSidebarSnapshot(viewState);
+  if (!snapshot.active) {
+    pendingRemoteSupportSidebarSnapshot = null;
+    pendingRemoteSupportSidebarSnapshotKey = "";
+    lastRemoteSupportSidebarSnapshotKey = "";
+    if (remoteSupportSidebarSnapshotSyncTimer) {
+      window.clearTimeout(remoteSupportSidebarSnapshotSyncTimer);
+      remoteSupportSidebarSnapshotSyncTimer = 0;
+    }
+    return;
+  }
+
+  const snapshotKey = JSON.stringify(snapshot);
+  if (
+    snapshotKey === lastRemoteSupportSidebarSnapshotKey ||
+    snapshotKey === pendingRemoteSupportSidebarSnapshotKey
+  ) {
+    return;
+  }
+
+  pendingRemoteSupportSidebarSnapshot = snapshot;
+  pendingRemoteSupportSidebarSnapshotKey = snapshotKey;
+  if (remoteSupportSidebarSnapshotSyncTimer) {
+    return;
+  }
+
+  remoteSupportSidebarSnapshotSyncTimer = window.setTimeout(() => {
+    flushRemoteSupportSidebarSnapshotSync().then();
+  }, REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS);
+}
+
 async function fetchRemoteSupportState(tabId = state.currentTab && state.currentTab.id) {
   const response = await messages.sendRuntimeMessage({
     type: "getRemoteSupportState",
@@ -5343,6 +5558,10 @@ async function init() {
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
     onMarkedPageNavigate: handleMarkedPageNavigate,
     onBasePageNavigate: handleBasePageNavigate
+  });
+
+  uiModule.onViewStateChange((viewState) => {
+    scheduleRemoteSupportSidebarSnapshotSync(viewState);
   });
 
   document.addEventListener("click", () => {
