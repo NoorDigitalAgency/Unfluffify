@@ -1,6 +1,7 @@
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
+  REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
   REMOTE_SUPPORT_PORT_TRANSPORT
 } from "./common/remote-support.js";
@@ -8,6 +9,10 @@ import {
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
+const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
+const REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_RATE = 12;
+const REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH = 420;
+const REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT = 760;
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -15,6 +20,12 @@ const dataChannelTextEncoder = new TextEncoder();
 let keepAlivePort = null;
 let keepAliveReconnectTimer = 0;
 let nextChunkTransferId = 0;
+let sidebarStreamChannel = null;
+
+function normalizeTabId(value) {
+  const normalizedValue = Number(value);
+  return Number.isFinite(normalizedValue) ? Math.trunc(normalizedValue) : null;
+}
 
 function normalizeErrorMessage(error, fallback) {
   if (error && typeof error.message === "string" && error.message.trim()) {
@@ -40,6 +51,31 @@ function normalizeTransportStateValue(value) {
   return isNonEmptyString(value) ? value.trim() : "";
 }
 
+function ensureSidebarStreamChannel() {
+  if (sidebarStreamChannel || typeof BroadcastChannel !== "function") {
+    return sidebarStreamChannel;
+  }
+
+  sidebarStreamChannel = new BroadcastChannel(REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME);
+  sidebarStreamChannel.onmessage = (event) => {
+    handleSidebarStreamMessage(event && event.data);
+  };
+  return sidebarStreamChannel;
+}
+
+function postSidebarStreamMessage(message) {
+  const channel = ensureSidebarStreamChannel();
+  if (!channel) {
+    return;
+  }
+
+  try {
+    channel.postMessage(message);
+  } catch (error) {
+    // Ignore local sidebar mirror messaging failures.
+  }
+}
+
 function hasActiveSessions() {
   return transportSessions.size > 0;
 }
@@ -50,6 +86,21 @@ function getTransportRuntime(sessionId) {
   }
 
   return transportSessions.get(sessionId.trim()) || null;
+}
+
+function getRequesterRuntimeByTabId(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return null;
+  }
+
+  for (const runtime of transportSessions.values()) {
+    if (runtime.role === "requester" && runtime.tabId === normalizedTabId) {
+      return runtime;
+    }
+  }
+
+  return null;
 }
 
 function createIceServerKey(entry) {
@@ -273,6 +324,7 @@ function createTransportRuntime(session) {
     sessionId: session.sessionId.trim(),
     supportCode: session.supportCode.trim(),
     role: session.role,
+    tabId: normalizeTabId(session.tabId),
     wsUrl: session.wsUrl.trim(),
     mediaStreamId: normalizeMediaStreamId(session.mediaStreamId),
     iceServers: normalizeIceServers(session.iceServers),
@@ -282,6 +334,13 @@ function createTransportRuntime(session) {
     peerConnection: null,
     localCaptureStream: null,
     localCaptureTrack: null,
+    sidebarCaptureCanvas: null,
+    sidebarCaptureContext: null,
+    sidebarCaptureStream: null,
+    sidebarCaptureTrack: null,
+    sidebarCaptureWidth: 0,
+    sidebarCaptureHeight: 0,
+    sidebarFrameVersion: 0,
     dataChannels: new Map(),
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
@@ -625,6 +684,153 @@ function stopLocalCaptureStream(stream) {
   }
 }
 
+function clearRequesterSidebarCaptureSurface(runtime) {
+  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext) {
+    return;
+  }
+
+  runtime.sidebarCaptureContext.fillStyle = "#04080f";
+  runtime.sidebarCaptureContext.fillRect(
+    0,
+    0,
+    runtime.sidebarCaptureCanvas.width,
+    runtime.sidebarCaptureCanvas.height
+  );
+}
+
+function setRequesterSidebarCaptureSize(runtime, width, height) {
+  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext) {
+    return;
+  }
+
+  const nextWidth = Math.max(1, Math.trunc(Number(width) || REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH));
+  const nextHeight = Math.max(1, Math.trunc(Number(height) || REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT));
+  if (
+    runtime.sidebarCaptureCanvas.width === nextWidth &&
+    runtime.sidebarCaptureCanvas.height === nextHeight
+  ) {
+    return;
+  }
+
+  runtime.sidebarCaptureCanvas.width = nextWidth;
+  runtime.sidebarCaptureCanvas.height = nextHeight;
+  runtime.sidebarCaptureWidth = nextWidth;
+  runtime.sidebarCaptureHeight = nextHeight;
+  clearRequesterSidebarCaptureSurface(runtime);
+}
+
+async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
+  if (
+    !runtime ||
+    runtime.role !== "requester" ||
+    runtime.sidebarCaptureTrack
+  ) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context || typeof canvas.captureStream !== "function") {
+    throw new Error("Remote support sidebar capture is unavailable");
+  }
+
+  runtime.sidebarCaptureCanvas = canvas;
+  runtime.sidebarCaptureContext = context;
+  setRequesterSidebarCaptureSize(runtime, REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH, REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT);
+
+  const stream = canvas.captureStream(REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_RATE);
+  const track = stream && typeof stream.getVideoTracks === "function"
+    ? stream.getVideoTracks()[0]
+    : null;
+  if (!track) {
+    stopLocalCaptureStream(stream);
+    runtime.sidebarCaptureCanvas = null;
+    runtime.sidebarCaptureContext = null;
+    throw new Error("Remote support sidebar capture did not provide a video track");
+  }
+
+  if ("contentHint" in track && !track.contentHint) {
+    try {
+      track.contentHint = "detail";
+    } catch (error) {
+      // Ignore contentHint support mismatches.
+    }
+  }
+
+  runtime.sidebarCaptureStream = stream;
+  runtime.sidebarCaptureTrack = track;
+  clearRequesterSidebarCaptureSurface(runtime);
+
+  if (typeof peerConnection.addTrack === "function") {
+    peerConnection.addTrack(track, stream);
+  }
+}
+
+async function drawRequesterSidebarFrame(runtime, frameDataUrl, width, height) {
+  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext || !isNonEmptyString(frameDataUrl)) {
+    return;
+  }
+
+  setRequesterSidebarCaptureSize(runtime, width, height);
+  const currentFrameVersion = (runtime.sidebarFrameVersion += 1);
+
+  await new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      if (runtime.sidebarFrameVersion !== currentFrameVersion || !runtime.sidebarCaptureContext || !runtime.sidebarCaptureCanvas) {
+        resolve();
+        return;
+      }
+
+      runtime.sidebarCaptureContext.clearRect(
+        0,
+        0,
+        runtime.sidebarCaptureCanvas.width,
+        runtime.sidebarCaptureCanvas.height
+      );
+      runtime.sidebarCaptureContext.drawImage(
+        image,
+        0,
+        0,
+        runtime.sidebarCaptureCanvas.width,
+        runtime.sidebarCaptureCanvas.height
+      );
+      resolve();
+    };
+    image.onerror = () => {
+      resolve();
+    };
+    image.src = frameDataUrl;
+  });
+}
+
+function handleRequesterSidebarMirrorCommand(runtime, command) {
+  if (!runtime || runtime.tabId === null || !command || typeof command !== "object") {
+    return;
+  }
+
+  postSidebarStreamMessage({
+    type: "command",
+    tabId: runtime.tabId,
+    command
+  });
+}
+
+function handleSidebarStreamMessage(message) {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+
+  const runtime = getRequesterRuntimeByTabId(message.tabId);
+  if (!runtime) {
+    return;
+  }
+
+  if (message.type === "frame") {
+    void drawRequesterSidebarFrame(runtime, message.dataUrl, message.width, message.height);
+  }
+}
+
 function resetTransportResources(runtime) {
   if (!runtime) {
     return;
@@ -636,6 +842,7 @@ function resetTransportResources(runtime) {
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
   stopLocalCaptureStream(runtime.localCaptureStream);
+  stopLocalCaptureStream(runtime.sidebarCaptureStream);
 
   runtime.dataChannels.clear();
   runtime.peerConnection = null;
@@ -643,6 +850,13 @@ function resetTransportResources(runtime) {
   runtime.signalingSocket = null;
   runtime.localCaptureStream = null;
   runtime.localCaptureTrack = null;
+  runtime.sidebarCaptureCanvas = null;
+  runtime.sidebarCaptureContext = null;
+  runtime.sidebarCaptureStream = null;
+  runtime.sidebarCaptureTrack = null;
+  runtime.sidebarCaptureWidth = 0;
+  runtime.sidebarCaptureHeight = 0;
+  runtime.sidebarFrameVersion = 0;
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
 }
@@ -816,6 +1030,15 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
       return;
     }
 
+    if (
+      runtime.role === "requester" &&
+      normalizedChannelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR &&
+      message.type === "command"
+    ) {
+      handleRequesterSidebarMirrorCommand(runtime, message.payload || {});
+      return;
+    }
+
     postTransportEvent({
       type: "incoming-message",
       sessionId: runtime.sessionId,
@@ -893,15 +1116,19 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (offerer && typeof peerConnection.addTransceiver === "function") {
-    try {
-      peerConnection.addTransceiver("video", { direction: "recvonly" });
-    } catch (error) {
-      // Ignore transceiver negotiation mismatches in older test doubles.
+    for (let index = 0; index < 2; index += 1) {
+      try {
+        peerConnection.addTransceiver("video", { direction: "recvonly" });
+      } catch (error) {
+        // Ignore transceiver negotiation mismatches in older test doubles.
+        break;
+      }
     }
   }
 
   if (!offerer) {
     await ensureRequesterTabVideoTrack(runtime, peerConnection);
+    await ensureRequesterSidebarVideoTrack(runtime, peerConnection);
   }
 
   if (offerer) {
@@ -1197,6 +1424,7 @@ async function startTransport(session) {
     dataChannels: dataChannelDescriptors
   });
   transportSessions.set(runtime.sessionId, runtime);
+  ensureSidebarStreamChannel();
 
   void connectSignalingSocket(runtime).catch((error) => {
     handleFatalTransportError(runtime.sessionId, error);

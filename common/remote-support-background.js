@@ -769,16 +769,21 @@ async function sendRemoteSupportViewerRequest(tabId, message) {
 }
 
 async function sendRemoteSupportTransportStartRequest(runtime, session) {
+  const normalizedSession = {
+    ...(session && typeof session === "object" ? session : {}),
+    tabId: runtime && runtime.state ? runtime.state.tabId : null
+  };
+
   if (shouldUseViewerTransport(runtime)) {
     return sendRemoteSupportViewerRequest(runtime.state.tabId, {
       type: REMOTE_SUPPORT_VIEWER_TRANSPORT_START_MESSAGE,
-      session
+      session: normalizedSession
     });
   }
 
   return sendRemoteSupportOffscreenRequest({
     type: "remoteSupportTransportStart",
-    session
+    session: normalizedSession
   });
 }
 
@@ -1861,7 +1866,12 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
       return { ok: false };
     }
 
-    const sent = await sendDataMessage(runtime, "command", message.command || {});
+    const sent = await sendDataMessage(
+      runtime,
+      "command",
+      message.command || {},
+      typeof message.channelKey === "string" ? message.channelKey : ""
+    );
     return { ok: sent };
   }
 

@@ -90,6 +90,9 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
+const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
+const REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_INTERVAL_MS = 90;
+const REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY = 0.72;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -159,6 +162,9 @@ let remoteSupportSidebarSnapshotSyncTimer = 0;
 let pendingRemoteSupportSidebarSnapshot = null;
 let pendingRemoteSupportSidebarSnapshotKey = "";
 let lastRemoteSupportSidebarSnapshotKey = "";
+let remoteSupportSidebarStreamChannel = null;
+let remoteSupportSidebarStreamTimer = 0;
+let remoteSupportSidebarStreamCaptureInFlight = false;
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -3582,6 +3588,7 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
+  scheduleRemoteSupportSidebarStreamCapture();
 }
 
 function buildRemoteSupportStatusText(stateValue) {
@@ -3740,6 +3747,458 @@ function buildRemoteSupportSidebarSnapshot(viewState = uiModule.getViewState()) 
     pageTypeGroups,
     notices
   });
+}
+
+function getRemoteSupportSidebarStreamTabId(remoteSupportState = state.remoteSupportState) {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const scopedState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
+  if (
+    currentTabId === null ||
+    !scopedState.active ||
+    scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+  ) {
+    return null;
+  }
+
+  return currentTabId;
+}
+
+function ensureRemoteSupportSidebarStreamChannel() {
+  if (remoteSupportSidebarStreamChannel || typeof BroadcastChannel !== "function") {
+    return remoteSupportSidebarStreamChannel;
+  }
+
+  remoteSupportSidebarStreamChannel = new BroadcastChannel(REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME);
+  remoteSupportSidebarStreamChannel.onmessage = (event) => {
+    const message = event && event.data && typeof event.data === "object"
+      ? event.data
+      : null;
+    if (!message || message.type !== "command") {
+      return;
+    }
+
+    const activeTabId = getRemoteSupportSidebarStreamTabId();
+    if (activeTabId === null || Number(message.tabId) !== activeTabId) {
+      return;
+    }
+
+    applyRemoteSupportSidebarCommand(message.command);
+  };
+  return remoteSupportSidebarStreamChannel;
+}
+
+function postRemoteSupportSidebarStreamMessage(message) {
+  const channel = ensureRemoteSupportSidebarStreamChannel();
+  if (!channel) {
+    return;
+  }
+
+  try {
+    channel.postMessage(message);
+  } catch {
+    // Ignore local sidebar stream delivery failures.
+  }
+}
+
+function stopRemoteSupportSidebarStreamPublishing() {
+  if (remoteSupportSidebarStreamTimer) {
+    window.clearTimeout(remoteSupportSidebarStreamTimer);
+    remoteSupportSidebarStreamTimer = 0;
+  }
+}
+
+function focusRemoteSupportSidebarTarget(target) {
+  if (!target || typeof target.focus !== "function") {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+  } catch {
+    target.focus();
+  }
+}
+
+function isRemoteSupportSidebarTextEditableElement(target) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  const tagName = String(target.tagName || "").toLowerCase();
+  if (tagName === "textarea") {
+    return true;
+  }
+
+  if (tagName !== "input") {
+    return false;
+  }
+
+  const type = String(target.type || "text").toLowerCase();
+  return ![
+    "button",
+    "checkbox",
+    "color",
+    "file",
+    "hidden",
+    "image",
+    "radio",
+    "range",
+    "reset",
+    "submit"
+  ].includes(type);
+}
+
+function dispatchRemoteSupportSidebarEditableInputEvent(target) {
+  target.dispatchEvent(new Event("input", {
+    bubbles: true,
+    cancelable: false,
+    composed: true
+  }));
+}
+
+function applyRemoteSupportSidebarTextInputCommand(target, command) {
+  if (!isRemoteSupportSidebarTextEditableElement(target) || !command || command.ctrlKey || command.altKey || command.metaKey) {
+    return false;
+  }
+
+  focusRemoteSupportSidebarTarget(target);
+  const key = String(command.key || "");
+
+  if (target.isContentEditable && typeof document.execCommand === "function") {
+    if (key.length === 1) {
+      document.execCommand("insertText", false, key);
+      return true;
+    }
+    if (key === "Backspace") {
+      document.execCommand("delete", false);
+      return true;
+    }
+    if (key === "Delete") {
+      document.execCommand("forwardDelete", false);
+      return true;
+    }
+    if (key === "Enter") {
+      document.execCommand("insertLineBreak", false);
+      return true;
+    }
+    return false;
+  }
+
+  const value = typeof target.value === "string" ? target.value : "";
+  const selectionStart = Number.isInteger(target.selectionStart) ? target.selectionStart : value.length;
+  const selectionEnd = Number.isInteger(target.selectionEnd) ? target.selectionEnd : selectionStart;
+
+  let nextValue = value;
+  let nextCaret = selectionStart;
+
+  if (key.length === 1) {
+    nextValue = `${value.slice(0, selectionStart)}${key}${value.slice(selectionEnd)}`;
+    nextCaret = selectionStart + key.length;
+  } else if (key === "Backspace") {
+    if (selectionStart !== selectionEnd) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart;
+    } else if (selectionStart > 0) {
+      nextValue = `${value.slice(0, selectionStart - 1)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart - 1;
+    }
+  } else if (key === "Delete") {
+    if (selectionStart !== selectionEnd) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
+      nextCaret = selectionStart;
+    } else if (selectionStart < value.length) {
+      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionStart + 1)}`;
+      nextCaret = selectionStart;
+    }
+  } else if (key === "Enter" && String(target.tagName || "").toLowerCase() === "textarea") {
+    nextValue = `${value.slice(0, selectionStart)}\n${value.slice(selectionEnd)}`;
+    nextCaret = selectionStart + 1;
+  } else {
+    return false;
+  }
+
+  if (nextValue === value) {
+    return true;
+  }
+
+  target.value = nextValue;
+  if (typeof target.setSelectionRange === "function") {
+    target.setSelectionRange(nextCaret, nextCaret);
+  }
+  dispatchRemoteSupportSidebarEditableInputEvent(target);
+  return true;
+}
+
+function dispatchRemoteSupportSidebarPointerClick(target, clientX, clientY, button = 0) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+
+  focusRemoteSupportSidebarTarget(target);
+  const mouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX,
+    clientY,
+    button
+  };
+
+  target.dispatchEvent(new MouseEvent("mousedown", mouseEventInit));
+  target.dispatchEvent(new MouseEvent("mouseup", mouseEventInit));
+  if (typeof target.click === "function") {
+    target.click();
+    return true;
+  }
+
+  target.dispatchEvent(new MouseEvent("click", mouseEventInit));
+  return true;
+}
+
+function resolveRemoteSupportSidebarPoint(command) {
+  const root = document.documentElement;
+  const width = Math.max(1, Number(root && root.clientWidth) || window.innerWidth || 1);
+  const height = Math.max(1, Number(root && root.clientHeight) || window.innerHeight || 1);
+  return {
+    x: Math.max(0, Math.min(width - 1, Math.round((Number(command && command.x) || 0) * width))),
+    y: Math.max(0, Math.min(height - 1, Math.round((Number(command && command.y) || 0) * height)))
+  };
+}
+
+function applyRemoteSupportSidebarCommand(command) {
+  if (!command || typeof command !== "object") {
+    return;
+  }
+
+  const type = typeof command.type === "string" ? command.type : "";
+  if (!type) {
+    return;
+  }
+
+  if (type === "pointer-move") {
+    const point = resolveRemoteSupportSidebarPoint(command);
+    const target = document.elementFromPoint(point.x, point.y) || document.body;
+    if (!target) {
+      return;
+    }
+
+    target.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: point.x,
+      clientY: point.y,
+      buttons: 0
+    }));
+    return;
+  }
+
+  if (type === "pointer-click") {
+    const point = resolveRemoteSupportSidebarPoint(command);
+    const target = document.elementFromPoint(point.x, point.y) || document.body;
+    dispatchRemoteSupportSidebarPointerClick(target, point.x, point.y, Number(command.button) || 0);
+    return;
+  }
+
+  if (type === "scroll") {
+    const point = resolveRemoteSupportSidebarPoint(command);
+    const target = document.elementFromPoint(point.x, point.y) || document.scrollingElement || document.documentElement;
+    target.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: point.x,
+      clientY: point.y,
+      deltaX: Number(command.deltaX) || 0,
+      deltaY: Number(command.deltaY) || 0
+    }));
+    return;
+  }
+
+  if (type === "key") {
+    const eventInit = {
+      key: String(command.key || ""),
+      code: String(command.code || ""),
+      ctrlKey: Boolean(command.ctrlKey),
+      altKey: Boolean(command.altKey),
+      shiftKey: Boolean(command.shiftKey),
+      metaKey: Boolean(command.metaKey),
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    };
+    const target = document.activeElement && document.activeElement.nodeType === 1
+      ? document.activeElement
+      : document.documentElement;
+    target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+    applyRemoteSupportSidebarTextInputCommand(target, command);
+    target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+  }
+}
+
+function collectRemoteSupportSidebarCaptureCssText() {
+  const cssTexts = [];
+  for (const styleSheet of Array.from(document.styleSheets || [])) {
+    try {
+      for (const rule of Array.from(styleSheet.cssRules || [])) {
+        cssTexts.push(rule.cssText);
+      }
+    } catch {
+      // Ignore inaccessible stylesheet rules.
+    }
+  }
+
+  return cssTexts.join("\n");
+}
+
+function syncRemoteSupportSidebarCloneState(sourceRoot, cloneRoot) {
+  if (!sourceRoot || !cloneRoot) {
+    return;
+  }
+
+  const sourceWalker = document.createTreeWalker(sourceRoot, NodeFilter.SHOW_ELEMENT);
+  const cloneWalker = document.createTreeWalker(cloneRoot, NodeFilter.SHOW_ELEMENT);
+
+  let sourceNode = sourceWalker.currentNode;
+  let cloneNode = cloneWalker.currentNode;
+  while (sourceNode && cloneNode) {
+    const tagName = String(sourceNode.tagName || "").toLowerCase();
+    if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+      if ("value" in sourceNode && "value" in cloneNode) {
+        cloneNode.value = sourceNode.value;
+        cloneNode.setAttribute("value", sourceNode.value);
+      }
+      if ("checked" in sourceNode && sourceNode.checked) {
+        cloneNode.setAttribute("checked", "checked");
+      } else if ("checked" in cloneNode) {
+        cloneNode.removeAttribute("checked");
+      }
+    }
+
+    sourceNode = sourceWalker.nextNode();
+    cloneNode = cloneWalker.nextNode();
+  }
+}
+
+async function renderRemoteSupportSidebarStreamDataUrl(width, height) {
+  const clone = document.documentElement.cloneNode(true);
+  clone.querySelectorAll("script").forEach((node) => {
+    node.remove();
+  });
+  syncRemoteSupportSidebarCloneState(document.documentElement, clone);
+
+  const head = clone.querySelector("head");
+  if (head) {
+    const style = document.createElement("style");
+    style.textContent = collectRemoteSupportSidebarCaptureCssText();
+    head.appendChild(style);
+  }
+
+  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  clone.style.width = `${width}px`;
+  clone.style.height = `${height}px`;
+
+  const body = clone.querySelector("body");
+  if (body) {
+    body.style.margin = "0";
+    body.style.width = `${width}px`;
+    body.style.height = `${height}px`;
+    body.style.overflow = "hidden";
+  }
+
+  const serializedMarkup = new XMLSerializer().serializeToString(clone);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <foreignObject width="100%" height="100%">${serializedMarkup}</foreignObject>
+    </svg>
+  `;
+
+  const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const svgUrl = URL.createObjectURL(svgBlob);
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d", { alpha: false });
+          if (!context) {
+            reject(new Error("Remote support sidebar capture is unavailable"));
+            return;
+          }
+
+          context.drawImage(image, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/webp", REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      image.onerror = () => {
+        reject(new Error("Failed to render remote support sidebar"));
+      };
+      image.src = svgUrl;
+    });
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+function scheduleRemoteSupportSidebarStreamCapture() {
+  const activeTabId = getRemoteSupportSidebarStreamTabId();
+  if (activeTabId === null) {
+    stopRemoteSupportSidebarStreamPublishing();
+    return;
+  }
+
+  ensureRemoteSupportSidebarStreamChannel();
+  if (remoteSupportSidebarStreamTimer || remoteSupportSidebarStreamCaptureInFlight) {
+    return;
+  }
+
+  remoteSupportSidebarStreamTimer = window.setTimeout(() => {
+    remoteSupportSidebarStreamTimer = 0;
+    flushRemoteSupportSidebarStreamCapture(activeTabId).then();
+  }, REMOTE_SUPPORT_SIDEBAR_STREAM_FRAME_INTERVAL_MS);
+}
+
+async function flushRemoteSupportSidebarStreamCapture(tabId) {
+  if (remoteSupportSidebarStreamCaptureInFlight) {
+    return;
+  }
+
+  const activeTabId = getRemoteSupportSidebarStreamTabId();
+  if (activeTabId === null || activeTabId !== tabId) {
+    stopRemoteSupportSidebarStreamPublishing();
+    return;
+  }
+
+  remoteSupportSidebarStreamCaptureInFlight = true;
+  try {
+    const root = document.documentElement;
+    const width = Math.max(1, Math.round(Number(root && root.clientWidth) || window.innerWidth || 1));
+    const height = Math.max(1, Math.round(Number(root && root.scrollHeight) || Number(root && root.clientHeight) || window.innerHeight || 1));
+    const dataUrl = await renderRemoteSupportSidebarStreamDataUrl(width, height);
+    postRemoteSupportSidebarStreamMessage({
+      type: "frame",
+      tabId,
+      width,
+      height,
+      dataUrl
+    });
+  } catch {
+    // Ignore transient capture failures while the popup is rerendering.
+  } finally {
+    remoteSupportSidebarStreamCaptureInFlight = false;
+    scheduleRemoteSupportSidebarStreamCapture();
+  }
 }
 
 async function flushRemoteSupportSidebarSnapshotSync() {
@@ -5562,6 +6021,7 @@ async function init() {
 
   uiModule.onViewStateChange((viewState) => {
     scheduleRemoteSupportSidebarSnapshotSync(viewState);
+    scheduleRemoteSupportSidebarStreamCapture();
   });
 
   document.addEventListener("click", () => {

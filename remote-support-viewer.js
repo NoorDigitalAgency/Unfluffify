@@ -6,6 +6,7 @@ import {
 
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
+const REMOTE_SUPPORT_SIDEBAR_FRAME_INTERVAL_MS = 90;
 
 const dataChannelTextEncoder = new TextEncoder();
 
@@ -258,6 +259,9 @@ function createTransportRuntime(session) {
     peerConnection: null,
     dataChannels: new Map(),
     remoteStream: null,
+    sidebarStream: null,
+    remoteVideoSurfaceCount: 0,
+    sidebarFrameTimer: 0,
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
@@ -529,9 +533,35 @@ function postVideoState(runtime, active, width = 0, height = 0) {
   });
 }
 
+function postSidebarVideoState(runtime, active, width = 0, height = 0) {
+  postPortMessage({
+    type: "sidebar-video-state",
+    sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
+    active: Boolean(active),
+    width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
+    height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
+  });
+}
+
+function postSidebarFrame(runtime, dataUrl, width = 0, height = 0) {
+  if (!isNonEmptyString(dataUrl)) {
+    return;
+  }
+
+  postPortMessage({
+    type: "sidebar-frame",
+    sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
+    dataUrl,
+    width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
+    height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
+  });
+}
+
 function ensureViewerElements() {
   return {
     video: document.getElementById("viewer-video"),
+    sidebarVideo: document.getElementById("sidebar-video"),
+    sidebarCanvas: document.getElementById("sidebar-canvas"),
     placeholder: document.getElementById("viewer-placeholder")
   };
 }
@@ -558,20 +588,37 @@ function setViewerVideoVisibility(visible) {
 
 function detachRemoteStream() {
   const elements = ensureViewerElements();
-  if (!elements.video) {
-    return;
+  if (elements.video) {
+    try {
+      elements.video.pause();
+    } catch (error) {
+      // Ignore media pause races.
+    }
+
+    elements.video.hidden = true;
+    elements.video.onloadedmetadata = null;
+    elements.video.onresize = null;
+    elements.video.srcObject = null;
   }
 
-  try {
-    elements.video.pause();
-  } catch (error) {
-    // Ignore media pause races.
+  if (elements.sidebarVideo) {
+    try {
+      elements.sidebarVideo.pause();
+    } catch (error) {
+      // Ignore media pause races.
+    }
+
+    elements.sidebarVideo.onloadedmetadata = null;
+    elements.sidebarVideo.onresize = null;
+    elements.sidebarVideo.srcObject = null;
   }
 
-  elements.video.hidden = true;
-  elements.video.onloadedmetadata = null;
-  elements.video.onresize = null;
-  elements.video.srcObject = null;
+  if (elements.sidebarCanvas) {
+    const context = elements.sidebarCanvas.getContext("2d", { alpha: false });
+    if (context) {
+      context.clearRect(0, 0, elements.sidebarCanvas.width, elements.sidebarCanvas.height);
+    }
+  }
 }
 
 function closeDataChannel(channel) {
@@ -621,12 +668,18 @@ function resetTransportResources(runtime) {
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
   detachRemoteStream();
+  if (runtime.sidebarFrameTimer) {
+    window.clearTimeout(runtime.sidebarFrameTimer);
+  }
 
   runtime.dataChannels.clear();
   runtime.peerConnection = null;
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
   runtime.remoteStream = null;
+  runtime.sidebarStream = null;
+  runtime.remoteVideoSurfaceCount = 0;
+  runtime.sidebarFrameTimer = 0;
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
 }
@@ -657,6 +710,54 @@ function sendResponse(requestId, response) {
   postPortMessage({ type: "response", requestId, response });
 }
 
+function scheduleSidebarFrameRelay(runtime) {
+  if (!runtime || runtime.sidebarFrameTimer) {
+    return;
+  }
+
+  runtime.sidebarFrameTimer = window.setTimeout(() => {
+    runtime.sidebarFrameTimer = 0;
+    const currentRuntime = getTransportRuntime(runtime.sessionId);
+    if (!currentRuntime || currentRuntime.shuttingDown) {
+      return;
+    }
+
+    const elements = ensureViewerElements();
+    const video = elements.sidebarVideo;
+    const canvas = elements.sidebarCanvas;
+    if (!video || !canvas) {
+      return;
+    }
+
+    const width = Math.max(0, Number(video.videoWidth) || 0);
+    const height = Math.max(0, Number(video.videoHeight) || 0);
+    if (!width || !height) {
+      scheduleSidebarFrameRelay(currentRuntime);
+      return;
+    }
+
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) {
+      scheduleSidebarFrameRelay(currentRuntime);
+      return;
+    }
+
+    try {
+      context.drawImage(video, 0, 0, width, height);
+      postSidebarFrame(currentRuntime, canvas.toDataURL("image/webp", 0.72), width, height);
+    } catch (error) {
+      // Ignore transient draw races while tracks are updating.
+    }
+
+    scheduleSidebarFrameRelay(currentRuntime);
+  }, REMOTE_SUPPORT_SIDEBAR_FRAME_INTERVAL_MS);
+}
+
 function attachRemoteStream(runtime, streamLike, track = null) {
   const elements = ensureViewerElements();
   if (!elements.video) {
@@ -672,33 +773,80 @@ function attachRemoteStream(runtime, streamLike, track = null) {
     return;
   }
 
-  runtime.remoteStream = stream;
-  if (elements.video.srcObject !== stream) {
-    elements.video.srcObject = stream;
+  const surfaceIndex = runtime.remoteVideoSurfaceCount;
+  runtime.remoteVideoSurfaceCount += 1;
+
+  if (surfaceIndex === 0) {
+    runtime.remoteStream = stream;
+    if (elements.video.srcObject !== stream) {
+      elements.video.srcObject = stream;
+    }
+
+    const syncVideoState = () => {
+      const width = Number(elements.video.videoWidth) || 0;
+      const height = Number(elements.video.videoHeight) || 0;
+      const active = Boolean(width && height);
+      if (active) {
+        setViewerVideoVisibility(true);
+        postVideoState(runtime, true, width, height);
+      } else {
+        setViewerPlaceholder("Connected. Waiting for the live remote surface...");
+        setViewerVideoVisibility(false);
+        postVideoState(runtime, false, 0, 0);
+      }
+    };
+
+    elements.video.onloadedmetadata = () => {
+      syncVideoState();
+      void elements.video.play().catch(() => {
+        // Ignore autoplay restrictions for muted inline playback.
+      });
+    };
+    elements.video.onresize = syncVideoState;
+    syncVideoState();
+
+    if (track && typeof track.addEventListener === "function") {
+      track.addEventListener("ended", () => {
+        const currentRuntime = getTransportRuntime(runtime.sessionId);
+        if (!currentRuntime || currentRuntime.shuttingDown) {
+          return;
+        }
+
+        setViewerPlaceholder("Remote video track ended.");
+        setViewerVideoVisibility(false);
+        postVideoState(currentRuntime, false, 0, 0);
+      });
+    }
+    return;
   }
 
-  const syncVideoState = () => {
-    const width = Number(elements.video.videoWidth) || 0;
-    const height = Number(elements.video.videoHeight) || 0;
+  if (!elements.sidebarVideo) {
+    return;
+  }
+
+  runtime.sidebarStream = stream;
+  if (elements.sidebarVideo.srcObject !== stream) {
+    elements.sidebarVideo.srcObject = stream;
+  }
+
+  const syncSidebarVideoState = () => {
+    const width = Number(elements.sidebarVideo.videoWidth) || 0;
+    const height = Number(elements.sidebarVideo.videoHeight) || 0;
     const active = Boolean(width && height);
+    postSidebarVideoState(runtime, active, width, height);
     if (active) {
-      setViewerVideoVisibility(true);
-      postVideoState(runtime, true, width, height);
-    } else {
-      setViewerPlaceholder("Connected. Waiting for the live remote surface...");
-      setViewerVideoVisibility(false);
-      postVideoState(runtime, false, 0, 0);
+      scheduleSidebarFrameRelay(runtime);
     }
   };
 
-  elements.video.onloadedmetadata = () => {
-    syncVideoState();
-    void elements.video.play().catch(() => {
+  elements.sidebarVideo.onloadedmetadata = () => {
+    syncSidebarVideoState();
+    void elements.sidebarVideo.play().catch(() => {
       // Ignore autoplay restrictions for muted inline playback.
     });
   };
-  elements.video.onresize = syncVideoState;
-  syncVideoState();
+  elements.sidebarVideo.onresize = syncSidebarVideoState;
+  syncSidebarVideoState();
 
   if (track && typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
@@ -707,9 +855,7 @@ function attachRemoteStream(runtime, streamLike, track = null) {
         return;
       }
 
-      setViewerPlaceholder("Remote video track ended.");
-      setViewerVideoVisibility(false);
-      postVideoState(currentRuntime, false, 0, 0);
+      postSidebarVideoState(currentRuntime, false, 0, 0);
     });
   }
 }
@@ -859,10 +1005,13 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (typeof peerConnection.addTransceiver === "function") {
-    try {
-      peerConnection.addTransceiver("video", { direction: "recvonly" });
-    } catch (error) {
-      // Ignore negotiation mismatches if Chrome adjusts the offer shape automatically.
+    for (let index = 0; index < 2; index += 1) {
+      try {
+        peerConnection.addTransceiver("video", { direction: "recvonly" });
+      } catch (error) {
+        // Ignore negotiation mismatches if Chrome adjusts the offer shape automatically.
+        break;
+      }
     }
   }
 
@@ -1218,6 +1367,7 @@ function attachControlPort(port) {
   if (activeRuntime && activeRuntime.remoteStream) {
     const elements = ensureViewerElements();
     postVideoState(activeRuntime, Boolean(elements.video && elements.video.videoWidth && elements.video.videoHeight), elements.video && elements.video.videoWidth, elements.video && elements.video.videoHeight);
+    postSidebarVideoState(activeRuntime, Boolean(elements.sidebarVideo && elements.sidebarVideo.videoWidth && elements.sidebarVideo.videoHeight), elements.sidebarVideo && elements.sidebarVideo.videoWidth, elements.sidebarVideo && elements.sidebarVideo.videoHeight);
   }
 }
 
