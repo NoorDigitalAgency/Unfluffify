@@ -28,7 +28,7 @@ test("visible explicit includes submit as included content", () => {
   );
 });
 
-test("hidden explicit includes submit as excluded content", () => {
+test("hidden explicit includes still submit as included content", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
@@ -46,7 +46,6 @@ test("descendants inside excluded ancestors are omitted unless explicitly includ
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: true,
-      visibleToUser: true,
       markableTextual: true
     }),
     { shouldSubmit: false, excluded: false }
