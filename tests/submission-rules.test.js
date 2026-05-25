@@ -46,6 +46,7 @@ test("descendants inside excluded ancestors are omitted unless explicitly includ
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: true,
+      visibleToUser: true,
       markableTextual: true
     }),
     { shouldSubmit: false, excluded: false }
@@ -58,6 +59,7 @@ test("explicitly-excluded descendants inside excluded ancestors are omitted", ()
       explicitlyExcluded: true,
       explicitlyIncluded: false,
       insideExcludedAncestor: true,
+      visibleToUser: true,
       markableTextual: true
     }),
     { shouldSubmit: false, excluded: false }
