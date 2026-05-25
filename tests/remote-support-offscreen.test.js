@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { REMOTE_SUPPORT_PORT_TRANSPORT } from "../common/remote-support.js";
+import {
+  REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
+  REMOTE_SUPPORT_PORT_TRANSPORT
+} from "../common/remote-support.js";
 
 test("remote support offscreen transport keeps concurrent sessions isolated", async () => {
   const originalChrome = globalThis.chrome;
@@ -607,6 +610,196 @@ test("remote support offscreen tears down both sides when the data channel fails
     );
 
     assert.deepEqual(afterRemoteEndSendResponse, { ok: false });
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});
+
+test("remote support offscreen skips sends while the data channel buffer is over the limit", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const dataChannels = [];
+
+  class FakeDataChannel {
+    constructor() {
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.bufferedAmount = REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES;
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+      this.sent = [];
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send(rawValue) {
+      this.sent.push(JSON.parse(rawValue));
+    }
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel() {
+      const channel = new FakeDataChannel();
+      dataChannels.push(channel);
+      return channel;
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      this.iceCandidate = candidate;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage() {
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-buffered`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_buffered",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one"
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(dataChannels.length, 1);
+
+    let sendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_buffered",
+        messageType: "command",
+        payload: { type: "pointer-click", x: 0.2, y: 0.3 }
+      },
+      {},
+      (value) => {
+        sendResponse = value;
+      }
+    );
+
+    assert.deepEqual(sendResponse, { ok: false });
+    assert.deepEqual(dataChannels[0].sent, []);
   } finally {
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;

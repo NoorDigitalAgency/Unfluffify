@@ -1,4 +1,7 @@
-import { REMOTE_SUPPORT_PORT_TRANSPORT } from "./common/remote-support.js";
+import {
+  REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
+  REMOTE_SUPPORT_PORT_TRANSPORT
+} from "./common/remote-support.js";
 
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 
@@ -347,6 +350,14 @@ function sendDataMessage(runtime, messageType, payload) {
     !runtime ||
     !runtime.dataChannel ||
     runtime.dataChannel.readyState !== "open"
+  ) {
+    return false;
+  }
+
+  const bufferedAmount = Number(runtime.dataChannel.bufferedAmount);
+  if (
+    Number.isFinite(bufferedAmount) &&
+    bufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
   ) {
     return false;
   }
