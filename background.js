@@ -39,6 +39,7 @@ import {
   handleRemoteSupportTabRemoved,
   initRemoteSupportBackground
 } from "./common/remote-support-background.js";
+import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -49,12 +50,17 @@ const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "remoteSupportUpdateCursorSnapshot",
   "remoteSupportUpdateSidebarSnapshot",
   "remoteSupportSendCommand",
-  "remoteSupportTelemetry",
-  "remoteSupportTelemetryFromContent",
+  "remoteSupportExtensionTelemetry",
   "remoteSupportTransportEvent"
 ]);
 
 initRemoteSupportBackground();
+installExtensionTelemetry({
+  source: "worker",
+  sendTelemetry(message) {
+    return handleRemoteSupportBackgroundMessage(message, {});
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {

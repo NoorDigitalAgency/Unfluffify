@@ -16,7 +16,6 @@ import {
   createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   createInactiveRemoteSupportSidebarSnapshot,
-  isAjaxResourceType,
   normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
@@ -129,8 +128,7 @@ function createSessionRuntime({
     transportSignature,
     usesVideoStream: false,
     inactivityIntervalId: 0,
-    payloadBudgetBytes: 0,
-    networkPendingRequests: new Map()
+    payloadBudgetBytes: 0
   };
 
   runtime.state.active = true;
@@ -246,7 +244,6 @@ function clearRuntimeIntervals(runtime) {
 
 function clearRuntimeBuffers(runtime) {
   runtime.payloadBudgetBytes = 0;
-  runtime.networkPendingRequests.clear();
 }
 
 function publishRuntimeEvent(message) {
@@ -419,6 +416,123 @@ function broadcastNetworkEntry(runtime, entry) {
     tabId: runtime.state.tabId,
     sessionId: runtime.state.sessionId
   });
+}
+
+function normalizeTelemetryChannel(channel) {
+  return channel === "network" ? "network" : "console";
+}
+
+function normalizeTelemetrySource(source) {
+  return typeof source === "string" && source.trim()
+    ? source.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 48)
+    : "extension";
+}
+
+function normalizeTelemetryEntry(message, sender) {
+  const entryLike = message.entry && typeof message.entry === "object" && !Array.isArray(message.entry)
+    ? message.entry
+    : {};
+  const channel = normalizeTelemetryChannel(message.channel || entryLike.channel);
+  const senderTabId = normalizeTabId(sender && sender.tab && sender.tab.id);
+  const messageTabId = normalizeTabId(message.tabId);
+  const tabId = messageTabId !== null ? messageTabId : senderTabId;
+  return {
+    channel,
+    tabId,
+    entry: {
+      ...entryLike,
+      channel,
+      source: normalizeTelemetrySource(entryLike.source || message.source),
+      timestamp: Number(entryLike.timestamp) || Date.now()
+    }
+  };
+}
+
+function clonePayloadForRuntime(runtime, payload) {
+  if (!runtime || !runtime.state.includePayloads || !payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const nextPayload = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const clampedValue = clampPayloadSize(value, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
+    const byteLength = new TextEncoder().encode(clampedValue).length;
+    if (runtime.payloadBudgetBytes + byteLength > REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
+      continue;
+    }
+
+    nextPayload[key] = clampedValue;
+    runtime.payloadBudgetBytes += byteLength;
+  }
+
+  return Object.keys(nextPayload).length ? nextPayload : null;
+}
+
+function sanitizeTelemetryEntryForRuntime(runtime, entry) {
+  return {
+    ...(entry && typeof entry === "object" ? entry : {}),
+    payload: clonePayloadForRuntime(runtime, entry && entry.payload)
+  };
+}
+
+function postTelemetryToPorts(channel, tabId, message) {
+  const ports = channel === "network" ? networkPorts : consolePorts;
+  const normalizedTabId = normalizeTabId(tabId);
+
+  if (normalizedTabId !== null) {
+    postToPorts(ports, normalizedTabId, message);
+    return;
+  }
+
+  ports.forEach((port) => {
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      // Ignore transient disconnect races.
+    }
+  });
+}
+
+function getTelemetryRuntimes(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId !== null) {
+    const runtime = getRequesterRuntimeForTab(normalizedTabId);
+    return runtime ? [runtime] : [];
+  }
+
+  return Array.from(sessionRuntimes.values()).filter(
+    (runtime) => runtime && runtime.state.active && runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+  );
+}
+
+async function relayExtensionTelemetryToRuntimes(channel, entry, tabId) {
+  const runtimes = getTelemetryRuntimes(tabId);
+  for (const runtime of runtimes) {
+    updateSessionActivity(runtime);
+    await sendDataMessage(runtime, "telemetry", {
+      channel,
+      entry: sanitizeTelemetryEntryForRuntime(runtime, entry)
+    });
+  }
+}
+
+export async function handleExtensionTelemetry(message, sender) {
+  const { channel, tabId, entry } = normalizeTelemetryEntry(message, sender);
+  const event = {
+    type: channel === "network" ? "remoteSupportNetworkEntry" : "remoteSupportConsoleEntry",
+    entry,
+    tabId,
+    sessionId: ""
+  };
+
+  postTelemetryToPorts(channel, tabId, event);
+  await relayExtensionTelemetryToRuntimes(channel, entry, tabId);
+
+  return { ok: true };
 }
 
 function bindPortToTab(port, tabId) {
@@ -1546,136 +1660,6 @@ export async function handleTransportEvent(message) {
   return { ok: false };
 }
 
-export async function handleTelemetryFromContent(message, sender) {
-  const tabId = normalizeTabId(sender && sender.tab && sender.tab.id);
-  const runtime = getRequesterRuntimeForTab(tabId);
-  if (!runtime) {
-    return { ok: true };
-  }
-
-  const entry = {
-    ...(message.entry && typeof message.entry === "object" ? message.entry : {}),
-    timestamp: Date.now()
-  };
-
-  if (!runtime.state.includePayloads && entry.payload) {
-    entry.payload = null;
-  }
-
-  if (entry.payload && typeof entry.payload === "object") {
-    const nextPayload = {};
-    for (const [key, value] of Object.entries(entry.payload)) {
-      if (typeof value !== "string") {
-        continue;
-      }
-
-      const clampedValue = clampPayloadSize(value, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
-      const byteLength = new TextEncoder().encode(clampedValue).length;
-      if (runtime.payloadBudgetBytes + byteLength > REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
-        continue;
-      }
-
-      nextPayload[key] = clampedValue;
-      runtime.payloadBudgetBytes += byteLength;
-    }
-
-    entry.payload = Object.keys(nextPayload).length ? nextPayload : null;
-  }
-
-  updateSessionActivity(runtime);
-  await sendDataMessage(runtime, "telemetry", {
-    channel: entry.channel || "console",
-    entry
-  });
-
-  return { ok: true };
-}
-
-export function handleWebRequestBefore(details) {
-  const runtime = getRequesterRuntimeForTab(details && details.tabId);
-  if (!runtime) {
-    return;
-  }
-
-  const requestType = typeof details.type === "string" ? details.type : "";
-  const isAjax = isAjaxResourceType(requestType);
-  const entry = {
-    requestId: details.requestId,
-    url: details.url,
-    method: details.method,
-    type: requestType,
-    startedAt: Date.now(),
-    isAjax,
-    payload: null
-  };
-
-  if (
-    isAjax &&
-    runtime.state.includePayloads &&
-    details.requestBody &&
-    Array.isArray(details.requestBody.raw) &&
-    details.requestBody.raw.length
-  ) {
-    try {
-      const bytes = details.requestBody.raw[0] && details.requestBody.raw[0].bytes;
-      if (bytes instanceof ArrayBuffer) {
-        const rawText = new TextDecoder().decode(bytes);
-        const clampedText = clampPayloadSize(rawText, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
-        const byteLength = new TextEncoder().encode(clampedText).length;
-        if (runtime.payloadBudgetBytes + byteLength <= REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
-          runtime.payloadBudgetBytes += byteLength;
-          entry.payload = {
-            request: clampedText
-          };
-        }
-      }
-    } catch (error) {
-      entry.payload = null;
-    }
-  }
-
-  runtime.networkPendingRequests.set(details.requestId, entry);
-}
-
-export async function emitNetworkTelemetry(details) {
-  const runtime = getRequesterRuntimeForTab(details && details.tabId);
-  if (!runtime) {
-    return;
-  }
-
-  const pendingEntry = runtime.networkPendingRequests.get(details.requestId);
-  runtime.networkPendingRequests.delete(details.requestId);
-
-  const entry = {
-    ...(pendingEntry || {
-      requestId: details.requestId,
-      url: details.url,
-      method: details.method,
-      type: details.type,
-      startedAt: Date.now(),
-      isAjax: isAjaxResourceType(details.type),
-      payload: null
-    }),
-    statusCode: typeof details.statusCode === "number" ? details.statusCode : null,
-    completedAt: Date.now()
-  };
-
-  entry.loadTimeMs = Math.max(0, entry.completedAt - (Number(entry.startedAt) || entry.completedAt));
-
-  if (
-    !runtime.state.includePayloads &&
-    entry.payload
-  ) {
-    entry.payload = null;
-  }
-
-  updateSessionActivity(runtime);
-  await sendDataMessage(runtime, "telemetry", {
-    channel: "network",
-    entry
-  });
-}
-
 export function handlePortConnection(port) {
   if (!port || !port.name) {
     return;
@@ -1831,8 +1815,8 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     };
   }
 
-  if (message.type === "remoteSupportTelemetry" || message.type === "remoteSupportTelemetryFromContent") {
-    return handleTelemetryFromContent(message, sender);
+  if (message.type === "remoteSupportExtensionTelemetry") {
+    return handleExtensionTelemetry(message, sender);
   }
 
   return handleTransportEvent(message, sender);
@@ -1858,29 +1842,4 @@ export function initRemoteSupportBackground() {
     chrome.runtime.onConnect.addListener(handlePortConnection);
   }
 
-  if (chrome.webRequest && chrome.webRequest.onBeforeRequest && typeof chrome.webRequest.onBeforeRequest.addListener === "function") {
-    chrome.webRequest.onBeforeRequest.addListener(
-      handleWebRequestBefore,
-      { urls: ["<all_urls>"] },
-      ["requestBody"]
-    );
-  }
-
-  if (chrome.webRequest && chrome.webRequest.onCompleted && typeof chrome.webRequest.onCompleted.addListener === "function") {
-    chrome.webRequest.onCompleted.addListener(
-      (details) => {
-        emitNetworkTelemetry(details).then();
-      },
-      { urls: ["<all_urls>"] }
-    );
-  }
-
-  if (chrome.webRequest && chrome.webRequest.onErrorOccurred && typeof chrome.webRequest.onErrorOccurred.addListener === "function") {
-    chrome.webRequest.onErrorOccurred.addListener(
-      (details) => {
-        emitNetworkTelemetry(details).then();
-      },
-      { urls: ["<all_urls>"] }
-    );
-  }
 }

@@ -65,6 +65,7 @@ import {
 import {
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
+import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   createInactiveRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
@@ -78,6 +79,25 @@ import {
 } from "./common/remote-support.js";
 
 const { state } = stateModule;
+
+function getPopupTelemetryTabId() {
+  return state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+}
+
+function getPopupTelemetryIncludePayloads() {
+  const currentTabId = getPopupTelemetryTabId();
+  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  return Boolean(scopedState.active && scopedState.includePayloads);
+}
+
+installExtensionTelemetry({
+  source: "popup",
+  getTabId: getPopupTelemetryTabId,
+  getIncludePayloads: getPopupTelemetryIncludePayloads
+});
+
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;

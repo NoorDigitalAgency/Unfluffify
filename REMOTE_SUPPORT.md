@@ -43,8 +43,8 @@ This document defines the extension-side remote support implementation and the e
 
 ### 3) Telemetry stream
 
-- Console and AJAX telemetry is collected in page context and forwarded to background.
-- Web request metadata is captured via `chrome.webRequest`.
+- Console and network telemetry is collected from Unfluffify extension contexts (popup/side panel, content script, and service worker where available) and forwarded to background.
+- Page console output and page network requests are intentionally excluded from these panels.
 - Support side receives telemetry over data channel and displays it in DevTools panels.
 
 ## DevTools panels
@@ -219,19 +219,15 @@ Server responsibilities:
 
 ## Security & correctness guarantees
 
-### Telemetry bridge activation
+### Extension-side telemetry
 
-`installRemoteSupportTelemetryBridge()` is only called when the content-script session mode transitions to `being_supported`. No `console`/`fetch`/XHR monkey-patching is applied on pages that never host an active support session.
-
-### Nonce-based message authentication
-
-When the telemetry bridge is installed, a 16-byte cryptographically random nonce (generated via `crypto.getRandomValues`) is embedded in the injected page script and included in every `postMessage`. The content script validates `data.nonce` before processing any telemetry message. An Array-type guard and a 65 536-byte JSON size cap are also enforced.
+The Unfluffify Console and Network DevTools panels consume telemetry from extension contexts, not from the inspected page. Popup/side-panel, content-script, and service-worker contexts install `installExtensionTelemetry()` to record their own `console`, `fetch`, and XHR activity and forward it through the background relay.
 
 ### `includePayloads` gating (three-layer defence)
 
-1. **Page hook** – starts with `let includePayloads = false` and only reads request/response bodies when a `unfluffify:remote-support:control` message from the content script sets the flag to `true`.
-2. **Content script** – `sendRemoteTelemetryEntry` strips `entry.payload` as a backstop when `remoteSupportIncludePayloads` is `false`.
-3. **Background** – `handleTelemetryFromContent()` strips `entry.payload` when `sessionState.includePayloads` is `false`, clamps individual payload strings via `clampPayloadSize`, and enforces the total `REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES` budget before calling `sendDataMessage()`.
+1. **Telemetry helper** – starts with payload capture disabled and only reads request/response bodies when the current extension context reports `includePayloads: true`.
+2. **Background** – `handleExtensionTelemetry()` relays extension telemetry locally to the DevTools panels and, for active requester sessions, forwards a runtime-sanitized copy to the remote peer.
+3. **Remote relay** – payload strings are clamped via `clampPayloadSize`, and the total `REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES` budget is enforced before calling `sendDataMessage()`.
 
 ### DOM XSS prevention in DevTools panels
 

@@ -14,7 +14,6 @@
     "tabs",
     "scripting",
     "debugger",
-    "webRequest",
     "browsingData",
     "webNavigation",
     "activeTab"

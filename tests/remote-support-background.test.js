@@ -863,6 +863,136 @@ test("network devtools panel is the only include-payloads writer for its attache
   }
 });
 
+test("extension telemetry feeds Unfluffify panels and requester remote peer", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, connectPort, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_extension_telemetry",
+        supportCode: "889900",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 41,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 41 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+
+    const consolePort = connectPort("unfluffify-remote-support-console");
+    consolePort.emitMessage({ type: "remoteSupportAttach", tabId: 41 });
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 41 });
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 41,
+        channel: "console",
+        entry: {
+          source: "popup",
+          level: "warn",
+          message: "selector computation failed"
+        }
+      },
+      {}
+    );
+
+    assert.equal(
+      consolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "popup" &&
+          message.entry.message === "selector computation failed"
+      ),
+      true
+    );
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_extension_telemetry" &&
+          message.messageType === "telemetry" &&
+          message.payload &&
+          message.payload.channel === "console" &&
+          message.payload.entry &&
+          message.payload.entry.source === "popup"
+      ),
+      true
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 41,
+        channel: "network",
+        entry: {
+          source: "worker",
+          type: "fetch",
+          method: "POST",
+          url: "https://api.example.com/save",
+          statusCode: 200,
+          payload: {
+            request: "sensitive-body",
+            response: "sensitive-response"
+          }
+        }
+      },
+      {}
+    );
+
+    assert.equal(
+      networkPort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportNetworkEntry" &&
+          message.entry &&
+          message.entry.source === "worker" &&
+          message.entry.url === "https://api.example.com/save"
+      ),
+      true
+    );
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_extension_telemetry" &&
+          message.messageType === "telemetry" &&
+          message.payload &&
+          message.payload.channel === "network" &&
+          message.payload.entry &&
+          message.payload.entry.source === "worker" &&
+          message.payload.entry.payload === null
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("supporter sessions can be ended by session id even when the viewer stop request fails", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

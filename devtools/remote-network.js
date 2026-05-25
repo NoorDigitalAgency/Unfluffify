@@ -44,6 +44,9 @@ function appendEntry(entry) {
   tdDate.className = "mono";
   tdDate.textContent = date;
 
+  const tdSource = document.createElement("td");
+  tdSource.textContent = String(entry.source || "extension");
+
   const tdStatus = document.createElement("td");
   tdStatus.textContent = String(Number(entry.statusCode) || 0);
 
@@ -64,6 +67,7 @@ function appendEntry(entry) {
   tdPayload.className = "payload";
 
   tr.appendChild(tdDate);
+  tr.appendChild(tdSource);
   tr.appendChild(tdStatus);
   tr.appendChild(tdMethod);
   tr.appendChild(tdType);
