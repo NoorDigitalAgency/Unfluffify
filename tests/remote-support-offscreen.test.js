@@ -1420,3 +1420,258 @@ test("remote support offscreen chunks oversized data-channel messages and reasse
     globalThis.window = originalWindow;
   }
 });
+
+test("remote support offscreen supports multiple named data channels in one session", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const backgroundEvents = [];
+  const dataChannels = [];
+
+  class FakeDataChannel {
+    constructor(label) {
+      this.label = label;
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.bufferedAmount = 0;
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+      this.sent = [];
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send(rawValue) {
+      this.sent.push(JSON.parse(rawValue));
+    }
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.sctp = { maxMessageSize: 65536 };
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel(label) {
+      const channel = new FakeDataChannel(label);
+      dataChannels.push(channel);
+      return channel;
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      this.iceCandidate = candidate;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-multi-channel`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_multi_channel",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+          dataChannels: [
+            { key: "page", label: "remote-support-page" },
+            { key: "sidebar", label: "remote-support-sidebar" }
+          ]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(dataChannels.length, 2);
+    assert.deepEqual(
+      dataChannels.map((channel) => channel.label),
+      ["remote-support-page", "remote-support-sidebar"]
+    );
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "channel-open" &&
+          message.event.channelKey === "page"
+      ),
+      true
+    );
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "channel-open" &&
+          message.event.channelKey === "sidebar"
+      ),
+      true
+    );
+
+    let sendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_multi_channel",
+        channelKey: "sidebar",
+        messageType: "sidebar-state",
+        payload: { section: "todo", expanded: true }
+      },
+      {},
+      (value) => {
+        sendResponse = value;
+      }
+    );
+
+    assert.deepEqual(sendResponse, { ok: true });
+    assert.deepEqual(dataChannels[0].sent, []);
+    assert.deepEqual(dataChannels[1].sent, [
+      {
+        type: "sidebar-state",
+        payload: { section: "todo", expanded: true }
+      }
+    ]);
+
+    backgroundEvents.length = 0;
+    dataChannels[1].onmessage({
+      data: JSON.stringify({
+        type: "sidebar-action",
+        payload: { type: "toggle-section", section: "todo" }
+      })
+    });
+    await delay(0);
+
+    const incomingMessageEvent = backgroundEvents.find(
+      (message) =>
+        message.type === "remoteSupportTransportEvent" &&
+        message.event &&
+        message.event.type === "incoming-message"
+    );
+
+    assert.ok(incomingMessageEvent);
+    assert.equal(incomingMessageEvent.event.channelKey, "sidebar");
+    assert.equal(incomingMessageEvent.event.message.type, "sidebar-action");
+    assert.deepEqual(incomingMessageEvent.event.message.payload, {
+      type: "toggle-section",
+      section: "todo"
+    });
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});

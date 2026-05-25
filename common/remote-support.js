@@ -10,6 +10,10 @@ export const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
 export const REMOTE_SUPPORT_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024;
 export const REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES = 3 * 1024 * 1024;
+export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT = "default";
+export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE = "page";
+export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR = "sidebar";
+export const REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT = "remote-support";
 
 export const REMOTE_SUPPORT_PORT_CONSOLE = "unfluffify-remote-support-console";
 export const REMOTE_SUPPORT_PORT_NETWORK = "unfluffify-remote-support-network";

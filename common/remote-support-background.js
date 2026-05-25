@@ -1,4 +1,6 @@
 import {
+  REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
+  REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_INACTIVE,
@@ -664,7 +666,20 @@ async function setContentModeForSession(runtime, active) {
   }
 }
 
-async function sendDataMessage(runtime, type, payload) {
+function isPrimaryTransportChannelKey(channelKey) {
+  if (typeof channelKey !== "string") {
+    return true;
+  }
+
+  const normalizedChannelKey = channelKey.trim();
+  return (
+    !normalizedChannelKey ||
+    normalizedChannelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT ||
+    normalizedChannelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
+  );
+}
+
+async function sendDataMessage(runtime, type, payload, channelKey = "") {
   if (!runtime || !runtime.state.active) {
     return false;
   }
@@ -676,7 +691,10 @@ async function sendDataMessage(runtime, type, payload) {
       type: "remoteSupportTransportSendData",
       sessionId: runtime.state.sessionId,
       messageType: type,
-      payload
+      payload,
+      ...(typeof channelKey === "string" && channelKey.trim()
+        ? { channelKey: channelKey.trim() }
+        : {})
     });
 
     return Boolean(response && response.ok);
@@ -793,7 +811,7 @@ async function relayCommandToSupportedTab(runtime, command) {
   }
 }
 
-async function handleIncomingDataMessage(runtime, message) {
+async function handleIncomingDataMessage(runtime, message, channelKey = "") {
   if (!runtime || !message || typeof message !== "object") {
     return;
   }
@@ -806,6 +824,10 @@ async function handleIncomingDataMessage(runtime, message) {
   }
 
   if (message.type === "frame") {
+    if (!isPrimaryTransportChannelKey(channelKey)) {
+      return;
+    }
+
     publishRuntimeEvent({
       type: "remoteSupportFrame",
       frame: message.payload && message.payload.dataUrl ? message.payload.dataUrl : "",
@@ -1223,14 +1245,21 @@ export async function handleTransportEvent(message) {
 
   if (event.type === "channel-open" || event.type === "remoteSupportTransportChannelOpen") {
     updateSessionActivity(runtime);
-    runtime.state.connected = true;
     runtime.state.partnerConnected = true;
-    if (shouldStreamFrames(runtime)) {
-      startFrameStreaming(runtime);
+
+    if (isPrimaryTransportChannelKey(event.channelKey)) {
+      runtime.state.connected = true;
+      if (shouldStreamFrames(runtime)) {
+        startFrameStreaming(runtime);
+      }
     }
+
     broadcastRuntimeState(runtime);
 
-    if (runtime.state.mode === REMOTE_SUPPORT_MODE_SUPPORTING) {
+    if (
+      runtime.state.mode === REMOTE_SUPPORT_MODE_SUPPORTING &&
+      isPrimaryTransportChannelKey(event.channelKey)
+    ) {
       void sendDataMessage(runtime, "control-include-payloads", {
         enabled: Boolean(runtime.state.includePayloads)
       });
@@ -1248,7 +1277,7 @@ export async function handleTransportEvent(message) {
   }
 
   if (event.type === "incoming-message" || event.type === "remoteSupportTransportIncomingMessage") {
-    await handleIncomingDataMessage(runtime, event.message);
+    await handleIncomingDataMessage(runtime, event.message, event.channelKey);
     return { ok: true };
   }
 

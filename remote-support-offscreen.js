@@ -1,5 +1,7 @@
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
+  REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
+  REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
   REMOTE_SUPPORT_PORT_TRANSPORT
 } from "./common/remote-support.js";
 
@@ -109,7 +111,74 @@ function normalizeIceServers(iceServers) {
   return normalizeIceServerEntries(iceServers);
 }
 
-function haveMatchingTransportConfig(runtime, session, iceServers) {
+function createDataChannelLabel(channelKey) {
+  const normalizedChannelKey = isNonEmptyString(channelKey)
+    ? channelKey.trim()
+    : REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT;
+
+  return normalizedChannelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT
+    ? REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT
+    : `remote-support-${normalizedChannelKey}`;
+}
+
+function normalizeDataChannelDescriptor(candidate) {
+  if (typeof candidate === "string") {
+    const key = candidate.trim();
+    if (!key) {
+      return null;
+    }
+
+    return {
+      key,
+      label: createDataChannelLabel(key)
+    };
+  }
+
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const key = isNonEmptyString(candidate.key)
+    ? candidate.key.trim()
+    : REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT;
+  const label = isNonEmptyString(candidate.label)
+    ? candidate.label.trim()
+    : createDataChannelLabel(key);
+
+  if (!key || !label) {
+    return null;
+  }
+
+  return { key, label };
+}
+
+function normalizeDataChannelDescriptors(dataChannels) {
+  const normalized = [];
+  const seenKeys = new Set();
+
+  for (const candidate of Array.isArray(dataChannels) ? dataChannels : []) {
+    const descriptor = normalizeDataChannelDescriptor(candidate);
+    if (!descriptor || seenKeys.has(descriptor.key)) {
+      continue;
+    }
+
+    seenKeys.add(descriptor.key);
+    normalized.push(descriptor);
+  }
+
+  return normalized.length
+    ? normalized
+    : [{
+        key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
+        label: REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT
+      }];
+}
+
+function createDataChannelDescriptorKey(descriptor) {
+  return `${descriptor.key}\u001e${descriptor.label}`;
+}
+
+function haveMatchingTransportConfig(runtime, session, iceServers, dataChannelDescriptors) {
   if (!runtime || !session) {
     return false;
   }
@@ -130,13 +199,65 @@ function haveMatchingTransportConfig(runtime, session, iceServers) {
     return false;
   }
 
+  if (runtime.dataChannelDescriptors.length !== dataChannelDescriptors.length) {
+    return false;
+  }
+
   for (let index = 0; index < iceServers.length; index += 1) {
     if (createIceServerKey(runtime.iceServers[index]) !== createIceServerKey(iceServers[index])) {
       return false;
     }
   }
 
+  for (let index = 0; index < dataChannelDescriptors.length; index += 1) {
+    if (createDataChannelDescriptorKey(runtime.dataChannelDescriptors[index]) !== createDataChannelDescriptorKey(dataChannelDescriptors[index])) {
+      return false;
+    }
+  }
+
   return true;
+}
+
+function getDefaultDataChannelKey(runtime) {
+  if (!runtime || !Array.isArray(runtime.dataChannelDescriptors) || !runtime.dataChannelDescriptors.length) {
+    return REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT;
+  }
+
+  return runtime.dataChannelDescriptors.some((descriptor) => descriptor.key === REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT)
+    ? REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT
+    : runtime.dataChannelDescriptors[0].key;
+}
+
+function getDataChannelDescriptorByKey(runtime, channelKey = getDefaultDataChannelKey(runtime)) {
+  if (!runtime || !Array.isArray(runtime.dataChannelDescriptors)) {
+    return null;
+  }
+
+  return runtime.dataChannelDescriptors.find((descriptor) => descriptor.key === channelKey) || null;
+}
+
+function getDataChannelKeyByLabel(runtime, label) {
+  if (!runtime || !Array.isArray(runtime.dataChannelDescriptors)) {
+    return "";
+  }
+
+  const normalizedLabel = isNonEmptyString(label) ? label.trim() : "";
+  if (!normalizedLabel) {
+    return runtime.dataChannelDescriptors.length === 1
+      ? runtime.dataChannelDescriptors[0].key
+      : "";
+  }
+
+  const descriptor = runtime.dataChannelDescriptors.find((candidate) => candidate.label === normalizedLabel);
+  return descriptor ? descriptor.key : "";
+}
+
+function getDataChannel(runtime, channelKey = getDefaultDataChannelKey(runtime)) {
+  if (!runtime || !(runtime.dataChannels instanceof Map)) {
+    return null;
+  }
+
+  return runtime.dataChannels.get(channelKey) || null;
 }
 
 function createTransportRuntime(session) {
@@ -146,15 +267,17 @@ function createTransportRuntime(session) {
     role: session.role,
     wsUrl: session.wsUrl.trim(),
     iceServers: normalizeIceServers(session.iceServers),
+    dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
     pendingIceCandidates: [],
     signalingSocket: null,
     peerConnection: null,
-    dataChannel: null,
+    dataChannels: new Map(),
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
     lastSignalingState: "",
     lastDataChannelState: "",
+    lastDataChannelKey: REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
     lastIceCandidateError: "",
     chunkAssemblies: new Map(),
     shuttingDown: false
@@ -172,12 +295,15 @@ function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && ru
   runtime.lastSignalingState = normalizeTransportStateValue(peerConnection.signalingState);
 }
 
-function updateDataChannelDiagnostics(runtime, channel = runtime && runtime.dataChannel) {
+function updateDataChannelDiagnostics(runtime, channel = getDataChannel(runtime), channelKey = getDefaultDataChannelKey(runtime)) {
   if (!runtime || !channel) {
     return;
   }
 
   runtime.lastDataChannelState = normalizeTransportStateValue(channel.readyState);
+  runtime.lastDataChannelKey = isNonEmptyString(channelKey)
+    ? channelKey.trim()
+    : getDefaultDataChannelKey(runtime);
 }
 
 function formatIceCandidateError(event) {
@@ -234,7 +360,11 @@ function getTransportDiagnostics(runtime) {
   }
 
   if (runtime.lastDataChannelState && runtime.lastDataChannelState !== "open") {
-    diagnostics.push(`data=${runtime.lastDataChannelState}`);
+    diagnostics.push(
+      runtime.lastDataChannelKey && runtime.lastDataChannelKey !== REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT
+        ? `data[${runtime.lastDataChannelKey}]=${runtime.lastDataChannelState}`
+        : `data=${runtime.lastDataChannelState}`
+    );
   }
 
   if (runtime.lastIceCandidateError) {
@@ -471,11 +601,13 @@ function resetTransportResources(runtime) {
     return;
   }
 
-  closeDataChannel(runtime.dataChannel);
+  for (const channel of runtime.dataChannels.values()) {
+    closeDataChannel(channel);
+  }
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
 
-  runtime.dataChannel = null;
+  runtime.dataChannels.clear();
   runtime.peerConnection = null;
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
@@ -522,20 +654,29 @@ function parseTransportMessage(rawMessage) {
   }
 }
 
-function bindDataChannel(runtime, channel) {
+function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey(runtime)) {
   if (!runtime || !channel) {
     return;
   }
 
-  runtime.dataChannel = channel;
+  const normalizedChannelKey = isNonEmptyString(channelKey)
+    ? channelKey.trim()
+    : getDefaultDataChannelKey(runtime);
+  const existingChannel = getDataChannel(runtime, normalizedChannelKey);
+  if (existingChannel && existingChannel !== channel) {
+    closeDataChannel(existingChannel);
+  }
+
+  runtime.dataChannels.set(normalizedChannelKey, channel);
   channel.binaryType = "arraybuffer";
-  updateDataChannelDiagnostics(runtime, channel);
+  updateDataChannelDiagnostics(runtime, channel, normalizedChannelKey);
 
   channel.onopen = () => {
-    updateDataChannelDiagnostics(runtime, channel);
+    updateDataChannelDiagnostics(runtime, channel, normalizedChannelKey);
     postTransportEvent({
       type: "channel-open",
-      sessionId: runtime.sessionId
+      sessionId: runtime.sessionId,
+      channelKey: normalizedChannelKey
     });
   };
 
@@ -545,7 +686,7 @@ function bindDataChannel(runtime, channel) {
       return;
     }
 
-    updateDataChannelDiagnostics(activeRuntime, channel);
+    updateDataChannelDiagnostics(activeRuntime, channel, normalizedChannelKey);
     handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel closed"));
   };
 
@@ -555,7 +696,7 @@ function bindDataChannel(runtime, channel) {
       return;
     }
 
-    updateDataChannelDiagnostics(activeRuntime, channel);
+    updateDataChannelDiagnostics(activeRuntime, channel, normalizedChannelKey);
     handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel failed"));
   };
 
@@ -573,6 +714,7 @@ function bindDataChannel(runtime, channel) {
     postTransportEvent({
       type: "incoming-message",
       sessionId: runtime.sessionId,
+      channelKey: normalizedChannelKey,
       message
     });
   };
@@ -636,26 +778,39 @@ async function ensurePeerConnection(runtime, offerer) {
       return;
     }
 
-    bindDataChannel(runtime, event.channel);
+    const channelKey = getDataChannelKeyByLabel(runtime, event.channel.label);
+    if (!channelKey) {
+      closeDataChannel(event.channel);
+      return;
+    }
+
+    bindDataChannel(runtime, event.channel, channelKey);
   };
 
   if (offerer) {
-    bindDataChannel(runtime, peerConnection.createDataChannel("remote-support"));
+    for (const descriptor of runtime.dataChannelDescriptors) {
+      bindDataChannel(runtime, peerConnection.createDataChannel(descriptor.label), descriptor.key);
+    }
   }
 
   return peerConnection;
 }
 
-function sendDataMessage(runtime, messageType, payload) {
+function sendDataMessage(runtime, messageType, payload, channelKey = getDefaultDataChannelKey(runtime)) {
+  const resolvedChannelKey = isNonEmptyString(channelKey)
+    ? channelKey.trim()
+    : getDefaultDataChannelKey(runtime);
+  const dataChannel = getDataChannel(runtime, resolvedChannelKey);
+
   if (
     !runtime ||
-    !runtime.dataChannel ||
-    runtime.dataChannel.readyState !== "open"
+    !dataChannel ||
+    dataChannel.readyState !== "open"
   ) {
     return false;
   }
 
-  const bufferedAmount = Number(runtime.dataChannel.bufferedAmount);
+  const bufferedAmount = Number(dataChannel.bufferedAmount);
   if (
     Number.isFinite(bufferedAmount) &&
     bufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
@@ -675,7 +830,7 @@ function sendDataMessage(runtime, messageType, payload) {
 
   try {
     for (const rawMessage of outboundMessages) {
-      const nextBufferedAmount = Number(runtime.dataChannel.bufferedAmount);
+      const nextBufferedAmount = Number(dataChannel.bufferedAmount);
       if (
         Number.isFinite(nextBufferedAmount) &&
         nextBufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
@@ -683,7 +838,7 @@ function sendDataMessage(runtime, messageType, payload) {
         return false;
       }
 
-      runtime.dataChannel.send(rawMessage);
+      dataChannel.send(rawMessage);
     }
     return true;
   } catch (error) {
@@ -906,10 +1061,12 @@ async function startTransport(session) {
     throw new Error("Missing remote support ICE servers");
   }
 
+  const dataChannelDescriptors = normalizeDataChannelDescriptors(session.dataChannels);
+
   connectKeepAlivePort();
 
   const existingRuntime = getTransportRuntime(session.sessionId);
-  if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers)) {
+  if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers, dataChannelDescriptors)) {
     return;
   }
 
@@ -919,7 +1076,8 @@ async function startTransport(session) {
 
   const runtime = createTransportRuntime({
     ...session,
-    iceServers
+    iceServers,
+    dataChannels: dataChannelDescriptors
   });
   transportSessions.set(runtime.sessionId, runtime);
 
@@ -973,7 +1131,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     sendResponse({
-      ok: sendDataMessage(runtime, message.messageType, message.payload)
+      ok: sendDataMessage(runtime, message.messageType, message.payload, message.channelKey)
     });
     return false;
   }

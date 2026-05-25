@@ -772,3 +772,103 @@ test("network devtools panel is the only include-payloads writer for its attache
     globalThis.chrome = originalChrome;
   }
 });
+
+test("supporting sessions wait for the primary transport channel before marking connected", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_primary_channel",
+        supportCode: "112233",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 21,
+        supportCode: "112233"
+      },
+      { tab: { id: 21 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "channel-open",
+          sessionId: "sess_primary_channel",
+          channelKey: "sidebar"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    let stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 21 },
+      {}
+    );
+
+    assert.equal(stateResponse.ok, true);
+    assert.equal(stateResponse.state.partnerConnected, true);
+    assert.equal(stateResponse.state.connected, false);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_primary_channel" &&
+          message.messageType === "control-include-payloads"
+      ),
+      false
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "channel-open",
+          sessionId: "sess_primary_channel",
+          channelKey: "page"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 21 },
+      {}
+    );
+
+    assert.equal(stateResponse.ok, true);
+    assert.equal(stateResponse.state.connected, true);
+    assert.equal(transportMessages.at(-1).type, "remoteSupportTransportSendData");
+    assert.equal(transportMessages.at(-1).sessionId, "sess_primary_channel");
+    assert.equal(transportMessages.at(-1).messageType, "control-include-payloads");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
