@@ -101,6 +101,36 @@ function normalizeIceServers(iceServers) {
   return normalizeIceServerEntries(iceServers);
 }
 
+function haveMatchingTransportConfig(runtime, session, iceServers) {
+  if (!runtime || !session) {
+    return false;
+  }
+
+  if (runtime.supportCode !== session.supportCode.trim()) {
+    return false;
+  }
+
+  if (runtime.role !== session.role) {
+    return false;
+  }
+
+  if (runtime.wsUrl !== session.wsUrl.trim()) {
+    return false;
+  }
+
+  if (runtime.iceServers.length !== iceServers.length) {
+    return false;
+  }
+
+  for (let index = 0; index < iceServers.length; index += 1) {
+    if (createIceServerKey(runtime.iceServers[index]) !== createIceServerKey(iceServers[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function createTransportRuntime(session) {
   return {
     sessionId: session.sessionId.trim(),
@@ -573,7 +603,12 @@ async function startTransport(session) {
 
   connectKeepAlivePort();
 
-  if (getTransportRuntime(session.sessionId)) {
+  const existingRuntime = getTransportRuntime(session.sessionId);
+  if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers)) {
+    return;
+  }
+
+  if (existingRuntime) {
     await shutdownTransport(session.sessionId, "Session restarted");
   }
 

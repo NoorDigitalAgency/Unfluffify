@@ -229,6 +229,62 @@ test("remoteSupportRequestCode reuses the offscreen keep-alive port created duri
   }
 });
 
+test("remoteSupportRequestCode does not restart an unchanged active transport session", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_reuse_same_transport",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const firstResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 16,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 16 } }
+    );
+
+    const secondResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 16,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 16 } }
+    );
+
+    assert.equal(firstResponse.ok, true);
+    assert.equal(secondResponse.ok, true);
+    assert.equal(transportMessages.filter((message) => message.type === "remoteSupportTransportStart").length, 1);
+    assert.equal(transportMessages.some((message) => message.type === "remoteSupportTransportStop"), false);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remoteSupportRequestCode falls back to the endpoint websocket url when the server omits webrtcWsUrl", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

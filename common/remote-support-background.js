@@ -74,6 +74,7 @@ function createSessionRuntime({
   sessionId,
   supportCode,
   expiresAt,
+  transportSignature = "",
   includePayloads = false
 }) {
   const runtime = {
@@ -92,6 +93,7 @@ function createSessionRuntime({
       error: "",
       lastActivityAt: Date.now()
     }),
+    transportSignature,
     frameIntervalId: 0,
     inactivityIntervalId: 0,
     payloadBudgetBytes: 0,
@@ -432,6 +434,12 @@ function resolveWebSocketUrl(baseUrl, explicitUrl, accessToken) {
 
 function createIceServerKey(entry) {
   return `${entry.urls.join("\u001f")}\u001e${entry.username || ""}\u001e${entry.credential || ""}`;
+}
+
+function createTransportSignature({ role, wsUrl, iceServers }) {
+  return `${role || ""}\u001d${String(wsUrl || "").trim()}\u001c${normalizeRemoteSupportIceServers(iceServers)
+    .map((entry) => createIceServerKey(entry))
+    .join("\u001b")}`;
 }
 
 function normalizeRemoteSupportIceServers(iceServers) {
@@ -825,10 +833,27 @@ async function handleIncomingDataMessage(runtime, message) {
   }
 }
 
-async function beginSession({ mode, role, tabId, sessionId, supportCode, expiresAt }) {
+async function beginSession({ mode, role, tabId, sessionId, supportCode, expiresAt, transportSignature = "" }) {
   const normalizedTabId = normalizeTabId(tabId);
   if (normalizedTabId === null) {
     throw new Error("Missing tab for remote support session");
+  }
+
+  const existingRuntimeForSession = getRuntimeBySessionId(sessionId);
+  if (
+    existingRuntimeForSession &&
+    existingRuntimeForSession.state.active &&
+    existingRuntimeForSession.state.mode === mode &&
+    existingRuntimeForSession.state.role === role &&
+    existingRuntimeForSession.state.tabId === normalizedTabId &&
+    existingRuntimeForSession.state.supportCode === supportCode &&
+    existingRuntimeForSession.transportSignature === transportSignature
+  ) {
+    existingRuntimeForSession.state.expiresAt = expiresAt;
+    existingRuntimeForSession.state.error = "";
+    updateSessionActivity(existingRuntimeForSession);
+    broadcastRuntimeState(existingRuntimeForSession);
+    return { runtime: existingRuntimeForSession, reused: true };
   }
 
   const existingRuntimeForTab = getRuntimeByTabId(normalizedTabId);
@@ -836,7 +861,6 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     await terminateRemoteSupportSession({ tabId: normalizedTabId }, "Session restarted");
   }
 
-  const existingRuntimeForSession = getRuntimeBySessionId(sessionId);
   if (existingRuntimeForSession) {
     await terminateRemoteSupportSession({ sessionId }, "Session restarted");
   }
@@ -848,6 +872,7 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     sessionId,
     supportCode,
     expiresAt,
+    transportSignature,
     includePayloads: false
   });
 
@@ -856,7 +881,7 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
   startInactivityMonitor(runtime);
   await setContentModeForSession(runtime, true);
 
-  return runtime;
+  return { runtime, reused: false };
 }
 
 async function maybeCloseOffscreenIfIdle() {
@@ -1001,33 +1026,43 @@ export async function handleRequestSupportCode(message) {
     };
   }
 
-  const runtime = await beginSession({
+  const wsUrl = resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken);
+  const transportSignature = createTransportSignature({
+    role: "requester",
+    wsUrl,
+    iceServers
+  });
+
+  const { runtime, reused } = await beginSession({
     mode: REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
     role: "requester",
     tabId,
     sessionId,
     supportCode,
-    expiresAt: payload.expiresAt || ""
+    expiresAt: payload.expiresAt || "",
+    transportSignature
   });
 
-  try {
-    const transportStartResponse = await sendRemoteSupportOffscreenRequest({
-      type: "remoteSupportTransportStart",
-      session: {
-        sessionId,
-        supportCode,
-        role: "requester",
-        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
-        iceServers
-      }
-    });
-    assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
-  } catch (error) {
-    await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
-    return {
-      ok: false,
-      error: getRemoteSupportErrorMessage(error, "Failed to start remote support transport")
-    };
+  if (!reused) {
+    try {
+      const transportStartResponse = await sendRemoteSupportOffscreenRequest({
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId,
+          supportCode,
+          role: "requester",
+          wsUrl,
+          iceServers
+        }
+      });
+      assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
+    } catch (error) {
+      await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
+      return {
+        ok: false,
+        error: getRemoteSupportErrorMessage(error, "Failed to start remote support transport")
+      };
+    }
   }
 
   broadcastRuntimeState(runtime);
@@ -1116,33 +1151,43 @@ export async function handleJoinSupportSession(message) {
     };
   }
 
-  const runtime = await beginSession({
+  const wsUrl = resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken);
+  const transportSignature = createTransportSignature({
+    role: "supporter",
+    wsUrl,
+    iceServers
+  });
+
+  const { runtime, reused } = await beginSession({
     mode: REMOTE_SUPPORT_MODE_SUPPORTING,
     role: "supporter",
     tabId,
     sessionId,
     supportCode,
-    expiresAt: payload.expiresAt || ""
+    expiresAt: payload.expiresAt || "",
+    transportSignature
   });
 
-  try {
-    const transportStartResponse = await sendRemoteSupportOffscreenRequest({
-      type: "remoteSupportTransportStart",
-      session: {
-        sessionId,
-        supportCode,
-        role: "supporter",
-        wsUrl: resolveWebSocketUrl(endpointBaseUrl, payload.webrtcWsUrl, accessToken),
-        iceServers
-      }
-    });
-    assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
-  } catch (error) {
-    await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
-    return {
-      ok: false,
-      error: getRemoteSupportErrorMessage(error, "Failed to start remote support transport")
-    };
+  if (!reused) {
+    try {
+      const transportStartResponse = await sendRemoteSupportOffscreenRequest({
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId,
+          supportCode,
+          role: "supporter",
+          wsUrl,
+          iceServers
+        }
+      });
+      assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
+    } catch (error) {
+      await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
+      return {
+        ok: false,
+        error: getRemoteSupportErrorMessage(error, "Failed to start remote support transport")
+      };
+    }
   }
 
   broadcastRuntimeState(runtime);

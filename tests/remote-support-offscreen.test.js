@@ -233,6 +233,40 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       iceCandidatePoolSize: 4
     });
 
+    let duplicateStartResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_one",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [
+            {
+              urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
+              username: "support-user",
+              credential: "support-secret"
+            },
+            {
+              urls: ["stun:stun.cloudflare.com:3478"]
+            }
+          ]
+        }
+      },
+      {},
+      (value) => {
+        duplicateStartResponse = value;
+      }
+    );
+
+    await delay(0);
+
+    assert.deepEqual(duplicateStartResponse, { ok: true });
+    assert.equal(dataChannels.length, 2);
+    assert.equal(peerConnectionConfigs.length, 2);
+
     let sendResponseOne;
     let sendResponseTwo;
 
