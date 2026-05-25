@@ -227,6 +227,15 @@ function publishRuntimeEvent(message) {
   chrome.runtime.sendMessage(message).catch(() => {});
 }
 
+function postRuntimeEventToTab(tabId, message) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return;
+  }
+
+  chrome.tabs.sendMessage(normalizedTabId, message).catch(() => {});
+}
+
 function getPortBoundTabId(port) {
   const binding = portBindings.get(port);
   if (!binding) {
@@ -270,6 +279,7 @@ function broadcastTabState(tabId) {
   };
 
   publishRuntimeEvent(event);
+  postRuntimeEventToTab(normalizedTabId, event);
   postToPorts(consolePorts, normalizedTabId, event);
   postToPorts(networkPorts, normalizedTabId, event);
 }
@@ -828,12 +838,15 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
       return;
     }
 
-    publishRuntimeEvent({
+    const event = {
       type: "remoteSupportFrame",
       frame: message.payload && message.payload.dataUrl ? message.payload.dataUrl : "",
       tabId: runtime.state.tabId,
       sessionId: runtime.state.sessionId
-    });
+    };
+
+    publishRuntimeEvent(event);
+    postRuntimeEventToTab(runtime.state.tabId, event);
     return;
   }
 

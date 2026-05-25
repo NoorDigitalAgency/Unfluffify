@@ -680,9 +680,14 @@ function handleRemoteSupportSupportPageJoinCodeInput(event) {
   remoteSupportSupportPageJoinCode = event && event.target && typeof event.target.value === "string"
     ? event.target.value.trim().toUpperCase()
     : "";
+  remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
+    ...remoteSupportSupportPageState,
+    error: ""
+  });
   if (remoteSupportSupportPageElements && remoteSupportSupportPageElements.joinInput) {
     remoteSupportSupportPageElements.joinInput.value = remoteSupportSupportPageJoinCode;
   }
+  renderRemoteSupportSupportPage();
 }
 
 async function handleRemoteSupportSupportPageJoin() {

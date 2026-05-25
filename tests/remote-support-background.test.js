@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  handleTransportEvent,
   initRemoteSupportBackground,
   handleRemoteSupportBackgroundMessage,
   terminateRemoteSupportSession
@@ -12,6 +13,7 @@ function createChromeMock(options = {}) {
   const { autoConnectOffscreenKeepAlive = true, offscreenResponse = null } = options;
   const runtimeConnectListeners = [];
   const runtimeEvents = [];
+  const tabMessages = [];
   const transportMessages = [];
   const runtimeConnectCalls = [];
   let offscreenDocumentOpen = false;
@@ -95,7 +97,8 @@ function createChromeMock(options = {}) {
       }
     },
     tabs: {
-      sendMessage() {
+      sendMessage(tabId, message) {
+        tabMessages.push({ tabId, message });
         return Promise.resolve();
       }
     },
@@ -115,6 +118,7 @@ function createChromeMock(options = {}) {
     },
     runtimeConnectCalls,
     runtimeEvents,
+    tabMessages,
     transportMessages
   };
 }
@@ -866,6 +870,80 @@ test("supporting sessions wait for the primary transport channel before marking 
     assert.equal(transportMessages.at(-1).type, "remoteSupportTransportSendData");
     assert.equal(transportMessages.at(-1).sessionId, "sess_primary_channel");
     assert.equal(transportMessages.at(-1).messageType, "control-include-payloads");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("remote support forwards runtime state and frames to the bound tab", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, tabMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_support_page",
+        supportCode: "112233",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 42,
+        supportCode: "112233"
+      },
+      { tab: { id: 42 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 42 &&
+          message &&
+          message.type === "remoteSupportStateChanged" &&
+          message.state &&
+          message.state.sessionId === "sess_support_page"
+      ),
+      true
+    );
+
+    await handleTransportEvent({
+      type: "incoming-message",
+      sessionId: "sess_support_page",
+      message: {
+        type: "frame",
+        payload: {
+          dataUrl: "data:image/jpeg;base64,frame-data"
+        }
+      }
+    });
+
+    assert.equal(
+      tabMessages.some(
+        ({ tabId, message }) =>
+          tabId === 42 &&
+          message &&
+          message.type === "remoteSupportFrame" &&
+          message.frame === "data:image/jpeg;base64,frame-data"
+      ),
+      true
+    );
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
