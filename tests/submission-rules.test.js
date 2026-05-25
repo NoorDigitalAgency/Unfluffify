@@ -40,6 +40,33 @@ test("hidden explicit includes still submit as included content", () => {
   );
 });
 
+test("explicit includes win when a node is also explicitly excluded", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: true,
+      explicitlyIncluded: true,
+      insideExcludedAncestor: false,
+      markableTextual: false
+    }),
+    { shouldSubmit: true, excluded: false }
+  );
+});
+
+test("explicit includes win over exclusion-root classification", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: true,
+      insideExcludedAncestor: false,
+      consentExcludedRoot: true,
+      immutableExcludedRoot: true,
+      hiddenToggleableRoot: true,
+      markableTextual: false
+    }),
+    { shouldSubmit: true, excluded: false }
+  );
+});
+
 test("descendants inside excluded ancestors are omitted unless explicitly included", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
