@@ -4,11 +4,15 @@ import {
 } from "./common/remote-support.js";
 
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
+const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
+const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
 
 const transportSessions = new Map();
+const dataChannelTextEncoder = new TextEncoder();
 
 let keepAlivePort = null;
 let keepAliveReconnectTimer = 0;
+let nextChunkTransferId = 0;
 
 function normalizeErrorMessage(error, fallback) {
   if (error && typeof error.message === "string" && error.message.trim()) {
@@ -152,6 +156,7 @@ function createTransportRuntime(session) {
     lastSignalingState: "",
     lastDataChannelState: "",
     lastIceCandidateError: "",
+    chunkAssemblies: new Map(),
     shuttingDown: false
   };
 }
@@ -243,6 +248,127 @@ function formatTransportError(runtime, error, fallback) {
   const baseMessage = normalizeErrorMessage(error, fallback);
   const diagnostics = getTransportDiagnostics(runtime);
   return diagnostics ? `${baseMessage} (${diagnostics})` : baseMessage;
+}
+
+function getSerializedMessageByteLength(serializedMessage) {
+  return dataChannelTextEncoder.encode(serializedMessage).length;
+}
+
+function getMaxDataChannelMessageSize(runtime) {
+  const maxMessageSize = Number(
+    runtime &&
+    runtime.peerConnection &&
+    runtime.peerConnection.sctp &&
+    runtime.peerConnection.sctp.maxMessageSize
+  );
+
+  if (Number.isFinite(maxMessageSize) && maxMessageSize > 0) {
+    return Math.trunc(maxMessageSize);
+  }
+
+  return REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES;
+}
+
+function serializeDataChannelMessage(type, payload = {}) {
+  return JSON.stringify({
+    type,
+    payload
+  });
+}
+
+function createChunkTransferId(runtime) {
+  const transferId = nextChunkTransferId;
+  nextChunkTransferId += 1;
+  return `${runtime.sessionId}:${runtime.role}:${transferId.toString(36)}`;
+}
+
+function splitSerializedMessageIntoChunks(runtime, serializedMessage, maxMessageSize) {
+  const chunks = [];
+  const transferId = createChunkTransferId(runtime);
+  let start = 0;
+  let index = 0;
+
+  while (start < serializedMessage.length) {
+    let bestEnd = start;
+    let low = start + 1;
+    let high = serializedMessage.length;
+
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const chunkEnvelope = serializeDataChannelMessage(REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE, {
+        transferId,
+        index,
+        final: middle >= serializedMessage.length,
+        data: serializedMessage.slice(start, middle)
+      });
+
+      if (getSerializedMessageByteLength(chunkEnvelope) <= maxMessageSize) {
+        bestEnd = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+
+    if (bestEnd === start) {
+      return [];
+    }
+
+    chunks.push(serializeDataChannelMessage(REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE, {
+      transferId,
+      index,
+      final: bestEnd >= serializedMessage.length,
+      data: serializedMessage.slice(start, bestEnd)
+    }));
+
+    start = bestEnd;
+    index += 1;
+  }
+
+  return chunks;
+}
+
+function consumeChunkedDataChannelMessage(runtime, message) {
+  if (!runtime || !message || message.type !== REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE) {
+    return message;
+  }
+
+  const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+  const transferId = isNonEmptyString(payload.transferId) ? payload.transferId.trim() : "";
+  const index = Number(payload.index);
+  const final = Boolean(payload.final);
+  const data = typeof payload.data === "string" ? payload.data : "";
+
+  if (!transferId || !Number.isInteger(index) || index < 0) {
+    return null;
+  }
+
+  let assembly = runtime.chunkAssemblies.get(transferId);
+  if (!assembly) {
+    assembly = {
+      chunks: [],
+      finalIndex: null
+    };
+    runtime.chunkAssemblies.set(transferId, assembly);
+  }
+
+  assembly.chunks[index] = data;
+  if (final) {
+    assembly.finalIndex = index;
+  }
+
+  if (assembly.finalIndex === null) {
+    return null;
+  }
+
+  for (let chunkIndex = 0; chunkIndex <= assembly.finalIndex; chunkIndex += 1) {
+    if (typeof assembly.chunks[chunkIndex] !== "string") {
+      return null;
+    }
+  }
+
+  runtime.chunkAssemblies.delete(transferId);
+  return parseTransportMessage(assembly.chunks.slice(0, assembly.finalIndex + 1).join(""));
 }
 
 function hasRemoteDescription(peerConnection) {
@@ -354,6 +480,7 @@ function resetTransportResources(runtime) {
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
   runtime.lastIceCandidateError = "";
+  runtime.chunkAssemblies.clear();
 }
 
 function sendSignal(runtime, signalType, payload = {}) {
@@ -433,7 +560,12 @@ function bindDataChannel(runtime, channel) {
   };
 
   channel.onmessage = (event) => {
-    const message = parseTransportMessage(event && event.data);
+    const parsedMessage = parseTransportMessage(event && event.data);
+    if (!parsedMessage) {
+      return;
+    }
+
+    const message = consumeChunkedDataChannelMessage(runtime, parsedMessage);
     if (!message) {
       return;
     }
@@ -531,11 +663,28 @@ function sendDataMessage(runtime, messageType, payload) {
     return false;
   }
 
+  const serializedMessage = serializeDataChannelMessage(messageType, payload);
+  const maxMessageSize = getMaxDataChannelMessageSize(runtime);
+  const outboundMessages = getSerializedMessageByteLength(serializedMessage) <= maxMessageSize
+    ? [serializedMessage]
+    : splitSerializedMessageIntoChunks(runtime, serializedMessage, maxMessageSize);
+
+  if (!outboundMessages.length) {
+    return false;
+  }
+
   try {
-    runtime.dataChannel.send(JSON.stringify({
-      type: messageType,
-      payload
-    }));
+    for (const rawMessage of outboundMessages) {
+      const nextBufferedAmount = Number(runtime.dataChannel.bufferedAmount);
+      if (
+        Number.isFinite(nextBufferedAmount) &&
+        nextBufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
+      ) {
+        return false;
+      }
+
+      runtime.dataChannel.send(rawMessage);
+    }
     return true;
   } catch (error) {
     return false;
