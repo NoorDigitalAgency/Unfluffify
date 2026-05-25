@@ -604,44 +604,6 @@ function shouldBlockLocalRemoteSupportInput() {
   return isBeingSupportedMode() && isSupporterControlOwner();
 }
 
-function getRemoteSupportVisibleVideoCoverage(video) {
-  if (!video || typeof video.getBoundingClientRect !== "function") {
-    return 0;
-  }
-
-  const rect = video.getBoundingClientRect();
-  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
-  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-  const visibleWidth = Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0));
-  const visibleHeight = Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0));
-  const visibleArea = visibleWidth * visibleHeight;
-  if (!visibleArea) {
-    return 0;
-  }
-
-  return visibleArea / (viewportWidth * viewportHeight);
-}
-
-function isRemoteSupportQuietableVideo(video) {
-  if (!video || video.nodeType !== 1 || String(video.tagName || "").toLowerCase() !== "video") {
-    return false;
-  }
-  if (video.controls) {
-    return false;
-  }
-
-  const hasBackgroundVideoSignal = Boolean(
-    video.autoplay ||
-    video.loop ||
-    video.muted ||
-    video.defaultMuted ||
-    video.hasAttribute("autoplay") ||
-    video.hasAttribute("loop") ||
-    video.hasAttribute("muted")
-  );
-  return hasBackgroundVideoSignal || getRemoteSupportVisibleVideoCoverage(video) >= 0.15;
-}
-
 function restoreRemoteSupportQuietedVideo(video) {
   const quietedState = remoteSupportQuietedMediaElements.get(video);
   if (!quietedState) {
@@ -659,7 +621,7 @@ function restoreRemoteSupportQuietedVideo(video) {
       playResult.catch(() => {});
     }
   } catch (error) {
-    // Ignore autoplay policy failures while restoring background media.
+    // Ignore autoplay policy failures while restoring paused media.
   }
 }
 
@@ -668,10 +630,6 @@ function quietRemoteSupportVideo(video) {
     return;
   }
   if (!remoteSupportMediaQuietingActive) {
-    return;
-  }
-  if (!isRemoteSupportQuietableVideo(video)) {
-    restoreRemoteSupportQuietedVideo(video);
     return;
   }
 
