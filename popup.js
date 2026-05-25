@@ -66,6 +66,8 @@ import {
   normalizeSilentHighlightOptions
 } from "./common/silent-highlight-options.js";
 import {
+  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
+  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   isRemoteSupportPageUrl,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING,
@@ -2401,9 +2403,12 @@ async function refreshUiInner() {
       : ViewText.previewBlockedDefault
   };
   const remoteSupportMode = scopedRemoteSupportState.mode || "inactive";
+  const remoteSupportControlOwner = scopedRemoteSupportState.controlOwner || "";
+  const remoteSupportOwnedBySupporter = remoteSupportControlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
+  nextViewState.remoteSupportControlOwner = remoteSupportControlOwner;
   nextViewState.remoteSupportVisible = Boolean(tokenValue);
   nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
   nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
@@ -2417,12 +2422,18 @@ async function refreshUiInner() {
   nextViewState.remoteSupportControlDisabled = !(
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING &&
     scopedRemoteSupportState &&
-    scopedRemoteSupportState.connected
+    scopedRemoteSupportState.connected &&
+    remoteSupportOwnedBySupporter
   );
+  nextViewState.remoteSupportControlToggleDisabled = !Boolean(scopedRemoteSupportState.active && scopedRemoteSupportState.connected);
+  nextViewState.remoteSupportControlButtonText = remoteSupportOwnedBySupporter
+    ? PopupText.configuration.remoteSupportTakeOverButton
+    : PopupText.configuration.remoteSupportHandOffButton;
   nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
     active: nextViewState.remoteSupportSessionActive,
     mode: remoteSupportMode,
-    connected: nextViewState.remoteSupportConnected
+    connected: nextViewState.remoteSupportConnected,
+    controlOwner: remoteSupportControlOwner
   });
   nextViewState.remoteSupportError = scopedRemoteSupportState.error || "";
   const baseUrlReady = Boolean(state.currentBaseUrl);
@@ -3538,21 +3549,29 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     : null;
   const nextState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
   const supporting = nextState.mode === REMOTE_SUPPORT_MODE_SUPPORTING;
+  const remoteSupportControlOwner = nextState.controlOwner || "";
+  const remoteSupportOwnedBySupporter = remoteSupportControlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
   const statusText = buildRemoteSupportStatusText({
     active: Boolean(nextState.active),
     mode: nextState.mode || "inactive",
-    connected: Boolean(nextState.connected)
+    connected: Boolean(nextState.connected),
+    controlOwner: remoteSupportControlOwner
   });
   uiModule.setViewState({
     remoteSupportSessionActive: Boolean(nextState.active),
     remoteSupportMode: nextState.mode || "inactive",
     remoteSupportRole: nextState.role || "",
+    remoteSupportControlOwner,
     remoteSupportRequested: Boolean(nextState.supportCode),
     remoteSupportCode: nextState.supportCode || "",
     remoteSupportConnected: Boolean(nextState.connected),
     remoteSupportStreaming: Boolean(nextState.streaming),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
-    remoteSupportControlDisabled: !supporting || !nextState.connected,
+    remoteSupportControlDisabled: !supporting || !nextState.connected || !remoteSupportOwnedBySupporter,
+    remoteSupportControlToggleDisabled: !Boolean(nextState.active && nextState.connected),
+    remoteSupportControlButtonText: remoteSupportOwnedBySupporter
+      ? PopupText.configuration.remoteSupportTakeOverButton
+      : PopupText.configuration.remoteSupportHandOffButton,
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
@@ -3566,7 +3585,12 @@ function buildRemoteSupportStatusText(stateValue) {
     ? "Being supported"
     : "Supporting";
   const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
-  return `${mode}${connectedLabel}`;
+  const controlLabel = stateValue.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? " • requester has control"
+    : stateValue.connected
+      ? " • supporter has control"
+      : "";
+  return `${mode}${connectedLabel}${controlLabel}`;
 }
 
 async function fetchRemoteSupportState(tabId = state.currentTab && state.currentTab.id) {
@@ -3670,6 +3694,36 @@ async function handleRemoteSupportEnd() {
   state.remoteSupportLastFrame = "";
   syncRemoteSupportViewState(state.remoteSupportState);
   uiModule.setViewState({ remoteSupportPreviewImage: "" });
+  await refreshUi();
+}
+
+async function handleRemoteSupportControlToggle() {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (currentTabId === null) {
+    return;
+  }
+
+  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  const nextControlOwner = scopedState && scopedState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+    : REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
+
+  const response = await messages.sendRuntimeMessage({
+    type: "remoteSupportSetControlOwner",
+    tabId: currentTabId,
+    controlOwner: nextControlOwner
+  });
+  if (response && response.ok) {
+    state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
+    syncRemoteSupportViewState(state.remoteSupportState);
+    await refreshUi();
+    return;
+  }
+
+  state.remoteSupportState = await fetchRemoteSupportState(currentTabId);
+  syncRemoteSupportViewState(state.remoteSupportState);
   await refreshUi();
 }
 
@@ -5273,6 +5327,7 @@ async function init() {
     onRemoteSupportJoinCodeInput: handleRemoteSupportJoinCodeInput,
     onRemoteSupportJoin: handleRemoteSupportJoin,
     onRemoteSupportEnd: handleRemoteSupportEnd,
+    onRemoteSupportControlToggle: handleRemoteSupportControlToggle,
     onRemoteSupportSurfaceMouseMove: handleRemoteSupportSurfaceMouseMove,
     onRemoteSupportSurfaceClick: handleRemoteSupportSurfaceClick,
     onRemoteSupportSurfaceWheel: handleRemoteSupportSurfaceWheel,

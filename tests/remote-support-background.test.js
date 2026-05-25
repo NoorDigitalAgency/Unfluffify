@@ -877,6 +877,130 @@ test("supporting sessions wait for the primary transport channel before marking 
   }
 });
 
+test("remote support handoff updates shared ownership and blocks supporter commands until control returns", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_control_owner",
+        supportCode: "112233",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const joinResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 63,
+        supportCode: "112233"
+      },
+      { tab: { id: 63 } }
+    );
+
+    assert.equal(joinResponse.ok, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "channel-open",
+          sessionId: "sess_control_owner",
+          channelKey: "page"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const handoffResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSetControlOwner",
+        tabId: 63,
+        controlOwner: "requester"
+      },
+      { tab: { id: 63 } }
+    );
+
+    assert.equal(handoffResponse.ok, true);
+    assert.equal(handoffResponse.state.controlOwner, "requester");
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_control_owner" &&
+          message.messageType === "control-owner" &&
+          message.payload &&
+          message.payload.owner === "requester"
+      ),
+      true
+    );
+
+    const blockedCommandResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSendCommand",
+        tabId: 63,
+        command: { type: "scroll", deltaY: 80 }
+      },
+      { tab: { id: 63 } }
+    );
+
+    assert.equal(blockedCommandResponse.ok, false);
+
+    const takeControlResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSetControlOwner",
+        tabId: 63,
+        controlOwner: "supporter"
+      },
+      { tab: { id: 63 } }
+    );
+
+    assert.equal(takeControlResponse.ok, true);
+    assert.equal(takeControlResponse.state.controlOwner, "supporter");
+
+    const allowedCommandResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSendCommand",
+        tabId: 63,
+        command: { type: "scroll", deltaY: 80 }
+      },
+      { tab: { id: 63 } }
+    );
+
+    assert.equal(allowedCommandResponse.ok, true);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_control_owner" &&
+          message.messageType === "command" &&
+          message.payload &&
+          message.payload.type === "scroll"
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remote support forwards runtime state and frames to the bound tab", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

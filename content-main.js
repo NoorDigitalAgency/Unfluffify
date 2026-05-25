@@ -31,6 +31,11 @@ import {
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
 import {
+  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
+  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
+  REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+} from "./common/remote-support.js";
+import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
   shouldCollectSilentExcludedSource,
@@ -144,6 +149,7 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallbac
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
+let remoteSupportControlOwner = "";
 let remoteSupportIncludePayloads = false;
 let remoteSupportBridgeNonce = "";
 let remoteSupportTerminatePending = false;
@@ -161,6 +167,7 @@ function createRemoteSupportSupportPageState(tabId = null) {
     active: false,
     mode: "inactive",
     role: "",
+    controlOwner: "",
     tabId: Number.isFinite(tabId) ? Math.trunc(tabId) : null,
     sessionId: "",
     supportCode: "",
@@ -185,6 +192,12 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
   normalized.partnerConnected = Boolean(normalized.partnerConnected);
   normalized.streaming = Boolean(normalized.streaming);
   normalized.includePayloads = Boolean(normalized.includePayloads);
+  normalized.controlOwner =
+    normalized.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+      ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+      : normalized.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+        ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+        : "";
   normalized.tabId = Number.isFinite(Number(normalized.tabId))
     ? Math.trunc(Number(normalized.tabId))
     : (Number.isFinite(fallbackTabId) ? Math.trunc(fallbackTabId) : null);
@@ -193,7 +206,64 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
 }
 
 function isBeingSupportedMode() {
-  return remoteSupportMode === "being_supported";
+  return remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
+}
+
+function isSupporterControlOwner(owner = remoteSupportControlOwner) {
+  return owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER;
+}
+
+function shouldBlockLocalRemoteSupportInput() {
+  return isBeingSupportedMode() && isSupporterControlOwner();
+}
+
+function applyRemoteSupportSessionState(remoteSupportStateLike) {
+  const remoteSupportState =
+    remoteSupportStateLike && typeof remoteSupportStateLike === "object"
+      ? remoteSupportStateLike
+      : {};
+  const active = Boolean(
+    typeof remoteSupportState.active === "boolean"
+      ? remoteSupportState.active
+      : String(remoteSupportState.mode || "inactive") !== "inactive"
+  );
+
+  remoteSupportMode = active ? String(remoteSupportState.mode || "inactive") : "inactive";
+  remoteSupportRole = active ? String(remoteSupportState.role || "") : "";
+  remoteSupportControlOwner = active && remoteSupportState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    : active && remoteSupportState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      : "";
+  remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
+
+  if (isBeingSupportedMode()) {
+    if (document.activeElement && typeof document.activeElement.blur === "function") {
+      document.activeElement.blur();
+    }
+    installRemoteSupportTelemetryBridge();
+  }
+
+  if (!shouldBlockLocalRemoteSupportInput()) {
+    hideRemoteSupportCursor();
+  }
+
+  syncRemoteSupportTerminateButton();
+}
+
+async function syncRemoteSupportSessionStateFromBackground() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "getRemoteSupportState"
+    });
+    if (!response || !response.ok) {
+      return;
+    }
+
+    applyRemoteSupportSessionState(response.state || null);
+  } catch (error) {
+    // Ignore initial sync failures caused by transient background reloads.
+  }
 }
 
 function isRemoteSupportSupportPage() {
@@ -323,6 +393,11 @@ function ensureRemoteSupportTerminateButton() {
 }
 
 function syncRemoteSupportTerminateButton() {
+  if (isBeingSupportedMode() && !document.body && document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", syncRemoteSupportTerminateButton, { once: true });
+    return;
+  }
+
   const button = isBeingSupportedMode() ? ensureRemoteSupportTerminateButton() : document.getElementById(REMOTE_SUPPORT_TERMINATE_BUTTON_ID);
   if (!button) {
     return;
@@ -371,7 +446,8 @@ function ensureRemoteSupportSupportPageStyles() {
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page {
       min-height: 100vh;
-      padding: 24px;
+      width: 100vw;
+      padding: 16px;
       background:
         radial-gradient(circle at top left, rgba(84, 132, 212, 0.26), transparent 32%),
         linear-gradient(180deg, #09111d 0%, #101a2b 100%);
@@ -383,6 +459,13 @@ function ensureRemoteSupportSupportPageStyles() {
       align-items: flex-start;
       gap: 20px;
       margin-bottom: 20px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__eyebrow {
@@ -594,8 +677,11 @@ function buildRemoteSupportSupportPageStatusText() {
   }
 
   if (remoteSupportSupportPageState.mode === "supporting") {
+    const controlLabel = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+      ? " The requester currently has control."
+      : " You currently have control.";
     return remoteSupportSupportPageState.connected
-      ? "Connected. Pointer, scroll, and keyboard input on this surface are sent to the remote page."
+      ? `Connected.${controlLabel}`
       : "Support session started. Waiting for the requester to finish connecting.";
   }
 
@@ -611,6 +697,10 @@ function buildRemoteSupportSupportPageSurfaceText() {
     return "Start or join a support session to make this page mirror the remote tab.";
   }
 
+  if (remoteSupportSupportPageState.connected && remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER) {
+    return "The requester currently has control. Use Take control when you are ready to resume remote input.";
+  }
+
   if (!remoteSupportSupportPageState.connected) {
     return "Waiting for the remote page to connect...";
   }
@@ -622,8 +712,41 @@ function canControlFromRemoteSupportSupportPage() {
   return Boolean(
     remoteSupportSupportPageState.active &&
     remoteSupportSupportPageState.mode === "supporting" &&
-    remoteSupportSupportPageState.connected
+    remoteSupportSupportPageState.connected &&
+    remoteSupportSupportPageState.controlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
   );
+}
+
+function getRemoteSupportSupportPageSurfaceRect(surface, frame) {
+  const fallbackRect = surface.getBoundingClientRect();
+  if (!frame || frame.hidden || !frame.naturalWidth || !frame.naturalHeight) {
+    return fallbackRect;
+  }
+
+  const containerWidth = Math.max(1, fallbackRect.width || 1);
+  const containerHeight = Math.max(1, fallbackRect.height || 1);
+  const imageAspectRatio = frame.naturalWidth / frame.naturalHeight;
+  const containerAspectRatio = containerWidth / containerHeight;
+
+  let renderedWidth = containerWidth;
+  let renderedHeight = containerHeight;
+  if (containerAspectRatio > imageAspectRatio) {
+    renderedHeight = containerHeight;
+    renderedWidth = renderedHeight * imageAspectRatio;
+  } else {
+    renderedWidth = containerWidth;
+    renderedHeight = renderedWidth / imageAspectRatio;
+  }
+
+  const left = fallbackRect.left + ((containerWidth - renderedWidth) / 2);
+  const top = fallbackRect.top + ((containerHeight - renderedHeight) / 2);
+
+  return {
+    left,
+    top,
+    width: renderedWidth,
+    height: renderedHeight
+  };
 }
 
 function createRemoteSupportSupportPagePointerPayload(event) {
@@ -631,7 +754,10 @@ function createRemoteSupportSupportPagePointerPayload(event) {
     return null;
   }
 
-  const rect = event.currentTarget.getBoundingClientRect();
+  const rect = getRemoteSupportSupportPageSurfaceRect(
+    event.currentTarget,
+    remoteSupportSupportPageElements && remoteSupportSupportPageElements.frame
+  );
   const width = Math.max(1, rect.width || 1);
   const height = Math.max(1, rect.height || 1);
   const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / width));
@@ -784,6 +910,38 @@ async function handleRemoteSupportSupportPageEnd() {
   await refreshRemoteSupportSupportPageState();
 }
 
+async function setRemoteSupportControlOwner(controlOwner) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "remoteSupportSetControlOwner",
+      controlOwner
+    });
+
+    if (response && response.ok) {
+      if (isRemoteSupportSupportPage()) {
+        applyRemoteSupportSupportPageState(response.state || null);
+      }
+      return true;
+    }
+  } catch (error) {
+    // Fall through to a background refresh.
+  }
+
+  if (isRemoteSupportSupportPage()) {
+    await refreshRemoteSupportSupportPageState();
+  } else {
+    await syncRemoteSupportSessionStateFromBackground();
+  }
+  return false;
+}
+
+async function handleRemoteSupportSupportPageControlToggle() {
+  const nextOwner = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+    : REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
+  await setRemoteSupportControlOwner(nextOwner);
+}
+
 function ensureRemoteSupportSupportPageUi() {
   if (!isRemoteSupportSupportPage() || !document.body) {
     return null;
@@ -819,7 +977,10 @@ function ensureRemoteSupportSupportPageUi() {
             <h1 class="uf-support-page__title" data-uf-extension-ui="true">Control the live page from here.</h1>
             <p class="uf-support-page__lede" data-uf-extension-ui="true">This tab is now the supporter surface. The remote page appears here and your input is forwarded to the requester page.</p>
           </div>
-          <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
+          <div class="uf-support-page__hero-actions" data-uf-extension-ui="true">
+            <button id="uf-support-page-control" class="uf-support-page__button" type="button" hidden data-uf-extension-ui="true">Hand off control</button>
+            <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
+          </div>
         </section>
         <section class="uf-support-page__layout" data-uf-extension-ui="true">
           <aside class="uf-support-page__rail" data-uf-extension-ui="true">
@@ -863,6 +1024,7 @@ function ensureRemoteSupportSupportPageUi() {
       joinInput: root.querySelector("#uf-support-page-join-code"),
       joinButton: root.querySelector("#uf-support-page-join-button"),
       error: root.querySelector("#uf-support-page-error"),
+      controlButton: root.querySelector("#uf-support-page-control"),
       endButton: root.querySelector("#uf-support-page-end"),
       surface: root.querySelector("#uf-support-page-surface"),
       frame: root.querySelector("#uf-support-page-frame"),
@@ -877,6 +1039,10 @@ function ensureRemoteSupportSupportPageUi() {
     remoteSupportSupportPageElements.endButton.addEventListener("click", (event) => {
       event.preventDefault();
       handleRemoteSupportSupportPageEnd().then();
+    });
+    remoteSupportSupportPageElements.controlButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      handleRemoteSupportSupportPageControlToggle().then();
     });
     remoteSupportSupportPageElements.surface.addEventListener("mousemove", (event) => {
       if (!canControlFromRemoteSupportSupportPage()) {
@@ -960,6 +1126,11 @@ function renderRemoteSupportSupportPage() {
   elements.joinInput.disabled = active || remoteSupportSupportPageJoinLoading;
   elements.joinButton.disabled = active || remoteSupportSupportPageJoinLoading || !remoteSupportSupportPageJoinCode || !Number.isFinite(remoteSupportSupportPageTabId);
   elements.joinButton.textContent = remoteSupportSupportPageJoinLoading ? "Joining..." : "Join support";
+  elements.controlButton.hidden = !active;
+  elements.controlButton.disabled = !active || !remoteSupportSupportPageState.connected;
+  elements.controlButton.textContent = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? "Take control"
+    : "Hand off control";
   elements.endButton.hidden = !active;
   elements.endButton.disabled = !active;
   elements.error.hidden = !errorText;
@@ -1198,7 +1369,7 @@ function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
 }
 
 function executeRemoteSupportCommand(command) {
-  if (!isBeingSupportedMode() || !command || typeof command !== "object") {
+  if (!shouldBlockLocalRemoteSupportInput() || !command || typeof command !== "object") {
     return;
   }
   const type = typeof command.type === "string" ? command.type : "";
@@ -1244,7 +1415,7 @@ function executeRemoteSupportCommand(command) {
 }
 
 function handleBlockedLocalExtensionInteraction(event) {
-  if (!isBeingSupportedMode() || !event || !event.isTrusted) {
+  if (!shouldBlockLocalRemoteSupportInput() || !event || !event.isTrusted) {
     return;
   }
 
@@ -4598,6 +4769,7 @@ export function main() {
   state.initialized = true;
 
   initializeRemoteSupportSupportPage();
+  syncRemoteSupportSessionStateFromBackground().then();
 
   core.refreshFromTabState().then(() => {
     refreshEnabledAiHighlights();
@@ -4607,7 +4779,7 @@ export function main() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (isBeingSupportedMode()) {
+    if (shouldBlockLocalRemoteSupportInput()) {
       if (event.isTrusted) {
         event.preventDefault();
         event.stopPropagation();
@@ -4651,7 +4823,7 @@ export function main() {
   }, true);
 
   document.addEventListener("click", (event) => {
-    if (isBeingSupportedMode()) {
+    if (shouldBlockLocalRemoteSupportInput()) {
       handleBlockedLocalExtensionInteraction(event);
       return;
     }
@@ -4745,24 +4917,13 @@ export function main() {
         message.type === "remoteSupportState" && message.state && typeof message.state === "object"
           ? message.state
           : message;
-      const active = Boolean(
-        typeof remoteSupportState.active === "boolean"
-          ? remoteSupportState.active
-          : String(remoteSupportState.mode || "inactive") !== "inactive"
-      );
-      remoteSupportMode = active ? String(remoteSupportState.mode || "inactive") : "inactive";
-      remoteSupportRole = active ? String(remoteSupportState.role || "") : "";
-      remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
-      if (isBeingSupportedMode()) {
-        if (document.activeElement && typeof document.activeElement.blur === "function") {
-          document.activeElement.blur();
-        }
-        installRemoteSupportTelemetryBridge();
-      } else {
-        hideRemoteSupportCursor();
-      }
-      syncRemoteSupportTerminateButton();
-      sendResponse({ ok: true, mode: remoteSupportMode, role: remoteSupportRole });
+      applyRemoteSupportSessionState(remoteSupportState || null);
+      sendResponse({
+        ok: true,
+        mode: remoteSupportMode,
+        role: remoteSupportRole,
+        controlOwner: remoteSupportControlOwner
+      });
       return;
     }
 

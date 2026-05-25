@@ -45,6 +45,7 @@ const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "remoteSupportRequestCode",
   "remoteSupportJoin",
   "remoteSupportEnd",
+  "remoteSupportSetControlOwner",
   "remoteSupportSendCommand",
   "remoteSupportTelemetry",
   "remoteSupportTelemetryFromContent",

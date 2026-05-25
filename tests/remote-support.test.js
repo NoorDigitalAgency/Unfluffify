@@ -59,6 +59,7 @@ test("createInactiveRemoteSupportState returns the correct inactive shape", () =
   assert.equal(state.sessionId, "");
   assert.equal(state.supportCode, "");
   assert.equal(state.expiresAt, "");
+  assert.equal(state.controlOwner, "");
   assert.equal(state.includePayloads, false);
   assert.equal(state.connected, false);
   assert.equal(state.streaming, false);

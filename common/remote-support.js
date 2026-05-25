@@ -4,6 +4,8 @@ export const REMOTE_SUPPORT_MODE_BEING_SUPPORTED = "being_supported";
 
 export const REMOTE_SUPPORT_ROLE_SUPPORTER = "supporter";
 export const REMOTE_SUPPORT_ROLE_REQUESTER = "requester";
+export const REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER = REMOTE_SUPPORT_ROLE_SUPPORTER;
+export const REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER = REMOTE_SUPPORT_ROLE_REQUESTER;
 
 export const REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS = 7 * 60 * 1000;
 export const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
@@ -29,6 +31,7 @@ export function createInactiveRemoteSupportState() {
     sessionId: "",
     supportCode: "",
     expiresAt: "",
+    controlOwner: "",
     includePayloads: false,
     connected: false,
     streaming: false,

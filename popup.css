@@ -874,6 +874,13 @@ button.button-small {
   flex-shrink: 0;
 }
 
+.remote-support-controller__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .remote-support-card .field {
   margin-bottom: 0;
 }

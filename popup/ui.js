@@ -170,12 +170,15 @@ const initialViewState = {
   remoteSupportAutoFocus: false,
   remoteSupportMode: "inactive",
   remoteSupportRole: "",
+  remoteSupportControlOwner: "",
   remoteSupportSessionActive: false,
   remoteSupportStatusText: "",
   remoteSupportConnected: false,
   remoteSupportStreaming: false,
   remoteSupportPreviewImage: "",
   remoteSupportControlDisabled: true,
+  remoteSupportControlToggleDisabled: true,
+  remoteSupportControlButtonText: PopupText.configuration.remoteSupportTakeOverButton,
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -595,6 +598,74 @@ function renderRemoteSupportControllerView(view, handlers) {
   );
 }
 
+function renderRemoteSupportedView(view, handlers) {
+  return h(
+    "section",
+    {
+      class: "remote-support-controller",
+      ref: (el) => {
+        refs.remoteSupportSection = el;
+      }
+    },
+    h(
+      "div",
+      { class: "remote-support-controller__toolbar" },
+      h(
+        "div",
+        { class: "remote-support-controller__meta" },
+        h(
+          "div",
+          { class: "section-title" },
+          icon("shield-account", "field-icon"),
+          PopupText.configuration.remoteSupportSectionTitle
+        ),
+        view.remoteSupportStatusText
+          ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
+          : null,
+        view.remoteSupportRequested
+          ? h(
+              "div",
+              { class: "remote-support-code remote-support-code--compact", role: "status", "aria-live": "polite" },
+              h("span", null, PopupText.configuration.remoteSupportCodeLabel),
+              h("strong", null, view.remoteSupportCode || "------")
+            )
+          : null,
+        view.remoteSupportError
+          ? h("div", { class: "notice", role: "status", "aria-live": "polite" }, view.remoteSupportError)
+          : null
+      ),
+      h(
+        "div",
+        { class: "remote-support-controller__actions" },
+        h(
+          "button",
+          {
+            id: "remote-support-control-toggle",
+            type: "button",
+            disabled: view.remoteSupportControlToggleDisabled,
+            onClick: handlers.onRemoteSupportControlToggle
+          },
+          icon("swap-horizontal"),
+          view.remoteSupportControlButtonText
+        ),
+        h(
+          "button",
+          {
+            id: "remote-support-end",
+            type: "button",
+            class: "warning remote-support-controller__end",
+            onClick: handlers.onRemoteSupportEnd
+          },
+          icon("close-octagon"),
+          PopupText.configuration.remoteSupportEndButton
+        )
+      )
+    ),
+    h("div", { class: "notice", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportControlledModeHint),
+    h("div", { class: "hint", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportBeingSupportedHint)
+  );
+}
+
 function renderRenderModeEditor(view, handlers) {
   return h(
     Fragment,
@@ -973,13 +1044,16 @@ function App({ state: view, actions: handlers }) {
   const remoteControllerVisible =
     view.remoteSupportMode === "supporting" &&
     view.remoteSupportSessionActive;
+  const remoteControlledVisible =
+    view.remoteSupportMode === "being_supported" &&
+    view.remoteSupportSessionActive;
 
   return h(
     Fragment,
     null,
     h(
       "div",
-      { class: classNames("app", remoteControllerVisible && "app--remote-controller") },
+      { class: classNames("app", (remoteControllerVisible || remoteControlledVisible) && "app--remote-controller") },
       h(
         "div",
         { class: "close-bar" },
@@ -990,7 +1064,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible || remoteControlledVisible,
             onClick: handlers.onUnregisterCurrentTab
           }
         )
@@ -1005,6 +1079,7 @@ function App({ state: view, actions: handlers }) {
         ),
         !previewVisible &&
           !remoteControllerVisible &&
+          !remoteControlledVisible &&
           h(
             "div",
             { class: "header-actions" },
@@ -1091,6 +1166,8 @@ function App({ state: view, actions: handlers }) {
         ? renderPreviewSidebar(view, handlers)
         : remoteControllerVisible
           ? renderRemoteSupportControllerView(view, handlers)
+        : remoteControlledVisible
+          ? renderRemoteSupportedView(view, handlers)
         : view.currentView === View.Marking
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration

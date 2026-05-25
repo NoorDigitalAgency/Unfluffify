@@ -1,4 +1,6 @@
 import {
+  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
+  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
@@ -45,6 +47,14 @@ function normalizeTabId(tabId) {
   return Math.trunc(tabId);
 }
 
+function normalizeControlOwner(owner) {
+  return owner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
+    : owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+      : "";
+}
+
 function normalizeStateSnapshot(stateLike) {
   const normalized = {
     ...createInactiveRemoteSupportState(),
@@ -57,6 +67,7 @@ function normalizeStateSnapshot(stateLike) {
   normalized.streaming = Boolean(normalized.streaming);
   normalized.includePayloads = Boolean(normalized.includePayloads);
   normalized.tabId = normalizeTabId(normalized.tabId);
+  normalized.controlOwner = normalizeControlOwner(normalized.controlOwner);
 
   return normalized;
 }
@@ -77,7 +88,8 @@ function createSessionRuntime({
   supportCode,
   expiresAt,
   transportSignature = "",
-  includePayloads = false
+  includePayloads = false,
+  controlOwner = REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
 }) {
   const runtime = {
     state: normalizeStateSnapshot({
@@ -88,6 +100,7 @@ function createSessionRuntime({
       sessionId,
       supportCode,
       expiresAt,
+      controlOwner,
       connected: false,
       partnerConnected: false,
       streaming: false,
@@ -667,13 +680,40 @@ async function setContentModeForSession(runtime, active) {
     await chrome.tabs.sendMessage(runtime.state.tabId, {
       type: "remoteSupportState",
       state: {
+        active: Boolean(active),
         mode: active ? runtime.state.mode : REMOTE_SUPPORT_MODE_INACTIVE,
+        role: active ? runtime.state.role : "",
+        controlOwner: active ? runtime.state.controlOwner : "",
         includePayloads: Boolean(runtime.state.includePayloads)
       }
     });
   } catch (error) {
     // The content script may not be available yet or the tab may be navigating.
   }
+}
+
+async function setRuntimeControlOwner(runtime, controlOwner, { syncRemote = false } = {}) {
+  if (!runtime || !runtime.state.active) {
+    return false;
+  }
+
+  const normalizedControlOwner = normalizeControlOwner(controlOwner);
+  if (!normalizedControlOwner) {
+    return false;
+  }
+
+  runtime.state.controlOwner = normalizedControlOwner;
+  updateSessionActivity(runtime);
+  broadcastRuntimeState(runtime);
+  await setContentModeForSession(runtime, true);
+
+  if (syncRemote) {
+    await sendDataMessage(runtime, "control-owner", {
+      owner: normalizedControlOwner
+    });
+  }
+
+  return true;
 }
 
 function isPrimaryTransportChannelKey(channelKey) {
@@ -829,7 +869,16 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
   updateSessionActivity(runtime);
 
   if (message.type === "command") {
+    if (runtime.state.controlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER) {
+      return;
+    }
+
     await relayCommandToSupportedTab(runtime, message.payload || {});
+    return;
+  }
+
+  if (message.type === "control-owner") {
+    await setRuntimeControlOwner(runtime, message.payload && message.payload.owner, { syncRemote: false });
     return;
   }
 
@@ -908,7 +957,8 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     supportCode,
     expiresAt,
     transportSignature,
-    includePayloads: false
+    includePayloads: false,
+    controlOwner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
   });
 
   trackRuntime(runtime);
@@ -1541,12 +1591,29 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
 
   if (message.type === "remoteSupportSendCommand") {
     const runtime = resolveRuntimeTarget(message, sender);
-    if (!runtime || runtime.state.mode !== REMOTE_SUPPORT_MODE_SUPPORTING) {
+    if (
+      !runtime ||
+      runtime.state.mode !== REMOTE_SUPPORT_MODE_SUPPORTING ||
+      runtime.state.controlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+    ) {
       return { ok: false };
     }
 
     const sent = await sendDataMessage(runtime, "command", message.command || {});
     return { ok: sent };
+  }
+
+  if (message.type === "remoteSupportSetControlOwner") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    if (!runtime || !runtime.state.active) {
+      return { ok: false };
+    }
+
+    const updated = await setRuntimeControlOwner(runtime, message.controlOwner, { syncRemote: true });
+    return {
+      ok: updated,
+      state: getRuntimePublicState(runtime)
+    };
   }
 
   if (message.type === "remoteSupportTelemetry" || message.type === "remoteSupportTelemetryFromContent") {
