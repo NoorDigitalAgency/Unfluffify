@@ -92,6 +92,7 @@ const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
 const REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY = 0.72;
+const REMOTE_SUPPORT_SIDEBAR_CURSOR_ID = "unfluffify-remote-support-sidebar-cursor";
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -167,6 +168,7 @@ let remoteSupportSidebarStreamCaptureInFlight = false;
 let remoteSupportSidebarStreamDirty = false;
 let remoteSupportSidebarStreamObserver = null;
 let remoteSupportSidebarStreamListenersBound = false;
+let remoteSupportSidebarCursorHideTimer = 0;
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -3811,6 +3813,68 @@ function stopRemoteSupportSidebarStreamPublishing() {
   }
 
   remoteSupportSidebarStreamDirty = false;
+  hideRemoteSupportSidebarCursor();
+}
+
+function ensureRemoteSupportSidebarCursor() {
+  let cursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
+  if (cursor) {
+    return cursor;
+  }
+
+  cursor = document.createElement("div");
+  cursor.id = REMOTE_SUPPORT_SIDEBAR_CURSOR_ID;
+  cursor.className = "remote-support-sidebar-cursor";
+  cursor.setAttribute("aria-hidden", "true");
+  cursor.setAttribute("data-uf-extension-ui", "true");
+  cursor.hidden = true;
+  (document.body || document.documentElement).appendChild(cursor);
+  return cursor;
+}
+
+function hideRemoteSupportSidebarCursor() {
+  if (remoteSupportSidebarCursorHideTimer) {
+    window.clearTimeout(remoteSupportSidebarCursorHideTimer);
+    remoteSupportSidebarCursorHideTimer = 0;
+  }
+
+  const cursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
+  if (!cursor) {
+    return;
+  }
+
+  cursor.hidden = true;
+  cursor.classList.remove("is-visible", "is-clicking");
+}
+
+function showRemoteSupportSidebarCursor(point, { click = false } = {}) {
+  if (!point) {
+    return;
+  }
+
+  const cursor = ensureRemoteSupportSidebarCursor();
+  cursor.hidden = false;
+  cursor.style.left = `${Math.round(Number(point.x) || 0)}px`;
+  cursor.style.top = `${Math.round(Number(point.y) || 0)}px`;
+  cursor.classList.add("is-visible");
+
+  if (click) {
+    cursor.classList.remove("is-clicking");
+    cursor.getBoundingClientRect();
+    cursor.classList.add("is-clicking");
+  }
+
+  if (remoteSupportSidebarCursorHideTimer) {
+    window.clearTimeout(remoteSupportSidebarCursorHideTimer);
+  }
+  remoteSupportSidebarCursorHideTimer = window.setTimeout(() => {
+    const activeCursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
+    if (activeCursor) {
+      activeCursor.classList.remove("is-visible", "is-clicking");
+      activeCursor.hidden = true;
+    }
+    remoteSupportSidebarCursorHideTimer = 0;
+  }, 2500);
 }
 
 function ensureRemoteSupportSidebarStreamObservation() {
@@ -4020,6 +4084,7 @@ function applyRemoteSupportSidebarCommand(command) {
 
   if (type === "pointer-move") {
     const point = resolveRemoteSupportSidebarPoint(command);
+    showRemoteSupportSidebarCursor(point);
     const target = document.elementFromPoint(point.x, point.y) || document.body;
     if (!target) {
       return;
@@ -4038,6 +4103,7 @@ function applyRemoteSupportSidebarCommand(command) {
 
   if (type === "pointer-click") {
     const point = resolveRemoteSupportSidebarPoint(command);
+    showRemoteSupportSidebarCursor(point, { click: true });
     const target = document.elementFromPoint(point.x, point.y) || document.body;
     dispatchRemoteSupportSidebarPointerClick(target, point.x, point.y, Number(command.button) || 0);
     return;
@@ -4045,6 +4111,7 @@ function applyRemoteSupportSidebarCommand(command) {
 
   if (type === "scroll") {
     const point = resolveRemoteSupportSidebarPoint(command);
+    showRemoteSupportSidebarCursor(point);
     const target = document.elementFromPoint(point.x, point.y) || document.scrollingElement || document.documentElement;
     target.dispatchEvent(new WheelEvent("wheel", {
       bubbles: true,

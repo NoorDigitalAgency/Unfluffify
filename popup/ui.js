@@ -539,6 +539,22 @@ function renderRemoteSupportSection(view, handlers) {
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
     sessionActive
+      ? beingSupported
+        ? h(
+            "button",
+            {
+              id: "remote-support-control-toggle",
+              type: "button",
+              class: "full-width",
+              disabled: view.remoteSupportControlToggleDisabled,
+              onClick: handlers.onRemoteSupportControlToggle
+            },
+            icon("swap-horizontal"),
+            view.remoteSupportControlButtonText
+          )
+        : null
+      : null,
+    sessionActive
       ? h(
           "button",
           {
@@ -1055,16 +1071,13 @@ function App({ state: view, actions: handlers }) {
   const remoteControllerVisible =
     view.remoteSupportMode === "supporting" &&
     view.remoteSupportSessionActive;
-  const remoteControlledVisible =
-    view.remoteSupportMode === "being_supported" &&
-    view.remoteSupportSessionActive;
 
   return h(
     Fragment,
     null,
     h(
       "div",
-      { class: classNames("app", (remoteControllerVisible || remoteControlledVisible) && "app--remote-controller") },
+      { class: classNames("app") },
       h(
         "div",
         { class: "close-bar" },
@@ -1075,7 +1088,7 @@ function App({ state: view, actions: handlers }) {
             type: "button",
             class: "close-button",
             title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible || remoteControlledVisible,
+            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
             onClick: handlers.onUnregisterCurrentTab
           }
         )
@@ -1090,7 +1103,6 @@ function App({ state: view, actions: handlers }) {
         ),
         !previewVisible &&
           !remoteControllerVisible &&
-          !remoteControlledVisible &&
           h(
             "div",
             { class: "header-actions" },
@@ -1177,8 +1189,6 @@ function App({ state: view, actions: handlers }) {
         ? renderPreviewSidebar(view, handlers)
         : remoteControllerVisible
           ? renderRemoteSupportControllerView(view, handlers)
-        : remoteControlledVisible
-          ? renderRemoteSupportedView(view, handlers)
         : view.currentView === View.Marking
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration
