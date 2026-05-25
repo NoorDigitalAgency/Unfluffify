@@ -98,8 +98,44 @@ function createChromeMock(options = {}) {
     },
     tabs: {
       sendMessage(tabId, message) {
+        if (message && message.type === "remoteSupportViewerTransportStart") {
+          transportMessages.push({
+            type: "remoteSupportTransportStart",
+            session: message.session,
+            tabId
+          });
+          return Promise.resolve({ ok: true });
+        }
+
+        if (message && message.type === "remoteSupportViewerTransportSendData") {
+          transportMessages.push({
+            type: "remoteSupportTransportSendData",
+            sessionId: message.sessionId,
+            messageType: message.messageType,
+            payload: message.payload,
+            channelKey: message.channelKey,
+            tabId
+          });
+          return Promise.resolve({ ok: true });
+        }
+
+        if (message && message.type === "remoteSupportViewerTransportStop") {
+          transportMessages.push({
+            type: "remoteSupportTransportStop",
+            sessionId: message.sessionId,
+            reason: message.reason,
+            tabId
+          });
+          return Promise.resolve({ ok: true });
+        }
+
         tabMessages.push({ tabId, message });
         return Promise.resolve();
+      }
+    },
+    tabCapture: {
+      async getMediaStreamId({ targetTabId } = {}) {
+        return typeof targetTabId === "number" ? `stream-${targetTabId}` : "stream-default`";
       }
     },
     webRequest: {
@@ -176,6 +212,7 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
     assert.equal(transportMessages.length, 1);
     assert.equal(transportMessages[0].type, "remoteSupportTransportStart");
     assert.equal(transportMessages[0].session.supportCode, "123456");
+    assert.equal(transportMessages[0].session.mediaStreamId, "stream-7");
     assert.deepEqual(transportMessages[0].session.iceServers, [
       {
         urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
@@ -376,7 +413,7 @@ test("remoteSupportRequestCode fails when the support response omits iceServers"
   }
 });
 
-test("late offscreen keep-alive replacement does not tear down an active support session", async () => {
+test("late offscreen keep-alive replacement does not tear down an active requester session", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
 
@@ -403,11 +440,11 @@ test("late offscreen keep-alive replacement does not tear down an active support
   try {
     const joinResponse = await handleRemoteSupportBackgroundMessage(
       {
-        type: "remoteSupportJoin",
+        type: "remoteSupportRequestCode",
         endpointValue: "https://api.example.com",
         tokenValue: "token-value",
         tabId: 14,
-        supportCode: "654321"
+        pageUrl: "https://example.com/page"
       },
       { tab: { id: 14 } }
     );

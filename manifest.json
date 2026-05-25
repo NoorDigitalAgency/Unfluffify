@@ -10,6 +10,7 @@
     "storage",
     "offscreen",
     "sidePanel",
+    "tabCapture",
     "tabs",
     "scripting",
     "debugger",
@@ -42,6 +43,8 @@
         "content-main.js",
         "content/*.js",
         "common/*.js",
+        "remote-support-viewer.html",
+        "remote-support-viewer.js",
         "cursors/*.svg"
       ],
       "matches": [

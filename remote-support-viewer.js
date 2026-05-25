@@ -1,19 +1,16 @@
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
-  REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
-  REMOTE_SUPPORT_PORT_TRANSPORT
+  REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT
 } from "./common/remote-support.js";
 
-const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
 
-const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
 
-let keepAlivePort = null;
-let keepAliveReconnectTimer = 0;
+let controlPort = null;
+let activeRuntime = null;
 let nextChunkTransferId = 0;
 
 function normalizeErrorMessage(error, fallback) {
@@ -32,24 +29,18 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function normalizeMediaStreamId(value) {
-  return isNonEmptyString(value) ? value.trim() : "";
-}
-
 function normalizeTransportStateValue(value) {
   return isNonEmptyString(value) ? value.trim() : "";
 }
 
-function hasActiveSessions() {
-  return transportSessions.size > 0;
-}
-
 function getTransportRuntime(sessionId) {
-  if (!isNonEmptyString(sessionId)) {
+  if (!activeRuntime || !isNonEmptyString(sessionId)) {
     return null;
   }
 
-  return transportSessions.get(sessionId.trim()) || null;
+  return activeRuntime.sessionId === sessionId.trim()
+    ? activeRuntime
+    : null;
 }
 
 function createIceServerKey(entry) {
@@ -90,11 +81,9 @@ function normalizeIceServerEntries(iceServers) {
     }
 
     const normalizedEntry = { urls };
-
     if (isNonEmptyString(candidate.username)) {
       normalizedEntry.username = candidate.username.trim();
     }
-
     if (isNonEmptyString(candidate.credential)) {
       normalizedEntry.credential = candidate.credential.trim();
     }
@@ -199,10 +188,6 @@ function haveMatchingTransportConfig(runtime, session, iceServers, dataChannelDe
     return false;
   }
 
-  if (runtime.mediaStreamId !== normalizeMediaStreamId(session.mediaStreamId)) {
-    return false;
-  }
-
   if (runtime.iceServers.length !== iceServers.length) {
     return false;
   }
@@ -236,14 +221,6 @@ function getDefaultDataChannelKey(runtime) {
     : runtime.dataChannelDescriptors[0].key;
 }
 
-function getDataChannelDescriptorByKey(runtime, channelKey = getDefaultDataChannelKey(runtime)) {
-  if (!runtime || !Array.isArray(runtime.dataChannelDescriptors)) {
-    return null;
-  }
-
-  return runtime.dataChannelDescriptors.find((descriptor) => descriptor.key === channelKey) || null;
-}
-
 function getDataChannelKeyByLabel(runtime, label) {
   if (!runtime || !Array.isArray(runtime.dataChannelDescriptors)) {
     return "";
@@ -274,15 +251,13 @@ function createTransportRuntime(session) {
     supportCode: session.supportCode.trim(),
     role: session.role,
     wsUrl: session.wsUrl.trim(),
-    mediaStreamId: normalizeMediaStreamId(session.mediaStreamId),
     iceServers: normalizeIceServers(session.iceServers),
     dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
     pendingIceCandidates: [],
     signalingSocket: null,
     peerConnection: null,
-    localCaptureStream: null,
-    localCaptureTrack: null,
     dataChannels: new Map(),
+    remoteStream: null,
     lastPeerConnectionState: "",
     lastIceConnectionState: "",
     lastIceGatheringState: "",
@@ -323,23 +298,18 @@ function formatIceCandidateError(event) {
   }
 
   const parts = [];
-
   if (Number.isFinite(event.errorCode)) {
     parts.push(`code=${event.errorCode}`);
   }
-
   if (isNonEmptyString(event.errorText)) {
     parts.push(event.errorText.trim());
   }
-
   if (isNonEmptyString(event.url)) {
     parts.push(event.url.trim());
   }
-
   if (isNonEmptyString(event.address)) {
     parts.push(event.address.trim());
   }
-
   if (Number.isFinite(event.port)) {
     parts.push(`port=${event.port}`);
   }
@@ -357,19 +327,15 @@ function getTransportDiagnostics(runtime) {
   if (runtime.lastPeerConnectionState && runtime.lastPeerConnectionState !== "new") {
     diagnostics.push(`connection=${runtime.lastPeerConnectionState}`);
   }
-
   if (runtime.lastIceConnectionState && runtime.lastIceConnectionState !== "new") {
     diagnostics.push(`ice=${runtime.lastIceConnectionState}`);
   }
-
   if (runtime.lastIceGatheringState && runtime.lastIceGatheringState !== "new") {
     diagnostics.push(`gathering=${runtime.lastIceGatheringState}`);
   }
-
   if (runtime.lastSignalingState && runtime.lastSignalingState !== "stable") {
     diagnostics.push(`signaling=${runtime.lastSignalingState}`);
   }
-
   if (runtime.lastDataChannelState && runtime.lastDataChannelState !== "open") {
     diagnostics.push(
       runtime.lastDataChannelKey && runtime.lastDataChannelKey !== REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT
@@ -377,7 +343,6 @@ function getTransportDiagnostics(runtime) {
         : `data=${runtime.lastDataChannelState}`
     );
   }
-
   if (runtime.lastIceCandidateError) {
     diagnostics.push(`iceError=${runtime.lastIceCandidateError}`);
   }
@@ -411,10 +376,7 @@ function getMaxDataChannelMessageSize(runtime) {
 }
 
 function serializeDataChannelMessage(type, payload = {}) {
-  return JSON.stringify({
-    type,
-    payload
-  });
+  return JSON.stringify({ type, payload });
 }
 
 function createChunkTransferId(runtime) {
@@ -469,6 +431,23 @@ function splitSerializedMessageIntoChunks(runtime, serializedMessage, maxMessage
   return chunks;
 }
 
+function parseTransportMessage(rawMessage) {
+  if (typeof rawMessage !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawMessage);
+    if (!parsed || typeof parsed !== "object" || !isNonEmptyString(parsed.type)) {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
 function consumeChunkedDataChannelMessage(runtime, message) {
   if (!runtime || !message || message.type !== REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE) {
     return message;
@@ -486,10 +465,7 @@ function consumeChunkedDataChannelMessage(runtime, message) {
 
   let assembly = runtime.chunkAssemblies.get(transferId);
   if (!assembly) {
-    assembly = {
-      chunks: [],
-      finalIndex: null
-    };
+    assembly = { chunks: [], finalIndex: null };
     runtime.chunkAssemblies.set(transferId, assembly);
   }
 
@@ -527,48 +503,75 @@ async function flushPendingIceCandidates(runtime, peerConnection = runtime && ru
   }
 }
 
+function postPortMessage(message) {
+  if (!controlPort) {
+    return;
+  }
+
+  try {
+    controlPort.postMessage(message);
+  } catch (error) {
+    // Ignore parent messaging failures.
+  }
+}
+
 function postTransportEvent(event) {
-  chrome.runtime.sendMessage({
-    type: "remoteSupportTransportEvent",
-    source: "remoteSupportOffscreen",
-    event
-  }).catch(() => {});
+  postPortMessage({ type: "transport-event", event });
 }
 
-function scheduleKeepAliveReconnect() {
-  if (keepAliveReconnectTimer || !hasActiveSessions()) {
-    return;
-  }
-
-  keepAliveReconnectTimer = setTimeout(() => {
-    keepAliveReconnectTimer = 0;
-    if (!hasActiveSessions()) {
-      return;
-    }
-
-    try {
-      connectKeepAlivePort();
-    } catch (error) {
-      scheduleKeepAliveReconnect();
-    }
-  }, 1000);
-}
-
-function connectKeepAlivePort() {
-  if (keepAlivePort) {
-    return;
-  }
-
-  const port = chrome.runtime.connect({ name: REMOTE_SUPPORT_PORT_TRANSPORT });
-  keepAlivePort = port;
-
-  port.onDisconnect.addListener(() => {
-    if (keepAlivePort === port) {
-      keepAlivePort = null;
-    }
-
-    scheduleKeepAliveReconnect();
+function postVideoState(runtime, active, width = 0, height = 0) {
+  postPortMessage({
+    type: "video-state",
+    sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
+    active: Boolean(active),
+    width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
+    height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
   });
+}
+
+function ensureViewerElements() {
+  return {
+    video: document.getElementById("viewer-video"),
+    placeholder: document.getElementById("viewer-placeholder")
+  };
+}
+
+function setViewerPlaceholder(text) {
+  const elements = ensureViewerElements();
+  if (!elements.placeholder) {
+    return;
+  }
+
+  elements.placeholder.hidden = false;
+  elements.placeholder.textContent = text;
+}
+
+function setViewerVideoVisibility(visible) {
+  const elements = ensureViewerElements();
+  if (!elements.video || !elements.placeholder) {
+    return;
+  }
+
+  elements.video.hidden = !visible;
+  elements.placeholder.hidden = visible;
+}
+
+function detachRemoteStream() {
+  const elements = ensureViewerElements();
+  if (!elements.video) {
+    return;
+  }
+
+  try {
+    elements.video.pause();
+  } catch (error) {
+    // Ignore media pause races.
+  }
+
+  elements.video.hidden = true;
+  elements.video.onloadedmetadata = null;
+  elements.video.onresize = null;
+  elements.video.srcObject = null;
 }
 
 function closeDataChannel(channel) {
@@ -607,24 +610,6 @@ function closeSignalingSocket(socket) {
   }
 }
 
-function stopLocalCaptureStream(stream) {
-  if (!stream || typeof stream.getTracks !== "function") {
-    return;
-  }
-
-  for (const track of stream.getTracks()) {
-    if (!track || typeof track.stop !== "function") {
-      continue;
-    }
-
-    try {
-      track.stop();
-    } catch (error) {
-      // Ignore media track shutdown races.
-    }
-  }
-}
-
 function resetTransportResources(runtime) {
   if (!runtime) {
     return;
@@ -635,80 +620,15 @@ function resetTransportResources(runtime) {
   }
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
-  stopLocalCaptureStream(runtime.localCaptureStream);
+  detachRemoteStream();
 
   runtime.dataChannels.clear();
   runtime.peerConnection = null;
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
-  runtime.localCaptureStream = null;
-  runtime.localCaptureTrack = null;
+  runtime.remoteStream = null;
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
-}
-
-async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
-  if (
-    !runtime ||
-    runtime.role !== "requester" ||
-    !runtime.mediaStreamId ||
-    runtime.localCaptureStream
-  ) {
-    return;
-  }
-
-  if (
-    !globalThis.navigator ||
-    !navigator.mediaDevices ||
-    typeof navigator.mediaDevices.getUserMedia !== "function"
-  ) {
-    throw new Error("Remote support tab capture is unavailable");
-  }
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: runtime.mediaStreamId,
-        maxFrameRate: 30
-      }
-    }
-  });
-
-  const track = stream && typeof stream.getVideoTracks === "function"
-    ? stream.getVideoTracks()[0]
-    : null;
-  if (!track) {
-    stopLocalCaptureStream(stream);
-    throw new Error("Remote support tab capture did not provide a video track");
-  }
-
-  if ("contentHint" in track && !track.contentHint) {
-    try {
-      track.contentHint = "detail";
-    } catch (error) {
-      // Ignore contentHint support mismatches.
-    }
-  }
-
-  runtime.localCaptureStream = stream;
-  runtime.localCaptureTrack = track;
-
-  if (typeof track.addEventListener === "function") {
-    track.addEventListener("ended", () => {
-      const activeRuntime = getTransportRuntime(runtime.sessionId);
-      if (!activeRuntime || activeRuntime.shuttingDown || activeRuntime.localCaptureTrack !== track) {
-        return;
-      }
-
-      handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support tab capture ended"));
-    });
-  }
-
-  if (typeof peerConnection.addTrack === "function") {
-    peerConnection.addTrack(track, stream);
-  }
 }
 
 function sendSignal(runtime, signalType, payload = {}) {
@@ -733,20 +653,64 @@ function sendSignal(runtime, signalType, payload = {}) {
   }
 }
 
-function parseTransportMessage(rawMessage) {
-  if (typeof rawMessage !== "string" || !rawMessage.trim()) {
-    return null;
+function sendResponse(requestId, response) {
+  postPortMessage({ type: "response", requestId, response });
+}
+
+function attachRemoteStream(runtime, streamLike, track = null) {
+  const elements = ensureViewerElements();
+  if (!elements.video) {
+    return;
   }
 
-  try {
-    const parsed = JSON.parse(rawMessage);
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
+  const stream = streamLike && typeof streamLike.getTracks === "function"
+    ? streamLike
+    : track
+      ? new MediaStream([track])
+      : null;
+  if (!stream) {
+    return;
+  }
 
-    return parsed;
-  } catch (error) {
-    return null;
+  runtime.remoteStream = stream;
+  if (elements.video.srcObject !== stream) {
+    elements.video.srcObject = stream;
+  }
+
+  const syncVideoState = () => {
+    const width = Number(elements.video.videoWidth) || 0;
+    const height = Number(elements.video.videoHeight) || 0;
+    const active = Boolean(width && height);
+    if (active) {
+      setViewerVideoVisibility(true);
+      postVideoState(runtime, true, width, height);
+    } else {
+      setViewerPlaceholder("Connected. Waiting for the live remote surface...");
+      setViewerVideoVisibility(false);
+      postVideoState(runtime, false, 0, 0);
+    }
+  };
+
+  elements.video.onloadedmetadata = () => {
+    syncVideoState();
+    void elements.video.play().catch(() => {
+      // Ignore autoplay restrictions for muted inline playback.
+    });
+  };
+  elements.video.onresize = syncVideoState;
+  syncVideoState();
+
+  if (track && typeof track.addEventListener === "function") {
+    track.addEventListener("ended", () => {
+      const currentRuntime = getTransportRuntime(runtime.sessionId);
+      if (!currentRuntime || currentRuntime.shuttingDown) {
+        return;
+      }
+
+      setViewerPlaceholder("Remote video track ended.");
+      setViewerVideoVisibility(false);
+      postVideoState(currentRuntime, false, 0, 0);
+    });
   }
 }
 
@@ -778,31 +742,31 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
   };
 
   channel.onclose = () => {
-    const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
+    const currentRuntime = getTransportRuntime(runtime.sessionId);
+    if (!currentRuntime || currentRuntime.shuttingDown) {
       return;
     }
 
-    if (getDataChannel(activeRuntime, normalizedChannelKey) !== channel) {
+    if (getDataChannel(currentRuntime, normalizedChannelKey) !== channel) {
       return;
     }
 
-    updateDataChannelDiagnostics(activeRuntime, channel, normalizedChannelKey);
-    handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel closed"));
+    updateDataChannelDiagnostics(currentRuntime, channel, normalizedChannelKey);
+    handleFatalTransportError(runtime.sessionId, formatTransportError(currentRuntime, "Remote support data channel closed"));
   };
 
   channel.onerror = () => {
-    const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
+    const currentRuntime = getTransportRuntime(runtime.sessionId);
+    if (!currentRuntime || currentRuntime.shuttingDown) {
       return;
     }
 
-    if (getDataChannel(activeRuntime, normalizedChannelKey) !== channel) {
+    if (getDataChannel(currentRuntime, normalizedChannelKey) !== channel) {
       return;
     }
 
-    updateDataChannelDiagnostics(activeRuntime, channel, normalizedChannelKey);
-    handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support data channel failed"));
+    updateDataChannelDiagnostics(currentRuntime, channel, normalizedChannelKey);
+    handleFatalTransportError(runtime.sessionId, formatTransportError(currentRuntime, "Remote support data channel failed"));
   };
 
   channel.onmessage = (event) => {
@@ -831,7 +795,7 @@ async function ensurePeerConnection(runtime, offerer) {
   }
 
   if (typeof RTCPeerConnection !== "function") {
-    throw new Error("WebRTC is unavailable in the offscreen document");
+    throw new Error("WebRTC is unavailable in the support viewer");
   }
 
   const peerConnection = new RTCPeerConnection({
@@ -846,9 +810,7 @@ async function ensurePeerConnection(runtime, offerer) {
       return;
     }
 
-    sendSignal(runtime, "ice", {
-      candidate: event.candidate
-    });
+    sendSignal(runtime, "ice", { candidate: event.candidate });
   };
 
   peerConnection.onicecandidateerror = (event) => {
@@ -878,30 +840,30 @@ async function ensurePeerConnection(runtime, offerer) {
     }
   };
 
-  peerConnection.ondatachannel = (event) => {
-    if (offerer || !event || !event.channel) {
+  peerConnection.ontrack = (event) => {
+    if (!event) {
       return;
     }
 
-    const channelKey = getDataChannelKeyByLabel(runtime, event.channel.label);
-    if (!channelKey) {
-      closeDataChannel(event.channel);
+    const track = event.track || null;
+    const stream = Array.isArray(event.streams) && event.streams[0]
+      ? event.streams[0]
+      : track
+        ? new MediaStream([track])
+        : null;
+    if (!stream) {
       return;
     }
 
-    bindDataChannel(runtime, event.channel, channelKey);
+    attachRemoteStream(runtime, stream, track);
   };
 
-  if (offerer && typeof peerConnection.addTransceiver === "function") {
+  if (typeof peerConnection.addTransceiver === "function") {
     try {
       peerConnection.addTransceiver("video", { direction: "recvonly" });
     } catch (error) {
-      // Ignore transceiver negotiation mismatches in older test doubles.
+      // Ignore negotiation mismatches if Chrome adjusts the offer shape automatically.
     }
-  }
-
-  if (!offerer) {
-    await ensureRequesterTabVideoTrack(runtime, peerConnection);
   }
 
   if (offerer) {
@@ -919,19 +881,12 @@ function sendDataMessage(runtime, messageType, payload, channelKey = getDefaultD
     : getDefaultDataChannelKey(runtime);
   const dataChannel = getDataChannel(runtime, resolvedChannelKey);
 
-  if (
-    !runtime ||
-    !dataChannel ||
-    dataChannel.readyState !== "open"
-  ) {
+  if (!runtime || !dataChannel || dataChannel.readyState !== "open") {
     return false;
   }
 
   const bufferedAmount = Number(dataChannel.bufferedAmount);
-  if (
-    Number.isFinite(bufferedAmount) &&
-    bufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
-  ) {
+  if (Number.isFinite(bufferedAmount) && bufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES) {
     return false;
   }
 
@@ -948,10 +903,7 @@ function sendDataMessage(runtime, messageType, payload, channelKey = getDefaultD
   try {
     for (const rawMessage of outboundMessages) {
       const nextBufferedAmount = Number(dataChannel.bufferedAmount);
-      if (
-        Number.isFinite(nextBufferedAmount) &&
-        nextBufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES
-      ) {
+      if (Number.isFinite(nextBufferedAmount) && nextBufferedAmount >= REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES) {
         return false;
       }
 
@@ -971,8 +923,13 @@ async function shutdownTransport(sessionId, reason = "Session ended", options = 
 
   runtime.shuttingDown = true;
   resetTransportResources(runtime);
-  transportSessions.delete(runtime.sessionId);
+  if (activeRuntime === runtime) {
+    activeRuntime = null;
+  }
   runtime.shuttingDown = false;
+
+  postVideoState(runtime, false, 0, 0);
+  setViewerPlaceholder(reason || "Waiting for the live remote surface...");
 
   if (options.reportError) {
     postTransportEvent({
@@ -988,13 +945,6 @@ async function shutdownTransport(sessionId, reason = "Session ended", options = 
       sessionId: runtime.sessionId,
       reason
     });
-  }
-}
-
-async function shutdownAllTransports(reason = "Session ended", options = {}) {
-  const activeSessionIds = Array.from(transportSessions.keys());
-  for (const sessionId of activeSessionIds) {
-    await shutdownTransport(sessionId, reason, options);
   }
 }
 
@@ -1067,9 +1017,7 @@ async function connectSignalingSocket(runtime) {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
     updatePeerConnectionDiagnostics(runtime, peerConnection);
-    sendSignal(runtime, "offer", {
-      description: offer
-    });
+    sendSignal(runtime, "offer", { description: offer });
   }
 
   signalingSocket.onmessage = async (event) => {
@@ -1091,32 +1039,22 @@ async function connectSignalingSocket(runtime) {
         return;
       }
 
-      if (message.type === "session-ended") {
-        const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
-        if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
-          return;
-        }
-
-        await shutdownTransport(
-          runtime.sessionId,
-          isNonEmptyString(payload.reason) ? payload.reason : "Session ended",
-          { notifyBackground: true }
-        );
-        return;
-      }
-
       if (message.type !== "signal") {
         return;
       }
 
       const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
-      if (payload.sessionId !== runtime.sessionId) {
+      if (payload.sessionId && payload.sessionId !== runtime.sessionId) {
         return;
       }
 
       const activePeerConnection = await ensurePeerConnection(runtime, offerer);
+      const signalType = typeof payload.signalType === "string" ? payload.signalType : "";
+      if (signalType === "offer") {
+        if (!payload.description) {
+          throw new Error("Missing remote offer description");
+        }
 
-      if (payload.signalType === "offer" && payload.description) {
         await activePeerConnection.setRemoteDescription(payload.description);
         updatePeerConnectionDiagnostics(runtime, activePeerConnection);
         await flushPendingIceCandidates(runtime, activePeerConnection);
@@ -1124,29 +1062,39 @@ async function connectSignalingSocket(runtime) {
         const answer = await activePeerConnection.createAnswer();
         await activePeerConnection.setLocalDescription(answer);
         updatePeerConnectionDiagnostics(runtime, activePeerConnection);
+
         sendSignal(runtime, "answer", {
-          description: answer
+          description: answer,
+          sessionId: payload.sessionId || runtime.sessionId
         });
         return;
       }
 
-      if (payload.signalType === "answer" && payload.description) {
+      if (signalType === "answer") {
+        if (!payload.description) {
+          throw new Error("Missing remote answer description");
+        }
+
         await activePeerConnection.setRemoteDescription(payload.description);
         updatePeerConnectionDiagnostics(runtime, activePeerConnection);
         await flushPendingIceCandidates(runtime, activePeerConnection);
         return;
       }
 
-      if (payload.signalType === "ice" && payload.candidate) {
+      if (signalType === "ice") {
+        if (!payload.candidate) {
+          return;
+        }
+
         if (!hasRemoteDescription(activePeerConnection)) {
           runtime.pendingIceCandidates.push(payload.candidate);
           return;
         }
 
         await activePeerConnection.addIceCandidate(payload.candidate);
+        return;
       }
     } catch (error) {
-      updatePeerConnectionDiagnostics(runtime, runtime.peerConnection);
       handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, error, "Remote support transport failed"));
     }
   };
@@ -1160,15 +1108,12 @@ async function startTransport(session) {
   if (!isNonEmptyString(session.sessionId)) {
     throw new Error("Missing remote support session id");
   }
-
   if (!isNonEmptyString(session.supportCode)) {
     throw new Error("Missing support code");
   }
-
-  if (session.role !== "requester" && session.role !== "supporter") {
-    throw new Error("Missing remote support role");
+  if (session.role !== "supporter") {
+    throw new Error("Remote support viewer only supports the supporter role");
   }
-
   if (!isNonEmptyString(session.wsUrl)) {
     throw new Error("Missing remote support signaling url");
   }
@@ -1179,16 +1124,13 @@ async function startTransport(session) {
   }
 
   const dataChannelDescriptors = normalizeDataChannelDescriptors(session.dataChannels);
-
-  connectKeepAlivePort();
-
   const existingRuntime = getTransportRuntime(session.sessionId);
   if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers, dataChannelDescriptors)) {
     return;
   }
 
-  if (existingRuntime) {
-    await shutdownTransport(session.sessionId, "Session restarted");
+  if (activeRuntime) {
+    await shutdownTransport(activeRuntime.sessionId, "Session restarted");
   }
 
   const runtime = createTransportRuntime({
@@ -1196,68 +1138,111 @@ async function startTransport(session) {
     iceServers,
     dataChannels: dataChannelDescriptors
   });
-  transportSessions.set(runtime.sessionId, runtime);
+  activeRuntime = runtime;
+  setViewerPlaceholder("Connecting to the remote page...");
 
   void connectSignalingSocket(runtime).catch((error) => {
     handleFatalTransportError(runtime.sessionId, error);
   });
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.target !== REMOTE_SUPPORT_TRANSPORT_TARGET) {
-    return false;
+function handleControlRequest(message, requestId) {
+  if (!message || typeof message !== "object") {
+    sendResponse(requestId, { ok: false, error: "Invalid viewer request" });
+    return;
   }
 
-  if (message.type === "remoteSupportTransportStart") {
+  if (message.requestType === "remoteSupportTransportStart") {
     startTransport(message.session)
       .then(() => {
-        sendResponse({ ok: true });
+        sendResponse(requestId, { ok: true });
       })
       .catch((error) => {
-        sendResponse({
+        sendResponse(requestId, {
           ok: false,
           error: normalizeErrorMessage(error, "Failed to start remote support transport")
         });
       });
-    return true;
+    return;
   }
 
-  if (message.type === "remoteSupportTransportStop") {
-    const promise = isNonEmptyString(message.sessionId)
-      ? shutdownTransport(message.sessionId, isNonEmptyString(message.reason) ? message.reason : "Session ended")
-      : shutdownAllTransports(isNonEmptyString(message.reason) ? message.reason : "Session ended");
-
-    promise
+  if (message.requestType === "remoteSupportTransportStop") {
+    const sessionId = isNonEmptyString(message.sessionId)
+      ? message.sessionId.trim()
+      : (activeRuntime ? activeRuntime.sessionId : "");
+    shutdownTransport(sessionId, isNonEmptyString(message.reason) ? message.reason : "Session ended")
       .then(() => {
-        sendResponse({ ok: true });
+        sendResponse(requestId, { ok: true });
       })
       .catch((error) => {
-        sendResponse({
+        sendResponse(requestId, {
           ok: false,
           error: normalizeErrorMessage(error, "Failed to stop remote support transport")
         });
       });
-    return true;
+    return;
   }
 
-  if (message.type === "remoteSupportTransportSendData") {
+  if (message.requestType === "remoteSupportTransportSendData") {
     const runtime = getTransportRuntime(message.sessionId);
     if (!runtime) {
-      sendResponse({ ok: false });
-      return false;
+      sendResponse(requestId, { ok: false });
+      return;
     }
 
-    sendResponse({
+    sendResponse(requestId, {
       ok: sendDataMessage(runtime, message.messageType, message.payload, message.channelKey)
     });
-    return false;
+    return;
   }
 
-  return false;
+  sendResponse(requestId, { ok: false, error: "Unknown viewer request" });
+}
+
+function attachControlPort(port) {
+  controlPort = port;
+  controlPort.onmessage = (event) => {
+    const message = event && event.data && typeof event.data === "object" ? event.data : null;
+    if (!message || message.type !== "request") {
+      return;
+    }
+
+    handleControlRequest(message, typeof message.requestId === "string" ? message.requestId : "");
+  };
+
+  if (typeof controlPort.start === "function") {
+    controlPort.start();
+  }
+
+  postPortMessage({ type: "ready" });
+  if (activeRuntime && activeRuntime.remoteStream) {
+    const elements = ensureViewerElements();
+    postVideoState(activeRuntime, Boolean(elements.video && elements.video.videoWidth && elements.video.videoHeight), elements.video && elements.video.videoWidth, elements.video && elements.video.videoHeight);
+  }
+}
+
+window.addEventListener("message", (event) => {
+  if (controlPort || !event || event.source !== window.parent) {
+    return;
+  }
+
+  const message = event.data && typeof event.data === "object" ? event.data : null;
+  if (!message || message.type !== "unfluffify:remote-support-viewer-init") {
+    return;
+  }
+
+  const port = event.ports && event.ports[0];
+  if (!port) {
+    return;
+  }
+
+  attachControlPort(port);
 });
 
 window.addEventListener("beforeunload", () => {
-  shutdownAllTransports("Offscreen document closed").then();
-});
+  if (!activeRuntime) {
+    return;
+  }
 
-connectKeepAlivePort();
+  shutdownTransport(activeRuntime.sessionId, "Support viewer closed", { notifyBackground: true }).then();
+});

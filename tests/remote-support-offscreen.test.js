@@ -1902,3 +1902,187 @@ test("remote support offscreen ignores close events from superseded data channel
     globalThis.window = originalWindow;
   }
 });
+
+test("remote support offscreen attaches a requester tab capture video track when mediaStreamId is provided", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  const runtimeMessageListeners = [];
+  const peerConnections = [];
+  let capturedConstraints = null;
+
+  const fakeTrack = {
+    contentHint: "",
+    addEventListener() {},
+    stop() {}
+  };
+  const fakeStream = {
+    getTracks() {
+      return [fakeTrack];
+    },
+    getVideoTracks() {
+      return [fakeTrack];
+    }
+  };
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      peerConnections.push(this);
+      this.connectionState = "new";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+      this.addedTracks = [];
+    }
+
+    addTrack(track, stream) {
+      this.addedTracks.push({ track, stream });
+      return {};
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate(candidate) {
+      this.iceCandidate = candidate;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage() {
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getUserMedia(constraints) {
+          capturedConstraints = constraints;
+          return fakeStream;
+        }
+      }
+    }
+  });
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-requester-video-track`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_requester_video_track",
+          supportCode: "111111",
+          role: "requester",
+          wsUrl: "wss://api.example.com/webrtc?token=requester-video",
+          mediaStreamId: "stream-18",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+          dataChannels: [
+            { key: "page", label: "remote-support-page" },
+            { key: "sidebar", label: "remote-support-sidebar" }
+          ]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(peerConnections.length, 1);
+    assert.equal(peerConnections[0].addedTracks.length, 1);
+    assert.equal(peerConnections[0].addedTracks[0].track, fakeTrack);
+    assert.equal(peerConnections[0].addedTracks[0].stream, fakeStream);
+    assert.equal(capturedConstraints.audio, false);
+    assert.equal(capturedConstraints.video.mandatory.chromeMediaSource, "tab");
+    assert.equal(capturedConstraints.video.mandatory.chromeMediaSourceId, "stream-18");
+    assert.equal(capturedConstraints.video.mandatory.maxFrameRate, 30);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});

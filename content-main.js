@@ -150,6 +150,9 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_APP_ID = "unfluffify-support-page-app";
 const REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID = "unfluffify-remote-support-page-root";
 const REMOTE_SUPPORT_SUPPORT_PAGE_STYLE_ID = "unfluffify-remote-support-page-style";
 const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallback";
+const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID = "uf-support-page-viewer";
+const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH = "remote-support-viewer.html";
+const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS = 10000;
 const REMOTE_SUPPORT_SUPPORT_PAGE_FRAME_RENDER_DEBOUNCE_MS = 120;
 
 let remoteSupportMode = "inactive";
@@ -171,6 +174,14 @@ let remoteSupportSupportPageFrameRenderTimer = 0;
 let remoteSupportSupportPageLastFrameRenderAt = 0;
 let remoteSupportSupportPagePointerMoveRaf = 0;
 let remoteSupportSupportPagePendingPointerMove = null;
+let remoteSupportSupportPageViewerPort = null;
+let remoteSupportSupportPageViewerReady = false;
+let remoteSupportSupportPageViewerReadyWaiters = [];
+let remoteSupportSupportPageViewerRequestId = 0;
+let remoteSupportSupportPageViewerPendingRequests = new Map();
+let remoteSupportSupportPageViewerIntrinsicWidth = 0;
+let remoteSupportSupportPageViewerIntrinsicHeight = 0;
+let remoteSupportSupportPageViewerVideoActive = false;
 let remoteSupportLastResolvedCursorPoint = null;
 let remoteSupportLastPublishedCursorSnapshotKey = "";
 
@@ -215,6 +226,230 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
     : (Number.isFinite(fallbackTabId) ? Math.trunc(fallbackTabId) : null);
 
   return normalized;
+}
+
+function getRemoteSupportSupportPageViewerOrigin() {
+  try {
+    return new URL(chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH)).origin;
+  } catch (error) {
+    return "*";
+  }
+}
+
+function resolveRemoteSupportSupportPageViewerWaiters(result) {
+  if (!remoteSupportSupportPageViewerReadyWaiters.length) {
+    return;
+  }
+
+  const waiters = remoteSupportSupportPageViewerReadyWaiters.slice();
+  remoteSupportSupportPageViewerReadyWaiters = [];
+  waiters.forEach((waiter) => {
+    try {
+      waiter(Boolean(result));
+    } catch (error) {
+      // Ignore waiter resolution failures.
+    }
+  });
+}
+
+function clearRemoteSupportSupportPageViewerPendingRequests(errorMessage = "Remote support viewer unavailable") {
+  if (!remoteSupportSupportPageViewerPendingRequests.size) {
+    return;
+  }
+
+  for (const pendingRequest of remoteSupportSupportPageViewerPendingRequests.values()) {
+    window.clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.resolve({ ok: false, error: errorMessage });
+  }
+  remoteSupportSupportPageViewerPendingRequests.clear();
+}
+
+function syncRemoteSupportSupportPageViewerVisibility() {
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements || !elements.viewer) {
+    return;
+  }
+
+  elements.viewer.hidden = !(remoteSupportSupportPageState.active && remoteSupportSupportPageViewerVideoActive);
+}
+
+function updateRemoteSupportSupportPageViewerVideoState({ active = false, width = 0, height = 0 } = {}) {
+  remoteSupportSupportPageViewerVideoActive = Boolean(active);
+  remoteSupportSupportPageViewerIntrinsicWidth = Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0;
+  remoteSupportSupportPageViewerIntrinsicHeight = Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0;
+  syncRemoteSupportSupportPageViewerVisibility();
+  syncRemoteSupportSupportPageFrame();
+}
+
+function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote support viewer unavailable") {
+  if (remoteSupportSupportPageViewerPort) {
+    try {
+      remoteSupportSupportPageViewerPort.onmessage = null;
+      remoteSupportSupportPageViewerPort.close();
+    } catch (error) {
+      // Ignore viewer port shutdown races.
+    }
+  }
+
+  remoteSupportSupportPageViewerPort = null;
+  remoteSupportSupportPageViewerReady = false;
+  resolveRemoteSupportSupportPageViewerWaiters(false);
+  clearRemoteSupportSupportPageViewerPendingRequests(errorMessage);
+  updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
+}
+
+function handleRemoteSupportSupportPageViewerPortMessage(event) {
+  const message = event && event.data && typeof event.data === "object"
+    ? event.data
+    : null;
+  if (!message || typeof message.type !== "string") {
+    return;
+  }
+
+  if (message.type === "ready") {
+    remoteSupportSupportPageViewerReady = true;
+    resolveRemoteSupportSupportPageViewerWaiters(true);
+    return;
+  }
+
+  if (message.type === "response") {
+    const requestId = typeof message.requestId === "string" ? message.requestId : "";
+    const pendingRequest = requestId ? remoteSupportSupportPageViewerPendingRequests.get(requestId) : null;
+    if (!pendingRequest) {
+      return;
+    }
+
+    remoteSupportSupportPageViewerPendingRequests.delete(requestId);
+    window.clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.resolve(message.response && typeof message.response === "object" ? message.response : { ok: false });
+    return;
+  }
+
+  if (message.type === "transport-event") {
+    chrome.runtime.sendMessage({
+      type: "remoteSupportTransportEvent",
+      source: "remoteSupportViewer",
+      event: message.event && typeof message.event === "object" ? message.event : {}
+    }).then().catch(() => {
+      // Ignore transport event delivery failures while the background reloads.
+    });
+    return;
+  }
+
+  if (message.type === "video-state") {
+    updateRemoteSupportSupportPageViewerVideoState({
+      active: Boolean(message.active),
+      width: message.width,
+      height: message.height
+    });
+    chrome.runtime.sendMessage({
+      type: "remoteSupportTransportEvent",
+      source: "remoteSupportViewer",
+      event: {
+        type: "video-state",
+        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
+        active: Boolean(message.active)
+      }
+    }).then().catch(() => {
+      // Ignore transport event delivery failures while the background reloads.
+    });
+  }
+}
+
+function initializeRemoteSupportSupportPageViewer(viewerFrame) {
+  if (!viewerFrame || viewerFrame.dataset.ufRemoteSupportViewerInitialized === "true") {
+    return;
+  }
+
+  viewerFrame.dataset.ufRemoteSupportViewerInitialized = "true";
+  viewerFrame.src = chrome.runtime.getURL(REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH);
+  viewerFrame.addEventListener("load", () => {
+    resetRemoteSupportSupportPageViewerConnection();
+
+    if (!viewerFrame.contentWindow || typeof MessageChannel !== "function") {
+      return;
+    }
+
+    const channel = new MessageChannel();
+    remoteSupportSupportPageViewerPort = channel.port1;
+    remoteSupportSupportPageViewerPort.onmessage = handleRemoteSupportSupportPageViewerPortMessage;
+    if (typeof remoteSupportSupportPageViewerPort.start === "function") {
+      remoteSupportSupportPageViewerPort.start();
+    }
+
+    try {
+      viewerFrame.contentWindow.postMessage(
+        { type: "unfluffify:remote-support-viewer-init" },
+        getRemoteSupportSupportPageViewerOrigin(),
+        [channel.port2]
+      );
+    } catch (error) {
+      resetRemoteSupportSupportPageViewerConnection();
+    }
+  });
+}
+
+async function waitForRemoteSupportSupportPageViewerReady(timeoutMs = 4000) {
+  if (remoteSupportSupportPageViewerReady && remoteSupportSupportPageViewerPort) {
+    return true;
+  }
+
+  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
+  if (!elements || !elements.viewer) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    const timeoutId = window.setTimeout(() => {
+      remoteSupportSupportPageViewerReadyWaiters = remoteSupportSupportPageViewerReadyWaiters.filter(
+        (waiter) => waiter !== handleReady
+      );
+      resolve(false);
+    }, timeoutMs);
+
+    const handleReady = (ready) => {
+      window.clearTimeout(timeoutId);
+      resolve(Boolean(ready));
+    };
+
+    remoteSupportSupportPageViewerReadyWaiters.push(handleReady);
+  });
+}
+
+async function sendRemoteSupportSupportPageViewerRequest(requestType, payload = {}) {
+  const ready = await waitForRemoteSupportSupportPageViewerReady();
+  if (!ready || !remoteSupportSupportPageViewerPort) {
+    return {
+      ok: false,
+      error: "Remote support viewer unavailable"
+    };
+  }
+
+  const requestId = `viewer-${Date.now()}-${(remoteSupportSupportPageViewerRequestId += 1)}`;
+  return new Promise((resolve) => {
+    const timeoutId = window.setTimeout(() => {
+      remoteSupportSupportPageViewerPendingRequests.delete(requestId);
+      resolve({ ok: false, error: "Remote support viewer timed out" });
+    }, REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS);
+
+    remoteSupportSupportPageViewerPendingRequests.set(requestId, {
+      resolve,
+      timeoutId
+    });
+
+    try {
+      remoteSupportSupportPageViewerPort.postMessage({
+        type: "request",
+        requestId,
+        requestType,
+        ...payload
+      });
+    } catch (error) {
+      remoteSupportSupportPageViewerPendingRequests.delete(requestId);
+      window.clearTimeout(timeoutId);
+      resolve({ ok: false, error: "Remote support viewer unavailable" });
+    }
+  });
 }
 
 function isBeingSupportedMode() {
@@ -705,12 +940,25 @@ function ensureRemoteSupportSupportPageStyles() {
       opacity: 0.9;
     }
 
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__viewer,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       display: block;
+      border: 0;
       object-fit: contain;
       background: #04080f;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__viewer {
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
+      z-index: 1;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface .uf-support-page__placeholder {
@@ -930,7 +1178,7 @@ function buildRemoteSupportSupportPageSurfaceText() {
     return "Waiting for the remote page to connect...";
   }
 
-  return "Connected. Waiting for the first remote frame...";
+  return "Connected. Waiting for the live remote surface...";
 }
 
 function canControlFromRemoteSupportSupportPage() {
@@ -944,13 +1192,20 @@ function canControlFromRemoteSupportSupportPage() {
 
 function getRemoteSupportSupportPageSurfaceRect(surface, frame) {
   const fallbackRect = surface.getBoundingClientRect();
-  if (!frame || frame.hidden || !frame.naturalWidth || !frame.naturalHeight) {
+  const intrinsicWidth = remoteSupportSupportPageViewerVideoActive
+    ? remoteSupportSupportPageViewerIntrinsicWidth
+    : (frame && !frame.hidden ? frame.naturalWidth : 0);
+  const intrinsicHeight = remoteSupportSupportPageViewerVideoActive
+    ? remoteSupportSupportPageViewerIntrinsicHeight
+    : (frame && !frame.hidden ? frame.naturalHeight : 0);
+
+  if (!intrinsicWidth || !intrinsicHeight) {
     return fallbackRect;
   }
 
   const containerWidth = Math.max(1, fallbackRect.width || 1);
   const containerHeight = Math.max(1, fallbackRect.height || 1);
-  const imageAspectRatio = frame.naturalWidth / frame.naturalHeight;
+  const imageAspectRatio = intrinsicWidth / intrinsicHeight;
   const containerAspectRatio = containerWidth / containerHeight;
 
   let renderedWidth = containerWidth;
@@ -1234,6 +1489,7 @@ function ensureRemoteSupportSupportPageUi() {
           </aside>
           <div class="uf-support-page__stage" data-uf-extension-ui="true">
             <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
+              <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
               <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
               <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
@@ -1257,11 +1513,13 @@ function ensureRemoteSupportSupportPageUi() {
       endButton: root.querySelector("#uf-support-page-end"),
       sidebarSimulation: root.querySelector("#uf-support-page-sidebar-sim"),
       surface: root.querySelector("#uf-support-page-surface"),
+      viewer: root.querySelector("#uf-support-page-viewer"),
       frame: root.querySelector("#uf-support-page-frame"),
       placeholder: root.querySelector("#uf-support-page-placeholder")
     };
 
     remoteSupportSupportPageElements.frame.decoding = "async";
+    initializeRemoteSupportSupportPageViewer(remoteSupportSupportPageElements.viewer);
 
     remoteSupportSupportPageElements.joinForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1516,6 +1774,19 @@ function syncRemoteSupportSupportPageFrame() {
     return;
   }
 
+  syncRemoteSupportSupportPageViewerVisibility();
+
+  if (remoteSupportSupportPageViewerVideoActive) {
+    remoteSupportSupportPageRenderedFrame = "";
+    remoteSupportSupportPageLastFrameRenderAt = 0;
+    elements.frame.hidden = true;
+    if (elements.frame.getAttribute("src")) {
+      elements.frame.removeAttribute("src");
+    }
+    elements.placeholder.hidden = true;
+    return;
+  }
+
   const nextFrame = remoteSupportSupportPageState.active ? remoteSupportSupportPageLastFrame : "";
   if (nextFrame) {
     if (remoteSupportSupportPageRenderedFrame !== nextFrame) {
@@ -1611,6 +1882,7 @@ function renderRemoteSupportSupportPage() {
   elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");
   elements.surface.tabIndex = canControl ? 0 : -1;
   syncRemoteSupportSupportPageSurfaceCursor();
+  syncRemoteSupportSupportPageViewerVisibility();
   renderRemoteSupportSupportPageSidebar();
 
   scheduleRemoteSupportSupportPageFrameRender({ immediate: true });
@@ -1625,6 +1897,7 @@ function applyRemoteSupportSupportPageState(nextState) {
     remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
     remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
+    updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
   }
   renderRemoteSupportSupportPage();
 }
@@ -5313,6 +5586,37 @@ export function main() {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
       return;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportStart") {
+      sendRemoteSupportSupportPageViewerRequest("remoteSupportTransportStart", {
+        session: message.session && typeof message.session === "object" ? message.session : null
+      }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      });
+      return true;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportStop") {
+      sendRemoteSupportSupportPageViewerRequest("remoteSupportTransportStop", {
+        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
+        reason: typeof message.reason === "string" ? message.reason : "Session ended"
+      }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      });
+      return true;
+    }
+
+    if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportSendData") {
+      sendRemoteSupportSupportPageViewerRequest("remoteSupportTransportSendData", {
+        sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
+        messageType: typeof message.messageType === "string" ? message.messageType : "",
+        payload: message.payload,
+        channelKey: typeof message.channelKey === "string" ? message.channelKey : ""
+      }).then((response) => {
+        sendResponse(response && typeof response === "object" ? response : { ok: false });
+      });
+      return true;
     }
 
     if (isRemoteSupportSupportPage() && message.type === "remoteSupportStateChanged") {

@@ -29,6 +29,9 @@ const REMOTE_SUPPORT_CAPTURE_IMAGE_FORMAT = "jpeg";
 const REMOTE_SUPPORT_CAPTURE_IMAGE_QUALITY = 60;
 const REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH = "remote-support-offscreen.html";
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
+const REMOTE_SUPPORT_VIEWER_TRANSPORT_START_MESSAGE = "remoteSupportViewerTransportStart";
+const REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE = "remoteSupportViewerTransportStop";
+const REMOTE_SUPPORT_VIEWER_TRANSPORT_SEND_DATA_MESSAGE = "remoteSupportViewerTransportSendData";
 
 let remoteSupportInitializedChrome = null;
 
@@ -77,6 +80,17 @@ function normalizeStateSnapshot(stateLike) {
   return normalized;
 }
 
+function hasActiveOffscreenTransportSessions() {
+  return Array.from(sessionRuntimes.values()).some(
+    (runtime) =>
+      runtime &&
+      runtime.state &&
+      runtime.state.active &&
+      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+      runtime.state.role === "requester"
+  );
+}
+
 function createTabInactiveState(tabId, error = "") {
   return normalizeStateSnapshot({
     ...createInactiveRemoteSupportState(),
@@ -116,6 +130,7 @@ function createSessionRuntime({
     cursorSnapshot: createInactiveRemoteSupportCursorSnapshot(),
     sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
+    usesVideoStream: false,
     frameIntervalId: 0,
     inactivityIntervalId: 0,
     payloadBudgetBytes: 0,
@@ -601,6 +616,17 @@ function assertSuccessfulOffscreenResponse(response, fallback) {
   throw new Error(getRemoteSupportErrorMessage(response && response.error, fallback));
 }
 
+function shouldUseViewerTransport(runtime) {
+  return Boolean(
+    runtime &&
+      runtime.state &&
+      runtime.state.active &&
+      runtime.state.mode === REMOTE_SUPPORT_MODE_SUPPORTING &&
+      runtime.state.role === "supporter" &&
+      runtime.state.tabId !== null
+  );
+}
+
 async function hasRemoteSupportOffscreenDocument() {
   if (!chrome.offscreen || typeof chrome.runtime.getContexts !== "function") {
     return false;
@@ -627,10 +653,13 @@ async function ensureRemoteSupportOffscreenDocument() {
   const offscreenReason = chrome.offscreen.Reason && chrome.offscreen.Reason.WEB_RTC
     ? chrome.offscreen.Reason.WEB_RTC
     : "WEB_RTC";
+  const userMediaReason = chrome.offscreen.Reason && chrome.offscreen.Reason.USER_MEDIA
+    ? chrome.offscreen.Reason.USER_MEDIA
+    : "USER_MEDIA";
 
   await chrome.offscreen.createDocument({
     url: REMOTE_SUPPORT_OFFSCREEN_DOCUMENT_PATH,
-    reasons: [offscreenReason],
+    reasons: [offscreenReason, userMediaReason],
     justification: "Host WebRTC for remote support"
   });
 }
@@ -653,13 +682,13 @@ async function closeRemoteSupportOffscreenDocument() {
 }
 
 function scheduleOffscreenKeepAliveReconnect() {
-  if (offscreenKeepAliveReconnectTimer || !hasActiveSessions()) {
+  if (offscreenKeepAliveReconnectTimer || !hasActiveOffscreenTransportSessions()) {
     return;
   }
 
   offscreenKeepAliveReconnectTimer = setTimeout(async () => {
     offscreenKeepAliveReconnectTimer = 0;
-    if (!hasActiveSessions()) {
+    if (!hasActiveOffscreenTransportSessions()) {
       return;
     }
 
@@ -702,12 +731,12 @@ async function connectRemoteSupportKeepAlivePort() {
       return;
     }
 
-    if (!hasActiveSessions()) {
+    if (!hasActiveOffscreenTransportSessions()) {
       return;
     }
 
     scheduleOffscreenKeepAliveReconnect();
-    terminateRemoteSupportSession("Remote support transport disconnected").then();
+    terminateOffscreenBackedSessions("Remote support transport disconnected").then();
   });
 }
 
@@ -720,8 +749,81 @@ async function sendRemoteSupportOffscreenRequest(message) {
   });
 }
 
-async function stopRemoteSupportTransport(sessionId, reason = "Session ended") {
-  if (!(await hasRemoteSupportOffscreenDocument())) {
+async function sendRemoteSupportViewerRequest(tabId, message) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return {
+      ok: false,
+      error: "Missing support page tab"
+    };
+  }
+
+  try {
+    return await chrome.tabs.sendMessage(normalizedTabId, message);
+  } catch (error) {
+    return {
+      ok: false,
+      error: getRemoteSupportErrorMessage(error, "Remote support viewer unavailable")
+    };
+  }
+}
+
+async function sendRemoteSupportTransportStartRequest(runtime, session) {
+  if (shouldUseViewerTransport(runtime)) {
+    return sendRemoteSupportViewerRequest(runtime.state.tabId, {
+      type: REMOTE_SUPPORT_VIEWER_TRANSPORT_START_MESSAGE,
+      session
+    });
+  }
+
+  return sendRemoteSupportOffscreenRequest({
+    type: "remoteSupportTransportStart",
+    session
+  });
+}
+
+async function sendRemoteSupportTransportDataRequest(runtime, messageType, payload, channelKey = "") {
+  if (shouldUseViewerTransport(runtime)) {
+    return sendRemoteSupportViewerRequest(runtime.state.tabId, {
+      type: REMOTE_SUPPORT_VIEWER_TRANSPORT_SEND_DATA_MESSAGE,
+      sessionId: runtime.state.sessionId,
+      messageType,
+      payload,
+      ...(typeof channelKey === "string" && channelKey.trim()
+        ? { channelKey: channelKey.trim() }
+        : {})
+    });
+  }
+
+  return sendRemoteSupportOffscreenRequest({
+    type: "remoteSupportTransportSendData",
+    sessionId: runtime.state.sessionId,
+    messageType,
+    payload,
+    ...(typeof channelKey === "string" && channelKey.trim()
+      ? { channelKey: channelKey.trim() }
+      : {})
+  });
+}
+
+async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session ended") {
+  const runtime = typeof runtimeOrSessionId === "string"
+    ? getRuntimeBySessionId(runtimeOrSessionId)
+    : runtimeOrSessionId;
+
+  if (shouldUseViewerTransport(runtime)) {
+    await sendRemoteSupportViewerRequest(runtime.state.tabId, {
+      type: REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE,
+      sessionId: runtime.state.sessionId,
+      reason
+    });
+    return;
+  }
+
+  const sessionId = typeof runtimeOrSessionId === "string"
+    ? runtimeOrSessionId
+    : (runtime && runtime.state && runtime.state.sessionId ? runtime.state.sessionId : "");
+  if (!sessionId || !(await hasRemoteSupportOffscreenDocument())) {
     return;
   }
 
@@ -742,7 +844,8 @@ function shouldStreamFrames(runtime) {
       runtime.state.active &&
       runtime.state.connected &&
       runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-      runtime.state.role === "requester"
+      runtime.state.role === "requester" &&
+      !runtime.usesVideoStream
   );
 }
 
@@ -812,6 +915,26 @@ function isPrimaryTransportChannelKey(channelKey) {
   );
 }
 
+async function requestTabCaptureStreamId(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return "";
+  }
+
+  if (!chrome.tabCapture || typeof chrome.tabCapture.getMediaStreamId !== "function") {
+    return "";
+  }
+
+  try {
+    const streamId = await chrome.tabCapture.getMediaStreamId({
+      targetTabId: normalizedTabId
+    });
+    return typeof streamId === "string" ? streamId.trim() : "";
+  } catch (error) {
+    return "";
+  }
+}
+
 async function sendDataMessage(runtime, type, payload, channelKey = "") {
   if (!runtime || !runtime.state.active) {
     return false;
@@ -820,15 +943,7 @@ async function sendDataMessage(runtime, type, payload, channelKey = "") {
   updateSessionActivity(runtime);
 
   try {
-    const response = await sendRemoteSupportOffscreenRequest({
-      type: "remoteSupportTransportSendData",
-      sessionId: runtime.state.sessionId,
-      messageType: type,
-      payload,
-      ...(typeof channelKey === "string" && channelKey.trim()
-        ? { channelKey: channelKey.trim() }
-        : {})
-    });
+    const response = await sendRemoteSupportTransportDataRequest(runtime, type, payload, channelKey);
 
     return Boolean(response && response.ok);
   } catch (error) {
@@ -1073,7 +1188,7 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
 }
 
 async function maybeCloseOffscreenIfIdle() {
-  if (hasActiveSessions()) {
+  if (hasActiveOffscreenTransportSessions()) {
     return;
   }
 
@@ -1108,7 +1223,7 @@ async function deactivateRuntime(runtime, reason) {
     activeSessionIdsByTabId.delete(tabId);
   }
 
-  await stopRemoteSupportTransport(sessionId, reason);
+  await stopRemoteSupportTransport(runtime, reason);
   await setContentModeForSession(runtime, false);
 
   if (tabId !== null) {
@@ -1117,6 +1232,21 @@ async function deactivateRuntime(runtime, reason) {
   }
 
   await maybeCloseOffscreenIfIdle();
+}
+
+async function terminateOffscreenBackedSessions(reason = "Session ended") {
+  const runtimes = Array.from(sessionRuntimes.values()).filter(
+    (runtime) =>
+      runtime &&
+      runtime.state &&
+      runtime.state.active &&
+      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+      runtime.state.role === "requester"
+  );
+
+  for (const runtime of runtimes) {
+    await terminateRemoteSupportSession({ sessionId: runtime.state.sessionId }, reason);
+  }
 }
 
 export async function terminateRemoteSupportSession(targetOrReason = "Session ended", maybeReason = "Session ended") {
@@ -1234,19 +1364,19 @@ export async function handleRequestSupportCode(message) {
 
   if (!reused) {
     try {
-      const transportStartResponse = await sendRemoteSupportOffscreenRequest({
-        type: "remoteSupportTransportStart",
-        session: {
-          sessionId,
-          supportCode,
-          role: "requester",
-          wsUrl,
-          iceServers,
-          dataChannels: [
-            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
-            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
-          ]
-        }
+      const mediaStreamId = await requestTabCaptureStreamId(tabId);
+      runtime.usesVideoStream = Boolean(mediaStreamId);
+      const transportStartResponse = await sendRemoteSupportTransportStartRequest(runtime, {
+        sessionId,
+        supportCode,
+        role: "requester",
+        wsUrl,
+        iceServers,
+        ...(mediaStreamId ? { mediaStreamId } : {}),
+        dataChannels: [
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+        ]
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
     } catch (error) {
@@ -1363,19 +1493,16 @@ export async function handleJoinSupportSession(message) {
 
   if (!reused) {
     try {
-      const transportStartResponse = await sendRemoteSupportOffscreenRequest({
-        type: "remoteSupportTransportStart",
-        session: {
-          sessionId,
-          supportCode,
-          role: "supporter",
-          wsUrl,
-          iceServers,
-          dataChannels: [
-            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
-            { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
-          ]
-        }
+      const transportStartResponse = await sendRemoteSupportTransportStartRequest(runtime, {
+        sessionId,
+        supportCode,
+        role: "supporter",
+        wsUrl,
+        iceServers,
+        dataChannels: [
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+        ]
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
     } catch (error) {
@@ -1424,6 +1551,9 @@ export async function handleTransportEvent(message) {
 
     if (isPrimaryTransportChannelKey(event.channelKey)) {
       runtime.state.connected = true;
+      if (runtime.usesVideoStream) {
+        runtime.state.streaming = true;
+      }
       if (shouldStreamFrames(runtime)) {
         startFrameStreaming(runtime);
       }
@@ -1461,6 +1591,12 @@ export async function handleTransportEvent(message) {
     runtime.state.connected = false;
     runtime.state.streaming = false;
     stopFrameStreaming(runtime);
+    broadcastRuntimeState(runtime);
+    return { ok: true };
+  }
+
+  if (event.type === "video-state") {
+    runtime.state.streaming = Boolean(event.active);
     broadcastRuntimeState(runtime);
     return { ok: true };
   }
