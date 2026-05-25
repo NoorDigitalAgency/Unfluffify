@@ -18,19 +18,20 @@ This document defines the extension-side remote support implementation and the e
 - Popup state queries, end-session actions, and remote commands are scoped to the current tab.
 - DevTools console/network panels attach to the inspected tab and only receive state and telemetry for that tab's active support session.
 - Session ends when either side terminates, the tab closes, or inactivity timeout is reached.
+- Ended-session and transient transport warnings are retained in the tab-scoped inactive state until the user dismisses them with the icon-only notice button in the popup or `/support` page.
 - Inactivity timeout: **7 minutes** without remote activity.
 - One active session per tab.
 - Being-supported mode blocks local extension-owned interactions on page UI.
-- Supporting mode disables regular popup controls and uses remote control surface.
+- Supporting mode disables regular popup controls and uses the dedicated `/support` remote-control surface.
 
 ## Realtime streams
 
-### 1) Frame stream (preview)
+### 1) Screen stream
 
-- Being-supported side captures visible tab frames (`chrome.tabs.captureVisibleTab`) every ~250ms.
-- Frames are sent over WebRTC data channel (`type: frame`).
-- Supporting side renders the latest frame in popup control surface.
-- Each requester tab only captures and emits frames for its own session.
+- Being-supported side requests a `chrome.tabCapture` media stream ID for its own tab and passes it into the MV3 offscreen WebRTC transport.
+- The offscreen requester runtime attaches the captured tab video track to the peer connection, and the supporter `/support` page renders the remote track as the primary live screen surface.
+- The older data-channel `frame` message remains as a compatibility/fallback path for remote-frame events, but the current screen stream is real WebRTC video.
+- Control handoff changes only the command owner; it does **not** stop or hide the screen stream.
 
 ### 2) Remote commands
 
@@ -40,8 +41,17 @@ This document defines the extension-side remote support implementation and the e
   - `scroll` with deltaX/deltaY
   - `key` with key/code/modifiers
 - Being-supported side replays commands against extension-owned interactions.
+- `controlOwner` is either `supporter` or `requester`. Supporter commands are accepted only while the supporter owns control.
+- When control is handed to the requester, the requester can interact locally while the supporter keeps seeing live screen video, cursor snapshots, and sidebar updates.
 
-### 3) Telemetry stream
+### 3) Sidebar mirror
+
+- The requester popup/side-panel captures the Unfluffify sidebar surface into a sidebar-specific WebRTC data/video path and publishes lightweight sidebar state snapshots.
+- The `/support` page renders the live sidebar mirror next to the main screen and keeps a snapshot fallback for startup or capture gaps.
+- Supporter pointer, click, scroll, and key commands on the sidebar surface are forwarded on the `sidebar` data channel while the supporter owns control.
+- While the requester owns control, local requester sidebar pointer/click activity is mirrored into the sidebar stream so the supporter can still see what the requester is doing.
+
+### 4) Telemetry stream
 
 - Console and network telemetry is collected from Unfluffify extension contexts (popup/side panel, content script, and service worker where available) and forwarded to background.
 - Page console output and page network requests are intentionally excluded from these panels.
@@ -53,20 +63,21 @@ Two extension DevTools panels are added:
 
 1. **Unfluffify Console**
    - Shows streamed console events with level + timestamp.
+  - Shows the extension source context (`popup`, `content`, or `worker`) for each entry.
   - The panel attaches to the inspected tab and only shows entries for that tab's active supporting session.
 
 2. **Unfluffify Network**
-   - Shows url, status code, method, type, timestamps, load time.
-   - Includes **Include AJAX payloads** toggle.
+  - Shows source context, url, status code, method, type, timestamps, load time.
+  - Includes **Include payloads** toggle.
    - Per-row payload download button (icon-only) when payload exists.
   - The payload toggle only controls the supporting session attached to that DevTools instance.
 
 ## Payload policy
 
-- AJAX payload streaming includes request and response payloads.
+- Extension `fetch`/XHR payload streaming includes request and response payloads when enabled.
 - Per-payload clamp: **2MB**.
 - Total payload budget per active session: **10MB**.
-- Non-AJAX requests stream metadata only.
+- Payload capture starts disabled and metadata still streams without request/response bodies.
 
 ## Expected backend contract
 
@@ -216,6 +227,12 @@ Server responsibilities:
 - Active tab closed on being-supported side.
 - WebRTC/signaling disconnect.
 - Inactivity timeout (7 minutes).
+
+## Temporary notices
+
+- Background stores the last ended-session or transport warning in the tab-scoped inactive state so the next popup/support-page render can explain what happened.
+- The popup remote-support cards and dedicated `/support` page render these temporary warnings with an icon-only dismiss button.
+- Dismiss sends `remoteSupportDismissError`, clearing the active runtime error or inactive tab snapshot error in background state so the warning stays dismissed across refreshes.
 
 ## Security & correctness guarantees
 

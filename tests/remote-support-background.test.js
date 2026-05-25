@@ -652,6 +652,115 @@ test("remote support transport events drive session teardown without hanging the
   }
 });
 
+test("remote support dismisses active transport errors and broadcasts the cleared state", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, runtimeEvents, tabMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_active_warning",
+        supportCode: "445566",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 14,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 14 } }
+    );
+
+    assert.equal(response.ok, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "transport-error",
+          sessionId: "sess_active_warning",
+          error: "Signaling connection interrupted"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const warningState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 14 },
+      {}
+    );
+
+    assert.equal(warningState.ok, true);
+    assert.equal(warningState.state.active, true);
+    assert.match(warningState.state.error, /Signaling connection interrupted/i);
+
+    const runtimeEventCount = runtimeEvents.length;
+    const tabMessageCount = tabMessages.length;
+    const dismissResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportDismissError", sessionId: "sess_active_warning" },
+      {}
+    );
+
+    assert.equal(dismissResponse.ok, true);
+    assert.equal(dismissResponse.state.active, true);
+    assert.equal(dismissResponse.state.tabId, 14);
+    assert.equal(dismissResponse.state.error, "");
+
+    const clearedState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 14 },
+      {}
+    );
+
+    assert.equal(clearedState.ok, true);
+    assert.equal(clearedState.state.active, true);
+    assert.equal(clearedState.state.error, "");
+    assert.equal(
+      runtimeEvents.slice(runtimeEventCount).some(
+        (message) =>
+          message &&
+          message.type === "remoteSupportStateChanged" &&
+          message.tabId === 14 &&
+          message.state &&
+          message.state.error === ""
+      ),
+      true
+    );
+    assert.equal(
+      tabMessages.slice(tabMessageCount).some(
+        ({ tabId, message }) =>
+          tabId === 14 &&
+          message &&
+          message.type === "remoteSupportStateChanged" &&
+          message.state &&
+          message.state.error === ""
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remote support keeps concurrent sessions isolated by tab", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

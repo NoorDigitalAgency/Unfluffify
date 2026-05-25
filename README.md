@@ -35,7 +35,7 @@ npm test
 
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
-The remote-support regressions also cover tab-scoped background state and concurrent offscreen transport sessions.
+The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, handoff streaming, sidebar/cursor mirroring, extension-side telemetry, and dismissible session notices.
 
 ## Project Structure
 
