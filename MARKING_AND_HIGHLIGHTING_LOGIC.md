@@ -77,7 +77,9 @@ Important rules:
 - `xpaths` holds both generated and explicit exclude-state items.
 - `includeXpaths` is the canonical list of explicit includes.
 - A given subtree is normalized so that broader and narrower markings do not coexist redundantly.
-- `submissionXpaths` is the final AI payload boundary list. Invisible explicit includes are submitted as excluded rows, not included rows, so stale user overrides cannot pull hidden DOM into content detection.
+- `submissionXpaths` is the final AI payload boundary list.
+- Submission boundaries are intentionally shallow: excluded ancestors suppress descendant exclusion rows unless the descendant is itself an explicit include.
+- Explicit includes always submit as included rows, even when they are currently hidden or live inside excluded ancestors.
 
 ## Markable Elements
 
@@ -235,14 +237,26 @@ The content logic resolves these selectors to DOM elements and derives:
 - AI included content
 - AI excluded content
 
+### AI submission boundary rules
+
+The saved `submissionXpaths` sent for CSS-selector calculation follow these rules:
+
+- exclusion rows are only the root boundaries of excluded regions,
+- descendants under an already-submitted excluded root are omitted,
+- immutable exclusion roots are always submitted as excluded rows,
+- consent UI roots are submitted as excluded rows,
+- toggleable roots that are excluded by current page markings are submitted as excluded rows,
+- toggleable roots that are visually hidden at save time are also submitted as excluded rows,
+- textual boundaries that do not fall under those exclusion rules submit as included rows,
+- explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
+
 ### AI inclusion eligibility
 
 An element is eligible for AI inclusion when it is:
 
-- visible enough to be considered content, or a supported collapsed-text fallback,
 - not inside immutable exclusions,
 - not inside consent or extension UI,
-- not inside a selector-excluded boundary unless explicitly included.
+- not inside a submitted exclusion boundary unless explicitly included.
 
 Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
 
@@ -260,7 +274,7 @@ The pure decision rules that are most likely to regress are covered by Node test
 
 - `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
 - `tests/marking-rules.test.js` also locks in the one-shot suppression rule that keeps AI preview restore from auto-seeding a new draft.
-- `tests/submission-rules.test.js` locks in the final AI submission row decisions for explicit excludes, explicit includes, hidden content, and excluded ancestors.
+- `tests/submission-rules.test.js` locks in the final AI submission row decisions for exclusion roots, explicit includes, hidden toggleable roots, consent roots, immutable roots, and excluded-ancestor suppression.
 - `tests/core-visibility.test.js` locks in visibility semantics for hidden attributes, `aria-hidden`, and collapsed visibility.
 - `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
 - `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.

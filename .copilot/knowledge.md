@@ -20,3 +20,9 @@
 - Control ownership is explicit: supporter or requester owns control at a given time; commands must be gated by that shared owner state.
 - Page reflection remains a live visual stream, not DOM mirroring.
 - Remote support sessions now explicitly start with `page` and `sidebar` RTC data channels at the app layer.
+
+## AI Submission Rules
+
+- Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
+- Exclusion roots include explicit excludes, immutable roots, hidden consent roots, toggleable default roots already excluded by markings, and toggleable roots that are currently invisible in mobile save mode.
+- Explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.

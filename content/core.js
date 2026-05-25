@@ -4527,8 +4527,12 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
  * @param {Element} el - The element to check
  * @returns {boolean} True if the element matches a toggleable default exclusion
  */
-function isDefaultToggleableExcludedElement(el) {
+export function isDefaultToggleableExcludedElement(el) {
   return matchesToggleableDefaultExcluded(el);
+}
+
+export function isImmutableExcludedElement(el) {
+  return matchesImmutableExcluded(el);
 }
 
 export function isPageDraftDirty(pageUrl) {
