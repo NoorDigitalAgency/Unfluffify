@@ -8,6 +8,7 @@
 - Remote ICE candidates must be queued until `setRemoteDescription` completes.
 - The transport supports named RTCDataChannels. Treat `page` and `default` as primary for session-connected state; `sidebar` must not mark the session connected on its own.
 - Remote support is view-only: `remoteSupportSendCommand` and `remoteSupportSetControlOwner` are legacy messages that background rejects.
+- Popup and support-page UI should not expose remote-control input handlers or takeover/handoff copy; keep all remote-support wording explicitly view-only.
 - After navigation, `content-main.js` must call `getRemoteSupportState` on startup because `content-loader.js` only imports it after `activateContentMain` and the background does not replay session state automatically.
 - If the initial remote-support rehydration runs before `document.body` exists, terminate-button sync must retry after `DOMContentLoaded`.
 - The supporter `/support` page should coalesce `remoteSupportFrame` updates into a throttled image-only sync path instead of rerendering the full page chrome for every frame.

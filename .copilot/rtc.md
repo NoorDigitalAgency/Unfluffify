@@ -6,6 +6,7 @@ RTC = rolling task context.
 
 - Navigation rehydration for remote support is in place in `content-main.js`.
 - Support-page pointer mapping remains available for visual cursor positioning only; supporter input is not forwarded to the supportee.
+- Popup remote-support view removed stale remote-control handlers and control-owner copy to align with enforced view-only behavior.
 - Support-page frame updates are throttled/debounced at the image sink instead of forcing a full page rerender for every incoming frame.
 - Supportee sidebar simulation is wired end-to-end as an observational mirror: popup view-state snapshots -> background cache/replay -> `sidebar` RTC channel -> supporter `/support` nested sidebar card.
 - Offscreen transport guards against stale same-key channel replacement: the new channel is registered before the old one is closed, and stale `onclose` / `onerror` events are ignored so a healthy peer connection does not self-terminate.

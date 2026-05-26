@@ -58,7 +58,7 @@ The remote-support regressions also cover tab-scoped background state, concurren
 - **`silent-highlight-options.js`** - Silent highlight visual configuration
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
 - **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
-- **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, remote command replay, DevTools attachment, and offscreen transport coordination
+- **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, view-only command rejection, DevTools attachment, and offscreen transport coordination
 
 ### Offscreen Transport
 
