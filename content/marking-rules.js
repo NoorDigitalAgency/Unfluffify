@@ -45,7 +45,7 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
   return broadestMarkableAncestor;
 }
 
-export function isEligibleExpandedExclusionBoundary(options = {}) {
+export function isValidExpandedExclusionBoundary(options = {}) {
   const hasDirectOwnText = Boolean(options.hasDirectOwnText);
   const textualDescendantCount = Number.isFinite(options.textualDescendantCount)
     ? Math.max(0, Math.trunc(options.textualDescendantCount))

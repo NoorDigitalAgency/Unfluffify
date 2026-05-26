@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   chooseExcludeParentBoundaryTarget,
   getExplicitMarkingPresentation,
-  isEligibleExpandedExclusionBoundary,
+  isValidExpandedExclusionBoundary,
   shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
@@ -138,21 +138,21 @@ test("falls back to the broadest non-toggleable markable ancestor", () => {
 
 test("expanded exclusion boundaries require direct text or multiple textual descendants", () => {
   assert.equal(
-    isEligibleExpandedExclusionBoundary({
+    isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
       textualDescendantCount: 1
     }),
     false
   );
   assert.equal(
-    isEligibleExpandedExclusionBoundary({
+    isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
       textualDescendantCount: 2
     }),
     true
   );
   assert.equal(
-    isEligibleExpandedExclusionBoundary({
+    isValidExpandedExclusionBoundary({
       hasDirectOwnText: true,
       textualDescendantCount: 0
     }),

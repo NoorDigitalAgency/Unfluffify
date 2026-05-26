@@ -17,7 +17,7 @@ import {
 import {
   chooseExcludeParentBoundaryTarget,
   getExplicitMarkingPresentation,
-  isEligibleExpandedExclusionBoundary,
+  isValidExpandedExclusionBoundary,
   shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
@@ -2218,7 +2218,7 @@ function isExplicitlyIncludedElement(el, includeSet) {
   return Boolean(xpath && includeSet.has(xpath));
 }
 
-function isWithinExplicitIncludeXpath(xpath, includeSet) {
+function isXpathWithinExplicitInclude(xpath, includeSet) {
   if (!xpath || !includeSet || includeSet.size === 0) {
     return false;
   }
@@ -3081,7 +3081,7 @@ function hasMultipleMarkableDescendants(el) {
     }
     if (isSelfMarkableWithoutParentMode(node, options)) {
       markableCount += 1;
-      if (isEligibleExpandedExclusionBoundary({
+      if (isValidExpandedExclusionBoundary({
         hasDirectOwnText: hasDirectText(el),
         textualDescendantCount: markableCount
       })) {
@@ -3289,7 +3289,7 @@ function getMarkableTarget(x, y, options) {
       const explicitlyIncluded =
         xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
       const withinExplicitIncludedParent =
-        xpath && includeSet && includeSet.size > 0 && isWithinExplicitIncludeXpath(xpath, includeSet);
+        xpath && includeSet && includeSet.size > 0 && isXpathWithinExplicitInclude(xpath, includeSet);
       const withinExplicitExcludedParent =
         !allowExcludedParentChildren &&
         xpath &&
@@ -3332,7 +3332,7 @@ function getMarkableTarget(x, y, options) {
         allowExplicitTarget && isExplicitlyIncludedElement(el, includeSet);
     const xpath = includeSet && includeSet.size > 0 ? getXPath(el) : "";
     if (!shouldAllowExplicitIncludeDescendantTarget({
-      insideExplicitIncludeAncestor: isWithinExplicitIncludeXpath(xpath, includeSet),
+      insideExplicitIncludeAncestor: isXpathWithinExplicitInclude(xpath, includeSet),
       isExactExplicitInclude: Boolean(xpath && includeSet && includeSet.has(xpath))
     })) {
       continue;
@@ -4158,7 +4158,7 @@ function renderHighlightsInner() {
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
 
-  // Hidden explicit excludes render as non-toggleable ghost markings, not hard exclusions.
+  // Hidden explicit excludes render below in ghostExcludeElements, not as hard exclusions.
   const hardExcludedSet = new Set([
     ...immutableExcluded
   ]);
