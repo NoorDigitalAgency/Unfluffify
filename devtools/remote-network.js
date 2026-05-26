@@ -61,8 +61,8 @@ function appendEntry(entry) {
   tdTime.textContent = Math.max(0, Number(entry.loadTimeMs) || 0).toFixed(1);
 
   const tdHeaders = document.createElement("td");
-  const requestHeaderCount = entry.requestHeaders && typeof entry.requestHeaders === "object" ? Object.keys(entry.requestHeaders).length : 0;
-  const responseHeaderCount = entry.responseHeaders && typeof entry.responseHeaders === "object" ? Object.keys(entry.responseHeaders).length : 0;
+  const requestHeaderCount = typeof entry.requestHeaderCount === "number" ? entry.requestHeaderCount : 0;
+  const responseHeaderCount = typeof entry.responseHeaderCount === "number" ? entry.responseHeaderCount : 0;
   tdHeaders.textContent = `req ${requestHeaderCount} / res ${responseHeaderCount}`;
 
   const tdUrl = document.createElement("td");

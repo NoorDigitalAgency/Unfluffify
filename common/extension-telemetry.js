@@ -26,6 +26,11 @@ function formatConsoleMessage(args) {
     .trim();
 }
 
+function clampUrl(url, maxLength = 2048) {
+  const urlString = String(url || "");
+  return urlString.length > maxLength ? urlString.slice(0, maxLength) : urlString;
+}
+
 function getFetchUrl(input) {
   if (typeof input === "string") {
     return input;
@@ -47,47 +52,46 @@ function getFetchMethod(input, init) {
 }
 
 
-function headersToObject(headersLike) {
-  const headers = {};
+function countHeaders(headersLike) {
   if (!headersLike) {
-    return headers;
+    return 0;
   }
   try {
     if (typeof headersLike.forEach === "function") {
+      let count = 0;
       headersLike.forEach((value, key) => {
         if (typeof key === "string") {
-          headers[key] = "[REDACTED]";
+          count++;
         }
       });
-      return headers;
+      return count;
     }
     if (Array.isArray(headersLike)) {
+      let count = 0;
       for (const pair of headersLike) {
         if (Array.isArray(pair) && pair.length >= 2) {
-          headers[String(pair[0])] = "[REDACTED]";
+          count++;
         }
       }
-      return headers;
+      return count;
     }
     if (typeof headersLike === "object") {
-      for (const [key, value] of Object.entries(headersLike)) {
-        headers[key] = "[REDACTED]";
-      }
+      return Object.keys(headersLike).length;
     }
   } catch (error) {
-    return headers;
+    return 0;
   }
-  return headers;
+  return 0;
 }
 
-function getFetchRequestHeaders(input, init) {
+function getFetchRequestHeaderCount(input, init) {
   if (init && init.headers) {
-    return headersToObject(init.headers);
+    return countHeaders(init.headers);
   }
   if (input && input.headers) {
-    return headersToObject(input.headers);
+    return countHeaders(input.headers);
   }
-  return {};
+  return 0;
 }
 
 function getFiniteTabId(value) {
@@ -235,14 +239,14 @@ function installFetchTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "fetch",
         type: "fetch",
-        url,
+        url: clampUrl(url),
         method,
         statusCode: Number(response && response.status) || 0,
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
-        requestHeaders: getFetchRequestHeaders(input, init),
-        responseHeaders: headersToObject(response && response.headers),
+        requestHeaderCount: getFetchRequestHeaderCount(input, init),
+        responseHeaderCount: countHeaders(response && response.headers),
         payload: createPayloadFromFetch(options, requestBody, responseBody)
       });
       return response;
@@ -250,14 +254,14 @@ function installFetchTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "fetch",
         type: "fetch",
-        url,
+        url: clampUrl(url),
         method,
         statusCode: 0,
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
-        requestHeaders: getFetchRequestHeaders(input, init),
-        responseHeaders: {},
+        requestHeaderCount: getFetchRequestHeaderCount(input, init),
+        responseHeaderCount: 0,
         payload: null,
         error: clampTelemetryText(error && error.message ? error.message : error)
       });
@@ -270,19 +274,18 @@ function installFetchTelemetry(target, options) {
 }
 
 
-function parseRawResponseHeaders(rawHeaders) {
-  const headers = {};
+function countRawResponseHeaders(rawHeaders) {
   if (typeof rawHeaders !== "string") {
-    return headers;
+    return 0;
   }
+  let count = 0;
   for (const line of rawHeaders.split(/\r?\n/)) {
     const separatorIndex = line.indexOf(":");
-    if (separatorIndex <= 0) {
-      continue;
+    if (separatorIndex > 0) {
+      count++;
     }
-    headers[line.slice(0, separatorIndex).trim()] = "[REDACTED]";
   }
-  return headers;
+  return count;
 }
 
 function installXhrTelemetry(target, options) {
@@ -331,14 +334,14 @@ function installXhrTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "xhr",
         type: "xhr",
-        url: meta.url || "",
+        url: clampUrl(meta.url),
         method: meta.method || "GET",
         statusCode: Number(this.status) || 0,
         startedAt: meta.startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - (Number(meta.startedAt) || Date.now())),
-        requestHeaders: {},
-        responseHeaders: parseRawResponseHeaders(typeof this.getAllResponseHeaders === "function" ? this.getAllResponseHeaders() : ""),
+        requestHeaderCount: 0,
+        responseHeaderCount: countRawResponseHeaders(typeof this.getAllResponseHeaders === "function" ? this.getAllResponseHeaders() : ""),
         payload: createPayloadFromFetch(options, meta.requestBody, responseBody)
       });
     }, { once: true });
