@@ -4564,36 +4564,6 @@ async function handleRemoteSupportEnd() {
   await refreshUi();
 }
 
-async function handleRemoteSupportControlToggle() {
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-  if (currentTabId === null) {
-    return;
-  }
-
-  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  const nextControlOwner = scopedState && scopedState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-    : REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
-
-  const response = await messages.sendRuntimeMessage({
-    type: "remoteSupportSetControlOwner",
-    tabId: currentTabId,
-    controlOwner: nextControlOwner
-  });
-  if (response && response.ok) {
-    state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
-    syncRemoteSupportViewState(state.remoteSupportState);
-    await refreshUi();
-    return;
-  }
-
-  state.remoteSupportState = await fetchRemoteSupportState(currentTabId);
-  syncRemoteSupportViewState(state.remoteSupportState);
-  await refreshUi();
-}
-
 async function handleRemoteSupportErrorDismiss(event) {
   if (event && typeof event.preventDefault === "function") {
     event.preventDefault();
@@ -4628,86 +4598,6 @@ async function handleRemoteSupportErrorDismiss(event) {
   } catch {
     // Keep the local dismissal even if the background snapshot is already gone.
   }
-}
-
-function createRemotePointerPayload(event) {
-  if (!event || !event.currentTarget || typeof event.currentTarget.getBoundingClientRect !== "function") {
-    return null;
-  }
-  const rect = event.currentTarget.getBoundingClientRect();
-  const width = rect.width || 1;
-  const height = rect.height || 1;
-  const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / width));
-  const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / height));
-  return { x, y };
-}
-
-async function sendRemoteSupportCommand(command) {
-  if (!command) {
-    return;
-  }
-  await messages.sendRuntimeMessage({
-    type: "remoteSupportSendCommand",
-    command,
-    tabId: state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : undefined
-  });
-}
-
-function handleRemoteSupportSurfaceMouseMove(event) {
-  if (uiModule.getViewState().remoteSupportControlDisabled) {
-    return;
-  }
-  const pointer = createRemotePointerPayload(event);
-  if (!pointer) {
-    return;
-  }
-  sendRemoteSupportCommand({ type: "pointer-move", ...pointer }).then();
-}
-
-function handleRemoteSupportSurfaceClick(event) {
-  if (uiModule.getViewState().remoteSupportControlDisabled) {
-    return;
-  }
-  const pointer = createRemotePointerPayload(event);
-  if (!pointer) {
-    return;
-  }
-  sendRemoteSupportCommand({
-    type: "pointer-click",
-    ...pointer,
-    button: Number.isFinite(event.button) ? event.button : 0
-  }).then();
-}
-
-function handleRemoteSupportSurfaceWheel(event) {
-  event.preventDefault();
-  if (uiModule.getViewState().remoteSupportControlDisabled) {
-    return;
-  }
-  sendRemoteSupportCommand({
-    type: "scroll",
-    deltaX: Number(event.deltaX) || 0,
-    deltaY: Number(event.deltaY) || 0
-  }).then();
-}
-
-function handleRemoteSupportSurfaceKeyDown(event) {
-  if (!event || !event.key) {
-    return;
-  }
-  event.preventDefault();
-  if (uiModule.getViewState().remoteSupportControlDisabled) {
-    return;
-  }
-  sendRemoteSupportCommand({
-    type: "key",
-    key: String(event.key),
-    code: String(event.code || ""),
-    ctrlKey: Boolean(event.ctrlKey),
-    altKey: Boolean(event.altKey),
-    shiftKey: Boolean(event.shiftKey),
-    metaKey: Boolean(event.metaKey)
-  }).then();
 }
 
 function handleConfigToggle(event) {
@@ -6230,12 +6120,7 @@ async function init() {
     onRemoteSupportJoinCodeInput: handleRemoteSupportJoinCodeInput,
     onRemoteSupportJoin: handleRemoteSupportJoin,
     onRemoteSupportEnd: handleRemoteSupportEnd,
-    onRemoteSupportControlToggle: handleRemoteSupportControlToggle,
     onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
-    onRemoteSupportSurfaceMouseMove: handleRemoteSupportSurfaceMouseMove,
-    onRemoteSupportSurfaceClick: handleRemoteSupportSurfaceClick,
-    onRemoteSupportSurfaceWheel: handleRemoteSupportSurfaceWheel,
-    onRemoteSupportSurfaceKeyDown: handleRemoteSupportSurfaceKeyDown,
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,

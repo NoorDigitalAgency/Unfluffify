@@ -370,15 +370,10 @@ export const PopupText = Object.freeze({
     remoteSupportJoinCodeLabel: "Join with support code", // Label for the support code input used by supporters.
     remoteSupportJoinCodePlaceholder: "Enter support code", // Placeholder for supporter support-code input.
     remoteSupportJoinButton: "Join support", // Button label for joining a support session.
-    remoteSupportPageControlHint: "This /support page is now the live support surface. Join, control, and end the session directly in the page instead of the extension side panel.", // Helper text shown on the support page tab inside the popup.
+    remoteSupportPageControlHint: "This /support page is now the live support surface. Join and end the session directly in the page instead of the extension side panel.", // Helper text shown on the support page tab inside the popup.
     remoteSupportEndButton: "End support session", // Button label for ending an active session.
-    remoteSupportBeingSupportedHint: "This tab is currently controlled remotely for extension-owned interactions.", // Hint shown in being-supported mode.
-    remoteSupportTakeOverButton: "Take over control", // Button label shown when the supportee reclaims local control.
-    remoteSupportHandOffButton: "Hand off control", // Button label shown when the supportee gives control back to the supporter.
-    remoteSupportControlledModeHint: "Use this view to end the session or switch who currently controls the page.", // Helper text shown in the supportee remote-controlled sidebar mode.
+    remoteSupportBeingSupportedHint: "This tab is currently in a remote support session (view-only).", // Hint shown in being-supported mode.
     dismissNoticeLabel: "Dismiss notice", // Accessibility label for icon-only temporary warning dismiss buttons.
-    remoteSupportSurfaceAlt: "Remote supported tab preview", // Alt text for remote control preview image.
-    remoteSupportSurfaceWaiting: "Waiting for remote tab stream...", // Placeholder text shown until frame streaming starts.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.
     endpointPlaceholder: "https://example.com", // Placeholder for configuration endpoint input.
