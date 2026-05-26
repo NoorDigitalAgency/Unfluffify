@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { canApplyExplicitInclude, getMutationRenderMode, isMarkableElement, isVisible, state } from "../content/core.js";
+import { getMutationRenderMode, isVisible, isVisibleForSubmission, state } from "../content/core.js";
 
 const defaultStyle = {
   display: "block",
@@ -103,11 +103,22 @@ function withVisibilityDom(callback) {
   const body = createElement({ parentElement: documentElement });
   documentElement.children.push(body);
   documentElement.childNodes.push(body);
-  globalThis.document = { documentElement, body };
+  globalThis.document = {
+    documentElement,
+    body,
+    elementFromPoint() {
+      return null;
+    },
+    elementsFromPoint() {
+      return [];
+    }
+  };
   globalThis.window = {
     getComputedStyle(element) {
       return element && element.__style ? element.__style : defaultStyle;
-    }
+    },
+    innerWidth: 1200,
+    innerHeight: 800
   };
   globalThis.Node = { TEXT_NODE: 3 };
   globalThis.location = { href: "https://example.test/" };
@@ -189,39 +200,33 @@ test("aria-hidden mutations trigger overlay rebuild for visibility-driven widget
   });
 });
 
-test("webflow sliders with multiple textual slides are markable include boundaries", () => {
+test("theoretical hidden nodes are accepted when they are visibly rendered", () => {
   withVisibilityDom(({ body }) => {
-    const slideOne = createElement({
-      classes: ["testimonial28_slide", "w-slide"],
-      text: "First testimonial"
-    });
-    const slideTwo = createElement({
-      classes: ["testimonial28_slide", "w-slide"],
-      attrs: { "aria-hidden": "true" },
-      text: "Second testimonial"
-    });
-    const mask = createElement({
-      classes: ["w-slider-mask"],
-      children: [slideOne, slideTwo]
-    });
-    const slider = createElement({
+    const element = createElement({
       parentElement: body,
-      classes: ["testimonial28_component", "w-slider"],
-      children: [mask],
-      rect: { top: 0, right: 300, bottom: 120, left: 0, width: 300, height: 120 }
+      attrs: { "aria-hidden": "true" },
+      text: "Visible despite aria-hidden",
+      rect: { top: 20, right: 220, bottom: 120, left: 20, width: 200, height: 100 }
     });
-    body.children.push(slider);
-    body.childNodes.push(slider);
-    assert.equal(
-      isMarkableElement(slider, { pageMarkings: {} }, {
-        allowParent: false,
-        allowImmutableChildren: false
-      }),
-      true
-    );
-    assert.equal(
-      canApplyExplicitInclude(slider, { pageMarkings: {} }, "https://example.test/"),
-      true
-    );
+    body.children.push(element);
+    body.childNodes.push(element);
+    globalThis.document.elementFromPoint = () => element;
+    globalThis.document.elementsFromPoint = () => [element];
+    assert.equal(isVisible(element), true);
+  });
+});
+
+test("submission visibility treats below-fold ambiguous nodes as potentially visible", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      attrs: { "aria-hidden": "true" },
+      text: "Below fold but renderable",
+      rect: { top: 1200, right: 320, bottom: 1300, left: 20, width: 300, height: 100 }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisible(element), false);
+    assert.equal(isVisibleForSubmission(element), true);
   });
 });

@@ -6058,7 +6058,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
     let immutableExcludedRoot = false;
     let isMarkableTextual = false;
     if (!explicitlyExcluded) {
-      visibleToUser = core.isVisible(node);
+      visibleToUser = core.isVisibleForSubmission(node);
       immutableExcludedRoot = core.isImmutableExcludedElement(node);
       hiddenToggleableRoot = core.isDefaultToggleableExcludedElement(node) &&
         !visibleToUser;

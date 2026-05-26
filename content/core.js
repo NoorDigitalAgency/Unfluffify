@@ -188,6 +188,202 @@ function isClippedByOverflow(el) {
   return false;
 }
 
+function getViewportBounds() {
+  const width = Number(window.innerWidth) || 0;
+  const height = Number(window.innerHeight) || 0;
+  return {
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: height,
+    width,
+    height
+  };
+}
+
+function intersectRects(rectA, rectB) {
+  const left = Math.max(rectA.left, rectB.left);
+  const top = Math.max(rectA.top, rectB.top);
+  const right = Math.min(rectA.right, rectB.right);
+  const bottom = Math.min(rectA.bottom, rectB.bottom);
+  const width = right - left;
+  const height = bottom - top;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width,
+    height
+  };
+}
+
+function hasOverflowClipping(style) {
+  if (!style) {
+    return false;
+  }
+  return (
+    style.overflow === "hidden" ||
+    style.overflow === "clip" ||
+    style.overflowX === "hidden" ||
+    style.overflowX === "clip" ||
+    style.overflowY === "hidden" ||
+    style.overflowY === "clip"
+  );
+}
+
+function getElementEffectiveVisibleRect(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return null;
+  }
+  const clipToViewport = options.clipToViewport !== false;
+  const baseRect = el.getBoundingClientRect();
+  if (baseRect.width <= 0 || baseRect.height <= 0) {
+    return null;
+  }
+  let visibleRect = clipToViewport
+    ? intersectRects(baseRect, getViewportBounds())
+    : {
+      left: baseRect.left,
+      top: baseRect.top,
+      right: baseRect.right,
+      bottom: baseRect.bottom,
+      width: baseRect.width,
+      height: baseRect.height
+    };
+  if (!visibleRect) {
+    return null;
+  }
+  let parent = el.parentElement;
+  while (parent && parent.nodeType === 1) {
+    if (parent === document.body || parent === document.documentElement) {
+      break;
+    }
+    const parentStyle = window.getComputedStyle(parent);
+    if (hasOverflowClipping(parentStyle)) {
+      const parentRect = parent.getBoundingClientRect();
+      visibleRect = intersectRects(visibleRect, parentRect);
+      if (!visibleRect) {
+        return null;
+      }
+    }
+    parent = parent.parentElement;
+  }
+  return visibleRect;
+}
+
+function isTheoreticallyInvisibleNode(node, style) {
+  if (!node || node.nodeType !== 1) {
+    return true;
+  }
+  if (node.hidden || node.getAttribute("aria-hidden") === "true") {
+    return true;
+  }
+  if (
+    node.classList &&
+    (node.classList.contains("sr-only") || node.classList.contains("visually-hidden"))
+  ) {
+    return true;
+  }
+  if (!style) {
+    return false;
+  }
+  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+    return true;
+  }
+  if (parseFloat(style.opacity) === 0) {
+    return true;
+  }
+  return isVisuallyHiddenByStyle(style);
+}
+
+function isElementInHitPath(target, element) {
+  if (!target || !element) {
+    return false;
+  }
+  if (target === element) {
+    return true;
+  }
+  if (typeof target.contains === "function" && target.contains(element)) {
+    return true;
+  }
+  if (typeof element.contains === "function" && element.contains(target)) {
+    return true;
+  }
+  return false;
+}
+
+function getRealityCheckPoints(rect) {
+  const inset = 1;
+  const left = rect.left + inset;
+  const right = rect.right - inset;
+  const top = rect.top + inset;
+  const bottom = rect.bottom - inset;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  return [
+    [centerX, centerY],
+    [left, top],
+    [left, bottom],
+    [right, top],
+    [right, bottom]
+  ];
+}
+
+function isActuallyVisibleToUser(el) {
+  const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: true });
+  if (!visibleRect) {
+    return false;
+  }
+  if (typeof document.elementFromPoint !== "function") {
+    return true;
+  }
+  const points = getRealityCheckPoints(visibleRect);
+  for (const [x, y] of points) {
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+      continue;
+    }
+    const elementsAtPoint =
+      typeof document.elementsFromPoint === "function"
+        ? document.elementsFromPoint(x, y)
+        : [document.elementFromPoint(x, y)].filter(Boolean);
+    for (const hit of elementsAtPoint) {
+      if (!hit || hit.nodeType !== 1 || isWithinExtensionUi(hit)) {
+        continue;
+      }
+      if (isElementInHitPath(hit, el)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isActuallyVisibleInDocument(el) {
+  return Boolean(getElementEffectiveVisibleRect(el, { clipToViewport: false }));
+}
+
+function getTheoreticalVisibilityState(node, style) {
+  if (!node || node.nodeType !== 1) {
+    return { definitiveHidden: true, ambiguousHidden: false };
+  }
+  const ambiguousHidden = Boolean(
+    node.getAttribute("aria-hidden") === "true" ||
+    (node.classList &&
+      (node.classList.contains("sr-only") || node.classList.contains("visually-hidden")))
+  );
+  const definitiveHidden = Boolean(
+    node.hidden ||
+    (style && (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse")) ||
+    (style && parseFloat(style.opacity) === 0) ||
+    isVisuallyHiddenByStyle(style)
+  );
+  return { definitiveHidden, ambiguousHidden };
+}
+
 function isVisuallyHiddenByStyle(style) {
   if (!style) {
     return false;
@@ -341,63 +537,6 @@ function isTextualContainer(el, options = {}) {
   return Boolean(getNormalizedElementText(el));
 }
 
-function hasClassName(el, className) {
-  return Boolean(el && el.classList && el.classList.contains(className));
-}
-
-function hasAncestorWithClassName(el, className) {
-  let node = el ? el.parentElement : null;
-  while (node && node.nodeType === 1) {
-    if (hasClassName(node, className)) {
-      return true;
-    }
-    node = node.parentElement;
-  }
-  return false;
-}
-
-function isWebflowSliderSlide(el) {
-  if (!el || el.nodeType !== 1 || !hasClassName(el, "w-slide")) {
-    return false;
-  }
-  return hasAncestorWithClassName(el, "w-slider-mask") && hasAncestorWithClassName(el, "w-slider");
-}
-
-function getSliderBoundaryDescendantOptions(options = {}) {
-  if (options && options.ignoreVisibilityForInclusionDetection) {
-    return options;
-  }
-  return {
-    ...(options || {}),
-    ignoreVisibilityForInclusionDetection: true
-  };
-}
-
-function isWebflowSliderBoundaryCandidate(el, options = {}) {
-  if (!el || el.nodeType !== 1 || !hasClassName(el, "w-slider")) {
-    return false;
-  }
-  const descendantOptions = getSliderBoundaryDescendantOptions(options);
-  const stack = Array.from(el.children || []);
-  let slideCount = 0;
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (isWebflowSliderSlide(node) && isSelfMarkableWithoutParentMode(node, descendantOptions)) {
-      slideCount += 1;
-      if (slideCount >= 2) {
-        return true;
-      }
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
 function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -533,9 +672,6 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
     return false;
   }
   if (isSelfMarkableWithoutParentMode(el, options)) {
-    return true;
-  }
-  if (isWebflowSliderBoundaryCandidate(el, options)) {
     return true;
   }
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
@@ -1383,32 +1519,16 @@ function isDefinitelyHiddenSubtreeElement(el) {
   if (!el || el.nodeType !== 1) {
     return true;
   }
-  if (el.hidden) {
-    return true;
-  }
-  const ariaHidden = el.getAttribute("aria-hidden");
-  if (ariaHidden === "true") {
-    return true;
-  }
+  let theoreticallyHidden = false;
   try {
-    const style = window.getComputedStyle(el);
-    if (!style) {
-      return false;
-    }
-    if (style.display === "none") {
-      return true;
-    }
-    if (style.visibility === "hidden" || style.visibility === "collapse") {
-      return true;
-    }
-    const opacity = Number.parseFloat(style.opacity);
-    if (Number.isFinite(opacity) && opacity === 0) {
-      return true;
-    }
+    theoreticallyHidden = isTheoreticallyInvisibleNode(el, window.getComputedStyle(el));
   } catch {
     return false;
   }
-  return false;
+  if (!theoreticallyHidden) {
+    return false;
+  }
+  return !isActuallyVisibleToUser(el);
 }
 
 function hasRenderableTextOutsideExcludedNature(
@@ -1668,10 +1788,7 @@ function collectExplicitIncludedElements(
       continue;
     }
     if (!includeAllExplicitMatches) {
-      if (
-        !isSelfMarkableWithoutParentMode(el, options) &&
-        !isWebflowSliderBoundaryCandidate(el, options)
-      ) {
+      if (!isSelfMarkableWithoutParentMode(el, options)) {
         continue;
       }
       if (!hasRenderableTextOutsideExcludedNature(
@@ -1748,13 +1865,11 @@ function collectImplicitIncludedElementsOutsideExplicit(
           options
         )
       );
-    const isSliderBoundaryCandidate = isWebflowSliderBoundaryCandidate(el, options);
     const isMarkableInclusionCandidate =
-      isSelfMarkableWithoutParentMode(el, options) ||
-      isSliderBoundaryCandidate;
+      isSelfMarkableWithoutParentMode(el, options);
     if (
       isMarkableInclusionCandidate &&
-      (hasDirectText(el) || isAutoIncludedCollapsedText || isSliderBoundaryCandidate) &&
+      (hasDirectText(el) || isAutoIncludedCollapsedText) &&
       !rawSelectorExcluded
     ) {
       baseSelected.add(el);
@@ -4840,9 +4955,6 @@ export function isMarkableElement(el, config, options) {
   if (isSelfMarkableWithoutParentMode(el, options || {})) {
     return true;
   }
-  if (isWebflowSliderBoundaryCandidate(el, options || {})) {
-    return true;
-  }
   if (!options || !options.allowParent) {
     return false;
   }
@@ -4929,27 +5041,16 @@ function isVisibleUncached(el) {
   if (isWithinExtensionUi(el)) {
     return false;
   }
+  let ambiguousHidden = false;
   let node = el;
   while (node && node.nodeType === 1) {
-    if (node.hidden || node.getAttribute("aria-hidden") === "true") {
-      return false;
-    }
-    if (
-        node.classList &&
-        (node.classList.contains("sr-only") ||
-            node.classList.contains("visually-hidden"))
-    ) {
-      return false;
-    }
     const style = window.getComputedStyle(node);
-    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+    const state = getTheoreticalVisibilityState(node, style);
+    if (state.definitiveHidden) {
       return false;
     }
-    if (parseFloat(style.opacity) === 0) {
-      return false;
-    }
-    if (isVisuallyHiddenByStyle(style)) {
-      return false;
+    if (state.ambiguousHidden) {
+      ambiguousHidden = true;
     }
     node = node.parentElement;
   }
@@ -4957,7 +5058,46 @@ function isVisibleUncached(el) {
   if (rect.width === 0 || rect.height === 0) {
     return false;
   }
-  return !isClippedByOverflow(el);
+  if (isClippedByOverflow(el)) {
+    return false;
+  }
+  if (!ambiguousHidden) {
+    return true;
+  }
+  return isActuallyVisibleToUser(el);
+}
+
+export function isVisibleForSubmission(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinExtensionUi(el)) {
+    return false;
+  }
+  let ambiguousHidden = false;
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const style = window.getComputedStyle(node);
+    const state = getTheoreticalVisibilityState(node, style);
+    if (state.definitiveHidden) {
+      return false;
+    }
+    if (state.ambiguousHidden) {
+      ambiguousHidden = true;
+    }
+    node = node.parentElement;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return false;
+  }
+  if (isClippedByOverflow(el)) {
+    return false;
+  }
+  if (!ambiguousHidden) {
+    return true;
+  }
+  return isActuallyVisibleInDocument(el);
 }
 
 export function getElementFromXPath(xpath) {
