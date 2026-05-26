@@ -81,7 +81,7 @@ test("fetch telemetry sends requestHeaderCount and responseHeaderCount as intege
 test("fetch telemetry clamps URL to 2048 characters", async () => {
   const { target, messages } = createTelemetryTarget();
 
-  const longUrl = "https://api.example.com/search?" + "q=".padEnd(3000, "a");
+  const longUrl = "https://api.example.com/search?q=" + "a".repeat(3000);
   assert.equal(longUrl.length > 2048, true, "test URL must be longer than 2048 chars");
 
   await target.fetch(longUrl);
@@ -203,7 +203,7 @@ test("XHR telemetry sends responseHeaderCount as integer and clamps URL", async 
     }
   });
 
-  const longUrl = "https://api.example.com/xhr?" + "q=".padEnd(3000, "b");
+  const longUrl = "https://api.example.com/xhr?q=" + "b".repeat(3000);
   const xhr = new target.XMLHttpRequest();
   xhr.open("GET", longUrl);
   xhr.send();
