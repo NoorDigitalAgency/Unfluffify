@@ -2241,7 +2241,7 @@ export function getMutationRenderMode(mutations) {
         return "rebuild";
       }
       if (name === "hidden" || name === "aria-hidden") {
-        mode = "reposition";
+        return "rebuild";
       }
       continue;
     }

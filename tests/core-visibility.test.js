@@ -174,6 +174,21 @@ test("style mutations trigger overlay rebuild for dynamic visibility changes", (
   });
 });
 
+test("aria-hidden mutations trigger overlay rebuild for visibility-driven widgets", () => {
+  withVisibilityDom(({ body }) => {
+    assert.equal(
+      getMutationRenderMode([
+        {
+          type: "attributes",
+          attributeName: "aria-hidden",
+          target: body
+        }
+      ]),
+      "rebuild"
+    );
+  });
+});
+
 test("webflow sliders with multiple textual slides are markable include boundaries", () => {
   withVisibilityDom(({ body }) => {
     const slideOne = createElement({
