@@ -341,6 +341,63 @@ function isTextualContainer(el, options = {}) {
   return Boolean(getNormalizedElementText(el));
 }
 
+function hasClassName(el, className) {
+  return Boolean(el && el.classList && el.classList.contains(className));
+}
+
+function hasAncestorWithClassName(el, className) {
+  let node = el ? el.parentElement : null;
+  while (node && node.nodeType === 1) {
+    if (hasClassName(node, className)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isWebflowSliderSlide(el) {
+  if (!el || el.nodeType !== 1 || !hasClassName(el, "w-slide")) {
+    return false;
+  }
+  return hasAncestorWithClassName(el, "w-slider-mask") && hasAncestorWithClassName(el, "w-slider");
+}
+
+function getSliderBoundaryDescendantOptions(options = {}) {
+  if (options && options.ignoreVisibilityForInclusionDetection) {
+    return options;
+  }
+  return {
+    ...(options || {}),
+    ignoreVisibilityForInclusionDetection: true
+  };
+}
+
+function isWebflowSliderBoundaryCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1 || !hasClassName(el, "w-slider")) {
+    return false;
+  }
+  const descendantOptions = getSliderBoundaryDescendantOptions(options);
+  const stack = Array.from(el.children || []);
+  let slideCount = 0;
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWebflowSliderSlide(node) && isSelfMarkableWithoutParentMode(node, descendantOptions)) {
+      slideCount += 1;
+      if (slideCount >= 2) {
+        return true;
+      }
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -476,6 +533,9 @@ function isExplicitIncludeBoundaryCandidate(el, options = {}) {
     return false;
   }
   if (isSelfMarkableWithoutParentMode(el, options)) {
+    return true;
+  }
+  if (isWebflowSliderBoundaryCandidate(el, options)) {
     return true;
   }
   return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
@@ -1608,7 +1668,10 @@ function collectExplicitIncludedElements(
       continue;
     }
     if (!includeAllExplicitMatches) {
-      if (!isSelfMarkableWithoutParentMode(el, options)) {
+      if (
+        !isSelfMarkableWithoutParentMode(el, options) &&
+        !isWebflowSliderBoundaryCandidate(el, options)
+      ) {
         continue;
       }
       if (!hasRenderableTextOutsideExcludedNature(
@@ -1685,10 +1748,13 @@ function collectImplicitIncludedElementsOutsideExplicit(
           options
         )
       );
-    const isMarkableInclusionCandidate = isSelfMarkableWithoutParentMode(el, options);
+    const isSliderBoundaryCandidate = isWebflowSliderBoundaryCandidate(el, options);
+    const isMarkableInclusionCandidate =
+      isSelfMarkableWithoutParentMode(el, options) ||
+      isSliderBoundaryCandidate;
     if (
       isMarkableInclusionCandidate &&
-      (hasDirectText(el) || isAutoIncludedCollapsedText) &&
+      (hasDirectText(el) || isAutoIncludedCollapsedText || isSliderBoundaryCandidate) &&
       !rawSelectorExcluded
     ) {
       baseSelected.add(el);
@@ -4772,6 +4838,9 @@ export function isMarkableElement(el, config, options) {
     return true;
   }
   if (isSelfMarkableWithoutParentMode(el, options || {})) {
+    return true;
+  }
+  if (isWebflowSliderBoundaryCandidate(el, options || {})) {
     return true;
   }
   if (!options || !options.allowParent) {
