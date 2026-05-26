@@ -4158,6 +4158,7 @@ function renderHighlightsInner() {
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
 
+  // Hidden explicit excludes render as non-toggleable ghost markings, not hard exclusions.
   const hardExcludedSet = new Set([
     ...immutableExcluded
   ]);
