@@ -2171,7 +2171,10 @@ export function getMutationRenderMode(mutations) {
       ) {
         return "rebuild";
       }
-      if (name === "hidden" || name === "aria-hidden" || name === "style") {
+      if (name === "style") {
+        return "rebuild";
+      }
+      if (name === "hidden" || name === "aria-hidden") {
         mode = "reposition";
       }
       continue;
@@ -4071,24 +4074,12 @@ function renderHighlightsInner() {
   let aiContent = new Set();
   let aiExcludedDescendants = new Set();
   if (hasAiSelectors) {
-    const explicitIncludeXpathSet = new Set(
-      Array.isArray(entry.includeXpaths)
-        ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-        : []
-    );
-    const implicitIncludedXpaths = Array.isArray(entry.xpaths)
-      ? entry.xpaths
-        .filter(
-          (item) =>
-            item &&
-            item.xpath &&
-            item.excluded === false &&
-            !explicitIncludeXpathSet.has(item.xpath)
-        )
-        .map((item) => item.xpath)
-      : [];
-    const implicitIncludedElements = collectXPathElements(implicitIncludedXpaths);
-    for (const el of implicitIncludedElements) {
+    const aiCollections = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet, {
+      ignoreVisibilityForInclusionDetection: true,
+      preserveExplicitIncludedDescendants: true,
+      includeAllExplicitMatches: true
+    });
+    for (const el of aiCollections.included || []) {
       if (!el || el.nodeType !== 1) {
         continue;
       }
@@ -4099,6 +4090,18 @@ function renderHighlightsInner() {
         continue;
       }
       aiContent.add(el);
+    }
+    for (const el of aiCollections.excluded || []) {
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+        continue;
+      }
+      if (isWithinExplicitInclude(el)) {
+        continue;
+      }
+      aiExcludedDescendants.add(el);
     }
     for (const el of explicitInclude) {
       if (!el || el.nodeType !== 1) {

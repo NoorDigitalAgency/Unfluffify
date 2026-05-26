@@ -104,7 +104,7 @@ test("visibility collapse fails the visibility guard", () => {
   });
 });
 
-test("style mutations trigger overlay repositioning for dynamic visibility changes", () => {
+test("style mutations trigger overlay rebuild for dynamic visibility changes", () => {
   withVisibilityDom(({ body }) => {
     assert.equal(
       getMutationRenderMode([
@@ -114,7 +114,7 @@ test("style mutations trigger overlay repositioning for dynamic visibility chang
           target: body
         }
       ]),
-      "reposition"
+      "rebuild"
     );
   });
 });
