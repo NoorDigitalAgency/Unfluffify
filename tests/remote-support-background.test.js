@@ -1094,9 +1094,11 @@ test("extension telemetry feeds Unfluffify panels and requester remote peer", as
           message.type === "remoteSupportNetworkEntry" &&
           message.entry &&
           message.entry.source === "worker" &&
-          message.entry.url === "https://api.example.com/save"
+          message.entry.url === "https://api.example.com/save" &&
+          message.entry.payload === null
       ),
-      true
+      true,
+      "local devtools port should not receive payload when includePayloads is false"
     );
     assert.equal(
       transportMessages.some(
@@ -1111,6 +1113,279 @@ test("extension telemetry feeds Unfluffify panels and requester remote peer", as
           message.payload.entry.payload === null
       ),
       true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("local devtools port receives payload when includePayloads is enabled by incoming control message", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, connectPort } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_payload_enabled",
+        supportCode: "445566",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=payload",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 42,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 42 } }
+    );
+
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 42 });
+
+    await handleTransportEvent({
+      type: "incoming-message",
+      sessionId: "sess_payload_enabled",
+      channelKey: "page",
+      message: {
+        type: "control-include-payloads",
+        payload: { enabled: true }
+      }
+    });
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 42,
+        channel: "network",
+        entry: {
+          source: "content",
+          type: "fetch",
+          method: "GET",
+          url: "https://api.example.com/data",
+          statusCode: 200,
+          payload: {
+            request: "",
+            response: "api-response-body"
+          }
+        }
+      },
+      {}
+    );
+
+    assert.equal(
+      networkPort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportNetworkEntry" &&
+          message.entry &&
+          message.entry.source === "content" &&
+          message.entry.payload !== null &&
+          message.entry.payload &&
+          message.entry.payload.response === "api-response-body"
+      ),
+      true,
+      "local devtools port should receive payload when includePayloads is true"
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("network devtools port disconnect resets includePayloads to false on supporting session", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, connectPort, transportMessages } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_payload_reset",
+        supportCode: "556677",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=reset",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 43,
+        supportCode: "556677"
+      },
+      { tab: { id: 43 } }
+    );
+
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 43 });
+    networkPort.emitMessage({ type: "setIncludePayloads", enabled: true });
+    await delay(0);
+
+    let stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 43 },
+      {}
+    );
+    assert.equal(stateResponse.state.includePayloads, true, "includePayloads should be true after enabling");
+
+    const transportCountBefore = transportMessages.length;
+    networkPort.disconnect();
+    await delay(0);
+
+    stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 43 },
+      {}
+    );
+    assert.equal(stateResponse.state.includePayloads, false, "includePayloads should reset to false on port disconnect");
+
+    assert.equal(
+      transportMessages.slice(transportCountBefore).some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_payload_reset" &&
+          message.messageType === "control-include-payloads" &&
+          message.payload &&
+          message.payload.enabled === false
+      ),
+      true,
+      "control-include-payloads: false should be sent to requester on port disconnect"
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("telemetry network entries carry integer header counts", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages, connectPort } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_header_counts",
+        supportCode: "667788",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=headers",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 44,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 44 } }
+    );
+
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 44 });
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 44,
+        channel: "network",
+        entry: {
+          source: "content",
+          type: "fetch",
+          method: "POST",
+          url: "https://api.example.com/data",
+          statusCode: 200,
+          requestHeaderCount: 7,
+          responseHeaderCount: 12,
+          payload: null
+        }
+      },
+      {}
+    );
+
+    const networkEntry = transportMessages.find(
+      (message) =>
+        message.type === "remoteSupportTransportSendData" &&
+        message.messageType === "telemetry" &&
+        message.payload &&
+        message.payload.channel === "network" &&
+        message.payload.entry &&
+        message.payload.entry.source === "content"
+    );
+
+    assert.ok(networkEntry, "network telemetry entry should be relayed to transport");
+
+    const relayedEntry = networkEntry.payload.entry;
+
+    assert.equal(
+      typeof relayedEntry.requestHeaderCount === "number",
+      true,
+      "requestHeaderCount should be a number"
+    );
+    assert.equal(relayedEntry.requestHeaderCount, 7, "requestHeaderCount should be preserved as integer");
+    assert.equal(
+      typeof relayedEntry.responseHeaderCount === "number",
+      true,
+      "responseHeaderCount should be a number"
+    );
+    assert.equal(relayedEntry.responseHeaderCount, 12, "responseHeaderCount should be preserved as integer");
+    assert.equal(
+      "requestHeaders" in relayedEntry,
+      false,
+      "requestHeaders object should not be present in relayed entry"
+    );
+    assert.equal(
+      "responseHeaders" in relayedEntry,
+      false,
+      "responseHeaders object should not be present in relayed entry"
+    );
+
+    const localNetworkMessage = networkPort.postedMessages.find(
+      (message) =>
+        message.type === "remoteSupportNetworkEntry" &&
+        message.entry &&
+        message.entry.source === "content"
+    );
+    assert.ok(localNetworkMessage, "local devtools port should receive the network entry");
+    assert.equal(
+      typeof localNetworkMessage.entry.requestHeaderCount === "number",
+      true,
+      "local devtools entry requestHeaderCount should be a number"
     );
   } finally {
     await terminateRemoteSupportSession("Test cleanup");

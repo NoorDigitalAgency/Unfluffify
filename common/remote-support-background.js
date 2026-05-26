@@ -525,9 +525,10 @@ async function relayExtensionTelemetryToRuntimes(channel, entry, tabId) {
 
 export async function handleExtensionTelemetry(message, sender) {
   const { channel, tabId, entry } = normalizeTelemetryEntry(message, sender);
+  const localRuntime = tabId !== null ? getRequesterRuntimeForTab(tabId) : null;
   const event = {
     type: channel === "network" ? "remoteSupportNetworkEntry" : "remoteSupportConsoleEntry",
-    entry,
+    entry: sanitizeTelemetryEntryForRuntime(localRuntime, entry),
     tabId,
     sessionId: ""
   };
@@ -1755,9 +1756,29 @@ export function handlePortConnection(port) {
   });
 
   port.onDisconnect.addListener(() => {
+    const boundTabId = getPortBoundTabId(port);
     consolePorts.delete(port);
     networkPorts.delete(port);
     unbindPort(port);
+
+    if (port.name === REMOTE_SUPPORT_PORT_NETWORK && boundTabId !== null) {
+      const hasRemainingPorts = [...networkPorts].some(
+        (p) => getPortBoundTabId(p) === boundTabId
+      );
+      if (!hasRemainingPorts) {
+        const runtime = getRuntimeByTabId(boundTabId);
+        if (
+          runtime &&
+          runtime.state.active &&
+          runtime.state.mode === REMOTE_SUPPORT_MODE_SUPPORTING &&
+          runtime.state.includePayloads
+        ) {
+          runtime.state.includePayloads = false;
+          broadcastRuntimeState(runtime);
+          void sendDataMessage(runtime, "control-include-payloads", { enabled: false });
+        }
+      }
+    }
   });
 }
 

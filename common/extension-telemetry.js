@@ -57,15 +57,6 @@ function countHeaders(headersLike) {
     return 0;
   }
   try {
-    if (typeof headersLike.forEach === "function") {
-      let count = 0;
-      headersLike.forEach((value, key) => {
-        if (typeof key === "string") {
-          count++;
-        }
-      });
-      return count;
-    }
     if (Array.isArray(headersLike)) {
       let count = 0;
       for (const pair of headersLike) {
@@ -73,6 +64,15 @@ function countHeaders(headersLike) {
           count++;
         }
       }
+      return count;
+    }
+    if (typeof headersLike.forEach === "function") {
+      let count = 0;
+      headersLike.forEach((value, key) => {
+        if (typeof key === "string") {
+          count++;
+        }
+      });
       return count;
     }
     if (typeof headersLike === "object") {
