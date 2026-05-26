@@ -1422,8 +1422,7 @@ export async function handleRequestSupportCode(message) {
   const transportSignature = createTransportSignature({
     role: "requester",
     wsUrl,
-    iceServers,
-    captureSource: "display"
+    iceServers
   });
 
   const { runtime, reused } = await beginSession({
