@@ -170,15 +170,11 @@ const initialViewState = {
   remoteSupportAutoFocus: false,
   remoteSupportMode: "inactive",
   remoteSupportRole: "",
-  remoteSupportControlOwner: "",
   remoteSupportSessionActive: false,
   remoteSupportStatusText: "",
   remoteSupportConnected: false,
   remoteSupportStreaming: false,
   remoteSupportPreviewImage: "",
-  remoteSupportControlDisabled: true,
-  remoteSupportControlToggleDisabled: true,
-  remoteSupportControlButtonText: PopupText.configuration.remoteSupportTakeOverButton,
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -561,22 +557,6 @@ function renderRemoteSupportSection(view, handlers) {
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
     sessionActive
-      ? beingSupported
-        ? h(
-            "button",
-            {
-              id: "remote-support-control-toggle",
-              type: "button",
-              class: "full-width",
-              disabled: view.remoteSupportControlToggleDisabled,
-              onClick: handlers.onRemoteSupportControlToggle
-            },
-            icon("swap-horizontal"),
-            view.remoteSupportControlButtonText
-          )
-        : null
-      : null,
-    sessionActive
       ? h(
           "button",
           {
@@ -685,17 +665,6 @@ function renderRemoteSupportedView(view, handlers) {
         h(
           "button",
           {
-            id: "remote-support-control-toggle",
-            type: "button",
-            disabled: view.remoteSupportControlToggleDisabled,
-            onClick: handlers.onRemoteSupportControlToggle
-          },
-          icon("swap-horizontal"),
-          view.remoteSupportControlButtonText
-        ),
-        h(
-          "button",
-          {
             id: "remote-support-end",
             type: "button",
             class: "warning remote-support-controller__end",
@@ -706,7 +675,6 @@ function renderRemoteSupportedView(view, handlers) {
         )
       )
     ),
-    h("div", { class: "notice", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportControlledModeHint),
     h("div", { class: "hint", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportBeingSupportedHint)
   );
 }

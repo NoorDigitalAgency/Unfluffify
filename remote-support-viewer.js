@@ -259,8 +259,11 @@ function createTransportRuntime(session) {
     peerConnection: null,
     dataChannels: new Map(),
     remoteStream: null,
+    remoteCameraStream: null,
+    localCameraStream: null,
     sidebarStream: null,
     remoteVideoSurfaceCount: 0,
+    remoteAudioAttached: false,
     sidebarFrameRequestId: 0,
     sidebarFrameRafId: 0,
     sidebarFrameVersion: 0,
@@ -591,6 +594,9 @@ function postSidebarFrame(runtime, frame, width = 0, height = 0) {
 function ensureViewerElements() {
   return {
     video: document.getElementById("viewer-video"),
+    remoteCameraVideo: document.getElementById("remote-camera-video"),
+    localCameraVideo: document.getElementById("local-camera-video"),
+    remoteAudio: document.getElementById("remote-audio"),
     sidebarVideo: document.getElementById("sidebar-video"),
     sidebarCanvas: document.getElementById("sidebar-canvas"),
     placeholder: document.getElementById("viewer-placeholder")
@@ -630,6 +636,22 @@ function detachRemoteStream() {
     elements.video.onloadedmetadata = null;
     elements.video.onresize = null;
     elements.video.srcObject = null;
+  }
+
+  if (elements.remoteCameraVideo) {
+    try { elements.remoteCameraVideo.pause(); } catch (error) {}
+    elements.remoteCameraVideo.hidden = true;
+    elements.remoteCameraVideo.srcObject = null;
+  }
+
+  if (elements.localCameraVideo) {
+    try { elements.localCameraVideo.pause(); } catch (error) {}
+    elements.localCameraVideo.hidden = true;
+    elements.localCameraVideo.srcObject = null;
+  }
+
+  if (elements.remoteAudio) {
+    elements.remoteAudio.srcObject = null;
   }
 
   if (elements.sidebarVideo) {
@@ -753,6 +775,7 @@ function resetTransportResources(runtime) {
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
   detachRemoteStream();
+  stopLocalMediaStream(runtime.localCameraStream);
   cancelSidebarFrameRelay(runtime);
 
   runtime.dataChannels.clear();
@@ -760,8 +783,11 @@ function resetTransportResources(runtime) {
   runtime.pendingIceCandidates = [];
   runtime.signalingSocket = null;
   runtime.remoteStream = null;
+  runtime.remoteCameraStream = null;
+  runtime.localCameraStream = null;
   runtime.sidebarStream = null;
   runtime.remoteVideoSurfaceCount = 0;
+  runtime.remoteAudioAttached = false;
   runtime.sidebarFrameRequestId = 0;
   runtime.sidebarFrameRafId = 0;
   runtime.sidebarFrameVersion = 0;
@@ -931,6 +957,46 @@ function scheduleSidebarFrameRelay(runtime) {
   });
 }
 
+
+function stopLocalMediaStream(stream) {
+  if (!stream || typeof stream.getTracks !== "function") {
+    return;
+  }
+  for (const track of stream.getTracks()) {
+    if (track && typeof track.stop === "function") {
+      try { track.stop(); } catch (error) {}
+    }
+  }
+}
+
+async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
+  if (!runtime || runtime.localCameraStream || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    runtime.localCameraStream = stream;
+    const elements = ensureViewerElements();
+    if (elements.localCameraVideo) {
+      elements.localCameraVideo.srcObject = stream;
+      elements.localCameraVideo.hidden = false;
+      void elements.localCameraVideo.play().catch(() => {});
+    }
+    if (typeof peerConnection.addTrack === "function") {
+      for (const track of stream.getTracks()) {
+        peerConnection.addTrack(track, stream);
+      }
+    }
+  } catch (error) {
+    postTransportEvent({
+      type: "media-warning",
+      sessionId: runtime.sessionId,
+      error: "Camera or microphone was not shared; continuing with receive-only guidance"
+    });
+  }
+}
+
 function attachRemoteStream(runtime, streamLike, track = null) {
   const elements = ensureViewerElements();
   if (!elements.video) {
@@ -943,6 +1009,15 @@ function attachRemoteStream(runtime, streamLike, track = null) {
       ? new MediaStream([track])
       : null;
   if (!stream) {
+    return;
+  }
+
+  if (track && track.kind === "audio") {
+    runtime.remoteAudioAttached = true;
+    if (elements.remoteAudio && elements.remoteAudio.srcObject !== stream) {
+      elements.remoteAudio.srcObject = stream;
+      void elements.remoteAudio.play().catch(() => {});
+    }
     return;
   }
 
@@ -990,6 +1065,16 @@ function attachRemoteStream(runtime, streamLike, track = null) {
         postVideoState(currentRuntime, false, 0, 0);
       });
     }
+    return;
+  }
+
+  if (surfaceIndex === 1 && elements.remoteCameraVideo) {
+    runtime.remoteCameraStream = stream;
+    if (elements.remoteCameraVideo.srcObject !== stream) {
+      elements.remoteCameraVideo.srcObject = stream;
+    }
+    elements.remoteCameraVideo.hidden = false;
+    void elements.remoteCameraVideo.play().catch(() => {});
     return;
   }
 
@@ -1202,7 +1287,12 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (typeof peerConnection.addTransceiver === "function") {
-    for (let index = 0; index < 2; index += 1) {
+    try {
+      peerConnection.addTransceiver("audio", { direction: "recvonly" });
+    } catch (error) {
+      // Ignore negotiation mismatches if Chrome adjusts the offer shape automatically.
+    }
+    for (let index = 0; index < 3; index += 1) {
       try {
         peerConnection.addTransceiver("video", { direction: "recvonly" });
       } catch (error) {
@@ -1213,6 +1303,7 @@ async function ensurePeerConnection(runtime, offerer) {
   }
 
   if (offerer) {
+    await ensureLocalCameraAndMicTracks(runtime, peerConnection);
     for (const descriptor of runtime.dataChannelDescriptors) {
       bindDataChannel(runtime, peerConnection.createDataChannel(descriptor.label), descriptor.key);
     }

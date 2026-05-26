@@ -1,4 +1,5 @@
 import { REMOTE_SUPPORT_PORT_NETWORK } from "../common/remote-support.js";
+import { formatSourceLabel } from "../common/devtools-helpers.js";
 
 const rows = document.getElementById("rows");
 const includePayloads = document.getElementById("include-payloads");
@@ -45,7 +46,7 @@ function appendEntry(entry) {
   tdDate.textContent = date;
 
   const tdSource = document.createElement("td");
-  tdSource.textContent = String(entry.source || "extension");
+  tdSource.textContent = formatSourceLabel(entry.source);
 
   const tdStatus = document.createElement("td");
   tdStatus.textContent = String(Number(entry.statusCode) || 0);
@@ -58,6 +59,11 @@ function appendEntry(entry) {
 
   const tdTime = document.createElement("td");
   tdTime.textContent = Math.max(0, Number(entry.loadTimeMs) || 0).toFixed(1);
+
+  const tdHeaders = document.createElement("td");
+  const requestHeaderCount = typeof entry.requestHeaderCount === "number" ? entry.requestHeaderCount : 0;
+  const responseHeaderCount = typeof entry.responseHeaderCount === "number" ? entry.responseHeaderCount : 0;
+  tdHeaders.textContent = `req ${requestHeaderCount} / res ${responseHeaderCount}`;
 
   const tdUrl = document.createElement("td");
   tdUrl.className = "mono";
@@ -72,6 +78,7 @@ function appendEntry(entry) {
   tr.appendChild(tdMethod);
   tr.appendChild(tdType);
   tr.appendChild(tdTime);
+  tr.appendChild(tdHeaders);
   tr.appendChild(tdUrl);
   tr.appendChild(tdPayload);
 

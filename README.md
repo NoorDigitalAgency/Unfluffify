@@ -15,7 +15,7 @@ Remote support design, security guarantees, and backend endpoint expectations ar
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
-- **Remote Support**: WebRTC-based session allowing a supporter to open the dedicated support page, enter a support code, view a live tab preview, stream console/network telemetry, and send remote control inputs
+- **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
 
 ## Installation (Developer Mode)
@@ -33,9 +33,11 @@ Run the regression suite from the repository root:
 npm test
 ```
 
+The script uses Node's built-in test runner with `--test-force-exit` so mocked extension transports cannot keep CI open after assertions finish.
+
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
-The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, handoff streaming, sidebar/cursor mirroring, extension-side telemetry, and dismissible session notices.
+The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, view-only display sharing, sidebar/cursor mirroring, extension-side telemetry with headers/timing, and dismissible session notices.
 
 ## Project Structure
 

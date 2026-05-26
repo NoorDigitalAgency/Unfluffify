@@ -2441,11 +2441,9 @@ async function refreshUiInner() {
   };
   const remoteSupportMode = scopedRemoteSupportState.mode || "inactive";
   const remoteSupportControlOwner = scopedRemoteSupportState.controlOwner || "";
-  const remoteSupportOwnedBySupporter = remoteSupportControlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
-  nextViewState.remoteSupportControlOwner = remoteSupportControlOwner;
   nextViewState.remoteSupportVisible = Boolean(tokenValue);
   nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
   nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
@@ -2456,16 +2454,6 @@ async function refreshUiInner() {
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
-  nextViewState.remoteSupportControlDisabled = !(
-    remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING &&
-    scopedRemoteSupportState &&
-    scopedRemoteSupportState.connected &&
-    remoteSupportOwnedBySupporter
-  );
-  nextViewState.remoteSupportControlToggleDisabled = !Boolean(scopedRemoteSupportState.active && scopedRemoteSupportState.connected);
-  nextViewState.remoteSupportControlButtonText = remoteSupportOwnedBySupporter
-    ? PopupText.configuration.remoteSupportTakeOverButton
-    : PopupText.configuration.remoteSupportHandOffButton;
   nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
     active: nextViewState.remoteSupportSessionActive,
     mode: remoteSupportMode,
@@ -3584,9 +3572,7 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     ? state.currentTab.id
     : null;
   const nextState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  const supporting = nextState.mode === REMOTE_SUPPORT_MODE_SUPPORTING;
   const remoteSupportControlOwner = nextState.controlOwner || "";
-  const remoteSupportOwnedBySupporter = remoteSupportControlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
   const statusText = buildRemoteSupportStatusText({
     active: Boolean(nextState.active),
     mode: nextState.mode || "inactive",
@@ -3597,17 +3583,11 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportSessionActive: Boolean(nextState.active),
     remoteSupportMode: nextState.mode || "inactive",
     remoteSupportRole: nextState.role || "",
-    remoteSupportControlOwner,
     remoteSupportRequested: Boolean(nextState.supportCode),
     remoteSupportCode: nextState.supportCode || "",
     remoteSupportConnected: Boolean(nextState.connected),
     remoteSupportStreaming: Boolean(nextState.streaming),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
-    remoteSupportControlDisabled: !supporting || !nextState.connected || !remoteSupportOwnedBySupporter,
-    remoteSupportControlToggleDisabled: !Boolean(nextState.active && nextState.connected),
-    remoteSupportControlButtonText: remoteSupportOwnedBySupporter
-      ? PopupText.configuration.remoteSupportTakeOverButton
-      : PopupText.configuration.remoteSupportHandOffButton,
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
@@ -3622,12 +3602,8 @@ function buildRemoteSupportStatusText(stateValue) {
     ? "Being supported"
     : "Supporting";
   const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
-  const controlLabel = stateValue.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? " • requester has control"
-    : stateValue.connected
-      ? " • supporter has control"
-      : "";
-  return `${mode}${connectedLabel}${controlLabel}`;
+  const streamLabel = stateValue.connected ? " • view-only" : "";
+  return `${mode}${connectedLabel}${streamLabel}`;
 }
 
 function normalizeRemoteSupportSidebarListItem(candidate) {

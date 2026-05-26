@@ -36,6 +36,9 @@ export function createInactiveRemoteSupportState() {
     connected: false,
     streaming: false,
     partnerConnected: false,
+    startedAt: 0,
+    supporteePlatform: "",
+    supporteeUserAgent: "",
     error: "",
     lastActivityAt: 0
   };
@@ -238,6 +241,9 @@ export function scopeRemoteSupportStateToTab(state, tabId) {
     connected: Boolean(state.connected),
     streaming: Boolean(state.streaming),
     includePayloads: Boolean(state.includePayloads),
+    startedAt: Number(state.startedAt) || 0,
+    supporteePlatform: typeof state.supporteePlatform === "string" ? state.supporteePlatform : "",
+    supporteeUserAgent: typeof state.supporteeUserAgent === "string" ? state.supporteeUserAgent : "",
     tabId: normalizeRemoteSupportTabId(state.tabId)
   };
 }

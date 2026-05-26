@@ -1904,11 +1904,7 @@ function canControlFromRemoteSupportSupportPage() {
 }
 
 function canControlSidebarFromRemoteSupportSupportPage() {
-  return Boolean(
-    canControlFromRemoteSupportSupportPage() &&
-    remoteSupportSupportPageSidebarVideoActive &&
-    remoteSupportSupportPageSidebarLastFrame
-  );
+  return false;
 }
 
 function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
@@ -1971,21 +1967,8 @@ function createRemoteSupportSupportPagePointerPayload(event, options = {}) {
   return { x, y };
 }
 
-async function sendRemoteSupportSupportPageCommand(command, channelKey = "") {
-  if (!canControlFromRemoteSupportSupportPage() || !command) {
-    return false;
-  }
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "remoteSupportSendCommand",
-      command,
-      channelKey
-    });
-    return Boolean(response && response.ok);
-  } catch (error) {
-    return false;
-  }
+async function sendRemoteSupportSupportPageCommand() {
+  return false;
 }
 
 function queueRemoteSupportSupportPagePointerMove(pointer) {
@@ -2208,11 +2191,10 @@ function ensureRemoteSupportSupportPageUi() {
         <section class="uf-support-page__hero" data-uf-extension-ui="true">
           <div data-uf-extension-ui="true">
             <div class="uf-support-page__eyebrow" data-uf-extension-ui="true">Remote Support</div>
-            <h1 class="uf-support-page__title" data-uf-extension-ui="true">Control the live page from here.</h1>
-            <p class="uf-support-page__lede" data-uf-extension-ui="true">This tab is now the supporter surface. The remote page appears here and your input is forwarded to the requester page.</p>
+            <h1 class="uf-support-page__title" data-uf-extension-ui="true">View the live Chrome window.</h1>
+            <p class="uf-support-page__lede" data-uf-extension-ui="true">This tab is now the supporter surface. The supportee's shared Chrome window appears here with two-way camera and microphone, telemetry, and session details. Remote control is not available.</p>
           </div>
           <div class="uf-support-page__hero-actions" data-uf-extension-ui="true">
-            <button id="uf-support-page-control" class="uf-support-page__button" type="button" hidden data-uf-extension-ui="true">Hand off control</button>
             <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
           </div>
         </section>
@@ -2246,7 +2228,7 @@ function ensureRemoteSupportSupportPageUi() {
                   <canvas id="uf-support-page-sidebar-frame" class="uf-support-page__sidebar-frame" hidden data-uf-extension-ui="true"></canvas>
                   <div id="uf-support-page-sidebar-placeholder" class="uf-support-page__sidebar-placeholder-surface" data-uf-extension-ui="true"></div>
                 </div>
-                <p class="uf-support-page__sidebar-caption" data-uf-extension-ui="true">Pointer, scroll, and keyboard input on this surface are sent to the remote Unfluffify sidebar once the session is connected.</p>
+                <p class="uf-support-page__sidebar-caption" data-uf-extension-ui="true">Live supportee Unfluffify sidebar information appears here. Remote control is disabled.</p>
               </div>
             </div>
           </aside>
@@ -2257,7 +2239,7 @@ function ensureRemoteSupportSupportPageUi() {
               <div id="uf-support-page-cursor" class="uf-support-page__cursor" hidden aria-hidden="true" data-uf-extension-ui="true"></div>
               <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
-            <p class="uf-support-page__caption" data-uf-extension-ui="true">Pointer, scroll, and keyboard input on this surface are sent to the remote page once the session is connected.</p>
+            <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
           </div>
         </section>
       </div>
@@ -2275,7 +2257,7 @@ function ensureRemoteSupportSupportPageUi() {
       error: root.querySelector("#uf-support-page-error"),
       errorText: root.querySelector("#uf-support-page-error-text"),
       errorDismiss: root.querySelector("#uf-support-page-error-dismiss"),
-      controlButton: root.querySelector("#uf-support-page-control"),
+      controlButton: null,
       endButton: root.querySelector("#uf-support-page-end"),
       sidebarSimulation: root.querySelector("#uf-support-page-sidebar-sim"),
       sidebarSurface: root.querySelector("#uf-support-page-sidebar-surface"),
@@ -2300,10 +2282,6 @@ function ensureRemoteSupportSupportPageUi() {
     remoteSupportSupportPageElements.endButton.addEventListener("click", (event) => {
       event.preventDefault();
       handleRemoteSupportSupportPageEnd().then();
-    });
-    remoteSupportSupportPageElements.controlButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      handleRemoteSupportSupportPageControlToggle().then();
     });
     remoteSupportSupportPageElements.errorDismiss.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2637,11 +2615,9 @@ function renderRemoteSupportSupportPageSidebar() {
 
   const snapshot = normalizeRemoteSupportSidebarSnapshot(remoteSupportSupportPageSidebarSnapshot);
   const hasLiveSidebar = Boolean(remoteSupportSupportPageSidebarVideoActive && remoteSupportSupportPageSidebarLastFrame);
-  const canControl = canControlSidebarFromRemoteSupportSupportPage();
-
-  elements.sidebarSurface.classList.toggle("is-disabled", !canControl);
-  elements.sidebarSurface.setAttribute("aria-disabled", canControl ? "false" : "true");
-  elements.sidebarSurface.tabIndex = canControl ? 0 : -1;
+  elements.sidebarSurface.classList.add("is-disabled");
+  elements.sidebarSurface.setAttribute("aria-disabled", "true");
+  elements.sidebarSurface.tabIndex = -1;
 
   if (hasLiveSidebar) {
     elements.sidebarFrame.hidden = false;
@@ -2824,7 +2800,7 @@ function renderRemoteSupportSupportPage() {
   }
 
   const active = Boolean(remoteSupportSupportPageState.active);
-  const canControl = canControlFromRemoteSupportSupportPage();
+  const canControl = false;
   const errorText = typeof remoteSupportSupportPageState.error === "string"
     ? remoteSupportSupportPageState.error.trim()
     : "";
@@ -2837,11 +2813,6 @@ function renderRemoteSupportSupportPage() {
   elements.joinInput.disabled = active || remoteSupportSupportPageJoinLoading;
   elements.joinButton.disabled = active || remoteSupportSupportPageJoinLoading || !remoteSupportSupportPageJoinCode || !Number.isFinite(remoteSupportSupportPageTabId);
   elements.joinButton.textContent = remoteSupportSupportPageJoinLoading ? "Joining..." : "Join support";
-  elements.controlButton.hidden = !active;
-  elements.controlButton.disabled = !active || !remoteSupportSupportPageState.connected;
-  elements.controlButton.textContent = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? "Take control"
-    : "Hand off control";
   elements.endButton.hidden = !active;
   elements.endButton.disabled = !active;
   elements.error.hidden = !errorText;

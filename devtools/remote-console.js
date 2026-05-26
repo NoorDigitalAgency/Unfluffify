@@ -1,4 +1,5 @@
 import { REMOTE_SUPPORT_PORT_CONSOLE } from "../common/remote-support.js";
+import { formatSourceLabel } from "../common/devtools-helpers.js";
 
 const list = document.getElementById("list");
 const clearButton = document.getElementById("clear");
@@ -32,9 +33,7 @@ function appendEntry(entry) {
   strong.textContent = level.toUpperCase();
   const source = document.createElement("span");
   source.className = "source";
-  source.textContent = typeof entry.source === "string" && entry.source.trim()
-    ? entry.source.trim()
-    : "extension";
+  source.textContent = formatSourceLabel(entry.source);
   const muted = document.createElement("span");
   muted.className = "muted";
   muted.textContent = date.toISOString();

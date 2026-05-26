@@ -26,6 +26,11 @@ function formatConsoleMessage(args) {
     .trim();
 }
 
+function clampUrl(url, maxLength = 2048) {
+  const urlString = String(url || "");
+  return urlString.length > maxLength ? urlString.slice(0, maxLength) : urlString;
+}
+
 function getFetchUrl(input) {
   if (typeof input === "string") {
     return input;
@@ -44,6 +49,49 @@ function getFetchMethod(input, init) {
     return input.method.trim().toUpperCase();
   }
   return "GET";
+}
+
+
+function countHeaders(headersLike) {
+  if (!headersLike) {
+    return 0;
+  }
+  try {
+    if (Array.isArray(headersLike)) {
+      let count = 0;
+      for (const pair of headersLike) {
+        if (Array.isArray(pair) && pair.length >= 2) {
+          count++;
+        }
+      }
+      return count;
+    }
+    if (typeof headersLike.forEach === "function") {
+      let count = 0;
+      headersLike.forEach((value, key) => {
+        if (typeof key === "string") {
+          count++;
+        }
+      });
+      return count;
+    }
+    if (typeof headersLike === "object") {
+      return Object.keys(headersLike).length;
+    }
+  } catch (error) {
+    return 0;
+  }
+  return 0;
+}
+
+function getFetchRequestHeaderCount(input, init) {
+  if (init && init.headers) {
+    return countHeaders(init.headers);
+  }
+  if (input && input.headers) {
+    return countHeaders(input.headers);
+  }
+  return 0;
 }
 
 function getFiniteTabId(value) {
@@ -191,12 +239,14 @@ function installFetchTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "fetch",
         type: "fetch",
-        url,
+        url: clampUrl(url),
         method,
         statusCode: Number(response && response.status) || 0,
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
+        requestHeaderCount: getFetchRequestHeaderCount(input, init),
+        responseHeaderCount: countHeaders(response && response.headers),
         payload: createPayloadFromFetch(options, requestBody, responseBody)
       });
       return response;
@@ -204,12 +254,14 @@ function installFetchTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "fetch",
         type: "fetch",
-        url,
+        url: clampUrl(url),
         method,
         statusCode: 0,
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
+        requestHeaderCount: getFetchRequestHeaderCount(input, init),
+        responseHeaderCount: 0,
         payload: null,
         error: clampTelemetryText(error && error.message ? error.message : error)
       });
@@ -219,6 +271,25 @@ function installFetchTelemetry(target, options) {
 
   wrappedFetch.__unfluffifyExtensionTelemetryInstalled = true;
   target.fetch = wrappedFetch;
+}
+
+
+function countRawResponseHeaders(rawHeaders) {
+  if (typeof rawHeaders !== "string") {
+    return 0;
+  }
+  let count = 0;
+  for (const line of rawHeaders.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+    const separatorIndex = trimmedLine.indexOf(":");
+    if (separatorIndex > 0) {
+      count++;
+    }
+  }
+  return count;
 }
 
 function installXhrTelemetry(target, options) {
@@ -267,12 +338,14 @@ function installXhrTelemetry(target, options) {
       postTelemetryMessage(options, "network", {
         source: "xhr",
         type: "xhr",
-        url: meta.url || "",
+        url: clampUrl(meta.url),
         method: meta.method || "GET",
         statusCode: Number(this.status) || 0,
         startedAt: meta.startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - (Number(meta.startedAt) || Date.now())),
+        requestHeaderCount: 0,
+        responseHeaderCount: countRawResponseHeaders(typeof this.getAllResponseHeaders === "function" ? this.getAllResponseHeaders() : ""),
         payload: createPayloadFromFetch(options, meta.requestBody, responseBody)
       });
     }, { once: true });

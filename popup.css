@@ -4,13 +4,13 @@
   --card: #ffffff;
   --ink-base: #1a1d26;
   --muted-base: #6b7280;
-  --success: #006b3f;
-  --danger: #c1121f;
+  --success: #006d5b;
+  --danger: #9d174d;
   --line-base: #e5e7eb;
   --accent: #4f46e5;
   --accent-dark: #3730a3;
   --accent-light: #eef2ff;
-  --warn: #9f3f00;
+  --warn: #984500;
   --ink: light-dark(
     color-mix(in srgb, var(--ink-base) 94%, #040608 6%),
     color-mix(in srgb, var(--ink-base) 84%, #ffffff 16%)
