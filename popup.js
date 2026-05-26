@@ -1921,7 +1921,6 @@ function getLatestAvailableSelectorsFromConfig(sourceConfig = state.currentConfi
 
 function getSilentHighlightVisibility() {
   return {
-    markedPages: state.silentHighlightShowMarkedPages !== false,
     includedContent: state.silentHighlightShowIncludedContent !== false,
     excludedContent: Boolean(state.silentHighlightShowExcludedContent),
     visibleConsent: Boolean(state.silentHighlightShowVisibleConsent),
@@ -1939,7 +1938,7 @@ async function loadGlobalSilentHighlightOptions() {
 }
 
 function getSilentHighlightVisibilityKey(visibility) {
-  return `${visibility.markedPages ? "1" : "0"}${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
+  return `${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
 }
 
 async function persistSilentHighlightVisibility() {
@@ -2180,7 +2179,6 @@ async function refreshUiInner() {
         : {}
     )
   });
-  state.silentHighlightShowMarkedPages = silentHighlightOptions.markedPages;
   state.silentHighlightShowIncludedContent = silentHighlightOptions.includedContent;
   state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
   state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
@@ -3003,7 +3001,6 @@ async function refreshUiInner() {
     resolvedView === uiModule.View.Marking && !isEnabled;
   nextViewState.highlightingOptionsVisible =
     !pageScopedUiDisabled && highlightingMode && renderModeReady;
-  nextViewState.highlightMarkedPagesChecked = state.silentHighlightShowMarkedPages;
   nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
   nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
   nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
@@ -4664,11 +4661,8 @@ function handleTodoAutoCollapseToggle() {
   uiModule.setTodoAutoCollapse(!Boolean(view.todoAutoCollapse));
 }
 
-function handleHighlightingSectionToggle() {
-  const view = uiModule.getViewState();
-  uiModule.setViewState({
-    highlightingSectionExpanded: !Boolean(view.highlightingSectionExpanded)
-  });
+function handleConfigurationExtrasToggle() {
+  uiModule.toggleConfigurationExtrasExpanded();
 }
 
 async function handleOpenConfigurationView() {
@@ -4924,19 +4918,13 @@ async function handleEnableToggle(event) {
 }
 
 async function handleHighlightMarkedPagesChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightShowMarkedPages",
-    "highlightMarkedPagesChecked"
-  );
-}
-
 async function handleHighlightIncludedContentChange(event) {
   await updateHighlightVisibilityOption(
     event,
     "silentHighlightShowIncludedContent",
     "highlightIncludedContentChecked"
   );
+  uiModule.toggleConfigurationExtrasExpanded();
 }
 
 async function handleHighlightExcludedContentChange(event) {
@@ -6053,7 +6041,6 @@ async function init() {
 
   uiModule.initUi({
     onToggleEnabled: handleEnableToggle,
-    onHighlightMarkedPagesChange: handleHighlightMarkedPagesChange,
     onHighlightIncludedContentChange: handleHighlightIncludedContentChange,
     onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
     onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
@@ -6072,7 +6059,7 @@ async function init() {
     onTodoExpandAll: handleTodoExpandAll,
     onTodoCollapseAll: handleTodoCollapseAll,
     onTodoAutoCollapseToggle: handleTodoAutoCollapseToggle,
-    onHighlightingSectionToggle: handleHighlightingSectionToggle,
+    onConfigurationExtrasToggle: handleConfigurationExtrasToggle,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,
     onClearDomainCache: handleClearDomainCache,

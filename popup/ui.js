@@ -28,6 +28,7 @@ const initialViewState = {
   currentView: View.Configuration,
   configurationContinueDisabled: true,
   configurationBackDisabled: true,
+  configurationExtrasExpanded: false,
   configurationNoticeText: "",
   configurationNoticeVisible: false,
   currentPageUrl: ViewText.unavailable,
@@ -146,13 +147,11 @@ const initialViewState = {
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
   highlightingOptionsVisible: false,
-  highlightingSectionExpanded: false,
   previewActive: false,
   previewItems: [],
   previewFocusedXpath: "",
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
-  highlightMarkedPagesChecked: true,
   highlightIncludedContentChecked: true,
   highlightExcludedContentChecked: true,
   highlightVisibleConsentChecked: false,
@@ -512,13 +511,15 @@ function renderRemoteSupportSection(view, handlers) {
   const supporting = view.remoteSupportMode === "supporting";
   const beingSupported = view.remoteSupportMode === "being_supported";
   const requesting = Boolean(view.remoteSupportRequestLoading);
-  const joining = Boolean(view.remoteSupportJoinLoading);
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
+  const sectionClass = view.remoteSupportEmbedded
+    ? "config-extra-subsection remote-support-card remote-support-card--embedded"
+    : "card remote-support-card";
   return h(
     "section",
     {
-      class: "card remote-support-card",
+      class: sectionClass,
       ref: (el) => {
         refs.remoteSupportSection = el;
       }
@@ -1085,7 +1086,59 @@ function App({ state: view, actions: handlers }) {
         h(
           "div",
           { class: "header-text" },
-          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
+          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" }),
+          h(
+            "div",
+            {
+              class: "header-property-url",
+              hidden: previewVisible || remoteControllerVisible || configurationView
+            },
+            h(
+              "label",
+              { class: "field field--compact" },
+              h("span", { class: "control-label" }, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
+              h(
+                "div",
+                { class: "input-row property-url-row" },
+                h("input", {
+                  id: "base-url",
+                  type: "text",
+                  placeholder: PopupText.baseUrl.placeholder,
+                  readOnly: true,
+                  value: view.baseUrlInputValue
+                }),
+                h(
+                  "div",
+                  { class: "section-header-actions property-url-actions" },
+                  h(
+                    "button",
+                    {
+                      id: "base-page-menu-toggle",
+                      type: "button",
+                      class: "section-menu-button button-secondary",
+                      "aria-haspopup": "menu",
+                      "aria-expanded": view.basePageMenuOpen ? "true" : "false",
+                      title: PopupText.tooltips.basePageUrls,
+                      onClick: handlers.onBasePageMenuToggle
+                    },
+                    icon("dots-vertical")
+                  ),
+                  renderBasePageMenu(view, handlers)
+                )
+              )
+            ),
+            h(
+              "div",
+              {
+                id: "base-url-notice",
+                class: "notice",
+                role: "status",
+                "aria-live": "polite",
+                hidden: !view.baseUrlNoticeVisible
+              },
+              view.baseUrlNoticeText
+            )
+          )
         ),
         !previewVisible &&
           !remoteControllerVisible &&
@@ -1636,55 +1689,6 @@ function renderMarkingView({state: view, actions: handlers}) {
   return h(
     Fragment,
     null,
-    h(
-      "section",
-      {class: "card"},
-      h(
-        "label",
-        {class: "field"},
-        h("span", null, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
-        h(
-          "div",
-          {class: "input-row property-url-row"},
-          h("input", {
-            id: "base-url",
-            type: "text",
-            placeholder: PopupText.baseUrl.placeholder,
-            readOnly: true,
-            value: view.baseUrlInputValue
-          }),
-          h(
-            "div",
-            { class: "section-header-actions property-url-actions" },
-            h(
-              "button",
-              {
-                id: "base-page-menu-toggle",
-                type: "button",
-                class: "section-menu-button button-secondary",
-                "aria-haspopup": "menu",
-                "aria-expanded": view.basePageMenuOpen ? "true" : "false",
-                title: PopupText.tooltips.basePageUrls,
-                onClick: handlers.onBasePageMenuToggle
-              },
-              icon("dots-vertical")
-            ),
-            renderBasePageMenu(view, handlers)
-          )
-        )
-      ),
-      h(
-        "div",
-        {
-          id: "base-url-notice",
-          class: "notice",
-          role: "status",
-          "aria-live": "polite",
-          hidden: !view.baseUrlNoticeVisible
-        },
-        view.baseUrlNoticeText
-      )
-    ),
     view.renderModeSectionVisible &&
       h(
         "section",
@@ -1721,83 +1725,156 @@ function renderMarkingView({state: view, actions: handlers}) {
 }
 
 function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
-    const expanded = Boolean(view.highlightingSectionExpanded);
-    return h(
-      "section",
-      { class: "card highlighting-section" },
+  return h(
+    "section",
+    { class: view.highlightingEmbedded ? "config-extra-subsection highlighting-section" : "card highlighting-section" },
+    h("div", { class: "section-title" }, icon("marker", "field-icon"), PopupText.highlighting.sectionTitle),
+    h(
+      "div",
+      { class: "highlighting-body" },
       h(
-        "button",
-        {
-          type: "button",
-          class: "highlighting-header",
-          "aria-expanded": expanded ? "true" : "false",
-          onClick: handlers.onHighlightingSectionToggle
-        },
-        h("span", { class: "section-title" }, icon("marker", "field-icon"), PopupText.highlighting.sectionTitle)
+        "label",
+        { class: "row" },
+        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
+        h("input", {
+          id: "highlight-included-content",
+          type: "checkbox",
+          checked: view.highlightIncludedContentChecked,
+          onChange: handlers.onHighlightIncludedContentChange
+        })
       ),
-      expanded
-        ? h(
+      h(
+        "label",
+        { class: "row" },
+        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
+        h("input", {
+          id: "highlight-excluded-content",
+          type: "checkbox",
+          checked: view.highlightExcludedContentChecked,
+          onChange: handlers.onHighlightExcludedContentChange
+        })
+      ),
+      h("div", { class: "section-divider", role: "separator" }),
+      h(
+        "label",
+        { class: "row" },
+        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
+        h("input", {
+          id: "highlight-hide-during-scroll-redraw",
+          type: "checkbox",
+          checked: view.highlightHideDuringScrollRedrawChecked,
+          onChange: handlers.onHighlightHideDuringScrollRedrawChange
+        })
+      ),
+      h(
+        "label",
+        { class: "row" },
+        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
+        h("input", {
+          id: "highlight-visible-consent",
+          type: "checkbox",
+          checked: view.highlightVisibleConsentChecked,
+          onChange: handlers.onHighlightVisibleConsentChange
+        })
+      )
+    )
+  );
+}
+
+function renderConfigurationAppearanceSection(view, handlers) {
+  return h(
+    "section",
+    { class: "config-extra-subsection config-appearance-section" },
+    h("div", { class: "section-title" }, icon("palette-outline", "field-icon"), PopupText.configuration.appearanceSectionTitle),
+    h(
+      "div",
+      { class: "config-appearance-body" },
+      h(
+        "div",
+        { class: "config-appearance-row" },
+        h(
+          "div",
+          { class: "config-appearance-control" },
+          h("span", { id: "theme-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
+          h(
             "div",
-            { class: "highlighting-body" },
+            { class: "theme-control-row" },
             h(
-              "label",
-              { class: "row" },
-              h("span", {class: "row-label"}, icon("bookmark-outline", "row-icon"), PopupText.highlighting.markedPages),
-              h("input", {
-                id: "highlight-marked-pages",
-                type: "checkbox",
-                checked: view.highlightMarkedPagesChecked,
-                onChange: handlers.onHighlightMarkedPagesChange
-              })
+              "button",
+              {
+                type: "button",
+                class: "theme-nav-button",
+                disabled: view.themeControlsDisabled,
+                title: PopupText.configuration.themePrevious,
+                "aria-label": PopupText.configuration.themePrevious,
+                onClick: handlers.onThemePrevious
+              },
+              icon("chevron-left")
             ),
+            renderThemeDropdown(view, handlers),
             h(
-              "label",
-              { class: "row" },
-              h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
-              h("input", {
-                id: "highlight-included-content",
-                type: "checkbox",
-                checked: view.highlightIncludedContentChecked,
-                onChange: handlers.onHighlightIncludedContentChange
-              })
-            ),
-            h(
-              "label",
-              { class: "row" },
-              h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
-              h("input", {
-                id: "highlight-excluded-content",
-                type: "checkbox",
-                checked: view.highlightExcludedContentChecked,
-                onChange: handlers.onHighlightExcludedContentChange
-              })
-            ),
-            h("div", { class: "section-divider", role: "separator" }),
-            h(
-              "label",
-              { class: "row" },
-              h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
-              h("input", {
-                id: "highlight-hide-during-scroll-redraw",
-                type: "checkbox",
-                checked: view.highlightHideDuringScrollRedrawChecked,
-                onChange: handlers.onHighlightHideDuringScrollRedrawChange
-              })
-            ),
-            h(
-              "label",
-              { class: "row" },
-              h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
-              h("input", {
-                id: "highlight-visible-consent",
-                type: "checkbox",
-                checked: view.highlightVisibleConsentChecked,
-                onChange: handlers.onHighlightVisibleConsentChange
-              })
+              "button",
+              {
+                type: "button",
+                class: "theme-nav-button",
+                disabled: view.themeControlsDisabled,
+                title: PopupText.configuration.themeNext,
+                "aria-label": PopupText.configuration.themeNext,
+                onClick: handlers.onThemeNext
+              },
+              icon("chevron-right")
             )
           )
-        : null
+        ),
+        h(
+          "div",
+          { class: "config-appearance-control config-appearance-control--mode" },
+          h("span", { id: "theme-mode-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
+          renderThemeModeButtons(view, handlers)
+        )
+      )
+    )
+  );
+}
+
+function renderConfigurationExtrasSection(view, handlers) {
+  const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
+  const sections = [renderConfigurationAppearanceSection(view, handlers)];
+
+  if (view.highlightingOptionsVisible) {
+    sections.push(
+      renderHighlightingOptionsSection({
+        state: { ...view, highlightingEmbedded: true },
+        actions: handlers
+      })
     );
+  }
+
+  if (view.remoteSupportVisible) {
+    sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
+  }
+
+  return h(
+    "section",
+    { class: "card config-extras" },
+    h(
+      "button",
+      {
+        type: "button",
+        class: "config-extras-header",
+        "aria-expanded": expanded ? "true" : "false",
+        onClick: handlers.onConfigurationExtrasToggle
+      },
+      h("span", { class: "section-title" }, icon("tune-variant", "field-icon"), PopupText.configuration.extrasSectionTitle)
+    ),
+    expanded
+      ? h(
+          "div",
+          { class: "config-extras-body" },
+          sections
+        )
+      : null
+  );
 }
 
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
@@ -2071,66 +2148,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
           )
         )
       ),
-      h(
-        "details",
-        { class: "card collapsible config-appearance-collapsible" },
-        h(
-          "summary",
-          null,
-          icon("palette-outline", "field-icon"),
-          PopupText.configuration.appearanceSectionTitle,
-          renderThemePalette(getSelectedThemeOption(view), "theme-palette--summary")
-        ),
-        h(
-          "div",
-          { class: "collapsible-body config-appearance-body" },
-          h(
-            "div",
-            { class: "config-appearance-row" },
-            h(
-              "div",
-              { class: "config-appearance-control" },
-              h("span", { id: "theme-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeFieldLabel),
-              h(
-                "div",
-                { class: "theme-control-row" },
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    class: "theme-nav-button",
-                    disabled: view.themeControlsDisabled,
-                    title: PopupText.configuration.themePrevious,
-                    "aria-label": PopupText.configuration.themePrevious,
-                    onClick: handlers.onThemePrevious
-                  },
-                  icon("chevron-left")
-                ),
-                renderThemeDropdown(view, handlers),
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    class: "theme-nav-button",
-                    disabled: view.themeControlsDisabled,
-                    title: PopupText.configuration.themeNext,
-                    "aria-label": PopupText.configuration.themeNext,
-                    onClick: handlers.onThemeNext
-                  },
-                  icon("chevron-right")
-                )
-              )
-            ),
-            h(
-              "div",
-              { class: "config-appearance-control config-appearance-control--mode" },
-              h("span", { id: "theme-mode-field-label", class: "config-appearance-label control-label" }, PopupText.configuration.themeModeFieldLabel),
-              renderThemeModeButtons(view, handlers)
-            )
-          )
-        )
-      ),
-      renderRemoteSupportSection(view, handlers)
+      renderConfigurationExtrasSection(view, handlers)
     );
 }
 
@@ -2210,6 +2228,12 @@ function filterTodoSubsectionsExpanded(nextViewState) {
 
 function normalizeViewState(nextViewState) {
   let normalizedViewState = nextViewState;
+  if (normalizedViewState.remoteSupportAutoFocus) {
+    normalizedViewState = {
+      ...normalizedViewState,
+      configurationExtrasExpanded: true
+    };
+  }
   if (normalizedViewState.previewBlocked || normalizedViewState.previewActive) {
     normalizedViewState = {
       ...normalizedViewState,
@@ -2275,6 +2299,12 @@ export function setUiBusy(isBusy, message = "") {
   setViewState({
     isBusy: Boolean(isBusy),
     busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : ""
+  });
+}
+
+export function toggleConfigurationExtrasExpanded() {
+  setViewState({
+    configurationExtrasExpanded: !Boolean(viewState.configurationExtrasExpanded)
   });
 }
 

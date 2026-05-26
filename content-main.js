@@ -5817,7 +5817,6 @@ function buildSilentHighlightingRenderKey(
       })
   );
   return [
-    visibilityOptions && visibilityOptions.markedPages ? 1 : 0,
     visibilityOptions && visibilityOptions.includedContent ? 1 : 0,
     visibilityOptions && visibilityOptions.excludedContent ? 1 : 0,
     visibilityOptions && visibilityOptions.visibleConsent ? 1 : 0,
@@ -6174,7 +6173,6 @@ async function refreshSilentHighlightings() {
     newlyHiddenConsentCount > 0 ||
     Boolean(document.querySelector(`[${core.CONSENT_HIDDEN_ATTR}]`));
   const shouldObserve =
-    (visibility.markedPages && savedUrls.size > 0) ||
     ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) ||
     hasHiddenConsent;
   if (!shouldObserve) {
@@ -6184,32 +6182,6 @@ async function refreshSilentHighlightings() {
     return;
   }
   const anchors = [];
-  if (visibility.markedPages && savedUrls.size > 0) {
-    const anchorNodes = document.querySelectorAll("a[href]");
-    anchorNodes.forEach((anchor) => {
-      if (!anchor || !anchor.getAttribute) {
-        return;
-      }
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("javascript:") || href.startsWith("#")) {
-        return;
-      }
-      let resolved = "";
-      let resolvedLoose = "";
-      try {
-        resolved = new URL(href, pageUrl).href;
-        resolvedLoose = toLooseUrlKey(resolved, pageUrl);
-      } catch (error) {
-        return;
-      }
-      if (
-        savedUrls.has(resolved) ||
-        (resolvedLoose && savedLooseUrls.has(resolvedLoose))
-      ) {
-        anchors.push(anchor);
-      }
-    });
-  }
   let contentNodes = [];
   let excludedNodes = [];
   let explicitIncludeSelectorByRenderNode = new Map();

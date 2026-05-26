@@ -43,7 +43,6 @@ export const state = {
   remoteSupportViewLocked: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
-  silentHighlightShowMarkedPages: true,
   silentHighlightShowIncludedContent: true,
   silentHighlightShowExcludedContent: true,
   silentHighlightShowVisibleConsent: false,

@@ -341,7 +341,6 @@ export const PopupText = Object.freeze({
 
   highlighting: Object.freeze({
     sectionTitle: "Highlighting", // Section title for silent-highlight visibility controls.
-    markedPages: "Marked page links", // Toggle label for marked-page link highlights.
     includedContent: "Included content", // Toggle label for included-content highlights.
     excludedContent: "Excluded content", // Toggle label for excluded-content highlights.
     hideWhileScrolling: "Hide while scrolling", // Toggle label for temporarily hiding highlights during scroll redraw.
@@ -354,6 +353,7 @@ export const PopupText = Object.freeze({
     setupHint: "Set endpoints, login credentials, and sign in to continue.", // Helper text at the top of configuration view.
     continueSetupNotice: "Provide Configuration Endpoint, AI Endpoint, Stage Base, then login to continue.", // Notice shown when configuration is incomplete.
     remoteConfigRetryNotice: "Problem connecting to the configuration server. Retrying...", // Notice shown when the configuration server is temporarily unavailable.
+    extrasSectionTitle: "Extras", // Section title for secondary configuration controls.
     appearanceSectionTitle: "Appearance", // Section title for popup theme controls.
     themeFieldLabel: "Theme", // Label for selecting a popup theme.
     themePrevious: "Previous theme", // Accessibility label for cycling to the previous theme.

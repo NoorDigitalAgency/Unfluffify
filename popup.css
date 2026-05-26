@@ -113,9 +113,9 @@ body.is-busy {
 }
 
 .app-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
   padding: 10px 12px;
   background: var(--card);
@@ -130,6 +130,12 @@ body.is-busy {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.header-property-url {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 .header-actions {
@@ -366,7 +372,7 @@ button.button-small {
 }
 
 .theme-dropdown__toggle:hover {
-  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 58%, transparent);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
 }
 
@@ -408,7 +414,7 @@ button.button-small {
 }
 
 .theme-dropdown__menu button.is-selected {
-  background: color-mix(in srgb, var(--accent-light) 62%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 62%, transparent);
 }
 
 .theme-palette {
@@ -467,7 +473,7 @@ button.button-small {
 }
 
 .theme-nav-button:hover {
-  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 58%, transparent);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
 }
 
@@ -497,19 +503,19 @@ button.button-small {
 }
 
 .theme-mode-button:hover:not(.theme-mode-button--active) {
-  background: color-mix(in srgb, var(--accent-light) 58%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 58%, transparent);
   color: var(--ink);
   box-shadow: none;
 }
 
 .theme-mode-button--active {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
-  background: color-mix(in srgb, var(--accent-light) 68%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 68%, transparent);
   color: var(--accent-dark);
 }
 
 .theme-mode-button--active:hover {
-  background: color-mix(in srgb, var(--accent-light) 68%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 68%, transparent);
   color: var(--accent-dark);
   box-shadow: none;
 }
@@ -663,7 +669,7 @@ button.button-small {
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warn) 14%, var(--card));
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .warning-panel[hidden] {
@@ -804,7 +810,7 @@ button.button-small {
 
 .lynx-checklist-popover__page-type--missing {
   border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
-  background: color-mix(in srgb, var(--warn) 14%, var(--card));
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .lynx-checklist-popover__page-type-title-row {
@@ -841,13 +847,13 @@ button.button-small {
 }
 
 .lynx-checklist-popover__page-type-status--ready {
-  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  background: color-mix(in srgb, var(--success) 84%, transparent);
   border-color: color-mix(in srgb, var(--success) 75%, var(--line));
   color: var(--card);
 }
 
 .lynx-checklist-popover__page-type-status--missing {
-  background: color-mix(in srgb, var(--accent-dark) 76%, var(--card));
+  background: color-mix(in srgb, var(--accent-dark) 76%, transparent);
   border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
   color: var(--card);
 }
@@ -969,7 +975,7 @@ button.button-small {
   padding: 8px 10px;
   border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line));
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent-light) 52%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 52%, transparent);
   font-size: 12px;
 }
 
@@ -991,7 +997,7 @@ button.button-small {
 }
 
 button.warning {
-  background: light-dark(var(--danger), color-mix(in srgb, var(--danger) 82%, var(--card)));
+  background: light-dark(var(--danger), color-mix(in srgb, var(--danger) 82%, transparent));
   border-color: color-mix(in srgb, var(--danger) 70%, var(--line));
   color: light-dark(#ffffff, #000000);
 }
@@ -999,7 +1005,7 @@ button.warning {
 button.warning:hover:not(:disabled) {
   background: light-dark(
     color-mix(in srgb, var(--danger) 85%, #000000),
-    color-mix(in srgb, var(--danger) 88%, var(--card))
+    color-mix(in srgb, var(--danger) 88%, transparent)
   );
 }
 
@@ -1518,7 +1524,7 @@ button.loading:disabled {
 
 .page-types__group--missing {
   border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
-  background: color-mix(in srgb, var(--warn) 14%, var(--card));
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .page-types__group-header {
@@ -1759,13 +1765,13 @@ button.loading:disabled {
 }
 
 .todo-status-line--done {
-  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  background: color-mix(in srgb, var(--success) 84%, transparent);
   border-color: color-mix(in srgb, var(--success) 75%, var(--line));
   color: var(--card);
 }
 
 .todo-status-line--pending {
-  background: color-mix(in srgb, var(--muted) 60%, var(--card));
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
   border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
   color: var(--card);
 }
@@ -1871,7 +1877,7 @@ button.loading:disabled {
 }
 
 .todo-subsection-header:hover {
-  background: color-mix(in srgb, var(--bg-accent) 80%, var(--card));
+  background: color-mix(in srgb, var(--bg-accent) 80%, transparent);
   box-shadow: none;
   filter: none;
 }
@@ -1902,13 +1908,13 @@ button.loading:disabled {
 }
 
 .todo-subsection-count--done {
-  background: color-mix(in srgb, var(--success) 84%, var(--card));
+  background: color-mix(in srgb, var(--success) 84%, transparent);
   border-color: color-mix(in srgb, var(--success) 75%, var(--line));
   color: var(--card);
 }
 
 .todo-subsection-count--pending {
-  background: color-mix(in srgb, var(--muted) 60%, var(--card));
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
   border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
   color: var(--card);
 }
@@ -1949,7 +1955,7 @@ button.loading:disabled {
   padding: 7px 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent-light) 70%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 70%, transparent);
 }
 
 .todo-candidate-copy {
@@ -2021,7 +2027,16 @@ span.todo-candidate-link {
   gap: 6px;
 }
 
-.highlighting-header {
+.highlighting-body {
+  display: grid;
+  gap: 8px;
+}
+
+.config-extras {
+  gap: 6px;
+}
+
+.config-extras-header {
   width: 100%;
   display: inline-flex;
   align-items: center;
@@ -2034,7 +2049,7 @@ span.todo-candidate-link {
   box-shadow: none;
 }
 
-.highlighting-header::before {
+.config-extras-header::before {
   content: "▸";
   color: var(--accent);
   font-size: 12px;
@@ -2043,18 +2058,35 @@ span.todo-candidate-link {
   transition: transform 0.18s ease;
 }
 
-.highlighting-header[aria-expanded="true"]::before {
+.config-extras-header[aria-expanded="true"]::before {
   transform: rotate(90deg);
 }
 
-.highlighting-header:hover {
+.config-extras-header:hover {
   background: none;
   box-shadow: none;
 }
 
-.highlighting-body {
+.config-extras-body {
   display: grid;
   gap: 8px;
+}
+
+.config-extra-subsection {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-accent);
+}
+
+.config-appearance-section {
+  gap: 6px;
+}
+
+.remote-support-card--embedded {
+  box-shadow: none;
 }
 
 .todo-indicator {
@@ -2150,7 +2182,7 @@ span.todo-candidate-link {
 
 .preview-sidebar__item--active .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
-  background: color-mix(in srgb, var(--accent-light) 72%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 72%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 

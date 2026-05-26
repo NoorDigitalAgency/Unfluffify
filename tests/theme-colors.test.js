@@ -116,3 +116,10 @@ test("fallback semantic colors meet AA contrast in text, notice, and badge surfa
 
   assert.deepEqual(failures, []);
 });
+
+test("popup color-mix rules no longer use var(--card) as the second color", () => {
+  const popupCss = readFileSync(new URL("../popup.css", import.meta.url), "utf8");
+  const matches = popupCss.match(/color-mix\([^\n]*,\s*var\(--card\)\)/g) || [];
+
+  assert.deepEqual(matches, []);
+});

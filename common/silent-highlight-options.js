@@ -1,5 +1,4 @@
 export const SILENT_HIGHLIGHT_OPTIONS_DEFAULTS = Object.freeze({
-  markedPages: true,
   includedContent: true,
   excludedContent: true,
   visibleConsent: false,
@@ -11,10 +10,6 @@ export function normalizeSilentHighlightOptions(value) {
     return { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
   }
   return {
-    markedPages:
-      typeof value.markedPages === "boolean"
-        ? value.markedPages
-        : SILENT_HIGHLIGHT_OPTIONS_DEFAULTS.markedPages,
     includedContent:
       typeof value.includedContent === "boolean"
         ? value.includedContent
