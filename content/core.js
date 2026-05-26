@@ -4071,6 +4071,26 @@ function renderHighlightsInner() {
     }
     return false;
   };
+  const shouldSkipAiCollectionElement = (
+      el,
+      { skipExplicitExcludedUnlessIncluded = false, skipExplicitIncluded = false } = {}
+  ) => {
+    if (!el || el.nodeType !== 1) {
+      return true;
+    }
+    if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+      return true;
+    }
+    if (skipExplicitExcludedUnlessIncluded
+        && isWithinElementSet(el, explicitExclude)
+        && !isWithinExplicitInclude(el)) {
+      return true;
+    }
+    if (skipExplicitIncluded && isWithinExplicitInclude(el)) {
+      return true;
+    }
+    return false;
+  };
   let aiContent = new Set();
   let aiExcludedDescendants = new Set();
   if (hasAiSelectors) {
@@ -4080,34 +4100,19 @@ function renderHighlightsInner() {
       includeAllExplicitMatches: true
     });
     for (const el of aiCollections.included || []) {
-      if (!el || el.nodeType !== 1) {
-        continue;
-      }
-      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
-        continue;
-      }
-      if (isWithinElementSet(el, explicitExclude) && !isWithinExplicitInclude(el)) {
+      if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
         continue;
       }
       aiContent.add(el);
     }
     for (const el of aiCollections.excluded || []) {
-      if (!el || el.nodeType !== 1) {
-        continue;
-      }
-      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
-        continue;
-      }
-      if (isWithinExplicitInclude(el)) {
+      if (shouldSkipAiCollectionElement(el, { skipExplicitIncluded: true })) {
         continue;
       }
       aiExcludedDescendants.add(el);
     }
     for (const el of explicitInclude) {
-      if (!el || el.nodeType !== 1) {
-        continue;
-      }
-      if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+      if (shouldSkipAiCollectionElement(el)) {
         continue;
       }
       aiContent.add(el);
