@@ -56,7 +56,7 @@ function headersToObject(headersLike) {
     if (typeof headersLike.forEach === "function") {
       headersLike.forEach((value, key) => {
         if (typeof key === "string") {
-          headers[key] = clampTelemetryText(value, 4096);
+          headers[key] = "[REDACTED]";
         }
       });
       return headers;
@@ -64,14 +64,14 @@ function headersToObject(headersLike) {
     if (Array.isArray(headersLike)) {
       for (const pair of headersLike) {
         if (Array.isArray(pair) && pair.length >= 2) {
-          headers[String(pair[0])] = clampTelemetryText(pair[1], 4096);
+          headers[String(pair[0])] = "[REDACTED]";
         }
       }
       return headers;
     }
     if (typeof headersLike === "object") {
       for (const [key, value] of Object.entries(headersLike)) {
-        headers[key] = clampTelemetryText(value, 4096);
+        headers[key] = "[REDACTED]";
       }
     }
   } catch (error) {
@@ -280,7 +280,7 @@ function parseRawResponseHeaders(rawHeaders) {
     if (separatorIndex <= 0) {
       continue;
     }
-    headers[line.slice(0, separatorIndex).trim()] = clampTelemetryText(line.slice(separatorIndex + 1).trim(), 4096);
+    headers[line.slice(0, separatorIndex).trim()] = "[REDACTED]";
   }
   return headers;
 }

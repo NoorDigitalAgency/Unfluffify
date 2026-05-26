@@ -1,4 +1,5 @@
 import { REMOTE_SUPPORT_PORT_NETWORK } from "../common/remote-support.js";
+import { formatSourceLabel } from "../common/devtools-helpers.js";
 
 const rows = document.getElementById("rows");
 const includePayloads = document.getElementById("include-payloads");
@@ -29,14 +30,6 @@ function downloadPayload(entry) {
   anchor.download = `remote-payload-${Date.now()}.json`;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function formatSourceLabel(source) {
-  const normalized = typeof source === "string" ? source.trim() : "";
-  if (normalized === "popup") return "popup.html";
-  if (normalized === "worker") return "background worker";
-  if (normalized === "content") return "page content script";
-  return normalized || "extension";
 }
 
 function appendEntry(entry) {

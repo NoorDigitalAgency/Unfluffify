@@ -1,4 +1,5 @@
 import { REMOTE_SUPPORT_PORT_CONSOLE } from "../common/remote-support.js";
+import { formatSourceLabel } from "../common/devtools-helpers.js";
 
 const list = document.getElementById("list");
 const clearButton = document.getElementById("clear");
@@ -15,14 +16,6 @@ if (Number.isFinite(inspectedTabId)) {
     type: "remoteSupportAttach",
     tabId: inspectedTabId
   });
-}
-
-function formatSourceLabel(source) {
-  const normalized = typeof source === "string" ? source.trim() : "";
-  if (normalized === "popup") return "popup.html";
-  if (normalized === "worker") return "background worker";
-  if (normalized === "content") return "page content script";
-  return normalized || "extension";
 }
 
 function appendEntry(entry) {
