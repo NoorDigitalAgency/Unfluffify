@@ -280,7 +280,11 @@ function countRawResponseHeaders(rawHeaders) {
   }
   let count = 0;
   for (const line of rawHeaders.split(/\r?\n/)) {
-    const separatorIndex = line.indexOf(":");
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+    const separatorIndex = trimmedLine.indexOf(":");
     if (separatorIndex > 0) {
       count++;
     }
