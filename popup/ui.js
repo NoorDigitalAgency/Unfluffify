@@ -818,7 +818,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
             )
           },
           renderTodoIndicator(
-            progress.done ? "checkbox-marked-outline" : "checkbox-blank-outline",
+            progress.done ? "progress-check" : "progress-helper",
             progress.done
           ),
           h("span", null, `${progress.completed}/${progress.total}`)
@@ -896,7 +896,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                           )
                         },
                         renderTodoIndicator(
-                          subsectionDone ? "check-circle" : "circle-outline",
+                          subsectionDone ? "progress-check" : "progress-helper",
                           subsectionDone
                         ),
                         h("span", null, String(group.markedCount))
@@ -919,7 +919,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                                     )
                                   },
                                   renderTodoIndicator(
-                                    item.marked ? "check-circle" : "circle-outline",
+                                    item.marked ? "progress-check" : "progress-helper",
                                     item.marked
                                   ),
                                   h(
