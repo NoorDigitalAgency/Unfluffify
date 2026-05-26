@@ -4917,14 +4917,12 @@ async function handleEnableToggle(event) {
   );
 }
 
-async function handleHighlightMarkedPagesChange(event) {
 async function handleHighlightIncludedContentChange(event) {
   await updateHighlightVisibilityOption(
     event,
     "silentHighlightShowIncludedContent",
     "highlightIncludedContentChecked"
   );
-  uiModule.toggleConfigurationExtrasExpanded();
 }
 
 async function handleHighlightExcludedContentChange(event) {

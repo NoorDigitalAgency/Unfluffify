@@ -1716,9 +1716,6 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     ,
     postRenderModeControlsVisible && mergedControlsSection,
-    postRenderModeControlsVisible &&
-      view.highlightingOptionsVisible &&
-      renderHighlightingOptionsSection({ state: view, actions: handlers }),
     renderModeWarningPopover,
     lynxChecklistPopover
   );
@@ -1841,14 +1838,12 @@ function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
   const sections = [renderConfigurationAppearanceSection(view, handlers)];
 
-  if (view.highlightingOptionsVisible) {
-    sections.push(
-      renderHighlightingOptionsSection({
-        state: { ...view, highlightingEmbedded: true },
-        actions: handlers
-      })
-    );
-  }
+  sections.push(
+    renderHighlightingOptionsSection({
+      state: { ...view, highlightingEmbedded: true },
+      actions: handlers
+    })
+  );
 
   if (view.remoteSupportVisible) {
     sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
