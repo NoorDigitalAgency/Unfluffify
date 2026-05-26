@@ -12,6 +12,7 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   const originalWebSocket = globalThis.WebSocket;
   const originalRTCPeerConnection = globalThis.RTCPeerConnection;
   const originalWindow = globalThis.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 
   const runtimeMessageListeners = [];
   const connectedPortNames = [];
@@ -399,6 +400,11 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
     globalThis.WebSocket = originalWebSocket;
     globalThis.RTCPeerConnection = originalRTCPeerConnection;
     globalThis.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
   }
 });
 

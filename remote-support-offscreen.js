@@ -1384,6 +1384,11 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (offerer && typeof peerConnection.addTransceiver === "function") {
+    try {
+      peerConnection.addTransceiver("audio", { direction: "recvonly" });
+    } catch (error) {
+      // Ignore transceiver negotiation mismatches in older test doubles.
+    }
     for (let index = 0; index < 3; index += 1) {
       try {
         peerConnection.addTransceiver("video", { direction: "recvonly" });

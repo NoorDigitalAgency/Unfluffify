@@ -1287,6 +1287,11 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (typeof peerConnection.addTransceiver === "function") {
+    try {
+      peerConnection.addTransceiver("audio", { direction: "recvonly" });
+    } catch (error) {
+      // Ignore negotiation mismatches if Chrome adjusts the offer shape automatically.
+    }
     for (let index = 0; index < 3; index += 1) {
       try {
         peerConnection.addTransceiver("video", { direction: "recvonly" });
