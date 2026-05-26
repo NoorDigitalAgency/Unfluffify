@@ -48,6 +48,10 @@ function normalizeMediaStreamId(value) {
   return isNonEmptyString(value) ? value.trim() : "";
 }
 
+function normalizeCaptureSource(value) {
+  return value === "display" || value === "tab" ? value : "display";
+}
+
 function normalizeTransportStateValue(value) {
   return isNonEmptyString(value) ? value.trim() : "";
 }
@@ -251,7 +255,11 @@ function haveMatchingTransportConfig(runtime, session, iceServers, dataChannelDe
     return false;
   }
 
-  if (runtime.mediaStreamId !== normalizeMediaStreamId(session.mediaStreamId)) {
+  if (runtime.mediaStreamId !== normalizeMediaStreamId(session.mediaStreamId || session.fallbackMediaStreamId)) {
+    return false;
+  }
+
+  if (runtime.captureSource !== normalizeCaptureSource(session.captureSource)) {
     return false;
   }
 
@@ -327,7 +335,8 @@ function createTransportRuntime(session) {
     role: session.role,
     tabId: normalizeTabId(session.tabId),
     wsUrl: session.wsUrl.trim(),
-    mediaStreamId: normalizeMediaStreamId(session.mediaStreamId),
+    mediaStreamId: normalizeMediaStreamId(session.mediaStreamId || session.fallbackMediaStreamId),
+    captureSource: normalizeCaptureSource(session.captureSource),
     iceServers: normalizeIceServers(session.iceServers),
     dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
     pendingIceCandidates: [],
@@ -335,6 +344,7 @@ function createTransportRuntime(session) {
     peerConnection: null,
     localCaptureStream: null,
     localCaptureTrack: null,
+    localCameraStream: null,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -1007,6 +1017,7 @@ function resetTransportResources(runtime) {
   closePeerConnection(runtime.peerConnection);
   closeSignalingSocket(runtime.signalingSocket);
   stopLocalCaptureStream(runtime.localCaptureStream);
+  stopLocalCaptureStream(runtime.localCameraStream);
   stopLocalCaptureStream(runtime.sidebarCaptureStream);
 
   runtime.dataChannels.clear();
@@ -1016,6 +1027,7 @@ function resetTransportResources(runtime) {
   runtime.signalingSocket = null;
   runtime.localCaptureStream = null;
   runtime.localCaptureTrack = null;
+  runtime.localCameraStream = null;
   runtime.sidebarCaptureCanvas = null;
   runtime.sidebarCaptureContext = null;
   runtime.sidebarCaptureStream = null;
@@ -1030,45 +1042,41 @@ function resetTransportResources(runtime) {
   runtime.chunkAssemblies.clear();
 }
 
-async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
-  if (
-    !runtime ||
-    runtime.role !== "requester" ||
-    !runtime.mediaStreamId ||
-    runtime.localCaptureStream
-  ) {
+async function ensureRequesterDisplayTrack(runtime, peerConnection) {
+  if (!runtime || runtime.role !== "requester" || runtime.localCaptureStream) {
     return;
   }
 
-  if (
-    !globalThis.navigator ||
-    !navigator.mediaDevices ||
-    typeof navigator.mediaDevices.getUserMedia !== "function"
-  ) {
-    throw new Error("Remote support tab capture is unavailable");
+  if (!globalThis.navigator || !navigator.mediaDevices) {
+    throw new Error("Remote support window sharing is unavailable");
   }
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: runtime.mediaStreamId,
-        maxFrameRate: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE
+  let stream = null;
+  if (typeof navigator.mediaDevices.getDisplayMedia === "function") {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE, max: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE } },
+      audio: true
+    });
+  } else if (runtime.mediaStreamId && typeof navigator.mediaDevices.getUserMedia === "function") {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: "tab",
+          chromeMediaSourceId: runtime.mediaStreamId,
+          maxFrameRate: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE
+        }
       }
-    }
-  });
+    });
+  }
 
-  const track = stream && typeof stream.getVideoTracks === "function"
-    ? stream.getVideoTracks()[0]
-    : null;
+  const track = stream && typeof stream.getVideoTracks === "function" ? stream.getVideoTracks()[0] : null;
   if (!track) {
     stopLocalCaptureStream(stream);
-    throw new Error("Remote support tab capture did not provide a video track");
+    throw new Error("Remote support Chrome window sharing did not provide a video track");
   }
 
   configureLowLatencyVideoTrack(track);
-
   runtime.localCaptureStream = stream;
   runtime.localCaptureTrack = track;
 
@@ -1078,13 +1086,36 @@ async function ensureRequesterTabVideoTrack(runtime, peerConnection) {
       if (!activeRuntime || activeRuntime.shuttingDown || activeRuntime.localCaptureTrack !== track) {
         return;
       }
-
-      handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support tab capture ended"));
+      handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support Chrome window sharing ended"));
     });
   }
 
   if (typeof peerConnection.addTrack === "function") {
-    configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
+    for (const mediaTrack of stream.getTracks()) {
+      configureLowLatencyVideoSender(peerConnection.addTrack(mediaTrack, stream));
+    }
+  }
+}
+
+async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
+  if (!runtime || runtime.localCameraStream || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    runtime.localCameraStream = stream;
+    if (typeof peerConnection.addTrack === "function") {
+      for (const track of stream.getTracks()) {
+        configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
+      }
+    }
+  } catch (error) {
+    postTransportEvent({
+      type: "media-warning",
+      sessionId: runtime.sessionId,
+      error: "Camera or microphone was not shared; continuing with window sharing only"
+    });
   }
 }
 
@@ -1353,7 +1384,7 @@ async function ensurePeerConnection(runtime, offerer) {
   };
 
   if (offerer && typeof peerConnection.addTransceiver === "function") {
-    for (let index = 0; index < 2; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       try {
         peerConnection.addTransceiver("video", { direction: "recvonly" });
       } catch (error) {
@@ -1364,7 +1395,8 @@ async function ensurePeerConnection(runtime, offerer) {
   }
 
   if (!offerer) {
-    await ensureRequesterTabVideoTrack(runtime, peerConnection);
+    await ensureRequesterDisplayTrack(runtime, peerConnection);
+    await ensureLocalCameraAndMicTracks(runtime, peerConnection);
     await ensureRequesterSidebarVideoTrack(runtime, peerConnection);
   }
 

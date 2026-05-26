@@ -17,6 +17,14 @@ if (Number.isFinite(inspectedTabId)) {
   });
 }
 
+function formatSourceLabel(source) {
+  const normalized = typeof source === "string" ? source.trim() : "";
+  if (normalized === "popup") return "popup.html";
+  if (normalized === "worker") return "background worker";
+  if (normalized === "content") return "page content script";
+  return normalized || "extension";
+}
+
 function appendEntry(entry) {
   if (!list) {
     return;
@@ -32,9 +40,7 @@ function appendEntry(entry) {
   strong.textContent = level.toUpperCase();
   const source = document.createElement("span");
   source.className = "source";
-  source.textContent = typeof entry.source === "string" && entry.source.trim()
-    ? entry.source.trim()
-    : "extension";
+  source.textContent = formatSourceLabel(entry.source);
   const muted = document.createElement("span");
   muted.className = "muted";
   muted.textContent = date.toISOString();

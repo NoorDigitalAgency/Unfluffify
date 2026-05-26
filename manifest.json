@@ -11,6 +11,7 @@
     "offscreen",
     "sidePanel",
     "tabCapture",
+    "desktopCapture",
     "tabs",
     "scripting",
     "debugger",

@@ -15,46 +15,42 @@ This document defines the extension-side remote support implementation and the e
   - `inactive`
   - `being_supported`
   - `supporting`
-- Popup state queries, end-session actions, and remote commands are scoped to the current tab.
+- Popup state queries and end-session actions are scoped to the current tab; legacy remote-command messages are rejected.
 - DevTools console/network panels attach to the inspected tab and only receive state and telemetry for that tab's active support session.
 - Session ends when either side terminates, the tab closes, or inactivity timeout is reached.
 - Ended-session and transient transport warnings are retained in the tab-scoped inactive state until the user dismisses them with the icon-only notice button in the popup or `/support` page.
 - Inactivity timeout: **7 minutes** without remote activity.
 - One active session per tab.
 - Being-supported mode blocks local extension-owned interactions on page UI.
-- Supporting mode disables regular popup controls and uses the dedicated `/support` remote-control surface.
+- Supporting mode disables regular popup controls and uses the dedicated `/support` view-only support surface.
 
 ## Realtime streams
 
 ### 1) Screen stream
 
-- Being-supported side requests a `chrome.tabCapture` media stream ID for its own tab and passes it into the MV3 offscreen WebRTC transport.
-- The offscreen requester runtime attaches the captured tab video track to the peer connection, and the supporter `/support` page renders the remote track as the primary live screen surface.
+- Being-supported side asks the user to share the Chrome window that contains the active Unfluffify tab. A tab-capture stream id is kept only as a compatibility fallback when display capture is unavailable.
+- The offscreen requester runtime attaches the shared display video track to the peer connection, and the supporter `/support` page renders the remote track as the full-size primary live surface.
 - The older data-channel `frame` message remains as a compatibility/fallback path for remote-frame events, but the current screen stream is real WebRTC video.
-- Control handoff changes only the command owner; it does **not** stop or hide the screen stream.
+- Remote support is view-only. No command owner or remote-control handoff is exposed.
 
-### 2) Remote commands
+### 2) Camera and microphone guidance
 
-- Supporting side sends commands over data channel (`type: command`):
-  - `pointer-move` with normalized x/y
-  - `pointer-click` with normalized x/y + button
-  - `scroll` with deltaX/deltaY
-  - `key` with key/code/modifiers
-- Being-supported side replays commands against extension-owned interactions.
-- `controlOwner` is either `supporter` or `requester`. Supporter commands are accepted only while the supporter owns control.
-- When control is handed to the requester, the requester can interact locally while the supporter keeps seeing live screen video, cursor snapshots, and sidebar updates.
+- Both peers request local camera and microphone tracks when available.
+- The supporter viewer shows compact local and remote camera views out of the way of the main shared Chrome-window stream.
+- Audio tracks are attached to the same peer connection for bidirectional spoken guidance.
+- If camera or microphone capture is denied, the session continues with display sharing and telemetry.
 
 ### 3) Sidebar mirror
 
 - The requester popup/side-panel captures the Unfluffify sidebar surface into a sidebar-specific WebRTC data/video path and publishes lightweight sidebar state snapshots.
 - The `/support` page renders the live sidebar mirror next to the main screen and keeps a snapshot fallback for startup or capture gaps.
-- Supporter pointer, click, scroll, and key commands on the sidebar surface are forwarded on the `sidebar` data channel while the supporter owns control.
-- While the requester owns control, local requester sidebar pointer/click activity is mirrored into the sidebar stream so the supporter can still see what the requester is doing.
+- The sidebar mirror is informational only; supporter pointer, scroll, click, and key input is not forwarded to the supportee.
+- The supportee can continue normal marking, highlighting, and sidebar work while the supporter observes.
 
 ### 4) Telemetry stream
 
 - Console and network telemetry is collected from Unfluffify extension contexts (popup/side panel, content script, and service worker where available) and forwarded to background.
-- Page console output and page network requests are intentionally excluded from these panels.
+- Telemetry is labeled by source (`page content script`, `popup.html`, `background worker`, or other extension context) so DevTools tabs can distinguish page/content, popup, and background activity.
 - Support side receives telemetry over data channel and displays it in DevTools panels.
 
 ## DevTools panels
@@ -63,11 +59,11 @@ Two extension DevTools panels are added:
 
 1. **Unfluffify Console**
    - Shows streamed console events with level + timestamp.
-  - Shows the extension source context (`popup`, `content`, or `worker`) for each entry.
+  - Shows the cleaned source context (`popup.html`, `page content script`, or `background worker`) for each entry.
   - The panel attaches to the inspected tab and only shows entries for that tab's active supporting session.
 
 2. **Unfluffify Network**
-  - Shows source context, url, status code, method, type, timestamps, load time.
+  - Shows source context, URL, status code, method, type, request/response header counts, timestamps, and load time.
   - Includes **Include payloads** toggle.
    - Per-row payload download button (icon-only) when payload exists.
   - The payload toggle only controls the supporting session attached to that DevTools instance.
@@ -85,7 +81,7 @@ Two extension DevTools panels are added:
 
 ### GET `/support`
 
-Used by supporter side as the dedicated browser tab for joining and controlling a remote session.
+Used by supporter side as the dedicated browser tab for joining and viewing a remote session.
 
 Expected behavior:
 
@@ -238,7 +234,7 @@ Server responsibilities:
 
 ### Extension-side telemetry
 
-The Unfluffify Console and Network DevTools panels consume telemetry from extension contexts, not from the inspected page. Popup/side-panel, content-script, and service-worker contexts install `installExtensionTelemetry()` to record their own `console`, `fetch`, and XHR activity and forward it through the background relay.
+The Unfluffify Console and Network DevTools panels consume telemetry from extension contexts that can be instrumented safely in MV3: popup/side-panel, content script running on the page, and service worker. Each context installs `installExtensionTelemetry()` to record its own `console`, `fetch`, and XHR activity and forward it through the background relay with a clear source label.
 
 ### `includePayloads` gating (three-layer defence)
 
@@ -258,9 +254,9 @@ The "Include payloads" checkbox in the network panel is synchronised with the ac
 
 `downloadPayload()` defers `URL.revokeObjectURL` via `setTimeout(..., 0)` to guarantee the browser has initiated the download before the object URL is torn down.
 
-### Remote control surface guards
+### View-only surface guards
 
-All four surface event handlers (`mousemove`, `click`, `wheel`, `keydown`) check `remoteSupportControlDisabled` before forwarding commands to the background. `keydown` calls `event.preventDefault()` unconditionally so no default browser key binding fires while the surface has focus.
+Supporter-side surfaces render the shared Chrome window and sidebar information without forwarding `mousemove`, `click`, `wheel`, or `keydown` commands. Background also rejects legacy `remoteSupportSendCommand` and `remoteSupportSetControlOwner` messages so stale UI cannot regain remote-control capability.
 
 ### True UTF-8 byte clamping
 

@@ -2,13 +2,13 @@
 
 ## Remote Support Follow-up
 
-1. Implement supporter-side mirrored sidebar state over the dedicated `sidebar` data channel.
-2. Start sessions with explicit app-level `page` and `sidebar` channel descriptors instead of relying on transport capability alone.
-3. Mirror supportee side-panel view state to the supporter and route supporter sidebar actions back through the ownership gate.
-4. Improve remote cursor fidelity beyond normalized position: cursor icon/style, hover transitions, and richer presence metadata.
-5. Run manual two-profile validation for navigation, handoff/takeover, sidebar sync, and teardown after each substantial remote-support change.
+1. Validate Chrome-window display sharing and camera/microphone permission prompts in two real Chrome profiles.
+2. Verify view-only supporter sessions keep supportee marking, highlighting, popup, and sidebar workflows usable.
+3. Continue improving remote cursor/sidebar presence as observational metadata only, without reintroducing remote-control command replay.
+4. Validate DevTools console/network mirroring labels for page content script, popup.html, and background worker contexts with and without optional payloads.
+5. Run manual two-profile validation for navigation, sidebar sync, telemetry, camera/microphone, and teardown after substantial remote-support changes.
 
 ## Constraints
 
-- Do not reintroduce the popup-owned supporter preview/controller as the primary control surface.
+- Do not reintroduce supporter remote-control or control handoff/takeover paths.
 - Fail remote-support bootstrap when valid ICE config is missing; do not silently fall back away from the Cloudflare-only contract.

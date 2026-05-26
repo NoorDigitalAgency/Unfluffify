@@ -46,6 +46,50 @@ function getFetchMethod(input, init) {
   return "GET";
 }
 
+
+function headersToObject(headersLike) {
+  const headers = {};
+  if (!headersLike) {
+    return headers;
+  }
+  try {
+    if (typeof headersLike.forEach === "function") {
+      headersLike.forEach((value, key) => {
+        if (typeof key === "string") {
+          headers[key] = clampTelemetryText(value, 4096);
+        }
+      });
+      return headers;
+    }
+    if (Array.isArray(headersLike)) {
+      for (const pair of headersLike) {
+        if (Array.isArray(pair) && pair.length >= 2) {
+          headers[String(pair[0])] = clampTelemetryText(pair[1], 4096);
+        }
+      }
+      return headers;
+    }
+    if (typeof headersLike === "object") {
+      for (const [key, value] of Object.entries(headersLike)) {
+        headers[key] = clampTelemetryText(value, 4096);
+      }
+    }
+  } catch (error) {
+    return headers;
+  }
+  return headers;
+}
+
+function getFetchRequestHeaders(input, init) {
+  if (init && init.headers) {
+    return headersToObject(init.headers);
+  }
+  if (input && input.headers) {
+    return headersToObject(input.headers);
+  }
+  return {};
+}
+
 function getFiniteTabId(value) {
   const tabId = Number(value);
   return Number.isFinite(tabId) ? Math.trunc(tabId) : null;
@@ -197,6 +241,8 @@ function installFetchTelemetry(target, options) {
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
+        requestHeaders: getFetchRequestHeaders(input, init),
+        responseHeaders: headersToObject(response && response.headers),
         payload: createPayloadFromFetch(options, requestBody, responseBody)
       });
       return response;
@@ -210,6 +256,8 @@ function installFetchTelemetry(target, options) {
         startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - startedAt),
+        requestHeaders: getFetchRequestHeaders(input, init),
+        responseHeaders: {},
         payload: null,
         error: clampTelemetryText(error && error.message ? error.message : error)
       });
@@ -219,6 +267,22 @@ function installFetchTelemetry(target, options) {
 
   wrappedFetch.__unfluffifyExtensionTelemetryInstalled = true;
   target.fetch = wrappedFetch;
+}
+
+
+function parseRawResponseHeaders(rawHeaders) {
+  const headers = {};
+  if (typeof rawHeaders !== "string") {
+    return headers;
+  }
+  for (const line of rawHeaders.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    headers[line.slice(0, separatorIndex).trim()] = clampTelemetryText(line.slice(separatorIndex + 1).trim(), 4096);
+  }
+  return headers;
 }
 
 function installXhrTelemetry(target, options) {
@@ -273,6 +337,8 @@ function installXhrTelemetry(target, options) {
         startedAt: meta.startedAt,
         completedAt: Date.now(),
         loadTimeMs: Math.max(0, Date.now() - (Number(meta.startedAt) || Date.now())),
+        requestHeaders: {},
+        responseHeaders: parseRawResponseHeaders(typeof this.getAllResponseHeaders === "function" ? this.getAllResponseHeaders() : ""),
         payload: createPayloadFromFetch(options, meta.requestBody, responseBody)
       });
     }, { once: true });

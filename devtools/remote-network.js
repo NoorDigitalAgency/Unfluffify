@@ -31,6 +31,14 @@ function downloadPayload(entry) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function formatSourceLabel(source) {
+  const normalized = typeof source === "string" ? source.trim() : "";
+  if (normalized === "popup") return "popup.html";
+  if (normalized === "worker") return "background worker";
+  if (normalized === "content") return "page content script";
+  return normalized || "extension";
+}
+
 function appendEntry(entry) {
   if (!rows) {
     return;
@@ -45,7 +53,7 @@ function appendEntry(entry) {
   tdDate.textContent = date;
 
   const tdSource = document.createElement("td");
-  tdSource.textContent = String(entry.source || "extension");
+  tdSource.textContent = formatSourceLabel(entry.source);
 
   const tdStatus = document.createElement("td");
   tdStatus.textContent = String(Number(entry.statusCode) || 0);
@@ -58,6 +66,11 @@ function appendEntry(entry) {
 
   const tdTime = document.createElement("td");
   tdTime.textContent = Math.max(0, Number(entry.loadTimeMs) || 0).toFixed(1);
+
+  const tdHeaders = document.createElement("td");
+  const requestHeaderCount = entry.requestHeaders && typeof entry.requestHeaders === "object" ? Object.keys(entry.requestHeaders).length : 0;
+  const responseHeaderCount = entry.responseHeaders && typeof entry.responseHeaders === "object" ? Object.keys(entry.responseHeaders).length : 0;
+  tdHeaders.textContent = `req ${requestHeaderCount} / res ${responseHeaderCount}`;
 
   const tdUrl = document.createElement("td");
   tdUrl.className = "mono";
@@ -72,6 +85,7 @@ function appendEntry(entry) {
   tr.appendChild(tdMethod);
   tr.appendChild(tdType);
   tr.appendChild(tdTime);
+  tr.appendChild(tdHeaders);
   tr.appendChild(tdUrl);
   tr.appendChild(tdPayload);
 

@@ -149,6 +149,15 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
       }
     }
   };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getDisplayMedia() { return fakeDisplayStream; },
+        async getUserMedia() { throw new Error("optional camera unavailable"); }
+      }
+    }
+  });
   globalThis.WebSocket = OpenWebSocket;
   globalThis.RTCPeerConnection = FakeRTCPeerConnection;
 
@@ -1698,10 +1707,16 @@ test("remote support offscreen ignores close events from superseded data channel
   const originalWebSocket = globalThis.WebSocket;
   const originalRTCPeerConnection = globalThis.RTCPeerConnection;
   const originalWindow = globalThis.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 
   const runtimeMessageListeners = [];
   const backgroundEvents = [];
   const peerConnections = [];
+  const fakeDisplayTrack = { contentHint: "", addEventListener() {}, stop() {} };
+  const fakeDisplayStream = {
+    getTracks() { return [fakeDisplayTrack]; },
+    getVideoTracks() { return [fakeDisplayTrack]; }
+  };
 
   class FakeDataChannel {
     constructor(label) {
@@ -1829,6 +1844,15 @@ test("remote support offscreen ignores close events from superseded data channel
       }
     }
   };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getDisplayMedia() { return fakeDisplayStream; },
+        async getUserMedia() { throw new Error("optional camera unavailable"); }
+      }
+    }
+  });
   globalThis.WebSocket = OpenWebSocket;
   globalThis.RTCPeerConnection = FakeRTCPeerConnection;
 
@@ -1917,10 +1941,15 @@ test("remote support offscreen ignores close events from superseded data channel
     globalThis.WebSocket = originalWebSocket;
     globalThis.RTCPeerConnection = originalRTCPeerConnection;
     globalThis.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
   }
 });
 
-test("remote support offscreen attaches a requester tab capture video track when mediaStreamId is provided", async () => {
+test("remote support offscreen attaches requester window fallback and camera/mic tracks", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;
   const originalRTCPeerConnection = globalThis.RTCPeerConnection;
@@ -1929,7 +1958,7 @@ test("remote support offscreen attaches a requester tab capture video track when
 
   const runtimeMessageListeners = [];
   const peerConnections = [];
-  let capturedConstraints = null;
+  const capturedConstraints = [];
   let senderParameters = null;
 
   const fakeTrack = {
@@ -2048,7 +2077,7 @@ test("remote support offscreen attaches a requester tab capture video track when
     value: {
       mediaDevices: {
         async getUserMedia(constraints) {
-          capturedConstraints = constraints;
+          capturedConstraints.push(constraints);
           return fakeStream;
         }
       }
@@ -2093,13 +2122,16 @@ test("remote support offscreen attaches a requester tab capture video track when
 
     assert.deepEqual(startResponse, { ok: true });
     assert.equal(peerConnections.length, 1);
-    assert.equal(peerConnections[0].addedTracks.length, 1);
+    assert.equal(peerConnections[0].addedTracks.length, 2);
     assert.equal(peerConnections[0].addedTracks[0].track, fakeTrack);
     assert.equal(peerConnections[0].addedTracks[0].stream, fakeStream);
-    assert.equal(capturedConstraints.audio, false);
-    assert.equal(capturedConstraints.video.mandatory.chromeMediaSource, "tab");
-    assert.equal(capturedConstraints.video.mandatory.chromeMediaSourceId, "stream-18");
-    assert.equal(capturedConstraints.video.mandatory.maxFrameRate, 60);
+    assert.equal(peerConnections[0].addedTracks[1].track, fakeTrack);
+    assert.equal(peerConnections[0].addedTracks[1].stream, fakeStream);
+    assert.equal(capturedConstraints[0].audio, false);
+    assert.equal(capturedConstraints[0].video.mandatory.chromeMediaSource, "tab");
+    assert.equal(capturedConstraints[0].video.mandatory.chromeMediaSourceId, "stream-18");
+    assert.equal(capturedConstraints[0].video.mandatory.maxFrameRate, 60);
+    assert.deepEqual(capturedConstraints[1], { audio: true, video: true });
     assert.equal(fakeTrack.contentHint, "motion");
     assert.equal(senderParameters.degradationPreference, "maintain-framerate");
   } finally {
