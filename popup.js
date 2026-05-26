@@ -2444,7 +2444,6 @@ async function refreshUiInner() {
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
-  nextViewState.remoteSupportControlOwner = remoteSupportControlOwner;
   nextViewState.remoteSupportVisible = Boolean(tokenValue);
   nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
   nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
@@ -2455,9 +2454,6 @@ async function refreshUiInner() {
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
-  nextViewState.remoteSupportControlDisabled = true;
-  nextViewState.remoteSupportControlToggleDisabled = true;
-  nextViewState.remoteSupportControlButtonText = "Remote control unavailable";
   nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
     active: nextViewState.remoteSupportSessionActive,
     mode: remoteSupportMode,
@@ -3587,15 +3583,11 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportSessionActive: Boolean(nextState.active),
     remoteSupportMode: nextState.mode || "inactive",
     remoteSupportRole: nextState.role || "",
-    remoteSupportControlOwner,
     remoteSupportRequested: Boolean(nextState.supportCode),
     remoteSupportCode: nextState.supportCode || "",
     remoteSupportConnected: Boolean(nextState.connected),
     remoteSupportStreaming: Boolean(nextState.streaming),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
-    remoteSupportControlDisabled: true,
-    remoteSupportControlToggleDisabled: true,
-    remoteSupportControlButtonText: "Remote control unavailable",
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
