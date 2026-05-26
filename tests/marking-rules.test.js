@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   chooseExcludeParentBoundaryTarget,
+  getExplicitMarkingPresentation,
+  isValidExpandedExclusionBoundary,
+  shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
@@ -130,5 +133,68 @@ test("falls back to the broadest non-toggleable markable ancestor", () => {
       ]
     }),
     broadestMarkable
+  );
+});
+
+test("expanded exclusion boundaries require direct text or multiple textual descendants", () => {
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: false,
+      textualDescendantCount: 1
+    }),
+    false
+  );
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: false,
+      textualDescendantCount: 2
+    }),
+    true
+  );
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: true,
+      textualDescendantCount: 0
+    }),
+    true
+  );
+});
+
+test("explicit include descendants are blocked until the include boundary is removed", () => {
+  assert.equal(
+    shouldAllowExplicitIncludeDescendantTarget({
+      insideExplicitIncludeAncestor: true,
+      isExactExplicitInclude: false
+    }),
+    false
+  );
+  assert.equal(
+    shouldAllowExplicitIncludeDescendantTarget({
+      insideExplicitIncludeAncestor: true,
+      isExactExplicitInclude: true
+    }),
+    true
+  );
+  assert.equal(
+    shouldAllowExplicitIncludeDescendantTarget({
+      insideExplicitIncludeAncestor: false,
+      isExactExplicitInclude: false
+    }),
+    true
+  );
+});
+
+test("hidden explicit markings use ghost presentation classes", () => {
+  assert.deepEqual(
+    getExplicitMarkingPresentation({ type: "include", visible: false }),
+    { ghost: true, className: "uf-ghost-include" }
+  );
+  assert.deepEqual(
+    getExplicitMarkingPresentation({ type: "exclude", visible: false }),
+    { ghost: true, className: "uf-ghost-exclude" }
+  );
+  assert.deepEqual(
+    getExplicitMarkingPresentation({ type: "include", visible: true }),
+    { ghost: false, className: "uf-explicit-include" }
   );
 });
