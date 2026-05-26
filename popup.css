@@ -114,7 +114,7 @@ body.is-busy {
 
 .app-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 8px;
   padding: 10px 12px;
@@ -132,10 +132,18 @@ body.is-busy {
   min-width: 0;
 }
 
+.header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .header-property-url {
   display: grid;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: 8px;
+  width: 100%;
 }
 
 .header-actions {
@@ -555,10 +563,25 @@ button.button-small {
 
 .property-url-row {
   align-items: stretch;
+  width: 100%;
 }
 
 .property-url-row.input-row {
   gap: 4px;
+}
+
+.property-url-text {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .property-url-actions {

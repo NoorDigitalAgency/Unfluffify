@@ -1085,144 +1085,150 @@ function App({ state: view, actions: handlers }) {
         { class: "app-header" },
         h(
           "div",
-          { class: "header-text" },
-          h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" }),
+          { class: "header-top" },
+          h(
+            "div",
+            { class: "header-text" },
+            h("img", { src: "logo.png", alt: PopupText.branding.logoAlt, class: "header-logo" })
+          ),
+          !previewVisible &&
+            !remoteControllerVisible &&
+            h(
+              "div",
+              { class: "header-actions" },
+              configurationView
+                ? h(
+                    "button",
+                    {
+                      id: "config-header-back",
+                      type: "button",
+                      class: "header-menu-toggle",
+                      title: PopupText.actions.back,
+                      "aria-label": PopupText.actions.back,
+                      disabled: view.configurationBackDisabled,
+                      onClick: handlers.onConfigurationContinue
+                    },
+                    icon("arrow-left")
+                  )
+                : [
+                    h(
+                      "button",
+                      {
+                        id: "config-toggle",
+                        type: "button",
+                        class: "header-menu-toggle",
+                        "aria-haspopup": "menu",
+                        "aria-expanded": view.configMenuOpen ? "true" : "false",
+                        title: PopupText.configuration.title,
+                        onClick: handlers.onConfigToggle
+                      },
+                      icon("dots-vertical")
+                    ),
+                    h(
+                      "div",
+                      {
+                        id: "config-menu",
+                        class: "section-menu config-menu",
+                        role: "menu",
+                        hidden: !view.configMenuOpen,
+                        onClick: handlers.onConfigMenuClick
+                      },
+                      h(
+                        "button",
+                        {
+                          id: "config-open-view",
+                          type: "button",
+                          role: "menuitem",
+                          onClick: handlers.onOpenConfiguration
+                        },
+                        icon("tune"),
+                        h("span", { class: "section-menu__label" }, PopupText.configuration.openViewAction)
+                      ),
+                      view.renderModeChangeMenuVisible
+                        ? h(
+                            "button",
+                            {
+                              id: "render-mode-open-view",
+                              type: "button",
+                              role: "menuitem",
+                              onClick: handlers.onOpenRenderModeSection
+                            },
+                            icon("monitor-dashboard"),
+                            h("span", { class: "section-menu__label" }, PopupText.renderMode.menuAction)
+                          )
+                        : null,
+                      h("div", { class: "config-divider", role: "separator" }),
+                      h(
+                        "button",
+                        {
+                          id: "clear-domain-cache",
+                          type: "button",
+                          role: "menuitem",
+                          class: "danger",
+                          disabled: view.clearDomainCacheDisabled,
+                          onClick: handlers.onClearDomainCache
+                        },
+                        icon("trash-can-outline"),
+                        h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
+                      )
+                    )
+                  ]
+            )
+        ),
+        h(
+          "div",
+          {
+            class: "header-property-url",
+            hidden: previewVisible || remoteControllerVisible || configurationView
+          },
+          h(
+            "label",
+            { class: "field field--compact" },
+            h("span", { class: "control-label" }, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
+            h(
+              "div",
+              { class: "input-row property-url-row" },
+              h(
+                "div",
+                {
+                  id: "base-url",
+                  class: "property-url-text",
+                  title: view.baseUrlInputValue || PopupText.baseUrl.placeholder
+                },
+                view.baseUrlInputValue || PopupText.baseUrl.placeholder
+              ),
+              h(
+                "div",
+                { class: "section-header-actions property-url-actions" },
+                h(
+                  "button",
+                  {
+                    id: "base-page-menu-toggle",
+                    type: "button",
+                    class: "section-menu-button button-secondary",
+                    "aria-haspopup": "menu",
+                    "aria-expanded": view.basePageMenuOpen ? "true" : "false",
+                    title: PopupText.tooltips.basePageUrls,
+                    onClick: handlers.onBasePageMenuToggle
+                  },
+                  icon("dots-vertical")
+                ),
+                renderBasePageMenu(view, handlers)
+              )
+            )
+          ),
           h(
             "div",
             {
-              class: "header-property-url",
-              hidden: previewVisible || remoteControllerVisible || configurationView
+              id: "base-url-notice",
+              class: "notice",
+              role: "status",
+              "aria-live": "polite",
+              hidden: !view.baseUrlNoticeVisible
             },
-            h(
-              "label",
-              { class: "field field--compact" },
-              h("span", { class: "control-label" }, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
-              h(
-                "div",
-                { class: "input-row property-url-row" },
-                h("input", {
-                  id: "base-url",
-                  type: "text",
-                  placeholder: PopupText.baseUrl.placeholder,
-                  readOnly: true,
-                  value: view.baseUrlInputValue
-                }),
-                h(
-                  "div",
-                  { class: "section-header-actions property-url-actions" },
-                  h(
-                    "button",
-                    {
-                      id: "base-page-menu-toggle",
-                      type: "button",
-                      class: "section-menu-button button-secondary",
-                      "aria-haspopup": "menu",
-                      "aria-expanded": view.basePageMenuOpen ? "true" : "false",
-                      title: PopupText.tooltips.basePageUrls,
-                      onClick: handlers.onBasePageMenuToggle
-                    },
-                    icon("dots-vertical")
-                  ),
-                  renderBasePageMenu(view, handlers)
-                )
-              )
-            ),
-            h(
-              "div",
-              {
-                id: "base-url-notice",
-                class: "notice",
-                role: "status",
-                "aria-live": "polite",
-                hidden: !view.baseUrlNoticeVisible
-              },
-              view.baseUrlNoticeText
-            )
+            view.baseUrlNoticeText
           )
-        ),
-        !previewVisible &&
-          !remoteControllerVisible &&
-          h(
-            "div",
-            { class: "header-actions" },
-            configurationView
-              ? h(
-                  "button",
-                  {
-                    id: "config-header-back",
-                    type: "button",
-                    class: "header-menu-toggle",
-                    title: PopupText.actions.back,
-                    "aria-label": PopupText.actions.back,
-                    disabled: view.configurationBackDisabled,
-                    onClick: handlers.onConfigurationContinue
-                  },
-                  icon("arrow-left")
-                )
-              : [
-                  h(
-                    "button",
-                    {
-                      id: "config-toggle",
-                      type: "button",
-                      class: "header-menu-toggle",
-                      "aria-haspopup": "menu",
-                      "aria-expanded": view.configMenuOpen ? "true" : "false",
-                      title: PopupText.configuration.title,
-                      onClick: handlers.onConfigToggle
-                    },
-                    icon("dots-vertical")
-                  ),
-                  h(
-                    "div",
-                    {
-                      id: "config-menu",
-                      class: "section-menu config-menu",
-                      role: "menu",
-                      hidden: !view.configMenuOpen,
-                      onClick: handlers.onConfigMenuClick
-                    },
-                    h(
-                      "button",
-                      {
-                        id: "config-open-view",
-                        type: "button",
-                        role: "menuitem",
-                        onClick: handlers.onOpenConfiguration
-                      },
-                      icon("tune"),
-                      h("span", { class: "section-menu__label" }, PopupText.configuration.openViewAction)
-                    ),
-                    view.renderModeChangeMenuVisible
-                      ? h(
-                          "button",
-                          {
-                            id: "render-mode-open-view",
-                            type: "button",
-                            role: "menuitem",
-                            onClick: handlers.onOpenRenderModeSection
-                          },
-                          icon("monitor-dashboard"),
-                          h("span", { class: "section-menu__label" }, PopupText.renderMode.menuAction)
-                        )
-                      : null,
-                    h("div", { class: "config-divider", role: "separator" }),
-                    h(
-                      "button",
-                      {
-                        id: "clear-domain-cache",
-                        type: "button",
-                        role: "menuitem",
-                        class: "danger",
-                        disabled: view.clearDomainCacheDisabled,
-                        onClick: handlers.onClearDomainCache
-                      },
-                      icon("trash-can-outline"),
-                      h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
-                    )
-                  )
-                ]
-          )
+        )
       ),
       previewVisible
         ? renderPreviewSidebar(view, handlers)
