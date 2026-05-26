@@ -581,9 +581,9 @@ button.button-small {
   font-size: 12px;
   color: var(--warn);
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warn) 14%, var(--card));
+  background: color-mix(in srgb, var(--warn) 12% 12% , transparent);
   line-height: 1.5;
 }
 
