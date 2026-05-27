@@ -68,9 +68,6 @@ body.is-busy {
   min-width: 0;
 }
 
-.header-top {
-}
-
 .header-property-url {
   display: grid;
   gap: 6px;
@@ -84,8 +81,11 @@ body.is-busy {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--tone-border, var(--line));
   border-radius: var(--radius);
+  background: var(--tone-surface, var(--bg-accent));
   color: var(--ink);
 }
 
@@ -111,9 +111,6 @@ body.is-busy {
   font-size: 11px;
   color: var(--muted);
   line-height: 1.35;
-}
-
-.property-lock__actions {
 }
 
 button.property-lock__button {
@@ -1166,9 +1163,6 @@ button.button-small {
   justify-content: center;
   color: var(--muted);
   font-family: inherit;
-}
-
-.page-types {
 }
 
 .page-types__group {

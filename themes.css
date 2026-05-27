@@ -779,13 +779,15 @@ button.warning:hover:not(:disabled),
 }
 
 .u-surface-tone {
-  border-color: color-mix(in srgb, var(--tone, var(--line)) 52%, transparent);
-  background: color-mix(in srgb, var(--tone, var(--bg-accent)) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--tone, var(--line)) 52%, transparent);
+  --tone-surface: color-mix(in srgb, var(--tone, var(--bg-accent)) 12%, transparent);
+  border-color: var(--tone-border);
+  background: var(--tone-surface);
 }
 
 .u-tone-muted.u-surface-tone {
-  border-color: var(--line);
-  background: var(--bg-accent);
+  --tone-border: var(--line);
+  --tone-surface: var(--bg-accent);
 }
 
 :where(
