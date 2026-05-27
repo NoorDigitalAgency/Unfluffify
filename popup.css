@@ -501,7 +501,7 @@ button.button-small {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--warn);
+  color: var(--tone-ink, var(--warn));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -509,8 +509,8 @@ button.button-small {
 }
 
 .notice__dismiss:hover {
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-  color: var(--ink);
+  background: color-mix(in srgb, var(--tone, var(--warn)) 18%, transparent);
+  color: var(--tone-ink, var(--warn));
 }
 
 .notice__dismiss:focus-visible {
