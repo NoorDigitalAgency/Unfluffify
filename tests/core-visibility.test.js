@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getMutationRenderMode, isVisible, isVisibleForSubmission, state } from "../content/core.js";
+import {
+  getMutationRenderMode,
+  isMarkableElement,
+  isVisible,
+  isVisibleForSubmission,
+  state
+} from "../content/core.js";
 
 const defaultStyle = {
   display: "block",
@@ -297,4 +303,60 @@ test("submission visibility rejects fixed boxes outside the viewport", () => {
     body.childNodes.push(element);
     assert.equal(isVisibleForSubmission(element), false);
   }, { scrollHeight: 1600 });
+});
+
+test("parent marking rejects layout shells when the pointer is on empty background", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const firstText = createElement({
+      tagName: "p",
+      text: "First text block",
+      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
+    });
+    const secondText = createElement({
+      tagName: "p",
+      text: "Second text block",
+      rect: { top: 140, right: 320, bottom: 200, left: 20, width: 300, height: 60 }
+    });
+    const shell = createElement({
+      parentElement: body,
+      children: [firstText, secondText],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(shell);
+    body.childNodes.push(shell);
+    globalThis.document.elementsFromPoint = () => [shell, body, documentElement];
+
+    assert.equal(
+      isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 8, y: 450 } }),
+      false
+    );
+  });
+});
+
+test("parent marking still allows expanded boundaries over markable content", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const firstText = createElement({
+      tagName: "p",
+      text: "First text block",
+      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
+    });
+    const secondText = createElement({
+      tagName: "p",
+      text: "Second text block",
+      rect: { top: 140, right: 320, bottom: 200, left: 20, width: 300, height: 60 }
+    });
+    const shell = createElement({
+      parentElement: body,
+      children: [firstText, secondText],
+      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
+    });
+    body.children.push(shell);
+    body.childNodes.push(shell);
+    globalThis.document.elementsFromPoint = () => [firstText, shell, body, documentElement];
+
+    assert.equal(
+      isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
+      true
+    );
+  });
 });

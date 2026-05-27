@@ -3381,6 +3381,52 @@ function hasMultipleMarkableDescendants(el) {
   return false;
 }
 
+function isPointOverMarkableDescendant(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const hitPoint = options && options.hitPoint;
+  if (
+    !hitPoint ||
+    !Number.isFinite(Number(hitPoint.x)) ||
+    !Number.isFinite(Number(hitPoint.y)) ||
+    typeof document.elementsFromPoint !== "function"
+  ) {
+    return true;
+  }
+  const descendantOptions = {
+    ...options,
+    allowParent: false,
+    explicitlyExcluded: false,
+    explicitlyIncluded: false
+  };
+  const elements = document.elementsFromPoint(Number(hitPoint.x), Number(hitPoint.y));
+  for (const node of elements) {
+    if (!node || node.nodeType !== 1 || node === el) {
+      continue;
+    }
+    if (node === document.documentElement || node === document.body) {
+      continue;
+    }
+    if (!el.contains(node)) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    if (isSelfMarkableWithoutParentMode(node, descendantOptions)) {
+      return true;
+    }
+    if (matchesToggleableDefaultExcluded(node) && isTextualContainer(node, descendantOptions)) {
+      return true;
+    }
+    if (isStructuredGroupExclusionCandidate(node, descendantOptions)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function createExcludedAncestorChecker(options = {}) {
   const configValue = options.config || state.config;
   const pageUrl = options.pageUrl || location.href;
@@ -3637,7 +3683,8 @@ function getMarkableTarget(x, y, options) {
       explicitlyExcluded,
       explicitlyIncluded,
       allowImmutableChildren,
-      preferMixedTextAncestor
+      preferMixedTextAncestor,
+      hitPoint: { x, y }
     });
     if (resolved) {
       return resolved;
@@ -5059,6 +5106,9 @@ export function isMarkableElement(el, config, options) {
     return true;
   }
   if (!options || !options.allowParent) {
+    return false;
+  }
+  if (!isPointOverMarkableDescendant(el, options || {})) {
     return false;
   }
   return hasMultipleMarkableDescendants(el, options || {});
