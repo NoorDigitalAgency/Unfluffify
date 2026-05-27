@@ -854,6 +854,7 @@ function setConsentElementHiddenVisibility(element, visible) {
     });
     return;
   }
+  element.style.setProperty("all", "none", "important");
   element.style.setProperty("opacity", "0", "important");
   element.style.setProperty("visibility", "hidden", "important");
   element.style.setProperty("pointer-events", "none", "important");
