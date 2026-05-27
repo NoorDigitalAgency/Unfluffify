@@ -353,6 +353,12 @@ function renderThemePalette(option, extraClassName = "") {
   );
 }
 
+function getSelectedThemeOption(view) {
+  const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
+  const themeValue = view && typeof view.themeValue === "string" ? view.themeValue : "";
+  return themeOptions.find((option) => option && option.value === themeValue) || themeOptions[0] || null;
+}
+
 function renderThemeDropdown(view, handlers) {
   const selectedTheme = getSelectedThemeOption(view);
   const themeOptions = Array.isArray(view.themeOptions) ? view.themeOptions : [];
