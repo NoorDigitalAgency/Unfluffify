@@ -73,18 +73,18 @@ export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectio
 /**
  * Build WebSocket URL for property lock service.
  * 
- * @param {string} endpointBase - Config endpoint/base URL (e.g., "https://example.test/load")
+ * @param {string} endpointUrl - Config endpoint URL or host; path/query are replaced and the same origin/port is used.
  * @param {string} tokenValue - JWT token for authorization
  * @returns {string} WSS URL or empty string if invalid
  */
-export function buildPropertyLockWssUrl(endpointBase, tokenValue) {
-  if (!endpointBase || typeof endpointBase !== "string") {
+export function buildPropertyLockWssUrl(endpointUrl, tokenValue) {
+  if (!endpointUrl || typeof endpointUrl !== "string") {
     return "";
   }
 
   let url;
   try {
-    const trimmed = endpointBase.trim();
+    const trimmed = endpointUrl.trim();
     url = trimmed.includes("://")
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
