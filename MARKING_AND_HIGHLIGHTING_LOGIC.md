@@ -259,7 +259,7 @@ Because auto-applied toggleable default exclusion is now structural, text inside
 
 AI preview is read-only. Opening or closing the AI preview popover must not create or dirty a page draft by itself, even when the normal marking overlay would auto-seed an unmarked page from stored AI selectors. Preview restore suppresses that one auto-seed pass so the pre-preview draft state is preserved.
 
-Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position. Silent highlighting now covers the AI-included layer, the AI-excluded layer, and optional visible-consent overlays; saved-page link highlighting is no longer part of that model.
+Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position. Silent highlighting now covers the AI-included layer and the AI-excluded layer; saved-page link highlighting is no longer part of that model.
 
 An active full silent-highlight refresh always repaints the overlay, even if the tracked node set and selector maps are unchanged. This prevents delayed visibility or render-box changes from being missed just because the render key stayed stable.
 

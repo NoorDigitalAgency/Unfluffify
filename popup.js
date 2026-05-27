@@ -62,9 +62,6 @@ import {
   combineAiSelectorSet,
   aiSelectorSetsEqual
 } from "./common/selector-set.js";
-import {
-  normalizeSilentHighlightOptions
-} from "./common/silent-highlight-options.js";
 import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   createInactiveRemoteSupportSidebarSnapshot,
@@ -1924,112 +1921,23 @@ function getLatestAvailableSelectorsFromConfig(sourceConfig = state.currentConfi
   return config.getNewestConfigSelectorSet(sourceConfig).selectorSet;
 }
 
-function getSilentHighlightVisibility() {
-  return {
-    includedContent: state.silentHighlightShowIncludedContent !== false,
-    excludedContent: Boolean(state.silentHighlightShowExcludedContent),
-    visibleConsent: Boolean(state.silentHighlightShowVisibleConsent),
-    hideDuringScrollRedraw: Boolean(state.silentHighlightHideDuringScrollRedraw)
-  };
-}
-
-async function loadGlobalSilentHighlightOptions() {
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalSilentHighlightOptions"
-  ]);
-  return normalizeSilentHighlightOptions(
-    stored && stored.globalSilentHighlightOptions
-  );
-}
-
-function getSilentHighlightVisibilityKey(visibility) {
-  return `${visibility.includedContent ? "1" : "0"}${visibility.excludedContent ? "1" : "0"}${visibility.visibleConsent ? "1" : "0"}${visibility.hideDuringScrollRedraw ? "1" : "0"}`;
-}
-
-async function persistSilentHighlightVisibility() {
-  if (!state.currentTab || !state.currentTab.id) {
-    return;
-  }
-  const visibility = getSilentHighlightVisibility();
-  await utils.storageSet(chrome.storage.sync, {
-    globalSilentHighlightOptions: visibility
-  });
-  await messages.sendRuntimeMessage({
-    type: "setSilentHighlightOptions",
-    tabId: state.currentTab.id,
-    silentHighlightOptions: visibility
-  });
-}
-
-async function applySilentHighlightVisibility(options = {}) {
-  const { force = false, visibilityOverride = null } = options;
-  if (!state.currentTab || !state.currentTab.id) {
+async function hideConsentForRenderModeInspection() {
+  const tabId = state.currentTab && state.currentTab.id;
+  if (!tabId) {
     return false;
   }
-  const visibility = visibilityOverride && typeof visibilityOverride === "object"
-    ? normalizeSilentHighlightOptions(visibilityOverride)
-    : getSilentHighlightVisibility();
-  const key = getSilentHighlightVisibilityKey(visibility);
-  const tabId = state.currentTab.id;
-  const pageUrl = (state.currentTab && state.currentTab.url) || "";
-  if (
-    !force &&
-    state.lastAppliedSilentHighlightTabId === tabId &&
-    state.lastAppliedSilentHighlightKey === key &&
-    state.lastAppliedSilentHighlightPageUrl === pageUrl
-  ) {
-    return;
-  }
-  const response = await messages.sendTabMessageWithRetry({
-    type: "setSilentHighlightVisibility",
-    ...visibility
-  }, 2);
-  let finalResponse = response;
-  if ((!finalResponse || !finalResponse.ok) && tabId) {
+  let hideResponse = await messages.sendTabMessageWithRetry(
+    { type: "hideConsentForInspection" },
+    2
+  );
+  if (!hideResponse || !hideResponse.ok) {
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
-    finalResponse = await messages.sendTabMessageWithRetry({
-      type: "setSilentHighlightVisibility",
-      ...visibility
-    }, 3);
-  }
-  if (finalResponse && finalResponse.ok) {
-    state.lastAppliedSilentHighlightTabId = tabId;
-    state.lastAppliedSilentHighlightKey = key;
-    state.lastAppliedSilentHighlightPageUrl = pageUrl;
-    return true;
-  }
-
-  return false;
-}
-
-async function applyRenderModeInspectionVisibility(options = {}) {
-  const inspectionVisibility = {
-    ...getSilentHighlightVisibility(),
-    visibleConsent: false
-  };
-  const visibilityApplied = await applySilentHighlightVisibility({
-    ...options,
-    visibilityOverride: inspectionVisibility
-  });
-
-  let consentHiddenApplied = false;
-  const tabId = state.currentTab && state.currentTab.id;
-  if (tabId) {
-    let hideResponse = await messages.sendTabMessageWithRetry(
+    hideResponse = await messages.sendTabMessageWithRetry(
       { type: "hideConsentForInspection" },
-      2
+      3
     );
-    if ((!hideResponse || !hideResponse.ok) && tabId) {
-      await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
-      hideResponse = await messages.sendTabMessageWithRetry(
-        { type: "hideConsentForInspection" },
-        3
-      );
-    }
-    consentHiddenApplied = Boolean(hideResponse && hideResponse.ok);
   }
-
-  return Boolean(visibilityApplied || consentHiddenApplied);
+  return Boolean(hideResponse && hideResponse.ok);
 }
 
 async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
@@ -2074,14 +1982,6 @@ async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
       }
     });
   });
-}
-
-function readCheckboxValue(event, fallbackValue) {
-  const target = event && (event.currentTarget || event.target);
-  if (!target || typeof target.checked !== "boolean") {
-    return fallbackValue;
-  }
-  return Boolean(target.checked);
 }
 
 function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
@@ -2194,11 +2094,6 @@ async function refreshUiInner() {
     state.renderModeManualStepsVisible = false;
   }
   state.lastPopupPageUrl = pageUrl;
-  if (state.lastAppliedSilentHighlightTabId !== currentTabId) {
-    state.lastAppliedSilentHighlightTabId = currentTabId;
-    state.lastAppliedSilentHighlightKey = "";
-    state.lastAppliedSilentHighlightPageUrl = "";
-  }
   state.lastTabId = currentTabId;
   const {
     tokenValue,
@@ -2206,7 +2101,6 @@ async function refreshUiInner() {
     configEndpointValue,
     stageBaseValue
   } = await helpers.loadGlobalAiSettings();
-  const globalSilentHighlightOptions = await loadGlobalSilentHighlightOptions();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
   const tabState =
@@ -2253,20 +2147,6 @@ async function refreshUiInner() {
     effectiveTabState = { enabled: false, baseUrl: "" };
     await utils.setTabState(state.currentTab.id, effectiveTabState);
   }
-  const silentHighlightOptions = normalizeSilentHighlightOptions({
-    ...globalSilentHighlightOptions,
-    ...(
-      tabState &&
-      tabState.silentHighlightOptions &&
-      typeof tabState.silentHighlightOptions === "object"
-        ? tabState.silentHighlightOptions
-        : {}
-    )
-  });
-  state.silentHighlightShowIncludedContent = silentHighlightOptions.includedContent;
-  state.silentHighlightShowExcludedContent = silentHighlightOptions.excludedContent;
-  state.silentHighlightShowVisibleConsent = silentHighlightOptions.visibleConsent;
-  state.silentHighlightHideDuringScrollRedraw = silentHighlightOptions.hideDuringScrollRedraw;
   if (
     tabInScope &&
     !localMatchingBaseUrl &&
@@ -2802,8 +2682,7 @@ async function refreshUiInner() {
     effectiveTabState = { ...effectiveTabState, enabled: false };
     await utils.setTabState(currentTabId, {
       enabled: false,
-      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || "",
-      silentHighlightOptions: silentHighlightOptions
+      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
@@ -3078,15 +2957,6 @@ async function refreshUiInner() {
     !pageScopedUiDisabled &&
     resolvedView === uiModule.View.Marking &&
     renderModeReady;
-  const highlightingMode =
-    resolvedView === uiModule.View.Marking && !isEnabled;
-  nextViewState.highlightingOptionsVisible =
-    !pageScopedUiDisabled && highlightingMode && renderModeReady;
-  nextViewState.highlightIncludedContentChecked = state.silentHighlightShowIncludedContent;
-  nextViewState.highlightExcludedContentChecked = state.silentHighlightShowExcludedContent;
-  nextViewState.highlightVisibleConsentChecked = state.silentHighlightShowVisibleConsent;
-  nextViewState.highlightHideDuringScrollRedrawChecked =
-    state.silentHighlightHideDuringScrollRedraw;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
@@ -3275,9 +3145,6 @@ async function refreshUiInner() {
   });
 
   uiModule.setViewState(nextViewState);
-  if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
-    await applySilentHighlightVisibility();
-  }
 }
 
 async function refreshUi() {
@@ -3448,7 +3315,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
     }
 
     await waitForTabLoadComplete(tabId);
-    await applyRenderModeInspectionVisibility({ force: true });
+    await hideConsentForRenderModeInspection();
 
     uiModule.showToast(
       javaScriptDisabled
@@ -3488,14 +3355,14 @@ async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentT
     }
 
     if (managedTabId === currentTabId) {
-      await applyRenderModeInspectionVisibility({ force: true });
+      await hideConsentForRenderModeInspection();
       return;
     }
 
     const attachResult = await utils.attachDebugger(currentTabId);
     if (attachResult.ok || attachResult.alreadyAttached) {
       state.renderModeDebuggerTabId = currentTabId;
-      await applyRenderModeInspectionVisibility({ force: true });
+      await hideConsentForRenderModeInspection();
       return;
     }
 
@@ -5027,8 +4894,7 @@ async function handleEnableToggle(event) {
         await utils.setTabState(tab.id, {
           enabled: true,
           baseUrl: effectiveBaseUrl,
-          pageType: currentPageTypeKey,
-          silentHighlightOptions: getSilentHighlightVisibility()
+          pageType: currentPageTypeKey
         });
         await messages.sendTabMessageWithRetry({
           type: "setEnabled",
@@ -5041,8 +4907,7 @@ async function handleEnableToggle(event) {
         await utils.setTabState(tab.id, {
           enabled: false,
           baseUrl: baseUrlValue,
-          pageType: "",
-          silentHighlightOptions: getSilentHighlightVisibility()
+          pageType: ""
         });
         await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false, pageType: "" });
       }
@@ -5050,46 +4915,6 @@ async function handleEnableToggle(event) {
     },
     { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
   );
-}
-
-async function handleHighlightIncludedContentChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightShowIncludedContent",
-    "highlightIncludedContentChecked"
-  );
-}
-
-async function handleHighlightExcludedContentChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightShowExcludedContent",
-    "highlightExcludedContentChecked"
-  );
-}
-
-async function handleHighlightVisibleConsentChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightShowVisibleConsent",
-    "highlightVisibleConsentChecked"
-  );
-}
-
-async function handleHighlightHideDuringScrollRedrawChange(event) {
-  await updateHighlightVisibilityOption(
-    event,
-    "silentHighlightHideDuringScrollRedraw",
-    "highlightHideDuringScrollRedrawChecked"
-  );
-}
-
-async function updateHighlightVisibilityOption(event, stateKey, viewKey) {
-  const checked = readCheckboxValue(event, state[stateKey]);
-  state[stateKey] = checked;
-  uiModule.setViewState({ [viewKey]: checked });
-  await persistSilentHighlightVisibility();
-  await applySilentHighlightVisibility({ force: true });
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {
@@ -6174,10 +5999,6 @@ async function init() {
 
   uiModule.initUi({
     onToggleEnabled: handleEnableToggle,
-    onHighlightIncludedContentChange: handleHighlightIncludedContentChange,
-    onHighlightExcludedContentChange: handleHighlightExcludedContentChange,
-    onHighlightVisibleConsentChange: handleHighlightVisibleConsentChange,
-    onHighlightHideDuringScrollRedrawChange: handleHighlightHideDuringScrollRedrawChange,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
     onDeviceScaleInput: handleDeviceScaleInput,
     onDeviceScaleChange: handleDeviceScaleChange,

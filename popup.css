@@ -2088,15 +2088,6 @@ span.todo-candidate-link {
   color: var(--accent-dark);
 }
 
-.highlighting-section {
-  gap: 6px;
-}
-
-.highlighting-body {
-  display: grid;
-  gap: 8px;
-}
-
 .config-extras {
   gap: 6px;
 }

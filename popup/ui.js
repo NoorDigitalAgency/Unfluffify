@@ -147,16 +147,11 @@ const initialViewState = {
   saveExcludesButtonLoading: false,
   previewLatestButtonDisabled: true,
   cssSelectorsVisible: false,
-  highlightingOptionsVisible: false,
   previewActive: false,
   previewItems: [],
   previewFocusedXpath: "",
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
-  highlightIncludedContentChecked: true,
-  highlightExcludedContentChecked: true,
-  highlightVisibleConsentChecked: false,
-  highlightHideDuringScrollRedrawChecked: true,
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -214,6 +209,10 @@ function icon(name, extraClass = "") {
   });
 }
 
+function editToggleIcon(label) {
+  return label === ViewText.cancelAction ? "close" : "pencil";
+}
+
 function renderRemoteSupportErrorNotice(view, handlers) {
   const message = typeof view.remoteSupportError === "string" ? view.remoteSupportError.trim() : "";
   if (!message) {
@@ -236,15 +235,6 @@ function renderRemoteSupportErrorNotice(view, handlers) {
       icon("close")
     )
   );
-}
-
-function editToggleIcon(actionText) {
-  return actionText === ViewText.cancelAction ? "close" : "pencil-outline";
-}
-
-function getSelectedThemeOption(view) {
-  const options = Array.isArray(view.themeOptions) ? view.themeOptions : [];
-  return options.find((option) => option && option.value === view.themeValue) || options[0] || null;
 }
 
 function statusToneClass(tone) {
@@ -1612,7 +1602,7 @@ function renderLynxChecklistPopover(view, handlers) {
 
 function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
-  const showDeviceSection = !view.mainUiHidden || view.highlightingOptionsVisible;
+  const showDeviceSection = !view.mainUiHidden;
   const markingMode = !view.mainUiHidden;
   const pageSaveNotice = view.pageSaveMobileSimulationRequiredVisible
     ? h(
@@ -1754,63 +1744,6 @@ function renderMarkingView({state: view, actions: handlers}) {
   );
 }
 
-function renderHighlightingOptionsSection({ state: view, actions: handlers }) {
-  return h(
-    "section",
-    { class: view.highlightingEmbedded ? "config-extra-subsection highlighting-section" : "card highlighting-section" },
-    h("div", { class: "section-title" }, icon("marker", "field-icon"), PopupText.highlighting.sectionTitle),
-    h(
-      "div",
-      { class: "highlighting-body" },
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("check-circle-outline", "row-icon"), PopupText.highlighting.includedContent),
-        h("input", {
-          id: "highlight-included-content",
-          type: "checkbox",
-          checked: view.highlightIncludedContentChecked,
-          onChange: handlers.onHighlightIncludedContentChange
-        })
-      ),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("minus-circle-outline", "row-icon"), PopupText.highlighting.excludedContent),
-        h("input", {
-          id: "highlight-excluded-content",
-          type: "checkbox",
-          checked: view.highlightExcludedContentChecked,
-          onChange: handlers.onHighlightExcludedContentChange
-        })
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("eye-off-outline", "row-icon"), PopupText.highlighting.hideWhileScrolling),
-        h("input", {
-          id: "highlight-hide-during-scroll-redraw",
-          type: "checkbox",
-          checked: view.highlightHideDuringScrollRedrawChecked,
-          onChange: handlers.onHighlightHideDuringScrollRedrawChange
-        })
-      ),
-      h(
-        "label",
-        { class: "row" },
-        h("span", {class: "row-label"}, icon("shield-check-outline", "row-icon"), PopupText.highlighting.visibleConsent),
-        h("input", {
-          id: "highlight-visible-consent",
-          type: "checkbox",
-          checked: view.highlightVisibleConsentChecked,
-          onChange: handlers.onHighlightVisibleConsentChange
-        })
-      )
-    )
-  );
-}
-
 function renderConfigurationAppearanceSection(view, handlers) {
   return h(
     "section",
@@ -1870,13 +1803,6 @@ function renderConfigurationAppearanceSection(view, handlers) {
 function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
   const sections = [renderConfigurationAppearanceSection(view, handlers)];
-
-  sections.push(
-    renderHighlightingOptionsSection({
-      state: { ...view, highlightingEmbedded: true },
-      actions: handlers
-    })
-  );
 
   if (view.remoteSupportVisible) {
     sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));

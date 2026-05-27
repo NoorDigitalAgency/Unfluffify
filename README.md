@@ -55,7 +55,6 @@ The remote-support regressions also cover tab-scoped background state, concurren
 - **`utilities.js`** - Shared utilities: tab state, script injection, URL normalization, storage
 - **`emulation.js`** - Device emulation state and debugger protocol management
 - **`selector-set.js`** - AI selector set operations and deduplication
-- **`silent-highlight-options.js`** - Silent highlight visual configuration
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
 - **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
 - **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, view-only command rejection, DevTools attachment, and offscreen transport coordination

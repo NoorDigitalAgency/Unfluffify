@@ -8,12 +8,10 @@
  * - IndexedDB operations for data storage
  * - Tab lifecycle events and cleanup
  * - Extension action icon updates
- * - Silent highlight synchronization across pages
  * 
  * Messages handled:
  * - getTabState: Retrieve extension state for a tab
  * - setTabState: Save extension state for a tab
- * - setSilentHighlightOptions: Update silent highlight options
  * - setDeviceEmulation: Enable/disable device emulation for a tab
  * - updateDeviceEmulation: Modify device emulation parameters
  * - getDeviceEmulationState: Get current device emulation state
@@ -33,7 +31,6 @@ import {
   updateDeviceEmulation
 } from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
-import { normalizeSilentHighlightOptions } from "./common/silent-highlight-options.js";
 import {
   handleRemoteSupportBackgroundMessage,
   handleRemoteSupportTabRemoved,
@@ -114,20 +111,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
           nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
         }
-        if (existing.silentHighlightOptions) {
-          nextState.silentHighlightOptions = normalizeSilentHighlightOptions(
-            existing.silentHighlightOptions
-          );
-        }
-        if (
-          message.silentHighlightOptions &&
-          typeof message.silentHighlightOptions === "object"
-        ) {
-          nextState.silentHighlightOptions = normalizeSilentHighlightOptions({
-            ...(existing.silentHighlightOptions || {}),
-            ...message.silentHighlightOptions
-          });
-        }
         return utils.setTabState(tabId, nextState);
       })
       .then(() => {
@@ -137,33 +120,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => {
         sendResponse({ ok: false });
       });
-    return true;
-  }
-
-  if (message.type === "setSilentHighlightOptions") {
-    const tabId = message.tabId || (sender.tab && sender.tab.id);
-    if (!tabId) {
-      sendResponse({ ok: false });
-      return;
-    }
-    utils.getTabState(tabId)
-      .then((existingState) => {
-        const existing = existingState && typeof existingState === "object"
-          ? existingState
-          : {};
-        const nextState = {
-          enabled: Boolean(existing.enabled),
-          baseUrl: typeof existing.baseUrl === "string" ? existing.baseUrl : "",
-          ...existing,
-          silentHighlightOptions: normalizeSilentHighlightOptions({
-            ...(existing.silentHighlightOptions || {}),
-            ...(message.silentHighlightOptions || {})
-          })
-        };
-        return utils.setTabState(tabId, nextState);
-      })
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 

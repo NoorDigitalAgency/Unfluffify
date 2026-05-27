@@ -61,7 +61,6 @@ export const state = {
   disabledUnsavedDraft: null,
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
-  consentStyleSnapshots: new WeakMap(),
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
@@ -74,7 +73,6 @@ export const state = {
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
-const CONSENT_HIDDEN_STYLE_PROPS = ["opacity", "visibility", "pointer-events"];
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SCROLL_DEBOUNCE_MS = 250;
@@ -89,8 +87,7 @@ const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
 const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-exclude",
   "uf-cursor-include",
-  "uf-cursor-passthrough",
-  "uf-visible-consent"
+  "uf-cursor-passthrough"
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
@@ -814,28 +811,6 @@ function registerConsentRoot(element) {
   return true;
 }
 
-function getConsentStyleSnapshot(element) {
-  if (!element || element.nodeType !== 1) {
-    return null;
-  }
-  if (!state.consentStyleSnapshots) {
-    state.consentStyleSnapshots = new WeakMap();
-  }
-  let snapshot = state.consentStyleSnapshots.get(element);
-  if (snapshot) {
-    return snapshot;
-  }
-  snapshot = {};
-  CONSENT_HIDDEN_STYLE_PROPS.forEach((prop) => {
-    snapshot[prop] = {
-      value: element.style.getPropertyValue(prop) || "",
-      priority: element.style.getPropertyPriority(prop) || ""
-    };
-  });
-  state.consentStyleSnapshots.set(element, snapshot);
-  return snapshot;
-}
-
 function injectConsentBypassStyle() {
   if (document.getElementById(CONSENT_BYPASS_STYLE_ID)) {
     return;
@@ -860,28 +835,21 @@ function removeConsentBypassStyle() {
   }
 }
 
-function setConsentElementHiddenVisibility(element, visible) {
+function hideConsentElementVisibility(element) {
   if (!element || element.nodeType !== 1) {
-    return;
-  }
-  const snapshot = getConsentStyleSnapshot(element);
-  if (!snapshot) {
-    return;
-  }
-  if (visible) {
-    CONSENT_HIDDEN_STYLE_PROPS.forEach((prop) => {
-      const saved = snapshot[prop];
-      if (saved && saved.value) {
-        element.style.setProperty(prop, saved.value, saved.priority || "");
-      } else {
-        element.style.removeProperty(prop);
-      }
-    });
     return;
   }
   element.style.setProperty("opacity", "0", "important");
   element.style.setProperty("visibility", "hidden", "important");
   element.style.setProperty("pointer-events", "none", "important");
+  // Native <dialog open> elements live in the browser top-layer and intercept ALL
+  // pointer events before CSS hit-testing runs — no CSS property can remove an element
+  // from the top-layer. Calling close() removes it from the top-layer while keeping
+  // the element fully in the DOM with all attributes, children and XPath intact,
+  // so consent detection is unaffected.
+  if (element.tagName.toLowerCase() === "dialog" && element.hasAttribute("open")) {
+    try { element.close?.(); } catch { /* ignore */ }
+  }
 }
 
 function markConsentElementHidden(element) {
@@ -890,20 +858,8 @@ function markConsentElementHidden(element) {
   }
   const wasAlreadyMarked = element.hasAttribute(CONSENT_HIDDEN_ATTR);
   element.setAttribute(CONSENT_HIDDEN_ATTR, "on");
-  setConsentElementHiddenVisibility(element, false);
+  hideConsentElementVisibility(element);
   return !wasAlreadyMarked;
-}
-
-export function setHiddenConsentElementsVisible(visible) {
-  const nodes = document.querySelectorAll(`[${CONSENT_HIDDEN_ATTR}]`);
-  nodes.forEach((element) => {
-    setConsentElementHiddenVisibility(element, Boolean(visible));
-  });
-  if (visible) {
-    removeConsentBypassStyle();
-  } else {
-    injectConsentBypassStyle();
-  }
 }
 
 function hideConsentElement(element) {
@@ -5382,6 +5338,7 @@ export function disable() {
   state.savedPageUrl = "";
   removeOverlay();
   closeAiPopover();
+  removeConsentBypassStyle();
   const popoverStyle = document.getElementById("unfluffify-ai-popover-style");
   if (popoverStyle) {
     popoverStyle.remove();
@@ -5430,6 +5387,12 @@ export async function enableForBaseUrl(baseUrl) {
 
   const hasSavedEntry = Boolean(savedEntry);
   syncConsentOnEnable(pageUrl, hasSavedEntry);
+  // Hide any detected consent elements on the current page (not just previously stored ones)
+  const hiddenCount = hideConsentElements();
+  // Always inject bypass style in case consent elements exist but weren't hidden yet
+  if (hiddenCount === 0) {
+    injectConsentBypassStyle();
+  }
   createOverlay();
   scheduleRender();
   startObservers();

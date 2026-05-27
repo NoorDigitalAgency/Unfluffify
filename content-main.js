@@ -13,10 +13,6 @@ import {
   getNormalizedTextContent as getNormalizedNodeText,
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackNode
 } from "./content/shared-inclusion.js";
-import {
-  SILENT_HIGHLIGHT_OPTIONS_DEFAULTS,
-  normalizeSilentHighlightOptions
-} from "./common/silent-highlight-options.js";
 import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   normalizeCandidatePageUrl,
@@ -88,7 +84,6 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "aria-hidden",
   "open"
 ]);
-const CONSENT_EXCLUDED_OVERLAY_LABEL = "Hidden consent UI";
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "class",
   "style",
@@ -106,7 +101,6 @@ let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
 let silentHighlightingPositionRefreshPending = false;
-let silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
 let silentHighlightOverlay = null;
 let silentHighlightLayers = {};
 let silentHighlightLayerBoxes = {};
@@ -137,10 +131,7 @@ function createAiPreviewState() {
     previousPageUrl: "",
     previousDraftEntry: null,
     previousSavedEntry: null,
-    previousAutoSeededPendingSavePageUrl: "",
-    previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
-      SILENT_HIGHLIGHT_OPTIONS_DEFAULTS
-    )
+    previousAutoSeededPendingSavePageUrl: ""
   };
 }
 
@@ -3854,10 +3845,6 @@ function ensureSilentHighlightingStyles() {
       html [${AI_PREVIEW_CLICKABLE_ATTR}] * {
         cursor: pointer !important;
       }
-      html.uf-visible-consent [${core.CONSENT_HIDDEN_ATTR}] {
-        visibility: visible !important;
-        pointer-events: auto !important;
-      }
     `;
   }
   const host = document.documentElement || document.body || document.head;
@@ -3939,7 +3926,7 @@ function setSilentHighlightOverlayHidden(hidden) {
   if (!silentHighlightOverlay) {
     return;
   }
-  if (!silentHighlightVisibility.hideDuringScrollRedraw || (hidden && isBeingSupportedMode())) {
+  if (hidden && isBeingSupportedMode()) {
     silentHighlightOverlay.classList.remove("uf-silent-hidden");
     return;
   }
@@ -3951,10 +3938,6 @@ function setSilentHighlightOverlayHidden(hidden) {
 }
 
 function scheduleSilentHighlightOverlayReveal() {
-  if (!silentHighlightVisibility.hideDuringScrollRedraw) {
-    setSilentHighlightOverlayHidden(false);
-    return;
-  }
   if (silentHighlightRevealRaf) {
     window.cancelAnimationFrame(silentHighlightRevealRaf);
     silentHighlightRevealRaf = 0;
@@ -4665,16 +4648,6 @@ function startSilentHighlightingUrlWatcher() {
   }, 800);
 }
 
-function applyVisibleConsentVisibility(visibility) {
-  const normalized = normalizeSilentHighlightOptions(visibility);
-  core.setHiddenConsentElementsVisible(normalized.visibleConsent);
-  if (normalized.visibleConsent) {
-    document.documentElement.classList.add("uf-visible-consent");
-  } else {
-    document.documentElement.classList.remove("uf-visible-consent");
-  }
-}
-
 function resetAiPreviewState() {
   clearAiPreviewClickableTargets();
   aiPreviewState = createAiPreviewState();
@@ -4684,21 +4657,8 @@ function clearAiPreviewState() {
   if (!aiPreviewState.active) {
     return false;
   }
-  silentHighlightVisibility = normalizeSilentHighlightOptions(
-    aiPreviewState.previousSilentHighlightVisibility
-  );
-  applyVisibleConsentVisibility(silentHighlightVisibility);
   resetAiPreviewState();
   return true;
-}
-
-function getAiPreviewSilentHighlightVisibility(sourceVisibility) {
-  const baseVisibility = normalizeSilentHighlightOptions(sourceVisibility);
-  return normalizeSilentHighlightOptions({
-    ...baseVisibility,
-    includedContent: true,
-    excludedContent: true
-  });
 }
 
 function restoreAiPreviewDraftState(restoreState) {
@@ -4737,10 +4697,7 @@ async function enterAiPreviewMode() {
       previousPageUrl,
       previousDraftEntry: core.clonePageEntry(core.getDraftPageEntry(previousPageUrl)),
       previousSavedEntry: core.getSavedPageEntry(previousPageUrl),
-      previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || "",
-      previousSilentHighlightVisibility: normalizeSilentHighlightOptions(
-        silentHighlightVisibility
-      )
+      previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || ""
     };
   }
 
@@ -4748,10 +4705,6 @@ async function enterAiPreviewMode() {
     core.disable();
   }
 
-  silentHighlightVisibility = getAiPreviewSilentHighlightVisibility(
-    aiPreviewState.previousSilentHighlightVisibility
-  );
-  applyVisibleConsentVisibility(silentHighlightVisibility);
   await refreshSilentHighlightings();
 }
 
@@ -4762,10 +4715,6 @@ async function exitAiPreviewMode() {
 
   const restoreState = aiPreviewState;
   resetAiPreviewState();
-  silentHighlightVisibility = normalizeSilentHighlightOptions(
-    restoreState.previousSilentHighlightVisibility
-  );
-  applyVisibleConsentVisibility(silentHighlightVisibility);
 
   if (restoreState.previousEnabled && restoreState.previousBaseUrl) {
     stopSilentHighlightingObserver();
@@ -4778,19 +4727,6 @@ async function exitAiPreviewMode() {
   }
 
   await refreshSilentHighlightings();
-}
-
-async function syncSilentHighlightVisibilityFromTabState() {
-  try {
-    const tabState = await utils.sendRuntimeMessage({ type: "getTabState" });
-    silentHighlightVisibility = normalizeSilentHighlightOptions(
-      tabState && tabState.silentHighlightOptions
-    );
-  } catch {
-      clearAiPreviewState();
-    silentHighlightVisibility = { ...SILENT_HIGHLIGHT_OPTIONS_DEFAULTS };
-  }
-  applyVisibleConsentVisibility(silentHighlightVisibility);
 }
 
 function normalizeUrlPath(pathname) {
@@ -5832,7 +5768,6 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
-  visibilityOptions,
   anchors,
   contentNodes,
   excludedNodes,
@@ -5880,9 +5815,6 @@ function buildSilentHighlightingRenderKey(
       })
   );
   return [
-    visibilityOptions && visibilityOptions.includedContent ? 1 : 0,
-    visibilityOptions && visibilityOptions.excludedContent ? 1 : 0,
-    visibilityOptions && visibilityOptions.visibleConsent ? 1 : 0,
     anchorIds.join(","),
     contentIds.join(","),
     excludedIds.join(","),
@@ -6209,7 +6141,6 @@ async function refreshSilentHighlightings() {
   const pageMarkings = baseConfig.pageMarkings || {};
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
   const effectiveSelectorSet = getEffectiveAiSelectorSet(baseConfig);
-  const visibility = normalizeSilentHighlightOptions(silentHighlightVisibility);
   ensureSilentHighlightingStyles();
   clearLegacySilentHighlightingAttributes();
   const hasSelectorHighlights = combineAiSelectorSet(storedSelectors).length > 0;
@@ -6231,13 +6162,10 @@ async function refreshSilentHighlightings() {
       ? storedEntry.consentXpaths
       : null;
   const newlyHiddenConsentCount = core.hideConsentElements(storedConsentXpaths);
-  applyVisibleConsentVisibility(visibility);
   const hasHiddenConsent =
     newlyHiddenConsentCount > 0 ||
     Boolean(document.querySelector(`[${core.CONSENT_HIDDEN_ATTR}]`));
-  const shouldObserve =
-    ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) ||
-    hasHiddenConsent;
+  const shouldObserve = hasSelectorHighlights || hasHiddenConsent;
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
@@ -6249,7 +6177,7 @@ async function refreshSilentHighlightings() {
   let excludedNodes = [];
   let explicitIncludeSelectorByRenderNode = new Map();
   let excludedSelectorByRenderNode = new Map();
-  if ((visibility.includedContent || visibility.excludedContent) && hasSelectorHighlights) {
+  if (hasSelectorHighlights) {
     try {
       const contentMarking = collectIncludedNodesFromSelectorSet(
         effectiveSelectorSet
@@ -6257,25 +6185,21 @@ async function refreshSilentHighlightings() {
       const excludedSourcesForSilentOverlay = Array.isArray(contentMarking.excluded)
         ? contentMarking.excluded
         : [];
-      if (visibility.includedContent) {
-        contentNodes = toRenderableNodeList(contentMarking.included);
-        const explicitIncludedSources = Array.isArray(contentMarking.explicitIncluded)
-          ? contentMarking.explicitIncluded
-          : [];
-        const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
-          explicitIncludedSources,
-          (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
-        );
-        explicitIncludeSelectorByRenderNode = explicitIncludedRenderable.selectorByNode;
-      }
-      if (visibility.excludedContent) {
-        const excludedRenderable = toRenderableNodeListWithSelectors(
-          excludedSourcesForSilentOverlay,
-          (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true)
-        );
-        excludedNodes = excludedRenderable.nodes;
-        excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
-      }
+      contentNodes = toRenderableNodeList(contentMarking.included);
+      const explicitIncludedSources = Array.isArray(contentMarking.explicitIncluded)
+        ? contentMarking.explicitIncluded
+        : [];
+      const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
+        explicitIncludedSources,
+        (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
+      );
+      explicitIncludeSelectorByRenderNode = explicitIncludedRenderable.selectorByNode;
+      const excludedRenderable = toRenderableNodeListWithSelectors(
+        excludedSourcesForSilentOverlay,
+        (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true)
+      );
+      excludedNodes = excludedRenderable.nodes;
+      excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
     } catch {
       // Keep other silent highlighting features active even if selector processing fails.
       contentNodes = [];
@@ -6284,43 +6208,9 @@ async function refreshSilentHighlightings() {
       excludedSelectorByRenderNode = new Map();
     }
   }
-  if (visibility.visibleConsent && hasHiddenConsent) {
-    const consentExcludedRenderable = toRenderableNodeListWithSelectors(
-      Array.from(core.collectConsentExcludedElements()),
-      () => CONSENT_EXCLUDED_OVERLAY_LABEL,
-      { dedupeTargets: true }
-    );
-    const seenExcludedNodes = new Set(excludedNodes);
-    consentExcludedRenderable.nodes.forEach((node) => {
-      if (!node || seenExcludedNodes.has(node)) {
-        return;
-      }
-      seenExcludedNodes.add(node);
-      excludedNodes.push(node);
-    });
-    consentExcludedRenderable.selectorByNode.forEach((selector, node) => {
-      if (!node || !selector) {
-        return;
-      }
-      const existing = excludedSelectorByRenderNode.get(node);
-      if (!existing) {
-        excludedSelectorByRenderNode.set(node, selector);
-        return;
-      }
-      const parts = String(existing)
-        .split("\n")
-        .map((part) => part.trim())
-        .filter(Boolean);
-      if (!parts.includes(selector)) {
-        parts.push(selector);
-        excludedSelectorByRenderNode.set(node, parts.join("\n"));
-      }
-    });
-  }
   const shouldBeActive =
     anchors.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0;
   const renderKey = buildSilentHighlightingRenderKey(
-    visibility,
     anchors,
     contentNodes,
     excludedNodes,
@@ -6398,9 +6288,7 @@ export function main() {
     }
     
     refreshEnabledAiHighlights();
-    syncSilentHighlightVisibilityFromTabState().then(() => {
-      refreshSilentHighlightings().then();
-    });
+    refreshSilentHighlightings().then();
   });
 
   document.addEventListener("keydown", (event) => {
@@ -6590,22 +6478,8 @@ export function main() {
       return true;
     }
 
-    if (message.type === "setSilentHighlightVisibility") {
-      silentHighlightVisibility = normalizeSilentHighlightOptions(message);
-      applyVisibleConsentVisibility(silentHighlightVisibility);
-      refreshSilentHighlightings().then(() => {
-        sendResponse({ ok: true });
-      });
-      return true;
-    }
-
     if (message.type === "hideConsentForInspection") {
       const hiddenCount = core.hideConsentElements();
-      silentHighlightVisibility = normalizeSilentHighlightOptions({
-        ...silentHighlightVisibility,
-        visibleConsent: false
-      });
-      applyVisibleConsentVisibility(silentHighlightVisibility);
       sendResponse({ ok: true, hiddenCount });
       return;
     }
@@ -7164,9 +7038,7 @@ export function main() {
     refreshSilentHighlightings().then();
   });
 
-  syncSilentHighlightVisibilityFromTabState().then(() => {
-    refreshSilentHighlightings().then();
-  });
+  refreshSilentHighlightings().then();
   startSilentHighlightingUrlWatcher();
   window.addEventListener("resize", () => {
     if (state.enabled) {

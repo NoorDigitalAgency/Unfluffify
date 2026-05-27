@@ -350,14 +350,6 @@ export const PopupText = Object.freeze({
     mobileSimulationRequired: "Mobile simulation must be enabled to save markings." // Notice shown when page save is blocked by missing mobile emulation.
   }),
 
-  highlighting: Object.freeze({
-    sectionTitle: "Highlighting", // Section title for silent-highlight visibility controls.
-    includedContent: "Included content", // Toggle label for included-content highlights.
-    excludedContent: "Excluded content", // Toggle label for excluded-content highlights.
-    hideWhileScrolling: "Hide while scrolling", // Toggle label for temporarily hiding highlights during scroll redraw.
-    visibleConsent: "Visible Consent" // Toggle label for showing visible consent exclusions.
-  }),
-
   configuration: Object.freeze({
     title: "Configuration", // Section title and header button label for configuration controls.
     openViewAction: "Open configuration view", // Menu action that switches the popup into configuration view.
