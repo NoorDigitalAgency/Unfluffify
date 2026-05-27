@@ -169,6 +169,9 @@ const initialViewState = {
   previewFocusedXpath: "",
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
+  aiRunSpinnerNote: "",
+  aiRunCountdownVisible: false,
+  aiRunCountdownText: "0:00",
   configMenuOpen: false,
   clearDomainCacheDisabled: false,
   unregisterCurrentTabDisabled: false,
@@ -336,41 +339,53 @@ function getBlockingUiCurtainState(view) {
     return {
       visible: true,
       mode: "busy",
-      message: view.busyMessage || PopupText.overlay.loadingPopup
+      message: view.busyMessage || PopupText.overlay.loadingPopup,
+      note: PopupText.overlay.busyHint,
+      timerText: ""
     };
   }
   if (view.computeButtonLoading) {
     return {
       visible: true,
       mode: "busy",
-      message: PopupText.overlay.computingSelectors
+      message: PopupText.overlay.computingSelectors,
+      note: view.aiRunSpinnerNote || PopupText.overlay.busyHint,
+      timerText: view.aiRunCountdownVisible ? view.aiRunCountdownText : ""
     };
   }
   if (view.saveExcludesButtonLoading) {
     return {
       visible: true,
       mode: "busy",
-      message: PopupText.overlay.submittingSelectors
+      message: PopupText.overlay.submittingSelectors,
+      note: PopupText.overlay.busyHint,
+      timerText: ""
     };
   }
   if (view.aiControlsBusy) {
     return {
       visible: true,
       mode: "busy",
-      message: PopupText.overlay.workingWithAi
+      message: PopupText.overlay.workingWithAi,
+      note: PopupText.overlay.busyHint,
+      timerText: ""
     };
   }
   if (view.deviceControlsDisabled) {
     return {
       visible: true,
       mode: "busy",
-      message: PopupText.overlay.applyingDeviceEmulation
+      message: PopupText.overlay.applyingDeviceEmulation,
+      note: PopupText.overlay.busyHint,
+      timerText: ""
     };
   }
   return {
     visible: false,
     mode: "busy",
-    message: ""
+    message: "",
+    note: "",
+    timerText: ""
   };
 }
 
@@ -1520,8 +1535,11 @@ function App({ state: view, actions: handlers }) {
         h(
           "div",
           { class: "ui-curtain__hint" },
-          PopupText.overlay.busyHint
-        )
+          curtain.note || PopupText.overlay.busyHint
+        ),
+        curtain.timerText
+          ? h("div", { class: "ui-curtain__timer" }, curtain.timerText)
+          : null
       )
     )
   );

@@ -58,6 +58,18 @@ import {
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
+import {
+  AI_RUN_PERSIST_KEY,
+  AI_RUN_POLL_INTERVAL_MS,
+  AI_RUN_TIMEOUT_MS,
+  formatAiRunCountdown,
+  getAiRunRemainingMs,
+  getAiRunResumeExpiresAt,
+  normalizePersistedAiRunRecord,
+  parseAiRunStartResponse,
+  parseAiRunStatusResponse,
+  shouldResumePersistedAiRun
+} from "./popup/ai-run.js";
 import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
 import * as stateModule from "./popup/state.js";
 import {
@@ -1544,6 +1556,145 @@ function formatSyncStatusTimestamp(value = Date.now()) {
   }
 }
 
+function clearAiRunPollTimer() {
+  if (state.aiRunPollTimer) {
+    window.clearTimeout(state.aiRunPollTimer);
+    state.aiRunPollTimer = 0;
+  }
+}
+
+function clearAiRunCountdownTimer() {
+  if (state.aiRunCountdownTimer) {
+    window.clearInterval(state.aiRunCountdownTimer);
+    state.aiRunCountdownTimer = 0;
+  }
+}
+
+function clearAiRunTimers() {
+  clearAiRunPollTimer();
+  clearAiRunCountdownTimer();
+}
+
+function updateAiRunCountdownState() {
+  if (state.aiRequestInFlight !== "compute") {
+    return;
+  }
+  state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
+  uiModule.setViewState({
+    aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
+    aiRunCountdownVisible: true,
+    aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs)
+  });
+}
+
+function startAiRunCountdownTimer() {
+  clearAiRunCountdownTimer();
+  updateAiRunCountdownState();
+  state.aiRunCountdownTimer = window.setInterval(() => {
+    if (state.aiRequestInFlight !== "compute") {
+      clearAiRunCountdownTimer();
+      return;
+    }
+    updateAiRunCountdownState();
+  }, 1000);
+}
+
+function resetAiRunState() {
+  clearAiRunTimers();
+  state.aiRequestInFlight = null;
+  state.aiRunPhase = "";
+  state.aiRunSessionId = "";
+  state.aiRunSiteId = "";
+  state.aiRunDeadlineAt = 0;
+  state.aiRunRemainingMs = 0;
+  state.aiRunResumeExpiresAt = 0;
+  state.aiRunResumed = false;
+}
+
+function setAiRunActiveState({
+  sessionId = "",
+  siteId = "",
+  deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS,
+  resumed = false,
+  phase = "starting"
+} = {}) {
+  state.aiRequestInFlight = "compute";
+  state.aiRunPhase = phase;
+  state.aiRunSessionId = sessionId;
+  state.aiRunSiteId = siteId;
+  state.aiRunDeadlineAt = deadlineAt;
+  state.aiRunRemainingMs = getAiRunRemainingMs(deadlineAt);
+  state.aiRunResumed = Boolean(resumed);
+  startAiRunCountdownTimer();
+}
+
+async function loadPersistedAiRunRecord() {
+  const stored = await utils.storageGet(chrome.storage.session, AI_RUN_PERSIST_KEY);
+  return normalizePersistedAiRunRecord(stored && stored[AI_RUN_PERSIST_KEY]);
+}
+
+async function savePersistedAiRunRecord(record) {
+  const normalized = normalizePersistedAiRunRecord(record);
+  if (!normalized) {
+    await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
+    return null;
+  }
+  await utils.storageSet(chrome.storage.session, {
+    [AI_RUN_PERSIST_KEY]: normalized
+  });
+  return normalized;
+}
+
+async function clearPersistedAiRunRecord() {
+  await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
+}
+
+async function syncAiComputeLock(active, expiresAt = 0) {
+  const response = await messages.sendTabMessage({
+    type: "setAiComputeLock",
+    active: Boolean(active),
+    expiresAt
+  });
+  return Boolean(response && response.ok);
+}
+
+async function refreshAiRunHeartbeat(options = {}) {
+  const sessionId = typeof options.sessionId === "string"
+    ? options.sessionId.trim()
+    : state.aiRunSessionId;
+  const siteId = normalizeSiteIdValue(options.siteId || state.aiRunSiteId);
+  const deadlineAt = Number.isFinite(options.deadlineAt)
+    ? options.deadlineAt
+    : state.aiRunDeadlineAt;
+  if (!sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
+    return null;
+  }
+  const expiresAt = getAiRunResumeExpiresAt();
+  state.aiRunResumeExpiresAt = expiresAt;
+  await savePersistedAiRunRecord({
+    sessionId,
+    siteId,
+    expiresAt,
+    deadlineAt
+  });
+  const lockApplied = await syncAiComputeLock(true, expiresAt);
+  if (!lockApplied) {
+    await clearPersistedAiRunRecord();
+    return null;
+  }
+  return expiresAt;
+}
+
+async function stopAiRun(options = {}) {
+  const { unlockPage = true } = options;
+  resetAiRunState();
+  await clearPersistedAiRunRecord();
+  if (unlockPage) {
+    await syncAiComputeLock(false);
+  }
+  await refreshUi();
+}
+
 async function removePageMarkingFromRemote(options = {}) {
   const {
     endpointValue = "",
@@ -2596,7 +2747,10 @@ async function refreshUiInner() {
   const previewState = tabInScope
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
-  const previewActive = Boolean(previewState && previewState.active);
+  const previewMode = typeof (previewState && previewState.mode) === "string"
+    ? previewState.mode
+    : "";
+  const previewActive = Boolean(previewState && previewState.active && previewMode === "preview");
   const previewItems = Array.isArray(previewState && previewState.items)
     ? previewState.items.filter((item) => item && typeof item === "object" && typeof item.xpath === "string")
     : [];
@@ -3011,6 +3165,7 @@ async function refreshUiInner() {
       (state.currentConfig && state.currentConfig.siteId) ||
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
+  state.currentSiteId = liveSiteId;
   if (liveSiteId && state.currentBaseUrl && tokenValue) {
     if (state.propertyLockSiteId !== liveSiteId) {
       resetPropertyLockState();
@@ -3518,6 +3673,18 @@ async function refreshUiInner() {
       : ViewText.saveExcludesIdle;
   nextViewState.computeButtonLoading = state.aiRequestInFlight === "compute";
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
+  nextViewState.aiRunSpinnerNote =
+    state.aiRequestInFlight === "compute"
+      ? PopupText.overlay.computingSelectorsNote
+      : "";
+  nextViewState.aiRunCountdownVisible =
+    state.aiRequestInFlight === "compute" && state.aiRunDeadlineAt > 0;
+  nextViewState.aiRunCountdownText =
+    state.aiRequestInFlight === "compute"
+      ? formatAiRunCountdown(
+          state.aiRunRemainingMs || getAiRunRemainingMs(state.aiRunDeadlineAt)
+        )
+      : "0:00";
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
   nextViewState.aiDirtyNoticeText = PopupText.ai.dirtyNotice;
@@ -3692,8 +3859,119 @@ async function refreshUiInner() {
   uiModule.setViewState(nextViewState);
 }
 
+async function maybeResumePersistedAiRun() {
+  if (state.aiRequestInFlight || state.aiRunResumeInFlight) {
+    return;
+  }
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const siteId = normalizeSiteIdValue(state.currentSiteId);
+  if (!currentTabId || !siteId) {
+    return;
+  }
+  const resumeCheckKey = `${currentTabId}|${siteId}`;
+  if (state.aiRunResumeCheckKey === resumeCheckKey) {
+    return;
+  }
+  state.aiRunResumeCheckKey = resumeCheckKey;
+  state.aiRunResumeInFlight = true;
+  try {
+    const persistedRun = await loadPersistedAiRunRecord();
+    if (!persistedRun) {
+      return;
+    }
+    if (!shouldResumePersistedAiRun(persistedRun, siteId)) {
+      if (persistedRun.siteId === siteId) {
+        await clearPersistedAiRunRecord();
+        await syncAiComputeLock(false);
+      }
+      return;
+    }
+    const { endpointValue, tokenValue } = await helpers.loadGlobalAiSettings();
+    if (!endpointValue || !tokenValue) {
+      await clearPersistedAiRunRecord();
+      await syncAiComputeLock(false);
+      return;
+    }
+    let statusResult;
+    try {
+      statusResult = await requestAiRunStatus({
+        endpointValue,
+        tokenValue,
+        sessionId: persistedRun.sessionId
+      });
+    } catch {
+      await clearPersistedAiRunRecord();
+      await syncAiComputeLock(false);
+      uiModule.showToast(PopupText.ai.runFailed);
+      return;
+    }
+    if (statusResult.notFound) {
+      await clearPersistedAiRunRecord();
+      await syncAiComputeLock(false);
+      uiModule.showToast(PopupText.ai.runUnavailable);
+      return;
+    }
+    if (!statusResult.ok || statusResult.status === "error") {
+      await clearPersistedAiRunRecord();
+      await syncAiComputeLock(false);
+      uiModule.showToast(PopupText.ai.runFailed);
+      return;
+    }
+    const currentPageUrl = getCurrentPageUrl();
+    setAiRunActiveState({
+      sessionId: persistedRun.sessionId,
+      siteId,
+      deadlineAt: persistedRun.deadlineAt,
+      resumed: true,
+      phase: statusResult.status
+    });
+    const heartbeat = await refreshAiRunHeartbeat({
+      sessionId: persistedRun.sessionId,
+      siteId,
+      deadlineAt: persistedRun.deadlineAt
+    });
+    if (!heartbeat) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    await refreshUi();
+    if (statusResult.status === "done") {
+      let result;
+      try {
+        result = await requestAiRunResult({
+          endpointValue,
+          tokenValue,
+          sessionId: persistedRun.sessionId
+        });
+      } catch {
+        await failAiRun(PopupText.ai.runUnavailable);
+        return;
+      }
+      if (!result.ok) {
+        await failAiRun(result.notFound ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
+        return;
+      }
+      const { previewOpened } = await applyComputedSelectorSet(result.selectorSet, {
+        currentPageUrl,
+        tokenValue
+      });
+      await stopAiRun({ unlockPage: !previewOpened });
+      return;
+    }
+    await continueAiRunPolling({
+      endpointValue,
+      tokenValue,
+      currentPageUrl
+    });
+  } finally {
+    state.aiRunResumeInFlight = false;
+  }
+}
+
 async function refreshUi() {
-  return runWithPopupBusyOverlay(
+  const response = await runWithPopupBusyOverlay(
     PopupText.overlay.loadingPopupAndPreparing,
     () => refreshUiInner(),
     {
@@ -3701,6 +3979,8 @@ async function refreshUi() {
       suppressIfActive: true
     }
   );
+  maybeResumePersistedAiRun().then();
+  return response;
 }
 
 function handleConfigEndpointInput(event) {
@@ -6134,6 +6414,224 @@ async function handlePageRevert() {
   });
 }
 
+async function requestAiRunStart({ endpointValue = "", tokenValue = "", payload = null } = {}) {
+  const computeSelectorsUrl = resolveRelativeEndpoint(endpointValue, "/get_selectors");
+  if (!computeSelectorsUrl) {
+    return { ok: false };
+  }
+  const response = await fetch(computeSelectorsUrl, {
+    method: "POST",
+    headers: createConfigSyncHeaders(tokenValue),
+    body: JSON.stringify(payload || {})
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  if (!response.ok) {
+    return { ok: false };
+  }
+  const sessionId = parseAiRunStartResponse(await response.json());
+  if (!sessionId) {
+    return { ok: false };
+  }
+  return { ok: true, sessionId };
+}
+
+async function requestAiRunStatus({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
+  const statusUrl = resolveRelativeEndpoint(
+    endpointValue,
+    `/get_selectors/status/${encodeURIComponent(sessionId)}`
+  );
+  if (!statusUrl) {
+    return { ok: false };
+  }
+  const response = await fetch(statusUrl, {
+    method: "GET",
+    headers: createConfigSyncHeaders(tokenValue)
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  if (response.status === 404) {
+    return { ok: false, notFound: true };
+  }
+  if (!response.ok) {
+    return { ok: false };
+  }
+  const parsed = parseAiRunStatusResponse(await response.json());
+  if (!parsed || parsed.sessionId !== sessionId) {
+    return { ok: false };
+  }
+  return { ok: true, status: parsed.status };
+}
+
+async function requestAiRunResult({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
+  const resultUrl = resolveRelativeEndpoint(
+    endpointValue,
+    `/get_selectors/result/${encodeURIComponent(sessionId)}`
+  );
+  if (!resultUrl) {
+    return { ok: false };
+  }
+  const response = await fetch(resultUrl, {
+    method: "GET",
+    headers: createConfigSyncHeaders(tokenValue)
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  if (response.status === 404) {
+    return { ok: false, notFound: true };
+  }
+  if (!response.ok) {
+    return { ok: false };
+  }
+  const data = await response.json();
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !Array.isArray(data.exclusionSelectors) ||
+    !Array.isArray(data.inclusionSelectors)
+  ) {
+    return { ok: false };
+  }
+  return { ok: true, selectorSet: normalizeAiSelectorSet(data) };
+}
+
+async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", tokenValue = "" } = {}) {
+  const selectorsChanged =
+    !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
+    !aiSelectorSetsEqual(
+      selectorSet,
+      state.currentConfig && state.currentConfig.selectors
+    );
+  const selectorSetUpdatedAt = selectorsChanged
+    ? config.createTimestampNow()
+    : config.normalizeEntryTimestamp(
+        state.currentConfig && state.currentConfig.selectorsUpdatedAt
+      );
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+    targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
+    targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
+  });
+  const hasComputedNewSelectors =
+    !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
+  state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
+  state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
+
+  await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
+  const previewResponse = await messages.sendTabMessage({
+    type: "showAiPreview",
+    selectorSet
+  });
+  const previewOpened = Boolean(previewResponse && previewResponse.ok);
+  const { configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
+  const syncResult = await syncBaseConfigToServer({
+    baseUrl: state.currentBaseUrl,
+    pageUrl: currentPageUrl,
+    endpointValue: configEndpointValue,
+    tokenValue,
+    stageBase: stageBaseValue,
+    alertOnCurrentReplacement: false
+  });
+  const syncSkipped = Boolean(syncResult && syncResult.skipped);
+  const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
+  updateLastConfigSaveStatus(
+    syncSkipped
+      ? PopupText.ai.selectorsUpdatedLocallySyncSkipped
+      : syncFailed
+        ? PopupText.ai.selectorsUpdatedLocallySyncFailed
+        : PopupText.ai.selectorsUpdatedAndSynced
+  );
+  if (syncSkipped && syncResult.reason) {
+    uiModule.showToast(formatSelectorsComputedLocally(syncResult.reason));
+  } else if (syncSkipped) {
+    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncSkipped);
+  } else if (syncFailed) {
+    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncFailed);
+  } else {
+    uiModule.showToast(PopupText.ai.selectorsComputedAndSaved);
+  }
+  return { previewOpened };
+}
+
+async function failAiRun(message = PopupText.ai.runFailed) {
+  await stopAiRun({ unlockPage: true });
+  uiModule.showToast(message);
+}
+
+async function continueAiRunPolling({ endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
+  while (state.aiRequestInFlight === "compute" && state.aiRunSessionId) {
+    const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
+    if (!remainingMs) {
+      await failAiRun(PopupText.ai.runTimedOut);
+      return;
+    }
+    await new Promise((resolve) => {
+      state.aiRunPollTimer = window.setTimeout(resolve, Math.min(AI_RUN_POLL_INTERVAL_MS, remainingMs));
+    });
+    state.aiRunPollTimer = 0;
+    if (state.aiRequestInFlight !== "compute" || !state.aiRunSessionId) {
+      return;
+    }
+    if (!getAiRunRemainingMs(state.aiRunDeadlineAt)) {
+      await failAiRun(PopupText.ai.runTimedOut);
+      return;
+    }
+    let statusResult;
+    try {
+      statusResult = await requestAiRunStatus({
+        endpointValue,
+        tokenValue,
+        sessionId: state.aiRunSessionId
+      });
+    } catch {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    if (statusResult.notFound) {
+      await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
+      return;
+    }
+    if (!statusResult.ok) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    if (statusResult.status === "running") {
+      state.aiRunPhase = "running";
+      const heartbeat = await refreshAiRunHeartbeat();
+      if (!heartbeat) {
+        await failAiRun(PopupText.ai.runFailed);
+        return;
+      }
+      continue;
+    }
+    if (statusResult.status === "error") {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    let result;
+    try {
+      result = await requestAiRunResult({
+        endpointValue,
+        tokenValue,
+        sessionId: state.aiRunSessionId
+      });
+    } catch {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    if (result.notFound) {
+      await failAiRun(state.aiRunResumed ? PopupText.ai.runUnavailable : PopupText.ai.runFailed);
+      return;
+    }
+    if (!result.ok) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    const { previewOpened } = await applyComputedSelectorSet(result.selectorSet, {
+      currentPageUrl,
+      tokenValue
+    });
+    await stopAiRun({ unlockPage: !previewOpened });
+    return;
+  }
+}
+
 async function handleComputeSelectors() {
   if (state.aiRequestInFlight) {
     return;
@@ -6274,97 +6772,43 @@ async function handleComputeSelectors() {
     defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
     pages: storedPages
   };
-
-  let selectorSet = {
-    exclusionSelectors: [],
-    inclusionSelectors: []
-  };
-  const computeSelectorsUrl = resolveRelativeEndpoint(endpointValue, "/get_selectors");
-  if (!computeSelectorsUrl) {
-    uiModule.showToast(PopupText.ai.endpointRequestFailed);
-    return;
-  }
-  state.aiRequestInFlight = "compute";
+  const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
+  const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
+  setAiRunActiveState({
+    siteId,
+    deadlineAt,
+    resumed: false,
+    phase: "starting"
+  });
   await refreshUi();
   try {
-    const response = await fetch(computeSelectorsUrl, {
-      method: "POST",
-      headers: createConfigSyncHeaders(tokenValue),
-      body: JSON.stringify(payload)
-    });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    if (!response.ok) {
-      uiModule.showToast(PopupText.ai.endpointResponseError);
-      return;
-    }
-    const data = await response.json();
-    if (
-      !data ||
-      typeof data !== "object" ||
-      !Array.isArray(data.exclusionSelectors) ||
-      !Array.isArray(data.inclusionSelectors)
-    ) {
-      uiModule.showToast(PopupText.ai.endpointResponseFormatError);
-      return;
-    }
-    selectorSet = normalizeAiSelectorSet(data);
-    const selectorsChanged =
-      !config.isSelectorSetCurrentForRenderMode(state.currentConfig, "selectors") ||
-      !aiSelectorSetsEqual(
-        selectorSet,
-        state.currentConfig && state.currentConfig.selectors
-      );
-    const selectorSetUpdatedAt = selectorsChanged
-      ? config.createTimestampNow()
-      : config.normalizeEntryTimestamp(
-          state.currentConfig && state.currentConfig.selectorsUpdatedAt
-        );
-    state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
-      targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
-      targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
-    });
-    const hasComputedNewSelectors =
-      !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
-    state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
-    state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
-
-    await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
-    await messages.sendTabMessage({
-      type: "showAiPreview",
-      selectorSet
-    });
-    const { configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-    const syncResult = await syncBaseConfigToServer({
-      baseUrl: state.currentBaseUrl,
-      pageUrl: currentPageUrl,
-      endpointValue: configEndpointValue,
+    const startResult = await requestAiRunStart({
+      endpointValue,
       tokenValue,
-      stageBase: stageBaseValue,
-      alertOnCurrentReplacement: false
+      payload
     });
-    const syncSkipped = Boolean(syncResult && syncResult.skipped);
-    const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
-    updateLastConfigSaveStatus(
-      syncSkipped
-        ? PopupText.ai.selectorsUpdatedLocallySyncSkipped
-        : syncFailed
-          ? PopupText.ai.selectorsUpdatedLocallySyncFailed
-          : PopupText.ai.selectorsUpdatedAndSynced
-    );
-    if (syncSkipped && syncResult.reason) {
-      uiModule.showToast(formatSelectorsComputedLocally(syncResult.reason));
-    } else if (syncSkipped) {
-      uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncSkipped);
-    } else if (syncFailed) {
-      uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncFailed);
-    } else {
-      uiModule.showToast(PopupText.ai.selectorsComputedAndSaved);
+    if (!startResult.ok || !startResult.sessionId) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
     }
-  } catch (error) {
-    uiModule.showToast(PopupText.ai.endpointRequestFailed);
-  } finally {
-    state.aiRequestInFlight = null;
-    await refreshUi();
+    state.aiRunSessionId = startResult.sessionId;
+    state.aiRunPhase = "running";
+    const heartbeat = await refreshAiRunHeartbeat({
+      sessionId: startResult.sessionId,
+      siteId,
+      deadlineAt
+    });
+    if (!heartbeat) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    await continueAiRunPolling({
+      endpointValue,
+      tokenValue,
+      currentPageUrl
+    });
+  } catch {
+    await failAiRun(PopupText.ai.runFailed);
   }
 }
 
