@@ -593,3 +593,93 @@ export async function updateActionForTab(tabId) {
     void chrome.runtime.lastError;
   });
 }
+
+/**
+ * Attaches the debugger to a tab. Safe to call if already attached.
+ * @async
+ * @param {number} tabId - The Chrome tab ID to attach to
+ * @returns {Promise<{ok: boolean, error?: string, alreadyAttached?: boolean}>} Result of the attach operation
+ */
+export async function attachDebugger(tabId) {
+  if (!tabId) {
+    return { ok: false, error: "Missing tab ID" };
+  }
+
+  try {
+    const target = { tabId };
+    await chrome.debugger.attach(target, "1.3");
+    return { ok: true };
+  } catch (error) {
+    // Check if already attached
+    if (error && error.message && error.message.includes("already attached")) {
+      return { ok: true, alreadyAttached: true };
+    }
+    const errorMessage = (error && error.message) || "Failed to attach debugger";
+    console.error("Error attaching debugger:", errorMessage);
+    return { ok: false, error: errorMessage };
+  }
+}
+
+/**
+ * Detaches the debugger from a tab.
+ * @async
+ * @param {number} tabId - The Chrome tab ID to detach from
+ * @returns {Promise<{ok: boolean, error?: string}>} Result of the detach operation
+ */
+export async function detachDebugger(tabId) {
+  if (!tabId) {
+    return { ok: false, error: "Missing tab ID" };
+  }
+
+  try {
+    const target = { tabId };
+    await chrome.debugger.detach(target);
+    return { ok: true };
+  } catch (error) {
+    const errorMessage = (error && error.message) || "Failed to detach debugger";
+    console.error("Error detaching debugger:", errorMessage);
+    return { ok: false, error: errorMessage };
+  }
+}
+
+/**
+ * Reloads a page with optional JavaScript execution disabled via debugger.
+ * Keeps the debugger attached and leaves the page in the specified state.
+ * @async
+ * @param {number} tabId - The Chrome tab ID to reload
+ * @param {boolean} [javaScriptDisabled=false] - Whether to disable JavaScript during reload
+ * @returns {Promise<{ok: boolean, error?: string}>} Result of the reload operation
+ */
+export async function reloadPageWithJavaScriptControl(tabId, javaScriptDisabled = false) {
+  if (!tabId) {
+    return { ok: false, error: "Missing tab ID" };
+  }
+
+  try {
+    const target = { tabId };
+    
+    // Attach debugger (try to attach if not already attached)
+    const attachResult = await attachDebugger(tabId);
+    if (!attachResult.ok && !attachResult.alreadyAttached) {
+      return { ok: false, error: attachResult.error };
+    }
+
+    // Set JavaScript execution state as requested
+    await chrome.debugger.sendCommand(target, "Emulation.setScriptExecutionDisabled", {
+      value: javaScriptDisabled
+    });
+
+    // Reload the page
+    await chrome.debugger.sendCommand(target, "Page.reload", {
+      ignoreCache: true
+    });
+
+    console.log(`Page is reloading with JavaScript ${javaScriptDisabled ? "disabled" : "enabled"}.`);
+
+    return { ok: true };
+  } catch (error) {
+    const errorMessage = (error && error.message) || "Failed to reload page";
+    console.error("Error reloading page:", errorMessage);
+    return { ok: false, error: errorMessage };
+  }
+}
