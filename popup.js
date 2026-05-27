@@ -1959,7 +1959,7 @@ async function persistSilentHighlightVisibility() {
 async function applySilentHighlightVisibility(options = {}) {
   const { force = false, visibilityOverride = null } = options;
   if (!state.currentTab || !state.currentTab.id) {
-    return;
+    return false;
   }
   const visibility = visibilityOverride && typeof visibilityOverride === "object"
     ? normalizeSilentHighlightOptions(visibilityOverride)
@@ -1991,7 +1991,10 @@ async function applySilentHighlightVisibility(options = {}) {
     state.lastAppliedSilentHighlightTabId = tabId;
     state.lastAppliedSilentHighlightKey = key;
     state.lastAppliedSilentHighlightPageUrl = pageUrl;
+    return true;
   }
+
+  return false;
 }
 
 async function applyRenderModeInspectionVisibility(options = {}) {
@@ -1999,9 +2002,53 @@ async function applyRenderModeInspectionVisibility(options = {}) {
     ...getSilentHighlightVisibility(),
     visibleConsent: false
   };
-  await applySilentHighlightVisibility({
+  return applySilentHighlightVisibility({
     ...options,
     visibilityOverride: inspectionVisibility
+  });
+}
+
+async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
+  if (!tabId) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(value);
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) {
+        return;
+      }
+      if (changeInfo && changeInfo.status === "complete") {
+        finish(true);
+      }
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        finish(false);
+        return;
+      }
+      if (tab && tab.status === "complete") {
+        finish(true);
+      }
+    });
   });
 }
 
@@ -3375,6 +3422,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
       return;
     }
 
+    await waitForTabLoadComplete(tabId);
     await applyRenderModeInspectionVisibility({ force: true });
 
     uiModule.showToast(
@@ -3415,7 +3463,7 @@ async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentT
     }
 
     if (managedTabId === currentTabId) {
-      await applyRenderModeInspectionVisibility();
+      await applyRenderModeInspectionVisibility({ force: true });
       return;
     }
 
