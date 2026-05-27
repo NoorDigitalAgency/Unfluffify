@@ -99,6 +99,30 @@ export function formatSelectorsComputedLocally(reason) {
   return `CSS Selectors stored locally (${reason})`;
 }
 
+export const propertyLockText = Object.freeze({
+  passiveLockedMessage: (editorName) => `${editorName} is currently editing this property`,
+  passiveExpiryCountdownMessage: (editorName, secondsRemaining) => `${editorName}'s session expires in ${secondsRemaining}s`,
+  passiveSuggestionPendingMessage: (editorName) => `Waiting for ${editorName}'s response...`,
+  passiveSuggestionRejectedMessage: (editorName) => `${editorName} declined. You can suggest again later.`,
+  takeoverSuggestionMessage: (fromName) => `${fromName} would like to edit this property`,
+  takeoverSuggestButton: "Suggest takeover",
+  takeoverAvailableMessage: "This property is now available to edit",
+  takeoverButton: "Take over",
+  startEditingAgainButton: "Start editing again",
+  editorDisconnectCountdownMessage: (secondsRemaining) => `You've been disconnected. Reconnecting... (${secondsRemaining}s before you lose the lock)`,
+  editorInactivityWarningMessage: (secondsRemaining) => `You've been inactive for a while. (Lose lock in ${secondsRemaining}s)`,
+  continueEditingButton: "Continue editing",
+  editorTransferCountdownMessage: (secondsRemaining) => `Transferring edit session in ${secondsRemaining}s... Saving your changes.`,
+  lockedInteractionBlockedToast: (editorName) => `Property is being edited by ${editorName}`,
+  popupUnlocked: "No active editor",
+  popupEditorActive: "You are editing this property",
+  popupEditorDetail: "Changes are reserved to your session.",
+  popupPassiveDetail: "Marking controls are paused until you take over or the lock is released.",
+  acceptButton: "Accept",
+  rejectButton: "Reject",
+  okButton: "OK"
+});
+
 export function formatLoginFailedStatus(status) {
   // Builds the login failure message when the authentication endpoint returns an HTTP status.
   return `Login failed (${status})`;

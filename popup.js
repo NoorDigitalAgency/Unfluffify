@@ -52,7 +52,8 @@ import {
   formatLoginFailedStatus,
   formatScalePercent,
   formatSelectorsComputedLocally,
-  formatTimestampedStatus
+  formatTimestampedStatus,
+  propertyLockText
 } from "./common/text.js";
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
@@ -81,6 +82,30 @@ import {
   scopeRemoteSupportStateToTab,
   shouldLockRemoteSupportConfigurationView
 } from "./common/remote-support.js";
+import {
+  PROPERTY_LOCK_BACKGROUND_GET_STATE,
+  PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  PROPERTY_LOCK_CONTENT_TAKE_LOCK,
+  PROPERTY_LOCK_CONTENT_SUGGEST,
+  PROPERTY_LOCK_CONTENT_RESPOND,
+  PROPERTY_LOCK_CONTENT_CONTINUE,
+  PROPERTY_LOCK_STATE_UNLOCKED,
+  PROPERTY_LOCK_STATE_LOCKED,
+  PROPERTY_LOCK_STATE_EXPIRY_WARNING,
+  PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
+  PROPERTY_LOCK_STATE_TRANSFER,
+  PROPERTY_LOCK_WS_LOCK_STATE,
+  PROPERTY_LOCK_WS_DISCONNECT_WARNING,
+  PROPERTY_LOCK_WS_INACTIVITY_WARNING,
+  PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION,
+  PROPERTY_LOCK_WS_SUGGESTION_PENDING,
+  PROPERTY_LOCK_WS_SUGGESTION_RESPONSE,
+  PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED,
+  PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN,
+  PROPERTY_LOCK_WS_ERROR,
+  createInactiveLockState,
+  normalizeLockStateMessage
+} from "./common/property-lock.js";
 
 const { state } = stateModule;
 
@@ -101,6 +126,270 @@ installExtensionTelemetry({
   getTabId: getPopupTelemetryTabId,
   getIncludePayloads: getPopupTelemetryIncludePayloads
 });
+
+function resetPropertyLockState() {
+  state.propertyLockSiteId = null;
+  state.propertyLockState = null;
+  state.propertyLockIdentity = "";
+  state.propertyLockName = "";
+  state.propertyLockSecondsRemaining = null;
+  state.propertyLockSuggestionId = "";
+  state.propertyLockSuggestionFromName = "";
+  state.propertyLockSuggestionVisible = false;
+  state.propertyLockSuggestionPending = false;
+  state.propertyLockSuggestionRejected = false;
+  state.propertyLockInactivityWarningVisible = false;
+  state.propertyLockDisconnectCountdown = null;
+  state.propertyLockTransferCountdown = null;
+}
+
+function clearPropertyLockTransientState() {
+  state.propertyLockSecondsRemaining = null;
+  state.propertyLockSuggestionId = "";
+  state.propertyLockSuggestionFromName = "";
+  state.propertyLockSuggestionVisible = false;
+  state.propertyLockSuggestionPending = false;
+  state.propertyLockSuggestionRejected = false;
+  state.propertyLockInactivityWarningVisible = false;
+  state.propertyLockDisconnectCountdown = null;
+  state.propertyLockTransferCountdown = null;
+}
+
+function applyPropertyLockState(lockStateLike) {
+  state.propertyLockState = normalizeLockStateMessage(lockStateLike || createInactiveLockState());
+  clearPropertyLockTransientState();
+}
+
+function applyPropertyLockServerMessage(serverMessage, siteId = null) {
+  if (!serverMessage || typeof serverMessage !== "object") {
+    return false;
+  }
+
+  const resolvedSiteId = normalizeSiteIdValue(siteId || state.propertyLockSiteId);
+  if (resolvedSiteId) {
+    state.propertyLockSiteId = resolvedSiteId;
+  }
+
+  const type = typeof serverMessage.type === "string" ? serverMessage.type : PROPERTY_LOCK_WS_LOCK_STATE;
+  const secondsRemaining = typeof serverMessage.secondsRemaining === "number"
+    ? Math.max(0, Math.ceil(serverMessage.secondsRemaining))
+    : null;
+
+  if (type === PROPERTY_LOCK_WS_LOCK_STATE || !serverMessage.type) {
+    applyPropertyLockState(serverMessage);
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_DISCONNECT_WARNING) {
+    state.propertyLockDisconnectCountdown = secondsRemaining;
+    state.propertyLockSecondsRemaining = secondsRemaining;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
+    state.propertyLockInactivityWarningVisible = true;
+    state.propertyLockSecondsRemaining = secondsRemaining;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION) {
+    state.propertyLockSuggestionId = String(serverMessage.suggestionId || "");
+    state.propertyLockSuggestionFromName = String(serverMessage.fromName || "");
+    state.propertyLockSuggestionVisible = Boolean(state.propertyLockSuggestionId);
+    state.propertyLockSuggestionPending = false;
+    state.propertyLockSuggestionRejected = false;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_PENDING) {
+    state.propertyLockSuggestionId = String(serverMessage.suggestionId || "");
+    state.propertyLockSuggestionPending = Boolean(state.propertyLockSuggestionId);
+    state.propertyLockSuggestionRejected = false;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_RESPONSE) {
+    state.propertyLockSuggestionPending = false;
+    state.propertyLockSuggestionRejected = serverMessage.accepted === false;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED || type === PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN) {
+    state.propertyLockTransferCountdown = secondsRemaining;
+    state.propertyLockSecondsRemaining = secondsRemaining;
+    state.propertyLockSuggestionVisible = false;
+    state.propertyLockSuggestionPending = false;
+    state.propertyLockSuggestionRejected = false;
+    return true;
+  }
+
+  if (type === PROPERTY_LOCK_WS_ERROR) {
+    uiModule.showToast(String(serverMessage.reason || "Property lock request failed"));
+    return false;
+  }
+
+  return false;
+}
+
+function isPropertyLockBlockingEditing() {
+  const lockState = state.propertyLockState;
+  return Boolean(
+    lockState &&
+      !lockState.isEditor &&
+      lockState.state !== PROPERTY_LOCK_STATE_UNLOCKED
+  );
+}
+
+function buildPropertyLockViewState() {
+  const lockState = state.propertyLockState || createInactiveLockState();
+  const editorName = lockState.editorName || "Someone";
+  const secondsRemaining = state.propertyLockSecondsRemaining;
+  const visible = Boolean(state.propertyLockSiteId);
+  const viewState = {
+    propertyLockVisible: visible,
+    propertyLockTone: "muted",
+    propertyLockIcon: "lock-open-outline",
+    propertyLockStatusText: "",
+    propertyLockDetailText: "",
+    propertyLockSuggestVisible: false,
+    propertyLockTakeVisible: false,
+    propertyLockTakeText: propertyLockText.takeoverButton,
+    propertyLockContinueVisible: false,
+    propertyLockSuggestionVisible: false,
+    propertyLockAcceptVisible: false,
+    propertyLockRejectVisible: false
+  };
+
+  if (!visible) {
+    return viewState;
+  }
+
+  if (state.propertyLockSuggestionVisible) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "account-switch-outline";
+    viewState.propertyLockStatusText = propertyLockText.takeoverSuggestionMessage(
+      state.propertyLockSuggestionFromName || "Someone"
+    );
+    viewState.propertyLockDetailText = propertyLockText.popupEditorDetail;
+    viewState.propertyLockSuggestionVisible = true;
+    viewState.propertyLockAcceptVisible = true;
+    viewState.propertyLockRejectVisible = true;
+    return viewState;
+  }
+
+  if (state.propertyLockDisconnectCountdown !== null) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "wifi-off";
+    viewState.propertyLockStatusText = propertyLockText.editorDisconnectCountdownMessage(
+      state.propertyLockDisconnectCountdown || 0
+    );
+    return viewState;
+  }
+
+  if (state.propertyLockInactivityWarningVisible) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "timer-alert-outline";
+    viewState.propertyLockStatusText = propertyLockText.editorInactivityWarningMessage(secondsRemaining || 0);
+    viewState.propertyLockContinueVisible = true;
+    return viewState;
+  }
+
+  if (state.propertyLockTransferCountdown !== null) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "swap-horizontal";
+    viewState.propertyLockStatusText = propertyLockText.editorTransferCountdownMessage(
+      state.propertyLockTransferCountdown || 0
+    );
+    return viewState;
+  }
+
+  if (state.propertyLockSuggestionPending) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "clock-outline";
+    viewState.propertyLockStatusText = propertyLockText.passiveSuggestionPendingMessage(editorName);
+    viewState.propertyLockDetailText = propertyLockText.popupPassiveDetail;
+    return viewState;
+  }
+
+  if (state.propertyLockSuggestionRejected) {
+    viewState.propertyLockTone = "danger";
+    viewState.propertyLockIcon = "lock-alert-outline";
+    viewState.propertyLockStatusText = propertyLockText.passiveSuggestionRejectedMessage(editorName);
+    viewState.propertyLockDetailText = propertyLockText.popupPassiveDetail;
+    viewState.propertyLockSuggestVisible = true;
+    return viewState;
+  }
+
+  if (lockState.state === PROPERTY_LOCK_STATE_UNLOCKED) {
+    viewState.propertyLockTone = "success";
+    viewState.propertyLockStatusText = propertyLockText.popupUnlocked;
+    return viewState;
+  }
+
+  if (lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "lock-open-variant-outline";
+    viewState.propertyLockStatusText = propertyLockText.takeoverAvailableMessage;
+    viewState.propertyLockTakeVisible = true;
+    viewState.propertyLockTakeText = lockState.isRecentEditor
+      ? propertyLockText.startEditingAgainButton
+      : propertyLockText.takeoverButton;
+    return viewState;
+  }
+
+  if (lockState.state === PROPERTY_LOCK_STATE_TRANSFER) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "swap-horizontal";
+    viewState.propertyLockStatusText = propertyLockText.editorTransferCountdownMessage(secondsRemaining || 0);
+    return viewState;
+  }
+
+  if (lockState.isEditor) {
+    viewState.propertyLockTone = "success";
+    viewState.propertyLockIcon = "lock-check-outline";
+    viewState.propertyLockStatusText = propertyLockText.popupEditorActive;
+    viewState.propertyLockDetailText = propertyLockText.popupEditorDetail;
+    return viewState;
+  }
+
+  viewState.propertyLockTone = lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING ? "warning" : "danger";
+  viewState.propertyLockIcon = "lock-outline";
+  viewState.propertyLockStatusText = lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING
+    ? propertyLockText.passiveExpiryCountdownMessage(editorName, secondsRemaining || 0)
+    : propertyLockText.passiveLockedMessage(editorName);
+  viewState.propertyLockDetailText = propertyLockText.popupPassiveDetail;
+  viewState.propertyLockSuggestVisible = lockState.state === PROPERTY_LOCK_STATE_LOCKED || lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING;
+  return viewState;
+}
+
+async function fetchPropertyLockState(siteId) {
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  if (!normalizedSiteId) {
+    return null;
+  }
+
+  try {
+    return await chrome.runtime.sendMessage({
+      type: PROPERTY_LOCK_BACKGROUND_GET_STATE,
+      siteId: normalizedSiteId
+    });
+  } catch (error) {
+    return null;
+  }
+}
+
+async function sendPropertyLockCommand(type, payload = {}) {
+  const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
+  if (!siteId) {
+    return { ok: false };
+  }
+
+  try {
+    return await chrome.runtime.sendMessage({ type, siteId, ...payload });
+  } catch (error) {
+    return { ok: false };
+  }
+}
 
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
@@ -2601,6 +2890,31 @@ async function refreshUiInner() {
       (state.currentConfig && state.currentConfig.siteId) ||
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
+  if (liveSiteId && state.currentBaseUrl && tokenValue) {
+    if (state.propertyLockSiteId !== liveSiteId) {
+      resetPropertyLockState();
+      state.propertyLockSiteId = liveSiteId;
+    }
+    const lockResponse = await fetchPropertyLockState(liveSiteId);
+    const nextLockState = normalizeLockStateMessage(
+      lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
+    );
+    const previousLockState = state.propertyLockState;
+    if (
+      !previousLockState ||
+      previousLockState.state !== nextLockState.state ||
+      previousLockState.isEditor !== nextLockState.isEditor ||
+      previousLockState.editorIdentity !== nextLockState.editorIdentity
+    ) {
+      clearPropertyLockTransientState();
+    }
+    state.propertyLockState = nextLockState;
+    state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
+    state.propertyLockName = (lockResponse && lockResponse.name) || "";
+  } else {
+    resetPropertyLockState();
+  }
+  Object.assign(nextViewState, buildPropertyLockViewState());
   let propertyPageTypes = [];
   let propertyPageTypesFetchError = "";
   if (
@@ -2872,6 +3186,7 @@ async function refreshUiInner() {
     !tabInScope ||
     remoteConfigRetryBlocked ||
     pageTypeUiBlocked ||
+    isPropertyLockBlockingEditing() ||
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
   const configurationUiDisabled = aiBusy;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
@@ -4683,6 +4998,55 @@ async function handleRemoteSupportErrorDismiss(event) {
   }
 }
 
+async function handlePropertyLockTake() {
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+  await refreshUi();
+}
+
+async function handlePropertyLockSuggest() {
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_SUGGEST);
+  state.propertyLockSuggestionPending = true;
+  state.propertyLockSuggestionRejected = false;
+  uiModule.setViewState(buildPropertyLockViewState());
+}
+
+async function handlePropertyLockContinue() {
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_CONTINUE);
+  state.propertyLockInactivityWarningVisible = false;
+  state.propertyLockSecondsRemaining = null;
+  uiModule.setViewState(buildPropertyLockViewState());
+}
+
+async function handlePropertyLockAcceptSuggestion() {
+  const suggestionId = state.propertyLockSuggestionId;
+  if (!suggestionId) {
+    return;
+  }
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_RESPOND, {
+    suggestionId,
+    accept: true
+  });
+  state.propertyLockSuggestionVisible = false;
+  state.propertyLockSuggestionId = "";
+  state.propertyLockSuggestionFromName = "";
+  uiModule.setViewState(buildPropertyLockViewState());
+}
+
+async function handlePropertyLockRejectSuggestion() {
+  const suggestionId = state.propertyLockSuggestionId;
+  if (!suggestionId) {
+    return;
+  }
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_RESPOND, {
+    suggestionId,
+    accept: false
+  });
+  state.propertyLockSuggestionVisible = false;
+  state.propertyLockSuggestionId = "";
+  state.propertyLockSuggestionFromName = "";
+  uiModule.setViewState(buildPropertyLockViewState());
+}
+
 function handleConfigToggle(event) {
   event.stopPropagation();
   uiModule.setBasePageMenuOpen(false);
@@ -6234,6 +6598,11 @@ async function init() {
     onRemoteSupportJoin: handleRemoteSupportJoin,
     onRemoteSupportEnd: handleRemoteSupportEnd,
     onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
+    onPropertyLockTake: handlePropertyLockTake,
+    onPropertyLockSuggest: handlePropertyLockSuggest,
+    onPropertyLockContinue: handlePropertyLockContinue,
+    onPropertyLockAcceptSuggestion: handlePropertyLockAcceptSuggestion,
+    onPropertyLockRejectSuggestion: handlePropertyLockRejectSuggestion,
     onCompute: handleComputeSelectors,
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
@@ -6371,6 +6740,24 @@ async function init() {
       sender.tab.id &&
       sender.tab.id !== state.currentTab.id
     ) {
+      return;
+    }
+    if (message && message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE) {
+      const messageSiteId = normalizeSiteIdValue(message.siteId);
+      if (
+        messageSiteId &&
+        state.propertyLockSiteId &&
+        messageSiteId !== state.propertyLockSiteId
+      ) {
+        return;
+      }
+      const applied = applyPropertyLockServerMessage(message.message || null, messageSiteId);
+      if (applied) {
+        uiModule.setViewState(buildPropertyLockViewState());
+        if (message.message && message.message.type === PROPERTY_LOCK_WS_LOCK_STATE) {
+          scheduleRefresh();
+        }
+      }
       return;
     }
     if (message && message.type === "aiPreviewClosed") {

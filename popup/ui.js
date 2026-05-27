@@ -3,7 +3,8 @@ import * as stateModule from "./state.js";
 import {
   PopupText,
   ViewText,
-  formatScalePercent
+  formatScalePercent,
+  propertyLockText
 } from "../common/text.js";
 import {
   buildLynxChecklistViewModel,
@@ -36,6 +37,18 @@ const initialViewState = {
   baseUrlInputValue: "",
   baseUrlNoticeText: "",
   baseUrlNoticeVisible: false,
+  propertyLockVisible: false,
+  propertyLockTone: "muted",
+  propertyLockIcon: "lock-open-outline",
+  propertyLockStatusText: "",
+  propertyLockDetailText: "",
+  propertyLockSuggestVisible: false,
+  propertyLockTakeVisible: false,
+  propertyLockTakeText: propertyLockText.takeoverButton,
+  propertyLockContinueVisible: false,
+  propertyLockSuggestionVisible: false,
+  propertyLockAcceptVisible: false,
+  propertyLockRejectVisible: false,
   toggleEnabled: false,
   toggleEnabledDisabled: true,
   mainUiHidden: true,
@@ -335,6 +348,103 @@ function renderBasePageMenu(view, handlers) {
           view.basePageUrlsEmptyText
         )
     )
+  );
+}
+
+function renderPropertyLockIndicator(view, handlers) {
+  if (!view.propertyLockVisible) {
+    return null;
+  }
+
+  const actions = [];
+  if (view.propertyLockSuggestVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "suggest",
+          type: "button",
+          class: "property-lock__button button-secondary",
+          onClick: handlers.onPropertyLockSuggest
+        },
+        propertyLockText.takeoverSuggestButton
+      )
+    );
+  }
+  if (view.propertyLockTakeVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "take",
+          type: "button",
+          class: "property-lock__button",
+          onClick: handlers.onPropertyLockTake
+        },
+        view.propertyLockTakeText || propertyLockText.takeoverButton
+      )
+    );
+  }
+  if (view.propertyLockContinueVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "continue",
+          type: "button",
+          class: "property-lock__button",
+          onClick: handlers.onPropertyLockContinue
+        },
+        propertyLockText.continueEditingButton
+      )
+    );
+  }
+  if (view.propertyLockAcceptVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "accept",
+          type: "button",
+          class: "property-lock__button",
+          onClick: handlers.onPropertyLockAcceptSuggestion
+        },
+        propertyLockText.acceptButton
+      )
+    );
+  }
+  if (view.propertyLockRejectVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "reject",
+          type: "button",
+          class: "property-lock__button button-secondary",
+          onClick: handlers.onPropertyLockRejectSuggestion
+        },
+        propertyLockText.rejectButton
+      )
+    );
+  }
+
+  return h(
+    "div",
+    {
+      class: classNames("property-lock", `property-lock--${view.propertyLockTone || "muted"}`),
+      role: "status",
+      "aria-live": "polite"
+    },
+    h("span", { class: "property-lock__icon" }, icon(view.propertyLockIcon || "lock-open-outline")),
+    h(
+      "div",
+      { class: "property-lock__text" },
+      h("div", { class: "property-lock__status" }, view.propertyLockStatusText),
+      view.propertyLockDetailText
+        ? h("div", { class: "property-lock__detail" }, view.propertyLockDetailText)
+        : null
+    ),
+    actions.length ? h("div", { class: "property-lock__actions" }, actions) : null
   );
 }
 
@@ -1300,7 +1410,8 @@ function App({ state: view, actions: handlers }) {
               hidden: !view.baseUrlNoticeVisible
             },
             view.baseUrlNoticeText
-          )
+          ),
+          renderPropertyLockIndicator(view, handlers)
         )
       ),
       previewVisible

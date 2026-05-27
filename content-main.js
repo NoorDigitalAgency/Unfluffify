@@ -49,6 +49,32 @@ import {
   resolveAiSubmissionRowState
 } from "./content/submission-rules.js";
 
+import {
+  PROPERTY_LOCK_STATE_UNLOCKED,
+  PROPERTY_LOCK_STATE_LOCKED,
+  PROPERTY_LOCK_STATE_EXPIRY_WARNING,
+  PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE,
+  PROPERTY_LOCK_STATE_TRANSFER,
+  PROPERTY_LOCK_PORT_NAME,
+  PROPERTY_LOCK_CONTENT_CONNECT,
+  PROPERTY_LOCK_CONTENT_ACTIVITY,
+  PROPERTY_LOCK_CONTENT_TAKE_LOCK,
+  PROPERTY_LOCK_CONTENT_SUGGEST,
+  PROPERTY_LOCK_CONTENT_RESPOND,
+  PROPERTY_LOCK_CONTENT_CONTINUE,
+  PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  PROPERTY_LOCK_WS_LOCK_STATE,
+  PROPERTY_LOCK_WS_DISCONNECT_WARNING,
+  PROPERTY_LOCK_WS_INACTIVITY_WARNING,
+  PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION,
+  PROPERTY_LOCK_WS_SUGGESTION_PENDING,
+  PROPERTY_LOCK_WS_SUGGESTION_RESPONSE,
+  PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED,
+  PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN,
+  PROPERTY_LOCK_WS_ERROR
+} from "./common/property-lock.js";
+import { propertyLockText } from "./common/text.js";
+
 const { state } = core;
 
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
@@ -95,6 +121,21 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
 ]);
 
 let silentHighlightingUrlTimer = 0;
+
+const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
+const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
+
+let propertyLockPort = null;
+let propertyLockState = null;
+let propertyLockBannerMode = "no_banner";
+let propertyLockBannerCountdownTimer = 0;
+let propertyLockBannerCountdownValue = 0;
+let propertyLockBannerElement = null;
+let propertyLockBannerVisible = false;
+let propertyLockSuggestionId = "";
+let propertyLockSuggestionFromName = "";
+let propertyLockLastBlockedToastAt = 0;
+let propertyLockAutoTakeAttempted = false;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -6257,6 +6298,449 @@ async function refreshSilentHighlightings() {
   startSilentHighlightingObserver();
 }
 
+/**
+ * Check if marking interactions should be blocked due to property lock.
+ */
+function isMarkingBlockedByPropertyLock() {
+  return propertyLockBannerVisible &&
+    propertyLockBannerMode !== "no_banner" &&
+    propertyLockState &&
+    !propertyLockState.isEditor;
+}
+
+function showPropertyLockBlockedToast() {
+  const now = Date.now();
+  if (now - propertyLockLastBlockedToastAt < 1200) {
+    return;
+  }
+  propertyLockLastBlockedToastAt = now;
+  const editorName = propertyLockState?.editorName || "Someone";
+  showPageToast(propertyLockText.lockedInteractionBlockedToast(editorName));
+}
+
+function checkPropertyLockBlocksMarking() {
+  if (!isMarkingBlockedByPropertyLock()) {
+    return true;
+  }
+  showPropertyLockBlockedToast();
+  return false;
+}
+
+function handleBlockedPropertyLockInteraction(event) {
+  if (!isMarkingBlockedByPropertyLock() || !event || !event.isTrusted) {
+    return;
+  }
+
+  const target = event.target && event.target.nodeType === 1 ? event.target : null;
+  if (target && typeof target.closest === "function" && target.closest('[data-uf-extension-ui="true"]')) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  showPropertyLockBlockedToast();
+}
+
+async function resolveCurrentPropertyLockSiteId() {
+  if (!state.enabled || !state.baseUrl) {
+    return null;
+  }
+
+  const normalizedBaseUrl = utils.normalizeBaseUrl(state.baseUrl) || state.baseUrl;
+  const configs = await config.getConfigs();
+  const currentConfig = config.normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]).config;
+  let siteId = normalizeSiteIdValue(currentConfig.siteId);
+  if (siteId) {
+    return siteId;
+  }
+
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return null;
+  }
+
+  siteId = await resolveSiteIdFromGraphql({
+    stageBase: stageBaseValue,
+    pageUrl: location.href,
+    tokenValue
+  });
+  if (siteId) {
+    await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+      targetConfig.siteId = siteId;
+    });
+  }
+  return siteId || null;
+}
+
+async function initPropertyLockConnection() {
+  if (propertyLockPort) {
+    return;
+  }
+
+  const siteId = await resolveCurrentPropertyLockSiteId();
+  if (!siteId) {
+    return;
+  }
+
+  try {
+    propertyLockPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
+    propertyLockPort.onMessage.addListener(handlePropertyLockPortMessage);
+    propertyLockPort.onDisconnect.addListener(() => {
+      propertyLockPort = null;
+      propertyLockAutoTakeAttempted = false;
+      propertyLockBannerMode = "no_banner";
+      renderPropertyLockBanner();
+    });
+    propertyLockPort.postMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId,
+      identity: "content-script"
+    });
+  } catch (error) {
+    propertyLockPort = null;
+  }
+}
+
+function handlePropertyLockPortMessage(message) {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+
+  const { type, message: serverMessage } = message;
+  if (type !== PROPERTY_LOCK_BACKGROUND_STATE_UPDATE || !serverMessage || typeof serverMessage !== "object") {
+    return;
+  }
+
+  applyPropertyLockServerMessage(serverMessage);
+}
+
+function sendPropertyLockActivity() {
+  if (propertyLockPort) {
+    propertyLockPort.postMessage({ type: PROPERTY_LOCK_CONTENT_ACTIVITY });
+  }
+}
+
+function sendPropertyLockMessage(type, payload = {}) {
+  if (propertyLockPort) {
+    propertyLockPort.postMessage({ type, ...payload });
+  }
+}
+
+function applyPropertyLockServerMessage(serverMessage) {
+  const type = typeof serverMessage.type === "string" ? serverMessage.type : "";
+  const secondsRemaining = typeof serverMessage.secondsRemaining === "number"
+    ? Math.max(0, Math.ceil(serverMessage.secondsRemaining))
+    : null;
+
+  if (type === PROPERTY_LOCK_WS_LOCK_STATE) {
+    propertyLockState = serverMessage;
+    propertyLockSuggestionId = "";
+    propertyLockSuggestionFromName = "";
+    if (
+      serverMessage.state === PROPERTY_LOCK_STATE_UNLOCKED &&
+      !serverMessage.isEditor &&
+      !propertyLockAutoTakeAttempted
+    ) {
+      propertyLockAutoTakeAttempted = true;
+      sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+      return;
+    }
+    updatePropertyLockBannerMode();
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_DISCONNECT_WARNING) {
+    propertyLockBannerMode = "editor_disconnect_countdown";
+    propertyLockBannerCountdownValue = secondsRemaining || 0;
+    restartPropertyLockBannerCountdown();
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
+    propertyLockBannerMode = "editor_inactivity_warning";
+    propertyLockBannerCountdownValue = secondsRemaining || 0;
+    restartPropertyLockBannerCountdown();
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION) {
+    propertyLockSuggestionId = String(serverMessage.suggestionId || "");
+    propertyLockSuggestionFromName = String(serverMessage.fromName || "Someone");
+    propertyLockBannerMode = propertyLockSuggestionId ? "editor_takeover_suggestion" : "no_banner";
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_PENDING) {
+    propertyLockSuggestionId = String(serverMessage.suggestionId || "");
+    propertyLockBannerMode = "passive_suggestion_pending";
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_RESPONSE) {
+    if (serverMessage.accepted === false) {
+      propertyLockBannerMode = "passive_suggestion_rejected";
+      renderPropertyLockBanner();
+    }
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED || type === PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN) {
+    propertyLockBannerMode = "editor_transfer_countdown";
+    propertyLockBannerCountdownValue = secondsRemaining || propertyLockBannerCountdownValue || 10;
+    restartPropertyLockBannerCountdown();
+    renderPropertyLockBanner();
+    return;
+  }
+
+  if (type === PROPERTY_LOCK_WS_ERROR) {
+    showPageToast(String(serverMessage.reason || "Property lock request failed"));
+  }
+}
+
+function updatePropertyLockBannerMode() {
+  if (!propertyLockState) {
+    propertyLockBannerMode = "no_banner";
+    clearPropertyLockBannerCountdown();
+    return;
+  }
+
+  const { state: lockState, isEditor, secondsRemaining } = propertyLockState;
+  clearPropertyLockBannerCountdown();
+
+  if (lockState === PROPERTY_LOCK_STATE_UNLOCKED) {
+    propertyLockBannerMode = "no_banner";
+    return;
+  }
+
+  if (lockState === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE) {
+    propertyLockBannerMode = "takeover_available";
+    return;
+  }
+
+  if (lockState === PROPERTY_LOCK_STATE_TRANSFER) {
+    propertyLockBannerMode = "editor_transfer_countdown";
+    propertyLockBannerCountdownValue = secondsRemaining || 10;
+    restartPropertyLockBannerCountdown();
+    return;
+  }
+
+  if (isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
+    propertyLockBannerMode = "editor_inactivity_warning";
+    propertyLockBannerCountdownValue = secondsRemaining || 60;
+    restartPropertyLockBannerCountdown();
+    return;
+  }
+
+  if (!isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
+    propertyLockBannerMode = "passive_expiry_countdown";
+    propertyLockBannerCountdownValue = secondsRemaining || 60;
+    restartPropertyLockBannerCountdown();
+    return;
+  }
+
+  propertyLockBannerMode = isEditor || lockState !== PROPERTY_LOCK_STATE_LOCKED
+    ? "no_banner"
+    : "passive_locked";
+}
+
+function ensurePropertyLockBannerStyle() {
+  if (document.getElementById(PROPERTY_LOCK_BANNER_STYLE_ID)) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = PROPERTY_LOCK_BANNER_STYLE_ID;
+  style.textContent = `
+    #${PROPERTY_LOCK_BANNER_ID} {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px;
+      background: #fff3cd;
+      border-bottom: 1px solid #d39e00;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: #4d3900;
+      z-index: 2147483645;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+    }
+    #${PROPERTY_LOCK_BANNER_ID}.uf-lock-banner-hidden {
+      display: none;
+    }
+    #${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-content {
+      flex: 1;
+      min-width: 0;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    #${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    #${PROPERTY_LOCK_BANNER_ID} button {
+      padding: 6px 12px;
+      background: #f8b400;
+      border: 1px solid #bf8500;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: #2f2200;
+    }
+    #${PROPERTY_LOCK_BANNER_ID} button:hover {
+      background: #e6a700;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+function createPropertyLockBannerButton(text, className, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = text;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onClick();
+  });
+  return button;
+}
+
+function renderPropertyLockBanner() {
+  const shouldShow = propertyLockBannerMode !== "no_banner";
+  ensurePropertyLockBannerStyle();
+
+  if (!propertyLockBannerElement) {
+    propertyLockBannerElement = document.createElement("div");
+    propertyLockBannerElement.id = PROPERTY_LOCK_BANNER_ID;
+    propertyLockBannerElement.setAttribute("data-uf-extension-ui", "true");
+    (document.body || document.documentElement).insertBefore(
+      propertyLockBannerElement,
+      (document.body || document.documentElement).firstChild
+    );
+  }
+
+  if (!shouldShow) {
+    propertyLockBannerElement.classList.add("uf-lock-banner-hidden");
+    propertyLockBannerElement.replaceChildren();
+    propertyLockBannerVisible = false;
+    clearPropertyLockBannerCountdown();
+    return;
+  }
+
+  propertyLockBannerElement.classList.remove("uf-lock-banner-hidden");
+  propertyLockBannerVisible = true;
+  propertyLockBannerElement.replaceChildren();
+
+  const editorName = propertyLockState?.editorName || "Someone";
+  const content = document.createElement("div");
+  const actions = document.createElement("div");
+  content.className = "uf-lock-banner-content";
+  actions.className = "uf-lock-banner-actions";
+
+  switch (propertyLockBannerMode) {
+    case "passive_locked":
+      content.textContent = propertyLockText.passiveLockedMessage(editorName);
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.takeoverSuggestButton, "uf-lock-banner-suggest", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_SUGGEST);
+      }));
+      break;
+    case "passive_expiry_countdown":
+      content.textContent = propertyLockText.passiveExpiryCountdownMessage(editorName, propertyLockBannerCountdownValue);
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.takeoverSuggestButton, "uf-lock-banner-suggest", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_SUGGEST);
+      }));
+      break;
+    case "passive_suggestion_pending":
+      content.textContent = propertyLockText.passiveSuggestionPendingMessage(editorName);
+      break;
+    case "passive_suggestion_rejected":
+      content.textContent = propertyLockText.passiveSuggestionRejectedMessage(editorName);
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.okButton, "uf-lock-banner-ok", () => {
+        updatePropertyLockBannerMode();
+        renderPropertyLockBanner();
+      }));
+      break;
+    case "takeover_available": {
+      content.textContent = propertyLockText.takeoverAvailableMessage;
+      const label = propertyLockState?.isRecentEditor
+        ? propertyLockText.startEditingAgainButton
+        : propertyLockText.takeoverButton;
+      actions.appendChild(createPropertyLockBannerButton(label, "uf-lock-banner-takeover", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+      }));
+      break;
+    }
+    case "editor_disconnect_countdown":
+      content.textContent = propertyLockText.editorDisconnectCountdownMessage(propertyLockBannerCountdownValue);
+      break;
+    case "editor_inactivity_warning":
+      content.textContent = propertyLockText.editorInactivityWarningMessage(propertyLockBannerCountdownValue);
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingButton, "uf-lock-banner-continue-editing", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE);
+      }));
+      break;
+    case "editor_takeover_suggestion":
+      content.textContent = propertyLockText.takeoverSuggestionMessage(propertyLockSuggestionFromName || "Someone");
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.acceptButton, "uf-lock-banner-accept", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RESPOND, {
+          suggestionId: propertyLockSuggestionId,
+          accept: true
+        });
+      }));
+      actions.appendChild(createPropertyLockBannerButton(propertyLockText.rejectButton, "uf-lock-banner-reject", () => {
+        sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RESPOND, {
+          suggestionId: propertyLockSuggestionId,
+          accept: false
+        });
+        updatePropertyLockBannerMode();
+        renderPropertyLockBanner();
+      }));
+      break;
+    case "editor_transfer_countdown":
+      content.textContent = propertyLockText.editorTransferCountdownMessage(propertyLockBannerCountdownValue);
+      break;
+  }
+
+  propertyLockBannerElement.append(content, actions);
+}
+
+function clearPropertyLockBannerCountdown() {
+  if (propertyLockBannerCountdownTimer) {
+    clearInterval(propertyLockBannerCountdownTimer);
+    propertyLockBannerCountdownTimer = 0;
+  }
+}
+
+function restartPropertyLockBannerCountdown() {
+  clearPropertyLockBannerCountdown();
+  if (propertyLockBannerCountdownValue <= 0) {
+    return;
+  }
+  propertyLockBannerCountdownTimer = setInterval(() => {
+    propertyLockBannerCountdownValue = Math.max(0, propertyLockBannerCountdownValue - 1);
+    renderPropertyLockBanner();
+    if (propertyLockBannerCountdownValue <= 0) {
+      clearPropertyLockBannerCountdown();
+    }
+  }, 1000);
+}
+
+
 export function main() {
   if (state.initialized) {
     return;
@@ -6297,6 +6781,7 @@ export function main() {
       lastTrackedUrlHostname = urlInfo.hostname;
     }
     
+    initPropertyLockConnection();
     refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
   });
@@ -6317,6 +6802,11 @@ export function main() {
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
     if (key !== "e" && key !== "s" && key !== "m") {
+      return;
+    }
+    if (key === "s" && !checkPropertyLockBlocksMarking()) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     event.preventDefault();
@@ -6341,7 +6831,11 @@ export function main() {
       if (!allowed) {
         return;
       }
-      saveCurrentPageDraft({ showToast: true }).then();
+      saveCurrentPageDraft({ showToast: true }).then((result) => {
+        if (result && result.ok) {
+          sendPropertyLockActivity();
+        }
+      });
     });
   }, true);
 
@@ -6365,6 +6859,12 @@ export function main() {
   document.addEventListener("wheel", handleBlockedLocalExtensionInteraction, true);
   document.addEventListener("keydown", handleBlockedLocalExtensionInteraction, true);
   document.addEventListener("keyup", handleBlockedLocalExtensionInteraction, true);
+  document.addEventListener("mousedown", handleBlockedPropertyLockInteraction, true);
+  document.addEventListener("mouseup", handleBlockedPropertyLockInteraction, true);
+  document.addEventListener("click", handleBlockedPropertyLockInteraction, true);
+  document.addEventListener("wheel", handleBlockedPropertyLockInteraction, true);
+  document.addEventListener("keydown", handleBlockedPropertyLockInteraction, true);
+  document.addEventListener("keyup", handleBlockedPropertyLockInteraction, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
@@ -6697,6 +7197,10 @@ export function main() {
         return;
       }
       const shouldPersist = Boolean(message.persist);
+      if (shouldPersist && !checkPropertyLockBlocksMarking()) {
+        sendResponse({ ok: false, locked: true });
+        return;
+      }
       if (shouldPersist && core.isPageSaveReconciliationPending(location.href)) {
         sendResponse({ ok: false, reconciliationPending: true });
         return;
@@ -6754,6 +7258,9 @@ export function main() {
           if (shouldPersist) {
             core.setSavedPageEntry(location.href, entry);
           }
+        }
+        if (shouldPersist) {
+          sendPropertyLockActivity();
         }
         sendResponse({ ok: true });
       })();
@@ -6870,6 +7377,10 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
+      if (!checkPropertyLockBlocksMarking()) {
+        sendResponse({ ok: false, locked: true });
+        return;
+      }
       if (core.isPageSaveReconciliationPending(location.href)) {
         sendResponse({ ok: false, reconciliationPending: true });
         return;
@@ -6977,6 +7488,7 @@ export function main() {
       core.scheduleSnapshotSave();
       core.notifyDraftStatus(location.href);
       core.scheduleDraftPersist(targetBaseUrl);
+      sendPropertyLockActivity();
       sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
       return;
     }
@@ -6985,6 +7497,10 @@ export function main() {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
+        return;
+      }
+      if (!checkPropertyLockBlocksMarking()) {
+        sendResponse({ ok: false, locked: true });
         return;
       }
       if (core.isPageSaveReconciliationPending(location.href)) {
@@ -7053,6 +7569,7 @@ export function main() {
       core.scheduleSnapshotSave();
       core.notifyDraftStatus(location.href);
       core.scheduleDraftPersist(targetBaseUrl);
+      sendPropertyLockActivity();
       sendResponse({ ok: true, dirty: core.isPageDraftDirty(location.href) });
       return;
     }
@@ -7063,10 +7580,17 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
+      if (!checkPropertyLockBlocksMarking()) {
+        sendResponse({ ok: false, locked: true });
+        return;
+      }
       saveCurrentPageDraft({
         baseUrl: targetBaseUrl,
         pageType: typeof message.pageType === "string" ? message.pageType : ""
       }).then((result) => {
+        if (result && result.ok) {
+          sendPropertyLockActivity();
+        }
         sendResponse(result);
       });
       return true;
@@ -7076,6 +7600,10 @@ export function main() {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
+        return;
+      }
+      if (!checkPropertyLockBlocksMarking()) {
+        sendResponse({ ok: false, locked: true });
         return;
       }
       (async () => {

@@ -37,6 +37,10 @@ import {
   initRemoteSupportBackground
 } from "./common/remote-support-background.js";
 import { installExtensionTelemetry } from "./common/extension-telemetry.js";
+import {
+  handlePropertyLockBackgroundMessage,
+  initPropertyLockBackground
+} from "./common/property-lock-background.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -52,7 +56,17 @@ const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "remoteSupportTransportEvent"
 ]);
 
+const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
+  "getPropertyLockState",
+  "propertyLockTakeLock",
+  "propertyLockRelease",
+  "propertyLockSuggest",
+  "propertyLockRespondToSuggestion",
+  "propertyLockContinueEditing"
+]);
+
 initRemoteSupportBackground();
+initPropertyLockBackground();
 installExtensionTelemetry({
   source: "worker",
   sendTelemetry(message) {
@@ -72,6 +86,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch(() => {
         sendResponse({ ok: false, error: "Remote support request failed" });
+      });
+    return true;
+  }
+
+  if (PROPERTY_LOCK_MESSAGE_TYPES.has(message.type)) {
+    handlePropertyLockBackgroundMessage(message, sender)
+      .then((result) => {
+        sendResponse(result || { ok: false });
+      })
+      .catch(() => {
+        sendResponse({ ok: false });
       });
     return true;
   }

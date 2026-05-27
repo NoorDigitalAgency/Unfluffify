@@ -146,6 +146,70 @@ body.is-busy {
   width: 100%;
 }
 
+.property-lock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-accent);
+  color: var(--ink);
+}
+
+.property-lock__icon .btn-icon {
+  margin-right: 0;
+}
+
+.property-lock__text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.property-lock__status {
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-lock__detail {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.property-lock__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+button.property-lock__button {
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.property-lock--success {
+  border-color: color-mix(in srgb, var(--success) 52%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.property-lock--warning {
+  border-color: color-mix(in srgb, var(--warn) 58%, transparent);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+.property-lock--danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 .header-actions {
   position: relative;
   display: flex;
@@ -2154,7 +2218,8 @@ span.todo-candidate-link {
   color: var(--success);
 }
 
-.todo-candidate .todo-indicator--done {
+.todo-candidate .todo-indicator--done,
+.lynx-checklist-popover__page-type-title-row .todo-indicator--done {
   color: var(--card);
   background: var(--success);
   border-radius: 50%;
