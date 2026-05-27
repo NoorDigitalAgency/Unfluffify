@@ -2183,13 +2183,9 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     allConfigs[baseUrl] = localConfig;
     await config.saveConfigs(allConfigs);
   }
-  const prunedInvalidUrls = await pruneLocalInvalidPageMarkings({
-    baseUrl,
-    invalidUrls: invalidLoadedUrls
-  });
   return {
     ok: true,
-    changed: shouldSave || prunedInvalidUrls.length > 0,
+    changed: shouldSave,
     replacedCurrentPage: mergeResult.replacedExistingUrls.includes(currentPageUrl),
     baseUrl,
     invalidLoadedUrls
