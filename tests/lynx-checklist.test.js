@@ -146,6 +146,50 @@ test("merges repeated GraphQL page type groups and dedupes their candidate URLs"
   assert.deepEqual(normalized.duplicateUrls, []);
 });
 
+test("repairs stored pages with missing or wrong page types when the candidate URL is unique", () => {
+  const checklist = buildLynxChecklistViewModel({
+    pageTypes: propertyPageTypes,
+    markedPages: [
+      { url: "https://example.com/article", title: "Article" },
+      { url: "https://example.com/product-a", title: "Product", pageType: "custom_page_type" }
+    ]
+  });
+
+  assert.deepEqual(checklist.repairedMarkedPages, [
+    {
+      url: "https://example.com/article",
+      pageType: "article",
+      previousPageType: ""
+    },
+    {
+      url: "https://example.com/product-a",
+      pageType: "product",
+      previousPageType: "custom_page_type"
+    }
+  ]);
+  assert.deepEqual(checklist.activeMarkedPages, [
+    { url: "https://example.com/article", title: "Article", pageType: "article" },
+    { url: "https://example.com/product-a", title: "Product", pageType: "product" }
+  ]);
+});
+
+test("keeps non-candidate and ambiguous duplicate URLs invalid instead of auto-repairing them", () => {
+  const checklist = buildLynxChecklistViewModel({
+    pageTypes: propertyPageTypes,
+    markedPages: [
+      { url: "https://example.com/legacy", title: "Legacy" },
+      { url: "https://example.com/shared", title: "Shared", pageType: "custom_page_type" }
+    ]
+  });
+
+  assert.deepEqual(checklist.repairedMarkedPages, []);
+  assert.deepEqual(checklist.activeMarkedPages, []);
+  assert.deepEqual(checklist.invalidMarkedPages, [
+    { url: "https://example.com/legacy", title: "Legacy", pageType: "" },
+    { url: "https://example.com/shared", title: "Shared", pageType: "custom_page_type" }
+  ]);
+});
+
 test("requires the AI confirmation before sending", () => {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,

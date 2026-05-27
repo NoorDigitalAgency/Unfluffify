@@ -202,12 +202,18 @@ export function normalizePropertyPageTypes(value = []) {
 function normalizeMarkedPages(markedPages, normalizedPageTypes) {
   const candidatesByPageType = new Map();
   const duplicateUrlSet = new Set();
+  const candidatePageTypeByUrl = new Map();
   normalizedPageTypes.forEach((pageType) => {
     const urls = new Set();
     pageType.candidates.forEach((candidate) => {
       urls.add(candidate.url);
       if (candidate.duplicate) {
         duplicateUrlSet.add(candidate.url);
+        candidatePageTypeByUrl.delete(candidate.url);
+        return;
+      }
+      if (!candidatePageTypeByUrl.has(candidate.url)) {
+        candidatePageTypeByUrl.set(candidate.url, pageType.key);
       }
     });
     candidatesByPageType.set(pageType.key, urls);
@@ -215,6 +221,7 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
 
   const activeMarkedPages = [];
   const invalidMarkedPages = [];
+  const repairedMarkedPages = [];
   const seenKeys = new Set();
   const rawMarkedPages = Array.isArray(markedPages) ? markedPages : [];
 
@@ -224,28 +231,40 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
     }
     const url = normalizeCandidatePageUrl(item.url);
     const pageType = normalizePageTypeKey(item.pageType);
-    if (!url || !pageType) {
+    if (!url) {
       invalidMarkedPages.push(item);
       return;
     }
-    const dedupeKey = `${pageType}|${url}`;
+    const allowedUrls = pageType ? candidatesByPageType.get(pageType) : null;
+    const candidatePageType = duplicateUrlSet.has(url) ? "" : candidatePageTypeByUrl.get(url) || "";
+    const resolvedPageType =
+      allowedUrls && allowedUrls.has(url) && !duplicateUrlSet.has(url)
+        ? pageType
+        : candidatePageType;
+    if (!resolvedPageType) {
+      invalidMarkedPages.push(pageType ? { ...item, url, pageType } : { ...item, url, pageType: "" });
+      return;
+    }
+    const dedupeKey = `${resolvedPageType}|${url}`;
     if (seenKeys.has(dedupeKey)) {
       return;
     }
     seenKeys.add(dedupeKey);
-    const allowedUrls = candidatesByPageType.get(pageType);
-    if (!allowedUrls || !allowedUrls.has(url) || duplicateUrlSet.has(url)) {
-      invalidMarkedPages.push({ ...item, url, pageType });
-      return;
+    if (resolvedPageType !== pageType) {
+      repairedMarkedPages.push({
+        url,
+        pageType: resolvedPageType,
+        previousPageType: pageType
+      });
     }
     activeMarkedPages.push({
       url,
-      pageType,
+      pageType: resolvedPageType,
       title: typeof item.title === "string" && item.title.trim() ? item.title.trim() : url
     });
   });
 
-  return { activeMarkedPages, invalidMarkedPages };
+  return { activeMarkedPages, invalidMarkedPages, repairedMarkedPages };
 }
 
 export function createInitialLynxChecklistState() {
@@ -275,7 +294,7 @@ export function normalizeLynxChecklistState(value = {}) {
 
 export function buildLynxChecklistViewModel(options = {}) {
   const normalized = normalizeLynxChecklistState(options);
-  const { activeMarkedPages, invalidMarkedPages } = normalizeMarkedPages(
+  const { activeMarkedPages, invalidMarkedPages, repairedMarkedPages } = normalizeMarkedPages(
     options.markedPages,
     normalized.pageTypes
   );
@@ -319,6 +338,7 @@ export function buildLynxChecklistViewModel(options = {}) {
     missingPageTypes,
     activeMarkedPages,
     invalidMarkedPages,
+    repairedMarkedPages,
     duplicateUrls: normalized.pageTypes
       .flatMap((pageType) => pageType.candidates)
       .filter((candidate) => candidate.duplicate)

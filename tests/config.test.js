@@ -10,7 +10,7 @@ import {
   normalizeConfig
 } from "../common/config.js";
 
-test("normalizeConfig drops legacy page markings without pageType", () => {
+test("normalizeConfig preserves legacy page markings without pageType for later candidate reconciliation", () => {
   const normalized = normalizeConfig("https://example.com", {
     pageMarkings: {
       "https://example.com/legacy": {
@@ -35,11 +35,18 @@ test("normalizeConfig drops legacy page markings without pageType", () => {
     }
   }).config;
 
-  assert.deepEqual(Object.keys(normalized.pageMarkings), ["https://example.com/current"]);
+  assert.deepEqual(Object.keys(normalized.pageMarkings), [
+    "https://example.com/legacy",
+    "https://example.com/current"
+  ]);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(normalized.pageMarkings["https://example.com/legacy"], "pageType"),
+    false
+  );
   assert.equal(normalized.pageMarkings["https://example.com/current"].pageType, "article");
 });
 
-test("normalizeConfig drops legacy page markings with unsupported page types", () => {
+test("normalizeConfig preserves unsupported page types for later candidate reconciliation", () => {
   const normalized = normalizeConfig("https://example.com", {
     pageMarkings: {
       "https://example.com/legacy": {
@@ -65,7 +72,11 @@ test("normalizeConfig drops legacy page markings with unsupported page types", (
     }
   }).config;
 
-  assert.deepEqual(Object.keys(normalized.pageMarkings), ["https://example.com/current"]);
+  assert.deepEqual(Object.keys(normalized.pageMarkings), [
+    "https://example.com/legacy",
+    "https://example.com/current"
+  ]);
+  assert.equal(normalized.pageMarkings["https://example.com/legacy"].pageType, "custom_page_type");
   assert.equal(normalized.pageMarkings["https://example.com/current"].pageType, "article");
 });
 

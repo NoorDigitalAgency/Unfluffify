@@ -1799,6 +1799,55 @@ async function pruneLocalInvalidPageMarkings(options = {}) {
   return removedUrls;
 }
 
+async function repairLocalPageMarkingPageTypes(options = {}) {
+  const {
+    baseUrl = "",
+    repairedMarkedPages = []
+  } = options;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !Array.isArray(repairedMarkedPages) || !repairedMarkedPages.length) {
+    return [];
+  }
+  const repairsByUrl = new Map(
+    repairedMarkedPages
+      .map((item) => {
+        const url = normalizeCandidatePageUrl(item && item.url);
+        const pageType = item && typeof item.pageType === "string"
+          ? item.pageType.trim()
+          : "";
+        return url && pageType ? [url, pageType] : null;
+      })
+      .filter(Boolean)
+  );
+  if (!repairsByUrl.size) {
+    return [];
+  }
+  const configs = await config.getConfigs();
+  const sourceConfig = configs[normalizedBaseUrl];
+  if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
+    return [];
+  }
+  const nextConfig = config.normalizeConfig(normalizedBaseUrl, sourceConfig).config;
+  const repairedUrls = [];
+  Object.entries(nextConfig.pageMarkings || {}).forEach(([url, entry]) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    const normalizedUrl = normalizeCandidatePageUrl(url);
+    const repairedPageType = normalizedUrl ? repairsByUrl.get(normalizedUrl) : "";
+    if (!repairedPageType || entry.pageType === repairedPageType) {
+      return;
+    }
+    entry.pageType = repairedPageType;
+    repairedUrls.push(url);
+  });
+  if (repairedUrls.length) {
+    configs[normalizedBaseUrl] = nextConfig;
+    await config.saveConfigs(configs);
+  }
+  return repairedUrls;
+}
+
 function getConfigLoadStatusTone(status) {
   switch (status) {
     case "ok":
@@ -2216,12 +2265,6 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       updateLastConfigLoadStatus(result);
       return result;
     }
-    await pruneRemoteInvalidPageMarkings({
-      endpointValue,
-      tokenValue,
-      siteId,
-      invalidUrls: mergeResult.invalidLoadedUrls || []
-    });
     if (mergeResult.changed && mergeResult.baseUrl) {
       await messages.sendTabMessageWithRetry({
         type: "configUpdated",
@@ -3233,16 +3276,38 @@ async function refreshUiInner() {
   const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
   let invalidStoredPageUrlsForRemote = [];
   let removedStoredCurrentPageEntry = false;
+  let repairedStoredPageUrls = [];
+  let didReconcileStoredPageMarkings = false;
   if (propertyPageTypes.length && state.currentBaseUrl) {
     const initialStoredPageMarkingItems = collectStoredPageMarkingItems(
       pageMarkings,
       state.currentBaseUrl
     );
-    const initialCoverageModel = buildLynxChecklistViewModel({
+    let initialCoverageModel = buildLynxChecklistViewModel({
       aiAnswer: state.lynxChecklistAiAnswer,
       pageTypes: propertyPageTypes,
       markedPages: initialStoredPageMarkingItems
     });
+    if (initialCoverageModel.repairedMarkedPages.length) {
+      repairedStoredPageUrls = await repairLocalPageMarkingPageTypes({
+        baseUrl: state.currentBaseUrl,
+        repairedMarkedPages: initialCoverageModel.repairedMarkedPages
+      });
+      if (repairedStoredPageUrls.length) {
+        didReconcileStoredPageMarkings = true;
+        configs = await config.getConfigs();
+        state.currentConfig = config.normalizeConfig(
+          state.currentBaseUrl,
+          configs[state.currentBaseUrl]
+        ).config;
+        pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+        initialCoverageModel = buildLynxChecklistViewModel({
+          aiAnswer: state.lynxChecklistAiAnswer,
+          pageTypes: propertyPageTypes,
+          markedPages: collectStoredPageMarkingItems(pageMarkings, state.currentBaseUrl)
+        });
+      }
+    }
     invalidStoredPageUrlsForRemote = Array.from(
       new Set(
         initialCoverageModel.invalidMarkedPages
@@ -3259,22 +3324,24 @@ async function refreshUiInner() {
         invalidUrls: invalidStoredPageUrlsForRemote
       });
       if (removedInvalidUrls.length) {
+        didReconcileStoredPageMarkings = true;
         configs = await config.getConfigs();
         state.currentConfig = config.normalizeConfig(
           state.currentBaseUrl,
           configs[state.currentBaseUrl]
         ).config;
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
-        if (currentTabId) {
-          await messages.sendTabMessageWithRetry({
-            type: "configUpdated",
-            baseUrl: state.currentBaseUrl,
-            forceReloadPageEntry: removedInvalidUrls.some(
-              (url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl
-            )
-          }, 2);
-        }
       }
+    }
+    const shouldReloadCurrentPageEntry =
+      repairedStoredPageUrls.some((url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl) ||
+      removedStoredCurrentPageEntry;
+    if (currentTabId && didReconcileStoredPageMarkings) {
+      await messages.sendTabMessageWithRetry({
+        type: "configUpdated",
+        baseUrl: state.currentBaseUrl,
+        forceReloadPageEntry: shouldReloadCurrentPageEntry
+      }, 2);
     }
   }
   const storedPageMarkingItems = collectStoredPageMarkingItems(
@@ -3801,6 +3868,24 @@ async function refreshUiInner() {
       tokenValue,
       siteId: liveSiteId,
       invalidUrls: invalidStoredPageUrlsForRemote
+    }).then();
+  }
+  if (
+    propertyPageTypes.length &&
+    repairedStoredPageUrls.length &&
+    configEndpointValue &&
+    tokenValue &&
+    normalizedStageBaseValue &&
+    state.currentBaseUrl &&
+    pageUrl
+  ) {
+    syncBaseConfigToServer({
+      baseUrl: state.currentBaseUrl,
+      pageUrl,
+      endpointValue: configEndpointValue,
+      tokenValue,
+      stageBase: normalizedStageBaseValue,
+      alertOnCurrentReplacement: false
     }).then();
   }
 
