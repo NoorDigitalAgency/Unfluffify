@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildPageSaveReconciliationKey,
   createConfigSyncPayload,
+  isPageSaveReconciliationPending,
+  normalizePageSaveReconciliation,
   normalizeConfig
 } from "../common/config.js";
 
@@ -53,4 +56,31 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   });
 
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
+});
+
+test("page save reconciliation normalizes pending local save locks", () => {
+  const normalized = normalizePageSaveReconciliation({
+    status: "pending",
+    baseUrl: "https://www.example.com/shop/",
+    pageUrl: "https://www.example.com/shop/item",
+    reason: "sync_failed",
+    updatedAt: "2026-01-01T00:00:00Z"
+  });
+
+  assert.equal(normalized.status, "pending");
+  assert.equal(normalized.baseUrl, "https://example.com/shop");
+  assert.equal(normalized.pageUrl, "https://www.example.com/shop/item");
+  assert.equal(normalized.reason, "sync_failed");
+  assert.equal(isPageSaveReconciliationPending(normalized), true);
+});
+
+test("page save reconciliation keys are scoped by normalized base and exact page url", () => {
+  assert.equal(
+    buildPageSaveReconciliationKey(
+      "https://www.example.com/shop/",
+      "https://www.example.com/shop/item?variant=1"
+    ),
+    JSON.stringify(["https://example.com/shop", "https://www.example.com/shop/item?variant=1"])
+  );
+  assert.equal(buildPageSaveReconciliationKey("", "https://example.com"), "");
 });

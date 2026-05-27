@@ -33,6 +33,8 @@ export const state = {
   currentSavedEntry: null,
   currentDraftDirty: false,
   currentDraftAvailable: false,
+  currentPageSaveReconciliation: null,
+  currentPageSaveReconciliationPending: false,
   currentPageTypeKey: "",
   currentPageTypeTitle: "",
   clearDomainCacheDisabled: false,

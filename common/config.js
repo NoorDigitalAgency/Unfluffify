@@ -76,6 +76,18 @@ export async function getPageSaveReconciliation(baseUrl, pageUrl) {
   return normalizePageSaveReconciliation(reconciliations[key]);
 }
 
+export async function getPageSaveReconciliationsForBaseUrl(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl) {
+    return [];
+  }
+  const reconciliations = await getPageSaveReconciliations();
+  return Object.values(reconciliations)
+    .map((value) => normalizePageSaveReconciliation(value))
+    .filter((value) => value && value.baseUrl === normalizedBaseUrl)
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+}
+
 export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
   const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";

@@ -135,25 +135,31 @@ export function normalizePropertyPageTypes(value = []) {
     : Array.isArray(value && value.pageTypes)
       ? value.pageTypes
       : [];
-  const pageTypes = [];
-  const seenKeys = new Set();
+  const pageTypesByKey = new Map();
 
   rawPageTypes.forEach((rawPageType) => {
     if (!rawPageType || typeof rawPageType !== "object") {
       return;
     }
     const key = normalizePageTypeKey(rawPageType.pageType || rawPageType.key);
-    if (!key || !ALLOWED_PAGE_TYPE_LABELS[key] || seenKeys.has(key)) {
+    if (!key || !ALLOWED_PAGE_TYPE_LABELS[key]) {
       return;
     }
-    seenKeys.add(key);
-    pageTypes.push({
-      key,
-      title: normalizePageTypeTitle(rawPageType.title, key),
-      candidates: normalizePageTypeCandidates(rawPageType)
+    const existing = pageTypesByKey.get(key);
+    if (!existing) {
+      pageTypesByKey.set(key, {
+        key,
+        title: normalizePageTypeTitle(rawPageType.title, key),
+        candidates: normalizePageTypeCandidates(rawPageType)
+      });
+      return;
+    }
+    existing.candidates = normalizePageTypeCandidates({
+      candidates: existing.candidates.concat(normalizePageTypeCandidates(rawPageType))
     });
   });
 
+  const pageTypes = Array.from(pageTypesByKey.values());
   pageTypes.sort((left, right) => {
     return ALLOWED_PAGE_TYPE_ORDER.indexOf(left.key) - ALLOWED_PAGE_TYPE_ORDER.indexOf(right.key);
   });

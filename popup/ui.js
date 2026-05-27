@@ -137,6 +137,7 @@ const initialViewState = {
   loginActionDisabled: false,
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
+  aiDirtyNoticeText: PopupText.ai.dirtyNotice,
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",
   computeButtonText: ViewText.computeButtonIdle,
@@ -1369,7 +1370,7 @@ function renderAiControlsContent(view, handlers) {
           "aria-live": "polite",
           style: {display: view.aiDirtyNoticeVisible ? "block" : "none"}
         },
-        PopupText.ai.dirtyNotice
+        view.aiDirtyNoticeText || PopupText.ai.dirtyNotice
       ),
       h(
         "button",

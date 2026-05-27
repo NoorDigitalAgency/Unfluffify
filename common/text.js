@@ -108,7 +108,8 @@ export const ContentText = Object.freeze({
   marking: Object.freeze({
     immutableOverrideBlocked: "Default exclusions cannot be overridden", // Toast shown when a user tries to toggle an immutable default exclusion.
     altIncludeParentHint: "Use ALT-click to inclusion to override decendents of an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
-    explicitIncludeBlocked: "Element cannot be explicitly included" // Toast shown when an element fails the explicit-include eligibility rules.
+    explicitIncludeBlocked: "Element cannot be explicitly included", // Toast shown when an element fails the explicit-include eligibility rules.
+    saveReconciliationBlocked: "Finish server sync before editing" // Toast shown when page editing is locked after a local save.
   }),
 
   preview: Object.freeze({
@@ -328,12 +329,20 @@ export const PopupText = Object.freeze({
     statusUnsavedChanges: "Unsaved changes", // Draft-status text while the live draft differs from saved data.
     statusNeedsAiSnapshot: "Save current page to refresh AI snapshot", // Draft-status text when the page snapshot needs AI backfill.
     statusAllChangesSaved: "All changes saved", // Draft-status text when the draft and saved state are aligned.
+    statusServerSyncPending: "Server sync pending", // Draft-status text when local page changes are waiting for remote sync and reload.
+    statusServerSyncFailed: "Server sync failed. Save again to retry.", // Draft-status text after remote page sync fails.
+    statusServerSyncSkipped: "Server sync required. Save again to retry.", // Draft-status text after remote page sync is skipped because sync is unavailable.
+    statusServerRefreshFailed: "Server refresh failed. Save again to retry.", // Draft-status text after save succeeds but the remote reload does not.
     saveFailed: "Save failed", // Save-status label when page save did not complete.
+    savedLocallySyncPending: "Saved locally (server sync pending)", // Save-status label while page edits are locally stored but not remotely reconciled.
     savedLocallySyncSkipped: "Saved locally (sync skipped)", // Save-status label when page save succeeded locally but config sync was skipped.
     savedLocallySyncFailed: "Saved locally (sync failed)", // Save-status label when page save succeeded locally but config sync failed.
+    savedAndSyncedRefreshFailed: "Saved and synced (refresh failed)", // Save-status label when remote save succeeded but follow-up load failed.
     savedAndSynced: "Saved and synced", // Save-status label when page save and config sync both succeeded.
+    pageSavedLocallySyncPending: "Page saved locally; server sync pending", // Toast shown when page save is local and waiting for server reconciliation.
     pageSavedLocallySyncSkipped: "Page saved locally (server sync skipped)", // Toast shown when a page save succeeded locally without server sync.
     pageSavedLocallySyncFailed: "Page saved locally (server sync failed)", // Toast shown when a page save succeeded locally but server sync failed.
+    pageSavedAndSyncedRefreshFailed: "Page saved and synced, but refresh failed", // Toast shown when server save succeeds but reload reconciliation fails.
     pageSaved: "Page saved", // Toast shown when a page save fully succeeds.
     noLocalChangesToSave: "No local changes to save", // Save-status label when a save was requested but nothing changed.
     noChangesToSave: "No changes to save", // Toast shown when a save was requested but nothing changed.

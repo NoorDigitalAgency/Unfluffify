@@ -3684,6 +3684,22 @@ async function saveCurrentPageDraft(options) {
   }
   const pageUrl = location.href;
   const savedEntry = core.getSavedPageEntry(pageUrl);
+  const draftEntry = core.getDraftPageEntry(pageUrl);
+  const draftEntryChanged = !core.areEntriesEquivalent(draftEntry, savedEntry);
+  const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+  const reconciliationPending = Boolean(reconciliation);
+  if (reconciliationPending && reconciliation.pageUrl && reconciliation.pageUrl !== pageUrl) {
+    if (showToast) {
+      showPageToast("Server sync pending");
+    }
+    return {
+      ok: true,
+      saved: true,
+      dirty: true,
+      reconciliationPending: true,
+      reconciliation
+    };
+  }
   const hasSavedEntry = Boolean(savedEntry);
   const savedEntryHasAiSubmissionData = Boolean(
     savedEntry &&
@@ -3706,7 +3722,8 @@ async function saveCurrentPageDraft(options) {
     submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
   );
   if (
-    !core.isPageDraftDirty(pageUrl) &&
+    !draftEntryChanged &&
+    !reconciliationPending &&
     hasSavedEntry &&
     savedEntryHasAiSubmissionData &&
     savedEntryMatchesCurrentSnapshot
@@ -3715,6 +3732,22 @@ async function saveCurrentPageDraft(options) {
       showPageToast("No changes to save");
     }
     return { ok: true, saved: false, dirty: false };
+  }
+  if (
+    reconciliationPending &&
+    !draftEntryChanged &&
+    hasSavedEntry &&
+    savedEntryHasAiSubmissionData &&
+    savedEntryMatchesCurrentSnapshot
+  ) {
+    if (showToast) {
+      showPageToast("Server sync pending");
+    }
+    return { ok: true, saved: true, dirty: true, reconciliationPending: true };
+  }
+  const hadReconciliationPending = reconciliationPending;
+  if (!hadReconciliationPending) {
+    await core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "saving" });
   }
   const immutableExcluded = core.collectImmutableElements();
   core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
@@ -3741,21 +3774,26 @@ async function saveCurrentPageDraft(options) {
   try {
     await core.saveConfig(targetBaseUrl, state.config);
   } catch (error) {
+    if (!hadReconciliationPending) {
+      await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
+    }
     if (showToast) {
       showPageToast("Unable to save page");
     }
     return { ok: false };
   }
   core.setSavedPageEntry(pageUrl, entry);
+  await core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "pending" });
   core.scheduleRender();
   core.notifyDraftStatus(pageUrl);
   if (showToast) {
-    showPageToast("Page saved");
+    showPageToast("Page saved locally; server sync pending");
   }
   return {
     ok: true,
     saved: true,
-    dirty: false
+    dirty: true,
+    reconciliationPending: true
   };
 }
 
@@ -3775,6 +3813,10 @@ async function toggleEnabledFromPage(options = {}) {
     return;
   }
   if (currentlyEnabled) {
+    if (core.isPageSaveReconciliationPending(location.href)) {
+      showPageToast("Finish server sync before editing");
+      return;
+    }
     state.currentPageType = "";
     core.disable();
     await utils.sendRuntimeMessage({
@@ -6667,6 +6709,10 @@ export function main() {
         return;
       }
       const shouldPersist = Boolean(message.persist);
+      if (shouldPersist && core.isPageSaveReconciliationPending(location.href)) {
+        sendResponse({ ok: false, reconciliationPending: true });
+        return;
+      }
 
       (async () => {
         let config;
@@ -6749,6 +6795,7 @@ export function main() {
         core.setSavedPageEntry(pageUrl, entry);
       }
       const savedEntry = core.getSavedPageEntry(pageUrl);
+      const reconciliation = core.getPageSaveReconciliationState(pageUrl);
       const submissionXpathsStale = Boolean(
         hasEntry &&
         entry &&
@@ -6761,15 +6808,69 @@ export function main() {
         ok: true,
         entry: entry ? core.clonePageEntry(entry) : null,
         savedEntry,
-        dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale
+        dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
+        reconciliation,
+        reconciliationPending: Boolean(reconciliation)
       });
       return;
+    }
+
+    if (message.type === "setPageSaveReconciliationPending") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
+        ? message.pageUrl
+        : location.href;
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl)) {
+        sendResponse({ ok: false });
+        return;
+      }
+      core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, {
+        reason: typeof message.reason === "string" ? message.reason : "pending"
+      }).then((reconciliation) => {
+        sendResponse({ ok: true, reconciliation });
+      }).catch(() => {
+        sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (message.type === "clearPageSaveReconciliation") {
+      const targetBaseUrl = message.baseUrl || state.baseUrl;
+      const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
+        ? message.pageUrl
+        : location.href;
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl)) {
+        sendResponse({ ok: false });
+        return;
+      }
+      (async () => {
+        await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
+        await core.refreshPageSaveReconciliation(targetBaseUrl, location.href);
+        const refreshedConfig = await core.loadConfig(targetBaseUrl);
+        const currentPageUrl = location.href;
+        const storedEntry =
+          refreshedConfig.pageMarkings && refreshedConfig.pageMarkings[currentPageUrl]
+            ? refreshedConfig.pageMarkings[currentPageUrl]
+            : null;
+        state.config = refreshedConfig;
+        core.setSavedPageEntry(currentPageUrl, storedEntry || null);
+        core.scheduleRender();
+        core.notifyDraftStatus(currentPageUrl);
+        sendResponse({ ok: true, entry: storedEntry ? core.clonePageEntry(storedEntry) : null });
+      })().catch(() => {
+        sendResponse({ ok: false });
+      });
+      return true;
     }
 
     if (message.type === "setExplicitExclude") {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
+        return;
+      }
+      if (core.isPageSaveReconciliationPending(location.href)) {
+        sendResponse({ ok: false, reconciliationPending: true });
         return;
       }
       const xpath = message.xpath || "";
@@ -6883,6 +6984,10 @@ export function main() {
       const targetBaseUrl = message.baseUrl || state.baseUrl;
       if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || !state.config) {
         sendResponse({ ok: false });
+        return;
+      }
+      if (core.isPageSaveReconciliationPending(location.href)) {
+        sendResponse({ ok: false, reconciliationPending: true });
         return;
       }
       const xpath = message.xpath || "";

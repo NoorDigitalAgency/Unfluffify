@@ -3746,6 +3746,10 @@ function refreshHoverHighlight() {
   if (!layerHover) {
     return;
   }
+  if (isPageSaveReconciliationPending(location.href)) {
+    clearLayer(layerHover);
+    return;
+  }
   if (!state.lastPointer) {
     clearLayer(layerHover);
     return;
@@ -3765,6 +3769,10 @@ function refreshHoverHighlight() {
 
 function handleMouseMove(event) {
   if (!state.enabled) {
+    return;
+  }
+  if (isPageSaveReconciliationPending(location.href)) {
+    clearLayer(state.layers["hover"]);
     return;
   }
   event.stopPropagation();
@@ -3798,6 +3806,10 @@ function handleMouseMove(event) {
 
 function toggleExplicitExclude(target) {
   if (!state.baseUrl || !state.config) {
+    return;
+  }
+  if (isPageSaveReconciliationPending(location.href)) {
+    showToast(ContentText.marking.saveReconciliationBlocked);
     return;
   }
   if (isWithinImmutableExcluded(target)) {
@@ -3970,6 +3982,10 @@ function toggleExplicitInclude(target) {
   if (!state.baseUrl || !state.config) {
     return;
   }
+  if (isPageSaveReconciliationPending(location.href)) {
+    showToast(ContentText.marking.saveReconciliationBlocked);
+    return;
+  }
   if (matchesImmutableExcluded(target)) {
     showToast(ContentText.marking.immutableOverrideBlocked);
     return;
@@ -4069,6 +4085,11 @@ function handleToggleEvent(event) {
   const mode = getMarkModeFromEvent(event);
   event.preventDefault();
   event.stopPropagation();
+  if (isPageSaveReconciliationPending(location.href)) {
+    showToast(ContentText.marking.saveReconciliationBlocked);
+    clearLayer(state.layers["hover"]);
+    return;
+  }
   if (state.focusElement) {
     const rawTarget = getTargetElement(event.clientX, event.clientY);
     if (!rawTarget || !state.focusElement.contains(rawTarget)) {
@@ -4986,7 +5007,7 @@ export function isPageDraftDirty(pageUrl) {
 
 export function getPageSaveReconciliationState(pageUrl = location.href) {
   const reconciliation = config.normalizePageSaveReconciliation(state.pageSaveReconciliation);
-  if (!reconciliation || reconciliation.pageUrl !== pageUrl) {
+  if (!reconciliation) {
     return null;
   }
   if (state.baseUrl && !utils.sameBaseUrl(reconciliation.baseUrl, state.baseUrl)) {
@@ -5004,7 +5025,10 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
     state.pageSaveReconciliation = null;
     return null;
   }
-  const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
+  const reconciliation =
+    await config.getPageSaveReconciliation(baseUrl, pageUrl) ||
+    (await config.getPageSaveReconciliationsForBaseUrl(baseUrl))[0] ||
+    null;
   state.pageSaveReconciliation = reconciliation;
   return reconciliation;
 }
@@ -5480,6 +5504,7 @@ export function disable() {
   state.currentPageEntry = null;
   state.autoSeededPendingSavePageUrl = "";
   state.suppressNextAutoSeedFromAiSelectors = false;
+  state.pageSaveReconciliation = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
@@ -5549,6 +5574,7 @@ export async function enableForBaseUrl(baseUrl) {
     state.currentPageType = normalizePageEntryPageType(savedEntry && savedEntry.pageType);
   }
   setSavedPageEntry(pageUrl, savedEntry || null);
+  await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
   const cachedDraft = state.disabledUnsavedDraft;
   if (
     cachedDraft &&
@@ -5854,6 +5880,7 @@ export async function refreshFromTabState() {
       state.baseUrl = response.baseUrl;
       state.config = config;
       setSavedPageEntry(pageUrl, storedEntry);
+      await refreshPageSaveReconciliation(response.baseUrl, pageUrl);
       if (storedEntry) {
         const immutableExcluded = collectImmutableElements();
         const syncResult = syncPageMarkings(config, pageUrl, immutableExcluded, {

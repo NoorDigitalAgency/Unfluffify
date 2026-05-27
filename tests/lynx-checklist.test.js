@@ -105,6 +105,46 @@ test("filters out unsupported page types and uses the fixed friendly labels for 
   ]);
 });
 
+test("merges repeated GraphQL page type groups and dedupes their candidate URLs", () => {
+  const normalized = normalizePropertyPageTypes([
+    {
+      pageType: "service_page",
+      title: "Service page from API",
+      pages: [
+        { url: "https://example.com/service", wordsCount: 220 },
+        { url: "https://example.com/service", wordsCount: 180 }
+      ]
+    },
+    {
+      pageType: "servicePage",
+      title: "Ignored duplicate title",
+      pages: [
+        { url: "https://example.com/service", wordsCount: 260 },
+        { url: "https://example.com/services/consulting", wordsCount: 340 }
+      ]
+    }
+  ]);
+
+  assert.equal(normalized.pageTypes.length, 1);
+  assert.equal(normalized.pageTypes[0].key, "service_page");
+  assert.equal(normalized.pageTypes[0].title, "Service Page");
+  assert.deepEqual(normalized.pageTypes[0].candidates, [
+    {
+      url: "https://example.com/services/consulting",
+      wordsCount: 340,
+      duplicate: false,
+      duplicatePageTypes: []
+    },
+    {
+      url: "https://example.com/service",
+      wordsCount: 260,
+      duplicate: false,
+      duplicatePageTypes: []
+    }
+  ]);
+  assert.deepEqual(normalized.duplicateUrls, []);
+});
+
 test("requires the AI confirmation before sending", () => {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,
