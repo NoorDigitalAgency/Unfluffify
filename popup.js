@@ -3979,7 +3979,7 @@ async function refreshUi() {
       suppressIfActive: true
     }
   );
-  maybeResumePersistedAiRun().then();
+  maybeResumePersistedAiRun().catch(() => {});
   return response;
 }
 
