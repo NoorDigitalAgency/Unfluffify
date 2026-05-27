@@ -6511,6 +6511,17 @@ export function main() {
       return true;
     }
 
+    if (message.type === "hideConsentForInspection") {
+      const hiddenCount = core.hideConsentElements();
+      silentHighlightVisibility = normalizeSilentHighlightOptions({
+        ...silentHighlightVisibility,
+        visibleConsent: false
+      });
+      applyVisibleConsentVisibility(silentHighlightVisibility);
+      sendResponse({ ok: true, hiddenCount });
+      return;
+    }
+
     if (message.type === "remoteSupportState" || message.type === "remoteSupportModeChanged") {
       const remoteSupportState =
         message.type === "remoteSupportState" && message.state && typeof message.state === "object"

@@ -2002,10 +2002,29 @@ async function applyRenderModeInspectionVisibility(options = {}) {
     ...getSilentHighlightVisibility(),
     visibleConsent: false
   };
-  return applySilentHighlightVisibility({
+  const visibilityApplied = await applySilentHighlightVisibility({
     ...options,
     visibilityOverride: inspectionVisibility
   });
+
+  let consentHiddenApplied = false;
+  const tabId = state.currentTab && state.currentTab.id;
+  if (tabId) {
+    let hideResponse = await messages.sendTabMessageWithRetry(
+      { type: "hideConsentForInspection" },
+      2
+    );
+    if ((!hideResponse || !hideResponse.ok) && tabId) {
+      await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
+      hideResponse = await messages.sendTabMessageWithRetry(
+        { type: "hideConsentForInspection" },
+        3
+      );
+    }
+    consentHiddenApplied = Boolean(hideResponse && hideResponse.ok);
+  }
+
+  return Boolean(visibilityApplied || consentHiddenApplied);
 }
 
 async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
