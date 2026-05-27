@@ -5,6 +5,14 @@ export const AI_RUN_PERSIST_KEY = "popupAiRun";
 
 const AI_RUN_STATUS_VALUES = new Set(["running", "done", "error"]);
 
+function normalizeAiRunSiteIdValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function formatAiRunCountdown(remainingMs) {
   const clamped = Math.max(0, Math.ceil(Number(remainingMs) || 0));
   const totalSeconds = Math.ceil(clamped / 1000);
@@ -52,7 +60,7 @@ export function normalizePersistedAiRunRecord(record) {
     return null;
   }
   const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
-  const siteId = typeof record.siteId === "string" ? record.siteId.trim() : "";
+  const siteId = normalizeAiRunSiteIdValue(record.siteId);
   const expiresAt = Number(record.expiresAt);
   const deadlineAt = Number(record.deadlineAt);
   if (!sessionId || !siteId || !Number.isFinite(expiresAt) || !Number.isFinite(deadlineAt)) {
@@ -68,7 +76,7 @@ export function normalizePersistedAiRunRecord(record) {
 
 export function shouldResumePersistedAiRun(record, siteId, now = Date.now()) {
   const normalizedRecord = normalizePersistedAiRunRecord(record);
-  const normalizedSiteId = typeof siteId === "string" ? siteId.trim() : "";
+  const normalizedSiteId = normalizeAiRunSiteIdValue(siteId);
   if (!normalizedRecord || !normalizedSiteId) {
     return false;
   }

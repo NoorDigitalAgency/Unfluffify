@@ -52,18 +52,20 @@ test("AI run status response accepts only known statuses with a session id", () 
 test("persisted AI run records normalize and validate the current site", () => {
   const record = normalizePersistedAiRunRecord({
     sessionId: " session-1 ",
-    siteId: " site-9 ",
+    siteId: " 9 ",
     expiresAt: 20_000,
     deadlineAt: 300_000
   });
   assert.deepEqual(record, {
     sessionId: "session-1",
-    siteId: "site-9",
+    siteId: 9,
     expiresAt: 20_000,
     deadlineAt: 300_000
   });
-  assert.equal(shouldResumePersistedAiRun(record, "site-9", 19_999), true);
-  assert.equal(shouldResumePersistedAiRun(record, "site-9", 20_000), false);
-  assert.equal(shouldResumePersistedAiRun(record, "site-8", 19_999), false);
+  assert.equal(shouldResumePersistedAiRun(record, 9, 19_999), true);
+  assert.equal(shouldResumePersistedAiRun(record, "9", 19_999), true);
+  assert.equal(shouldResumePersistedAiRun(record, 9, 20_000), false);
+  assert.equal(shouldResumePersistedAiRun(record, 8, 19_999), false);
+  assert.equal(normalizePersistedAiRunRecord({ sessionId: "s", siteId: "site-9" }), null);
   assert.equal(normalizePersistedAiRunRecord({ sessionId: "", siteId: "x" }), null);
 });
