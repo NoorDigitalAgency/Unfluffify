@@ -39,7 +39,7 @@ function mixHexColors(left, right, leftWeight) {
 
 function parseRootVariables(css) {
   const match = css.match(/:root\s*\{([\s\S]*?)\n\}/);
-  assert.ok(match, "Expected popup.css to define :root variables");
+  assert.ok(match, "Expected themes.css to define :root variables");
   const variables = {};
   for (const line of match[1].split("\n")) {
     const variableMatch = line.match(/--([\w-]+):\s*(#[0-9a-fA-F]{6})/);
@@ -110,8 +110,8 @@ test("theme semantic colors meet AA contrast in text, notice, and badge surfaces
 });
 
 test("fallback semantic colors meet AA contrast in text, notice, and badge surfaces", () => {
-  const popupCss = readFileSync(new URL("../popup.css", import.meta.url), "utf8");
-  const rootVariables = parseRootVariables(popupCss);
+  const themesCss = readFileSync(new URL("../themes.css", import.meta.url), "utf8");
+  const rootVariables = parseRootVariables(themesCss);
   const failures = collectSemanticContrastFailures("fallback", "light", rootVariables.card, rootVariables);
 
   assert.deepEqual(failures, []);
@@ -122,4 +122,15 @@ test("popup color-mix rules no longer use var(--card) as the second color", () =
   const matches = popupCss.match(/color-mix\([^\n]*,\s*var\(--card\)\)/g) || [];
 
   assert.deepEqual(matches, []);
+});
+
+test("theme utility layer defines swappable font and tone helpers", () => {
+  const themesCss = readFileSync(new URL("../themes.css", import.meta.url), "utf8");
+
+  assert.match(themesCss, /--font-sans:/);
+  assert.match(themesCss, /--font-mono:/);
+  assert.match(themesCss, /\.u-surface-tone\s*\{/);
+  assert.match(themesCss, /\.u-tone-success\s*\{/);
+  assert.match(themesCss, /\.u-tone-warning\s*\{/);
+  assert.match(themesCss, /\.u-tone-danger\s*\{/);
 });
