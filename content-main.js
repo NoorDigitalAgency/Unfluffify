@@ -6043,6 +6043,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
       hiddenToggleableRoot = core.isDefaultToggleableExcludedElement(node) &&
         !visibleToUser;
       if (
+        visibleToUser &&
         !explicitlyIncluded &&
         !insideExcludedAncestorRow &&
         !withinConsentBoundary &&
@@ -6051,11 +6052,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
       ) {
         isMarkableTextual = core.isMarkableElement(node, state.config, {
           allowParent: false,
-          allowImmutableChildren: false,
-          // Submission includes all textual boundaries that are not excluded roots.
-          // Visibility is ignored here so hidden-but-textual content can still be
-          // represented as content unless a stronger exclusion rule claims the root.
-          ignoreVisibilityForInclusionDetection: !visibleToUser
+          allowImmutableChildren: false
         });
       }
     }
@@ -6063,6 +6060,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
       explicitlyExcluded,
       explicitlyIncluded,
       insideExcludedAncestor: insideExcludedAncestorRow,
+      visibleToUser,
       consentExcludedRoot: withinConsentBoundary &&
         node.hasAttribute(core.CONSENT_HIDDEN_ATTR),
       immutableExcludedRoot,
@@ -6751,11 +6749,19 @@ export function main() {
         core.setSavedPageEntry(pageUrl, entry);
       }
       const savedEntry = core.getSavedPageEntry(pageUrl);
+      const submissionXpathsStale = Boolean(
+        hasEntry &&
+        entry &&
+        !submissionXpathsEqual(
+          entry.submissionXpaths,
+          collectAiSubmissionXpathsForCurrentPage()
+        )
+      );
       sendResponse({
         ok: true,
         entry: entry ? core.clonePageEntry(entry) : null,
         savedEntry,
-        dirty: core.isPageDraftDirty(pageUrl)
+        dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale
       });
       return;
     }

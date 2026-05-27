@@ -257,6 +257,21 @@ test("submission visibility rejects off-canvas render boxes", () => {
   }, { scrollHeight: 1600 });
 });
 
+test("submission visibility rejects opacity-hidden positioned links", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      tagName: "a",
+      text: "Hoppa till huvudinnehåll",
+      rect: { top: -80, right: 220, bottom: -41, left: 16, width: 204, height: 39 },
+      style: { opacity: "0", pointerEvents: "none", position: "absolute" }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
+});
+
 test("submission visibility rejects render boxes above the document", () => {
   withVisibilityDom(({ body }) => {
     const element = createElement({

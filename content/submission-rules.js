@@ -32,6 +32,10 @@ export function resolveAiSubmissionRowState(options = {}) {
     return { shouldSubmit: true, excluded: true };
   }
 
+  if (!options.visibleToUser) {
+    return { shouldSubmit: false, excluded: false };
+  }
+
   if (!options.markableTextual) {
     return { shouldSubmit: false, excluded: false };
   }

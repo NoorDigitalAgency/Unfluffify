@@ -31,6 +31,7 @@ test("visible explicit includes submit as included content", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: true,
       insideExcludedAncestor: true,
+      visibleToUser: true,
       markableTextual: false
     }),
     { shouldSubmit: true, excluded: false }
@@ -43,6 +44,7 @@ test("hidden explicit includes still submit as included content", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: true,
       insideExcludedAncestor: false,
+      visibleToUser: false,
       markableTextual: false
     }),
     { shouldSubmit: true, excluded: false }
@@ -55,6 +57,7 @@ test("explicit includes win when a node is also explicitly excluded", () => {
       explicitlyExcluded: true,
       explicitlyIncluded: true,
       insideExcludedAncestor: false,
+      visibleToUser: false,
       markableTextual: false
     }),
     { shouldSubmit: true, excluded: false }
@@ -70,6 +73,7 @@ test("explicit includes win over exclusion-root classification", () => {
       consentExcludedRoot: true,
       immutableExcludedRoot: true,
       hiddenToggleableRoot: true,
+      visibleToUser: false,
       markableTextual: false
     }),
     { shouldSubmit: true, excluded: false }
@@ -108,21 +112,23 @@ test("implicit visible textual content submits as included", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
+      visibleToUser: true,
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: false }
   );
 });
 
-test("implicit hidden textual content still submits as included content", () => {
+test("implicit hidden textual content is omitted", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
+      visibleToUser: false,
       markableTextual: true
     }),
-    { shouldSubmit: true, excluded: false }
+    { shouldSubmit: false, excluded: false }
   );
 });
 
@@ -132,6 +138,7 @@ test("non-textual implicit nodes are omitted", () => {
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
+      visibleToUser: true,
       markableTextual: false
     }),
     { shouldSubmit: false, excluded: false }
@@ -145,6 +152,7 @@ test("consent roots always submit as excluded", () => {
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
       consentExcludedRoot: true,
+      visibleToUser: false,
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: true }
@@ -158,6 +166,7 @@ test("immutable exclusion roots always submit as excluded", () => {
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
       immutableExcludedRoot: true,
+      visibleToUser: false,
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: true }
@@ -171,6 +180,7 @@ test("hidden toggleable roots submit as excluded", () => {
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
       hiddenToggleableRoot: true,
+      visibleToUser: false,
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: true }
@@ -185,6 +195,7 @@ test("implicit exclusion roots do not duplicate inside excluded ancestors", () =
       insideExcludedAncestor: true,
       immutableExcludedRoot: true,
       hiddenToggleableRoot: true,
+      visibleToUser: false,
       markableTextual: true
     }),
     { shouldSubmit: false, excluded: false }
