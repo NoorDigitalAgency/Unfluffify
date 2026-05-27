@@ -58,6 +58,7 @@ export const state = {
   mutationObserver: null,
   savedPageEntry: null,
   savedPageUrl: "",
+  pageSaveReconciliation: null,
   disabledUnsavedDraft: null,
   consentSyncedPageUrl: "",
   consentRootElements: new Set(),
@@ -4975,9 +4976,60 @@ export function isPageDraftDirty(pageUrl) {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     return true;
   }
+  if (isPageSaveReconciliationPending(pageUrl)) {
+    return true;
+  }
   const draft = getDraftPageEntry(pageUrl);
   const saved = getSavedPageEntry(pageUrl);
   return !areEntriesEquivalent(draft, saved);
+}
+
+export function getPageSaveReconciliationState(pageUrl = location.href) {
+  const reconciliation = config.normalizePageSaveReconciliation(state.pageSaveReconciliation);
+  if (!reconciliation || reconciliation.pageUrl !== pageUrl) {
+    return null;
+  }
+  if (state.baseUrl && !utils.sameBaseUrl(reconciliation.baseUrl, state.baseUrl)) {
+    return null;
+  }
+  return { ...reconciliation };
+}
+
+export function isPageSaveReconciliationPending(pageUrl = location.href) {
+  return config.isPageSaveReconciliationPending(getPageSaveReconciliationState(pageUrl));
+}
+
+export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pageUrl = location.href) {
+  if (!baseUrl || !pageUrl) {
+    state.pageSaveReconciliation = null;
+    return null;
+  }
+  const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
+  state.pageSaveReconciliation = reconciliation;
+  return reconciliation;
+}
+
+export async function setPageSaveReconciliationPending(baseUrl = state.baseUrl, pageUrl = location.href, options = {}) {
+  if (!baseUrl || !pageUrl) {
+    return null;
+  }
+  const reconciliation = await config.setPageSaveReconciliation(baseUrl, pageUrl, {
+    reason: typeof options.reason === "string" ? options.reason : "pending"
+  });
+  state.pageSaveReconciliation = reconciliation;
+  notifyDraftStatus(pageUrl);
+  return reconciliation;
+}
+
+export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageUrl = location.href) {
+  if (baseUrl && pageUrl) {
+    await config.clearPageSaveReconciliation(baseUrl, pageUrl);
+  }
+  const current = config.normalizePageSaveReconciliation(state.pageSaveReconciliation);
+  if (!current || !pageUrl || current.pageUrl === pageUrl) {
+    state.pageSaveReconciliation = null;
+  }
+  notifyDraftStatus(pageUrl);
 }
 
 export function areEntriesEquivalent(left, right) {

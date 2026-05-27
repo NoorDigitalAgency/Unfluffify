@@ -19,6 +19,98 @@ export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
 const SELECTOR_SET_FIELD = "selectors";
 const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
+const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
+export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
+
+export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+  const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
+  if (!normalizedBaseUrl || !normalizedPageUrl) {
+    return "";
+  }
+  return JSON.stringify([normalizedBaseUrl, normalizedPageUrl]);
+}
+
+export function normalizePageSaveReconciliation(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const baseUrl = normalizeBaseUrl(value.baseUrl) || (typeof value.baseUrl === "string" ? value.baseUrl : "");
+  const pageUrl = typeof value.pageUrl === "string" ? value.pageUrl.trim() : "";
+  if (!baseUrl || !pageUrl) {
+    return null;
+  }
+  const status =
+    value.status === PAGE_SAVE_RECONCILIATION_STATUS_PENDING
+      ? PAGE_SAVE_RECONCILIATION_STATUS_PENDING
+      : "";
+  if (!status) {
+    return null;
+  }
+  return {
+    status,
+    baseUrl,
+    pageUrl,
+    reason: typeof value.reason === "string" ? value.reason.trim() : "",
+    updatedAt: normalizeEntryTimestamp(value.updatedAt) || createTimestampNow()
+  };
+}
+
+export function isPageSaveReconciliationPending(value) {
+  const normalized = normalizePageSaveReconciliation(value);
+  return Boolean(normalized && normalized.status === PAGE_SAVE_RECONCILIATION_STATUS_PENDING);
+}
+
+async function getPageSaveReconciliations() {
+  const result = await idbGet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: {} });
+  const raw = result[PAGE_SAVE_RECONCILIATIONS_KEY];
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+export async function getPageSaveReconciliation(baseUrl, pageUrl) {
+  const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
+  if (!key) {
+    return null;
+  }
+  const reconciliations = await getPageSaveReconciliations();
+  return normalizePageSaveReconciliation(reconciliations[key]);
+}
+
+export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+  const normalizedPageUrl = typeof pageUrl === "string" ? pageUrl.trim() : "";
+  const key = buildPageSaveReconciliationKey(normalizedBaseUrl, normalizedPageUrl);
+  if (!key) {
+    return null;
+  }
+  const nextValue = normalizePageSaveReconciliation({
+    ...value,
+    status: PAGE_SAVE_RECONCILIATION_STATUS_PENDING,
+    baseUrl: normalizedBaseUrl,
+    pageUrl: normalizedPageUrl,
+    updatedAt: value && value.updatedAt ? value.updatedAt : createTimestampNow()
+  });
+  if (!nextValue) {
+    return null;
+  }
+  const reconciliations = await getPageSaveReconciliations();
+  reconciliations[key] = nextValue;
+  await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
+  return nextValue;
+}
+
+export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
+  const key = buildPageSaveReconciliationKey(baseUrl, pageUrl);
+  if (!key) {
+    return;
+  }
+  const reconciliations = await getPageSaveReconciliations();
+  if (!Object.prototype.hasOwnProperty.call(reconciliations, key)) {
+    return;
+  }
+  delete reconciliations[key];
+  await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
+}
 
 /**
  * Normalizes a render mode value to either 'static' or 'rendered'.
