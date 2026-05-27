@@ -1024,6 +1024,7 @@ async function ensureBaseUrlSiteId(options = {}) {
     stageBase = "",
     tokenValue = "",
     configs = null,
+    pageUrl = "",
     persist = true
   } = options;
   const shouldPersist = persist !== false;
@@ -1098,9 +1099,12 @@ async function ensureBaseUrlSiteId(options = {}) {
     // Cached null values should not permanently block retries.
     state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
   }
+  // Query with the current page URL if provided (for language-specific sites),
+  // otherwise use the requested base URL
+  const queryUrl = pageUrl && typeof pageUrl === "string" ? pageUrl : requestedBaseUrl;
   const lookupResult = await resolveSiteIdFromGraphql({
     stageBase: normalizedStageBase,
-    lookupUrl: requestedBaseUrl,
+    lookupUrl: queryUrl,
     tokenValue
   });
   if (!lookupResult.ok) {
@@ -1675,6 +1679,7 @@ async function syncBaseConfigToServer(options = {}) {
     const allConfigs = await config.getConfigs();
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: currentBaseUrl,
+      pageUrl,
       stageBase,
       tokenValue: currentTokenValue,
       configs: allConfigs
@@ -2327,6 +2332,7 @@ async function refreshUiInner() {
     state.currentConfig = configs[state.currentBaseUrl] || normalized.config;
     const siteIdResult = await ensureBaseUrlSiteId({
       baseUrl: state.currentBaseUrl,
+      pageUrl,
       stageBase: normalizedStageBaseValue,
       tokenValue,
       configs,
@@ -4994,6 +5000,7 @@ async function handleEnableToggle(event) {
         const { stageBaseValue, tokenValue } = await helpers.loadGlobalAiSettings();
         const siteIdResult = await ensureBaseUrlSiteId({
           baseUrl: baseUrlValue,
+          pageUrl: tab.url,
           stageBase: stageBaseValue,
           tokenValue,
           persist: false

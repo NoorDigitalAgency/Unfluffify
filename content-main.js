@@ -118,6 +118,8 @@ let silentHighlightSettleStartedAt = 0;
 let silentHighlightSettleStableSamples = 0;
 let silentHighlightLastPositionSignature = "";
 let silentHighlightRevealRaf = 0;
+let lastTrackedUrlPath = "";
+let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
@@ -3178,6 +3180,67 @@ async function resolveSiteIdFromGraphql(options = {}) {
       payload.data.urlSearchInfo &&
       payload.data.urlSearchInfo.domainId
   );
+}
+
+function extractUrlPathAndHostname(url = location.href) {
+  try {
+    const parsed = new URL(url);
+    return {
+      hostname: (parsed.hostname || "").toLowerCase(),
+      path: (parsed.pathname || "/").replace(/\/+$/, "") || "/"
+    };
+  } catch {
+    return { hostname: "", path: "" };
+  }
+}
+
+function isSignificantUrlPathChange(currentUrl, lastPath, lastHostname) {
+  const current = extractUrlPathAndHostname(currentUrl);
+  if (!current.hostname) {
+    return false;
+  }
+  // Different hostname = not just a path change
+  if (current.hostname !== lastHostname) {
+    return false;
+  }
+  // Same path = no change
+  if (current.path === lastPath) {
+    return false;
+  }
+  // Path changed on same domain
+  return true;
+}
+
+async function recheckSiteIdForCurrentUrlPath(tabState) {
+  if (!tabState || !tabState.baseUrl) {
+    return null;
+  }
+  const currentUrl = location.href;
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return null;
+  }
+  const newSiteId = await resolveSiteIdFromGraphql({
+    stageBase: stageBaseValue,
+    pageUrl: currentUrl,
+    tokenValue
+  });
+  if (!newSiteId) {
+    return null;
+  }
+  const currentConfigs = await config.getConfigs();
+  const normalizedBaseUrl = utils.normalizeBaseUrl(tabState.baseUrl) || tabState.baseUrl;
+  const currentConfig = config.normalizeConfig(normalizedBaseUrl, currentConfigs[normalizedBaseUrl]).config;
+  const oldSiteId = normalizeSiteIdValue(currentConfig.siteId);
+  if (oldSiteId && oldSiteId !== newSiteId) {
+    // Site ID changed for this URL path, need to update
+    return { newSiteId, currentUrl, oldSiteId };
+  }
+  if (!oldSiteId && newSiteId) {
+    // No previous site ID, now we have one
+    return { newSiteId, currentUrl, oldSiteId: null };
+  }
+  return null;
 }
 
 async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
@@ -6308,7 +6371,32 @@ export function main() {
   initializeRemoteSupportSupportPage();
   syncRemoteSupportSessionStateFromBackground().then();
 
-  core.refreshFromTabState().then(() => {
+  core.refreshFromTabState().then(async () => {
+    // Check if URL path changed (e.g., language change on same domain)
+    // and if so, re-verify the site ID is still correct
+    if (state.enabled && state.baseUrl) {
+      const urlInfo = extractUrlPathAndHostname(location.href);
+      if (lastTrackedUrlHostname && isSignificantUrlPathChange(location.href, lastTrackedUrlPath, lastTrackedUrlHostname)) {
+        const siteIdCheckResult = await recheckSiteIdForCurrentUrlPath({
+          baseUrl: state.baseUrl
+        });
+        if (siteIdCheckResult && siteIdCheckResult.newSiteId) {
+          // Site ID changed or was missing, update config
+          const normBaseUrl = utils.normalizeCanonicalBaseUrl(siteIdCheckResult.currentUrl) ||
+                              utils.normalizeBaseUrl(siteIdCheckResult.currentUrl) ||
+                              state.baseUrl;
+          const configs = await config.getConfigs();
+          configs[normBaseUrl] = configs[normBaseUrl] || {};
+          await config.updateConfig(normBaseUrl, (targetConfig) => {
+            targetConfig.siteId = siteIdCheckResult.newSiteId;
+          });
+          state.baseUrl = normBaseUrl;
+        }
+      }
+      lastTrackedUrlPath = urlInfo.path;
+      lastTrackedUrlHostname = urlInfo.hostname;
+    }
+    
     refreshEnabledAiHighlights();
     syncSilentHighlightVisibilityFromTabState().then(() => {
       refreshSilentHighlightings().then();
