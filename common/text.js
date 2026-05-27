@@ -186,6 +186,7 @@ export const PopupText = Object.freeze({
     previewHint: "The page is in preview mode. Exit preview to resume editing.", // Curtain hint shown while preview mode blocks the popup.
     busyHint: "Working... controls are temporarily blocked.", // Curtain hint shown for non-preview busy states.
     computingSelectors: "Detecting contents...", // Busy-curtain message while the AI compute request is running.
+    computingSelectorsNote: "This may take a few minutes. Editing is paused while AI runs.", // Busy-curtain note shown while the async AI run is in progress.
     submittingSelectors: "Sending to Lynx...", // Busy-curtain message while selectors are being submitted.
     workingWithAi: "Working with AI...", // Busy-curtain message for other AI-related actions.
     applyingDeviceEmulation: "Applying device emulation...", // Busy-curtain message while device emulation is being applied.
@@ -310,6 +311,9 @@ export const PopupText = Object.freeze({
     endpointResponseError: "Endpoint response error", // Toast shown when the AI endpoint returns a non-success response.
     endpointResponseFormatError: "Endpoint response format error", // Toast shown when the AI endpoint response shape is invalid.
     endpointRequestFailed: "Endpoint request failed", // Toast shown when the AI endpoint request throws.
+    runFailed: "AI request failed", // Toast shown when the async AI run fails unexpectedly.
+    runTimedOut: "AI request timed out", // Toast shown when the async AI run exceeds the allowed wait time.
+    runUnavailable: "AI results expired. Try again.", // Toast shown when a resumed AI run is no longer available on the server.
     selectorsUpdatedLocallySyncSkipped: "Selectors updated locally (sync skipped)", // Status text when compute succeeded locally but config sync was intentionally skipped.
     selectorsUpdatedLocallySyncFailed: "Selectors updated locally (sync failed)", // Status text when compute succeeded locally but config sync failed.
     selectorsUpdatedAndSynced: "Selectors updated and synced", // Status text when compute succeeded and config sync completed.

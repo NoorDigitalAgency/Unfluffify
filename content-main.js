@@ -161,12 +161,14 @@ let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
+let aiComputeLockReleaseTimer = 0;
 let deviceEmulationHotkeyBusy = false;
 const silentSelectorOriginalTitles = new WeakMap();
 
 function createAiPreviewState() {
   return {
     active: false,
+    mode: "",
     items: [],
     itemXpathSet: new Set(),
     focusedXpath: "",
@@ -4703,6 +4705,10 @@ function startSilentHighlightingUrlWatcher() {
 }
 
 function resetAiPreviewState() {
+  if (aiComputeLockReleaseTimer) {
+    window.clearTimeout(aiComputeLockReleaseTimer);
+    aiComputeLockReleaseTimer = 0;
+  }
   clearAiPreviewClickableTargets();
   aiPreviewState = createAiPreviewState();
 }
@@ -4738,11 +4744,30 @@ function restoreAiPreviewDraftState(restoreState) {
   state.suppressNextAutoSeedFromAiSelectors = true;
 }
 
-async function enterAiPreviewMode() {
+function scheduleAiComputeLockRelease(expiresAt) {
+  if (aiComputeLockReleaseTimer) {
+    window.clearTimeout(aiComputeLockReleaseTimer);
+    aiComputeLockReleaseTimer = 0;
+  }
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    exitAiPreviewMode().then();
+    return;
+  }
+  aiComputeLockReleaseTimer = window.setTimeout(() => {
+    aiComputeLockReleaseTimer = 0;
+    if (aiPreviewState.active && aiPreviewState.mode === "compute_lock") {
+      exitAiPreviewMode().then();
+    }
+  }, Math.max(0, Math.ceil(expiresAt - Date.now())));
+}
+
+async function enterAiPreviewMode(options = {}) {
+  const nextMode = typeof options.mode === "string" ? options.mode : "preview";
   if (!aiPreviewState.active) {
     const previousPageUrl = location.href;
     aiPreviewState = {
       active: true,
+      mode: nextMode,
       items: [],
       itemXpathSet: new Set(),
       focusedXpath: "",
@@ -4753,6 +4778,13 @@ async function enterAiPreviewMode() {
       previousSavedEntry: core.getSavedPageEntry(previousPageUrl),
       previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || ""
     };
+  } else {
+    aiPreviewState.mode = nextMode;
+  }
+
+  if (nextMode !== "compute_lock" && aiComputeLockReleaseTimer) {
+    window.clearTimeout(aiComputeLockReleaseTimer);
+    aiComputeLockReleaseTimer = 0;
   }
 
   if (aiPreviewState.previousEnabled && state.enabled) {
@@ -7038,6 +7070,7 @@ export function main() {
       sendResponse({
         ok: true,
         active: aiPreviewState.active,
+        mode: aiPreviewState.mode || "",
         items: aiPreviewState.items.map((item) => ({
           xpath: item.xpath,
           text: item.text
@@ -7045,6 +7078,28 @@ export function main() {
         focusedXpath: aiPreviewState.focusedXpath
       });
       return;
+    }
+
+    if (message.type === "setAiComputeLock") {
+      (async () => {
+        if (message.active) {
+          await enterAiPreviewMode({ mode: "compute_lock" });
+          setAiPreviewItems([]);
+          scheduleAiComputeLockRelease(Number(message.expiresAt) || 0);
+          sendResponse({ ok: true, active: true });
+          return;
+        }
+        if (aiPreviewState.active && aiPreviewState.mode === "compute_lock") {
+          await exitAiPreviewMode();
+        } else if (aiComputeLockReleaseTimer) {
+          window.clearTimeout(aiComputeLockReleaseTimer);
+          aiComputeLockReleaseTimer = 0;
+        }
+        sendResponse({ ok: true, active: false });
+      })().catch(() => {
+        sendResponse({ ok: false });
+      });
+      return true;
     }
 
     if (message.type === "closeAiPreview") {
@@ -7662,7 +7717,7 @@ export function main() {
         } catch {
           items = [];
         }
-        await enterAiPreviewMode();
+        await enterAiPreviewMode({ mode: "preview" });
         setAiPreviewItems(items);
         core.showAiPopover(items, {
           onClose: () => exitAiPreviewMode()
