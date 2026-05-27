@@ -242,7 +242,7 @@ function normalizeMarkedPages(markedPages, normalizedPageTypes) {
         ? pageType
         : candidatePageType;
     if (!resolvedPageType) {
-      invalidMarkedPages.push(pageType ? { ...item, url, pageType } : { ...item, url, pageType: "" });
+      invalidMarkedPages.push({ ...item, url, pageType: pageType || "" });
       return;
     }
     const dedupeKey = `${resolvedPageType}|${url}`;

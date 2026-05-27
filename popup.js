@@ -3275,7 +3275,7 @@ async function refreshUiInner() {
   let pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
   const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
   let invalidStoredPageUrlsForRemote = [];
-  let removedStoredCurrentPageEntry = false;
+  let currentPageEntryMarkedInvalid = false;
   let repairedStoredPageUrls = [];
   let didReconcileStoredPageMarkings = false;
   if (propertyPageTypes.length && state.currentBaseUrl) {
@@ -3283,15 +3283,15 @@ async function refreshUiInner() {
       pageMarkings,
       state.currentBaseUrl
     );
-    let initialCoverageModel = buildLynxChecklistViewModel({
+    let coverageModel = buildLynxChecklistViewModel({
       aiAnswer: state.lynxChecklistAiAnswer,
       pageTypes: propertyPageTypes,
       markedPages: initialStoredPageMarkingItems
     });
-    if (initialCoverageModel.repairedMarkedPages.length) {
+    if (coverageModel.repairedMarkedPages.length) {
       repairedStoredPageUrls = await repairLocalPageMarkingPageTypes({
         baseUrl: state.currentBaseUrl,
-        repairedMarkedPages: initialCoverageModel.repairedMarkedPages
+        repairedMarkedPages: coverageModel.repairedMarkedPages
       });
       if (repairedStoredPageUrls.length) {
         didReconcileStoredPageMarkings = true;
@@ -3301,7 +3301,7 @@ async function refreshUiInner() {
           configs[state.currentBaseUrl]
         ).config;
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
-        initialCoverageModel = buildLynxChecklistViewModel({
+        coverageModel = buildLynxChecklistViewModel({
           aiAnswer: state.lynxChecklistAiAnswer,
           pageTypes: propertyPageTypes,
           markedPages: collectStoredPageMarkingItems(pageMarkings, state.currentBaseUrl)
@@ -3310,12 +3310,12 @@ async function refreshUiInner() {
     }
     invalidStoredPageUrlsForRemote = Array.from(
       new Set(
-        initialCoverageModel.invalidMarkedPages
+        coverageModel.invalidMarkedPages
           .map((item) => (item && typeof item.url === "string" ? item.url.trim() : ""))
           .filter(Boolean)
       )
     );
-    removedStoredCurrentPageEntry = invalidStoredPageUrlsForRemote.some(
+    currentPageEntryMarkedInvalid = invalidStoredPageUrlsForRemote.some(
       (url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl
     );
     if (invalidStoredPageUrlsForRemote.length) {
@@ -3335,7 +3335,7 @@ async function refreshUiInner() {
     }
     const shouldReloadCurrentPageEntry =
       repairedStoredPageUrls.some((url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl) ||
-      removedStoredCurrentPageEntry;
+      currentPageEntryMarkedInvalid;
     if (currentTabId && didReconcileStoredPageMarkings) {
       await messages.sendTabMessageWithRetry({
         type: "configUpdated",
@@ -3831,7 +3831,7 @@ async function refreshUiInner() {
   nextViewState.pageTypeNoticeText = currentPageCandidateState.status === "duplicate"
     ? PopupText.pageTypes.duplicateCurrentPage
     : currentPageCandidateState.status === "missing"
-      ? (hasStoredCurrentPageEntry || removedStoredCurrentPageEntry)
+      ? (hasStoredCurrentPageEntry || currentPageEntryMarkedInvalid)
         ? PopupText.pageTypes.removedCurrentPage
         : PopupText.pageTypes.blockedCurrentPage
       : currentPageCandidateState.status === "empty"
