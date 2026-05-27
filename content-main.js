@@ -48,7 +48,6 @@ import { resolveAiSubmissionRowState } from "./content/submission-rules.js";
 
 const { state } = core;
 
-const SILENT_LINK_HIGHLIGHTING_ATTR = "data-uf-silent-link-highlighting";
 const SILENT_CONTENT_HIGHLIGHTING_ATTR = "data-uf-silent-content-highlighting";
 const SILENT_CONTENT_EXCLUDED_ATTR = "data-uf-silent-content-excluded";
 const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
@@ -64,7 +63,7 @@ const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
-const SILENT_HIGHLIGHT_LAYER_KEYS = ["links", "content", "excluded"];
+const SILENT_HIGHLIGHT_LAYER_KEYS = ["content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_SETTLE_REPOSITION_SAMPLE_MS = 120;
@@ -3423,7 +3422,6 @@ function handleAiPreviewClick(event) {
 }
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
-  SILENT_LINK_HIGHLIGHTING_ATTR,
   SILENT_CONTENT_HIGHLIGHTING_ATTR,
   SILENT_CONTENT_EXCLUDED_ATTR,
   SILENT_HIGHLIGHTINGS_ACTIVE_ATTR,
@@ -3827,12 +3825,6 @@ function ensureSilentHighlightingStyles() {
         border: 2px dashed #44b532;
         background: rgba(68, 181, 50, 0.08);
       }
-      #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-link {
-        border: 2px dashed #56acce;
-      }
-      #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-link.uf-silent-link-dual {
-        background: rgba(86, 172, 206, 0.5);
-      }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-excluded {
         border: 2px dashed #b03b3b;
         background: rgba(176, 59, 59, 0.08);
@@ -3891,6 +3883,11 @@ function ensureSilentHighlightOverlay() {
     silentHighlightLayers = {};
     silentHighlightLayerBoxes = {};
   }
+  overlay.querySelectorAll(".uf-silent-layer[data-layer]").forEach((layer) => {
+    if (!SILENT_HIGHLIGHT_LAYER_KEYS.includes(layer.dataset.layer || "")) {
+      layer.remove();
+    }
+  });
   SILENT_HIGHLIGHT_LAYER_KEYS.forEach((key) => {
     let layer = overlay.querySelector(`[data-layer="${key}"]`);
     if (!layer) {
@@ -4088,21 +4085,12 @@ function renderSilentHighlightOverlay(collections) {
   }
   setSilentHighlightOverlayHidden(true);
   const contentNodes = Array.from(collections.contentNodes || []);
-  const anchorNodes = Array.from(collections.anchors || []);
   const excludedNodes = Array.from(collections.excludedNodes || []);
-  const contentSet = new Set(contentNodes);
   const contentLayerState = beginSilentLayerRender("content");
-  const linksLayerState = beginSilentLayerRender("links");
   const excludedLayerState = beginSilentLayerRender("excluded");
 
   contentNodes.forEach((node) => {
     drawSilentRectsForNode(contentLayerState, node, "uf-silent-content");
-  });
-  anchorNodes.forEach((node) => {
-    const className = contentSet.has(node)
-      ? "uf-silent-link uf-silent-link-dual"
-      : "uf-silent-link";
-    drawSilentRectsForNode(linksLayerState, node, className);
   });
   // Preserve duplicate excluded render targets (e.g. nested selector matches that
   // resolve to the same visible node) by using per-occurrence keys.
@@ -4116,11 +4104,9 @@ function renderSilentHighlightOverlay(collections) {
   });
 
   finalizeSilentLayerRender(contentLayerState);
-  finalizeSilentLayerRender(linksLayerState);
   finalizeSilentLayerRender(excludedLayerState);
   applySilentSelectorAnnotations(collections);
   silentHighlightCollections = {
-    anchors: anchorNodes,
     contentNodes,
     excludedNodes,
     explicitIncludeSelectorByNode:
@@ -4172,7 +4158,6 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
       });
     });
   };
-  appendNodes(collections.anchors, "anchor");
   appendNodes(collections.contentNodes, "content");
   appendNodes(collections.excludedNodes, "excluded");
   entries.sort();
@@ -4279,14 +4264,13 @@ function clearLegacySilentHighlightingAttributes() {
     return;
   }
   const marked = document.querySelectorAll(
-    `a[${SILENT_LINK_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_EXCLUDED_ATTR}]`
+    `[${SILENT_CONTENT_HIGHLIGHTING_ATTR}], [${SILENT_CONTENT_EXCLUDED_ATTR}]`
   );
   marked.forEach((node) => {
     const title = node.getAttribute("title") || "";
     if (title.startsWith("Unfluffify selector:")) {
       node.removeAttribute("title");
     }
-    node.removeAttribute(SILENT_LINK_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_HIGHLIGHTING_ATTR);
     node.removeAttribute(SILENT_CONTENT_EXCLUDED_ATTR);
     node.removeAttribute(SILENT_CONTENT_POSITION_ATTR);
@@ -4529,7 +4513,6 @@ function mutationTargetTouchesSilentCollections(target) {
   }
   const trackedNodes = [
     ...(silentHighlightCollections.contentNodes || []),
-    ...(silentHighlightCollections.anchors || []),
     ...(silentHighlightCollections.excludedNodes || [])
   ];
   for (const tracked of trackedNodes) {
@@ -5768,7 +5751,6 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
-  anchors,
   contentNodes,
   excludedNodes,
   explicitIncludeSelectorByNode = null,
@@ -5780,10 +5762,6 @@ function buildSilentHighlightingRenderKey(
   const excludedSelectorEntries = excludedSelectorByNode instanceof Map
     ? Array.from(excludedSelectorByNode.entries())
     : [];
-  const anchorIds = anchors
-    .map(getSilentRenderNodeId)
-    .filter(Boolean)
-    .sort((a, b) => a - b);
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
@@ -5815,7 +5793,6 @@ function buildSilentHighlightingRenderKey(
       })
   );
   return [
-    anchorIds.join(","),
     contentIds.join(","),
     excludedIds.join(","),
     explicitIncludeSelectorKey,
@@ -6172,7 +6149,6 @@ async function refreshSilentHighlightings() {
     setSilentHighlightingsActive(false);
     return;
   }
-  const anchors = [];
   let contentNodes = [];
   let excludedNodes = [];
   let explicitIncludeSelectorByRenderNode = new Map();
@@ -6208,10 +6184,8 @@ async function refreshSilentHighlightings() {
       excludedSelectorByRenderNode = new Map();
     }
   }
-  const shouldBeActive =
-    anchors.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0;
+  const shouldBeActive = contentNodes.length > 0 || excludedNodes.length > 0;
   const renderKey = buildSilentHighlightingRenderKey(
-    anchors,
     contentNodes,
     excludedNodes,
     explicitIncludeSelectorByRenderNode,
@@ -6229,7 +6203,6 @@ async function refreshSilentHighlightings() {
   });
   if (shouldRenderOverlay) {
     renderSilentHighlightOverlay({
-      anchors,
       contentNodes,
       excludedNodes,
       explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
