@@ -680,16 +680,6 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.pageType !== undefined && pageType !== entry.pageType) {
       changed = true;
     }
-    if (!pageType) {
-      changed = true;
-      removedUrls.push(url);
-      return;
-    }
-    if (!SUPPORTED_PAGE_TYPE_KEYS.has(pageType)) {
-      changed = true;
-      removedUrls.push(url);
-      return;
-    }
     if (entry.renderMode !== undefined) {
       changed = true;
     }
