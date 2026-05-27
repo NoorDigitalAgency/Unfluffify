@@ -2358,3 +2358,65 @@ test("remote support updates requester media flags when the supported popup togg
     globalThis.chrome = originalChrome;
   }
 });
+
+test("remote support persists dock state updates for the active tab snapshot", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_requester_dock_state",
+        supportCode: "778899",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 61,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 61 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+    assert.equal(requestResponse.state.dockState, "floating_pip");
+
+    const dockResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSetDockState",
+        tabId: 61,
+        sessionId: requestResponse.state.sessionId,
+        dockState: "embedded_minimized"
+      },
+      { tab: { id: 61 } }
+    );
+
+    assert.equal(dockResponse.ok, true);
+    assert.equal(dockResponse.state.dockState, "embedded_minimized");
+
+    const stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 61 },
+      {}
+    );
+    assert.equal(stateResponse.state.dockState, "embedded_minimized");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});

@@ -6,6 +6,10 @@ export const REMOTE_SUPPORT_ROLE_SUPPORTER = "supporter";
 export const REMOTE_SUPPORT_ROLE_REQUESTER = "requester";
 export const REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER = REMOTE_SUPPORT_ROLE_SUPPORTER;
 export const REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER = REMOTE_SUPPORT_ROLE_REQUESTER;
+export const REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP = "floating_pip";
+export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED = "embedded";
+export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED = "embedded_minimized";
+export const REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE = "fullscreen_active";
 
 export const REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS = 7 * 60 * 1000;
 export const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
@@ -42,12 +46,36 @@ export function createInactiveRemoteSupportState() {
     supporteeMicrophoneEnabled: false,
     supporteeAudioAvailable: false,
     supporteeAudioEnabled: false,
+    dockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
     startedAt: 0,
     supporteePlatform: "",
     supporteeUserAgent: "",
     error: "",
     lastActivityAt: 0
   };
+}
+
+export function normalizeRemoteSupportDockState(value) {
+  return value === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
+    ? REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
+    : value === REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED
+      ? REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED
+      : value === REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE
+        ? REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE
+        : REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
+}
+
+export function getRemoteSupportDockFallbackState(value) {
+  const dockState = normalizeRemoteSupportDockState(value);
+  return dockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
+    ? REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED
+    : dockState === REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE
+      ? REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED
+      : dockState;
+}
+
+export function shouldShowRemoteSupportPopupJoin(pageVisible, state) {
+  return Boolean(pageVisible) && !Boolean(state && state.active);
 }
 
 function normalizeRemoteSupportSidebarText(value, maxLength = 240) {
@@ -253,6 +281,7 @@ export function scopeRemoteSupportStateToTab(state, tabId) {
     supporteeMicrophoneEnabled: Boolean(state.supporteeMicrophoneEnabled),
     supporteeAudioAvailable: Boolean(state.supporteeAudioAvailable),
     supporteeAudioEnabled: Boolean(state.supporteeAudioEnabled),
+    dockState: normalizeRemoteSupportDockState(state.dockState),
     startedAt: Number(state.startedAt) || 0,
     supporteePlatform: typeof state.supporteePlatform === "string" ? state.supporteePlatform : "",
     supporteeUserAgent: typeof state.supporteeUserAgent === "string" ? state.supporteeUserAgent : "",

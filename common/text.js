@@ -407,14 +407,14 @@ export const PopupText = Object.freeze({
     themeModeLight: "Light", // Theme mode option that forces light mode.
     themeModeDark: "Dark", // Theme mode option that forces dark mode.
     remoteSupportSectionTitle: "Remote Support", // Section title for support-code requests.
-    remoteSupportHint: "Request a one-time code from the tab being supported. To join a session, open the configured /support page in a tab and enter the support code there.", // Helper text for the remote support request.
+    remoteSupportHint: "Request a one-time code from the tab being supported. To join a session, open the configured /support page in a tab, then enter the support code from the Unfluffify extension popup.", // Helper text for the remote support request.
     remoteSupportButton: "Request remote support", // Button label that generates a support request code.
     remoteSupportCodeLabel: "Share this code:", // Label shown before the generated support code.
     remoteSupportCodeHint: "Code validity is controlled by the backend (expected: 10 minutes).", // Hint shown after generating support code.
     remoteSupportJoinCodeLabel: "Join with support code", // Label for the support code input used by supporters.
     remoteSupportJoinCodePlaceholder: "Enter support code", // Placeholder for supporter support-code input.
     remoteSupportJoinButton: "Join support", // Button label for joining a support session.
-    remoteSupportPageControlHint: "This /support page is now the live support surface. Join and end the session directly in the page instead of the extension side panel.", // Helper text shown on the support page tab inside the popup.
+    remoteSupportPageControlHint: "This /support page is now the live support surface. Join from the extension popup and keep this page focused on viewing only.", // Helper text shown on the support page tab inside the popup.
     remoteSupportStopSharingButton: "Stop sharing", // Compact top-row button label for ending a being-supported session from the popup.
     remoteSupportEndButton: "End support session", // Button label for ending an active session.
     remoteSupportBeingSupportedHint: "This tab is currently in a remote support session (view-only).", // Hint shown in being-supported mode.

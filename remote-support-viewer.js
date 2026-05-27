@@ -1,7 +1,12 @@
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
-  REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT
+  REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
+  REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
+  normalizeRemoteSupportDockState
 } from "./common/remote-support.js";
 
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
@@ -12,6 +17,8 @@ const dataChannelTextEncoder = new TextEncoder();
 
 let controlPort = null;
 let activeRuntime = null;
+let currentDockState = REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
+let dockPiPWindow = null;
 let nextChunkTransferId = 0;
 
 function normalizeErrorMessage(error, fallback) {
@@ -600,6 +607,8 @@ function ensureViewerElements() {
     remoteAudio: document.getElementById("remote-audio"),
     muteButton: document.getElementById("viewer-toggle-mute"),
     silentButton: document.getElementById("viewer-toggle-silent"),
+    externalButton: document.getElementById("viewer-open-external"),
+    endButton: document.getElementById("viewer-end-session"),
     remoteName: document.getElementById("viewer-remote-name"),
     remoteOs: document.getElementById("viewer-remote-os"),
     remoteChrome: document.getElementById("viewer-remote-chrome"),
@@ -691,6 +700,151 @@ function updateRemoteParticipantMeta({
   if (elements.remoteExtension) {
     elements.remoteExtension.textContent = normalizeMetadataValue(extensionVersion);
   }
+  syncDockPiPWindow();
+}
+
+function applyDockState(dockState) {
+  currentDockState = normalizeRemoteSupportDockState(dockState);
+  document.body.dataset.dockState = currentDockState;
+}
+
+function syncDockPiPWindow() {
+  if (!dockPiPWindow || dockPiPWindow.closed) {
+    return;
+  }
+  const pipDocument = dockPiPWindow.document;
+  const remoteCamera = pipDocument.getElementById("pip-remote-camera");
+  const localCamera = pipDocument.getElementById("pip-local-camera");
+  if (remoteCamera) {
+    remoteCamera.srcObject = activeRuntime && activeRuntime.remoteCameraStream ? activeRuntime.remoteCameraStream : null;
+  }
+  if (localCamera) {
+    localCamera.srcObject = activeRuntime && activeRuntime.localCameraStream ? activeRuntime.localCameraStream : null;
+  }
+  const name = pipDocument.getElementById("pip-remote-name");
+  const os = pipDocument.getElementById("pip-remote-os");
+  const chromeVersion = pipDocument.getElementById("pip-remote-chrome");
+  const extension = pipDocument.getElementById("pip-remote-extension");
+  const elements = ensureViewerElements();
+  if (name && elements.remoteName) {
+    name.textContent = elements.remoteName.textContent || "Waiting...";
+  }
+  if (os && elements.remoteOs) {
+    os.textContent = elements.remoteOs.textContent || "Waiting...";
+  }
+  if (chromeVersion && elements.remoteChrome) {
+    chromeVersion.textContent = elements.remoteChrome.textContent || "Waiting...";
+  }
+  if (extension && elements.remoteExtension) {
+    extension.textContent = elements.remoteExtension.textContent || "Waiting...";
+  }
+}
+
+async function persistDockState(dockState) {
+  if (!activeRuntime || !globalThis.chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== "function") {
+    return;
+  }
+  try {
+    await chrome.runtime.sendMessage({
+      type: "remoteSupportSetDockState",
+      tabId: activeRuntime.tabId,
+      sessionId: activeRuntime.sessionId,
+      dockState
+    });
+  } catch (error) {
+    // Ignore background reload races.
+  }
+}
+
+async function openDockPiP() {
+  if (!window.documentPictureInPicture || typeof window.documentPictureInPicture.requestWindow !== "function") {
+    await setDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+    return false;
+  }
+  if (dockPiPWindow && !dockPiPWindow.closed) {
+    syncDockPiPWindow();
+    return true;
+  }
+  try {
+    dockPiPWindow = await window.documentPictureInPicture.requestWindow({
+      width: 360,
+      height: 320
+    });
+    const pipDocument = dockPiPWindow.document;
+    pipDocument.head.innerHTML = `
+      <style>
+        body{margin:0;padding:12px;background:#04080f;color:#dbe8ff;font:500 12px/1.4 system-ui,sans-serif}
+        .dock{display:grid;gap:10px}
+        .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        .tile{min-height:96px;overflow:hidden;border-radius:14px;border:1px solid rgba(255,255,255,.18);background:#101a2b}
+        video{width:100%;height:100%;display:block;object-fit:cover;background:#04080f}
+        .actions{display:flex;flex-wrap:wrap;gap:8px}
+        button{flex:1 1 0;min-height:30px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:#101a2b;color:#fff}
+        .danger{background:#7f1d2d}
+        dl{display:grid;gap:6px;margin:0}
+        dt{font-size:10px;text-transform:uppercase;color:#9eb4d2}
+        dd{margin:0;font-size:12px}
+      </style>
+    `;
+    pipDocument.body.innerHTML = `
+      <div class="dock">
+        <div class="tiles">
+          <div class="tile"><video id="pip-remote-camera" autoplay playsinline muted></video></div>
+          <div class="tile"><video id="pip-local-camera" autoplay playsinline muted></video></div>
+        </div>
+        <div class="actions">
+          <button id="pip-mute">Mute</button>
+          <button id="pip-silent">Silent</button>
+          <button id="pip-end" class="danger">Terminate</button>
+        </div>
+        <dl>
+          <div><dt>Name</dt><dd id="pip-remote-name">Waiting...</dd></div>
+          <div><dt>OS</dt><dd id="pip-remote-os">Waiting...</dd></div>
+          <div><dt>Chrome</dt><dd id="pip-remote-chrome">Waiting...</dd></div>
+          <div><dt>Unfluffify</dt><dd id="pip-remote-extension">Waiting...</dd></div>
+        </dl>
+      </div>
+    `;
+    pipDocument.getElementById("pip-mute").addEventListener("click", () => {
+      ensureViewerElements().muteButton?.click();
+    });
+    pipDocument.getElementById("pip-silent").addEventListener("click", () => {
+      ensureViewerElements().silentButton?.click();
+    });
+    pipDocument.getElementById("pip-end").addEventListener("click", () => {
+      ensureViewerElements().endButton?.click();
+    });
+    dockPiPWindow.addEventListener("pagehide", () => {
+      dockPiPWindow = null;
+      setDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
+    }, { once: true });
+    syncDockPiPWindow();
+    return true;
+  } catch (error) {
+    dockPiPWindow = null;
+    await setDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+    return false;
+  }
+}
+
+async function setDockState(nextDockState, { persist = true } = {}) {
+  const normalizedDockState = normalizeRemoteSupportDockState(nextDockState);
+  applyDockState(normalizedDockState);
+  if (normalizedDockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP) {
+    const pipOpened = await openDockPiP();
+    if (!pipOpened) {
+      return false;
+    }
+  } else if (dockPiPWindow && !dockPiPWindow.closed) {
+    try {
+      dockPiPWindow.close();
+    } catch (error) {}
+    dockPiPWindow = null;
+  }
+  if (persist) {
+    await persistDockState(normalizedDockState);
+  }
+  return true;
 }
 
 function initializeViewerControls() {
@@ -711,8 +865,26 @@ function initializeViewerControls() {
     });
   }
 
+  if (elements.externalButton && elements.externalButton.dataset.ufInitialized !== "true") {
+    elements.externalButton.dataset.ufInitialized = "true";
+    elements.externalButton.addEventListener("click", () => {
+      setDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP).then();
+    });
+  }
+
+  if (elements.endButton && elements.endButton.dataset.ufInitialized !== "true") {
+    elements.endButton.dataset.ufInitialized = "true";
+    elements.endButton.addEventListener("click", () => {
+      if (!activeRuntime) {
+        return;
+      }
+      shutdownTransport(activeRuntime.sessionId, "Session ended", { notifyBackground: true }).then();
+    });
+  }
+
   setMuteState(false);
   setSilentState(false);
+  applyDockState(currentDockState);
 }
 
 function setViewerPlaceholder(text) {
@@ -786,6 +958,7 @@ function detachRemoteStream() {
       context.clearRect(0, 0, elements.sidebarCanvas.width, elements.sidebarCanvas.height);
     }
   }
+  syncDockPiPWindow();
 }
 
 function closeDataChannel(channel) {
@@ -1097,6 +1270,7 @@ async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
       elements.localCameraVideo.hidden = false;
       void elements.localCameraVideo.play().catch(() => {});
     }
+    syncDockPiPWindow();
     setMuteState(elements.muteButton && elements.muteButton.getAttribute("aria-pressed") === "true");
     if (typeof peerConnection.addTrack === "function") {
       for (const track of stream.getTracks()) {
@@ -1191,6 +1365,7 @@ function attachRemoteStream(runtime, streamLike, track = null) {
     }
     elements.remoteCameraVideo.hidden = false;
     void elements.remoteCameraVideo.play().catch(() => {});
+    syncDockPiPWindow();
     return;
   }
 
@@ -1727,6 +1902,7 @@ async function startTransport(session) {
   initializeViewerControls();
   updateRemoteParticipantMeta({ name: runtime.remoteParticipantName });
   setViewerPlaceholder("Connecting to the remote page...");
+  setDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP).then();
 
   void connectSignalingSocket(runtime).catch((error) => {
     handleFatalTransportError(runtime.sessionId, error);
@@ -1783,6 +1959,20 @@ function handleControlRequest(message, requestId) {
     return;
   }
 
+  if (message.requestType === "remoteSupportUpdateDockState") {
+    setDockState(message.dockState, { persist: false })
+      .then(() => {
+        sendResponse(requestId, { ok: true });
+      })
+      .catch((error) => {
+        sendResponse(requestId, {
+          ok: false,
+          error: normalizeErrorMessage(error, "Failed to update remote support dock")
+        });
+      });
+    return;
+  }
+
   sendResponse(requestId, { ok: false, error: "Unknown viewer request" });
 }
 
@@ -1830,6 +2020,12 @@ window.addEventListener("message", (event) => {
 });
 
 window.addEventListener("beforeunload", () => {
+  if (dockPiPWindow && !dockPiPWindow.closed) {
+    try {
+      dockPiPWindow.close();
+    } catch (error) {}
+    dockPiPWindow = null;
+  }
   if (!activeRuntime) {
     return;
   }

@@ -94,9 +94,14 @@ import {
   normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
+  getRemoteSupportDockFallbackState,
   isRemoteSupportPageUrl,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING,
+  normalizeRemoteSupportDockState,
   scopeRemoteSupportStateToTab,
   shouldLockRemoteSupportConfigurationView
 } from "./common/remote-support.js";
@@ -533,6 +538,8 @@ let pendingRemoteSupportSidebarSnapshot = null;
 let pendingRemoteSupportSidebarSnapshotKey = "";
 let lastRemoteSupportSidebarSnapshotKey = "";
 let remoteSupportSidebarStreamChannel = null;
+let remoteSupportPopupMediaChannel = null;
+let remoteSupportDockPiPWindow = null;
 let remoteSupportSidebarStreamAnimationFrame = 0;
 let remoteSupportSidebarStreamCaptureInFlight = false;
 let remoteSupportSidebarStreamDirty = false;
@@ -3047,6 +3054,9 @@ async function refreshUiInner() {
   nextViewState.remoteSupportMicrophoneEnabled = Boolean(scopedRemoteSupportState.supporteeMicrophoneEnabled);
   nextViewState.remoteSupportSoundAvailable = Boolean(scopedRemoteSupportState.supporteeAudioAvailable);
   nextViewState.remoteSupportSoundEnabled = Boolean(scopedRemoteSupportState.supporteeAudioEnabled);
+  nextViewState.remoteSupportDockState = normalizeRemoteSupportDockState(scopedRemoteSupportState.dockState);
+  nextViewState.remoteSupportLocalCameraFrame = state.remoteSupportLocalCameraFrame || "";
+  nextViewState.remoteSupportRemoteCameraFrame = state.remoteSupportRemoteCameraFrame || "";
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
@@ -4437,10 +4447,22 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportMicrophoneEnabled: Boolean(nextState.supporteeMicrophoneEnabled),
     remoteSupportSoundAvailable: Boolean(nextState.supporteeAudioAvailable),
     remoteSupportSoundEnabled: Boolean(nextState.supporteeAudioEnabled),
+    remoteSupportDockState: normalizeRemoteSupportDockState(nextState.dockState),
+    remoteSupportLocalCameraFrame: state.remoteSupportLocalCameraFrame || "",
+    remoteSupportRemoteCameraFrame: state.remoteSupportRemoteCameraFrame || "",
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
+  if (!nextState.active) {
+    state.remoteSupportLocalCameraFrame = "";
+    state.remoteSupportRemoteCameraFrame = "";
+    uiModule.setViewState({
+      remoteSupportLocalCameraFrame: "",
+      remoteSupportRemoteCameraFrame: "",
+      remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED
+    });
+  }
   scheduleRemoteSupportSidebarStreamCapture();
 }
 
@@ -4654,6 +4676,36 @@ function ensureRemoteSupportSidebarStreamChannel() {
     applyRemoteSupportSidebarCommand(message.command);
   };
   return remoteSupportSidebarStreamChannel;
+}
+
+function ensureRemoteSupportPopupMediaChannel() {
+  if (remoteSupportPopupMediaChannel || typeof BroadcastChannel !== "function") {
+    return remoteSupportPopupMediaChannel;
+  }
+
+  remoteSupportPopupMediaChannel = new BroadcastChannel("unfluffify-remote-support-popup-media");
+  remoteSupportPopupMediaChannel.onmessage = (event) => {
+    const message = event && event.data && typeof event.data === "object" ? event.data : null;
+    const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    if (!message || currentTabId === null || Number(message.tabId) !== currentTabId) {
+      return;
+    }
+
+    state.remoteSupportLocalCameraFrame = typeof message.localCameraFrame === "string"
+      ? message.localCameraFrame
+      : "";
+    state.remoteSupportRemoteCameraFrame = typeof message.remoteCameraFrame === "string"
+      ? message.remoteCameraFrame
+      : "";
+    uiModule.setViewState({
+      remoteSupportLocalCameraFrame: state.remoteSupportLocalCameraFrame,
+      remoteSupportRemoteCameraFrame: state.remoteSupportRemoteCameraFrame
+    });
+    syncRemoteSupportDockPiPWindow();
+  };
+  return remoteSupportPopupMediaChannel;
 }
 
 function postRemoteSupportSidebarStreamMessage(message) {
@@ -5393,6 +5445,129 @@ async function handleRemoteSupportJoin() {
   } finally {
     uiModule.setViewState({ remoteSupportJoinLoading: false });
   }
+}
+
+async function setRemoteSupportDockState(dockState) {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : undefined;
+  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  const response = await messages.sendRuntimeMessage({
+    type: "remoteSupportSetDockState",
+    tabId: currentTabId,
+    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
+      ? scopedRemoteSupportState.sessionId
+      : "",
+    dockState
+  });
+  if (response && response.ok) {
+    state.remoteSupportState = response.state || state.remoteSupportState;
+    syncRemoteSupportViewState(state.remoteSupportState);
+  }
+  return response;
+}
+
+async function openRemoteSupportDockPiP() {
+  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(
+    state.remoteSupportState,
+    state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : null
+  );
+  if (!scopedRemoteSupportState.active || scopedRemoteSupportState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return;
+  }
+
+  if (!window.documentPictureInPicture || typeof window.documentPictureInPicture.requestWindow !== "function") {
+    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+    return;
+  }
+
+  if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
+    return;
+  }
+
+  try {
+    remoteSupportDockPiPWindow = await window.documentPictureInPicture.requestWindow({
+      width: 360,
+      height: 260
+    });
+    const pipDocument = remoteSupportDockPiPWindow.document;
+    pipDocument.head.innerHTML = `
+      <style>
+        body{margin:0;padding:12px;background:#09111d;color:#e8edf6;font:500 13px/1.4 system-ui,sans-serif}
+        .dock{display:grid;gap:10px}
+        .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        .tile{min-height:92px;overflow:hidden;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:#101a2b}
+        .tile img,.tile span{display:block;width:100%;height:100%}
+        .tile img{object-fit:cover}
+        .tile span{display:grid;place-items:center;color:#9eb4d2}
+        .controls{display:flex;flex-wrap:wrap;gap:8px}
+        button{border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:8px 10px;background:#101a2b;color:#fff;cursor:pointer}
+        button.warn{background:#7f1d2d}
+      </style>
+    `;
+    pipDocument.body.innerHTML = `
+      <div class="dock">
+        <div class="tiles">
+          <div class="tile"><img id="uf-pip-local" alt="Local camera" hidden><span id="uf-pip-local-empty">Local camera</span></div>
+          <div class="tile"><img id="uf-pip-remote" alt="Remote camera" hidden><span id="uf-pip-remote-empty">Supporter camera</span></div>
+        </div>
+        <div class="controls">
+          <button id="uf-pip-camera">Camera</button>
+          <button id="uf-pip-mic">Mic</button>
+          <button id="uf-pip-sound">Sound</button>
+          <button id="uf-pip-end" class="warn">End</button>
+        </div>
+      </div>
+    `;
+    pipDocument.getElementById("uf-pip-camera").addEventListener("click", () => { handleRemoteSupportCameraToggle().then(); });
+    pipDocument.getElementById("uf-pip-mic").addEventListener("click", () => { handleRemoteSupportMicrophoneToggle().then(); });
+    pipDocument.getElementById("uf-pip-sound").addEventListener("click", () => { handleRemoteSupportSoundToggle().then(); });
+    pipDocument.getElementById("uf-pip-end").addEventListener("click", () => { handleRemoteSupportEnd().then(); });
+    remoteSupportDockPiPWindow.addEventListener("pagehide", () => {
+      remoteSupportDockPiPWindow = null;
+      setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
+    }, { once: true });
+    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP);
+    syncRemoteSupportDockPiPWindow();
+  } catch (error) {
+    remoteSupportDockPiPWindow = null;
+    await setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  }
+}
+
+function syncRemoteSupportDockPiPWindow() {
+  if (!remoteSupportDockPiPWindow || remoteSupportDockPiPWindow.closed) {
+    return;
+  }
+  const pipDocument = remoteSupportDockPiPWindow.document;
+  const localImage = pipDocument.getElementById("uf-pip-local");
+  const remoteImage = pipDocument.getElementById("uf-pip-remote");
+  const localEmpty = pipDocument.getElementById("uf-pip-local-empty");
+  const remoteEmpty = pipDocument.getElementById("uf-pip-remote-empty");
+  const localFrame = state.remoteSupportLocalCameraFrame || "";
+  const remoteFrame = state.remoteSupportRemoteCameraFrame || "";
+  if (localImage) {
+    localImage.hidden = !localFrame;
+    if (localFrame) {
+      localImage.src = localFrame;
+    }
+  }
+  if (remoteImage) {
+    remoteImage.hidden = !remoteFrame;
+    if (remoteFrame) {
+      remoteImage.src = remoteFrame;
+    }
+  }
+  if (localEmpty) {
+    localEmpty.hidden = Boolean(localFrame);
+  }
+  if (remoteEmpty) {
+    remoteEmpty.hidden = Boolean(remoteFrame);
+  }
+}
+
+async function handleRemoteSupportDockExternalize() {
+  await openRemoteSupportDockPiP();
 }
 
 async function handleRemoteSupportEnd() {
@@ -7276,6 +7451,7 @@ async function init() {
     onRemoteSupportCameraToggle: handleRemoteSupportCameraToggle,
     onRemoteSupportMicrophoneToggle: handleRemoteSupportMicrophoneToggle,
     onRemoteSupportSoundToggle: handleRemoteSupportSoundToggle,
+    onRemoteSupportDockExternalize: handleRemoteSupportDockExternalize,
     onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
     onPropertyLockTake: handlePropertyLockTake,
     onPropertyLockSuggest: handlePropertyLockSuggest,
@@ -7294,10 +7470,27 @@ async function init() {
     onMarkedPageNavigate: handleMarkedPageNavigate,
     onBasePageNavigate: handleBasePageNavigate
   });
+  ensureRemoteSupportPopupMediaChannel();
 
   uiModule.onViewStateChange((viewState) => {
     scheduleRemoteSupportSidebarSnapshotSync(viewState);
     scheduleRemoteSupportSidebarStreamCapture();
+    if (
+      viewState.remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+      viewState.remoteSupportSessionActive &&
+      viewState.remoteSupportDockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP
+    ) {
+      openRemoteSupportDockPiP().catch(() => {});
+    } else if (
+      remoteSupportDockPiPWindow &&
+      (remoteSupportDockPiPWindow.closed || !viewState.remoteSupportSessionActive)
+    ) {
+      try {
+        remoteSupportDockPiPWindow.close();
+      } catch {}
+      remoteSupportDockPiPWindow = null;
+    }
+    syncRemoteSupportDockPiPWindow();
   });
 
   document.addEventListener("click", () => {
@@ -7376,6 +7569,15 @@ async function init() {
     if (changeInfo.url || changeInfo.status === "complete") {
       state.currentTab = tab;
       await refreshUi();
+    }
+  });
+  window.addEventListener("beforeunload", () => {
+    if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
+      setRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
+      try {
+        remoteSupportDockPiPWindow.close();
+      } catch {}
+      remoteSupportDockPiPWindow = null;
     }
   });
 

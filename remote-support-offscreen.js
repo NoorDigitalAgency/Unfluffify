@@ -350,6 +350,8 @@ function createTransportRuntime(session) {
     localCaptureStream: null,
     localCaptureTrack: null,
     localCameraStream: null,
+    remoteCameraStream: null,
+    popupPreviewIntervalId: 0,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -429,6 +431,104 @@ function setRequesterMediaTrackEnabled(runtime, control, enabled) {
   }
 
   return getRequesterMediaState(runtime);
+}
+
+function postRequesterPopupMediaPreview(runtime, {
+  localCameraFrame = "",
+  remoteCameraFrame = ""
+} = {}) {
+  if (!runtime || runtime.role !== "requester" || typeof BroadcastChannel !== "function") {
+    return;
+  }
+
+  try {
+    const channel = new BroadcastChannel("unfluffify-remote-support-popup-media");
+    channel.postMessage({
+      tabId: runtime.tabId,
+      sessionId: runtime.sessionId,
+      localCameraFrame,
+      remoteCameraFrame
+    });
+    channel.close();
+  } catch (error) {
+    // Ignore preview publication failures.
+  }
+}
+
+function captureStreamPreview(stream) {
+  const track = getFirstTrack(stream, "video");
+  if (!track || typeof document === "undefined") {
+    return "";
+  }
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  return video.play()
+    .catch(() => {})
+    .then(() => new Promise((resolve) => {
+      const width = Math.max(1, Number(video.videoWidth) || 160);
+      const height = Math.max(1, Number(video.videoHeight) || 90);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) {
+        resolve("");
+        return;
+      }
+      try {
+        context.drawImage(video, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      } catch {
+        resolve("");
+      } finally {
+        try {
+          video.pause();
+        } catch (error) {}
+        video.srcObject = null;
+      }
+    }));
+}
+
+function stopRequesterPopupMediaPreview(runtime) {
+  if (!runtime) {
+    return;
+  }
+  if (runtime.popupPreviewIntervalId) {
+    clearInterval(runtime.popupPreviewIntervalId);
+    runtime.popupPreviewIntervalId = 0;
+  }
+  postRequesterPopupMediaPreview(runtime, {});
+}
+
+function startRequesterPopupMediaPreview(runtime) {
+  if (
+    !runtime ||
+    runtime.role !== "requester" ||
+    runtime.popupPreviewIntervalId ||
+    typeof BroadcastChannel !== "function" ||
+    typeof document === "undefined"
+  ) {
+    return;
+  }
+
+  runtime.popupPreviewIntervalId = setInterval(async () => {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime || activeRuntime.shuttingDown) {
+      stopRequesterPopupMediaPreview(runtime);
+      return;
+    }
+    const [localCameraFrame, remoteCameraFrame] = await Promise.all([
+      captureStreamPreview(activeRuntime.localCameraStream),
+      captureStreamPreview(activeRuntime.remoteCameraStream)
+    ]);
+    postRequesterPopupMediaPreview(activeRuntime, {
+      localCameraFrame,
+      remoteCameraFrame
+    });
+  }, 700);
 }
 
 function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && runtime.peerConnection) {
@@ -1080,7 +1180,9 @@ function resetTransportResources(runtime) {
   closeSignalingSocket(runtime.signalingSocket);
   stopLocalCaptureStream(runtime.localCaptureStream);
   stopLocalCaptureStream(runtime.localCameraStream);
+  stopLocalCaptureStream(runtime.remoteCameraStream);
   stopLocalCaptureStream(runtime.sidebarCaptureStream);
+  stopRequesterPopupMediaPreview(runtime);
 
   runtime.dataChannels.clear();
   runtime.dataChannelBindingIds.clear();
@@ -1090,6 +1192,8 @@ function resetTransportResources(runtime) {
   runtime.localCaptureStream = null;
   runtime.localCaptureTrack = null;
   runtime.localCameraStream = null;
+  runtime.remoteCameraStream = null;
+  runtime.popupPreviewIntervalId = 0;
   runtime.sidebarCaptureCanvas = null;
   runtime.sidebarCaptureContext = null;
   runtime.sidebarCaptureStream = null;
@@ -1188,6 +1292,7 @@ async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     runtime.localCameraStream = stream;
     postRequesterMediaState(runtime);
+    startRequesterPopupMediaPreview(runtime);
     if (typeof peerConnection.addTrack === "function") {
       for (const track of stream.getTracks()) {
         configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
@@ -1467,6 +1572,18 @@ async function ensurePeerConnection(runtime, offerer) {
     bindDataChannel(runtime, event.channel, channelKey);
   };
 
+  peerConnection.ontrack = (event) => {
+    if (!event || !event.track || runtime.role !== "requester") {
+      return;
+    }
+    if (event.track.kind === "video") {
+      runtime.remoteCameraStream = event.streams && event.streams[0]
+        ? event.streams[0]
+        : new MediaStream([event.track]);
+      startRequesterPopupMediaPreview(runtime);
+    }
+  };
+
   if (offerer && typeof peerConnection.addTransceiver === "function") {
     try {
       peerConnection.addTransceiver("audio", { direction: "recvonly" });
@@ -1487,6 +1604,7 @@ async function ensurePeerConnection(runtime, offerer) {
     await ensureRequesterDisplayTrack(runtime, peerConnection);
     await ensureLocalCameraAndMicTracks(runtime, peerConnection);
     await ensureRequesterSidebarVideoTrack(runtime, peerConnection);
+    startRequesterPopupMediaPreview(runtime);
   }
 
   if (offerer) {

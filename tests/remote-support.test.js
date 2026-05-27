@@ -12,18 +12,25 @@ import {
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
   REMOTE_SUPPORT_ROLE_REQUESTER,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
+  REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
   createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
+  getRemoteSupportDockFallbackState,
   getRemoteSupportPageUrl,
   isRemoteSupportStateForTab,
   isRemoteSupportPageUrl,
   isAjaxResourceType,
   normalizeRemoteSupportCursorSnapshot,
+  normalizeRemoteSupportDockState,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
   scopeRemoteSupportStateToTab,
   serializeRemoteSupportMessage,
   parseRemoteSupportMessage,
+  shouldShowRemoteSupportPopupJoin,
   shouldLockRemoteSupportConfigurationView,
   clampPayloadSize
 } from "../common/remote-support.js";
@@ -66,6 +73,7 @@ test("createInactiveRemoteSupportState returns the correct inactive shape", () =
   assert.equal(state.connected, false);
   assert.equal(state.streaming, false);
   assert.equal(state.partnerConnected, false);
+  assert.equal(state.dockState, REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
   assert.equal(state.error, "");
   assert.equal(state.lastActivityAt, 0);
 });
@@ -308,6 +316,25 @@ test("shouldLockRemoteSupportConfigurationView only locks the support page befor
     shouldLockRemoteSupportConfigurationView(false, { active: false, tabId: 3 }, 3),
     false
   );
+});
+
+test("normalizeRemoteSupportDockState keeps known dock states and defaults unknown values", () => {
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP), REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP);
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE), REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE);
+  assert.equal(normalizeRemoteSupportDockState("unknown"), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
+});
+
+test("getRemoteSupportDockFallbackState restores embedded minimized when PiP or fullscreen closes", () => {
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
+});
+
+test("shouldShowRemoteSupportPopupJoin only shows join controls on the support page before a session starts", () => {
+  assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: false }), true);
+  assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: true }), false);
+  assert.equal(shouldShowRemoteSupportPopupJoin(false, { active: false }), false);
 });
 
 // ──────────────────────────────────────────────────────────────

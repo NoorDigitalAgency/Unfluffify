@@ -19,19 +19,36 @@
         font: 500 16px/1.5 system-ui, sans-serif;
       }
 
+      body[data-dock-state="floating_pip"] #viewer-sidecar {
+        display: none;
+      }
+
       #viewer-sidecar {
         position: absolute;
-        inset: 14px auto 14px 14px;
-        width: 180px;
+        left: 14px;
+        bottom: 14px;
+        width: 240px;
         display: grid;
         align-content: start;
         gap: 10px;
         z-index: 3;
+        padding: 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(8, 13, 22, 0.78);
+        backdrop-filter: blur(16px);
+      }
+
+      body[data-dock-state="embedded_minimized"] #viewer-sidecar,
+      body[data-dock-state="fullscreen_active"] #viewer-sidecar {
+        width: 188px;
+        gap: 8px;
+        padding: 10px;
       }
 
       .viewer-camera-slot {
         position: relative;
-        width: 180px;
+        width: 100%;
         height: 102px;
         overflow: hidden;
         border-radius: 12px;
@@ -55,6 +72,7 @@
 
       #viewer-actions {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
       }
 
@@ -89,6 +107,21 @@
         border: 1px solid rgba(255, 255, 255, 0.16);
         background: rgba(8, 13, 22, 0.76);
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      }
+
+      body[data-dock-state="embedded_minimized"] #viewer-remote-meta,
+      body[data-dock-state="fullscreen_active"] #viewer-remote-meta {
+        padding: 8px 10px;
+      }
+
+      body[data-dock-state="embedded_minimized"] #viewer-remote-meta dt,
+      body[data-dock-state="fullscreen_active"] #viewer-remote-meta dt {
+        font-size: 9px;
+      }
+
+      body[data-dock-state="embedded_minimized"] #viewer-remote-meta dd,
+      body[data-dock-state="fullscreen_active"] #viewer-remote-meta dd {
+        font-size: 11px;
       }
 
       #viewer-remote-meta dl {
@@ -164,6 +197,8 @@
       <div id="viewer-actions">
         <button id="viewer-toggle-mute" class="viewer-action" type="button" aria-pressed="false">Mute</button>
         <button id="viewer-toggle-silent" class="viewer-action" type="button" aria-pressed="false">Silent</button>
+        <button id="viewer-open-external" class="viewer-action" type="button">External</button>
+        <button id="viewer-end-session" class="viewer-action is-active" type="button">Terminate</button>
       </div>
       <section id="viewer-remote-meta" aria-label="Remote participant details">
         <dl>
@@ -190,3 +225,7 @@
     <script type="module" src="remote-support-viewer.js"></script>
   </body>
 </html>
+      body[data-dock-state="embedded_minimized"] .viewer-camera-slot,
+      body[data-dock-state="fullscreen_active"] .viewer-camera-slot {
+        height: 72px;
+      }

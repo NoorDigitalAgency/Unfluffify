@@ -1,6 +1,8 @@
 import {
   REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
   REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
@@ -16,6 +18,7 @@ import {
   createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   createInactiveRemoteSupportSidebarSnapshot,
+  normalizeRemoteSupportDockState,
   normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
@@ -79,6 +82,7 @@ function normalizeStateSnapshot(stateLike) {
   normalized.supporteeMicrophoneEnabled = Boolean(normalized.supporteeMicrophoneEnabled);
   normalized.supporteeAudioAvailable = Boolean(normalized.supporteeAudioAvailable);
   normalized.supporteeAudioEnabled = Boolean(normalized.supporteeAudioEnabled);
+  normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
   normalized.tabId = normalizeTabId(normalized.tabId);
   normalized.controlOwner = normalizeControlOwner(normalized.controlOwner);
 
@@ -183,6 +187,7 @@ function createSessionRuntime({
       partnerConnected: false,
       streaming: false,
       includePayloads,
+      dockState: REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
       startedAt: Date.now(),
       supporteePlatform: "",
       supporteeUserAgent: "",
@@ -1377,6 +1382,38 @@ async function setRequesterMediaEnabled(runtime, control, enabled) {
   };
 }
 
+function setRemoteSupportDockState(message, sender) {
+  const runtime = resolveRuntimeTarget(message, sender);
+  const nextDockState = normalizeRemoteSupportDockState(message && message.dockState);
+
+  if (runtime) {
+    runtime.state.dockState = nextDockState;
+    updateSessionActivity(runtime);
+    broadcastRuntimeState(runtime);
+    return {
+      ok: true,
+      state: getRuntimePublicState(runtime)
+    };
+  }
+
+  const tabId = normalizeTabId(message && message.tabId);
+  if (tabId === null) {
+    return { ok: false, error: "Missing tab" };
+  }
+
+  const snapshot = normalizeStateSnapshot({
+    ...getTabSnapshot(tabId),
+    tabId,
+    dockState: nextDockState
+  });
+  rememberTabSnapshot(tabId, snapshot);
+  broadcastTabState(tabId);
+  return {
+    ok: true,
+    state: snapshot
+  };
+}
+
 function stopInactivityMonitor(runtime) {
   if (!runtime || !runtime.inactivityIntervalId) {
     return;
@@ -1477,6 +1514,11 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     throw new Error("Missing tab for remote support session");
   }
 
+  const previousDockStateCandidate = getTabSnapshot(normalizedTabId).dockState;
+  const previousDockState = previousDockStateCandidate &&
+    previousDockStateCandidate !== REMOTE_SUPPORT_DOCK_STATE_EMBEDDED
+    ? previousDockStateCandidate
+    : "";
   const existingRuntimeForSession = getRuntimeBySessionId(sessionId);
   if (
     existingRuntimeForSession &&
@@ -1489,6 +1531,9 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
   ) {
     existingRuntimeForSession.state.expiresAt = expiresAt;
     existingRuntimeForSession.state.error = "";
+    existingRuntimeForSession.state.dockState = normalizeRemoteSupportDockState(
+      existingRuntimeForSession.state.dockState || previousDockState
+    );
     updateSessionActivity(existingRuntimeForSession);
     broadcastRuntimeState(existingRuntimeForSession);
     return { runtime: existingRuntimeForSession, reused: true };
@@ -1514,6 +1559,7 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     includePayloads: false,
     controlOwner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
   });
+  runtime.state.dockState = normalizeRemoteSupportDockState(previousDockState || runtime.state.dockState);
 
   trackRuntime(runtime);
   broadcastRuntimeState(runtime);
@@ -1563,7 +1609,10 @@ async function deactivateRuntime(runtime, reason) {
   await setContentModeForSession(runtime, false);
 
   if (tabId !== null) {
-    rememberTabSnapshot(tabId, createTabInactiveState(tabId, reason));
+    rememberTabSnapshot(tabId, {
+      ...createTabInactiveState(tabId, reason),
+      dockState: normalizeRemoteSupportDockState(runtime.state.dockState)
+    });
     broadcastTabState(tabId);
   }
 
@@ -2096,6 +2145,10 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
       ok: true,
       state: getStateForMessage(message, sender)
     };
+  }
+
+  if (message.type === "remoteSupportSetDockState") {
+    return setRemoteSupportDockState(message, sender);
   }
 
   if (message.type === "remoteSupportSendCommand") {
