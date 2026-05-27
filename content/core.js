@@ -16,10 +16,12 @@ import {
 } from "./shared-inclusion.js";
 import {
   chooseExcludeParentBoundaryTarget,
+  getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
   isValidExpandedExclusionBoundary,
   shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
+  shouldBlockExpandedExclusionRoot,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
 
@@ -92,6 +94,7 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
+const NON_VISUAL_BODY_WRAPPER_TAGS = new Set(["IFRAME", "STYLE", "LINK", "SCRIPT"]);
 
 let aiPreviewFocusElement = null;
 
@@ -517,6 +520,33 @@ function hasDirectText(el) {
     }
   }
   return false;
+}
+
+function isNonVisualBodyWrapperChild(el) {
+  return !el || el.nodeType !== 1 || NON_VISUAL_BODY_WRAPPER_TAGS.has(el.tagName);
+}
+
+function isSoleVisualBodyWrapper(el) {
+  if (!el || el.nodeType !== 1 || !document.body || el.parentElement !== document.body) {
+    return false;
+  }
+  const visualChildren = Array.from(document.body.children || []).filter((child) => {
+    if (isNonVisualBodyWrapperChild(child)) {
+      return false;
+    }
+    if (isWithinExtensionUi(child) || isWithinAiPopover(child) || isWithinConsentElement(child)) {
+      return false;
+    }
+    return isVisible(child);
+  });
+  return visualChildren.length === 1 && visualChildren[0] === el;
+}
+
+function isExpandedExclusionRootBlocked(el) {
+  return shouldBlockExpandedExclusionRoot({
+    isBody: Boolean(el && el === document.body),
+    isSoleVisualBodyWrapper: isSoleVisualBodyWrapper(el)
+  });
 }
 
 function matchesToggleableDefaultExcluded(el) {
@@ -3345,38 +3375,30 @@ function getTargetElement(x, y) {
   return null;
 }
 
-function hasMultipleMarkableDescendants(el) {
+function hasDirectTextualDescendantBoundary(el) {
   const options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  const stack = Array.from(el.children);
-  let markableCount = 0;
-  while (stack.length) {
-    const node = stack.pop();
+  for (const node of Array.from(el.children || [])) {
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (isWithinAiPopover(node)) {
+    if (
+      isWithinAiPopover(node) ||
+      isWithinConsentElement(node) ||
+      isWithinImmutableExcluded(node) ||
+      !isVisible(node)
+    ) {
       continue;
     }
-    if (isWithinConsentElement(node)) {
-      continue;
-    }
-    if (isWithinImmutableExcluded(node)) {
-      continue;
-    }
-    if (isSelfMarkableWithoutParentMode(node, options)) {
-      markableCount += 1;
-      if (isValidExpandedExclusionBoundary({
-        hasDirectOwnText: hasDirectText(el),
-        textualDescendantCount: markableCount
-      })) {
-        return true;
-      }
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
+    if (
+      hasDirectText(node) ||
+      isSelfMarkableWithoutParentMode(node, options) ||
+      isTextualContainer(node, options) ||
+      isStructuredGroupExclusionCandidate(node, options)
+    ) {
+      return true;
     }
   }
   return false;
@@ -3841,7 +3863,7 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     config.pageMarkings[location.href] = entry;
     state.config = config;
-    scheduleRender();
+    scheduleRender(getExplicitMarkingRenderOptions());
     scheduleSnapshotSave();
     notifyDraftStatus(location.href);
     scheduleDraftPersist(state.baseUrl);
@@ -3972,7 +3994,7 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
-  scheduleRender();
+  scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl);
@@ -4018,7 +4040,7 @@ function toggleExplicitInclude(target) {
       normalizePageEntryXpaths(entry);
       config.pageMarkings[location.href] = entry;
       state.config = config;
-      scheduleRender();
+      scheduleRender(getExplicitMarkingRenderOptions());
       scheduleSnapshotSave();
       notifyDraftStatus(location.href);
       scheduleDraftPersist(state.baseUrl);
@@ -4071,7 +4093,7 @@ function toggleExplicitInclude(target) {
   normalizePageEntryXpaths(entry);
   config.pageMarkings[location.href] = entry;
   state.config = config;
-  scheduleRender();
+  scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl);
@@ -5105,7 +5127,7 @@ export function notifyDraftStatus(pageUrl) {
   }).then();
 }
 
-export function scheduleSnapshotSave() {
+export function scheduleSnapshotSave(delayMs = 1000) {
   if (!state.baseUrl || !state.config) {
     return;
   }
@@ -5118,7 +5140,7 @@ export function scheduleSnapshotSave() {
       return;
     }
     recordPageSnapshot(state.config, location.href);
-  }, 220);
+  }, Math.max(0, Math.trunc(delayMs)));
 }
 
 export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
@@ -5181,10 +5203,16 @@ export function isMarkableElement(el, config, options) {
   if (!options || !options.allowParent) {
     return false;
   }
+  if (isExpandedExclusionRootBlocked(el)) {
+    return false;
+  }
   if (!isPointOverMarkableDescendant(el, options || {})) {
     return false;
   }
-  return hasMultipleMarkableDescendants(el, options || {});
+  return isValidExpandedExclusionBoundary({
+    hasDirectOwnText: hasDirectText(el),
+    hasDirectTextualBoundary: hasDirectTextualDescendantBoundary(el, options || {})
+  });
 }
 
 export function canApplyExplicitInclude(
