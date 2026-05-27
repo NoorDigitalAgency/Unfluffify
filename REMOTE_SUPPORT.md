@@ -28,7 +28,7 @@ This document defines the extension-side remote support implementation and the e
 
 ### 1) Screen stream
 
-- Being-supported side asks the user to share the Chrome window that contains the active Unfluffify tab. A tab-capture stream id is kept only as a compatibility fallback when display capture is unavailable.
+- Being-supported side asks the user to share an entire screen through Chrome's screen-only desktop-capture picker.
 - The offscreen requester runtime attaches the shared display video track to the peer connection, and the supporter `/support` page renders the remote track as the full-size primary live surface.
 - The older data-channel `frame` message remains as a compatibility/fallback path for remote-frame events, but the current screen stream is real WebRTC video.
 - Remote support is view-only. No command owner or remote-control handoff is exposed.
@@ -36,7 +36,7 @@ This document defines the extension-side remote support implementation and the e
 ### 2) Camera and microphone guidance
 
 - Both peers request local camera and microphone tracks when available.
-- The supporter viewer shows compact local and remote camera views out of the way of the main shared Chrome-window stream.
+- The supporter viewer shows compact local and remote camera views out of the way of the main shared-screen stream.
 - Audio tracks are attached to the same peer connection for bidirectional spoken guidance.
 - If camera or microphone capture is denied, the session continues with display sharing and telemetry.
 

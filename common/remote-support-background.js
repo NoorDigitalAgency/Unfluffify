@@ -28,6 +28,7 @@ const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_VIEWER_TRANSPORT_START_MESSAGE = "remoteSupportViewerTransportStart";
 const REMOTE_SUPPORT_VIEWER_TRANSPORT_STOP_MESSAGE = "remoteSupportViewerTransportStop";
 const REMOTE_SUPPORT_VIEWER_TRANSPORT_SEND_DATA_MESSAGE = "remoteSupportViewerTransportSendData";
+const REMOTE_SUPPORT_CONSOLE_HISTORY_LIMIT = 100;
 
 let remoteSupportInitializedChrome = null;
 
@@ -42,6 +43,8 @@ let offscreenDisconnectExpected = false;
 const consolePorts = new Set();
 const networkPorts = new Set();
 const portBindings = new WeakMap();
+const globalConsoleEntryHistory = [];
+const consoleEntryHistoryByTabId = new Map();
 
 function normalizeTabId(tabId) {
   if (typeof tabId !== "number" || !Number.isFinite(tabId)) {
@@ -70,10 +73,70 @@ function normalizeStateSnapshot(stateLike) {
   normalized.partnerConnected = Boolean(normalized.partnerConnected);
   normalized.streaming = Boolean(normalized.streaming);
   normalized.includePayloads = Boolean(normalized.includePayloads);
+  normalized.supporteeCameraAvailable = Boolean(normalized.supporteeCameraAvailable);
+  normalized.supporteeCameraEnabled = Boolean(normalized.supporteeCameraEnabled);
+  normalized.supporteeMicrophoneAvailable = Boolean(normalized.supporteeMicrophoneAvailable);
+  normalized.supporteeMicrophoneEnabled = Boolean(normalized.supporteeMicrophoneEnabled);
+  normalized.supporteeAudioAvailable = Boolean(normalized.supporteeAudioAvailable);
+  normalized.supporteeAudioEnabled = Boolean(normalized.supporteeAudioEnabled);
   normalized.tabId = normalizeTabId(normalized.tabId);
   normalized.controlOwner = normalizeControlOwner(normalized.controlOwner);
 
   return normalized;
+}
+
+function normalizeRequesterMediaState(mediaStateLike) {
+  const mediaState = mediaStateLike && typeof mediaStateLike === "object" ? mediaStateLike : {};
+  return {
+    cameraAvailable: Boolean(mediaState.cameraAvailable),
+    cameraEnabled: Boolean(mediaState.cameraAvailable) && Boolean(mediaState.cameraEnabled),
+    microphoneAvailable: Boolean(mediaState.microphoneAvailable),
+    microphoneEnabled: Boolean(mediaState.microphoneAvailable) && Boolean(mediaState.microphoneEnabled),
+    soundAvailable: Boolean(mediaState.soundAvailable),
+    soundEnabled: Boolean(mediaState.soundAvailable) && Boolean(mediaState.soundEnabled)
+  };
+}
+
+function applyRequesterMediaState(runtime, mediaStateLike) {
+  if (!runtime || !runtime.state) {
+    return normalizeRequesterMediaState(mediaStateLike);
+  }
+
+  const mediaState = normalizeRequesterMediaState(mediaStateLike);
+  runtime.state.supporteeCameraAvailable = mediaState.cameraAvailable;
+  runtime.state.supporteeCameraEnabled = mediaState.cameraEnabled;
+  runtime.state.supporteeMicrophoneAvailable = mediaState.microphoneAvailable;
+  runtime.state.supporteeMicrophoneEnabled = mediaState.microphoneEnabled;
+  runtime.state.supporteeAudioAvailable = mediaState.soundAvailable;
+  runtime.state.supporteeAudioEnabled = mediaState.soundEnabled;
+  return mediaState;
+}
+
+function getExtensionVersion() {
+  if (!chrome || !chrome.runtime || typeof chrome.runtime.getManifest !== "function") {
+    return "";
+  }
+
+  try {
+    const manifest = chrome.runtime.getManifest();
+    return manifest && typeof manifest.version === "string"
+      ? manifest.version.trim()
+      : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function createRequesterPeerMetadata(runtime) {
+  if (!runtime || !runtime.state) {
+    return null;
+  }
+
+  return {
+    platform: typeof runtime.state.supporteePlatform === "string" ? runtime.state.supporteePlatform : "",
+    userAgent: typeof runtime.state.supporteeUserAgent === "string" ? runtime.state.supporteeUserAgent : "",
+    extensionVersion: getExtensionVersion()
+  };
 }
 
 function hasActiveOffscreenTransportSessions() {
@@ -271,6 +334,89 @@ function getPortBoundTabId(port) {
   return normalizeTabId(binding.tabId);
 }
 
+function getPortIncludePayloads(port) {
+  const binding = portBindings.get(port);
+  return Boolean(binding && binding.includePayloads);
+}
+
+function setPortIncludePayloads(port, enabled) {
+  const binding = portBindings.get(port);
+  if (!binding) {
+    return false;
+  }
+
+  binding.includePayloads = Boolean(enabled);
+  return true;
+}
+
+function hasLocalPayloadCaptureEnabled(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId === null) {
+    return false;
+  }
+
+  return [...networkPorts].some(
+    (port) => getPortBoundTabId(port) === normalizedTabId && getPortIncludePayloads(port)
+  );
+}
+
+function trimConsoleHistory(history) {
+  if (!Array.isArray(history)) {
+    return;
+  }
+
+  if (history.length > REMOTE_SUPPORT_CONSOLE_HISTORY_LIMIT) {
+    history.splice(0, history.length - REMOTE_SUPPORT_CONSOLE_HISTORY_LIMIT);
+  }
+}
+
+function cloneConsoleEvent(event) {
+  return {
+    ...(event && typeof event === "object" ? event : {}),
+    entry: event && event.entry && typeof event.entry === "object"
+      ? { ...event.entry }
+      : {}
+  };
+}
+
+function rememberConsoleEntry(tabId, event) {
+  const normalizedTabId = normalizeTabId(tabId);
+  const entry = cloneConsoleEvent(event);
+
+  if (normalizedTabId === null) {
+    globalConsoleEntryHistory.push(entry);
+    trimConsoleHistory(globalConsoleEntryHistory);
+    return;
+  }
+
+  const history = consoleEntryHistoryByTabId.get(normalizedTabId) || [];
+  history.push(entry);
+  trimConsoleHistory(history);
+  consoleEntryHistoryByTabId.set(normalizedTabId, history);
+}
+
+function replayConsoleHistoryToPort(port, tabId) {
+  if (!port) {
+    return;
+  }
+
+  const normalizedTabId = normalizeTabId(tabId);
+  const histories = [globalConsoleEntryHistory];
+  if (normalizedTabId !== null) {
+    histories.push(consoleEntryHistoryByTabId.get(normalizedTabId) || []);
+  }
+
+  for (const history of histories) {
+    for (const event of history) {
+      try {
+        port.postMessage(cloneConsoleEvent(event));
+      } catch (error) {
+        return;
+      }
+    }
+  }
+}
+
 function postToPorts(ports, tabId, message) {
   const normalizedTabId = normalizeTabId(tabId);
   if (normalizedTabId === null) {
@@ -400,12 +546,15 @@ function broadcastConsoleEntry(runtime, entry) {
     return;
   }
 
-  postToPorts(consolePorts, runtime.state.tabId, {
+  const event = {
     type: "remoteSupportConsoleEntry",
     entry,
     tabId: runtime.state.tabId,
     sessionId: runtime.state.sessionId
-  });
+  };
+
+  rememberConsoleEntry(runtime.state.tabId, event);
+  postToPorts(consolePorts, runtime.state.tabId, event);
 }
 
 function broadcastNetworkEntry(runtime, entry) {
@@ -456,13 +605,21 @@ function clonePayloadForRuntime(runtime, payload) {
     return null;
   }
 
-  const nextPayload = {};
+  const payloadClone = {};
   for (const [key, value] of Object.entries(payload)) {
     if (typeof value !== "string") {
       continue;
     }
 
-    const clampedValue = clampPayloadSize(value, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
+    payloadClone[key] = clampPayloadSize(value, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
+  }
+
+  if (!Object.keys(payloadClone).length) {
+    return null;
+  }
+
+  const nextPayload = {};
+  for (const [key, clampedValue] of Object.entries(payloadClone)) {
     const byteLength = new TextEncoder().encode(clampedValue).length;
     if (runtime.payloadBudgetBytes + byteLength > REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES) {
       continue;
@@ -482,18 +639,54 @@ function sanitizeTelemetryEntryForRuntime(runtime, entry) {
   };
 }
 
+function clonePayloadForLocalPort(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const nextPayload = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    nextPayload[key] = clampPayloadSize(value, REMOTE_SUPPORT_PAYLOAD_MAX_BYTES);
+  }
+
+  return Object.keys(nextPayload).length ? nextPayload : null;
+}
+
+function sanitizeTelemetryEntryForLocalPort(entry, includePayloads) {
+  return {
+    ...(entry && typeof entry === "object" ? entry : {}),
+    payload: includePayloads ? clonePayloadForLocalPort(entry && entry.payload) : null
+  };
+}
+
 function postTelemetryToPorts(channel, tabId, message) {
   const ports = channel === "network" ? networkPorts : consolePorts;
   const normalizedTabId = normalizeTabId(tabId);
-
-  if (normalizedTabId !== null) {
-    postToPorts(ports, normalizedTabId, message);
-    return;
-  }
+  const requesterRuntime = normalizedTabId !== null ? getRequesterRuntimeForTab(normalizedTabId) : null;
 
   ports.forEach((port) => {
+    if (normalizedTabId !== null && getPortBoundTabId(port) !== normalizedTabId) {
+      return;
+    }
+
+    let nextMessage = message;
     try {
-      port.postMessage(message);
+      if (channel === "network") {
+        const includePayloads = Boolean(
+          getPortIncludePayloads(port) ||
+          (requesterRuntime && requesterRuntime.state && requesterRuntime.state.includePayloads)
+        );
+        nextMessage = {
+          ...(message && typeof message === "object" ? message : {}),
+          entry: sanitizeTelemetryEntryForLocalPort(message && message.entry, includePayloads)
+        };
+      }
+
+      port.postMessage(nextMessage);
     } catch (error) {
       // Ignore transient disconnect races.
     }
@@ -525,13 +718,16 @@ async function relayExtensionTelemetryToRuntimes(channel, entry, tabId) {
 
 export async function handleExtensionTelemetry(message, sender) {
   const { channel, tabId, entry } = normalizeTelemetryEntry(message, sender);
-  const localRuntime = tabId !== null ? getRequesterRuntimeForTab(tabId) : null;
   const event = {
     type: channel === "network" ? "remoteSupportNetworkEntry" : "remoteSupportConsoleEntry",
-    entry: sanitizeTelemetryEntryForRuntime(localRuntime, entry),
+    entry,
     tabId,
     sessionId: ""
   };
+
+  if (channel === "console") {
+    rememberConsoleEntry(tabId, event);
+  }
 
   postTelemetryToPorts(channel, tabId, event);
   await relayExtensionTelemetryToRuntimes(channel, entry, tabId);
@@ -545,7 +741,11 @@ function bindPortToTab(port, tabId) {
     return false;
   }
 
-  portBindings.set(port, { tabId: normalizedTabId });
+  const existingBinding = portBindings.get(port);
+  portBindings.set(port, {
+    tabId: normalizedTabId,
+    includePayloads: Boolean(existingBinding && existingBinding.includePayloads)
+  });
   try {
     port.postMessage({
       type: "remoteSupportStateChanged",
@@ -919,6 +1119,22 @@ async function sendRemoteSupportTransportDataRequest(runtime, messageType, paylo
   });
 }
 
+async function sendRemoteSupportTransportMediaStateRequest(runtime, control, enabled) {
+  if (shouldUseViewerTransport(runtime)) {
+    return {
+      ok: false,
+      error: "Local media controls are unavailable for the support viewer"
+    };
+  }
+
+  return sendRemoteSupportOffscreenRequest({
+    type: "remoteSupportTransportSetMediaState",
+    sessionId: runtime.state.sessionId,
+    control,
+    enabled: Boolean(enabled)
+  });
+}
+
 async function stopRemoteSupportTransport(runtimeOrSessionId, reason = "Session ended") {
   const runtime = typeof runtimeOrSessionId === "string"
     ? getRuntimeBySessionId(runtimeOrSessionId)
@@ -1079,23 +1295,39 @@ function isPrimaryTransportChannelKey(channelKey) {
 }
 
 async function requestTabCaptureStreamId(tabId) {
-  const normalizedTabId = normalizeTabId(tabId);
-  if (normalizedTabId === null) {
-    return "";
+  void tabId;
+  if (!chrome.desktopCapture || typeof chrome.desktopCapture.chooseDesktopMedia !== "function") {
+    return {
+      streamId: "",
+      canRequestAudioTrack: false
+    };
   }
 
-  if (!chrome.tabCapture || typeof chrome.tabCapture.getMediaStreamId !== "function") {
-    return "";
-  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (streamId, options = {}) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve({
+        streamId: typeof streamId === "string" ? streamId.trim() : "",
+        canRequestAudioTrack: Boolean(options && options.canRequestAudioTrack)
+      });
+    };
 
-  try {
-    const streamId = await chrome.tabCapture.getMediaStreamId({
-      targetTabId: normalizedTabId
-    });
-    return typeof streamId === "string" ? streamId.trim() : "";
-  } catch (error) {
-    return "";
-  }
+    try {
+      chrome.desktopCapture.chooseDesktopMedia(
+        ["screen", "audio"],
+        undefined,
+        (streamId, options) => {
+          finish(streamId, options);
+        }
+      );
+    } catch (error) {
+      finish("", { canRequestAudioTrack: false });
+    }
+  });
 }
 
 async function sendDataMessage(runtime, type, payload, channelKey = "") {
@@ -1112,6 +1344,37 @@ async function sendDataMessage(runtime, type, payload, channelKey = "") {
   } catch (error) {
     return false;
   }
+}
+
+async function setRequesterMediaEnabled(runtime, control, enabled) {
+  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return {
+      ok: false,
+      error: "Remote support session is not active",
+      state: getRuntimePublicState(runtime)
+    };
+  }
+
+  const normalizedControl = typeof control === "string" ? control.trim() : "";
+  if (!["camera", "microphone", "sound"].includes(normalizedControl)) {
+    return {
+      ok: false,
+      error: "Unsupported media control",
+      state: getRuntimePublicState(runtime)
+    };
+  }
+
+  const response = await sendRemoteSupportTransportMediaStateRequest(runtime, normalizedControl, enabled);
+  if (response && response.mediaState) {
+    applyRequesterMediaState(runtime, response.mediaState);
+    broadcastRuntimeState(runtime);
+  }
+
+  return {
+    ok: Boolean(response && response.ok),
+    error: response && typeof response.error === "string" ? response.error : "",
+    state: getRuntimePublicState(runtime)
+  };
 }
 
 function stopInactivityMonitor(runtime) {
@@ -1437,7 +1700,10 @@ export async function handleRequestSupportCode(message) {
 
   if (!reused) {
     try {
-      const mediaStreamId = await requestTabCaptureStreamId(tabId);
+      const displayCapture = await requestTabCaptureStreamId(tabId);
+      if (!displayCapture.streamId) {
+        throw new Error("Screen sharing was cancelled or unavailable");
+      }
       runtime.usesVideoStream = true;
       runtime.state.supporteePlatform = typeof navigator !== "undefined" && navigator.platform ? navigator.platform : "";
       runtime.state.supporteeUserAgent = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
@@ -1447,8 +1713,9 @@ export async function handleRequestSupportCode(message) {
         role: "requester",
         wsUrl,
         iceServers,
-        captureSource: "display",
-        ...(mediaStreamId ? { fallbackMediaStreamId: mediaStreamId } : {}),
+        captureSource: "screen",
+        mediaStreamId: displayCapture.streamId,
+        canRequestAudioTrack: displayCapture.canRequestAudioTrack,
         dataChannels: [
           { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
           { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
@@ -1575,6 +1842,7 @@ export async function handleJoinSupportSession(message) {
         role: "supporter",
         wsUrl,
         iceServers,
+        remoteParticipantName: typeof payload.partnerIdentity === "string" ? payload.partnerIdentity : "",
         dataChannels: [
           { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
           { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
@@ -1643,12 +1911,18 @@ export async function handleTransportEvent(message) {
       });
     }
 
-      if (
-        runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-        isPrimaryTransportChannelKey(event.channelKey)
-      ) {
-        await syncRequesterCursorSnapshot(runtime);
-      }
+    if (
+      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+      isPrimaryTransportChannelKey(event.channelKey)
+    ) {
+      await syncRequesterCursorSnapshot(runtime);
+      await sendDataMessage(
+        runtime,
+        "peer-metadata",
+        createRequesterPeerMetadata(runtime),
+        REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
+      );
+    }
 
     if (
       runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
@@ -1669,6 +1943,12 @@ export async function handleTransportEvent(message) {
 
   if (event.type === "video-state") {
     runtime.state.streaming = Boolean(event.active);
+    broadcastRuntimeState(runtime);
+    return { ok: true };
+  }
+
+  if (event.type === "media-state") {
+    applyRequesterMediaState(runtime, event.mediaState);
     broadcastRuntimeState(runtime);
     return { ok: true };
   }
@@ -1736,11 +2016,16 @@ export function handlePortConnection(port) {
     }
 
     if (message.type === "remoteSupportAttach") {
-      bindPortToTab(port, message.tabId);
+      const attached = bindPortToTab(port, message.tabId);
+      if (attached && port.name === REMOTE_SUPPORT_PORT_CONSOLE) {
+        replayConsoleHistoryToPort(port, message.tabId);
+      }
       return;
     }
 
     if (port.name === REMOTE_SUPPORT_PORT_NETWORK && message.type === "setIncludePayloads") {
+      setPortIncludePayloads(port, message.enabled);
+
       const runtime = getRuntimeByTabId(getPortBoundTabId(port));
       if (!runtime || runtime.state.mode !== REMOTE_SUPPORT_MODE_SUPPORTING) {
         return;
@@ -1852,6 +2137,11 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     return dismissRemoteSupportError(message, sender);
   }
 
+  if (message.type === "remoteSupportSetLocalMediaEnabled") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    return setRequesterMediaEnabled(runtime, message.control, message.enabled);
+  }
+
   if (message.type === "remoteSupportExtensionTelemetry") {
     return handleExtensionTelemetry(message, sender);
   }
@@ -1860,6 +2150,11 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
 }
 
 export async function handleRemoteSupportTabRemoved(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (normalizedTabId !== null) {
+    consoleEntryHistoryByTabId.delete(normalizedTabId);
+  }
+
   const runtime = getRuntimeByTabId(tabId);
   if (!runtime) {
     return;

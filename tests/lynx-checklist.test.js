@@ -149,7 +149,12 @@ test("merges repeated GraphQL page type groups and dedupes their candidate URLs"
 test("requires the AI confirmation before sending", () => {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,
-    markedPages
+    markedPages: [
+      { url: "https://example.com/", title: "Home", pageType: "homepage" },
+      { url: "https://example.com/article", title: "Article", pageType: "article" },
+      { url: "https://example.com/listing?page=1", title: "Listing", pageType: "listing" },
+      { url: "https://example.com/product-a", title: "Product", pageType: "product" }
+    ]
   });
 
   assert.equal(checklist.canSend, false);
@@ -163,6 +168,7 @@ test("disables AI question when selectors were never computed", () => {
   });
 
   assert.equal(promptState.aiQuestionDisabled, true);
+  assert.equal(promptState.aiQuestionHidden, false);
   assert.equal(promptState.aiAnswer, "");
 });
 
@@ -173,6 +179,7 @@ test("auto-confirms AI question when selectors were computed recently", () => {
   });
 
   assert.equal(promptState.aiQuestionDisabled, false);
+  assert.equal(promptState.aiQuestionHidden, true);
   assert.equal(promptState.aiAnswer, "yes");
 });
 
@@ -183,7 +190,26 @@ test("keeps AI question unanswered when selectors exist but are older", () => {
   });
 
   assert.equal(promptState.aiQuestionDisabled, false);
+  assert.equal(promptState.aiQuestionHidden, false);
   assert.equal(promptState.aiAnswer, "");
+});
+
+test("prioritizes missing page types before AI confirmation when coverage is incomplete", () => {
+  const checklist = buildLynxChecklistViewModel({
+    aiAnswer: "",
+    pageTypes: propertyPageTypes,
+    markedPages: [
+      { url: "https://example.com/", title: "Home", pageType: "homepage" },
+      { url: "https://example.com/article", title: "Article", pageType: "article" },
+      { url: "https://example.com/listing?page=1", title: "Listing", pageType: "listing" }
+    ]
+  });
+
+  assert.equal(checklist.canSend, false);
+  assert.deepEqual(checklist.blockingReason, {
+    code: "missing_page_types",
+    pageTypeKeys: ["product"]
+  });
 });
 
 test("reports missing page types until each current type has at least one marked page", () => {

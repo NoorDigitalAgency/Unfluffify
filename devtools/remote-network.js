@@ -1,9 +1,18 @@
 import { REMOTE_SUPPORT_PORT_NETWORK } from "../common/remote-support.js";
-import { formatSourceLabel } from "../common/devtools-helpers.js";
+import {
+  DEVTOOLS_SOURCE_FILTER_ALL,
+  formatSourceLabel,
+  getDevtoolsSourceFilterOptions,
+  matchesDevtoolsSourceFilter
+} from "../common/devtools-helpers.js";
 
 const rows = document.getElementById("rows");
 const includePayloads = document.getElementById("include-payloads");
+const sourceFilter = document.getElementById("source-filter");
 const clearButton = document.getElementById("clear");
+const networkEntries = [];
+
+let selectedSource = DEVTOOLS_SOURCE_FILTER_ALL;
 
 const port = chrome.runtime.connect({ name: REMOTE_SUPPORT_PORT_NETWORK });
 const inspectedTabId = chrome.devtools && chrome.devtools.inspectedWindow
@@ -32,10 +41,7 @@ function downloadPayload(entry) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function appendEntry(entry) {
-  if (!rows) {
-    return;
-  }
+function createEntryRow(entry) {
   const tr = document.createElement("tr");
   const timestamp = Number(entry.completedAt || entry.startedAt) || Date.now();
   const date = new Date(timestamp).toISOString();
@@ -91,7 +97,51 @@ function appendEntry(entry) {
     button.addEventListener("click", () => downloadPayload(entry));
     tdPayload.appendChild(button);
   }
-  rows.prepend(tr);
+
+  return tr;
+}
+
+function renderSourceFilterOptions() {
+  if (!sourceFilter) {
+    return;
+  }
+
+  const options = getDevtoolsSourceFilterOptions(networkEntries);
+  const fragment = document.createDocumentFragment();
+  for (const optionLike of options) {
+    const option = document.createElement("option");
+    option.value = optionLike.value;
+    option.textContent = optionLike.label;
+    fragment.appendChild(option);
+  }
+
+  if (!options.some((option) => option.value === selectedSource)) {
+    selectedSource = DEVTOOLS_SOURCE_FILTER_ALL;
+  }
+
+  sourceFilter.replaceChildren(fragment);
+  sourceFilter.value = selectedSource;
+}
+
+function renderEntries() {
+  if (!rows) {
+    return;
+  }
+
+  rows.innerHTML = "";
+  for (const entry of networkEntries) {
+    if (!matchesDevtoolsSourceFilter(entry, selectedSource)) {
+      continue;
+    }
+
+    rows.appendChild(createEntryRow(entry));
+  }
+}
+
+function addEntry(entry) {
+  networkEntries.unshift(entry && typeof entry === "object" ? entry : {});
+  renderSourceFilterOptions();
+  renderEntries();
 }
 
 port.onMessage.addListener((message) => {
@@ -101,18 +151,29 @@ port.onMessage.addListener((message) => {
   if (message.type === "remoteSupportStateChanged") {
     const s = message.state;
     if (s && includePayloads) {
-      includePayloads.checked = Boolean(s.includePayloads);
-      includePayloads.disabled = !(s.active && s.mode === "supporting");
+      if (s.active) {
+        includePayloads.checked = Boolean(s.includePayloads);
+      }
+      includePayloads.disabled = !Number.isFinite(inspectedTabId);
     }
     return;
   }
   if (message.type !== "remoteSupportNetworkEntry") {
     return;
   }
-  appendEntry(message.entry || {});
+  addEntry(message.entry || {});
 });
 
+if (sourceFilter) {
+  renderSourceFilterOptions();
+  sourceFilter.addEventListener("change", () => {
+    selectedSource = sourceFilter.value || DEVTOOLS_SOURCE_FILTER_ALL;
+    renderEntries();
+  });
+}
+
 if (includePayloads) {
+  includePayloads.disabled = !Number.isFinite(inspectedTabId);
   includePayloads.addEventListener("change", () => {
     port.postMessage({
       type: "setIncludePayloads",
@@ -123,9 +184,9 @@ if (includePayloads) {
 
 if (clearButton) {
   clearButton.addEventListener("click", () => {
-    if (!rows) {
-      return;
-    }
-    rows.innerHTML = "";
+    networkEntries.length = 0;
+    selectedSource = DEVTOOLS_SOURCE_FILTER_ALL;
+    renderSourceFilterOptions();
+    renderEntries();
   });
 }

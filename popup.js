@@ -58,7 +58,13 @@ import {
 import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
+import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
 import * as stateModule from "./popup/state.js";
+import {
+  getPopupTelemetryIncludePayloads,
+  getPopupTelemetryTabId,
+  logPopupReady
+} from "./popup/telemetry.js";
 import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
@@ -114,22 +120,10 @@ import {
 
 const { state } = stateModule;
 
-function getPopupTelemetryTabId() {
-  return state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-}
-
-function getPopupTelemetryIncludePayloads() {
-  const currentTabId = getPopupTelemetryTabId();
-  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
-  return Boolean(scopedState.active && scopedState.includePayloads);
-}
-
 installExtensionTelemetry({
   source: "popup",
-  getTabId: getPopupTelemetryTabId,
-  getIncludePayloads: getPopupTelemetryIncludePayloads
+  getTabId: () => getPopupTelemetryTabId(state),
+  getIncludePayloads: () => getPopupTelemetryIncludePayloads(state)
 });
 
 function resetPropertyLockState() {
@@ -1544,6 +1538,11 @@ async function getStoredGlobalToken(options = {}) {
 
 function formatSyncStatusTimestamp(value = Date.now()) {
   try {
+    return new Date(value).toLocaleTimeString();
+  } catch (error) {
+    return "";
+  }
+}
 
 async function removePageMarkingFromRemote(options = {}) {
   const {
@@ -1553,9 +1552,9 @@ async function removePageMarkingFromRemote(options = {}) {
     url = ""
   } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
-  const normalizedUrl = normalizeCandidatePageUrl(url);
+  const pageUrl = typeof url === "string" ? url.trim() : "";
   const removeUrl = resolveRelativeEndpoint(endpointValue, "/remove");
-  if (!removeUrl || !normalizedSiteId || !normalizedUrl) {
+  if (!removeUrl || !normalizedSiteId || !pageUrl) {
     return { ok: false, skipped: true };
   }
   const response = await fetch(removeUrl, {
@@ -1563,7 +1562,7 @@ async function removePageMarkingFromRemote(options = {}) {
     headers: createConfigSyncHeaders(tokenValue),
     body: JSON.stringify({
       siteId: normalizedSiteId,
-      url: normalizedUrl
+      url: pageUrl
     })
   });
   await maybeUpdateStoredTokenFromResponse(response, tokenValue);
@@ -1582,11 +1581,11 @@ async function pruneRemoteInvalidPageMarkings(options = {}) {
     return;
   }
   for (const value of invalidUrls) {
-    const normalizedUrl = normalizeCandidatePageUrl(value);
-    if (!normalizedUrl) {
+    const pageUrl = typeof value === "string" ? value.trim() : "";
+    if (!pageUrl) {
       continue;
     }
-    const removalKey = `${normalizedSiteId}|${normalizedUrl}`;
+    const removalKey = `${normalizedSiteId}|${pageUrl}`;
     if (state.removedRemotePageKeys.has(removalKey)) {
       continue;
     }
@@ -1595,7 +1594,7 @@ async function pruneRemoteInvalidPageMarkings(options = {}) {
         endpointValue,
         tokenValue,
         siteId: normalizedSiteId,
-        url: normalizedUrl
+        url: pageUrl
       });
       if (result.ok) {
         state.removedRemotePageKeys.add(removalKey);
@@ -1605,10 +1604,48 @@ async function pruneRemoteInvalidPageMarkings(options = {}) {
     }
   }
 }
-    return new Date(value).toLocaleTimeString();
-  } catch (error) {
-    return "";
+
+async function pruneLocalInvalidPageMarkings(options = {}) {
+  const {
+    baseUrl = "",
+    invalidUrls = []
+  } = options;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !Array.isArray(invalidUrls) || !invalidUrls.length) {
+    return [];
   }
+  const exactInvalidUrls = new Set(
+    invalidUrls
+      .filter((url) => typeof url === "string" && url.trim())
+      .map((url) => url.trim())
+  );
+  const normalizedInvalidUrls = new Set(
+    Array.from(exactInvalidUrls)
+      .map((url) => normalizeCandidatePageUrl(url))
+      .filter(Boolean)
+  );
+  if (!exactInvalidUrls.size && !normalizedInvalidUrls.size) {
+    return [];
+  }
+  const configs = await config.getConfigs();
+  const sourceConfig = configs[normalizedBaseUrl];
+  if (!sourceConfig || !sourceConfig.pageMarkings || typeof sourceConfig.pageMarkings !== "object") {
+    return [];
+  }
+  const nextConfig = config.normalizeConfig(normalizedBaseUrl, sourceConfig).config;
+  const removedUrls = [];
+  Object.keys(nextConfig.pageMarkings || {}).forEach((url) => {
+    const normalizedUrl = normalizeCandidatePageUrl(url);
+    if (exactInvalidUrls.has(url) || (normalizedUrl && normalizedInvalidUrls.has(normalizedUrl))) {
+      delete nextConfig.pageMarkings[url];
+      removedUrls.push(url);
+    }
+  });
+  if (removedUrls.length) {
+    configs[normalizedBaseUrl] = nextConfig;
+    await config.saveConfigs(configs);
+  }
+  return removedUrls;
 }
 
 function getConfigLoadStatusTone(status) {
@@ -1892,13 +1929,17 @@ function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
 }
 
 async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
+  const invalidLoadedUrls = config.collectInvalidPageMarkingUrls(
+    payload && typeof payload === "object" ? payload.pageMarkings : null
+  );
   const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
     return {
       ok: false,
       changed: false,
       replacedCurrentPage: false,
-      baseUrl: ""
+      baseUrl: "",
+      invalidLoadedUrls: []
     };
   }
   const baseUrl = normalizedPayload.baseUrl;
@@ -1942,11 +1983,16 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     allConfigs[baseUrl] = localConfig;
     await config.saveConfigs(allConfigs);
   }
+  const prunedInvalidUrls = await pruneLocalInvalidPageMarkings({
+    baseUrl,
+    invalidUrls: invalidLoadedUrls
+  });
   return {
     ok: true,
-    changed: shouldSave,
+    changed: shouldSave || prunedInvalidUrls.length > 0,
     replacedCurrentPage: mergeResult.replacedExistingUrls.includes(currentPageUrl),
-    baseUrl
+    baseUrl,
+    invalidLoadedUrls
   };
 }
 
@@ -2019,6 +2065,12 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       updateLastConfigLoadStatus(result);
       return result;
     }
+    await pruneRemoteInvalidPageMarkings({
+      endpointValue,
+      tokenValue,
+      siteId,
+      invalidUrls: mergeResult.invalidLoadedUrls || []
+    });
     if (mergeResult.changed && mergeResult.baseUrl) {
       await messages.sendTabMessageWithRetry({
         type: "configUpdated",
@@ -2156,6 +2208,12 @@ async function syncBaseConfigToServer(options = {}) {
       if (!mergeResult.ok) {
         return { ok: false };
       }
+      await pruneRemoteInvalidPageMarkings({
+        endpointValue,
+        tokenValue: currentTokenValue,
+        siteId: siteIdResult.siteId,
+        invalidUrls: mergeResult.invalidLoadedUrls || []
+      });
       if (mergeResult.changed && mergeResult.baseUrl) {
         await messages.sendTabMessageWithRetry({
           type: "configUpdated",
@@ -2348,13 +2406,16 @@ async function hideConsentForRenderModeInspection() {
   return Boolean(hideResponse && hideResponse.ok);
 }
 
-async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
+async function waitForTabLoadComplete(tabId, timeoutMs = 8000, options = {}) {
   if (!tabId) {
     return false;
   }
 
+  const awaitNextLoad = Boolean(options && options.awaitNextLoad);
+
   return new Promise((resolve) => {
     let settled = false;
+    let sawLoading = !awaitNextLoad;
 
     const finish = (value) => {
       if (settled) {
@@ -2370,7 +2431,11 @@ async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
       if (updatedTabId !== tabId) {
         return;
       }
-      if (changeInfo && changeInfo.status === "complete") {
+      if (changeInfo && changeInfo.status === "loading") {
+        sawLoading = true;
+        return;
+      }
+      if (changeInfo && changeInfo.status === "complete" && sawLoading) {
         finish(true);
       }
     };
@@ -2385,7 +2450,7 @@ async function waitForTabLoadComplete(tabId, timeoutMs = 8000) {
         finish(false);
         return;
       }
-      if (tab && tab.status === "complete") {
+      if (!awaitNextLoad && tab && tab.status === "complete") {
         finish(true);
       }
     });
@@ -2822,6 +2887,12 @@ async function refreshUiInner() {
   nextViewState.remoteSupportPageVisible = remoteSupportPageVisible;
   nextViewState.remoteSupportConnected = Boolean(scopedRemoteSupportState.connected);
   nextViewState.remoteSupportStreaming = Boolean(scopedRemoteSupportState.streaming);
+  nextViewState.remoteSupportCameraAvailable = Boolean(scopedRemoteSupportState.supporteeCameraAvailable);
+  nextViewState.remoteSupportCameraEnabled = Boolean(scopedRemoteSupportState.supporteeCameraEnabled);
+  nextViewState.remoteSupportMicrophoneAvailable = Boolean(scopedRemoteSupportState.supporteeMicrophoneAvailable);
+  nextViewState.remoteSupportMicrophoneEnabled = Boolean(scopedRemoteSupportState.supporteeMicrophoneEnabled);
+  nextViewState.remoteSupportSoundAvailable = Boolean(scopedRemoteSupportState.supporteeAudioAvailable);
+  nextViewState.remoteSupportSoundEnabled = Boolean(scopedRemoteSupportState.supporteeAudioEnabled);
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
@@ -3003,7 +3074,54 @@ async function refreshUiInner() {
       resetPropertyPageTypesState();
     }
   }
-  const pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+  let pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+  const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
+  let invalidStoredPageUrlsForRemote = [];
+  let removedStoredCurrentPageEntry = false;
+  if (propertyPageTypes.length && state.currentBaseUrl) {
+    const initialStoredPageMarkingItems = collectStoredPageMarkingItems(
+      pageMarkings,
+      state.currentBaseUrl
+    );
+    const initialCoverageModel = buildLynxChecklistViewModel({
+      aiAnswer: state.lynxChecklistAiAnswer,
+      pageTypes: propertyPageTypes,
+      markedPages: initialStoredPageMarkingItems
+    });
+    invalidStoredPageUrlsForRemote = Array.from(
+      new Set(
+        initialCoverageModel.invalidMarkedPages
+          .map((item) => (item && typeof item.url === "string" ? item.url.trim() : ""))
+          .filter(Boolean)
+      )
+    );
+    removedStoredCurrentPageEntry = invalidStoredPageUrlsForRemote.some(
+      (url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl
+    );
+    if (invalidStoredPageUrlsForRemote.length) {
+      const removedInvalidUrls = await pruneLocalInvalidPageMarkings({
+        baseUrl: state.currentBaseUrl,
+        invalidUrls: invalidStoredPageUrlsForRemote
+      });
+      if (removedInvalidUrls.length) {
+        configs = await config.getConfigs();
+        state.currentConfig = config.normalizeConfig(
+          state.currentBaseUrl,
+          configs[state.currentBaseUrl]
+        ).config;
+        pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+        if (currentTabId) {
+          await messages.sendTabMessageWithRetry({
+            type: "configUpdated",
+            baseUrl: state.currentBaseUrl,
+            forceReloadPageEntry: removedInvalidUrls.some(
+              (url) => normalizeCandidatePageUrl(url) === normalizedCurrentPageUrl
+            )
+          }, 2);
+        }
+      }
+    }
+  }
   const storedPageMarkingItems = collectStoredPageMarkingItems(
     pageMarkings,
     state.currentBaseUrl
@@ -3021,7 +3139,6 @@ async function refreshUiInner() {
   const pageMarkingItemByKey = new Map(
     storedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
   );
-  const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
   const hasStoredCurrentPageEntry = storedPageMarkingItems.some(
     (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
   );
@@ -3295,6 +3412,7 @@ async function refreshUiInner() {
     ? state.lynxChecklistPageTypes
     : [];
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
+  nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
   nextViewState.renderModeInputDisabled =
     aiBusy ||
@@ -3486,7 +3604,7 @@ async function refreshUiInner() {
   nextViewState.pageTypeNoticeText = currentPageCandidateState.status === "duplicate"
     ? PopupText.pageTypes.duplicateCurrentPage
     : currentPageCandidateState.status === "missing"
-      ? hasStoredCurrentPageEntry
+      ? (hasStoredCurrentPageEntry || removedStoredCurrentPageEntry)
         ? PopupText.pageTypes.removedCurrentPage
         : PopupText.pageTypes.blockedCurrentPage
       : currentPageCandidateState.status === "empty"
@@ -3512,8 +3630,8 @@ async function refreshUiInner() {
     ? PopupText.pageTypes.markRequirement
     : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
   if (
-    pageTypeCoverageModel.pageTypes.length &&
-    pageTypeCoverageModel.invalidMarkedPages.length &&
+    propertyPageTypes.length &&
+    invalidStoredPageUrlsForRemote.length &&
     configEndpointValue &&
     tokenValue &&
     liveSiteId
@@ -3522,9 +3640,7 @@ async function refreshUiInner() {
       endpointValue: configEndpointValue,
       tokenValue,
       siteId: liveSiteId,
-      invalidUrls: Array.from(
-        new Set(pageTypeCoverageModel.invalidMarkedPages.map((item) => item.url).filter(Boolean))
-      )
+      invalidUrls: invalidStoredPageUrlsForRemote
     }).then();
   }
 
@@ -3737,20 +3853,19 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 
   await runWithPopupBusyOverlay(PopupText.overlay.pleaseWait, async () => {
+    const loadCompletePromise = waitForTabLoadComplete(tabId, 8000, {
+      awaitNextLoad: true
+    });
     const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
-    if (!result || !result.ok) {
-      uiModule.showToast((result && result.error) || PopupText.renderMode.toastInspectReloadFailed);
+    const loadCompleted = await loadCompletePromise;
+    const outcome = resolveRenderModeInspectionReloadOutcome(result, loadCompleted, javaScriptDisabled);
+    if (!outcome.ok) {
+      uiModule.showToast(outcome.toast);
       return;
     }
 
-    await waitForTabLoadComplete(tabId);
     await hideConsentForRenderModeInspection();
-
-    uiModule.showToast(
-      javaScriptDisabled
-        ? PopupText.renderMode.toastInspectWithoutJavaScriptStarted
-        : PopupText.renderMode.toastInspectWithJavaScriptStarted
-    );
+    uiModule.showToast(outcome.toast);
   });
 }
 
@@ -3821,6 +3936,7 @@ function setLynxChecklistViewState() {
       ? state.lynxChecklistPageTypes
       : [],
     lynxChecklistAiQuestionDisabled: Boolean(state.lynxChecklistAiQuestionDisabled),
+    lynxChecklistAiQuestionHidden: Boolean(state.lynxChecklistAiQuestionHidden),
     lynxChecklistNoticeText: state.lynxChecklistNoticeText || ""
   });
 }
@@ -3850,6 +3966,7 @@ function resetLynxChecklistState() {
     ? state.propertyPageTypes
     : initial.pageTypes;
   state.lynxChecklistAiQuestionDisabled = promptState.aiQuestionDisabled;
+  state.lynxChecklistAiQuestionHidden = Boolean(promptState.aiQuestionHidden);
   state.lynxChecklistNoticeText = hasCalculatedSelectors
     ? ""
     : PopupText.lynxChecklist.noticeRunAiDetectionFirst;
@@ -4041,6 +4158,12 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportCode: nextState.supportCode || "",
     remoteSupportConnected: Boolean(nextState.connected),
     remoteSupportStreaming: Boolean(nextState.streaming),
+    remoteSupportCameraAvailable: Boolean(nextState.supporteeCameraAvailable),
+    remoteSupportCameraEnabled: Boolean(nextState.supporteeCameraEnabled),
+    remoteSupportMicrophoneAvailable: Boolean(nextState.supporteeMicrophoneAvailable),
+    remoteSupportMicrophoneEnabled: Boolean(nextState.supporteeMicrophoneEnabled),
+    remoteSupportSoundAvailable: Boolean(nextState.supporteeAudioAvailable),
+    remoteSupportSoundEnabled: Boolean(nextState.supporteeAudioEnabled),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
@@ -5016,6 +5139,68 @@ async function handleRemoteSupportEnd() {
   syncRemoteSupportViewState(state.remoteSupportState);
   uiModule.setViewState({ remoteSupportPreviewImage: "" });
   await refreshUi();
+}
+
+async function handleRemoteSupportLocalMediaToggle(control) {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : undefined;
+  if (!Number.isFinite(currentTabId)) {
+    return;
+  }
+
+  const scopedState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  if (!scopedState.active || scopedState.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    return;
+  }
+
+  const mediaStateByControl = {
+    camera: {
+      available: Boolean(scopedState.supporteeCameraAvailable),
+      enabled: Boolean(scopedState.supporteeCameraEnabled)
+    },
+    microphone: {
+      available: Boolean(scopedState.supporteeMicrophoneAvailable),
+      enabled: Boolean(scopedState.supporteeMicrophoneEnabled)
+    },
+    sound: {
+      available: Boolean(scopedState.supporteeAudioAvailable),
+      enabled: Boolean(scopedState.supporteeAudioEnabled)
+    }
+  };
+
+  const currentMediaState = mediaStateByControl[control];
+  if (!currentMediaState || !currentMediaState.available) {
+    return;
+  }
+
+  const response = await messages.sendRuntimeMessage({
+    type: "remoteSupportSetLocalMediaEnabled",
+    tabId: currentTabId,
+    sessionId: typeof scopedState.sessionId === "string" ? scopedState.sessionId : "",
+    control,
+    enabled: !currentMediaState.enabled
+  });
+
+  if (!response || !response.ok) {
+    uiModule.showToast((response && response.error) || "Unable to update remote support media");
+    return;
+  }
+
+  state.remoteSupportState = response.state || await fetchRemoteSupportState(currentTabId);
+  syncRemoteSupportViewState(state.remoteSupportState);
+}
+
+async function handleRemoteSupportCameraToggle() {
+  await handleRemoteSupportLocalMediaToggle("camera");
+}
+
+async function handleRemoteSupportMicrophoneToggle() {
+  await handleRemoteSupportLocalMediaToggle("microphone");
+}
+
+async function handleRemoteSupportSoundToggle() {
+  await handleRemoteSupportLocalMediaToggle("sound");
 }
 
 async function handleRemoteSupportErrorDismiss(event) {
@@ -6587,6 +6772,7 @@ function scheduleRefresh() {
 
 async function init() {
   await helpers.ensureActiveTab();
+  logPopupReady(console, state);
   await ensureThemeSettings();
 
   uiModule.initUi({
@@ -6653,6 +6839,9 @@ async function init() {
     onRemoteSupportJoinCodeInput: handleRemoteSupportJoinCodeInput,
     onRemoteSupportJoin: handleRemoteSupportJoin,
     onRemoteSupportEnd: handleRemoteSupportEnd,
+    onRemoteSupportCameraToggle: handleRemoteSupportCameraToggle,
+    onRemoteSupportMicrophoneToggle: handleRemoteSupportMicrophoneToggle,
+    onRemoteSupportSoundToggle: handleRemoteSupportSoundToggle,
     onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
     onPropertyLockTake: handlePropertyLockTake,
     onPropertyLockSuggest: handlePropertyLockSuggest,

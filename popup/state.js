@@ -98,5 +98,6 @@ export const state = {
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
   lynxChecklistAiQuestionDisabled: false,
+  lynxChecklistAiQuestionHidden: false,
   lynxChecklistNoticeText: ""
 };

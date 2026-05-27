@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  collectInvalidPageMarkingUrls,
   buildPageSaveReconciliationKey,
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
@@ -36,6 +37,58 @@ test("normalizeConfig drops legacy page markings without pageType", () => {
 
   assert.deepEqual(Object.keys(normalized.pageMarkings), ["https://example.com/current"]);
   assert.equal(normalized.pageMarkings["https://example.com/current"].pageType, "article");
+});
+
+test("normalizeConfig drops legacy page markings with unsupported page types", () => {
+  const normalized = normalizeConfig("https://example.com", {
+    pageMarkings: {
+      "https://example.com/legacy": {
+        timestamp: "2026-01-01T00:00:00Z",
+        pageType: "custom_page_type",
+        xpaths: [{ xpath: "/html/body/main", excluded: true }],
+        includeXpaths: [],
+        consentXpaths: [],
+        submissionXpaths: [],
+        renderedHtml: "<main></main>",
+        rawHtml: "<main></main>"
+      },
+      "https://example.com/current": {
+        timestamp: "2026-01-01T00:00:00Z",
+        pageType: "article",
+        xpaths: [{ xpath: "/html/body/article", excluded: true }],
+        includeXpaths: [],
+        consentXpaths: [],
+        submissionXpaths: [],
+        renderedHtml: "<article></article>",
+        rawHtml: "<article></article>"
+      }
+    }
+  }).config;
+
+  assert.deepEqual(Object.keys(normalized.pageMarkings), ["https://example.com/current"]);
+  assert.equal(normalized.pageMarkings["https://example.com/current"].pageType, "article");
+});
+
+test("collectInvalidPageMarkingUrls returns raw URLs for legacy missing or unsupported page types", () => {
+  assert.deepEqual(
+    collectInvalidPageMarkingUrls({
+      "https://example.com/missing": {
+        timestamp: "2026-01-01T00:00:00Z"
+      },
+      "https://example.com/unsupported": {
+        timestamp: "2026-01-01T00:00:00Z",
+        pageType: "custom_page_type"
+      },
+      "https://example.com/current": {
+        timestamp: "2026-01-01T00:00:00Z",
+        pageType: "article"
+      }
+    }),
+    [
+      "https://example.com/missing",
+      "https://example.com/unsupported"
+    ]
+  );
 });
 
 test("createConfigSyncPayload keeps pageType on synced page markings", () => {

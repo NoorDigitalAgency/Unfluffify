@@ -876,16 +876,16 @@ button.button-small {
 }
 
 .lynx-checklist-popover__card {
-  gap: 4px;
+  gap: 6px;
 }
 
 .lynx-checklist-popover__section {
   display: grid;
-  gap: 4px;
+  gap: 8px;
 }
 
 .lynx-checklist-popover__section:not(:last-of-type) {
-  margin-bottom: 4px;
+  margin-bottom: 10px;
 }
 
 .lynx-checklist-popover__question {
@@ -897,7 +897,7 @@ button.button-small {
 .lynx-checklist-popover__choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
 .lynx-checklist-popover__choice {
@@ -924,13 +924,13 @@ button.button-small {
 
 .lynx-checklist-popover__page-types {
   display: grid;
-  gap: 4px;
+  gap: 8px;
 }
 
 .lynx-checklist-popover__page-type {
   display: grid;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--bg);
@@ -989,7 +989,7 @@ button.button-small {
 
 .lynx-checklist-popover__candidate-hints {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1033,11 +1033,12 @@ button.button-small {
 }
 
 .lynx-checklist-popover__invalid-hint {
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .lynx-checklist-popover__actions {
   align-items: center;
+  margin-top: 2px;
 }
 
 .hint {
@@ -1092,6 +1093,60 @@ button.button-small {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.remote-support-controller__actions--compact {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.remote-support-controller__media-button {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg-accent);
+  color: var(--muted);
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.remote-support-controller__media-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-light) 58%, var(--bg-accent));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  color: var(--accent-dark);
+}
+
+.remote-support-controller__media-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+
+.remote-support-controller__media-button.is-active {
+  color: var(--accent-dark);
+}
+
+.remote-support-controller__media-button.is-off {
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-accent));
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+  color: var(--danger);
+}
+
+.remote-support-controller__media-button:disabled {
+  opacity: 0.48;
+}
+
+.remote-support-controller__media-button .btn-icon {
+  margin-right: 0;
+  font-size: 14px;
 }
 
 .remote-support-card .field {
@@ -2511,7 +2566,40 @@ span.todo-candidate-link {
 .close-bar {
   display: flex;
   align-items: center;
+  gap: 8px;
+  min-height: 22px;
   padding: 0 2px 6px 2px;
+}
+
+button.close-bar__stop-sharing {
+  margin-left: auto;
+  min-height: 20px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  gap: 4px;
+}
+
+button.close-bar__stop-sharing:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
+}
+
+button.close-bar__stop-sharing:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+
+.close-bar__stop-sharing .btn-icon {
+  margin-right: 0;
+  font-size: 12px;
 }
 
 .close-button {

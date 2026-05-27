@@ -16,6 +16,17 @@ export const RENDER_MODE_STATIC = "static";
 export const RENDER_MODE_RENDERED = "rendered";
 /** Default render mode is static */
 export const DEFAULT_RENDER_MODE = RENDER_MODE_STATIC;
+const SUPPORTED_PAGE_TYPE_KEYS = Object.freeze(new Set([
+  "homepage",
+  "article",
+  "listing",
+  "category",
+  "product",
+  "service_page",
+  "company",
+  "landing_page",
+  "utility"
+]));
 const SELECTOR_SET_FIELD = "selectors";
 const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
@@ -285,6 +296,28 @@ function normalizePageTypeValue(value) {
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
+}
+
+export function isSupportedPageTypeValue(value) {
+  const normalized = normalizePageTypeValue(value);
+  return Boolean(normalized && SUPPORTED_PAGE_TYPE_KEYS.has(normalized));
+}
+
+export function collectInvalidPageMarkingUrls(pageMarkings) {
+  const invalidUrls = [];
+  if (!pageMarkings || typeof pageMarkings !== "object") {
+    return invalidUrls;
+  }
+  Object.entries(pageMarkings).forEach(([url, entry]) => {
+    if (!url || !entry || typeof entry !== "object") {
+      return;
+    }
+    const pageType = normalizePageTypeValue(entry.pageType);
+    if (!pageType || !SUPPORTED_PAGE_TYPE_KEYS.has(pageType)) {
+      invalidUrls.push(url);
+    }
+  });
+  return invalidUrls;
 }
 
 function normalizeXpathItems(rawXpaths) {
@@ -573,9 +606,10 @@ export function createDefaultConfig(baseUrl) {
 
 export function normalizePageMarkings(pageMarkings) {
   const normalized = {};
+  const removedUrls = [];
   let changed = false;
   if (!pageMarkings || typeof pageMarkings !== "object") {
-    return { normalized, changed };
+    return { normalized, changed, removedUrls };
   }
   Object.entries(pageMarkings).forEach(([url, entry]) => {
     if (!url || !entry || typeof entry !== "object") {
@@ -648,6 +682,12 @@ export function normalizePageMarkings(pageMarkings) {
     }
     if (!pageType) {
       changed = true;
+      removedUrls.push(url);
+      return;
+    }
+    if (!SUPPORTED_PAGE_TYPE_KEYS.has(pageType)) {
+      changed = true;
+      removedUrls.push(url);
       return;
     }
     if (entry.renderMode !== undefined) {
@@ -670,7 +710,7 @@ export function normalizePageMarkings(pageMarkings) {
     }
     normalized[url] = normalizedEntry;
   });
-  return { normalized, changed };
+  return { normalized, changed, removedUrls };
 }
 
 export function normalizeAiSelectorSet(value) {

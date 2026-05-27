@@ -7,6 +7,7 @@
       body { font-family: system-ui, sans-serif; margin: 0; }
       .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 10px; }
       .toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+      .toolbar select { font: inherit; }
       table { width: 100%; border-collapse: collapse; font-size: 12px; }
       th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -17,6 +18,7 @@
   <body>
     <div class="toolbar">
       <strong>Unfluffify network stream</strong>
+      <label>Source <select id="source-filter"></select></label>
       <label><input type="checkbox" id="include-payloads" /> Include payloads</label>
       <button id="clear" type="button">Clear</button>
     </div>

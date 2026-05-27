@@ -135,6 +135,19 @@ function resolveTabId(options) {
   }
 }
 
+function sendRuntimeTelemetryMessage(message) {
+  if (
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.sendMessage !== "function"
+  ) {
+    return;
+  }
+
+  const result = chrome.runtime.sendMessage(message);
+  Promise.resolve(result).catch(() => {});
+}
+
 function postTelemetryMessage(options, channel, entry) {
   if (!shouldInstallTelemetry(options)) {
     return;
@@ -163,13 +176,7 @@ function postTelemetryMessage(options, channel, entry) {
       return;
     }
 
-    if (
-      globalThis.chrome &&
-      chrome.runtime &&
-      typeof chrome.runtime.sendMessage === "function"
-    ) {
-      chrome.runtime.sendMessage(message).catch(() => {});
-    }
+    sendRuntimeTelemetryMessage(message);
   } catch (error) {
     // Ignore telemetry failures; instrumentation must never affect product behavior.
   }

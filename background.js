@@ -73,6 +73,7 @@ installExtensionTelemetry({
     return handleRemoteSupportBackgroundMessage(message, {});
   }
 });
+console.info("Unfluffify background worker ready");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {

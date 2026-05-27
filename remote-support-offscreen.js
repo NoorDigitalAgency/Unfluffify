@@ -49,7 +49,11 @@ function normalizeMediaStreamId(value) {
 }
 
 function normalizeCaptureSource(value) {
-  return value === "display" || value === "tab" ? value : "display";
+  return value === "display" || value === "tab" || value === "screen" ? value : "display";
+}
+
+function normalizeBooleanFlag(value) {
+  return value === true;
 }
 
 function normalizeTransportStateValue(value) {
@@ -337,6 +341,7 @@ function createTransportRuntime(session) {
     wsUrl: session.wsUrl.trim(),
     mediaStreamId: normalizeMediaStreamId(session.mediaStreamId || session.fallbackMediaStreamId),
     captureSource: normalizeCaptureSource(session.captureSource),
+    canRequestAudioTrack: normalizeBooleanFlag(session.canRequestAudioTrack),
     iceServers: normalizeIceServers(session.iceServers),
     dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
     pendingIceCandidates: [],
@@ -367,6 +372,63 @@ function createTransportRuntime(session) {
     chunkAssemblies: new Map(),
     shuttingDown: false
   };
+}
+
+function getFirstTrack(stream, kind) {
+  if (!stream || typeof stream.getTracks !== "function") {
+    return null;
+  }
+
+  return stream.getTracks().find((track) => track && track.kind === kind) || null;
+}
+
+function getRequesterMediaState(runtime) {
+  const cameraTrack = getFirstTrack(runtime && runtime.localCameraStream, "video");
+  const microphoneTrack = getFirstTrack(runtime && runtime.localCameraStream, "audio");
+  const soundTrack = getFirstTrack(runtime && runtime.localCaptureStream, "audio");
+
+  return {
+    cameraAvailable: Boolean(cameraTrack),
+    cameraEnabled: Boolean(cameraTrack && cameraTrack.enabled !== false),
+    microphoneAvailable: Boolean(microphoneTrack),
+    microphoneEnabled: Boolean(microphoneTrack && microphoneTrack.enabled !== false),
+    soundAvailable: Boolean(soundTrack),
+    soundEnabled: Boolean(soundTrack && soundTrack.enabled !== false)
+  };
+}
+
+function postRequesterMediaState(runtime) {
+  if (!runtime || runtime.role !== "requester") {
+    return;
+  }
+
+  postTransportEvent({
+    type: "media-state",
+    sessionId: runtime.sessionId,
+    mediaState: getRequesterMediaState(runtime)
+  });
+}
+
+function setRequesterMediaTrackEnabled(runtime, control, enabled) {
+  if (!runtime || runtime.role !== "requester") {
+    return getRequesterMediaState(runtime);
+  }
+
+  const nextEnabled = Boolean(enabled);
+  let track = null;
+  if (control === "camera") {
+    track = getFirstTrack(runtime.localCameraStream, "video");
+  } else if (control === "microphone") {
+    track = getFirstTrack(runtime.localCameraStream, "audio");
+  } else if (control === "sound") {
+    track = getFirstTrack(runtime.localCaptureStream, "audio");
+  }
+
+  if (track) {
+    track.enabled = nextEnabled;
+  }
+
+  return getRequesterMediaState(runtime);
 }
 
 function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && runtime.peerConnection) {
@@ -1040,6 +1102,8 @@ function resetTransportResources(runtime) {
   runtime.pendingFatalTransportReason = "";
   runtime.lastIceCandidateError = "";
   runtime.chunkAssemblies.clear();
+
+  postRequesterMediaState(runtime);
 }
 
 async function ensureRequesterDisplayTrack(runtime, peerConnection) {
@@ -1048,37 +1112,54 @@ async function ensureRequesterDisplayTrack(runtime, peerConnection) {
   }
 
   if (!globalThis.navigator || !navigator.mediaDevices) {
-    throw new Error("Remote support window sharing is unavailable");
+    throw new Error("Remote support screen sharing is unavailable");
   }
 
   let stream = null;
-  if (typeof navigator.mediaDevices.getDisplayMedia === "function") {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE, max: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE } },
-      audio: true
-    });
-  } else if (runtime.mediaStreamId && typeof navigator.mediaDevices.getUserMedia === "function") {
+  if (runtime.mediaStreamId && typeof navigator.mediaDevices.getUserMedia === "function") {
+    const chromeMediaSource = runtime.captureSource === "tab" ? "tab" : "desktop";
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
+      audio: runtime.canRequestAudioTrack
+        ? {
+            mandatory: {
+              chromeMediaSource,
+              chromeMediaSourceId: runtime.mediaStreamId
+            }
+          }
+        : false,
       video: {
         mandatory: {
-          chromeMediaSource: "tab",
+          chromeMediaSource,
           chromeMediaSourceId: runtime.mediaStreamId,
           maxFrameRate: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE
         }
       }
     });
+  } else if (typeof navigator.mediaDevices.getDisplayMedia === "function") {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        displaySurface: "monitor",
+        frameRate: { ideal: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE, max: REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE }
+      },
+      audio: true,
+      monitorTypeSurfaces: "include",
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "exclude"
+    });
+  } else {
+    throw new Error("Remote support screen sharing is unavailable");
   }
 
   const track = stream && typeof stream.getVideoTracks === "function" ? stream.getVideoTracks()[0] : null;
   if (!track) {
     stopLocalCaptureStream(stream);
-    throw new Error("Remote support Chrome window sharing did not provide a video track");
+    throw new Error("Remote support screen sharing did not provide a video track");
   }
 
   configureLowLatencyVideoTrack(track);
   runtime.localCaptureStream = stream;
   runtime.localCaptureTrack = track;
+  postRequesterMediaState(runtime);
 
   if (typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
@@ -1086,7 +1167,8 @@ async function ensureRequesterDisplayTrack(runtime, peerConnection) {
       if (!activeRuntime || activeRuntime.shuttingDown || activeRuntime.localCaptureTrack !== track) {
         return;
       }
-      handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support Chrome window sharing ended"));
+      postRequesterMediaState(activeRuntime);
+      handleFatalTransportError(runtime.sessionId, formatTransportError(activeRuntime, "Remote support screen sharing ended"));
     });
   }
 
@@ -1105,16 +1187,18 @@ async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     runtime.localCameraStream = stream;
+    postRequesterMediaState(runtime);
     if (typeof peerConnection.addTrack === "function") {
       for (const track of stream.getTracks()) {
         configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
       }
     }
   } catch (error) {
+    postRequesterMediaState(runtime);
     postTransportEvent({
       type: "media-warning",
       sessionId: runtime.sessionId,
-      error: "Camera or microphone was not shared; continuing with window sharing only"
+      error: "Camera or microphone was not shared; continuing with screen sharing only"
     });
   }
 }
@@ -1756,6 +1840,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({
       ok: sendDataMessage(runtime, message.messageType, message.payload, message.channelKey)
     });
+    return false;
+  }
+
+  if (message.type === "remoteSupportTransportSetMediaState") {
+    const runtime = getTransportRuntime(message.sessionId);
+    if (!runtime) {
+      sendResponse({ ok: false, mediaState: getRequesterMediaState(null) });
+      return false;
+    }
+
+    const normalizedControl = typeof message.control === "string" ? message.control.trim() : "";
+    if (!["camera", "microphone", "sound"].includes(normalizedControl)) {
+      sendResponse({ ok: false, error: "Unsupported media control", mediaState: getRequesterMediaState(runtime) });
+      return false;
+    }
+
+    const mediaState = setRequesterMediaTrackEnabled(runtime, normalizedControl, Boolean(message.enabled));
+    postRequesterMediaState(runtime);
+    sendResponse({ ok: true, mediaState });
     return false;
   }
 

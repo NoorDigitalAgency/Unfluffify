@@ -260,7 +260,8 @@ export function buildLynxChecklistPromptState(options = {}) {
   const recentlyCalculatedSelectors = Boolean(options.recentlyCalculatedSelectors);
   return {
     aiAnswer: hasCalculatedSelectors && recentlyCalculatedSelectors ? "yes" : "",
-    aiQuestionDisabled: !hasCalculatedSelectors
+    aiQuestionDisabled: !hasCalculatedSelectors,
+    aiQuestionHidden: hasCalculatedSelectors && recentlyCalculatedSelectors
   };
 }
 
@@ -301,15 +302,15 @@ export function buildLynxChecklistViewModel(options = {}) {
   let blockingReason = { code: "" };
   if (!pageTypes.length) {
     blockingReason = { code: "no_candidates" };
-  } else if (normalized.aiAnswer === "no") {
-    blockingReason = { code: "ai_no" };
-  } else if (normalized.aiAnswer !== "yes") {
-    blockingReason = { code: "ai_unanswered" };
   } else if (missingPageTypes.length) {
     blockingReason = {
       code: "missing_page_types",
       pageTypeKeys: missingPageTypes.map((item) => item.key)
     };
+  } else if (normalized.aiAnswer === "no") {
+    blockingReason = { code: "ai_no" };
+  } else if (normalized.aiAnswer !== "yes") {
+    blockingReason = { code: "ai_unanswered" };
   }
 
   return {

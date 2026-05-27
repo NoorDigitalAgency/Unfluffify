@@ -411,8 +411,15 @@ export const PopupText = Object.freeze({
     remoteSupportJoinCodePlaceholder: "Enter support code", // Placeholder for supporter support-code input.
     remoteSupportJoinButton: "Join support", // Button label for joining a support session.
     remoteSupportPageControlHint: "This /support page is now the live support surface. Join and end the session directly in the page instead of the extension side panel.", // Helper text shown on the support page tab inside the popup.
+    remoteSupportStopSharingButton: "Stop sharing", // Compact top-row button label for ending a being-supported session from the popup.
     remoteSupportEndButton: "End support session", // Button label for ending an active session.
     remoteSupportBeingSupportedHint: "This tab is currently in a remote support session (view-only).", // Hint shown in being-supported mode.
+    remoteSupportDisableCameraButton: "Disable camera", // Tooltip and accessibility label for the supported popup camera toggle when camera is on.
+    remoteSupportEnableCameraButton: "Enable camera", // Tooltip and accessibility label for the supported popup camera toggle when camera is off.
+    remoteSupportDisableMicrophoneButton: "Disable microphone", // Tooltip and accessibility label for the supported popup microphone toggle when microphone is on.
+    remoteSupportEnableMicrophoneButton: "Enable microphone", // Tooltip and accessibility label for the supported popup microphone toggle when microphone is off.
+    remoteSupportMuteSoundButton: "Mute shared sound", // Tooltip and accessibility label for the supported popup shared-audio toggle when sound is on.
+    remoteSupportUnmuteSoundButton: "Unmute shared sound", // Tooltip and accessibility label for the supported popup shared-audio toggle when sound is off.
     dismissNoticeLabel: "Dismiss notice", // Accessibility label for icon-only temporary warning dismiss buttons.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.

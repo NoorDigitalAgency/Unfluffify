@@ -78,6 +78,18 @@ test("fetch telemetry sends requestHeaderCount and responseHeaderCount as intege
   assert.equal("responseHeaders" in networkMessage.entry, false, "responseHeaders object should not be present");
 });
 
+test("console telemetry captures popup and worker style console messages", () => {
+  const { target, messages } = createTelemetryTarget({ source: "popup" });
+
+  target.console.info("Popup ready", { scope: "popup" });
+
+  const consoleMessage = messages.find((m) => m.channel === "console");
+  assert.ok(consoleMessage, "should have a console telemetry message");
+  assert.equal(consoleMessage.entry.level, "info");
+  assert.match(consoleMessage.entry.message, /Popup ready/);
+  assert.equal(consoleMessage.entry.source, "popup");
+});
+
 test("fetch telemetry clamps URL to 2048 characters", async () => {
   const { target, messages } = createTelemetryTarget();
 
@@ -214,4 +226,50 @@ test("XHR telemetry sends responseHeaderCount as integer and clamps URL", async 
   assert.equal(xhrMessage.entry.responseHeaderCount, 3, "should count 3 response headers from raw header string");
   assert.equal(xhrMessage.entry.url.length <= 2048, true, "XHR URL should be clamped to 2048 characters");
   assert.equal("responseHeaders" in xhrMessage.entry, false, "responseHeaders object should not be present in XHR entry");
+});
+
+test("default runtime telemetry sender tolerates callback-style sendMessage in popup contexts", async () => {
+  const sentMessages = [];
+  const originalChrome = globalThis.chrome;
+
+  globalThis.chrome = {
+    runtime: {
+      sendMessage(message) {
+        sentMessages.push(message);
+        return undefined;
+      }
+    }
+  };
+
+  try {
+    const target = {
+      __proto__: null,
+      console: { log() {}, info() {}, warn() {}, error() {}, debug() {} },
+      fetch: async () => ({
+        status: 200,
+        headers: { forEach() {} },
+        clone() {
+          return { async text() { return ""; } };
+        }
+      })
+    };
+
+    installExtensionTelemetry({
+      target,
+      source: "popup",
+      isEnabled: () => true,
+      getIncludePayloads: () => false,
+      getTabId: () => 7
+    });
+
+    await target.fetch("https://api.example.com/popup-test", { method: "POST" });
+
+    assert.equal(sentMessages.length > 0, true, "should send telemetry through chrome.runtime.sendMessage");
+    const networkMessage = sentMessages.find((message) => message && message.channel === "network");
+    assert.ok(networkMessage, "should send a network telemetry message");
+    assert.equal(networkMessage.tabId, 7, "should include the resolved tab id");
+    assert.equal(networkMessage.entry.source, "popup", "should preserve the popup source label");
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
 });

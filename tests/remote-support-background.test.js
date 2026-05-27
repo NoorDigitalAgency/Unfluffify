@@ -18,6 +18,7 @@ function createChromeMock(options = {}) {
   const runtimeConnectCalls = [];
   let offscreenDocumentOpen = false;
   let keepAlivePort = null;
+  let desktopCaptureRequestCount = 0;
 
   function createPort(name, senderTabId = null) {
     const messageListeners = [];
@@ -53,6 +54,9 @@ function createChromeMock(options = {}) {
       lastError: null,
       getURL(path) {
         return `chrome-extension://test-id/${path}`;
+      },
+      getManifest() {
+        return { version: "1.2.3-test" };
       },
       async getContexts() {
         return offscreenDocumentOpen
@@ -134,9 +138,19 @@ function createChromeMock(options = {}) {
         return Promise.resolve();
       }
     },
-    tabCapture: {
-      async getMediaStreamId({ targetTabId } = {}) {
-        return typeof targetTabId === "number" ? `stream-${targetTabId}` : "stream-default`";
+    desktopCapture: {
+      chooseDesktopMedia(sources, targetTab, callback) {
+        void targetTab;
+        desktopCaptureRequestCount += 1;
+        const safeCallback = typeof callback === "function"
+          ? callback
+          : typeof targetTab === "function"
+            ? targetTab
+            : null;
+        if (safeCallback) {
+          safeCallback(`screen-stream-${desktopCaptureRequestCount}`, { canRequestAudioTrack: true, sources });
+        }
+        return desktopCaptureRequestCount;
       }
     },
     webRequest: {
@@ -213,8 +227,9 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
     assert.equal(transportMessages.length, 1);
     assert.equal(transportMessages[0].type, "remoteSupportTransportStart");
     assert.equal(transportMessages[0].session.supportCode, "123456");
-    assert.equal(transportMessages[0].session.captureSource, "display");
-    assert.equal(transportMessages[0].session.fallbackMediaStreamId, "stream-7");
+    assert.equal(transportMessages[0].session.captureSource, "screen");
+    assert.equal(transportMessages[0].session.mediaStreamId, "screen-stream-1");
+    assert.equal(transportMessages[0].session.canRequestAudioTrack, true);
     assert.deepEqual(transportMessages[0].session.iceServers, [
       {
         urls: ["turn:turn.example.com:3478?transport=udp", "turn:turn.example.com:3478?transport=tcp"],
@@ -229,12 +244,23 @@ test("remoteSupportRequestCode resolves through the offscreen transport bootstra
   }
 });
 
-test("remoteSupportRequestCode requests display sharing even when tab capture fallback is unavailable", async () => {
+test("remoteSupportRequestCode fails when whole-screen sharing is cancelled", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
 
   const { chromeMock, transportMessages } = createChromeMock();
-  chromeMock.tabCapture.getMediaStreamId = async () => "";
+  chromeMock.desktopCapture.chooseDesktopMedia = (sources, targetTab, callback) => {
+    void sources;
+    const safeCallback = typeof callback === "function"
+      ? callback
+      : typeof targetTab === "function"
+        ? targetTab
+        : null;
+    if (safeCallback) {
+      safeCallback("", { canRequestAudioTrack: false });
+    }
+    return 1;
+  };
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -264,10 +290,9 @@ test("remoteSupportRequestCode requests display sharing even when tab capture fa
       { tab: { id: 7 } }
     );
 
-    assert.equal(response.ok, true);
-    assert.equal(transportMessages.some((message) => message.type === "remoteSupportTransportStart"), true);
-    assert.equal(transportMessages[0].session.captureSource, "display");
-    assert.equal(Object.prototype.hasOwnProperty.call(transportMessages[0].session, "fallbackMediaStreamId"), false);
+    assert.equal(response.ok, false);
+    assert.match(response.error, /Screen sharing was cancelled or unavailable/);
+    assert.equal(transportMessages.some((message) => message.type === "remoteSupportTransportStart"), false);
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
@@ -782,6 +807,7 @@ test("remote support keeps concurrent sessions isolated by tab", async () => {
     {
       sessionId: "sess_supporter",
       supportCode: "222222",
+      partnerIdentity: "Requester Person",
       expiresAt: "2026-05-24T08:11:00.000Z",
       webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter",
       iceServers: [
@@ -844,6 +870,7 @@ test("remote support keeps concurrent sessions isolated by tab", async () => {
         credential: "supporter-secret"
       }
     ]);
+    assert.equal(transportMessages[1].session.remoteParticipantName, "Requester Person");
 
     const requesterState = await handleRemoteSupportBackgroundMessage(
       { type: "getRemoteSupportState", tabId: 21 },
@@ -1121,6 +1148,97 @@ test("extension telemetry feeds Unfluffify panels and requester remote peer", as
   }
 });
 
+test("console devtools port replays cached popup and worker console entries on attach", async () => {
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, connectPort } = createChromeMock();
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        channel: "console",
+        entry: {
+          source: "worker",
+          level: "info",
+          message: "Unfluffify background worker ready"
+        }
+      },
+      {}
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 52,
+        channel: "console",
+        entry: {
+          source: "popup",
+          level: "info",
+          message: "Unfluffify popup ready"
+        }
+      },
+      {}
+    );
+
+    const consolePort = connectPort("unfluffify-remote-support-console");
+    consolePort.emitMessage({ type: "remoteSupportAttach", tabId: 52 });
+
+    assert.equal(
+      consolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "worker" &&
+          message.entry.message === "Unfluffify background worker ready"
+      ),
+      true,
+      "console devtools port should replay cached worker console entries"
+    );
+    assert.equal(
+      consolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "popup" &&
+          message.entry.message === "Unfluffify popup ready"
+      ),
+      true,
+      "console devtools port should replay cached popup console entries"
+    );
+
+    const otherTabConsolePort = connectPort("unfluffify-remote-support-console");
+    otherTabConsolePort.emitMessage({ type: "remoteSupportAttach", tabId: 7 });
+
+    assert.equal(
+      otherTabConsolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "worker" &&
+          message.entry.message === "Unfluffify background worker ready"
+      ),
+      true,
+      "console devtools port should replay cached worker console entries to any tab"
+    );
+    assert.equal(
+      otherTabConsolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "popup" &&
+          message.entry.message === "Unfluffify popup ready"
+      ),
+      false,
+      "console devtools port should not replay cached popup console entries to other tabs"
+    );
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("local devtools port receives payload when includePayloads is enabled by incoming control message", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -1204,6 +1322,61 @@ test("local devtools port receives payload when includePayloads is enabled by in
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("local network devtools port can enable payload capture without an active remote support session", async () => {
+  const originalChrome = globalThis.chrome;
+  const { chromeMock, connectPort, transportMessages } = createChromeMock();
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const networkPort = connectPort("unfluffify-remote-support-network");
+    networkPort.emitMessage({ type: "remoteSupportAttach", tabId: 77 });
+    networkPort.emitMessage({ type: "setIncludePayloads", enabled: true });
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 77,
+        channel: "network",
+        entry: {
+          source: "popup",
+          type: "fetch",
+          method: "POST",
+          url: "https://api.example.com/popup-save",
+          statusCode: 200,
+          payload: {
+            request: "popup-request-body",
+            response: "popup-response-body"
+          }
+        }
+      },
+      {}
+    );
+
+    assert.equal(
+      networkPort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportNetworkEntry" &&
+          message.entry &&
+          message.entry.source === "popup" &&
+          message.entry.payload &&
+          message.entry.payload.request === "popup-request-body" &&
+          message.entry.payload.response === "popup-response-body"
+      ),
+      true,
+      "local network devtools port should receive payloads after enabling local capture"
+    );
+    assert.equal(
+      transportMessages.some((message) => message.messageType === "control-include-payloads"),
+      false,
+      "local payload capture without an active supporting session should not send remote control messages"
+    );
+  } finally {
     globalThis.chrome = originalChrome;
   }
 });
@@ -1950,6 +2123,18 @@ test("remote support replays requester cursor snapshots on the page channel and 
       ),
       true
     );
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_requester_cursor" &&
+          message.channelKey === "page" &&
+          message.messageType === "peer-metadata" &&
+          message.payload &&
+          message.payload.extensionVersion === "1.2.3-test"
+      ),
+      true
+    );
 
     const joinResponse = await handleRemoteSupportBackgroundMessage(
       {
@@ -2067,6 +2252,103 @@ test("remote support forwards runtime state and frames to the bound tab", async 
           message &&
           message.type === "remoteSupportFrame" &&
           message.frame === "data:image/jpeg;base64,frame-data"
+      ),
+      true
+    );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("remote support updates requester media flags when the supported popup toggles a local media control", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const mediaState = {
+    cameraAvailable: true,
+    cameraEnabled: true,
+    microphoneAvailable: true,
+    microphoneEnabled: true,
+    soundAvailable: true,
+    soundEnabled: true
+  };
+  const { chromeMock, transportMessages } = createChromeMock({
+    offscreenResponse(message) {
+      if (message && message.type === "remoteSupportTransportSetMediaState") {
+        if (message.control === "camera") {
+          mediaState.cameraEnabled = Boolean(message.enabled);
+        }
+        if (message.control === "microphone") {
+          mediaState.microphoneEnabled = Boolean(message.enabled);
+        }
+        if (message.control === "sound") {
+          mediaState.soundEnabled = Boolean(message.enabled);
+        }
+        return { ok: true, mediaState: { ...mediaState } };
+      }
+
+      return { ok: true };
+    }
+  });
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_requester_media",
+        supportCode: "112233",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 18,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+
+    const toggleResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSetLocalMediaEnabled",
+        tabId: 18,
+        sessionId: "sess_requester_media",
+        control: "microphone",
+        enabled: false
+      },
+      { tab: { id: 18 } }
+    );
+
+    assert.equal(toggleResponse.ok, true);
+    assert.equal(toggleResponse.state.supporteeCameraAvailable, true);
+    assert.equal(toggleResponse.state.supporteeCameraEnabled, true);
+    assert.equal(toggleResponse.state.supporteeMicrophoneAvailable, true);
+    assert.equal(toggleResponse.state.supporteeMicrophoneEnabled, false);
+    assert.equal(toggleResponse.state.supporteeAudioAvailable, true);
+    assert.equal(toggleResponse.state.supporteeAudioEnabled, true);
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message &&
+          message.type === "remoteSupportTransportSetMediaState" &&
+          message.sessionId === "sess_requester_media" &&
+          message.control === "microphone" &&
+          message.enabled === false
       ),
       true
     );

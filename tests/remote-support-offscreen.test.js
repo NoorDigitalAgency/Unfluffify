@@ -408,6 +408,280 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   }
 });
 
+test("requester media control messages toggle camera, microphone, and shared sound tracks", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  const runtimeMessageListeners = [];
+  const backgroundEvents = [];
+
+  const displayVideoTrack = {
+    kind: "video",
+    enabled: true,
+    stop() {},
+    addEventListener() {}
+  };
+  const displayAudioTrack = {
+    kind: "audio",
+    enabled: true,
+    stop() {}
+  };
+  const cameraVideoTrack = {
+    kind: "video",
+    enabled: true,
+    stop() {}
+  };
+  const microphoneTrack = {
+    kind: "audio",
+    enabled: true,
+    stop() {}
+  };
+
+  const fakeDisplayStream = {
+    getTracks() {
+      return [displayVideoTrack, displayAudioTrack];
+    },
+    getVideoTracks() {
+      return [displayVideoTrack];
+    },
+    getAudioTracks() {
+      return [displayAudioTrack];
+    }
+  };
+
+  const fakeCameraStream = {
+    getTracks() {
+      return [cameraVideoTrack, microphoneTrack];
+    },
+    getVideoTracks() {
+      return [cameraVideoTrack];
+    },
+    getAudioTracks() {
+      return [microphoneTrack];
+    }
+  };
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.onicecandidate = null;
+      this.onicecandidateerror = null;
+      this.oniceconnectionstatechange = null;
+      this.onicegatheringstatechange = null;
+      this.onsignalingstatechange = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    addTrack() {
+      return {
+        getParameters() {
+          return {};
+        },
+        async setParameters() {}
+      };
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {},
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getUserMedia(constraints) {
+          if (constraints && constraints.video && constraints.video.mandatory) {
+            return fakeDisplayStream;
+          }
+
+          return fakeCameraStream;
+        }
+      }
+    }
+  });
+
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-requester-media-controls`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_requester_media_controls",
+          supportCode: "111111",
+          role: "requester",
+          wsUrl: "wss://api.example.com/webrtc?token=requester-media",
+          mediaStreamId: "stream-22",
+          captureSource: "screen",
+          canRequestAudioTrack: true,
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+          dataChannels: [{ key: "page", label: "remote-support-page" }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message &&
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "media-state" &&
+          message.event.mediaState &&
+          message.event.mediaState.cameraAvailable === true &&
+          message.event.mediaState.microphoneAvailable === true &&
+          message.event.mediaState.soundAvailable === true
+      ),
+      true
+    );
+
+    let cameraResponse;
+    const handledCamera = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSetMediaState",
+        sessionId: "sess_requester_media_controls",
+        control: "camera",
+        enabled: false
+      },
+      {},
+      (value) => {
+        cameraResponse = value;
+      }
+    );
+
+    assert.equal(handledCamera, false);
+    assert.equal(cameraVideoTrack.enabled, false);
+    assert.equal(cameraResponse.ok, true);
+    assert.equal(cameraResponse.mediaState.cameraEnabled, false);
+
+    let microphoneResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSetMediaState",
+        sessionId: "sess_requester_media_controls",
+        control: "microphone",
+        enabled: false
+      },
+      {},
+      (value) => {
+        microphoneResponse = value;
+      }
+    );
+
+    assert.equal(microphoneTrack.enabled, false);
+    assert.equal(microphoneResponse.ok, true);
+    assert.equal(microphoneResponse.mediaState.microphoneEnabled, false);
+
+    let soundResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSetMediaState",
+        sessionId: "sess_requester_media_controls",
+        control: "sound",
+        enabled: false
+      },
+      {},
+      (value) => {
+        soundResponse = value;
+      }
+    );
+
+    assert.equal(displayAudioTrack.enabled, false);
+    assert.equal(soundResponse.ok, true);
+    assert.equal(soundResponse.mediaState.soundEnabled, false);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});
+
 test("remote support offscreen queues ICE candidates received before the remote description", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;
@@ -1453,6 +1727,170 @@ test("remote support offscreen chunks oversized data-channel messages and reasse
   }
 });
 
+test("remote support offscreen reports screen sharing unavailable when no display capture API exists", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  const runtimeMessageListeners = [];
+  const backgroundEvents = [];
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.onicecandidate = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+      this.localDescription = null;
+      this.remoteDescription = null;
+    }
+
+    createDataChannel() {
+      return {
+        readyState: "open",
+        binaryType: "arraybuffer",
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+        send() {},
+        close() {}
+      };
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getUserMedia() { throw new Error("optional camera unavailable"); }
+      }
+    }
+  });
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-missing-display-capture`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_missing_display_capture",
+          supportCode: "111111",
+          role: "requester",
+          wsUrl: "wss://api.example.com/webrtc?token=missing-display-capture",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "transport-error" &&
+          message.event.sessionId === "sess_missing_display_capture" &&
+          message.event.error === "Remote support screen sharing is unavailable"
+      ),
+      true
+    );
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});
+
 test("remote support offscreen supports multiple named data channels in one session", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;
@@ -2109,6 +2547,8 @@ test("remote support offscreen attaches requester window fallback and camera/mic
           role: "requester",
           wsUrl: "wss://api.example.com/webrtc?token=requester-video",
           mediaStreamId: "stream-18",
+          captureSource: "screen",
+          canRequestAudioTrack: false,
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
           dataChannels: [
             { key: "page", label: "remote-support-page" },
@@ -2134,7 +2574,7 @@ test("remote support offscreen attaches requester window fallback and camera/mic
     assert.equal(peerConnections[0].addedTracks[1].track, fakeTrack);
     assert.equal(peerConnections[0].addedTracks[1].stream, fakeStream);
     assert.equal(capturedConstraints[0].audio, false);
-    assert.equal(capturedConstraints[0].video.mandatory.chromeMediaSource, "tab");
+    assert.equal(capturedConstraints[0].video.mandatory.chromeMediaSource, "desktop");
     assert.equal(capturedConstraints[0].video.mandatory.chromeMediaSourceId, "stream-18");
     assert.equal(capturedConstraints[0].video.mandatory.maxFrameRate, 60);
     assert.deepEqual(capturedConstraints[1], { audio: true, video: true });

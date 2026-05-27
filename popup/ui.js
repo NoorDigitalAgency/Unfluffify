@@ -134,6 +134,7 @@ const initialViewState = {
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
   lynxChecklistAiQuestionDisabled: false,
+  lynxChecklistAiQuestionHidden: false,
   lynxChecklistNoticeText: "",
   renderModeReady: false,
   renderModeInputDisabled: false,
@@ -185,6 +186,12 @@ const initialViewState = {
   remoteSupportStatusText: "",
   remoteSupportConnected: false,
   remoteSupportStreaming: false,
+  remoteSupportCameraAvailable: false,
+  remoteSupportCameraEnabled: false,
+  remoteSupportMicrophoneAvailable: false,
+  remoteSupportMicrophoneEnabled: false,
+  remoteSupportSoundAvailable: false,
+  remoteSupportSoundEnabled: false,
   remoteSupportPreviewImage: "",
   remoteSupportError: "",
   isBusy: false,
@@ -250,6 +257,64 @@ function renderRemoteSupportErrorNotice(view, handlers) {
       },
       icon("close")
     )
+  );
+}
+
+function renderRemoteSupportMediaButton({ id, title, iconName, active, available, onClick }) {
+  return h(
+    "button",
+    {
+      id,
+      type: "button",
+      class: classNames(
+        "remote-support-controller__media-button",
+        active && "is-active",
+        !active && "is-off"
+      ),
+      disabled: !available,
+      "aria-pressed": active ? "true" : "false",
+      "aria-label": title,
+      title,
+      onClick
+    },
+    icon(iconName)
+  );
+}
+
+function renderRemoteSupportedMediaControls(view, handlers) {
+  return h(
+    "div",
+    { class: "remote-support-controller__actions remote-support-controller__actions--compact" },
+    renderRemoteSupportMediaButton({
+      id: "remote-support-toggle-camera",
+      title: view.remoteSupportCameraEnabled
+        ? PopupText.configuration.remoteSupportDisableCameraButton
+        : PopupText.configuration.remoteSupportEnableCameraButton,
+      iconName: view.remoteSupportCameraEnabled ? "camera" : "camera-off",
+      active: Boolean(view.remoteSupportCameraEnabled),
+      available: Boolean(view.remoteSupportCameraAvailable),
+      onClick: handlers.onRemoteSupportCameraToggle
+    }),
+    renderRemoteSupportMediaButton({
+      id: "remote-support-toggle-microphone",
+      title: view.remoteSupportMicrophoneEnabled
+        ? PopupText.configuration.remoteSupportDisableMicrophoneButton
+        : PopupText.configuration.remoteSupportEnableMicrophoneButton,
+      iconName: view.remoteSupportMicrophoneEnabled ? "microphone" : "microphone-off",
+      active: Boolean(view.remoteSupportMicrophoneEnabled),
+      available: Boolean(view.remoteSupportMicrophoneAvailable),
+      onClick: handlers.onRemoteSupportMicrophoneToggle
+    }),
+    renderRemoteSupportMediaButton({
+      id: "remote-support-toggle-sound",
+      title: view.remoteSupportSoundEnabled
+        ? PopupText.configuration.remoteSupportMuteSoundButton
+        : PopupText.configuration.remoteSupportUnmuteSoundButton,
+      iconName: view.remoteSupportSoundEnabled ? "volume-high" : "volume-off",
+      active: Boolean(view.remoteSupportSoundEnabled),
+      available: Boolean(view.remoteSupportSoundAvailable),
+      onClick: handlers.onRemoteSupportSoundToggle
+    })
   );
 }
 
@@ -667,7 +732,7 @@ function renderRemoteSupportSection(view, handlers) {
     supporting
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
-    sessionActive
+    sessionActive && !beingSupported
       ? h(
           "button",
           {
@@ -770,21 +835,7 @@ function renderRemoteSupportedView(view, handlers) {
           : null,
         renderRemoteSupportErrorNotice(view, handlers)
       ),
-      h(
-        "div",
-        { class: "remote-support-controller__actions" },
-        h(
-          "button",
-          {
-            id: "remote-support-end",
-            type: "button",
-            class: "warning remote-support-controller__end",
-            onClick: handlers.onRemoteSupportEnd
-          },
-          icon("close-octagon"),
-          PopupText.configuration.remoteSupportEndButton
-        )
-      )
+      renderRemoteSupportedMediaControls(view, handlers)
     ),
     h("div", { class: "hint", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportBeingSupportedHint)
   );
@@ -1241,6 +1292,9 @@ function App({ state: view, actions: handlers }) {
   const remoteControllerVisible =
     view.remoteSupportMode === "supporting" &&
     view.remoteSupportSessionActive;
+  const remoteSupportedVisible =
+    view.remoteSupportMode === "being_supported" &&
+    view.remoteSupportSessionActive;
 
   return h(
     Fragment,
@@ -1261,7 +1315,22 @@ function App({ state: view, actions: handlers }) {
             disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
             onClick: handlers.onUnregisterCurrentTab
           }
-        )
+        ),
+        remoteSupportedVisible
+          ? h(
+              "button",
+              {
+                id: "remote-support-stop-sharing-top",
+                type: "button",
+                class: "close-bar__stop-sharing",
+                title: PopupText.configuration.remoteSupportStopSharingButton,
+                "aria-label": PopupText.configuration.remoteSupportStopSharingButton,
+                onClick: handlers.onRemoteSupportEnd
+              },
+              icon("lan-disconnect"),
+              PopupText.configuration.remoteSupportStopSharingButton
+            )
+          : null
       ),
       h(
         "header",
@@ -1524,9 +1593,6 @@ function getLynxChecklistNoticeText(checklist, view) {
   if (blockingReason.code === "missing_page_types") {
     return `${PopupText.lynxChecklist.noticeMissingPageTypesPrefix}${missingTitles.join(", ")}${PopupText.lynxChecklist.noticeMissingPageTypesSuffix}`;
   }
-  if (checklist.canSend) {
-    return PopupText.lynxChecklist.noticeCoverageComplete;
-  }
   return "";
 }
 
@@ -1565,6 +1631,10 @@ function renderLynxChecklistPopover(view, handlers) {
     markedPages: view.markedPages
   });
   const noticeText = getLynxChecklistNoticeText(checklist, view);
+  const showAiQuestion =
+    checklist.missingPageTypes.length === 0 &&
+    !view.lynxChecklistAiQuestionDisabled &&
+    !view.lynxChecklistAiQuestionHidden;
 
   return h(
     "div",
@@ -1579,35 +1649,6 @@ function renderLynxChecklistPopover(view, handlers) {
       "div",
       { class: "warning-popover__card lynx-checklist-popover__card" },
       h("div", { id: "lynx-checklist-title", class: "warning-popover__title" }, PopupText.lynxChecklist.title),
-      h(
-        "section",
-        { class: "lynx-checklist-popover__section" },
-        h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.aiQuestion),
-        h(
-          "div",
-          {
-            class: "lynx-checklist-popover__choices",
-            role: "radiogroup",
-            "aria-label": PopupText.lynxChecklist.aiQuestion
-          },
-          renderLynxChecklistRadioOption({
-            name: "lynx-checklist-ai",
-            value: "yes",
-            checked: checklist.aiAnswer === "yes",
-            disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-            label: ViewText.yes,
-            onChange: handlers.onLynxChecklistAiAnswerChange
-          }),
-          renderLynxChecklistRadioOption({
-            name: "lynx-checklist-ai",
-            value: "no",
-            checked: checklist.aiAnswer === "no",
-            disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-            label: ViewText.no,
-            onChange: handlers.onLynxChecklistAiAnswerChange
-          })
-        )
-      ),
       h(
         "section",
         { class: "lynx-checklist-popover__section" },
@@ -1664,6 +1705,37 @@ function renderLynxChecklistPopover(view, handlers) {
             )
           : h("div", { class: "hint" }, PopupText.lynxChecklist.noticeNoCandidates)
       ),
+      showAiQuestion
+        ? h(
+            "section",
+            { class: "lynx-checklist-popover__section" },
+            h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.aiQuestion),
+            h(
+              "div",
+              {
+                class: "lynx-checklist-popover__choices",
+                role: "radiogroup",
+                "aria-label": PopupText.lynxChecklist.aiQuestion
+              },
+              renderLynxChecklistRadioOption({
+                name: "lynx-checklist-ai",
+                value: "yes",
+                checked: checklist.aiAnswer === "yes",
+                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
+                label: ViewText.yes,
+                onChange: handlers.onLynxChecklistAiAnswerChange
+              }),
+              renderLynxChecklistRadioOption({
+                name: "lynx-checklist-ai",
+                value: "no",
+                checked: checklist.aiAnswer === "no",
+                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
+                label: ViewText.no,
+                onChange: handlers.onLynxChecklistAiAnswerChange
+              })
+            )
+          )
+        : null,
       noticeText &&
         h(
           "div",

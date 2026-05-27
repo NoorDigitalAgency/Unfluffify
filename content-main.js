@@ -1327,11 +1327,7 @@ function ensureRemoteSupportSupportPageStyles() {
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__hero {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 20px;
-      margin-bottom: 20px;
+      display: none;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__hero-actions {
@@ -1371,9 +1367,34 @@ function ensureRemoteSupportSupportPageStyles() {
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__layout {
       display: grid;
-      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      grid-template-columns: minmax(220px, 268px) minmax(0, 1fr);
       gap: 20px;
       align-items: start;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only {
+      padding: 0;
+      background: #04080f;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__hero,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__rail,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__caption {
+      display: none;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__layout {
+      display: block;
+      gap: 0;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__surface {
+      min-height: 100vh;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: #04080f;
+      backdrop-filter: none;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__rail,
@@ -1392,6 +1413,21 @@ function ensureRemoteSupportSupportPageStyles() {
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card {
       padding: 20px;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-brand {
+      margin: 0;
+      color: #ffffff;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
@@ -1422,7 +1458,7 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__form {
       display: grid;
       gap: 12px;
-      margin-top: 18px;
+      margin-top: 0;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__form input {
@@ -1448,6 +1484,7 @@ function ensureRemoteSupportSupportPageStyles() {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      width: 100%;
       gap: 8px;
       border: 0;
       border-radius: 999px;
@@ -2225,40 +2262,22 @@ function ensureRemoteSupportSupportPageUi() {
     root.setAttribute("data-uf-extension-ui", "true");
     root.innerHTML = `
       <div class="uf-support-page" data-uf-extension-ui="true">
-        <section class="uf-support-page__hero" data-uf-extension-ui="true">
-          <div data-uf-extension-ui="true">
-            <div class="uf-support-page__eyebrow" data-uf-extension-ui="true">Remote Support</div>
-            <h1 class="uf-support-page__title" data-uf-extension-ui="true">View the live Chrome window.</h1>
-            <p class="uf-support-page__lede" data-uf-extension-ui="true">This tab is now the supporter surface. The supportee's shared Chrome window appears here with two-way camera and microphone, telemetry, and session details. Remote control is not available.</p>
-          </div>
-          <div class="uf-support-page__hero-actions" data-uf-extension-ui="true">
-            <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
-          </div>
-        </section>
+        <section class="uf-support-page__hero" data-uf-extension-ui="true"></section>
         <section class="uf-support-page__layout" data-uf-extension-ui="true">
           <aside class="uf-support-page__rail" data-uf-extension-ui="true">
-            <div class="uf-support-page__card" data-uf-extension-ui="true">
-              <div class="uf-support-page__meta" data-uf-extension-ui="true">
-                <div data-uf-extension-ui="true">
-                  <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Status</div>
-                  <p id="uf-support-page-status" class="uf-support-page__status" data-uf-extension-ui="true"></p>
-                </div>
-                <div id="uf-support-page-code-block" data-uf-extension-ui="true" hidden>
-                  <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support code</div>
-                  <div id="uf-support-page-code" class="uf-support-page__meta-value" data-uf-extension-ui="true">------</div>
-                </div>
-              </div>
+            <div class="uf-support-page__card uf-support-page__connect-card" data-uf-extension-ui="true">
+              <h1 class="uf-support-page__sidebar-brand" data-uf-extension-ui="true">Unfluffify</h1>
               <form id="uf-support-page-join-form" class="uf-support-page__form" data-uf-extension-ui="true">
-                <label class="uf-support-page__meta-label" for="uf-support-page-join-code" data-uf-extension-ui="true">Join with support code</label>
-                <input id="uf-support-page-join-code" type="text" autocomplete="one-time-code" inputmode="numeric" placeholder="Enter support code" data-uf-extension-ui="true">
-                <button id="uf-support-page-join-button" class="uf-support-page__button" type="submit" data-uf-extension-ui="true">Join support</button>
+                <input id="uf-support-page-join-code" type="text" autocomplete="one-time-code" inputmode="numeric" maxlength="6" aria-label="Six-digit support code" placeholder="6-digit code" data-uf-extension-ui="true">
+                <button id="uf-support-page-join-button" class="uf-support-page__button" type="submit" data-uf-extension-ui="true">Connect</button>
               </form>
+              <button id="uf-support-page-end" class="uf-support-page__end" type="button" hidden data-uf-extension-ui="true">Terminate session</button>
               <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
                 <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
                 <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
               </div>
             </div>
-            <div class="uf-support-page__card uf-support-page__sidebar-card" data-uf-extension-ui="true">
+            <div class="uf-support-page__card uf-support-page__sidebar-card" hidden data-uf-extension-ui="true">
               <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
               <div id="uf-support-page-sidebar-sim" class="uf-support-page__sidebar-sim" data-uf-extension-ui="true">
                 <div id="uf-support-page-sidebar-surface" class="uf-support-page__sidebar-surface is-disabled" tabindex="-1" aria-disabled="true" data-uf-extension-ui="true">
@@ -2285,9 +2304,6 @@ function ensureRemoteSupportSupportPageUi() {
 
     remoteSupportSupportPageElements = {
       root,
-      status: root.querySelector("#uf-support-page-status"),
-      codeBlock: root.querySelector("#uf-support-page-code-block"),
-      codeValue: root.querySelector("#uf-support-page-code"),
       joinForm: root.querySelector("#uf-support-page-join-form"),
       joinInput: root.querySelector("#uf-support-page-join-code"),
       joinButton: root.querySelector("#uf-support-page-join-button"),
@@ -2700,7 +2716,7 @@ function syncRemoteSupportSupportPageSurfaceCursor() {
     return;
   }
 
-  elements.surface.style.cursor = getRemoteSupportSupportPageSurfaceCursorValue();
+  elements.surface.style.cursor = "auto";
   syncRemoteSupportSupportPageCursorOverlay();
 }
 
@@ -2745,28 +2761,10 @@ function getRemoteSupportSupportPageEffectiveCursorSnapshot() {
 
 function syncRemoteSupportSupportPageCursorOverlay() {
   const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.surface || !elements.cursor) {
+  if (!elements || !elements.cursor) {
     return;
   }
-
-  const snapshot = getRemoteSupportSupportPageEffectiveCursorSnapshot();
-  if (
-    !snapshot.active ||
-    !Number.isFinite(Number(snapshot.x)) ||
-    !Number.isFinite(Number(snapshot.y))
-  ) {
-    elements.cursor.hidden = true;
-    return;
-  }
-
-  const surfaceRect = elements.surface.getBoundingClientRect();
-  const remoteRect = getRemoteSupportSupportPageSurfaceRect(elements.surface, elements.frame);
-  const x = (remoteRect.left - surfaceRect.left) + (Math.max(0, Math.min(1, Number(snapshot.x))) * Math.max(1, remoteRect.width || 1));
-  const y = (remoteRect.top - surfaceRect.top) + (Math.max(0, Math.min(1, Number(snapshot.y))) * Math.max(1, remoteRect.height || 1));
-
-  applyRemoteSupportCursorPresentation(elements.cursor, snapshot);
-  elements.cursor.hidden = false;
-  elements.cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  elements.cursor.hidden = true;
 }
 
 function updateRemoteSupportSupportPageLocalCursorSnapshot(pointer) {
@@ -2842,14 +2840,12 @@ function renderRemoteSupportSupportPage() {
     ? remoteSupportSupportPageState.error.trim()
     : "";
 
-  elements.status.textContent = buildRemoteSupportSupportPageStatusText();
-  elements.codeBlock.hidden = !active;
-  elements.codeValue.textContent = remoteSupportSupportPageState.supportCode || "------";
+  elements.root.classList.remove("uf-support-page--viewer-only");
   elements.joinForm.hidden = active;
   elements.joinInput.value = remoteSupportSupportPageJoinCode;
   elements.joinInput.disabled = active || remoteSupportSupportPageJoinLoading;
   elements.joinButton.disabled = active || remoteSupportSupportPageJoinLoading || !remoteSupportSupportPageJoinCode || !Number.isFinite(remoteSupportSupportPageTabId);
-  elements.joinButton.textContent = remoteSupportSupportPageJoinLoading ? "Joining..." : "Join support";
+  elements.joinButton.textContent = remoteSupportSupportPageJoinLoading ? "Connecting..." : "Connect";
   elements.endButton.hidden = !active;
   elements.endButton.disabled = !active;
   elements.error.hidden = !errorText;
@@ -6905,7 +6901,8 @@ export function main() {
     if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportStop") {
       sendRemoteSupportSupportPageViewerRequest("remoteSupportTransportStop", {
         sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
-        reason: typeof message.reason === "string" ? message.reason : "Session ended"
+        reason: typeof message.reason === "string" ? message.reason : "Session ended",
+        notifyPeer: Boolean(message.notifyPeer)
       }).then((response) => {
         sendResponse(response && typeof response === "object" ? response : { ok: false });
       });

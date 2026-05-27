@@ -251,6 +251,7 @@ function createTransportRuntime(session) {
     sessionId: session.sessionId.trim(),
     supportCode: session.supportCode.trim(),
     role: session.role,
+    remoteParticipantName: isNonEmptyString(session.remoteParticipantName) ? session.remoteParticipantName.trim() : "",
     wsUrl: session.wsUrl.trim(),
     iceServers: normalizeIceServers(session.iceServers),
     dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
@@ -597,10 +598,121 @@ function ensureViewerElements() {
     remoteCameraVideo: document.getElementById("remote-camera-video"),
     localCameraVideo: document.getElementById("local-camera-video"),
     remoteAudio: document.getElementById("remote-audio"),
+    muteButton: document.getElementById("viewer-toggle-mute"),
+    silentButton: document.getElementById("viewer-toggle-silent"),
+    remoteName: document.getElementById("viewer-remote-name"),
+    remoteOs: document.getElementById("viewer-remote-os"),
+    remoteChrome: document.getElementById("viewer-remote-chrome"),
+    remoteExtension: document.getElementById("viewer-remote-extension"),
     sidebarVideo: document.getElementById("sidebar-video"),
     sidebarCanvas: document.getElementById("sidebar-canvas"),
     placeholder: document.getElementById("viewer-placeholder")
   };
+}
+
+function normalizeMetadataValue(value, fallback = "Waiting...") {
+  return isNonEmptyString(value) ? value.trim() : fallback;
+}
+
+function parseRemotePlatform(userAgent, fallbackPlatform = "") {
+  const normalizedPlatform = isNonEmptyString(fallbackPlatform) ? fallbackPlatform.trim() : "";
+  if (/windows/i.test(normalizedPlatform) || /windows nt/i.test(userAgent || "")) {
+    return "Windows";
+  }
+  if (/mac/i.test(normalizedPlatform) || /mac os x/i.test(userAgent || "")) {
+    return "macOS";
+  }
+  if (/linux/i.test(normalizedPlatform) || /linux/i.test(userAgent || "")) {
+    return "Linux";
+  }
+  if (/android/i.test(normalizedPlatform) || /android/i.test(userAgent || "")) {
+    return "Android";
+  }
+  if (/iphone|ipad|ios/i.test(normalizedPlatform) || /iphone|ipad|cpu (?:iphone )?os/i.test(userAgent || "")) {
+    return "iOS";
+  }
+  return normalizedPlatform || "Waiting...";
+}
+
+function parseChromeVersion(userAgent) {
+  const match = typeof userAgent === "string"
+    ? userAgent.match(/Chrom(?:e|ium)\/([0-9.]+)/i)
+    : null;
+  return match && match[1] ? match[1] : "Waiting...";
+}
+
+function applyToggleButtonState(button, active) {
+  if (!button) {
+    return;
+  }
+
+  button.setAttribute("aria-pressed", active ? "true" : "false");
+  button.classList.toggle("is-active", active);
+}
+
+function setMuteState(muted) {
+  const stream = activeRuntime && activeRuntime.localCameraStream;
+  if (stream && typeof stream.getAudioTracks === "function") {
+    for (const track of stream.getAudioTracks()) {
+      if (track) {
+        track.enabled = !muted;
+      }
+    }
+  }
+
+  applyToggleButtonState(ensureViewerElements().muteButton, muted);
+}
+
+function setSilentState(silent) {
+  const elements = ensureViewerElements();
+  if (elements.remoteAudio) {
+    elements.remoteAudio.muted = Boolean(silent);
+  }
+
+  applyToggleButtonState(elements.silentButton, Boolean(silent));
+}
+
+function updateRemoteParticipantMeta({
+  name = "",
+  platform = "",
+  userAgent = "",
+  extensionVersion = ""
+} = {}) {
+  const elements = ensureViewerElements();
+  if (elements.remoteName) {
+    elements.remoteName.textContent = normalizeMetadataValue(name);
+  }
+  if (elements.remoteOs) {
+    elements.remoteOs.textContent = parseRemotePlatform(userAgent, platform);
+  }
+  if (elements.remoteChrome) {
+    elements.remoteChrome.textContent = parseChromeVersion(userAgent);
+  }
+  if (elements.remoteExtension) {
+    elements.remoteExtension.textContent = normalizeMetadataValue(extensionVersion);
+  }
+}
+
+function initializeViewerControls() {
+  const elements = ensureViewerElements();
+  if (elements.muteButton && elements.muteButton.dataset.ufInitialized !== "true") {
+    elements.muteButton.dataset.ufInitialized = "true";
+    elements.muteButton.addEventListener("click", () => {
+      const nextMuted = elements.muteButton.getAttribute("aria-pressed") !== "true";
+      setMuteState(nextMuted);
+    });
+  }
+
+  if (elements.silentButton && elements.silentButton.dataset.ufInitialized !== "true") {
+    elements.silentButton.dataset.ufInitialized = "true";
+    elements.silentButton.addEventListener("click", () => {
+      const nextSilent = elements.silentButton.getAttribute("aria-pressed") !== "true";
+      setSilentState(nextSilent);
+    });
+  }
+
+  setMuteState(false);
+  setSilentState(false);
 }
 
 function setViewerPlaceholder(text) {
@@ -653,6 +765,8 @@ function detachRemoteStream() {
   if (elements.remoteAudio) {
     elements.remoteAudio.srcObject = null;
   }
+
+  setSilentState(false);
 
   if (elements.sidebarVideo) {
     try {
@@ -983,6 +1097,7 @@ async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
       elements.localCameraVideo.hidden = false;
       void elements.localCameraVideo.play().catch(() => {});
     }
+    setMuteState(elements.muteButton && elements.muteButton.getAttribute("aria-pressed") === "true");
     if (typeof peerConnection.addTrack === "function") {
       for (const track of stream.getTracks()) {
         peerConnection.addTrack(track, stream);
@@ -1016,6 +1131,7 @@ function attachRemoteStream(runtime, streamLike, track = null) {
     runtime.remoteAudioAttached = true;
     if (elements.remoteAudio && elements.remoteAudio.srcObject !== stream) {
       elements.remoteAudio.srcObject = stream;
+      elements.remoteAudio.muted = elements.silentButton && elements.silentButton.getAttribute("aria-pressed") === "true";
       void elements.remoteAudio.play().catch(() => {});
     }
     return;
@@ -1193,6 +1309,16 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
 
     const message = consumeChunkedDataChannelMessage(runtime, parsedMessage);
     if (!message) {
+      return;
+    }
+
+    if (message.type === "peer-metadata") {
+      updateRemoteParticipantMeta({
+        name: runtime.remoteParticipantName,
+        platform: message.payload && typeof message.payload.platform === "string" ? message.payload.platform : "",
+        userAgent: message.payload && typeof message.payload.userAgent === "string" ? message.payload.userAgent : "",
+        extensionVersion: message.payload && typeof message.payload.extensionVersion === "string" ? message.payload.extensionVersion : ""
+      });
       return;
     }
 
@@ -1581,6 +1707,10 @@ async function startTransport(session) {
   const dataChannelDescriptors = normalizeDataChannelDescriptors(session.dataChannels);
   const existingRuntime = getTransportRuntime(session.sessionId);
   if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers, dataChannelDescriptors)) {
+    existingRuntime.remoteParticipantName = isNonEmptyString(session.remoteParticipantName)
+      ? session.remoteParticipantName.trim()
+      : existingRuntime.remoteParticipantName;
+    updateRemoteParticipantMeta({ name: existingRuntime.remoteParticipantName });
     return;
   }
 
@@ -1594,6 +1724,8 @@ async function startTransport(session) {
     dataChannels: dataChannelDescriptors
   });
   activeRuntime = runtime;
+  initializeViewerControls();
+  updateRemoteParticipantMeta({ name: runtime.remoteParticipantName });
   setViewerPlaceholder("Connecting to the remote page...");
 
   void connectSignalingSocket(runtime).catch((error) => {
@@ -1676,6 +1808,8 @@ function attachControlPort(port) {
     postSidebarVideoState(activeRuntime, Boolean(elements.sidebarVideo && elements.sidebarVideo.videoWidth && elements.sidebarVideo.videoHeight), elements.sidebarVideo && elements.sidebarVideo.videoWidth, elements.sidebarVideo && elements.sidebarVideo.videoHeight);
   }
 }
+
+initializeViewerControls();
 
 window.addEventListener("message", (event) => {
   if (controlPort || !event || event.source !== window.parent) {

@@ -19,34 +19,111 @@
         font: 500 16px/1.5 system-ui, sans-serif;
       }
 
+      #viewer-sidecar {
+        position: absolute;
+        inset: 14px auto 14px 14px;
+        width: 180px;
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        z-index: 3;
+      }
+
+      .viewer-camera-slot {
+        position: relative;
+        width: 180px;
+        height: 102px;
+        overflow: hidden;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        background:
+          linear-gradient(180deg, rgba(23, 31, 46, 0.96), rgba(8, 13, 22, 0.98));
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+      }
+
+      .viewer-camera-slot video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .viewer-camera-slot video[hidden] {
+        display: none;
+      }
+
+      #viewer-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .viewer-action {
+        flex: 1 1 0;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+        background: rgba(8, 13, 22, 0.72);
+        color: #dbe8ff;
+        font: 600 11px/1 system-ui, sans-serif;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .viewer-action.is-active {
+        border-color: rgba(255, 153, 133, 0.52);
+        background: rgba(143, 32, 22, 0.62);
+        color: #fff1ed;
+      }
+
+      .viewer-action:focus-visible {
+        outline: 2px solid rgba(108, 169, 255, 0.92);
+        outline-offset: 2px;
+      }
+
+      #viewer-remote-meta {
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(8, 13, 22, 0.76);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      }
+
+      #viewer-remote-meta dl {
+        margin: 0;
+        display: grid;
+        gap: 7px;
+      }
+
+      #viewer-remote-meta div {
+        display: grid;
+        gap: 2px;
+      }
+
+      #viewer-remote-meta dt {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(185, 206, 235, 0.72);
+      }
+
+      #viewer-remote-meta dd {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #f4f7ff;
+        word-break: break-word;
+      }
+
       #viewer-video,
       #viewer-placeholder {
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
-      }
-
-      #remote-camera-video,
-      #local-camera-video {
-        position: absolute;
-        right: 12px;
-        width: 168px;
-        height: 96px;
-        object-fit: cover;
-        border: 1px solid rgba(255, 255, 255, 0.32);
-        border-radius: 12px;
-        background: #111827;
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
-        z-index: 2;
-      }
-
-      #remote-camera-video { bottom: 12px; }
-      #local-camera-video { bottom: 120px; }
-
-      #remote-camera-video[hidden],
-      #local-camera-video[hidden] {
-        display: none;
       }
 
       #viewer-video {
@@ -74,11 +151,41 @@
   </head>
   <body>
     <video id="viewer-video" autoplay playsinline muted hidden></video>
-    <video id="remote-camera-video" autoplay playsinline muted hidden></video>
-    <video id="local-camera-video" autoplay playsinline muted hidden></video>
     <audio id="remote-audio" autoplay></audio>
     <video id="sidebar-video" autoplay playsinline muted hidden></video>
     <canvas id="sidebar-canvas" hidden></canvas>
+    <aside id="viewer-sidecar" aria-label="Remote support media">
+      <div class="viewer-camera-slot">
+        <video id="remote-camera-video" autoplay playsinline muted hidden></video>
+      </div>
+      <div class="viewer-camera-slot">
+        <video id="local-camera-video" autoplay playsinline muted hidden></video>
+      </div>
+      <div id="viewer-actions">
+        <button id="viewer-toggle-mute" class="viewer-action" type="button" aria-pressed="false">Mute</button>
+        <button id="viewer-toggle-silent" class="viewer-action" type="button" aria-pressed="false">Silent</button>
+      </div>
+      <section id="viewer-remote-meta" aria-label="Remote participant details">
+        <dl>
+          <div>
+            <dt>Name</dt>
+            <dd id="viewer-remote-name">Waiting...</dd>
+          </div>
+          <div>
+            <dt>OS</dt>
+            <dd id="viewer-remote-os">Waiting...</dd>
+          </div>
+          <div>
+            <dt>Chrome</dt>
+            <dd id="viewer-remote-chrome">Waiting...</dd>
+          </div>
+          <div>
+            <dt>Unfluffify</dt>
+            <dd id="viewer-remote-extension">Waiting...</dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
     <div id="viewer-placeholder">Waiting for the live remote surface...</div>
     <script type="module" src="remote-support-viewer.js"></script>
   </body>

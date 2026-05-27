@@ -5,10 +5,20 @@
     <title>Unfluffify Console</title>
     <style>
       body { font-family: system-ui, sans-serif; margin: 0; }
-      .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; }
+      .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .toolbar__controls { display: flex; align-items: center; gap: 10px; }
+      .toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+      .toolbar select { font: inherit; }
       .list { padding: 8px; display: grid; gap: 6px; }
-      .item { border: 1px solid #ddd; border-radius: 6px; padding: 6px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
-      .item strong { margin-right: 6px; }
+      .item { border: 1px solid var(--console-border, #d0d5dd); border-left-width: 4px; border-radius: 6px; padding: 6px 8px; background: var(--console-background, #ffffff); color: #101828; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .item__header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .item__message { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+      .item strong { margin-right: 2px; color: var(--console-accent, #475467); }
+      .item--log { --console-accent: #475467; --console-border: #d0d5dd; --console-background: #f8fafc; }
+      .item--info { --console-accent: #155eef; --console-border: #84adff; --console-background: #eff4ff; }
+      .item--warn { --console-accent: #b54708; --console-border: #fdb022; --console-background: #fffaeb; }
+      .item--error { --console-accent: #d92d20; --console-border: #fda29b; --console-background: #fef3f2; }
+      .item--debug { --console-accent: #7a5af8; --console-border: #bdb4fe; --console-background: #f4f3ff; }
       .source { display: inline-flex; margin-right: 6px; padding: 1px 5px; border-radius: 999px; background: #eef3ff; color: #274c86; font: 700 10px/1.4 system-ui, sans-serif; text-transform: uppercase; }
       .muted { color: #666; }
     </style>
@@ -16,7 +26,10 @@
   <body>
     <div class="toolbar">
       <strong>Unfluffify console stream</strong>
-      <button id="clear" type="button">Clear</button>
+      <div class="toolbar__controls">
+        <label>Source <select id="source-filter"></select></label>
+        <button id="clear" type="button">Clear</button>
+      </div>
     </div>
     <div id="list" class="list"></div>
     <script type="module" src="./remote-console.js"></script>
