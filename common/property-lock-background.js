@@ -248,7 +248,7 @@ function connectWebSocket(runtime) {
 
     const wssUrl = buildPropertyLockWssUrl(endpointBase, token);
     if (!wssUrl) {
-      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, token ? "invalid_endpoint" : "missing_token");
+      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, token ? "invalid_config" : "missing_token");
       scheduleReconnect(runtime);
       return;
     }
