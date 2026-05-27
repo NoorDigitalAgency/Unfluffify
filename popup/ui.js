@@ -219,6 +219,23 @@ function classNames(...values) {
   return values.filter(Boolean).join(" ");
 }
 
+function toneUtilityClass(tone) {
+  switch (tone) {
+    case "success":
+      return "u-tone-success";
+    case "warning":
+      return "u-tone-warning";
+    case "danger":
+      return "u-tone-danger";
+    default:
+      return "u-tone-muted";
+  }
+}
+
+function warningNoticeClass(...extraClasses) {
+  return classNames("notice", "u-tone-warning", "u-surface-tone", ...extraClasses);
+}
+
 function renderListItems(items, emptyText, renderItem) {
   if (!items.length) {
     return [h("li", { class: "empty" }, emptyText)];
@@ -245,7 +262,7 @@ function renderRemoteSupportErrorNotice(view, handlers) {
 
   return h(
     "div",
-    { class: "notice notice--dismissible", role: "status", "aria-live": "polite" },
+    { class: warningNoticeClass("notice--dismissible"), role: "status", "aria-live": "polite" },
     h("span", { class: "notice__content" }, message),
     h(
       "button",
@@ -509,7 +526,7 @@ function renderPropertyLockIndicator(view, handlers) {
   return h(
     "div",
     {
-      class: classNames("property-lock", `property-lock--${view.propertyLockTone || "muted"}`),
+      class: classNames("property-lock", "u-surface-tone", toneUtilityClass(view.propertyLockTone || "muted")),
       role: "status",
       "aria-live": "polite"
     },
@@ -522,7 +539,7 @@ function renderPropertyLockIndicator(view, handlers) {
         ? h("div", { class: "property-lock__detail" }, view.propertyLockDetailText)
         : null
     ),
-    actions.length ? h("div", { class: "property-lock__actions" }, actions) : null
+    actions.length ? h("div", { class: "property-lock__actions u-flex u-wrap u-justify-end u-gap-2" }, actions) : null
   );
 }
 
@@ -702,8 +719,8 @@ function renderRemoteSupportSection(view, handlers) {
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
   const sectionClass = view.remoteSupportEmbedded
-    ? "config-extra-subsection remote-support-card remote-support-card--embedded"
-    : "card remote-support-card";
+    ? "config-extra-subsection remote-support-card remote-support-card--embedded u-grid u-gap-4"
+    : "card remote-support-card u-grid u-gap-3";
   return h(
     "section",
     {
@@ -715,7 +732,7 @@ function renderRemoteSupportSection(view, handlers) {
     h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
     h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
     supportPageVisible
-      ? h("div", { class: "notice" }, PopupText.configuration.remoteSupportPageControlHint)
+      ? h("div", { class: warningNoticeClass() }, PopupText.configuration.remoteSupportPageControlHint)
       : h(
           "button",
           {
@@ -768,14 +785,14 @@ function renderRemoteSupportControllerView(view, handlers) {
   return h(
     "section",
     {
-      class: "remote-support-controller",
+      class: "remote-support-controller u-grid u-gap-4",
       ref: (el) => {
         refs.remoteSupportSection = el;
       }
     },
     h(
       "div",
-      { class: "remote-support-controller__toolbar" },
+      { class: "remote-support-controller__toolbar u-flex u-items-start u-justify-between u-gap-4" },
       h(
         "div",
         { class: "remote-support-controller__meta" },
@@ -810,7 +827,7 @@ function renderRemoteSupportControllerView(view, handlers) {
         PopupText.configuration.remoteSupportEndButton
       )
     ),
-    h("div", { class: "notice", role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportPageControlHint)
+    h("div", { class: warningNoticeClass(), role: "status", "aria-live": "polite" }, PopupText.configuration.remoteSupportPageControlHint)
   );
 }
 
@@ -818,14 +835,14 @@ function renderRemoteSupportedView(view, handlers) {
   return h(
     "section",
     {
-      class: "remote-support-controller",
+      class: "remote-support-controller u-grid u-gap-4",
       ref: (el) => {
         refs.remoteSupportSection = el;
       }
     },
     h(
       "div",
-      { class: "remote-support-controller__toolbar" },
+      { class: "remote-support-controller__toolbar u-flex u-items-start u-justify-between u-gap-4" },
       h(
         "div",
         { class: "remote-support-controller__meta" },
@@ -1097,7 +1114,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
       ? h(
           "div",
           {
-            class: "notice",
+            class: warningNoticeClass(),
             role: "status",
             "aria-live": "polite"
           },
@@ -1314,10 +1331,10 @@ function App({ state: view, actions: handlers }) {
     null,
     h(
       "div",
-      { class: classNames("app") },
+      { class: classNames("app", "u-grid", "u-gap-4") },
       h(
         "div",
-        { class: "close-bar" },
+        { class: "close-bar u-flex u-items-center u-gap-3" },
         h(
           "button",
           {
@@ -1350,7 +1367,7 @@ function App({ state: view, actions: handlers }) {
         { class: "app-header" },
         h(
           "div",
-          { class: "header-top" },
+          { class: "header-top u-flex u-items-start u-justify-between u-gap-3" },
           h(
             "div",
             { class: "header-text" },
@@ -1360,7 +1377,7 @@ function App({ state: view, actions: handlers }) {
             !remoteControllerVisible &&
             h(
               "div",
-              { class: "header-actions" },
+              { class: "header-actions u-flex u-items-start" },
               configurationView
                 ? h(
                     "button",
@@ -1486,7 +1503,7 @@ function App({ state: view, actions: handlers }) {
             "div",
             {
               id: "base-url-notice",
-              class: "notice",
+              class: warningNoticeClass(),
               role: "status",
               "aria-live": "polite",
               hidden: !view.baseUrlNoticeVisible
@@ -1563,7 +1580,7 @@ function renderAiControlsContent(view, handlers) {
         "div",
         {
           id: "ai-dirty-notice",
-          class: "notice",
+          class: warningNoticeClass(),
           role: "status",
           "aria-live": "polite",
           style: {display: view.aiDirtyNoticeVisible ? "block" : "none"}
@@ -1756,7 +1773,7 @@ function renderLynxChecklistPopover(view, handlers) {
         h(
           "div",
           {
-            class: "notice",
+            class: warningNoticeClass(),
             role: "status",
             "aria-live": "polite"
           },
@@ -1811,7 +1828,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     ? h(
         "div",
         {
-          class: "notice",
+          class: warningNoticeClass(),
           role: "status",
           "aria-live": "polite"
         },
@@ -1821,7 +1838,7 @@ function renderMarkingView({state: view, actions: handlers}) {
         "div",
         {
           id: "page-data-new-notice",
-          class: "notice",
+          class: warningNoticeClass(),
           role: "status",
           "aria-live": "polite",
           hidden: view.pageDataNewNoticeHidden,
@@ -2145,7 +2162,7 @@ function renderCssSelectorsSection({ state: view, actions: handlers }) {
         "div",
         {
           id: noticeId,
-          class: "notice",
+          class: warningNoticeClass(),
           role: "status",
           "aria-live": "polite",
           hidden: !noticeVisible
@@ -2167,7 +2184,7 @@ function renderConfigurationView({state: view, actions: handlers}) {
         h(
           "div",
           {
-            class: "notice",
+            class: warningNoticeClass(),
             role: "status",
             "aria-live": "polite",
             hidden: !view.configurationNoticeVisible
