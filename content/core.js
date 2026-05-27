@@ -75,6 +75,7 @@ export const state = {
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_HIDDEN_STYLE_PROPS = ["opacity", "visibility", "pointer-events"];
+const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SCROLL_DEBOUNCE_MS = 250;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
@@ -835,6 +836,30 @@ function getConsentStyleSnapshot(element) {
   return snapshot;
 }
 
+function injectConsentBypassStyle() {
+  if (document.getElementById(CONSENT_BYPASS_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = CONSENT_BYPASS_STYLE_ID;
+  // Counter consent-framework patterns that apply pointer-events:none to page content
+  // via aria-hidden (e.g. CookieTractor's html.cc-active [aria-hidden='true'] rule).
+  // :not([data-uf-consent-hidden]) and :not([data-uf-consent-hidden] *) ensure we do
+  // not re-enable pointer events on hidden consent elements or their descendants —
+  // those keep their inline pointer-events:none !important which wins in specificity.
+  style.textContent =
+    `[aria-hidden='true']:not([${CONSENT_HIDDEN_ATTR}]):not([${CONSENT_HIDDEN_ATTR}] *) ` +
+    `{ pointer-events: auto !important; }`;
+  document.head.appendChild(style);
+}
+
+function removeConsentBypassStyle() {
+  const existing = document.getElementById(CONSENT_BYPASS_STYLE_ID);
+  if (existing) {
+    existing.remove();
+  }
+}
+
 function setConsentElementHiddenVisibility(element, visible) {
   if (!element || element.nodeType !== 1) {
     return;
@@ -859,11 +884,26 @@ function setConsentElementHiddenVisibility(element, visible) {
   element.style.setProperty("pointer-events", "none", "important");
 }
 
+function markConsentElementHidden(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+  const wasAlreadyMarked = element.hasAttribute(CONSENT_HIDDEN_ATTR);
+  element.setAttribute(CONSENT_HIDDEN_ATTR, "on");
+  setConsentElementHiddenVisibility(element, false);
+  return !wasAlreadyMarked;
+}
+
 export function setHiddenConsentElementsVisible(visible) {
   const nodes = document.querySelectorAll(`[${CONSENT_HIDDEN_ATTR}]`);
   nodes.forEach((element) => {
     setConsentElementHiddenVisibility(element, Boolean(visible));
   });
+  if (visible) {
+    removeConsentBypassStyle();
+  } else {
+    injectConsentBypassStyle();
+  }
 }
 
 function hideConsentElement(element) {
@@ -873,9 +913,30 @@ function hideConsentElement(element) {
   if (isWithinConsentElement(element)) {
     return false;
   }
-  element.setAttribute(CONSENT_HIDDEN_ATTR, "on");
-  setConsentElementHiddenVisibility(element, false);
-  return registerConsentRoot(element);
+
+  let changed = false;
+  if (markConsentElementHidden(element)) {
+    changed = true;
+  }
+
+  const descendants = element.querySelectorAll("*");
+  descendants.forEach((node) => {
+    if (!node || node.nodeType !== 1) {
+      return;
+    }
+    if (isWithinAiPopover(node) || isWithinExtensionUi(node)) {
+      return;
+    }
+    if (markConsentElementHidden(node)) {
+      changed = true;
+    }
+  });
+
+  if (registerConsentRoot(element)) {
+    changed = true;
+  }
+
+  return changed;
 }
 
 function isWithinConsentElement(el) {
@@ -4630,6 +4691,7 @@ export function hideConsentElements(storedXpaths = null) {
 
   if (hiddenCount > 0) {
     restorePageScrolling();
+    injectConsentBypassStyle();
   }
   return hiddenCount;
 }
