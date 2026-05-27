@@ -25,7 +25,7 @@ test("AI run remaining time clamps at zero", () => {
   assert.equal(getAiRunRemainingMs(10_000, 12_000), 0);
 });
 
-test("AI run resume expiry uses the two-minute cache window", () => {
+test("AI run resume expiry uses the configured recovery window", () => {
   assert.equal(getAiRunResumeExpiresAt(50_000), 50_000 + AI_RUN_RESUME_TTL_MS);
 });
 

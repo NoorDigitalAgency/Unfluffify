@@ -6556,6 +6556,7 @@ async function failAiRun(message = PopupText.ai.runFailed) {
 
 async function continueAiRunPolling({ endpointValue = "", tokenValue = "", currentPageUrl = "" } = {}) {
   while (state.aiRequestInFlight === "compute" && state.aiRunSessionId) {
+    const sessionId = state.aiRunSessionId;
     const remainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
     if (!remainingMs) {
       await failAiRun(PopupText.ai.runTimedOut);
@@ -6577,7 +6578,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       statusResult = await requestAiRunStatus({
         endpointValue,
         tokenValue,
-        sessionId: state.aiRunSessionId
+        sessionId
       });
     } catch {
       await failAiRun(PopupText.ai.runFailed);
@@ -6606,11 +6607,11 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
     }
     let result;
     try {
-      result = await requestAiRunResult({
-        endpointValue,
-        tokenValue,
-        sessionId: state.aiRunSessionId
-      });
+        result = await requestAiRunResult({
+          endpointValue,
+          tokenValue,
+          sessionId
+        });
     } catch {
       await failAiRun(PopupText.ai.runFailed);
       return;
