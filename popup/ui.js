@@ -124,8 +124,6 @@ const initialViewState = {
   renderModeEditText: ViewText.changeAction,
   renderModeNoticeText: "",
   renderModeNoticeVisible: false,
-  renderModeNoticeActionVisible: false,
-  renderModeNoticeActionText: "",
   renderModeUndeterminedVisible: true,
   renderModeWarningVisible: false,
   renderModeWarningAcknowledgeChecked: false,

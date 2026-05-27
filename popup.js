@@ -3338,7 +3338,6 @@ async function refreshUiInner() {
   const renderModeReady = !renderModeRequired || renderModeField.isReady;
   let renderModeNoticeText = renderModeField.noticeText;
   let renderModeNoticeVisible = renderModeField.noticeVisible;
-  let renderModeNoticeActionVisible = false;
   if (!renderModeRequired) {
     renderModeNoticeText = !tabInScope
       ? PopupText.renderMode.noticeOpenOnCurrentTab
@@ -3354,11 +3353,9 @@ async function refreshUiInner() {
   } else if (state.renderModeDetectionUnsure) {
     renderModeNoticeText = PopupText.renderMode.noticeAutoDetectFailed;
     renderModeNoticeVisible = true;
-    renderModeNoticeActionVisible = true;
   } else if (renderModeLowConfidence) {
     renderModeNoticeText = PopupText.renderMode.noticeLowConfidence;
     renderModeNoticeVisible = true;
-    renderModeNoticeActionVisible = true;
   }
 
   const configurationComplete =
@@ -3552,10 +3549,6 @@ async function refreshUiInner() {
     : ViewText.changeAction;
   nextViewState.renderModeNoticeText = renderModeNoticeText;
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
-  nextViewState.renderModeNoticeActionVisible = renderModeNoticeActionVisible;
-  nextViewState.renderModeNoticeActionText = renderModeNoticeActionVisible
-    ? ""
-    : "";
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
   nextViewState.renderModeWarningVisible = false;
