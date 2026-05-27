@@ -255,6 +255,15 @@ export function createInitialLynxChecklistState() {
   };
 }
 
+export function buildLynxChecklistPromptState(options = {}) {
+  const hasCalculatedSelectors = Boolean(options.hasCalculatedSelectors);
+  const recentlyCalculatedSelectors = Boolean(options.recentlyCalculatedSelectors);
+  return {
+    aiAnswer: hasCalculatedSelectors && recentlyCalculatedSelectors ? "yes" : "",
+    aiQuestionDisabled: !hasCalculatedSelectors
+  };
+}
+
 export function normalizeLynxChecklistState(value = {}) {
   const normalizedPageTypes = normalizePropertyPageTypes(value.pageTypes);
   return {

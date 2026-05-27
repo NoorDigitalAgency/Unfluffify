@@ -308,6 +308,7 @@ export const PopupText = Object.freeze({
     noticeAiUnanswered: "Please answer the AI content check before sending.", // Notice shown before the first checklist question is answered.
     noticeAiNo: "Please run the AI content detection one last time and confirm it looks good before sending.", // Notice shown while the AI confirmation is set to No.
     noticeNoCandidates: "Live Pages are not prepared for this site yet. Prepare them before sending to Lynx.", // Notice shown when the GraphQL query returns no candidates.
+    noticeRunAiDetectionFirst: "No previous content detection was found for this property. Run AI content detection first, then come back to Send to Lynx.", // Notice shown when selectors have not been computed for this property yet.
     noticeCoverageComplete: "All listed page types have at least one marked page.", // Notice shown when the send prerequisites are satisfied.
     noticeMissingPageTypesPrefix: "Mark at least one page for: ", // Prefix for the missing-coverage notice.
     noticeMissingPageTypesSuffix: ".", // Suffix for the missing-coverage notice.

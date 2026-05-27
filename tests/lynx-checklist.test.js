@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildLynxChecklistAssignments,
+  buildLynxChecklistPromptState,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizePropertyPageTypes
@@ -153,6 +154,36 @@ test("requires the AI confirmation before sending", () => {
 
   assert.equal(checklist.canSend, false);
   assert.deepEqual(checklist.blockingReason, { code: "ai_unanswered" });
+});
+
+test("disables AI question when selectors were never computed", () => {
+  const promptState = buildLynxChecklistPromptState({
+    hasCalculatedSelectors: false,
+    recentlyCalculatedSelectors: false
+  });
+
+  assert.equal(promptState.aiQuestionDisabled, true);
+  assert.equal(promptState.aiAnswer, "");
+});
+
+test("auto-confirms AI question when selectors were computed recently", () => {
+  const promptState = buildLynxChecklistPromptState({
+    hasCalculatedSelectors: true,
+    recentlyCalculatedSelectors: true
+  });
+
+  assert.equal(promptState.aiQuestionDisabled, false);
+  assert.equal(promptState.aiAnswer, "yes");
+});
+
+test("keeps AI question unanswered when selectors exist but are older", () => {
+  const promptState = buildLynxChecklistPromptState({
+    hasCalculatedSelectors: true,
+    recentlyCalculatedSelectors: false
+  });
+
+  assert.equal(promptState.aiQuestionDisabled, false);
+  assert.equal(promptState.aiAnswer, "");
 });
 
 test("reports missing page types until each current type has at least one marked page", () => {

@@ -25,12 +25,16 @@ import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
   buildLynxChecklistAssignments,
+  buildLynxChecklistPromptState,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
   normalizeCandidatePageUrl,
   normalizePageTypeKey,
   normalizePropertyPageTypes
 } from "./common/lynx-checklist.js";
+import {
+  buildPageSaveUiState
+} from "./common/page-save-state.js";
 import {
   PROPERTY_PAGE_TYPES_QUERY,
   URL_SEARCH_INFO_QUERY,
@@ -108,6 +112,7 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
+const LYNX_CHECKLIST_AI_AUTO_CONFIRM_WINDOW_MS = 15 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
@@ -1339,35 +1344,12 @@ function isCompletedPageConfigSyncResult(syncResult) {
   return Boolean(syncResult && syncResult.ok && !syncResult.skipped);
 }
 
-function getPageSaveReconciliationStatusText(reconciliation) {
-  const reason = reconciliation && typeof reconciliation.reason === "string"
-    ? reconciliation.reason
-    : "";
-  if (reason === "sync_failed") {
-    return PopupText.page.statusServerSyncFailed;
-  }
-  if (reason === "sync_skipped") {
-    return PopupText.page.statusServerSyncSkipped;
-  }
-  if (reason === "load_failed") {
-    return PopupText.page.statusServerRefreshFailed;
-  }
-  return PopupText.page.statusServerSyncPending;
-}
-
 function getCurrentPageUrl() {
   return (state.currentTab && state.currentTab.url) || "";
 }
 
-function getCurrentReconciliationPageUrl() {
-  const reconciliation = state.currentPageSaveReconciliation;
-  return reconciliation && typeof reconciliation.pageUrl === "string" && reconciliation.pageUrl
-    ? reconciliation.pageUrl
-    : getCurrentPageUrl();
-}
-
 async function setCurrentPageSaveReconciliationReason(reason) {
-  const pageUrl = getCurrentReconciliationPageUrl();
+  const pageUrl = getCurrentPageUrl();
   if (!state.currentBaseUrl || !pageUrl) {
     return null;
   }
@@ -1386,7 +1368,7 @@ async function setCurrentPageSaveReconciliationReason(reason) {
 }
 
 async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl) {
-  const pageUrl = getCurrentReconciliationPageUrl();
+  const pageUrl = getCurrentPageUrl();
   if (!baseUrl || !pageUrl) {
     return;
   }
@@ -1993,6 +1975,19 @@ function getLastSubmittedSelectorsFromConfig(sourceConfig = state.currentConfig)
 
 function getLatestAvailableSelectorsFromConfig(sourceConfig = state.currentConfig) {
   return config.getNewestConfigSelectorSet(sourceConfig).selectorSet;
+}
+
+function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
+    return false;
+  }
+  const updatedAt = config.normalizeEntryTimestamp(
+    sourceConfig && sourceConfig.selectorsUpdatedAt
+  );
+  if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
+    return false;
+  }
+  return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
 async function hideConsentForRenderModeInspection() {
@@ -2773,7 +2768,7 @@ async function refreshUiInner() {
   }
   const selectorsReadyForSubmit = hasNewSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
-  const hasStoredSelectors = combineAiSelectorSet(latestAvailableSelectors).length > 0;
+  const hasStoredSelectors = hasCalculatedSelectorsFromConfig();
 
   state.currentDraftEntry = null;
   state.currentSavedEntry = null;
@@ -2925,7 +2920,11 @@ async function refreshUiInner() {
   nextViewState.renderModeWarningOkDisabled = true;
   nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
   nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
-  nextViewState.lynxChecklistPageTypes = state.lynxChecklistPageTypes || {};
+  nextViewState.lynxChecklistPageTypes = Array.isArray(state.lynxChecklistPageTypes)
+    ? state.lynxChecklistPageTypes
+    : [];
+  nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
+  nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -3032,9 +3031,7 @@ async function refreshUiInner() {
   nextViewState.saveExcludesButtonLoading = state.aiRequestInFlight === "save";
   nextViewState.aiControlsBusy = aiBusy;
   nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
-  nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
-    ? PopupText.page.statusServerSyncPending
-    : PopupText.ai.dirtyNotice;
+  nextViewState.aiDirtyNoticeText = PopupText.ai.dirtyNotice;
   nextViewState.cssSelectorsVisible =
     !pageScopedUiDisabled &&
     resolvedView === uiModule.View.Marking &&
@@ -3049,65 +3046,36 @@ async function refreshUiInner() {
     Boolean(effectiveSiteIdBlockedReason) ||
     baseField.noticeVisible;
   const pageControlsVisible = !nextViewState.mainUiHidden && nextViewState.renderModeReady;
-  const canInitialPageSave = !hasSavedPageData;
-  const pageSaveDisabled =
-    !pageControlsVisible ||
-    !state.currentDraftAvailable ||
-    (!pageSaveReconciliationPending && mobileSimulationBlocked) ||
-    (!pageSaveReconciliationPending && !state.currentDraftDirty && !canInitialPageSave && !needsAiSnapshotBackfill);
-  nextViewState.pageSaveDisabled = pageSaveDisabled;
+  const pageSaveUiState = buildPageSaveUiState({
+    pageControlsVisible,
+    currentDraftAvailable: state.currentDraftAvailable,
+    hasSavedPageData,
+    currentDraftDirty: state.currentDraftDirty,
+    needsAiSnapshotBackfill,
+    mobileSimulationBlocked,
+    reconciliation: state.currentPageSaveReconciliation
+  });
+  nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
-    pageControlsVisible &&
-    !pageSaveReconciliationPending &&
-    mobileSimulationBlocked &&
-    state.currentDraftAvailable &&
-    (state.currentDraftDirty || canInitialPageSave || needsAiSnapshotBackfill);
+    pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
-  nextViewState.pageRevertDisabled =
-    !pageControlsVisible ||
-    pageSaveReconciliationPending ||
-    !state.currentDraftAvailable ||
-    !hasSavedPageData ||
-    !state.currentDraftDirty;
-  let pageDraftStatusTone = "muted";
-  if (!pageControlsVisible) {
-    nextViewState.pageDraftStatusText = "";
-  } else if (!state.currentDraftAvailable) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusDraftUnavailable;
-    pageDraftStatusTone = "warning";
-  } else if (pageSaveReconciliationPending) {
-    nextViewState.pageDraftStatusText = getPageSaveReconciliationStatusText(
-      state.currentPageSaveReconciliation
-    );
-    pageDraftStatusTone = "warning";
-  } else if (!hasSavedPageData) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusNoSavedData;
-    pageDraftStatusTone = "muted";
-  } else if (state.currentDraftDirty) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusUnsavedChanges;
-    pageDraftStatusTone = "warning";
-  } else if (needsAiSnapshotBackfill) {
-    nextViewState.pageDraftStatusText = PopupText.page.statusNeedsAiSnapshot;
-    pageDraftStatusTone = "warning";
-  } else {
-    nextViewState.pageDraftStatusText = PopupText.page.statusAllChangesSaved;
-    pageDraftStatusTone = "success";
-  }
-  nextViewState.pageDraftStatusTone = pageDraftStatusTone;
+  nextViewState.pageRevertDisabled = pageSaveUiState.pageRevertDisabled;
+  nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
+  nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
+  nextViewState.aiDirtyNoticeText = pageSaveUiState.aiDirtyNoticeText;
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
-  nextViewState.isBusy = remoteConfigRetryBlocked;
-  nextViewState.busyMessage = remoteConfigRetryBlocked
-    ? PopupText.status.remoteServerRetryNotice
-    : "";
-  nextViewState.pageDataNewNoticeHidden =
-    !pageControlsVisible ||
-    !state.currentDraftAvailable ||
-    pageSaveReconciliationPending ||
-    hasSavedPageData;
+  const popupBusyActive = popupBusyOverlayVisible;
+  nextViewState.isBusy = popupBusyActive || remoteConfigRetryBlocked;
+  nextViewState.busyMessage = popupBusyActive
+    ? popupBusyOverlayMessage
+    : remoteConfigRetryBlocked
+      ? PopupText.status.remoteServerRetryNotice
+      : "";
+  nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
@@ -3480,16 +3448,40 @@ function setLynxChecklistViewState() {
     lynxChecklistAiAnswer: state.lynxChecklistAiAnswer || "",
     lynxChecklistPageTypes: Array.isArray(state.lynxChecklistPageTypes)
       ? state.lynxChecklistPageTypes
-      : []
+      : [],
+    lynxChecklistAiQuestionDisabled: Boolean(state.lynxChecklistAiQuestionDisabled),
+    lynxChecklistNoticeText: state.lynxChecklistNoticeText || ""
   });
+}
+
+function isRecentConfigSelectorComputation(sourceConfig = state.currentConfig) {
+  if (!hasCalculatedSelectorsFromConfig(sourceConfig)) {
+    return false;
+  }
+  const updatedAt = config.normalizeEntryTimestamp(
+    sourceConfig && sourceConfig.selectorsUpdatedAt
+  );
+  if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
+    return false;
+  }
+  return Date.now() - updatedAt <= LYNX_CHECKLIST_AI_AUTO_CONFIRM_WINDOW_MS;
 }
 
 function resetLynxChecklistState() {
   const initial = createInitialLynxChecklistState();
-  state.lynxChecklistAiAnswer = initial.aiAnswer;
+  const hasCalculatedSelectors = hasCalculatedSelectorsFromConfig(state.currentConfig);
+  const promptState = buildLynxChecklistPromptState({
+    hasCalculatedSelectors,
+    recentlyCalculatedSelectors: isRecentConfigSelectorComputation(state.currentConfig)
+  });
+  state.lynxChecklistAiAnswer = promptState.aiAnswer || initial.aiAnswer;
   state.lynxChecklistPageTypes = Array.isArray(state.propertyPageTypes)
     ? state.propertyPageTypes
     : initial.pageTypes;
+  state.lynxChecklistAiQuestionDisabled = promptState.aiQuestionDisabled;
+  state.lynxChecklistNoticeText = hasCalculatedSelectors
+    ? ""
+    : PopupText.lynxChecklist.noticeRunAiDetectionFirst;
 }
 
 function openLynxChecklistPopover() {
@@ -3505,6 +3497,9 @@ function closeLynxChecklistPopover() {
 }
 
 function handleLynxChecklistAiAnswerChange(event) {
+  if (state.lynxChecklistAiQuestionDisabled) {
+    return;
+  }
   const nextValue =
     event && event.currentTarget && event.currentTarget.value === "no" ? "no" : "yes";
   state.lynxChecklistAiAnswer = nextValue;
@@ -6096,6 +6091,10 @@ async function handlePreviewLatest() {
   }
   if (!state.currentConfig) {
     uiModule.showToast(ViewText.noMappedBaseUrlOrSiteId);
+    return;
+  }
+  if (!hasCalculatedSelectorsFromConfig(state.currentConfig)) {
+    uiModule.showToast(PopupText.preview.noStoredSelectors);
     return;
   }
   if (state.currentPageSaveReconciliationPending) {

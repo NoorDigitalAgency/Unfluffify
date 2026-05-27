@@ -3688,18 +3688,6 @@ async function saveCurrentPageDraft(options) {
   const draftEntryChanged = !core.areEntriesEquivalent(draftEntry, savedEntry);
   const reconciliation = core.getPageSaveReconciliationState(pageUrl);
   const reconciliationPending = Boolean(reconciliation);
-  if (reconciliationPending && reconciliation.pageUrl && reconciliation.pageUrl !== pageUrl) {
-    if (showToast) {
-      showPageToast("Server sync pending");
-    }
-    return {
-      ok: true,
-      saved: true,
-      dirty: true,
-      reconciliationPending: true,
-      reconciliation
-    };
-  }
   const hasSavedEntry = Boolean(savedEntry);
   const savedEntryHasAiSubmissionData = Boolean(
     savedEntry &&
@@ -6820,7 +6808,7 @@ export function main() {
       const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
         ? message.pageUrl
         : location.href;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl)) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || pageUrl !== location.href) {
         sendResponse({ ok: false });
         return;
       }
@@ -6839,21 +6827,34 @@ export function main() {
       const pageUrl = typeof message.pageUrl === "string" && message.pageUrl
         ? message.pageUrl
         : location.href;
-      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl)) {
+      if (!targetBaseUrl || !matchesActiveBaseUrl(targetBaseUrl) || pageUrl !== location.href) {
         sendResponse({ ok: false });
         return;
       }
       (async () => {
-        await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
-        await core.refreshPageSaveReconciliation(targetBaseUrl, location.href);
-        const refreshedConfig = await core.loadConfig(targetBaseUrl);
         const currentPageUrl = location.href;
-        const storedEntry =
+        const previousSavedEntry = core.getSavedPageEntry(currentPageUrl);
+        const previousDraftEntry = core.getDraftPageEntry(currentPageUrl);
+        await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
+        await core.refreshPageSaveReconciliation(targetBaseUrl, currentPageUrl);
+        const refreshedConfig = await core.loadConfig(targetBaseUrl);
+        let storedEntry =
           refreshedConfig.pageMarkings && refreshedConfig.pageMarkings[currentPageUrl]
             ? refreshedConfig.pageMarkings[currentPageUrl]
             : null;
+        if (!storedEntry && (previousSavedEntry || previousDraftEntry)) {
+          // Keep the confirmed local snapshot as the current saved baseline when
+          // the immediate post-save remote reload omits this page entry.
+          const fallbackEntry = previousSavedEntry || previousDraftEntry;
+          if (!refreshedConfig.pageMarkings || typeof refreshedConfig.pageMarkings !== "object") {
+            refreshedConfig.pageMarkings = {};
+          }
+          refreshedConfig.pageMarkings[currentPageUrl] = core.clonePageEntry(fallbackEntry);
+          storedEntry = refreshedConfig.pageMarkings[currentPageUrl];
+          await core.saveConfig(targetBaseUrl, refreshedConfig);
+        }
         state.config = refreshedConfig;
-        core.setSavedPageEntry(currentPageUrl, storedEntry || null);
+        core.setSavedPageEntry(currentPageUrl, storedEntry || previousSavedEntry || previousDraftEntry || null);
         core.scheduleRender();
         core.notifyDraftStatus(currentPageUrl);
         sendResponse({ ok: true, entry: storedEntry ? core.clonePageEntry(storedEntry) : null });

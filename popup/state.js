@@ -81,5 +81,7 @@ export const state = {
   removedRemotePageKeys: new Set(),
   lynxChecklistVisible: false,
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
-  lynxChecklistPageTypes: initialLynxChecklistState.pageTypes
+  lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
+  lynxChecklistAiQuestionDisabled: false,
+  lynxChecklistNoticeText: ""
 };

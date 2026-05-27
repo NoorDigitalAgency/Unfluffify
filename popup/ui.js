@@ -120,6 +120,8 @@ const initialViewState = {
   lynxChecklistVisible: false,
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
+  lynxChecklistAiQuestionDisabled: false,
+  lynxChecklistNoticeText: "",
   renderModeReady: false,
   renderModeInputDisabled: false,
   renderModeInspectButtonsDisabled: false,
@@ -1388,7 +1390,10 @@ function renderAiControlsContent(view, handlers) {
   );
 }
 
-function getLynxChecklistNoticeText(checklist) {
+function getLynxChecklistNoticeText(checklist, view) {
+  if (view && typeof view.lynxChecklistNoticeText === "string" && view.lynxChecklistNoticeText) {
+    return view.lynxChecklistNoticeText;
+  }
   const { blockingReason } = checklist;
   const missingTitles = Array.isArray(blockingReason.pageTypeKeys)
     ? blockingReason.pageTypeKeys
@@ -1448,7 +1453,7 @@ function renderLynxChecklistPopover(view, handlers) {
     pageTypes: view.lynxChecklistPageTypes,
     markedPages: view.markedPages
   });
-  const noticeText = getLynxChecklistNoticeText(checklist);
+  const noticeText = getLynxChecklistNoticeText(checklist, view);
 
   return h(
     "div",
@@ -1478,7 +1483,7 @@ function renderLynxChecklistPopover(view, handlers) {
             name: "lynx-checklist-ai",
             value: "yes",
             checked: checklist.aiAnswer === "yes",
-            disabled: checklist.aiQuestionDisabled,
+            disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
             label: ViewText.yes,
             onChange: handlers.onLynxChecklistAiAnswerChange
           }),
@@ -1486,7 +1491,7 @@ function renderLynxChecklistPopover(view, handlers) {
             name: "lynx-checklist-ai",
             value: "no",
             checked: checklist.aiAnswer === "no",
-            disabled: checklist.aiQuestionDisabled,
+            disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
             label: ViewText.no,
             onChange: handlers.onLynxChecklistAiAnswerChange
           })
@@ -1514,17 +1519,9 @@ function renderLynxChecklistPopover(view, handlers) {
                     "div",
                     { class: "lynx-checklist-popover__page-type-title-row" },
                     h("div", { class: "lynx-checklist-popover__page-type-title" }, item.title),
-                    h(
-                      "span",
-                      {
-                        class: classNames(
-                          "lynx-checklist-popover__page-type-status",
-                          item.missing
-                            ? "lynx-checklist-popover__page-type-status--missing"
-                            : "lynx-checklist-popover__page-type-status--ready"
-                        )
-                      },
-                      item.missing ? PopupText.pageTypes.missingBadge : PopupText.pageTypes.readyBadge
+                    renderTodoIndicator(
+                      item.missing ? "progress-helper" : "progress-check",
+                      !item.missing
                     )
                   ),
                   item.missing && item.candidatePreview.length

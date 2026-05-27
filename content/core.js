@@ -5007,7 +5007,7 @@ export function isPageDraftDirty(pageUrl) {
 
 export function getPageSaveReconciliationState(pageUrl = location.href) {
   const reconciliation = config.normalizePageSaveReconciliation(state.pageSaveReconciliation);
-  if (!reconciliation) {
+  if (!reconciliation || reconciliation.pageUrl !== pageUrl) {
     return null;
   }
   if (state.baseUrl && !utils.sameBaseUrl(reconciliation.baseUrl, state.baseUrl)) {
@@ -5025,10 +5025,7 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
     state.pageSaveReconciliation = null;
     return null;
   }
-  const reconciliation =
-    await config.getPageSaveReconciliation(baseUrl, pageUrl) ||
-    (await config.getPageSaveReconciliationsForBaseUrl(baseUrl))[0] ||
-    null;
+  const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
   state.pageSaveReconciliation = reconciliation;
   return reconciliation;
 }

@@ -1821,7 +1821,7 @@ button.loading:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 3px 8px 3px 3px;
   border-radius: 999px;
   margin-left: auto;
   border: 1px solid transparent;
@@ -1965,7 +1965,7 @@ button.loading:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 7px;
+  padding: 2px 7px 2px 3px;
   border-radius: 999px;
   border: 1px solid transparent;
   font-size: 12px;
@@ -2152,6 +2152,12 @@ span.todo-candidate-link {
 
 .todo-indicator--done {
   color: var(--success);
+}
+
+.todo-candidate .todo-indicator--done {
+  color: var(--card);
+  background: var(--success);
+  border-radius: 50%;
 }
 
 .todo-indicator--pending {
