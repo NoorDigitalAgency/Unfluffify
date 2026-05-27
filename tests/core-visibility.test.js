@@ -94,15 +94,25 @@ function createElement(options = {}) {
   return element;
 }
 
-function withVisibilityDom(callback) {
+function withVisibilityDom(callback, options = {}) {
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const originalNode = globalThis.Node;
   const originalLocation = globalThis.location;
+  const viewportWidth = options.viewportWidth || 1200;
+  const viewportHeight = options.viewportHeight || 800;
   const documentElement = createElement();
   const body = createElement({ parentElement: documentElement });
   documentElement.children.push(body);
   documentElement.childNodes.push(body);
+  documentElement.clientWidth = viewportWidth;
+  documentElement.clientHeight = viewportHeight;
+  documentElement.scrollWidth = options.scrollWidth || viewportWidth;
+  documentElement.scrollHeight = options.scrollHeight || viewportHeight;
+  body.clientWidth = viewportWidth;
+  body.clientHeight = viewportHeight;
+  body.scrollWidth = options.scrollWidth || viewportWidth;
+  body.scrollHeight = options.scrollHeight || viewportHeight;
   globalThis.document = {
     documentElement,
     body,
@@ -117,8 +127,10 @@ function withVisibilityDom(callback) {
     getComputedStyle(element) {
       return element && element.__style ? element.__style : defaultStyle;
     },
-    innerWidth: 1200,
-    innerHeight: 800
+    innerWidth: viewportWidth,
+    innerHeight: viewportHeight,
+    scrollX: options.scrollX || 0,
+    scrollY: options.scrollY || 0
   };
   globalThis.Node = { TEXT_NODE: 3 };
   globalThis.location = { href: "https://example.test/" };
@@ -228,5 +240,46 @@ test("submission visibility treats below-fold ambiguous nodes as potentially vis
     body.childNodes.push(element);
     assert.equal(isVisible(element), false);
     assert.equal(isVisibleForSubmission(element), true);
-  });
+  }, { scrollHeight: 1600 });
+});
+
+test("submission visibility rejects off-canvas render boxes", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      tagName: "a",
+      text: "Off-canvas navigation helper",
+      rect: { top: 20, right: -9800, bottom: 60, left: -10000, width: 200, height: 40 }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
+});
+
+test("submission visibility rejects render boxes above the document", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      text: "Hidden above the page",
+      rect: { top: -1000, right: 320, bottom: -900, left: 20, width: 300, height: 100 }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
+});
+
+test("submission visibility rejects fixed boxes outside the viewport", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      text: "Fixed outside the viewport",
+      rect: { top: 1200, right: 320, bottom: 1300, left: 20, width: 300, height: 100 },
+      style: { position: "fixed" }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
 });

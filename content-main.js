@@ -44,7 +44,10 @@ import {
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
 } from "./content/silent-highlight-rules.js";
-import { resolveAiSubmissionRowState } from "./content/submission-rules.js";
+import {
+  isAiSubmissionDocumentRootXpath,
+  resolveAiSubmissionRowState
+} from "./content/submission-rules.js";
 
 const { state } = core;
 
@@ -5935,6 +5938,9 @@ function collectAiSubmissionXpathsForCurrentPage() {
     if (typeof xpath !== "string" || !xpath) {
       return;
     }
+    if (isAiSubmissionDocumentRootXpath(xpath)) {
+      return;
+    }
     const existingIndex = rowIndexByXpath.has(xpath)
       ? rowIndexByXpath.get(xpath)
       : -1;
@@ -6018,6 +6024,9 @@ function collectAiSubmissionXpathsForCurrentPage() {
     }
     const xpath = core.getXPath(node);
     if (!xpath) {
+      continue;
+    }
+    if (isAiSubmissionDocumentRootXpath(xpath)) {
       continue;
     }
     const explicitlyExcluded = explicitExcludedXpaths.has(xpath);

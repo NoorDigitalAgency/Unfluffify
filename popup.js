@@ -58,6 +58,9 @@ import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
+  isAiSubmissionDocumentRootXpath
+} from "./content/submission-rules.js";
+import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
   aiSelectorSetsEqual
@@ -5456,7 +5459,8 @@ async function handleComputeSelectors() {
           excluded: false,
           explicit: explicitIncludeXpaths.has(xpath)
         };
-      });
+      })
+      .filter((item) => item && !isAiSubmissionDocumentRootXpath(item.xpath));
   };
   const storedPageEntries = Object.entries(pageMarkings)
     .filter(([url, entry]) => {
@@ -5501,7 +5505,7 @@ async function handleComputeSelectors() {
       url,
       renderedHtml,
       rawHtml: isStatic ? rawHtml : undefined,
-      renderedXpaths: renderedXPaths,
+      renderedXPaths,
       rawXPaths: isStatic ? refineXPathEntries(renderedHtml, rawHtml, renderedXPaths) : undefined
     };
   });

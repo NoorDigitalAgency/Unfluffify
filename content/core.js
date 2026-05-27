@@ -199,6 +199,84 @@ function getViewportBounds() {
   };
 }
 
+function getPositiveFiniteMax(values) {
+  return values.reduce((maxValue, value) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return maxValue;
+    }
+    return Math.max(maxValue, numericValue);
+  }, 0);
+}
+
+function getDocumentVisualBounds() {
+  const documentElement = document.documentElement;
+  const body = document.body;
+  const width = getPositiveFiniteMax([
+    documentElement?.scrollWidth,
+    body?.scrollWidth,
+    documentElement?.offsetWidth,
+    body?.offsetWidth,
+    documentElement?.clientWidth,
+    body?.clientWidth,
+    window.innerWidth
+  ]);
+  const height = getPositiveFiniteMax([
+    documentElement?.scrollHeight,
+    body?.scrollHeight,
+    documentElement?.offsetHeight,
+    body?.offsetHeight,
+    documentElement?.clientHeight,
+    body?.clientHeight,
+    window.innerHeight
+  ]);
+  return {
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: height,
+    width,
+    height
+  };
+}
+
+function getWindowScrollOffset() {
+  return {
+    x: Number(window.scrollX ?? window.pageXOffset) || 0,
+    y: Number(window.scrollY ?? window.pageYOffset) || 0
+  };
+}
+
+function toDocumentCoordinateRect(rect) {
+  const scrollOffset = getWindowScrollOffset();
+  return {
+    left: rect.left + scrollOffset.x,
+    top: rect.top + scrollOffset.y,
+    right: rect.right + scrollOffset.x,
+    bottom: rect.bottom + scrollOffset.y,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function hasFixedPositionAncestor(el) {
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const style = window.getComputedStyle(node);
+    if (style && style.position === "fixed") {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isReachableInDocumentVisualArea(rect) {
+  const documentRect = toDocumentCoordinateRect(rect);
+  const documentBounds = getDocumentVisualBounds();
+  return Boolean(intersectRects(documentRect, documentBounds));
+}
+
 function intersectRects(rectA, rectB) {
   const left = Math.max(rectA.left, rectB.left);
   const top = Math.max(rectA.top, rectB.top);
@@ -361,7 +439,14 @@ function isActuallyVisibleToUser(el) {
 }
 
 function isActuallyVisibleInDocument(el) {
-  return Boolean(getElementEffectiveVisibleRect(el, { clipToViewport: false }));
+  const visibleRect = getElementEffectiveVisibleRect(el, { clipToViewport: false });
+  if (!visibleRect) {
+    return false;
+  }
+  if (hasFixedPositionAncestor(el)) {
+    return Boolean(intersectRects(visibleRect, getViewportBounds()));
+  }
+  return isReachableInDocumentVisualArea(visibleRect);
 }
 
 function getTheoreticalVisibilityState(node, style) {
@@ -5092,16 +5177,12 @@ export function isVisibleForSubmission(el) {
   if (isWithinExtensionUi(el)) {
     return false;
   }
-  let ambiguousHidden = false;
   let node = el;
   while (node && node.nodeType === 1) {
     const style = window.getComputedStyle(node);
     const state = getTheoreticalVisibilityState(node, style);
     if (state.definitiveHidden) {
       return false;
-    }
-    if (state.ambiguousHidden) {
-      ambiguousHidden = true;
     }
     node = node.parentElement;
   }
@@ -5111,9 +5192,6 @@ export function isVisibleForSubmission(el) {
   }
   if (isClippedByOverflow(el)) {
     return false;
-  }
-  if (!ambiguousHidden) {
-    return true;
   }
   return isActuallyVisibleInDocument(el);
 }

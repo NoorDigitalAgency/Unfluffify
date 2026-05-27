@@ -244,6 +244,7 @@ The saved `submissionXpaths` sent for CSS-selector calculation follow these rule
 - consent UI roots are submitted as excluded rows,
 - toggleable roots that are excluded by current page markings are submitted as excluded rows,
 - toggleable roots that are visually hidden at save time are also submitted as excluded rows,
+- document roots and off-document render boxes are omitted,
 - textual boundaries that do not fall under those exclusion rules submit as included rows,
 - explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
 

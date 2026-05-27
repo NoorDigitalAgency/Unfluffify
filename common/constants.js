@@ -44,7 +44,8 @@ const DEFAULT_EXCLUDED_TAG_SELECTORS = [
   "SCRIPT",
   "TEMPLATE",
   "IFRAME",
-  "VIDEO"
+  "VIDEO",
+  "LINK"
 ];
 
 /**

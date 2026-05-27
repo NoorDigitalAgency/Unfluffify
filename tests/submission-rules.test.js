@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveAiSubmissionRowState } from "../content/submission-rules.js";
+import {
+  isAiSubmissionDocumentRootXpath,
+  resolveAiSubmissionRowState
+} from "../content/submission-rules.js";
+
+test("document root xpaths are not AI submission rows", () => {
+  assert.equal(isAiSubmissionDocumentRootXpath("/html[1]"), true);
+  assert.equal(isAiSubmissionDocumentRootXpath("/html[1]/body[1]"), true);
+  assert.equal(isAiSubmissionDocumentRootXpath("/html[1]/body[1]/main[1]"), false);
+});
 
 test("explicit exclusions submit as excluded when not explicitly included", () => {
   assert.deepEqual(
