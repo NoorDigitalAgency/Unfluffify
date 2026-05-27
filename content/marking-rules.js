@@ -47,10 +47,20 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
 
 export function isValidExpandedExclusionBoundary(options = {}) {
   const hasDirectOwnText = Boolean(options.hasDirectOwnText);
-  const textualDescendantCount = Number.isFinite(options.textualDescendantCount)
-    ? Math.max(0, Math.trunc(options.textualDescendantCount))
-    : 0;
-  return hasDirectOwnText || textualDescendantCount > 1;
+  const hasDirectTextualBoundary = Boolean(options.hasDirectTextualBoundary);
+  return hasDirectOwnText || hasDirectTextualBoundary;
+}
+
+export function shouldBlockExpandedExclusionRoot(options = {}) {
+  return Boolean(options.isBody || options.isSoleVisualBodyWrapper);
+}
+
+export function getExplicitMarkingRenderOptions() {
+  return {
+    delay: 0,
+    minInterval: 0,
+    invalidate: true
+  };
 }
 
 export function shouldAllowExplicitIncludeDescendantTarget(options = {}) {

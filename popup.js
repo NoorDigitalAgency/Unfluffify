@@ -5685,20 +5685,18 @@ async function handleExplicitExcludeRemove(xpath) {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
-  await runWithPopupBusyOverlay(PopupText.overlay.updatingExclusion, async () => {
-    await clearFocusedElement();
-    const response = await messages.sendTabMessage({
-      type: "setExplicitExclude",
-      baseUrl: state.currentBaseUrl,
-      xpath,
-      excluded: false
-    });
-    if (!response || !response.ok) {
-      uiModule.showToast(PopupText.explicitSelection.excludeUpdateFailed);
-      return;
-    }
-    await refreshUi();
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  await clearFocusedElement();
+  const response = await messages.sendTabMessage({
+    type: "setExplicitExclude",
+    baseUrl: state.currentBaseUrl,
+    xpath,
+    excluded: false
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast(PopupText.explicitSelection.excludeUpdateFailed);
+    return;
+  }
+  await refreshUi();
 }
 
 async function handleExplicitIncludeView(xpath) {
@@ -5721,20 +5719,18 @@ async function handleExplicitIncludeRemove(xpath) {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
-  await runWithPopupBusyOverlay(PopupText.overlay.updatingInclusion, async () => {
-    await clearFocusedElement();
-    const response = await messages.sendTabMessage({
-      type: "setExplicitInclude",
-      baseUrl: state.currentBaseUrl,
-      xpath,
-      included: false
-    });
-    if (!response || !response.ok) {
-      uiModule.showToast(PopupText.explicitSelection.includeUpdateFailed);
-      return;
-    }
-    await refreshUi();
-  }, { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS });
+  await clearFocusedElement();
+  const response = await messages.sendTabMessage({
+    type: "setExplicitInclude",
+    baseUrl: state.currentBaseUrl,
+    xpath,
+    included: false
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast(PopupText.explicitSelection.includeUpdateFailed);
+    return;
+  }
+  await refreshUi();
 }
 
 async function navigateActiveTabToUrl(url) {

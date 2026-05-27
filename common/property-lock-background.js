@@ -239,15 +239,16 @@ function connectWebSocket(runtime) {
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTING);
 
   utils.storageGet(chrome.storage.sync, {
+    globalConfigEndpoint: "",
     globalStageBase: "",
     globalToken: ""
   }).then((items) => {
-    const stageBase = items.globalStageBase || "";
+    const endpointBase = items.globalConfigEndpoint || items.globalStageBase || "";
     const token = items.globalToken || "";
 
-    const wssUrl = buildPropertyLockWssUrl(stageBase, token);
+    const wssUrl = buildPropertyLockWssUrl(endpointBase, token);
     if (!wssUrl) {
-      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, token ? "invalid_stage" : "missing_token");
+      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, token ? "invalid_config" : "missing_token");
       scheduleReconnect(runtime);
       return;
     }

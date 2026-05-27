@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   chooseExcludeParentBoundaryTarget,
+  getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
   isValidExpandedExclusionBoundary,
   shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
+  shouldBlockExpandedExclusionRoot,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
 
@@ -136,28 +138,42 @@ test("falls back to the broadest non-toggleable markable ancestor", () => {
   );
 });
 
-test("expanded exclusion boundaries require direct text or multiple textual descendants", () => {
+test("expanded exclusion boundaries require direct text or one direct textual boundary", () => {
   assert.equal(
     isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
-      textualDescendantCount: 1
+      hasDirectTextualBoundary: false
     }),
     false
   );
   assert.equal(
     isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
-      textualDescendantCount: 2
+      hasDirectTextualBoundary: true
     }),
     true
   );
   assert.equal(
     isValidExpandedExclusionBoundary({
       hasDirectOwnText: true,
-      textualDescendantCount: 0
+      hasDirectTextualBoundary: false
     }),
     true
   );
+});
+
+test("expanded exclusions block body and sole visual body wrapper roots", () => {
+  assert.equal(shouldBlockExpandedExclusionRoot({ isBody: true }), true);
+  assert.equal(shouldBlockExpandedExclusionRoot({ isSoleVisualBodyWrapper: true }), true);
+  assert.equal(shouldBlockExpandedExclusionRoot({ isBody: false, isSoleVisualBodyWrapper: false }), false);
+});
+
+test("explicit marking renders are scheduled for immediate invalidated feedback", () => {
+  assert.deepEqual(getExplicitMarkingRenderOptions(), {
+    delay: 0,
+    minInterval: 0,
+    invalidate: true
+  });
 });
 
 test("explicit include descendants are blocked until the include boundary is removed", () => {

@@ -73,26 +73,26 @@ export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectio
 /**
  * Build WebSocket URL for property lock service.
  * 
- * @param {string} stageBase - Stage base URL (e.g., "staging.unfluffify.com")
+ * @param {string} endpointUrl - Config endpoint URL or host; path/query are replaced and the same origin/port is used.
  * @param {string} tokenValue - JWT token for authorization
  * @returns {string} WSS URL or empty string if invalid
  */
-export function buildPropertyLockWssUrl(stageBase, tokenValue) {
-  if (!stageBase || typeof stageBase !== "string") {
+export function buildPropertyLockWssUrl(endpointUrl, tokenValue) {
+  if (!endpointUrl || typeof endpointUrl !== "string") {
     return "";
   }
 
-  let normalized = "";
+  let url;
   try {
-    const trimmed = stageBase.trim().toLowerCase();
-    const url = trimmed.includes("://")
+    const trimmed = endpointUrl.trim();
+    url = trimmed.includes("://")
       ? new URL(trimmed)
       : new URL(`https://${trimmed}`);
-    normalized = (url.hostname || "").replace(/^\.+/, "").replace(/\.+$/, "");
   } catch (error) {
     return "";
   }
-  if (!normalized) {
+  const hostname = (url.hostname || "").replace(/^\.+/, "").replace(/\.+$/, "");
+  if (!hostname) {
     return "";
   }
 
@@ -105,7 +105,13 @@ export function buildPropertyLockWssUrl(stageBase, tokenValue) {
     return "";
   }
 
-  const base = `wss://api.${normalized}/property-lock`;
+  const isLocalDevHost =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost");
+  const wsProtocol = url.protocol === "http:" && isLocalDevHost ? "ws:" : "wss:";
+  const base = `${wsProtocol}//${url.host}/property-lock`;
   return `${base}?token=${encodeURIComponent(trimmedToken)}`;
 }
 
