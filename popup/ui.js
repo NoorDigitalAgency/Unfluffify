@@ -122,6 +122,7 @@ const initialViewState = {
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
   renderModeReady: false,
   renderModeInputDisabled: false,
+  renderModeInspectButtonsDisabled: false,
   renderModeSetDisabled: false,
   renderModeEditDisabled: false,
   renderModeSummaryOpen: false,
@@ -681,12 +682,100 @@ function renderRemoteSupportedView(view, handlers) {
 }
 
 function renderRenderModeEditor(view, handlers) {
+  const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
+
   return h(
     Fragment,
     null,
     h(
+      "div",
+      { class: "render-mode-inspect-group" },
+      h(
+        "div",
+        { class: "render-mode-inspect-row" },
+        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepOneLabel),
+        h(
+          "button",
+          {
+            id: "render-mode-inspect-with-javascript",
+            type: "button",
+            class: "button-secondary",
+            disabled: view.renderModeInspectButtonsDisabled,
+            onClick: handlers.onRenderModeInspectWithJavaScript
+          },
+          PopupText.renderMode.inspectWithJavaScriptButton
+        )
+      ),
+      h(
+        "div",
+        { class: "render-mode-inspect-row" },
+        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepTwoLabel),
+        h(
+          "button",
+          {
+            id: "render-mode-inspect-without-javascript",
+            type: "button",
+            class: "button-secondary",
+            disabled: view.renderModeInspectButtonsDisabled,
+            onClick: handlers.onRenderModeInspectWithoutJavaScript
+          },
+          PopupText.renderMode.inspectWithoutJavaScriptButton
+        )
+      )
+    ),
+    h(
+      "div",
+      { class: "render-mode-interpretation" },
+      h("span", { class: "control-label" }, PopupText.renderMode.stepThreeLabel),
+      h(
+        "div",
+        { class: "render-mode-radio-group" },
+        h(
+          "label",
+          { class: "render-mode-radio-option" },
+          h("input", {
+            id: "render-mode-choice-static",
+            type: "radio",
+            name: "render-mode-choice",
+            value: "static",
+            checked: view.renderModeValue === "static",
+            disabled: renderModeInputDisabled,
+            onChange: handlers.onRenderModeChoiceInput
+          }),
+          h("span", null, PopupText.renderMode.copyLookAlmostSame)
+        ),
+        h(
+          "label",
+          { class: "render-mode-radio-option" },
+          h("input", {
+            id: "render-mode-choice-rendered",
+            type: "radio",
+            name: "render-mode-choice",
+            value: "rendered",
+            checked: view.renderModeValue === "rendered",
+            disabled: renderModeInputDisabled,
+            onChange: handlers.onRenderModeChoiceInput
+          }),
+          h("span", null, PopupText.renderMode.copyLookVeryDifferent)
+        ),
+        h("input", {
+          id: "render-mode-choice-undetermined",
+          type: "radio",
+          name: "render-mode-choice",
+          value: "undetermined",
+          checked: view.renderModeValue === "undetermined",
+          disabled: true,
+          tabIndex: -1,
+          "aria-hidden": "true",
+          class: "render-mode-radio-hidden"
+        })
+      )
+    ),
+    h(
       "label",
       {class: "field"},
+      h("span", { class: "control-label" }, PopupText.renderMode.stepFourLabel),
+      h("span", { class: "control-label" }, PopupText.renderMode.renderModeLabel),
       h(
         "div",
         {class: "input-row"},
@@ -695,7 +784,7 @@ function renderRenderModeEditor(view, handlers) {
           {
             id: "render-mode",
             value: view.renderModeValue,
-            disabled: view.renderModeInputDisabled || view.renderModeReadOnly,
+            disabled: renderModeInputDisabled,
             onChange: handlers.onRenderModeInput,
             ref: (el) => {
               refs.renderModeSelect = el;
@@ -704,7 +793,15 @@ function renderRenderModeEditor(view, handlers) {
           h("option", { value: "static" }, PopupText.renderMode.optionStatic),
           h("option", { value: "rendered" }, PopupText.renderMode.optionRendered),
           view.renderModeUndeterminedVisible
-            ? h("option", { value: "undetermined", disabled: true }, PopupText.renderMode.optionUndetermined)
+            ? h(
+                "option",
+                {
+                  value: "undetermined",
+                  disabled: true,
+                  hidden: true
+                },
+                PopupText.renderMode.optionUndetermined
+              )
             : null
         ),
         h(
@@ -732,29 +829,6 @@ function renderRenderModeEditor(view, handlers) {
           view.renderModeEditText
         )
       )
-    ),
-    h(
-      "div",
-      {
-        id: "render-mode-notice",
-        class: classNames("notice", view.renderModeNoticeActionVisible && "notice--actionable"),
-        role: "status",
-        "aria-live": "polite",
-        hidden: !view.renderModeNoticeVisible
-      },
-      h("span", null, view.renderModeNoticeText),
-      view.renderModeNoticeActionVisible
-        ? h(
-            "button",
-            {
-              id: "render-mode-notice-action",
-              type: "button",
-              class: "notice__action",
-              onClick: handlers.onRenderModeNoticeAction
-            },
-            view.renderModeNoticeActionText
-          )
-        : null
     )
   );
 }
@@ -1644,52 +1718,6 @@ function renderMarkingView({state: view, actions: handlers}) {
     ...mergedControlsSectionChildren
   );
 
-  const renderModeWarningPopover = h(
-    "div",
-    {
-      class: "warning-popover",
-      hidden: !view.renderModeWarningVisible,
-      role: "dialog",
-      "aria-modal": "true",
-      "aria-labelledby": "render-mode-warning-title"
-    },
-    h(
-      "div",
-      { class: "warning-popover__card" },
-      h("div", { id: "render-mode-warning-title", class: "warning-popover__title" }, PopupText.renderMode.warningTitle),
-      h(
-        "div",
-        {
-          class: "warning-popover__body",
-          dangerouslySetInnerHTML: {
-            __html: PopupText.renderMode.warningBodyHtml
-          }
-        },
-      ),
-      h(
-        "label",
-        { class: "warning-popover__ack" },
-        h("input", {
-          id: "render-mode-warning-ack",
-          type: "checkbox",
-          checked: view.renderModeWarningAcknowledgeChecked,
-          onChange: handlers.onRenderModeWarningAcknowledgeChange
-        }),
-        h("span", null, PopupText.renderMode.warningAcknowledge)
-      ),
-      h(
-        "button",
-        {
-          id: "render-mode-warning-ok",
-          type: "button",
-          class: "warning-popover__ok",
-          disabled: view.renderModeWarningOkDisabled,
-          onClick: handlers.onRenderModeWarningConfirm
-        },
-        PopupText.actions.ok
-      )
-    )
-  );
   const lynxChecklistPopover = renderLynxChecklistPopover(view, handlers);
 
   return h(
@@ -1722,7 +1750,6 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     ,
     postRenderModeControlsVisible && mergedControlsSection,
-    renderModeWarningPopover,
     lynxChecklistPopover
   );
 }

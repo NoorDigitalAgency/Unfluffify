@@ -1957,11 +1957,13 @@ async function persistSilentHighlightVisibility() {
 }
 
 async function applySilentHighlightVisibility(options = {}) {
-  const { force = false } = options;
+  const { force = false, visibilityOverride = null } = options;
   if (!state.currentTab || !state.currentTab.id) {
     return;
   }
-  const visibility = getSilentHighlightVisibility();
+  const visibility = visibilityOverride && typeof visibilityOverride === "object"
+    ? normalizeSilentHighlightOptions(visibilityOverride)
+    : getSilentHighlightVisibility();
   const key = getSilentHighlightVisibilityKey(visibility);
   const tabId = state.currentTab.id;
   const pageUrl = (state.currentTab && state.currentTab.url) || "";
@@ -1990,6 +1992,17 @@ async function applySilentHighlightVisibility(options = {}) {
     state.lastAppliedSilentHighlightKey = key;
     state.lastAppliedSilentHighlightPageUrl = pageUrl;
   }
+}
+
+async function applyRenderModeInspectionVisibility(options = {}) {
+  const inspectionVisibility = {
+    ...getSilentHighlightVisibility(),
+    visibleConsent: false
+  };
+  await applySilentHighlightVisibility({
+    ...options,
+    visibilityOverride: inspectionVisibility
+  });
 }
 
 function readCheckboxValue(event, fallbackValue) {
@@ -2658,13 +2671,6 @@ async function refreshUiInner() {
     renderModeRequired &&
     !state.currentBaseUrlHasConfirmedRenderMode &&
     isRenderModeDetectionLowConfidence(state.renderModeDetectionAccuracy);
-  const renderModeWarningKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
-  const renderModeWarningAutoVisible =
-    state.renderModeDetectionUnsure &&
-    state.renderModeWarningDismissedKey !== renderModeWarningKey;
-  const renderModeWarningVisible = Boolean(
-    state.renderModeManualStepsVisible || renderModeWarningAutoVisible
-  );
   const renderModeValueUndetermined = isUndeterminedRenderMode(renderModeField.value);
   const renderModeReady = !renderModeRequired || renderModeField.isReady;
   let renderModeNoticeText = renderModeField.noticeText;
@@ -2880,15 +2886,13 @@ async function refreshUiInner() {
   nextViewState.renderModeNoticeVisible = renderModeNoticeVisible;
   nextViewState.renderModeNoticeActionVisible = renderModeNoticeActionVisible;
   nextViewState.renderModeNoticeActionText = renderModeNoticeActionVisible
-    ? PopupText.renderMode.noticeShowStepsAction
+    ? ""
     : "";
   nextViewState.renderModeUndeterminedVisible =
     renderModeValueUndetermined || state.renderModeDetectionUnsure;
-  nextViewState.renderModeWarningVisible = renderModeWarningVisible;
-  nextViewState.renderModeWarningAcknowledgeChecked =
-    renderModeWarningVisible ? Boolean(view.renderModeWarningAcknowledgeChecked) : false;
-  nextViewState.renderModeWarningOkDisabled =
-    !nextViewState.renderModeWarningAcknowledgeChecked;
+  nextViewState.renderModeWarningVisible = false;
+  nextViewState.renderModeWarningAcknowledgeChecked = false;
+  nextViewState.renderModeWarningOkDisabled = true;
   nextViewState.lynxChecklistVisible = Boolean(state.lynxChecklistVisible);
   nextViewState.lynxChecklistAiAnswer = state.lynxChecklistAiAnswer || "";
   nextViewState.lynxChecklistPageTypes = state.lynxChecklistPageTypes || {};
@@ -2897,6 +2901,11 @@ async function refreshUiInner() {
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
+  nextViewState.renderModeInspectButtonsDisabled =
+    aiBusy ||
+    pageScopedUiDisabled ||
+    !renderModeRequired ||
+    !Boolean(state.currentTab && state.currentTab.id);
   nextViewState.renderModeSetDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -3187,6 +3196,12 @@ async function refreshUiInner() {
   }
   state.currentTodoExpansionKey = nextTodoExpansionKey;
 
+  await syncRenderModeDebuggerLifecycle({
+    wasVisible: Boolean(view.renderModeSectionVisible),
+    isVisible: Boolean(nextViewState.renderModeSectionVisible),
+    currentTabId
+  });
+
   uiModule.setViewState(nextViewState);
   if (tabInScope && resolvedView === uiModule.View.Marking && !previewActive) {
     await applySilentHighlightVisibility();
@@ -3346,41 +3361,87 @@ function handleRenderModeInput(event) {
   });
 }
 
-function handleRenderModeWarningAcknowledgeChange(event) {
-  const checked = Boolean(
-    event &&
-      (event.currentTarget || event.target) &&
-      (event.currentTarget || event.target).checked
-  );
-  uiModule.setViewState({
-    renderModeWarningAcknowledgeChecked: checked,
-    renderModeWarningOkDisabled: !checked
-  });
-}
-
-function handleRenderModeNoticeAction() {
-  state.renderModeManualStepsVisible = true;
-  uiModule.setViewState({
-    renderModeWarningVisible: true,
-    renderModeWarningAcknowledgeChecked: false,
-    renderModeWarningOkDisabled: true
-  });
-}
-
-async function handleRenderModeWarningConfirm() {
-  const view = uiModule.getViewState();
-  if (!view.renderModeWarningAcknowledgeChecked) {
-    uiModule.showToast(PopupText.renderMode.warningConfirmToast);
+async function runRenderModeInspectionReload(javaScriptDisabled) {
+  const tabId = state.currentTab && state.currentTab.id;
+  if (!tabId) {
+    uiModule.showToast(PopupText.renderMode.toastUnavailable);
     return;
   }
-  state.renderModeWarningDismissedKey =
-    `${state.currentBaseUrl || ""}|${(state.currentTab && state.currentTab.url) || ""}`;
-  state.renderModeManualStepsVisible = false;
-  uiModule.setViewState({
-    renderModeWarningVisible: false,
-    renderModeWarningAcknowledgeChecked: false,
-    renderModeWarningOkDisabled: true
+
+  await runWithPopupBusyOverlay(PopupText.overlay.pleaseWait, async () => {
+    const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
+    if (!result || !result.ok) {
+      uiModule.showToast((result && result.error) || PopupText.renderMode.toastInspectReloadFailed);
+      return;
+    }
+
+    await applyRenderModeInspectionVisibility({ force: true });
+
+    uiModule.showToast(
+      javaScriptDisabled
+        ? PopupText.renderMode.toastInspectWithoutJavaScriptStarted
+        : PopupText.renderMode.toastInspectWithJavaScriptStarted
+    );
   });
+}
+
+async function detachRenderModeDebuggerAndNormalizePage(tabId) {
+  if (!tabId) {
+    return;
+  }
+
+  const detachResult = await utils.detachDebugger(tabId);
+  if (!detachResult.ok) {
+    console.warn("Unable to detach debugger:", detachResult.error || "Unknown error");
+  }
+
+  const reloadResult = await chromeHelpers.reloadTab(tabId);
+  if (!reloadResult.ok) {
+    console.warn("Unable to reload tab after debugger detach:", reloadResult.error || "Unknown error");
+  }
+}
+
+async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentTabId }) {
+  const managedTabId = state.renderModeDebuggerTabId;
+
+  if (isVisible) {
+    if (!currentTabId) {
+      return;
+    }
+
+    if (managedTabId && managedTabId !== currentTabId) {
+      await detachRenderModeDebuggerAndNormalizePage(managedTabId);
+      state.renderModeDebuggerTabId = null;
+    }
+
+    if (managedTabId === currentTabId) {
+      await applyRenderModeInspectionVisibility();
+      return;
+    }
+
+    const attachResult = await utils.attachDebugger(currentTabId);
+    if (attachResult.ok || attachResult.alreadyAttached) {
+      state.renderModeDebuggerTabId = currentTabId;
+      await applyRenderModeInspectionVisibility({ force: true });
+      return;
+    }
+
+    console.warn("Unable to attach debugger for render mode section:", attachResult.error || "Unknown error");
+    return;
+  }
+
+  if ((wasVisible || managedTabId) && managedTabId) {
+    await detachRenderModeDebuggerAndNormalizePage(managedTabId);
+    state.renderModeDebuggerTabId = null;
+  }
+}
+
+async function handleRenderModeInspectWithJavaScript() {
+  await runRenderModeInspectionReload(false);
+}
+
+async function handleRenderModeInspectWithoutJavaScript() {
+  await runRenderModeInspectionReload(true);
 }
 
 function setLynxChecklistViewState() {
@@ -6081,10 +6142,10 @@ async function init() {
     onThemeOptionSelect: handleThemeOptionSelect,
     onThemeModeInput: handleThemeModeInput,
     onRenderModeInput: handleRenderModeInput,
+    onRenderModeChoiceInput: handleRenderModeInput,
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
-    onRenderModeNoticeAction: handleRenderModeNoticeAction,
-    onRenderModeWarningAcknowledgeChange: handleRenderModeWarningAcknowledgeChange,
-    onRenderModeWarningConfirm: handleRenderModeWarningConfirm,
+    onRenderModeInspectWithJavaScript: handleRenderModeInspectWithJavaScript,
+    onRenderModeInspectWithoutJavaScript: handleRenderModeInspectWithoutJavaScript,
     onLynxChecklistAiAnswerChange: handleLynxChecklistAiAnswerChange,
     onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
     onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,

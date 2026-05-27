@@ -695,6 +695,48 @@ button.button-small {
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
+.render-mode-inspect-group {
+  display: grid;
+  gap: 6px;
+}
+
+.render-mode-inspect-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.render-mode-inspect-row .control-label {
+  min-width: 0;
+}
+
+.render-mode-interpretation {
+  display: grid;
+  gap: 6px;
+}
+
+.render-mode-radio-group {
+  display: grid;
+  gap: 6px;
+}
+
+.render-mode-radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.render-mode-radio-option input[type="radio"] {
+  margin: 0;
+}
+
+.render-mode-radio-hidden {
+  display: none;
+}
+
 .warning-panel[hidden] {
   display: none;
 }

@@ -63,6 +63,7 @@ export const state = {
   renderModeUndeterminedNoticeKey: "",
   renderModeWarningDismissedKey: "",
   renderModeManualStepsVisible: false,
+  renderModeDebuggerTabId: null,
   currentBaseUrlHasConfirmedRenderMode: false,
   remoteConfigLoadKey: "",
   remoteConfigLoadResult: null,

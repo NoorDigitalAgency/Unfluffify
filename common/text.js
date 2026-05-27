@@ -182,6 +182,15 @@ export const PopupText = Object.freeze({
     optionStatic: "Static", // Select-option label for static HTML mode.
     optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
+    inspectStepOneLabel: "Step 1 - Inspect the page:", // Label shown above the first inspection action.
+    inspectStepTwoLabel: "Step 2 - Inspect the page:", // Label shown above the second inspection action.
+    inspectWithJavaScriptButton: "With JavaScript", // Button text for reloading with JavaScript enabled.
+    inspectWithoutJavaScriptButton: "Without JavaScript", // Button text for reloading with JavaScript disabled.
+    stepThreeLabel: "Step 3 - Does the copy look:", // Label shown above the render-mode radio choices.
+    stepFourLabel: "Step 4", // Label shown above the render-mode dropdown step.
+    renderModeLabel: "Render mode", // Label shown for the render-mode dropdown.
+    copyLookAlmostSame: "Almost the same", // Radio label for choosing static mode.
+    copyLookVeryDifferent: "Very different", // Radio label for choosing JavaScript mode.
     warningTitle: "How to Verify the Render Mode Manually", // Title for the manual render-mode instructions popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
     warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.
@@ -209,12 +218,14 @@ export const PopupText = Object.freeze({
     noticeDetecting: "Detecting Render Mode...", // Notice shown while auto-detect is in flight.
     noticeAutoDetectFailed: "We could not detect the Render Mode automatically.", // Notice shown when auto-detect finishes without a definitive result.
     noticeLowConfidence: "Render Mode was detected automatically, but it is recommended to double-check it manually before continuing.", // Notice shown when auto-detect resolves a mode but with low endpoint confidence.
-    noticeShowStepsAction: "Show manual steps", // Action label that opens the manual render-mode instructions popover from a notice.
     toastUndeterminedManual: "Render Mode is undetermined. Please choose it manually.", // Toast shown when auto-detect cannot determine a render mode.
     toastUndeterminedCannotSet: "Render Mode is undetermined and cannot be set.", // Toast shown if the user tries to submit an undetermined render mode.
     toastUnavailable: "Render Mode is unavailable for this page", // Toast shown if render mode is changed before a base URL is available.
     toastSetRendered: "Render mode set to JavaScript", // Confirmation toast after choosing rendered mode.
     toastSetStatic: "Render mode set to Static", // Confirmation toast after choosing static mode.
+    toastInspectWithJavaScriptStarted: "Reloading page with JavaScript enabled for inspection", // Toast shown when starting step-1 inspection reload.
+    toastInspectWithoutJavaScriptStarted: "Reloading page with JavaScript disabled for inspection", // Toast shown when starting step-2 inspection reload.
+    toastInspectReloadFailed: "Unable to reload page for render mode inspection", // Toast shown when the inspection reload fails.
     toastConfirmBeforeEnabling: "Confirm Render Mode before enabling marking", // Guard toast before enabling page marking.
     toastConfirmBeforeUsingAi: "Confirm Render Mode before continuing", // Guard toast before computing selectors.
     toastConfirmBeforeSubmitting: "Confirm Render Mode before sending to Lynx" // Guard toast before submitting selectors.
