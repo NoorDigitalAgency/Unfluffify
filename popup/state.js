@@ -81,6 +81,8 @@ export const state = {
   removedRemotePageKeys: new Set(),
   propertyLockSiteId: null,
   propertyLockState: null,
+  propertyLockConnectionStatus: "inactive",
+  propertyLockConnectionError: "",
   propertyLockIdentity: "",
   propertyLockName: "",
   propertyLockSecondsRemaining: null,

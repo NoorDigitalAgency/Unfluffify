@@ -136,6 +136,7 @@ let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockAutoTakeAttempted = false;
+let propertyLockConnectedSiteId = null;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -6374,31 +6375,50 @@ async function resolveCurrentPropertyLockSiteId() {
 }
 
 async function initPropertyLockConnection() {
-  if (propertyLockPort) {
-    return;
-  }
-
   const siteId = await resolveCurrentPropertyLockSiteId();
   if (!siteId) {
     return;
   }
 
+  if (propertyLockPort && propertyLockConnectedSiteId === siteId) {
+    return;
+  }
+
+  if (propertyLockPort) {
+    try {
+      propertyLockPort.disconnect();
+    } catch (error) {
+      // Port may already be disconnected.
+    }
+    propertyLockPort = null;
+  }
+
+  if (propertyLockConnectedSiteId !== siteId) {
+    propertyLockAutoTakeAttempted = false;
+  }
+  propertyLockConnectedSiteId = siteId;
+
   try {
-    propertyLockPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
-    propertyLockPort.onMessage.addListener(handlePropertyLockPortMessage);
-    propertyLockPort.onDisconnect.addListener(() => {
+    const nextPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
+    propertyLockPort = nextPort;
+    nextPort.onMessage.addListener(handlePropertyLockPortMessage);
+    nextPort.onDisconnect.addListener(() => {
+      if (propertyLockPort !== nextPort) {
+        return;
+      }
       propertyLockPort = null;
+      propertyLockConnectedSiteId = null;
       propertyLockAutoTakeAttempted = false;
       propertyLockBannerMode = "no_banner";
       renderPropertyLockBanner();
     });
-    propertyLockPort.postMessage({
+    nextPort.postMessage({
       type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId,
-      identity: "content-script"
+      siteId
     });
   } catch (error) {
     propertyLockPort = null;
+    propertyLockConnectedSiteId = null;
   }
 }
 
@@ -6443,6 +6463,8 @@ function applyPropertyLockServerMessage(serverMessage) {
       !propertyLockAutoTakeAttempted
     ) {
       propertyLockAutoTakeAttempted = true;
+      updatePropertyLockBannerMode();
+      renderPropertyLockBanner();
       sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
       return;
     }

@@ -89,6 +89,11 @@ import {
   PROPERTY_LOCK_CONTENT_SUGGEST,
   PROPERTY_LOCK_CONTENT_RESPOND,
   PROPERTY_LOCK_CONTENT_CONTINUE,
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+  PROPERTY_LOCK_CONNECTION_CONNECTING,
+  PROPERTY_LOCK_CONNECTION_CONNECTED,
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+  PROPERTY_LOCK_CONNECTION_INACTIVE,
   PROPERTY_LOCK_STATE_UNLOCKED,
   PROPERTY_LOCK_STATE_LOCKED,
   PROPERTY_LOCK_STATE_EXPIRY_WARNING,
@@ -130,6 +135,8 @@ installExtensionTelemetry({
 function resetPropertyLockState() {
   state.propertyLockSiteId = null;
   state.propertyLockState = null;
+  state.propertyLockConnectionStatus = PROPERTY_LOCK_CONNECTION_INACTIVE;
+  state.propertyLockConnectionError = "";
   state.propertyLockIdentity = "";
   state.propertyLockName = "";
   state.propertyLockSecondsRemaining = null;
@@ -160,6 +167,13 @@ function applyPropertyLockState(lockStateLike) {
   clearPropertyLockTransientState();
 }
 
+function applyPropertyLockConnectionStatus(status, error = "") {
+  state.propertyLockConnectionStatus = typeof status === "string" && status
+    ? status
+    : PROPERTY_LOCK_CONNECTION_INACTIVE;
+  state.propertyLockConnectionError = typeof error === "string" ? error : "";
+}
+
 function applyPropertyLockServerMessage(serverMessage, siteId = null) {
   if (!serverMessage || typeof serverMessage !== "object") {
     return false;
@@ -174,6 +188,11 @@ function applyPropertyLockServerMessage(serverMessage, siteId = null) {
   const secondsRemaining = typeof serverMessage.secondsRemaining === "number"
     ? Math.max(0, Math.ceil(serverMessage.secondsRemaining))
     : null;
+
+  if (type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS) {
+    applyPropertyLockConnectionStatus(serverMessage.connectionStatus, serverMessage.error);
+    return true;
+  }
 
   if (type === PROPERTY_LOCK_WS_LOCK_STATE || !serverMessage.type) {
     applyPropertyLockState(serverMessage);
@@ -233,6 +252,12 @@ function applyPropertyLockServerMessage(serverMessage, siteId = null) {
 
 function isPropertyLockBlockingEditing() {
   const lockState = state.propertyLockState;
+  if (
+    state.propertyLockSiteId &&
+    state.propertyLockConnectionStatus === PROPERTY_LOCK_CONNECTION_UNAVAILABLE
+  ) {
+    return true;
+  }
   return Boolean(
     lockState &&
       !lockState.isEditor &&
@@ -261,6 +286,27 @@ function buildPropertyLockViewState() {
   };
 
   if (!visible) {
+    return viewState;
+  }
+
+  if (
+    lockState.state === PROPERTY_LOCK_STATE_UNLOCKED &&
+    state.propertyLockConnectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTING
+  ) {
+    viewState.propertyLockTone = "muted";
+    viewState.propertyLockIcon = "sync";
+    viewState.propertyLockStatusText = propertyLockText.popupConnecting;
+    return viewState;
+  }
+
+  if (
+    lockState.state === PROPERTY_LOCK_STATE_UNLOCKED &&
+    state.propertyLockConnectionStatus === PROPERTY_LOCK_CONNECTION_UNAVAILABLE
+  ) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "cloud-off-outline";
+    viewState.propertyLockStatusText = propertyLockText.popupUnavailable;
+    viewState.propertyLockDetailText = propertyLockText.popupUnavailableDetail;
     return viewState;
   }
 
@@ -374,7 +420,11 @@ async function fetchPropertyLockState(siteId) {
       siteId: normalizedSiteId
     });
   } catch (error) {
-    return null;
+    return {
+      state: createInactiveLockState(),
+      connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+      error: "background_unavailable"
+    };
   }
 }
 
@@ -2909,6 +2959,12 @@ async function refreshUiInner() {
       clearPropertyLockTransientState();
     }
     state.propertyLockState = nextLockState;
+    applyPropertyLockConnectionStatus(
+      lockResponse && lockResponse.connectionStatus
+        ? lockResponse.connectionStatus
+        : PROPERTY_LOCK_CONNECTION_CONNECTED,
+      lockResponse && lockResponse.error ? lockResponse.error : ""
+    );
     state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
     state.propertyLockName = (lockResponse && lockResponse.name) || "";
   } else {

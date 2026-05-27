@@ -15,6 +15,11 @@ export const PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE = "takeover_available";
 export const PROPERTY_LOCK_STATE_TRANSFER = "transfer";
 export const PROPERTY_LOCK_STATE_DISCONNECTED = "locked"; // Treated as locked client-side
 
+export const PROPERTY_LOCK_CONNECTION_INACTIVE = "inactive";
+export const PROPERTY_LOCK_CONNECTION_CONNECTING = "connecting";
+export const PROPERTY_LOCK_CONNECTION_CONNECTED = "connected";
+export const PROPERTY_LOCK_CONNECTION_UNAVAILABLE = "unavailable";
+
 /**
  * WebSocket message types (client to server).
  */
@@ -63,6 +68,7 @@ export const PROPERTY_LOCK_CONTENT_RESPOND = "propertyLockRespondToSuggestion";
 export const PROPERTY_LOCK_CONTENT_CONTINUE = "propertyLockContinueEditing";
 export const PROPERTY_LOCK_BACKGROUND_GET_STATE = "getPropertyLockState";
 export const PROPERTY_LOCK_BACKGROUND_STATE_UPDATE = "propertyLockStateUpdate";
+export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectionStatus";
 
 /**
  * Build WebSocket URL for property lock service.
@@ -90,16 +96,16 @@ export function buildPropertyLockWssUrl(stageBase, tokenValue) {
     return "";
   }
 
-  const base = `wss://api.${normalized}/property-lock`;
   if (!tokenValue || typeof tokenValue !== "string") {
-    return base;
+    return "";
   }
 
   const trimmedToken = tokenValue.trim();
   if (!trimmedToken) {
-    return base;
+    return "";
   }
 
+  const base = `wss://api.${normalized}/property-lock`;
   return `${base}?token=${encodeURIComponent(trimmedToken)}`;
 }
 

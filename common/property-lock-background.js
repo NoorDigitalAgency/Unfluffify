@@ -22,6 +22,11 @@ import {
   PROPERTY_LOCK_CONTENT_CONTINUE,
   PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+  PROPERTY_LOCK_CONNECTION_INACTIVE,
+  PROPERTY_LOCK_CONNECTION_CONNECTING,
+  PROPERTY_LOCK_CONNECTION_CONNECTED,
+  PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_WS_SUBSCRIBE,
   PROPERTY_LOCK_WS_HEARTBEAT,
   PROPERTY_LOCK_WS_ACTIVITY,
@@ -56,6 +61,8 @@ class PropertyLockConnectionRuntime {
     this.myIdentity = "";
     this.myName = "";
     this.isConnected = false;
+    this.connectionStatus = PROPERTY_LOCK_CONNECTION_INACTIVE;
+    this.connectionError = "";
     this.heartbeatTimer = null;
     this.activityDebounceTimer = null;
     this.lastActivityAt = 0;
@@ -85,7 +92,7 @@ class PropertyLockConnectionRuntime {
 
 // Global state
 const lockConnections = new Map(); // siteId → PropertyLockConnectionRuntime
-const contentScriptPorts = new Map(); // portId → {port, siteId, identity}
+const contentScriptPorts = new Map(); // portId → {port, siteId}
 let portIdCounter = 0;
 
 function hasContentPortsForSiteId(siteId) {
@@ -112,13 +119,11 @@ export function initPropertyLockBackground() {
 function handlePropertyLockPortConnect(port) {
   const portId = ++portIdCounter;
   let siteId = null;
-  let identity = "";
 
   // Track port metadata
   const portEntry = {
     port,
-    siteId: null,
-    identity: ""
+    siteId: null
   };
 
   function onPortMessage(message) {
@@ -126,18 +131,16 @@ function handlePropertyLockPortConnect(port) {
       return;
     }
 
-    const { type, siteId: msgSiteId, identity: msgIdentity, ...rest } = message;
+    const { type, siteId: msgSiteId, ...rest } = message;
 
     // First message should be connect
-    if (type === PROPERTY_LOCK_CONTENT_CONNECT && msgSiteId && msgIdentity) {
+    if (type === PROPERTY_LOCK_CONTENT_CONNECT && msgSiteId) {
       siteId = typeof msgSiteId === "number" ? msgSiteId : null;
-      identity = String(msgIdentity);
       portEntry.siteId = siteId;
-      portEntry.identity = identity;
       contentScriptPorts.set(portId, portEntry);
 
       if (siteId) {
-        ensureConnectionForSiteId(siteId, identity);
+        ensureConnectionForSiteId(siteId);
       }
       return;
     }
@@ -154,7 +157,7 @@ function handlePropertyLockPortConnect(port) {
 
     switch (type) {
       case PROPERTY_LOCK_CONTENT_ACTIVITY:
-        debounceActivity(siteId, identity);
+        debounceActivity(siteId);
         break;
       case PROPERTY_LOCK_CONTENT_TAKE_LOCK:
         sendToServer(runtime, { type: PROPERTY_LOCK_WS_TAKE_LOCK });
@@ -183,7 +186,7 @@ function handlePropertyLockPortConnect(port) {
   function onPortDisconnect() {
     contentScriptPorts.delete(portId);
     
-    if (siteId && identity) {
+    if (siteId) {
       scheduleDisconnectCheck(siteId);
     }
   }
@@ -196,8 +199,8 @@ function handlePropertyLockPortConnect(port) {
  * Ensure WebSocket connection exists for a siteId.
  * Create if missing, reuse if exists.
  */
-function ensureConnectionForSiteId(siteId, identity) {
-  if (typeof siteId !== "number" || !identity) {
+function ensureConnectionForSiteId(siteId) {
+  if (typeof siteId !== "number") {
     return;
   }
 
@@ -207,10 +210,22 @@ function ensureConnectionForSiteId(siteId, identity) {
   }
 
   runtime = new PropertyLockConnectionRuntime(siteId);
-  runtime.myIdentity = identity;
   lockConnections.set(siteId, runtime);
 
   connectWebSocket(runtime);
+}
+
+function setConnectionStatus(runtime, status, error = "") {
+  if (!runtime || (runtime.connectionStatus === status && runtime.connectionError === error)) {
+    return;
+  }
+  runtime.connectionStatus = status;
+  runtime.connectionError = error;
+  broadcastToContentScriptPorts(runtime.siteId, {
+    type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+    connectionStatus: status,
+    error
+  });
 }
 
 /**
@@ -221,6 +236,8 @@ function connectWebSocket(runtime) {
     return;
   }
 
+  setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTING);
+
   utils.storageGet(chrome.storage.sync, {
     globalStageBase: "",
     globalToken: ""
@@ -230,6 +247,7 @@ function connectWebSocket(runtime) {
 
     const wssUrl = buildPropertyLockWssUrl(stageBase, token);
     if (!wssUrl) {
+      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, token ? "invalid_stage" : "missing_token");
       scheduleReconnect(runtime);
       return;
     }
@@ -241,9 +259,11 @@ function connectWebSocket(runtime) {
       runtime.socket.onerror = () => onWebSocketError(runtime);
       runtime.socket.onclose = () => onWebSocketClose(runtime);
     } catch (e) {
+      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_create_failed");
       scheduleReconnect(runtime);
     }
   }).catch(() => {
+    setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "storage_unavailable");
     scheduleReconnect(runtime);
   });
 }
@@ -254,6 +274,7 @@ function connectWebSocket(runtime) {
 function onWebSocketOpen(runtime) {
   runtime.isConnected = true;
   runtime.reconnectAttempts = 0;
+  setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTED);
 
   // Send subscribe message with siteId
   sendToServer(runtime, {
@@ -326,6 +347,7 @@ function onWebSocketMessage(runtime, event) {
  */
 function onWebSocketError(runtime) {
   runtime.isConnected = false;
+  setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_error");
   scheduleReconnect(runtime);
 }
 
@@ -338,6 +360,7 @@ function onWebSocketClose(runtime) {
     clearInterval(runtime.heartbeatTimer);
     runtime.heartbeatTimer = null;
   }
+  setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTING, "socket_closed");
   scheduleReconnect(runtime);
 }
 
@@ -390,7 +413,7 @@ function broadcastToContentScriptPorts(siteId, message) {
 /**
  * Debounce activity messages (5s window).
  */
-function debounceActivity(siteId, identity) {
+function debounceActivity(siteId) {
   const runtime = lockConnections.get(siteId);
   if (!runtime) {
     return;
@@ -466,13 +489,19 @@ export async function handleGetPropertyLockState(message, sender) {
 
   const runtime = lockConnections.get(siteId);
   if (!runtime || !runtime.isConnected) {
-    return { state: createInactiveLockState() };
+    return {
+      state: runtime ? runtime.state : createInactiveLockState(),
+      connectionStatus: runtime ? runtime.connectionStatus : PROPERTY_LOCK_CONNECTION_INACTIVE,
+      error: runtime ? runtime.connectionError : ""
+    };
   }
 
   return {
     state: runtime.state,
     identity: runtime.myIdentity,
-    name: runtime.myName
+    name: runtime.myName,
+    connectionStatus: runtime.connectionStatus,
+    error: runtime.connectionError
   };
 }
 
