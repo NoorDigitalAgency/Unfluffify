@@ -5553,8 +5553,8 @@ async function openRemoteSupportDockPiP() {
     pipDocument.body.innerHTML = `
       <div class="dock">
         <div class="tiles">
-          <div class="tile"><video id="uf-pip-local" autoplay muted playsinline hidden></video><span id="uf-pip-local-empty">Local camera</span></div>
-          <div class="tile"><video id="uf-pip-remote" autoplay muted playsinline hidden></video><span id="uf-pip-remote-empty">Supporter camera</span></div>
+          <div class="tile"><video id="uf-pip-local" autoplay muted playsinline hidden aria-label="Local camera preview"></video><span id="uf-pip-local-empty">Local camera</span></div>
+          <div class="tile"><video id="uf-pip-remote" autoplay muted playsinline hidden aria-label="Supporter camera preview"></video><span id="uf-pip-remote-empty">Supporter camera</span></div>
         </div>
         <div class="controls">
           <button id="uf-pip-camera">Camera</button>

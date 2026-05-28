@@ -504,7 +504,7 @@ function stopRequesterPopupMediaPreview(runtime) {
 }
 
 function schedulePopupPreviewTick(runtime) {
-  window.setTimeout(async () => {
+  setTimeout(async () => {
     if (!runtime.popupPreviewLoopActive) {
       return;
     }
@@ -517,9 +517,12 @@ function schedulePopupPreviewTick(runtime) {
       captureStreamBitmap(activeRuntime.localCameraPreviewEl),
       captureStreamBitmap(activeRuntime.remoteCameraPreviewEl)
     ]);
-    postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap, remoteCameraBitmap });
-    localCameraBitmap?.close();
-    remoteCameraBitmap?.close();
+    try {
+      postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap, remoteCameraBitmap });
+    } finally {
+      localCameraBitmap?.close();
+      remoteCameraBitmap?.close();
+    }
     if (runtime.popupPreviewLoopActive) {
       schedulePopupPreviewTick(runtime);
     }

@@ -373,7 +373,8 @@ function renderRemoteSupportDock(view, handlers) {
           autoPlay: true,
           muted: true,
           playsInline: true,
-          hidden: !localCameraActive
+          hidden: !localCameraActive,
+          "aria-label": "Local camera preview"
         }),
         !localCameraActive
           ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Local camera")
@@ -389,7 +390,8 @@ function renderRemoteSupportDock(view, handlers) {
           autoPlay: true,
           muted: true,
           playsInline: true,
-          hidden: !remoteCameraActive
+          hidden: !remoteCameraActive,
+          "aria-label": "Supporter camera preview"
         }),
         !remoteCameraActive
           ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Supporter camera")
