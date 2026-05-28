@@ -1273,7 +1273,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
               {
                 id: "todo-controls-menu-toggle",
                 type: "button",
-                class: "section-menu-button u-btn-secondary",
+                class: "header-menu-toggle",
                 "aria-haspopup": "menu",
                 "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
                 title: PopupText.pageTypes.controlsMenu,
@@ -1644,7 +1644,7 @@ function App({ state: view, actions: handlers }) {
             h("span", { class: "control-label" }, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
             h(
               "div",
-              { class: "input-row property-url-row" },
+              { class: "u-flex property-url-row" },
               h(
                 "div",
                 {
@@ -1662,7 +1662,7 @@ function App({ state: view, actions: handlers }) {
                   {
                     id: "base-page-menu-toggle",
                     type: "button",
-                    class: "section-menu-button u-btn-secondary",
+                    class: "header-menu-toggle",
                     "aria-haspopup": "menu",
                     "aria-expanded": view.basePageMenuOpen ? "true" : "false",
                     title: PopupText.tooltips.basePageUrls,
