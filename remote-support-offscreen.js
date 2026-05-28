@@ -542,13 +542,13 @@ async function onLocalCameraPreviewFrame(runtime) {
     stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
+  scheduleLocalCameraPreviewCallback(activeRuntime);
   const bitmap = await captureStreamBitmap(activeRuntime.localCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap: bitmap });
   } finally {
     bitmap?.close();
   }
-  scheduleLocalCameraPreviewCallback(activeRuntime);
 }
 
 function scheduleRemoteCameraPreviewCallback(runtime) {
@@ -576,13 +576,13 @@ async function onRemoteCameraPreviewFrame(runtime) {
     stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
+  scheduleRemoteCameraPreviewCallback(activeRuntime);
   const bitmap = await captureStreamBitmap(activeRuntime.remoteCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { remoteCameraBitmap: bitmap });
   } finally {
     bitmap?.close();
   }
-  scheduleRemoteCameraPreviewCallback(activeRuntime);
 }
 
 function startRequesterPopupMediaPreview(runtime) {

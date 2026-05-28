@@ -4712,7 +4712,7 @@ function ensureRemoteSupportPopupMediaChannel() {
         if (!remoteSupportLocalCameraCanvas) {
           remoteSupportLocalCameraCanvas = document.createElement("canvas");
           remoteSupportLocalCameraCtx = remoteSupportLocalCameraCanvas.getContext("2d");
-          remoteSupportLocalCameraMediaStream = remoteSupportLocalCameraCanvas.captureStream(30);
+          remoteSupportLocalCameraMediaStream = remoteSupportLocalCameraCanvas.captureStream();
         }
         if (remoteSupportLocalCameraCanvas.width !== localCameraBitmap.width) {
           remoteSupportLocalCameraCanvas.width = localCameraBitmap.width;
@@ -4732,7 +4732,7 @@ function ensureRemoteSupportPopupMediaChannel() {
         if (!remoteSupportRemoteCameraCanvas) {
           remoteSupportRemoteCameraCanvas = document.createElement("canvas");
           remoteSupportRemoteCameraCtx = remoteSupportRemoteCameraCanvas.getContext("2d");
-          remoteSupportRemoteCameraMediaStream = remoteSupportRemoteCameraCanvas.captureStream(30);
+          remoteSupportRemoteCameraMediaStream = remoteSupportRemoteCameraCanvas.captureStream();
         }
         if (remoteSupportRemoteCameraCanvas.width !== remoteCameraBitmap.width) {
           remoteSupportRemoteCameraCanvas.width = remoteCameraBitmap.width;
