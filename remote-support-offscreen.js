@@ -359,10 +359,10 @@ function createTransportRuntime(session) {
     localCameraPreviewEl: null,
     remoteCameraPreviewEl: null,
     popupPreviewLoopActive: false,
+    localCameraPreviewTimer: 0,
+    remoteCameraPreviewTimer: 0,
     localCameraPreviewCallbackPending: false,
     remoteCameraPreviewCallbackPending: false,
-    localCameraPreviewLastPublishedAt: 0,
-    remoteCameraPreviewLastPublishedAt: 0,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -513,8 +513,14 @@ function stopRequesterPopupMediaPreview(runtime) {
     return;
   }
   runtime.popupPreviewLoopActive = false;
-  runtime.localCameraPreviewLastPublishedAt = 0;
-  runtime.remoteCameraPreviewLastPublishedAt = 0;
+  if (runtime.localCameraPreviewTimer) {
+    globalThis.clearTimeout(runtime.localCameraPreviewTimer);
+    runtime.localCameraPreviewTimer = 0;
+  }
+  if (runtime.remoteCameraPreviewTimer) {
+    globalThis.clearTimeout(runtime.remoteCameraPreviewTimer);
+    runtime.remoteCameraPreviewTimer = 0;
+  }
   postRequesterPopupMediaPreview(runtime, { localCameraBitmap: null, remoteCameraBitmap: null });
   if (popupPreviewBroadcastChannel) {
     try {
@@ -526,19 +532,39 @@ function stopRequesterPopupMediaPreview(runtime) {
   }
 }
 
-function scheduleLocalCameraPreviewCallback(runtime) {
-  if (!runtime || !runtime.popupPreviewLoopActive || runtime.localCameraPreviewCallbackPending) {
+function scheduleLocalCameraPreviewCallback(runtime, delayMs = 0) {
+  if (
+    !runtime ||
+    !runtime.popupPreviewLoopActive ||
+    runtime.localCameraPreviewCallbackPending ||
+    runtime.localCameraPreviewTimer
+  ) {
     return;
   }
-  const el = runtime.localCameraPreviewEl;
-  if (!el || typeof el.requestVideoFrameCallback !== "function") {
+  const requestFrame = () => {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime) {
+      return;
+    }
+    activeRuntime.localCameraPreviewTimer = 0;
+    if (!activeRuntime.popupPreviewLoopActive || activeRuntime.localCameraPreviewCallbackPending) {
+      return;
+    }
+    const el = activeRuntime.localCameraPreviewEl;
+    if (!el || typeof el.requestVideoFrameCallback !== "function") {
+      return;
+    }
+    activeRuntime.localCameraPreviewCallbackPending = true;
+    el.requestVideoFrameCallback((now) => onLocalCameraPreviewFrame(activeRuntime, now));
+  };
+  if (delayMs > 0) {
+    runtime.localCameraPreviewTimer = globalThis.setTimeout(requestFrame, delayMs);
     return;
   }
-  runtime.localCameraPreviewCallbackPending = true;
-  el.requestVideoFrameCallback((now) => onLocalCameraPreviewFrame(runtime, now));
+  requestFrame();
 }
 
-async function onLocalCameraPreviewFrame(runtime, now) {
+async function onLocalCameraPreviewFrame(runtime) {
   const activeRuntime = getTransportRuntime(runtime.sessionId);
   if (!activeRuntime) {
     return;
@@ -551,36 +577,48 @@ async function onLocalCameraPreviewFrame(runtime, now) {
     stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
-  scheduleLocalCameraPreviewCallback(activeRuntime);
-  const frameTime = Number.isFinite(now) ? now : Date.now();
-  if (
-    frameTime - activeRuntime.localCameraPreviewLastPublishedAt <
-    REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS
-  ) {
-    return;
-  }
-  activeRuntime.localCameraPreviewLastPublishedAt = frameTime;
   const bitmap = await captureStreamBitmap(activeRuntime.localCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap: bitmap });
   } finally {
     bitmap?.close();
   }
+  scheduleLocalCameraPreviewCallback(activeRuntime, REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS);
 }
 
-function scheduleRemoteCameraPreviewCallback(runtime) {
-  if (!runtime || !runtime.popupPreviewLoopActive || runtime.remoteCameraPreviewCallbackPending) {
+function scheduleRemoteCameraPreviewCallback(runtime, delayMs = 0) {
+  if (
+    !runtime ||
+    !runtime.popupPreviewLoopActive ||
+    runtime.remoteCameraPreviewCallbackPending ||
+    runtime.remoteCameraPreviewTimer
+  ) {
     return;
   }
-  const el = runtime.remoteCameraPreviewEl;
-  if (!el || typeof el.requestVideoFrameCallback !== "function") {
+  const requestFrame = () => {
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime) {
+      return;
+    }
+    activeRuntime.remoteCameraPreviewTimer = 0;
+    if (!activeRuntime.popupPreviewLoopActive || activeRuntime.remoteCameraPreviewCallbackPending) {
+      return;
+    }
+    const el = activeRuntime.remoteCameraPreviewEl;
+    if (!el || typeof el.requestVideoFrameCallback !== "function") {
+      return;
+    }
+    activeRuntime.remoteCameraPreviewCallbackPending = true;
+    el.requestVideoFrameCallback((now) => onRemoteCameraPreviewFrame(activeRuntime, now));
+  };
+  if (delayMs > 0) {
+    runtime.remoteCameraPreviewTimer = globalThis.setTimeout(requestFrame, delayMs);
     return;
   }
-  runtime.remoteCameraPreviewCallbackPending = true;
-  el.requestVideoFrameCallback((now) => onRemoteCameraPreviewFrame(runtime, now));
+  requestFrame();
 }
 
-async function onRemoteCameraPreviewFrame(runtime, now) {
+async function onRemoteCameraPreviewFrame(runtime) {
   const activeRuntime = getTransportRuntime(runtime.sessionId);
   if (!activeRuntime) {
     return;
@@ -593,21 +631,13 @@ async function onRemoteCameraPreviewFrame(runtime, now) {
     stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
-  scheduleRemoteCameraPreviewCallback(activeRuntime);
-  const frameTime = Number.isFinite(now) ? now : Date.now();
-  if (
-    frameTime - activeRuntime.remoteCameraPreviewLastPublishedAt <
-    REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS
-  ) {
-    return;
-  }
-  activeRuntime.remoteCameraPreviewLastPublishedAt = frameTime;
   const bitmap = await captureStreamBitmap(activeRuntime.remoteCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { remoteCameraBitmap: bitmap });
   } finally {
     bitmap?.close();
   }
+  scheduleRemoteCameraPreviewCallback(activeRuntime, REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS);
 }
 
 function startRequesterPopupMediaPreview(runtime) {
