@@ -16,7 +16,6 @@ const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH = 200;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT = 112;
-const REMOTE_SUPPORT_CAMERA_PREVIEW_INTERVAL_MS = 700;
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -25,6 +24,7 @@ let keepAlivePort = null;
 let keepAliveReconnectTimer = 0;
 let nextChunkTransferId = 0;
 let sidebarStreamChannel = null;
+let popupPreviewBroadcastChannel = null;
 
 function normalizeTabId(value) {
   const normalizedValue = Number(value);
@@ -357,6 +357,8 @@ function createTransportRuntime(session) {
     localCameraPreviewEl: null,
     remoteCameraPreviewEl: null,
     popupPreviewLoopActive: false,
+    localCameraPreviewCallbackPending: false,
+    remoteCameraPreviewCallbackPending: false,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -474,23 +476,27 @@ async function captureStreamBitmap(videoElement) {
 }
 
 function postRequesterPopupMediaPreview(runtime, {
-  localCameraBitmap = null,
-  remoteCameraBitmap = null
+  localCameraBitmap,
+  remoteCameraBitmap
 } = {}) {
   if (!runtime || runtime.role !== "requester" || typeof BroadcastChannel !== "function") {
     return;
   }
 
+  if (!popupPreviewBroadcastChannel) {
+    popupPreviewBroadcastChannel = new BroadcastChannel("unfluffify-remote-support-popup-media");
+  }
+
   try {
-    const channel = new BroadcastChannel("unfluffify-remote-support-popup-media");
-    channel.postMessage({
-      tabId: runtime.tabId,
-      sessionId: runtime.sessionId,
-      localCameraBitmap,
-      remoteCameraBitmap
-    });
-    channel.close();
-  } catch (error) {
+    const message = { tabId: runtime.tabId, sessionId: runtime.sessionId };
+    if (localCameraBitmap !== undefined) {
+      message.localCameraBitmap = localCameraBitmap;
+    }
+    if (remoteCameraBitmap !== undefined) {
+      message.remoteCameraBitmap = remoteCameraBitmap;
+    }
+    popupPreviewBroadcastChannel.postMessage(message);
+  } catch {
     // Ignore preview publication failures.
   }
 }
@@ -500,40 +506,83 @@ function stopRequesterPopupMediaPreview(runtime) {
     return;
   }
   runtime.popupPreviewLoopActive = false;
-  postRequesterPopupMediaPreview(runtime, {});
+  postRequesterPopupMediaPreview(runtime, { localCameraBitmap: null, remoteCameraBitmap: null });
+  if (popupPreviewBroadcastChannel) {
+    try {
+      popupPreviewBroadcastChannel.close();
+    } catch {
+      // Ignore close failures.
+    }
+    popupPreviewBroadcastChannel = null;
+  }
 }
 
-function schedulePopupPreviewTick(runtime) {
-  setTimeout(async () => {
-    if (!runtime.popupPreviewLoopActive) {
-      return;
-    }
-    const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
-      stopRequesterPopupMediaPreview(runtime);
-      return;
-    }
-    const [localCameraBitmap, remoteCameraBitmap] = await Promise.all([
-      captureStreamBitmap(activeRuntime.localCameraPreviewEl),
-      captureStreamBitmap(activeRuntime.remoteCameraPreviewEl)
-    ]);
-    try {
-      postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap, remoteCameraBitmap });
-    } finally {
-      localCameraBitmap?.close();
-      remoteCameraBitmap?.close();
-    }
-    if (runtime.popupPreviewLoopActive) {
-      schedulePopupPreviewTick(runtime);
-    }
-  }, REMOTE_SUPPORT_CAMERA_PREVIEW_INTERVAL_MS);
+function scheduleLocalCameraPreviewCallback(runtime) {
+  if (!runtime || !runtime.popupPreviewLoopActive || runtime.localCameraPreviewCallbackPending) {
+    return;
+  }
+  const el = runtime.localCameraPreviewEl;
+  if (!el || typeof el.requestVideoFrameCallback !== "function") {
+    return;
+  }
+  runtime.localCameraPreviewCallbackPending = true;
+  el.requestVideoFrameCallback(() => onLocalCameraPreviewFrame(runtime));
+}
+
+async function onLocalCameraPreviewFrame(runtime) {
+  runtime.localCameraPreviewCallbackPending = false;
+  if (!runtime.popupPreviewLoopActive) {
+    return;
+  }
+  const activeRuntime = getTransportRuntime(runtime.sessionId);
+  if (!activeRuntime || activeRuntime.shuttingDown) {
+    stopRequesterPopupMediaPreview(runtime);
+    return;
+  }
+  const bitmap = await captureStreamBitmap(activeRuntime.localCameraPreviewEl);
+  try {
+    postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap: bitmap });
+  } finally {
+    bitmap?.close();
+  }
+  scheduleLocalCameraPreviewCallback(activeRuntime);
+}
+
+function scheduleRemoteCameraPreviewCallback(runtime) {
+  if (!runtime || !runtime.popupPreviewLoopActive || runtime.remoteCameraPreviewCallbackPending) {
+    return;
+  }
+  const el = runtime.remoteCameraPreviewEl;
+  if (!el || typeof el.requestVideoFrameCallback !== "function") {
+    return;
+  }
+  runtime.remoteCameraPreviewCallbackPending = true;
+  el.requestVideoFrameCallback(() => onRemoteCameraPreviewFrame(runtime));
+}
+
+async function onRemoteCameraPreviewFrame(runtime) {
+  runtime.remoteCameraPreviewCallbackPending = false;
+  if (!runtime.popupPreviewLoopActive) {
+    return;
+  }
+  const activeRuntime = getTransportRuntime(runtime.sessionId);
+  if (!activeRuntime || activeRuntime.shuttingDown) {
+    stopRequesterPopupMediaPreview(runtime);
+    return;
+  }
+  const bitmap = await captureStreamBitmap(activeRuntime.remoteCameraPreviewEl);
+  try {
+    postRequesterPopupMediaPreview(activeRuntime, { remoteCameraBitmap: bitmap });
+  } finally {
+    bitmap?.close();
+  }
+  scheduleRemoteCameraPreviewCallback(activeRuntime);
 }
 
 function startRequesterPopupMediaPreview(runtime) {
   if (
     !runtime ||
     runtime.role !== "requester" ||
-    runtime.popupPreviewLoopActive ||
     typeof BroadcastChannel !== "function" ||
     typeof document === "undefined"
   ) {
@@ -541,7 +590,8 @@ function startRequesterPopupMediaPreview(runtime) {
   }
 
   runtime.popupPreviewLoopActive = true;
-  schedulePopupPreviewTick(runtime);
+  scheduleLocalCameraPreviewCallback(runtime);
+  scheduleRemoteCameraPreviewCallback(runtime);
 }
 
 function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && runtime.peerConnection) {
