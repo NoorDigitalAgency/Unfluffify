@@ -180,6 +180,11 @@
           radial-gradient(circle at top, rgba(108, 169, 255, 0.18), transparent 36%),
           linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(7, 12, 20, 0.98));
       }
+
+      body[data-dock-state="embedded_minimized"] .viewer-camera-slot,
+      body[data-dock-state="fullscreen_active"] .viewer-camera-slot {
+        height: 72px;
+      }
     </style>
   </head>
   <body>
@@ -225,7 +230,3 @@
     <script type="module" src="remote-support-viewer.js"></script>
   </body>
 </html>
-      body[data-dock-state="embedded_minimized"] .viewer-camera-slot,
-      body[data-dock-state="fullscreen_active"] .viewer-camera-slot {
-        height: 72px;
-      }
