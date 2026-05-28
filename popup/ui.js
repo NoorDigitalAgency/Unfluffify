@@ -298,7 +298,7 @@ function renderRemoteSupportInactivityNotice(view, handlers) {
   const isRequester = view.remoteSupportMode === "being_supported";
   return h(
     "div",
-    { class: warningNoticeClass("notice--dismissible"), role: "status", "aria-live": "polite" },
+    { class: warningNoticeClass(isRequester ? "notice--actionable" : null) },
     h(
       "span",
       { class: "notice__content" },
@@ -310,7 +310,7 @@ function renderRemoteSupportInactivityNotice(view, handlers) {
           {
             id: "remote-support-continue",
             type: "button",
-            class: "notice__dismiss",
+            class: "notice__action",
             onClick: handlers.onRemoteSupportContinue
           },
           PopupText.configuration.remoteSupportContinueButton
