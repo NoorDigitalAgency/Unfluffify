@@ -4713,8 +4713,12 @@ function ensureRemoteSupportPopupMediaChannel() {
         remoteSupportLocalCameraCtx = remoteSupportLocalCameraCanvas.getContext("2d");
         remoteSupportLocalCameraMediaStream = remoteSupportLocalCameraCanvas.captureStream(30);
       }
-      remoteSupportLocalCameraCanvas.width = localCameraBitmap.width;
-      remoteSupportLocalCameraCanvas.height = localCameraBitmap.height;
+      if (remoteSupportLocalCameraCanvas.width !== localCameraBitmap.width) {
+        remoteSupportLocalCameraCanvas.width = localCameraBitmap.width;
+      }
+      if (remoteSupportLocalCameraCanvas.height !== localCameraBitmap.height) {
+        remoteSupportLocalCameraCanvas.height = localCameraBitmap.height;
+      }
       remoteSupportLocalCameraCtx?.drawImage(localCameraBitmap, 0, 0);
       state.remoteSupportLocalCameraActive = true;
     } else {
@@ -4727,8 +4731,12 @@ function ensureRemoteSupportPopupMediaChannel() {
         remoteSupportRemoteCameraCtx = remoteSupportRemoteCameraCanvas.getContext("2d");
         remoteSupportRemoteCameraMediaStream = remoteSupportRemoteCameraCanvas.captureStream(30);
       }
-      remoteSupportRemoteCameraCanvas.width = remoteCameraBitmap.width;
-      remoteSupportRemoteCameraCanvas.height = remoteCameraBitmap.height;
+      if (remoteSupportRemoteCameraCanvas.width !== remoteCameraBitmap.width) {
+        remoteSupportRemoteCameraCanvas.width = remoteCameraBitmap.width;
+      }
+      if (remoteSupportRemoteCameraCanvas.height !== remoteCameraBitmap.height) {
+        remoteSupportRemoteCameraCanvas.height = remoteCameraBitmap.height;
+      }
       remoteSupportRemoteCameraCtx?.drawImage(remoteCameraBitmap, 0, 0);
       state.remoteSupportRemoteCameraActive = true;
     } else {

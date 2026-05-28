@@ -16,6 +16,7 @@ const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH = 200;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT = 112;
+const REMOTE_SUPPORT_CAMERA_PREVIEW_INTERVAL_MS = 700;
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -458,11 +459,15 @@ async function captureStreamBitmap(videoElement) {
     return null;
   }
   try {
-    return await createImageBitmap(videoElement, {
-      resizeWidth: REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH,
-      resizeHeight: REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT,
-      resizeQuality: "medium"
-    });
+    const origWidth = videoElement.videoWidth || REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH;
+    const origHeight = videoElement.videoHeight || REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT;
+    const scale = Math.min(
+      REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH / origWidth,
+      REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT / origHeight
+    );
+    const resizeWidth = Math.max(1, Math.round(origWidth * scale));
+    const resizeHeight = Math.max(1, Math.round(origHeight * scale));
+    return await createImageBitmap(videoElement, { resizeWidth, resizeHeight, resizeQuality: "medium" });
   } catch {
     return null;
   }
@@ -518,7 +523,7 @@ function schedulePopupPreviewTick(runtime) {
     if (runtime.popupPreviewLoopActive) {
       schedulePopupPreviewTick(runtime);
     }
-  }, 700);
+  }, REMOTE_SUPPORT_CAMERA_PREVIEW_INTERVAL_MS);
 }
 
 function startRequesterPopupMediaPreview(runtime) {
