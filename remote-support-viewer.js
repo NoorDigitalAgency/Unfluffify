@@ -19,6 +19,7 @@ let controlPort = null;
 let activeRuntime = null;
 let currentDockState = REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
 let dockPiPWindow = null;
+let pipClosingProgrammatically = false;
 let nextChunkTransferId = 0;
 
 function normalizeErrorMessage(error, fallback) {
@@ -816,7 +817,10 @@ async function openDockPiP() {
     });
     dockPiPWindow.addEventListener("pagehide", () => {
       dockPiPWindow = null;
-      setDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
+      if (!pipClosingProgrammatically) {
+        setDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED).then();
+      }
+      pipClosingProgrammatically = false;
     }, { once: true });
     syncDockPiPWindow();
     return true;
@@ -837,8 +841,11 @@ async function setDockState(nextDockState, { persist = true } = {}) {
     }
   } else if (dockPiPWindow && !dockPiPWindow.closed) {
     try {
+      pipClosingProgrammatically = true;
       dockPiPWindow.close();
-    } catch (error) {}
+    } catch (error) {
+      pipClosingProgrammatically = false;
+    }
     dockPiPWindow = null;
   }
   if (persist) {
