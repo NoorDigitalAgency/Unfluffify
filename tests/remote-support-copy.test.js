@@ -7,7 +7,8 @@ test("remote support copy stays view-only in popup text", () => {
 
   assert.equal(typeof configText.remoteSupportPageControlHint, "string");
   assert.equal(typeof configText.remoteSupportBeingSupportedHint, "string");
-  assert.match(configText.remoteSupportPageControlHint, /join and end the session/i);
+  assert.match(configText.remoteSupportHint, /extension popup/i);
+  assert.match(configText.remoteSupportPageControlHint, /join from the extension popup/i);
   assert.match(configText.remoteSupportBeingSupportedHint, /view-only/i);
   assert.equal("remoteSupportTakeOverButton" in configText, false);
   assert.equal("remoteSupportHandOffButton" in configText, false);

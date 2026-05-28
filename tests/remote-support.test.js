@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
+  REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS,
   REMOTE_SUPPORT_FRAME_INTERVAL_MS,
   REMOTE_SUPPORT_PAYLOAD_MAX_BYTES,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
@@ -12,18 +13,24 @@ import {
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_ROLE_SUPPORTER,
   REMOTE_SUPPORT_ROLE_REQUESTER,
-  createInactiveRemoteSupportCursorSnapshot,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
+  REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
   createInactiveRemoteSupportState,
+  formatRemoteSupportCountdown,
+  getRemoteSupportDockFallbackState,
   getRemoteSupportPageUrl,
   isRemoteSupportStateForTab,
   isRemoteSupportPageUrl,
   isAjaxResourceType,
-  normalizeRemoteSupportCursorSnapshot,
+  normalizeRemoteSupportDockState,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
   scopeRemoteSupportStateToTab,
   serializeRemoteSupportMessage,
   parseRemoteSupportMessage,
+  shouldShowRemoteSupportPopupJoin,
   shouldLockRemoteSupportConfigurationView,
   clampPayloadSize
 } from "../common/remote-support.js";
@@ -32,8 +39,12 @@ import {
 // Constants
 // ──────────────────────────────────────────────────────────────
 
-test("inactivity timeout is 7 minutes in ms", () => {
-  assert.equal(REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS, 7 * 60 * 1000);
+test("inactivity timeout is 10 minutes in ms", () => {
+  assert.equal(REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS, 10 * 60 * 1000);
+});
+
+test("inactivity warning window is 1 minute in ms", () => {
+  assert.equal(REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS, 60 * 1000);
 });
 
 test("frame interval is 250 ms", () => {
@@ -61,13 +72,15 @@ test("createInactiveRemoteSupportState returns the correct inactive shape", () =
   assert.equal(state.sessionId, "");
   assert.equal(state.supportCode, "");
   assert.equal(state.expiresAt, "");
-  assert.equal(state.controlOwner, "");
   assert.equal(state.includePayloads, false);
   assert.equal(state.connected, false);
   assert.equal(state.streaming, false);
   assert.equal(state.partnerConnected, false);
+  assert.equal(state.dockState, REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
   assert.equal(state.error, "");
   assert.equal(state.lastActivityAt, 0);
+  assert.equal(state.inactivityCountdownActive, false);
+  assert.equal(state.inactivitySecondsRemaining, 0);
 });
 
 test("createInactiveRemoteSupportState returns a fresh object each call", () => {
@@ -76,48 +89,6 @@ test("createInactiveRemoteSupportState returns a fresh object each call", () => 
   assert.notEqual(a, b);
   a.sessionId = "mutated";
   assert.equal(b.sessionId, "");
-});
-
-test("createInactiveRemoteSupportCursorSnapshot returns the correct inactive shape", () => {
-  assert.deepEqual(createInactiveRemoteSupportCursorSnapshot(), {
-    active: false,
-    cursor: "",
-    x: null,
-    y: null,
-    owner: ""
-  });
-});
-
-test("normalizeRemoteSupportCursorSnapshot keeps valid cursor strings, position, and owner", () => {
-  assert.deepEqual(
-    normalizeRemoteSupportCursorSnapshot({
-      active: true,
-      cursor: '  url("https://example.com/cursor.cur") 4 4, pointer\n',
-      x: 1.5,
-      y: 0.25,
-      owner: "supporter"
-    }),
-    {
-      active: true,
-      cursor: 'url("https://example.com/cursor.cur") 4 4, pointer',
-      x: 1,
-      y: 0.25,
-      owner: "supporter"
-    }
-  );
-});
-
-test("normalizeRemoteSupportCursorSnapshot clears the cursor when inactive", () => {
-  assert.deepEqual(
-    normalizeRemoteSupportCursorSnapshot({ active: false, cursor: "text", x: 0.4, y: 0.2, owner: "requester" }),
-    {
-      active: false,
-      cursor: "",
-      x: null,
-      y: null,
-      owner: ""
-    }
-  );
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -308,6 +279,31 @@ test("shouldLockRemoteSupportConfigurationView only locks the support page befor
     shouldLockRemoteSupportConfigurationView(false, { active: false, tabId: 3 }, 3),
     false
   );
+});
+
+test("normalizeRemoteSupportDockState keeps known dock states and defaults unknown values", () => {
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP), REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP);
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(normalizeRemoteSupportDockState(REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE), REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE);
+  assert.equal(normalizeRemoteSupportDockState("unknown"), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
+});
+
+test("getRemoteSupportDockFallbackState restores embedded minimized when PiP or fullscreen closes", () => {
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED);
+  assert.equal(getRemoteSupportDockFallbackState(REMOTE_SUPPORT_DOCK_STATE_EMBEDDED), REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
+});
+
+test("shouldShowRemoteSupportPopupJoin only shows join controls on the support page before a session starts", () => {
+  assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: false }), true);
+  assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: true }), false);
+  assert.equal(shouldShowRemoteSupportPopupJoin(false, { active: false }), false);
+});
+
+test("formatRemoteSupportCountdown returns m:ss countdown text", () => {
+  assert.equal(formatRemoteSupportCountdown(59), "0:59");
+  assert.equal(formatRemoteSupportCountdown(60), "1:00");
+  assert.equal(formatRemoteSupportCountdown(-5), "0:00");
 });
 
 // ──────────────────────────────────────────────────────────────

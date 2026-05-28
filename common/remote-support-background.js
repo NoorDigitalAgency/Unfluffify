@@ -1,10 +1,11 @@
 import {
-  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
-  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
+  REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_INACTIVE,
   REMOTE_SUPPORT_MODE_SUPPORTING,
@@ -13,10 +14,9 @@ import {
   REMOTE_SUPPORT_PORT_TRANSPORT,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
-  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   createInactiveRemoteSupportSidebarSnapshot,
-  normalizeRemoteSupportCursorSnapshot,
+  normalizeRemoteSupportDockState,
   normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl
@@ -54,14 +54,6 @@ function normalizeTabId(tabId) {
   return Math.trunc(tabId);
 }
 
-function normalizeControlOwner(owner) {
-  return owner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    : owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      : "";
-}
-
 function normalizeStateSnapshot(stateLike) {
   const normalized = {
     ...createInactiveRemoteSupportState(),
@@ -79,8 +71,10 @@ function normalizeStateSnapshot(stateLike) {
   normalized.supporteeMicrophoneEnabled = Boolean(normalized.supporteeMicrophoneEnabled);
   normalized.supporteeAudioAvailable = Boolean(normalized.supporteeAudioAvailable);
   normalized.supporteeAudioEnabled = Boolean(normalized.supporteeAudioEnabled);
+  normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
   normalized.tabId = normalizeTabId(normalized.tabId);
-  normalized.controlOwner = normalizeControlOwner(normalized.controlOwner);
+  normalized.inactivityCountdownActive = Boolean(normalized.inactivityCountdownActive);
+  normalized.inactivitySecondsRemaining = Math.max(0, Math.trunc(Number(normalized.inactivitySecondsRemaining) || 0));
 
   return normalized;
 }
@@ -166,8 +160,7 @@ function createSessionRuntime({
   supportCode,
   expiresAt,
   transportSignature = "",
-  includePayloads = false,
-  controlOwner = REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+  includePayloads = false
 }) {
   const runtime = {
     state: normalizeStateSnapshot({
@@ -178,18 +171,17 @@ function createSessionRuntime({
       sessionId,
       supportCode,
       expiresAt,
-      controlOwner,
       connected: false,
       partnerConnected: false,
       streaming: false,
       includePayloads,
+      dockState: REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
       startedAt: Date.now(),
       supporteePlatform: "",
       supporteeUserAgent: "",
       error: "",
       lastActivityAt: Date.now()
     }),
-    cursorSnapshot: createInactiveRemoteSupportCursorSnapshot(),
     sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     usesVideoStream: false,
@@ -484,25 +476,6 @@ function broadcastSidebarSnapshot(runtime, snapshotLike = runtime && runtime.sid
   postRuntimeEventToTab(runtime.state.tabId, event);
 }
 
-function broadcastCursorSnapshot(runtime, snapshotLike = runtime && runtime.cursorSnapshot) {
-  if (!runtime || runtime.state.tabId === null) {
-    return;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
-  runtime.cursorSnapshot = snapshot;
-
-  const event = {
-    type: "remoteSupportCursorStateChanged",
-    snapshot,
-    tabId: runtime.state.tabId,
-    sessionId: runtime.state.sessionId
-  };
-
-  publishRuntimeEvent(event);
-  postRuntimeEventToTab(runtime.state.tabId, event);
-}
-
 async function syncRequesterSidebarSnapshot(runtime) {
   if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
     return false;
@@ -519,25 +492,6 @@ async function syncRequesterSidebarSnapshot(runtime) {
     "sidebar-state",
     { snapshot },
     REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
-  );
-}
-
-async function syncRequesterCursorSnapshot(runtime) {
-  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    return false;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(runtime.cursorSnapshot);
-  runtime.cursorSnapshot = snapshot;
-  if (!snapshot.active) {
-    return false;
-  }
-
-  return sendDataMessage(
-    runtime,
-    "cursor-state",
-    { snapshot },
-    REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
   );
 }
 
@@ -787,6 +741,45 @@ function updateSessionActivity(runtime) {
   }
 
   runtime.state.lastActivityAt = Date.now();
+  const wasCountdownActive = runtime.state.inactivityCountdownActive;
+  runtime.state.inactivityCountdownActive = false;
+  runtime.state.inactivitySecondsRemaining = 0;
+  if (wasCountdownActive) {
+    broadcastRuntimeState(runtime);
+  }
+}
+
+function getRuntimeInactivitySecondsRemaining(runtime, now = Date.now()) {
+  if (!runtime || !runtime.state || !runtime.state.active) {
+    return 0;
+  }
+
+  const elapsed = Math.max(0, now - (Number(runtime.state.lastActivityAt) || 0));
+  const remainingMs = REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS - elapsed;
+  if (remainingMs <= 0 || remainingMs > REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS) {
+    return 0;
+  }
+
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+function syncRuntimeInactivityCountdown(runtime, now = Date.now()) {
+  if (!runtime || !runtime.state) {
+    return false;
+  }
+
+  const secondsRemaining = getRuntimeInactivitySecondsRemaining(runtime, now);
+  const countdownActive = secondsRemaining > 0;
+  if (
+    runtime.state.inactivityCountdownActive === countdownActive &&
+    runtime.state.inactivitySecondsRemaining === secondsRemaining
+  ) {
+    return false;
+  }
+
+  runtime.state.inactivityCountdownActive = countdownActive;
+  runtime.state.inactivitySecondsRemaining = secondsRemaining;
+  return true;
 }
 
 function getRemoteSupportErrorMessage(error, fallback) {
@@ -1193,37 +1186,12 @@ async function setContentModeForSession(runtime, active) {
         active: Boolean(active),
         mode: active ? runtime.state.mode : REMOTE_SUPPORT_MODE_INACTIVE,
         role: active ? runtime.state.role : "",
-        controlOwner: active ? runtime.state.controlOwner : "",
         includePayloads: Boolean(runtime.state.includePayloads)
       }
     });
   } catch (error) {
     // The content script may not be available yet or the tab may be navigating.
   }
-}
-
-async function setRuntimeControlOwner(runtime, controlOwner, { syncRemote = false } = {}) {
-  if (!runtime || !runtime.state.active) {
-    return false;
-  }
-
-  const normalizedControlOwner = normalizeControlOwner(controlOwner);
-  if (!normalizedControlOwner) {
-    return false;
-  }
-
-  runtime.state.controlOwner = normalizedControlOwner;
-  updateSessionActivity(runtime);
-  broadcastRuntimeState(runtime);
-  await setContentModeForSession(runtime, true);
-
-  if (syncRemote) {
-    await sendDataMessage(runtime, "control-owner", {
-      owner: normalizedControlOwner
-    });
-  }
-
-  return true;
 }
 
 function clearTabSnapshotError(tabId) {
@@ -1377,6 +1345,38 @@ async function setRequesterMediaEnabled(runtime, control, enabled) {
   };
 }
 
+function setRemoteSupportDockState(message, sender) {
+  const runtime = resolveRuntimeTarget(message, sender);
+  const nextDockState = normalizeRemoteSupportDockState(message && message.dockState);
+
+  if (runtime) {
+    runtime.state.dockState = nextDockState;
+    updateSessionActivity(runtime);
+    broadcastRuntimeState(runtime);
+    return {
+      ok: true,
+      state: getRuntimePublicState(runtime)
+    };
+  }
+
+  const tabId = normalizeTabId(message && message.tabId);
+  if (tabId === null) {
+    return { ok: false, error: "Missing tab" };
+  }
+
+  const snapshot = normalizeStateSnapshot({
+    ...getTabSnapshot(tabId),
+    tabId,
+    dockState: nextDockState
+  });
+  rememberTabSnapshot(tabId, snapshot);
+  broadcastTabState(tabId);
+  return {
+    ok: true,
+    state: snapshot
+  };
+}
+
 function stopInactivityMonitor(runtime) {
   if (!runtime || !runtime.inactivityIntervalId) {
     return;
@@ -1397,12 +1397,17 @@ function startInactivityMonitor(runtime) {
       return;
     }
 
-    if (Date.now() - runtime.state.lastActivityAt < REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS) {
+    const now = Date.now();
+    const elapsed = Math.max(0, now - (Number(runtime.state.lastActivityAt) || 0));
+    if (elapsed < REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS) {
+      if (syncRuntimeInactivityCountdown(runtime, now)) {
+        broadcastRuntimeState(runtime);
+      }
       return;
     }
 
-    terminateRemoteSupportSession({ sessionId: runtime.state.sessionId }, "Remote support session timed out").then();
-  }, 10000);
+    terminateRemoteSupportSession({ sessionId: runtime.state.sessionId }, "Remote support session timed out due to inactivity").then();
+  }, 1000);
 }
 
 async function handleIncomingDataMessage(runtime, message, channelKey = "") {
@@ -1412,7 +1417,8 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
 
   updateSessionActivity(runtime);
 
-  if (message.type === "command" || message.type === "control-owner") {
+  if (message.type === "session-activity") {
+    broadcastRuntimeState(runtime);
     return;
   }
 
@@ -1430,18 +1436,6 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
 
     publishRuntimeEvent(event);
     postRuntimeEventToTab(runtime.state.tabId, event);
-    return;
-  }
-
-  if (message.type === "cursor-state") {
-    if (!isPrimaryTransportChannelKey(channelKey)) {
-      return;
-    }
-
-    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(
-      message.payload && message.payload.snapshot
-    );
-    broadcastCursorSnapshot(runtime, runtime.cursorSnapshot);
     return;
   }
 
@@ -1477,6 +1471,11 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     throw new Error("Missing tab for remote support session");
   }
 
+  const previousDockStateCandidate = getTabSnapshot(normalizedTabId).dockState;
+  const previousDockState = previousDockStateCandidate &&
+    previousDockStateCandidate !== REMOTE_SUPPORT_DOCK_STATE_EMBEDDED
+    ? previousDockStateCandidate
+    : "";
   const existingRuntimeForSession = getRuntimeBySessionId(sessionId);
   if (
     existingRuntimeForSession &&
@@ -1489,6 +1488,9 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
   ) {
     existingRuntimeForSession.state.expiresAt = expiresAt;
     existingRuntimeForSession.state.error = "";
+    existingRuntimeForSession.state.dockState = normalizeRemoteSupportDockState(
+      existingRuntimeForSession.state.dockState || previousDockState
+    );
     updateSessionActivity(existingRuntimeForSession);
     broadcastRuntimeState(existingRuntimeForSession);
     return { runtime: existingRuntimeForSession, reused: true };
@@ -1511,9 +1513,9 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     supportCode,
     expiresAt,
     transportSignature,
-    includePayloads: false,
-    controlOwner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+    includePayloads: false
   });
+  runtime.state.dockState = normalizeRemoteSupportDockState(previousDockState || runtime.state.dockState);
 
   trackRuntime(runtime);
   broadcastRuntimeState(runtime);
@@ -1563,7 +1565,10 @@ async function deactivateRuntime(runtime, reason) {
   await setContentModeForSession(runtime, false);
 
   if (tabId !== null) {
-    rememberTabSnapshot(tabId, createTabInactiveState(tabId, reason));
+    rememberTabSnapshot(tabId, {
+      ...createTabInactiveState(tabId, reason),
+      dockState: normalizeRemoteSupportDockState(runtime.state.dockState)
+    });
     broadcastTabState(tabId);
   }
 
@@ -1915,7 +1920,6 @@ export async function handleTransportEvent(message) {
       runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
       isPrimaryTransportChannelKey(event.channelKey)
     ) {
-      await syncRequesterCursorSnapshot(runtime);
       await sendDataMessage(
         runtime,
         "peer-metadata",
@@ -2098,8 +2102,35 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     };
   }
 
+  if (message.type === "remoteSupportSetDockState") {
+    return setRemoteSupportDockState(message, sender);
+  }
+
   if (message.type === "remoteSupportSendCommand") {
     return { ok: false, error: "Remote control is not available in support sessions" };
+  }
+
+  if (message.type === "remoteSupportSetControlOwner") {
+    return { ok: false, error: "Remote control is not available in support sessions" };
+  }
+
+  if (message.type === "remoteSupportContinueSession") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    if (!runtime || !runtime.state.active) {
+      return { ok: false, error: "Remote support session is not active" };
+    }
+    if (runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+      return { ok: false, error: "Only the requester can continue the session" };
+    }
+    updateSessionActivity(runtime);
+    broadcastRuntimeState(runtime);
+    await sendDataMessage(runtime, "session-activity", {
+      continuedAt: Date.now()
+    });
+    return {
+      ok: true,
+      state: getRuntimePublicState(runtime)
+    };
   }
 
   if (message.type === "remoteSupportUpdateSidebarSnapshot") {
@@ -2111,26 +2142,6 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
     await syncRequesterSidebarSnapshot(runtime);
     return { ok: true };
-  }
-
-  if (message.type === "remoteSupportUpdateCursorSnapshot") {
-    const runtime = resolveRuntimeTarget(message, sender);
-    if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-      return { ok: false };
-    }
-
-    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(message.snapshot);
-    await syncRequesterCursorSnapshot(runtime);
-    return { ok: true };
-  }
-
-  if (message.type === "remoteSupportSetControlOwner") {
-    const runtime = resolveRuntimeTarget(message, sender);
-    return {
-      ok: false,
-      error: "Remote control is not available in support sessions",
-      state: getRuntimePublicState(runtime)
-    };
   }
 
   if (message.type === "remoteSupportDismissError") {

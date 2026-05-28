@@ -1016,6 +1016,83 @@ test("network devtools panel is the only include-payloads writer for its attache
   }
 });
 
+test("remote support continue session is requester-only", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+  const responses = [
+    {
+      sessionId: "sess_requester_continue",
+      supportCode: "555666",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=requester",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+    },
+    {
+      sessionId: "sess_supporter_continue",
+      supportCode: "666777",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+    }
+  ];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return responses.shift();
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requesterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 41,
+        pageUrl: "https://example.com/a"
+      },
+      { tab: { id: 41 } }
+    );
+    const supporterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 42,
+        supportCode: "666777"
+      },
+      { tab: { id: 42 } }
+    );
+
+    assert.equal(requesterResponse.ok, true);
+    assert.equal(supporterResponse.ok, true);
+
+    const requesterContinue = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportContinueSession", tabId: 41 },
+      { tab: { id: 41 } }
+    );
+    const supporterContinue = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportContinueSession", tabId: 42 },
+      { tab: { id: 42 } }
+    );
+
+    assert.equal(requesterContinue.ok, true);
+    assert.equal(requesterContinue.state.active, true);
+    assert.equal(supporterContinue.ok, false);
+    assert.equal(supporterContinue.error, "Only the requester can continue the session");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("extension telemetry feeds Unfluffify panels and requester remote peer", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -2004,190 +2081,6 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
   }
 });
 
-test("remote support replays requester cursor snapshots on the page channel and forwards incoming cursor snapshots to the support page", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalFetch = globalThis.fetch;
-
-  const { chromeMock, tabMessages, transportMessages } = createChromeMock();
-  let requestCount = 0;
-
-  globalThis.fetch = async () => {
-    requestCount += 1;
-    if (requestCount === 1) {
-      return {
-        ok: true,
-        async json() {
-          return {
-            sessionId: "sess_requester_cursor",
-            supportCode: "112233",
-            expiresAt: "2026-05-24T08:10:00.000Z",
-            webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
-            iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
-          };
-        }
-      };
-    }
-
-    return {
-      ok: true,
-      async json() {
-        return {
-          sessionId: "sess_supporter_cursor",
-          supportCode: "112233",
-          expiresAt: "2026-05-24T08:10:00.000Z",
-          webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
-          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
-        };
-      }
-    };
-  };
-
-  globalThis.chrome = chromeMock;
-  initRemoteSupportBackground();
-
-  try {
-    const requestResponse = await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportRequestCode",
-        endpointValue: "https://api.example.com",
-        tokenValue: "token-value",
-        tabId: 18,
-        pageUrl: "https://example.com/page"
-      },
-      { tab: { id: 18 } }
-    );
-
-    assert.equal(requestResponse.ok, true);
-
-    const cursorResponse = await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportUpdateCursorSnapshot",
-        tabId: 18,
-        snapshot: {
-          active: true,
-          cursor: 'url("https://example.com/cursor.cur") 4 4, pointer',
-          x: 0.4,
-          y: 0.6,
-          owner: "supporter"
-        }
-      },
-      { tab: { id: 18 } }
-    );
-
-    assert.equal(cursorResponse.ok, true);
-    const cursorSendCountBeforeChannelOpen = transportMessages.filter(
-      (message) =>
-        message.type === "remoteSupportTransportSendData" &&
-        message.sessionId === "sess_requester_cursor" &&
-        message.channelKey === "page" &&
-        message.messageType === "cursor-state"
-    ).length;
-
-    await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportTransportEvent",
-        source: "remoteSupportOffscreen",
-        event: {
-          type: "channel-open",
-          sessionId: "sess_requester_cursor",
-          channelKey: "page"
-        }
-      },
-      {
-        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
-      }
-    );
-
-    const cursorSendCountAfterChannelOpen = transportMessages.filter(
-      (message) =>
-        message.type === "remoteSupportTransportSendData" &&
-        message.sessionId === "sess_requester_cursor" &&
-        message.channelKey === "page" &&
-        message.messageType === "cursor-state"
-    ).length;
-
-    assert.equal(cursorSendCountAfterChannelOpen > cursorSendCountBeforeChannelOpen, true);
-    assert.equal(
-      transportMessages.some(
-        (message) =>
-          message.type === "remoteSupportTransportSendData" &&
-          message.sessionId === "sess_requester_cursor" &&
-          message.channelKey === "page" &&
-          message.messageType === "cursor-state" &&
-          message.payload &&
-          message.payload.snapshot &&
-          message.payload.snapshot.cursor === 'url("https://example.com/cursor.cur") 4 4, pointer' &&
-          message.payload.snapshot.x === 0.4 &&
-          message.payload.snapshot.y === 0.6 &&
-          message.payload.snapshot.owner === "supporter"
-      ),
-      true
-    );
-    assert.equal(
-      transportMessages.some(
-        (message) =>
-          message.type === "remoteSupportTransportSendData" &&
-          message.sessionId === "sess_requester_cursor" &&
-          message.channelKey === "page" &&
-          message.messageType === "peer-metadata" &&
-          message.payload &&
-          message.payload.extensionVersion === "1.2.3-test"
-      ),
-      true
-    );
-
-    const joinResponse = await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportJoin",
-        endpointValue: "https://api.example.com",
-        tokenValue: "token-value",
-        tabId: 77,
-        supportCode: "112233"
-      },
-      { tab: { id: 77 } }
-    );
-
-    assert.equal(joinResponse.ok, true);
-
-    await handleTransportEvent({
-      type: "incoming-message",
-      sessionId: "sess_supporter_cursor",
-      channelKey: "page",
-      message: {
-        type: "cursor-state",
-        payload: {
-          snapshot: {
-            active: true,
-            cursor: "text",
-            x: 0.2,
-            y: 0.8,
-            owner: "requester"
-          }
-        }
-      }
-    });
-
-    assert.equal(
-      tabMessages.some(
-        ({ tabId, message }) =>
-          tabId === 77 &&
-          message &&
-          message.type === "remoteSupportCursorStateChanged" &&
-          message.snapshot &&
-          message.snapshot.cursor === "text" &&
-          message.snapshot.x === 0.2 &&
-          message.snapshot.y === 0.8 &&
-          message.snapshot.owner === "requester"
-      ),
-      true
-    );
-  } finally {
-    await terminateRemoteSupportSession("Test cleanup");
-    globalThis.fetch = originalFetch;
-    globalThis.chrome = originalChrome;
-  }
-});
-
 test("remote support forwards runtime state and frames to the bound tab", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -2352,6 +2245,68 @@ test("remote support updates requester media flags when the supported popup togg
       ),
       true
     );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("remote support persists dock state updates for the active tab snapshot", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_requester_dock_state",
+        supportCode: "778899",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requestResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 61,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 61 } }
+    );
+
+    assert.equal(requestResponse.ok, true);
+    assert.equal(requestResponse.state.dockState, "floating_pip");
+
+    const dockResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportSetDockState",
+        tabId: 61,
+        sessionId: requestResponse.state.sessionId,
+        dockState: "embedded_minimized"
+      },
+      { tab: { id: 61 } }
+    );
+
+    assert.equal(dockResponse.ok, true);
+    assert.equal(dockResponse.state.dockState, "embedded_minimized");
+
+    const stateResponse = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 61 },
+      {}
+    );
+    assert.equal(stateResponse.state.dockState, "embedded_minimized");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;

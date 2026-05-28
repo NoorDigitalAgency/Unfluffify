@@ -7,6 +7,12 @@ import {
   propertyLockText
 } from "../common/text.js";
 import {
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
+  REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
+  shouldShowRemoteSupportPopupJoin
+} from "../common/remote-support.js";
+import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../common/lynx-checklist.js";
@@ -194,6 +200,12 @@ const initialViewState = {
   remoteSupportSoundAvailable: false,
   remoteSupportSoundEnabled: false,
   remoteSupportPreviewImage: "",
+  remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+  remoteSupportLocalCameraActive: false,
+  remoteSupportRemoteCameraActive: false,
+  remoteSupportInactivityCountdownActive: false,
+  remoteSupportInactivitySecondsRemaining: 0,
+  remoteSupportInactivityCountdownText: "0:00",
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -233,7 +245,7 @@ function toneUtilityClass(tone) {
 }
 
 function warningNoticeClass(...extraClasses) {
-  return classNames("notice", "u-tone-warning", "u-surface-tone", ...extraClasses);
+  return classNames("u-alert", "u-alert-warn", ...extraClasses);
 }
 
 function renderListItems(items, emptyText, renderItem) {
@@ -262,19 +274,48 @@ function renderRemoteSupportErrorNotice(view, handlers) {
 
   return h(
     "div",
-    { class: warningNoticeClass("notice--dismissible"), role: "status", "aria-live": "polite" },
-    h("span", { class: "notice__content" }, message),
+    { class: warningNoticeClass("u-alert--dismissible"), role: "status", "aria-live": "polite" },
+    h("span", { class: "u-alert__content" }, message),
     h(
       "button",
       {
         type: "button",
-        class: "notice__dismiss",
+        class: "u-alert__dismiss",
         "aria-label": PopupText.configuration.dismissNoticeLabel,
         title: PopupText.configuration.dismissNoticeLabel,
         onClick: handlers.onRemoteSupportErrorDismiss
       },
       icon("close")
     )
+  );
+}
+
+function renderRemoteSupportInactivityNotice(view, handlers) {
+  if (!view.remoteSupportInactivityCountdownActive) {
+    return null;
+  }
+
+  const isRequester = view.remoteSupportMode === "being_supported";
+  return h(
+    "div",
+    { class: warningNoticeClass(isRequester ? "u-alert--actionable" : null) },
+    h(
+      "span",
+      { class: "u-alert__content" },
+      PopupText.configuration.remoteSupportInactivityCountdownNotice(view.remoteSupportInactivityCountdownText || "0:00")
+    ),
+    isRequester
+      ? h(
+          "button",
+          {
+            id: "remote-support-continue",
+            type: "button",
+            class: "u-alert__action",
+            onClick: handlers.onRemoteSupportContinue
+          },
+          PopupText.configuration.remoteSupportContinueButton
+        )
+      : null
   );
 }
 
@@ -336,12 +377,101 @@ function renderRemoteSupportedMediaControls(view, handlers) {
   );
 }
 
+function renderRemoteSupportDock(view, handlers) {
+  const dockState = view.remoteSupportDockState || REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
+  const minimized = dockState === REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED;
+  const floating = dockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP;
+  const localCameraActive = Boolean(view.remoteSupportLocalCameraActive);
+  const remoteCameraActive = Boolean(view.remoteSupportRemoteCameraActive);
+
+  return h(
+    "section",
+    {
+      class: classNames(
+        "remote-support-dock",
+        minimized && "remote-support-dock--minimized",
+        floating && "remote-support-dock--floating-intent"
+      )
+    },
+    h(
+      "div",
+      { class: "remote-support-dock__tiles" },
+      h(
+        "div",
+        { class: "remote-support-dock__tile" },
+        h("video", {
+          ref: (el) => { refs.localCameraVideo = el; },
+          class: "remote-support-dock__tile-image",
+          autoPlay: true,
+          muted: true,
+          playsInline: true,
+          hidden: !localCameraActive,
+          "aria-label": "Local camera preview"
+        }),
+        !localCameraActive
+          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Local camera")
+          : null,
+        minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "You")
+      ),
+      h(
+        "div",
+        { class: "remote-support-dock__tile" },
+        h("video", {
+          ref: (el) => { refs.remoteCameraVideo = el; },
+          class: "remote-support-dock__tile-image",
+          autoPlay: true,
+          muted: true,
+          playsInline: true,
+          hidden: !remoteCameraActive,
+          "aria-label": "Supporter camera preview"
+        }),
+        !remoteCameraActive
+          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Supporter camera")
+          : null,
+        minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "Supporter")
+      )
+    ),
+    h(
+      "div",
+      { class: "remote-support-dock__controls" },
+      renderRemoteSupportedMediaControls(view, handlers),
+      h(
+        "button",
+        {
+          id: "remote-support-externalize",
+          type: "button",
+          class: "u-btn-secondary remote-support-dock__externalize",
+          onClick: handlers.onRemoteSupportDockExternalize
+        },
+        icon("open-in-new"),
+        minimized ? "External" : "Open in PiP"
+      ),
+      h(
+        "button",
+        {
+          id: "remote-support-end-dock",
+          type: "button",
+          class: "u-btn-danger remote-support-dock__end",
+          onClick: handlers.onRemoteSupportEnd
+        },
+        icon("lan-disconnect"),
+        minimized ? null : PopupText.configuration.remoteSupportEndButton
+      )
+    )
+  );
+}
+
 function statusToneClass(tone) {
-  const normalizedTone =
-    tone === "success" || tone === "warning" || tone === "danger"
-      ? tone
-      : "muted";
-  return classNames("status-text", `status-text--${normalizedTone}`);
+  switch (tone) {
+    case "success":
+      return classNames("status-text", "u-color-success");
+    case "warning":
+      return classNames("status-text", "u-color-warning");
+    case "danger":
+      return classNames("status-text", "u-color-danger");
+    default:
+      return classNames("status-text", "u-color-muted");
+  }
 }
 
 function formatCandidateWordsCount(wordsCount) {
@@ -459,7 +589,7 @@ function renderPropertyLockIndicator(view, handlers) {
         {
           key: "suggest",
           type: "button",
-          class: "property-lock__button button-secondary",
+          class: "property-lock__button u-btn-secondary",
           onClick: handlers.onPropertyLockSuggest
         },
         propertyLockText.takeoverSuggestButton
@@ -515,7 +645,7 @@ function renderPropertyLockIndicator(view, handlers) {
         {
           key: "reject",
           type: "button",
-          class: "property-lock__button button-secondary",
+          class: "property-lock__button u-btn-secondary",
           onClick: handlers.onPropertyLockRejectSuggestion
         },
         propertyLockText.rejectButton
@@ -718,6 +848,9 @@ function renderRemoteSupportSection(view, handlers) {
   const requesting = Boolean(view.remoteSupportRequestLoading);
   const sessionActive = Boolean(view.remoteSupportSessionActive);
   const supportPageVisible = Boolean(view.remoteSupportPageVisible);
+  const showPopupJoin = shouldShowRemoteSupportPopupJoin(supportPageVisible, {
+    active: sessionActive
+  });
   const sectionClass = view.remoteSupportEmbedded
     ? "config-extra-subsection remote-support-card remote-support-card--embedded u-grid u-gap-4"
     : "card remote-support-card u-grid u-gap-3";
@@ -731,14 +864,48 @@ function renderRemoteSupportSection(view, handlers) {
     },
     h("div", { class: "section-title" }, icon("lifebuoy", "field-icon"), PopupText.configuration.remoteSupportSectionTitle),
     h("div", { class: "hint" }, PopupText.configuration.remoteSupportHint),
-    supportPageVisible
+    showPopupJoin
+      ? h(
+          "div",
+          { class: "remote-support-join" },
+          h(
+            "label",
+            { class: "field remote-support-join__field" },
+            h("span", { class: "control-label" }, PopupText.configuration.remoteSupportJoinCodeLabel),
+            h(
+              "div",
+              { class: "input-row" },
+              h("input", {
+                id: "remote-support-join-code",
+                type: "text",
+                value: view.remoteSupportJoinCode || "",
+                placeholder: PopupText.configuration.remoteSupportJoinCodePlaceholder,
+                disabled: Boolean(view.remoteSupportJoinLoading),
+                onInput: handlers.onRemoteSupportJoinCodeInput
+              }),
+              h(
+                "button",
+                {
+                  id: "remote-support-join",
+                  type: "button",
+                  class: classNames(view.remoteSupportJoinLoading && "loading"),
+                  disabled: Boolean(view.remoteSupportJoinLoading) || !(view.remoteSupportJoinCode || "").trim(),
+                  onClick: handlers.onRemoteSupportJoin
+                },
+                icon(view.remoteSupportJoinLoading ? "loading" : "login-variant", view.remoteSupportJoinLoading ? "mdi-spin" : ""),
+                PopupText.configuration.remoteSupportJoinButton
+              )
+            )
+          )
+        )
+      : supportPageVisible
       ? h("div", { class: warningNoticeClass() }, PopupText.configuration.remoteSupportPageControlHint)
       : h(
           "button",
           {
             id: "remote-support-request",
             type: "button",
-            class: classNames("full-width", requesting && "loading"),
+            class: classNames("u-full-width", requesting && "loading"),
             disabled: sessionActive || requesting,
             "aria-busy": requesting ? "true" : "false",
             onClick: handlers.onRemoteSupportRequest
@@ -759,6 +926,7 @@ function renderRemoteSupportSection(view, handlers) {
       ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
       : null,
     renderRemoteSupportErrorNotice(view, handlers),
+    renderRemoteSupportInactivityNotice(view, handlers),
     supporting
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
@@ -768,7 +936,7 @@ function renderRemoteSupportSection(view, handlers) {
           {
             id: "remote-support-end",
             type: "button",
-            class: "full-width warning",
+            class: "u-full-width u-btn-danger",
             onClick: handlers.onRemoteSupportEnd
           },
           icon("close-octagon"),
@@ -776,7 +944,12 @@ function renderRemoteSupportSection(view, handlers) {
         )
       : null,
     beingSupported
-      ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportBeingSupportedHint)
+      ? h(
+          Fragment,
+          null,
+          h("div", { class: "hint" }, PopupText.configuration.remoteSupportBeingSupportedHint),
+          renderRemoteSupportDock(view, handlers)
+        )
       : null
   );
 }
@@ -813,14 +986,15 @@ function renderRemoteSupportControllerView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        renderRemoteSupportErrorNotice(view, handlers)
+        renderRemoteSupportErrorNotice(view, handlers),
+        renderRemoteSupportInactivityNotice(view, handlers)
       ),
       h(
         "button",
         {
           id: "remote-support-end",
           type: "button",
-          class: "warning remote-support-controller__end",
+          class: "u-btn-danger remote-support-controller__end",
           onClick: handlers.onRemoteSupportEnd
         },
         icon("close-octagon"),
@@ -863,7 +1037,8 @@ function renderRemoteSupportedView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        renderRemoteSupportErrorNotice(view, handlers)
+        renderRemoteSupportErrorNotice(view, handlers),
+        renderRemoteSupportInactivityNotice(view, handlers)
       ),
       renderRemoteSupportedMediaControls(view, handlers)
     ),
@@ -889,7 +1064,7 @@ function renderRenderModeEditor(view, handlers) {
           {
             id: "render-mode-inspect-with-javascript",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.renderModeInspectButtonsDisabled,
             onClick: handlers.onRenderModeInspectWithJavaScript
           },
@@ -905,7 +1080,7 @@ function renderRenderModeEditor(view, handlers) {
           {
             id: "render-mode-inspect-without-javascript",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.renderModeInspectButtonsDisabled,
             onClick: handlers.onRenderModeInspectWithoutJavaScript
           },
@@ -1098,7 +1273,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
               {
                 id: "todo-controls-menu-toggle",
                 type: "button",
-                class: "section-menu-button button-secondary",
+                class: "section-menu-button u-btn-secondary",
                 "aria-haspopup": "menu",
                 "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
                 title: PopupText.pageTypes.controlsMenu,
@@ -1487,7 +1662,7 @@ function App({ state: view, actions: handlers }) {
                   {
                     id: "base-page-menu-toggle",
                     type: "button",
-                    class: "section-menu-button button-secondary",
+                    class: "section-menu-button u-btn-secondary",
                     "aria-haspopup": "menu",
                     "aria-expanded": view.basePageMenuOpen ? "true" : "false",
                     title: PopupText.tooltips.basePageUrls,
@@ -1562,8 +1737,8 @@ function App({ state: view, actions: handlers }) {
 
 function renderAiControlsContent(view, handlers) {
   const computeButtonClass = classNames(
-    "full-width",
-    "margin-above",
+    "u-full-width",
+    "u-mt-2",
     view.computeButtonLoading && "loading"
   );
 
@@ -1798,7 +1973,7 @@ function renderLynxChecklistPopover(view, handlers) {
           {
             id: "lynx-checklist-cancel",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             onClick: handlers.onLynxChecklistCancel
           },
           icon("arrow-left"),
@@ -1886,7 +2061,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           {
             id: "page-revert",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.pageRevertDisabled,
             onClick: handlers.onPageRevert
           },
@@ -2052,40 +2227,40 @@ function renderConfigurationExtrasSection(view, handlers) {
 }
 
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
-    const previewClass = classNames("full-width");
-    const submitClass = classNames(
-      "full-width",
-      view.saveExcludesButtonLoading && "loading"
-    );
-    return h(
-      Fragment,
-      null,
-      h(
-        "button",
-        {
-          id: "preview-latest",
-          class: previewClass,
-          type: "button",
-          disabled: view.previewLatestButtonDisabled,
-          onClick: handlers.onPreviewLatest
-        },
-        icon("eye-outline"),
-        PopupText.actions.previewLatest
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "button",
-        {
-          id: "save-excludes",
-          class: submitClass,
-          type: "button",
-          disabled: view.saveExcludesButtonDisabled,
-          onClick: handlers.onSaveExcludes
-        },
-        icon("cloud-upload-outline"),
-        view.saveExcludesButtonText
-      )
-    );
+  const previewClass = classNames("u-full-width", "u-btn-secondary");
+  const submitClass = classNames(
+    "u-full-width",
+    view.saveExcludesButtonLoading && "loading"
+  );
+  return h(
+    Fragment,
+    null,
+    h(
+      "button",
+      {
+        id: "preview-latest",
+        class: previewClass,
+        type: "button",
+        disabled: view.previewLatestButtonDisabled,
+        onClick: handlers.onPreviewLatest
+      },
+      icon("eye-outline"),
+      PopupText.actions.previewLatest
+    ),
+    h("div", { class: "section-divider", role: "separator" }),
+    h(
+      "button",
+      {
+        id: "save-excludes",
+        class: submitClass,
+        type: "button",
+        disabled: view.saveExcludesButtonDisabled,
+        onClick: handlers.onSaveExcludes
+      },
+      icon("cloud-upload-outline"),
+      view.saveExcludesButtonText
+    )
+  );
 }
 
   function renderEditableConfigurationField(options) {
