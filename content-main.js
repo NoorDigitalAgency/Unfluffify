@@ -88,6 +88,7 @@ const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
+const pageMarkingEntryLookupCache = new WeakMap();
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["content", "excluded"];
@@ -3440,10 +3441,20 @@ function findPageMarkingEntry(pageMarkings, pageUrl = location.href, baseUrl = "
   if (!targetLooseKey) {
     return null;
   }
-  const matchingKey = Object.keys(pageMarkings).find((url) =>
-    toLooseUrlKey(url, baseUrl || pageUrl) === targetLooseKey
-  );
-  return matchingKey ? pageMarkings[matchingKey] : null;
+  const lookupBaseUrl = baseUrl || pageUrl;
+  let cached = pageMarkingEntryLookupCache.get(pageMarkings);
+  if (!cached || cached.baseUrl !== lookupBaseUrl) {
+    const entriesByLooseKey = new Map();
+    Object.keys(pageMarkings).forEach((url) => {
+      const looseKey = toLooseUrlKey(url, lookupBaseUrl);
+      if (looseKey && !entriesByLooseKey.has(looseKey)) {
+        entriesByLooseKey.set(looseKey, pageMarkings[url]);
+      }
+    });
+    cached = { baseUrl: lookupBaseUrl, entriesByLooseKey };
+    pageMarkingEntryLookupCache.set(pageMarkings, cached);
+  }
+  return cached.entriesByLooseKey.get(targetLooseKey) || null;
 }
 
 function getStoredAiSelectorSet(baseConfig) {

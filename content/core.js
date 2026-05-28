@@ -80,6 +80,7 @@ export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const SECTION_LIKE_BOUNDARY_TAGS = new Set(["SECTION", "ARTICLE", "MAIN", "ASIDE", "HEADER", "FOOTER"]);
+const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
@@ -3961,12 +3962,12 @@ function updateHoverHighlight(
   if (!layerHover) {
     return;
   }
-  const previousVisibilityCache = state.visibilityCache;
-  const previousBoundarySignalsCache = state.expandedExclusionBoundarySignalsCache;
-  if (!previousVisibilityCache) {
+  const savedVisibilityCache = state.visibilityCache;
+  const savedBoundarySignalsCache = state.expandedExclusionBoundarySignalsCache;
+  if (!savedVisibilityCache) {
     state.visibilityCache = new Map();
   }
-  if (!previousBoundarySignalsCache) {
+  if (!savedBoundarySignalsCache) {
     state.expandedExclusionBoundarySignalsCache = new WeakMap();
   }
   const layerState = beginLayerRender(layerHover);
@@ -3999,8 +4000,8 @@ function updateHoverHighlight(
     drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
     finalizeLayerRender(layerState);
   } finally {
-    state.visibilityCache = previousVisibilityCache;
-    state.expandedExclusionBoundarySignalsCache = previousBoundarySignalsCache;
+    state.visibilityCache = savedVisibilityCache;
+    state.expandedExclusionBoundarySignalsCache = savedBoundarySignalsCache;
   }
 }
 
@@ -5652,10 +5653,20 @@ export function findPageMarkingEntry(configValue, pageUrl) {
   if (!targetLooseKey) {
     return null;
   }
-  const matchingKey = Object.keys(pageMarkings).find((url) =>
-    toLooseUrlKey(url, state.baseUrl || pageUrl) === targetLooseKey
-  );
-  return matchingKey ? pageMarkings[matchingKey] : null;
+  const lookupBaseUrl = state.baseUrl || pageUrl;
+  let cached = pageMarkingEntryLookupCache.get(pageMarkings);
+  if (!cached || cached.baseUrl !== lookupBaseUrl) {
+    const entriesByLooseKey = new Map();
+    Object.keys(pageMarkings).forEach((url) => {
+      const looseKey = toLooseUrlKey(url, lookupBaseUrl);
+      if (looseKey && !entriesByLooseKey.has(looseKey)) {
+        entriesByLooseKey.set(looseKey, pageMarkings[url]);
+      }
+    });
+    cached = { baseUrl: lookupBaseUrl, entriesByLooseKey };
+    pageMarkingEntryLookupCache.set(pageMarkings, cached);
+  }
+  return cached.entriesByLooseKey.get(targetLooseKey) || null;
 }
 
 export function collectImmutableElements() {
