@@ -741,8 +741,12 @@ function updateSessionActivity(runtime) {
   }
 
   runtime.state.lastActivityAt = Date.now();
+  const wasCountdownActive = runtime.state.inactivityCountdownActive;
   runtime.state.inactivityCountdownActive = false;
   runtime.state.inactivitySecondsRemaining = 0;
+  if (wasCountdownActive) {
+    broadcastRuntimeState(runtime);
+  }
 }
 
 function getRuntimeInactivitySecondsRemaining(runtime, now = Date.now()) {
