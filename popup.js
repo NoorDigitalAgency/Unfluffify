@@ -2722,7 +2722,8 @@ function collapseTodoListForAutoCollapse() {
   }
 }
 
-async function refreshUiInner() {
+async function refreshUiInner(options = {}) {
+  const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
   if (!state.currentTab) {
     return;
   }
@@ -3338,28 +3339,30 @@ async function refreshUiInner() {
       resetPropertyLockState();
       state.propertyLockSiteId = propertyLockCandidateSiteId;
     }
-    const lockResponse = await fetchPropertyLockState(propertyLockCandidateSiteId);
-    const nextLockState = normalizeLockStateMessage(
-      lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
-    );
-    const previousLockState = state.propertyLockState;
-    if (
-      !previousLockState ||
-      previousLockState.state !== nextLockState.state ||
-      previousLockState.isEditor !== nextLockState.isEditor ||
-      previousLockState.editorIdentity !== nextLockState.editorIdentity
-    ) {
-      clearPropertyLockTransientState();
+    if (!skipPropertyLockFetch || !state.propertyLockState) {
+      const lockResponse = await fetchPropertyLockState(propertyLockCandidateSiteId);
+      const nextLockState = normalizeLockStateMessage(
+        lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
+      );
+      const previousLockState = state.propertyLockState;
+      if (
+        !previousLockState ||
+        previousLockState.state !== nextLockState.state ||
+        previousLockState.isEditor !== nextLockState.isEditor ||
+        previousLockState.editorIdentity !== nextLockState.editorIdentity
+      ) {
+        clearPropertyLockTransientState();
+      }
+      state.propertyLockState = nextLockState;
+      applyPropertyLockConnectionStatus(
+        lockResponse && lockResponse.connectionStatus
+          ? lockResponse.connectionStatus
+          : PROPERTY_LOCK_CONNECTION_CONNECTED,
+        lockResponse && lockResponse.error ? lockResponse.error : ""
+      );
+      state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
+      state.propertyLockName = (lockResponse && lockResponse.name) || "";
     }
-    state.propertyLockState = nextLockState;
-    applyPropertyLockConnectionStatus(
-      lockResponse && lockResponse.connectionStatus
-        ? lockResponse.connectionStatus
-        : PROPERTY_LOCK_CONNECTION_CONNECTED,
-      lockResponse && lockResponse.error ? lockResponse.error : ""
-    );
-    state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
-    state.propertyLockName = (lockResponse && lockResponse.name) || "";
   } else {
     resetPropertyLockState();
   }
@@ -4046,16 +4049,17 @@ async function maybeResumePersistedAiRun() {
 
 async function refreshUi(options = {}) {
   const useBusyOverlay = options.useBusyOverlay !== false;
+  const refreshOptions = { skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch) };
   const response = useBusyOverlay
     ? await runWithPopupBusyOverlay(
       PopupText.overlay.loadingPopupAndPreparing,
-      () => refreshUiInner(),
+      () => refreshUiInner(refreshOptions),
       {
         delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
         suppressIfActive: true
       }
     )
-    : await refreshUiInner();
+    : await refreshUiInner(refreshOptions);
   maybeResumePersistedAiRun().catch(() => {});
   return response;
 }
@@ -5233,7 +5237,7 @@ async function handleExplicitExcludeRemove(xpath) {
     uiModule.showToast(PopupText.explicitSelection.excludeUpdateFailed);
     return;
   }
-  await refreshUi({ useBusyOverlay: false });
+  await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
 async function handleExplicitIncludeView(xpath) {

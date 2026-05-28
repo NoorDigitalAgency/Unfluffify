@@ -1839,6 +1839,75 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     };
   }
 
+  async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
+    const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+      ? options.pageUrl
+      : location.href;
+    const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+    if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
+      return { ok: false, reason: "not_in_base_url" };
+    }
+
+    const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+    if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+      return { ok: false, reason: "missing_lock_settings" };
+    }
+
+    const currentConfigs = await config.getConfigs();
+    const normalizedConfig = config.normalizeConfig(
+      normalizedBaseUrl,
+      currentConfigs[normalizedBaseUrl]
+    ).config;
+    const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
+    let siteId = storedSiteId;
+    if (Boolean(options.forceSiteIdRefresh) || !siteId) {
+      const resolvedSiteId = await resolveSiteIdFromGraphql({
+        stageBase: stageBaseValue,
+        pageUrl,
+        tokenValue
+      });
+      if (resolvedSiteId) {
+        siteId = resolvedSiteId;
+        if (siteId !== storedSiteId) {
+          await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+            targetConfig.siteId = siteId;
+          });
+        }
+      }
+    }
+    if (!siteId) {
+      return { ok: false, reason: "missing_site_id" };
+    }
+    return {
+      ok: true,
+      baseUrl: normalizedBaseUrl,
+      pageUrl,
+      siteId,
+      stageBaseValue,
+      tokenValue
+    };
+  }
+
+  async function resolvePropertyLockCandidateState(target) {
+    if (!target || !target.ok) {
+      return { ok: false, candidate: false };
+    }
+    const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
+      target.siteId,
+      target.stageBaseValue,
+      target.tokenValue
+    );
+    if (!propertyPageTypesResult.ok) {
+      return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
+    }
+    const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
+    return {
+      ok: true,
+      candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
+      candidateState
+    };
+  }
+
   const candidateState = getCurrentPageCandidateState(pageUrl, propertyPageTypesResult.pageTypes);
   if (candidateState.status === "empty") {
     return { ok: false, reason: "Live Pages are not prepared for this site yet." };
@@ -3360,6 +3429,23 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
+function findPageMarkingEntry(pageMarkings, pageUrl = location.href, baseUrl = "") {
+  if (!pageMarkings || typeof pageMarkings !== "object") {
+    return null;
+  }
+  if (pageMarkings[pageUrl]) {
+    return pageMarkings[pageUrl];
+  }
+  const targetLooseKey = toLooseUrlKey(pageUrl, baseUrl || pageUrl);
+  if (!targetLooseKey) {
+    return null;
+  }
+  const matchingKey = Object.keys(pageMarkings).find((url) =>
+    toLooseUrlKey(url, baseUrl || pageUrl) === targetLooseKey
+  );
+  return matchingKey ? pageMarkings[matchingKey] : null;
+}
+
 function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -3371,9 +3457,7 @@ function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
   const pageMarkings = baseConfig && typeof baseConfig === "object"
     ? baseConfig.pageMarkings
     : null;
-  const entry = pageMarkings && typeof pageMarkings === "object"
-    ? pageMarkings[pageUrl]
-    : null;
+  const entry = findPageMarkingEntry(pageMarkings, pageUrl, state.baseUrl || "");
   return Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
@@ -4821,7 +4905,7 @@ async function refreshSilentHighlightings() {
       savedLooseUrls.add(loose);
     }
   });
-  const storedEntry = pageMarkings[pageUrl] || null;
+  const storedEntry = findPageMarkingEntry(pageMarkings, pageUrl, baseUrl);
   const storedConsentXpaths =
     storedEntry && Array.isArray(storedEntry.consentXpaths)
       ? storedEntry.consentXpaths
@@ -5019,7 +5103,7 @@ async function syncPropertyLockConnection(options = {}) {
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
   const baseUrl = await resolveBaseUrlForCurrentPage();
   const target = baseUrl
-    ? await resolveCurrentLivePageTarget(baseUrl, {
+    ? await resolveCurrentPropertyLockConnectionTarget(baseUrl, {
       pageUrl,
       forceSiteIdRefresh
     })
@@ -5035,41 +5119,48 @@ async function syncPropertyLockConnection(options = {}) {
   }
 
   const siteId = target.siteId;
-  if (propertyLockPort && propertyLockConnectedSiteId === siteId) {
-    return;
-  }
+  if (!(propertyLockPort && propertyLockConnectedSiteId === siteId)) {
+    if (propertyLockPort) {
+      disconnectPropertyLockPort();
+    }
 
-  if (propertyLockPort) {
-    disconnectPropertyLockPort();
-  }
+    if (propertyLockConnectedSiteId !== siteId) {
+      propertyLockAutoTakeAttempted = false;
+    }
+    propertyLockConnectedSiteId = siteId;
 
-  if (propertyLockConnectedSiteId !== siteId) {
-    propertyLockAutoTakeAttempted = false;
-  }
-  propertyLockConnectedSiteId = siteId;
-
-  try {
-    const nextPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
-    propertyLockPort = nextPort;
-    nextPort.onMessage.addListener(handlePropertyLockPortMessage);
-    nextPort.onDisconnect.addListener(() => {
-      if (propertyLockPort !== nextPort) {
-        return;
-      }
+    try {
+      const nextPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
+      propertyLockPort = nextPort;
+      nextPort.onMessage.addListener(handlePropertyLockPortMessage);
+      nextPort.onDisconnect.addListener(() => {
+        if (propertyLockPort !== nextPort) {
+          return;
+        }
+        propertyLockPort = null;
+        propertyLockConnectedSiteId = null;
+        resetPropertyLockUiState();
+        schedulePropertyLockReconnect();
+      });
+      nextPort.postMessage({
+        type: PROPERTY_LOCK_CONTENT_CONNECT,
+        siteId
+      });
+    } catch (error) {
       propertyLockPort = null;
       propertyLockConnectedSiteId = null;
       resetPropertyLockUiState();
-      schedulePropertyLockReconnect();
-    });
-    nextPort.postMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId
-    });
-  } catch (error) {
-    propertyLockPort = null;
-    propertyLockConnectedSiteId = null;
-    resetPropertyLockUiState();
-    schedulePropertyLockReconnect({ forceSiteIdRefresh });
+      schedulePropertyLockReconnect({ forceSiteIdRefresh });
+      return;
+    }
+  }
+
+  const candidateState = await resolvePropertyLockCandidateState(target);
+  if (syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
+    return;
+  }
+  if (candidateState.ok && !candidateState.candidate) {
+    disconnectPropertyLockPort();
   }
 }
 

@@ -453,6 +453,7 @@ test("parent marking inherits a cohesive section boundary through wrapper chains
       rect: { top: 0, right: 880, bottom: 440, left: 0, width: 880, height: 440 }
     });
     const section = createElement({
+      tagName: "section",
       parentElement: body,
       children: [padding],
       rect: { top: 0, right: 900, bottom: 460, left: 0, width: 900, height: 460 }
@@ -514,6 +515,7 @@ test("parent marking allows inherited wrapper chains with one content branch and
       rect: { top: 0, right: 960, bottom: 360, left: 0, width: 960, height: 360 }
     });
     const section = createElement({
+      tagName: "section",
       parentElement: body,
       children: [padding],
       rect: { top: 0, right: 980, bottom: 380, left: 0, width: 980, height: 380 }

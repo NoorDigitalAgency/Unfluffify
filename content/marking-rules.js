@@ -64,6 +64,7 @@ export function isValidExpandedExclusionBoundary(options = {}) {
   const hasOnlyLayoutWrapperChain = Boolean(options.hasOnlyLayoutWrapperChain);
   const hasMixedSiblingContent = Boolean(options.hasMixedSiblingContent);
   const hasAdjacentVisualSiblingPair = Boolean(options.hasAdjacentVisualSiblingPair);
+  const isSectionLikeUnit = Boolean(options.isSectionLikeUnit);
   if (hasDirectOwnText || hasDirectTextualBoundary) {
     return true;
   }
@@ -73,7 +74,7 @@ export function isValidExpandedExclusionBoundary(options = {}) {
   if (hasMixedSiblingContent && !hasAdjacentVisualSiblingPair) {
     return false;
   }
-  return qualifyingChildBoundaryCount >= 2 || hasAdjacentVisualSiblingPair;
+  return qualifyingChildBoundaryCount >= 2 || (hasAdjacentVisualSiblingPair && isSectionLikeUnit);
 }
 
 export function shouldBlockExpandedExclusionRoot(options = {}) {

@@ -79,6 +79,7 @@ export const state = {
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
+const SECTION_LIKE_BOUNDARY_TAGS = new Set(["SECTION", "ARTICLE", "MAIN", "ASIDE", "HEADER", "FOOTER"]);
 const SCROLL_DEBOUNCE_MS = 250;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
@@ -559,6 +560,17 @@ function isExpandedExclusionRootBlocked(el) {
     isBody: Boolean(el && el === document.body),
     isSoleVisualBodyWrapper: isSoleVisualBodyWrapper(el)
   });
+}
+
+function isSectionLikeExpandedBoundary(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (SECTION_LIKE_BOUNDARY_TAGS.has(el.tagName)) {
+    return true;
+  }
+  const role = typeof el.getAttribute === "function" ? (el.getAttribute("role") || "").toLowerCase() : "";
+  return role === "region" || role === "article" || role === "main" || role === "complementary";
 }
 
 function matchesToggleableDefaultExcluded(el) {
@@ -3484,7 +3496,8 @@ function isExpandedExclusionBoundarySignalsValid(el, signals) {
     qualifyingChildBoundaryCount: signals && signals.qualifyingChildBoundaryCount,
     hasOnlyLayoutWrapperChain: Boolean(signals && signals.hasOnlyLayoutWrapperChain),
     hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent),
-    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair)
+    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair),
+    isSectionLikeUnit: isSectionLikeExpandedBoundary(el)
   });
 }
 
@@ -3948,34 +3961,47 @@ function updateHoverHighlight(
   if (!layerHover) {
     return;
   }
+  const previousVisibilityCache = state.visibilityCache;
+  const previousBoundarySignalsCache = state.expandedExclusionBoundarySignalsCache;
+  if (!previousVisibilityCache) {
+    state.visibilityCache = new Map();
+  }
+  if (!previousBoundarySignalsCache) {
+    state.expandedExclusionBoundarySignalsCache = new WeakMap();
+  }
   const layerState = beginLayerRender(layerHover);
-  const explicitParentSet = getExcludedXPathSet(state.config, location.href);
-  const excludedSet =
-    allowParent || allowExcludedParentChildren ? null : explicitParentSet;
-  const includeSet = getIncludeXPathSet(state.config, location.href);
-  const target = getMarkableTarget(x, y, {
-    allowParent,
-    allowExplicitTarget: true,
-    preferExplicitTarget: allowExcludedParentChildren,
-    preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
-    excludedSet,
-    includeSet,
-    explicitParentSet,
-    allowExcludedParentChildren,
-    allowImmutableChildren,
-    requireExcludedAncestor: false
-  });
-  if (!target) {
+  try {
+    const explicitParentSet = getExcludedXPathSet(state.config, location.href);
+    const excludedSet =
+      allowParent || allowExcludedParentChildren ? null : explicitParentSet;
+    const includeSet = getIncludeXPathSet(state.config, location.href);
+    const target = getMarkableTarget(x, y, {
+      allowParent,
+      allowExplicitTarget: true,
+      preferExplicitTarget: allowExcludedParentChildren,
+      preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
+      excludedSet,
+      includeSet,
+      explicitParentSet,
+      allowExcludedParentChildren,
+      allowImmutableChildren,
+      requireExcludedAncestor: false
+    });
+    if (!target) {
+      finalizeLayerRender(layerState);
+      return;
+    }
+    const rects = getVisibleRects(target);
+    if (rects.length === 0) {
+      finalizeLayerRender(layerState);
+      return;
+    }
+    drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
     finalizeLayerRender(layerState);
-    return;
+  } finally {
+    state.visibilityCache = previousVisibilityCache;
+    state.expandedExclusionBoundarySignalsCache = previousBoundarySignalsCache;
   }
-  const rects = getVisibleRects(target);
-  if (rects.length === 0) {
-    finalizeLayerRender(layerState);
-    return;
-  }
-  drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
-  finalizeLayerRender(layerState);
 }
 
 function refreshHoverHighlight() {
@@ -4612,12 +4638,7 @@ function renderHighlightsInner() {
   const pageUrl = location.href;
   const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
-  const existingPageEntry =
-    state.config &&
-    state.config.pageMarkings &&
-    typeof state.config.pageMarkings === "object"
-      ? state.config.pageMarkings[pageUrl] || null
-      : null;
+  const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
@@ -5594,7 +5615,47 @@ export function hasPageMarkingEntry(config, pageUrl) {
   if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
     return false;
   }
-  return Boolean(config.pageMarkings[pageUrl]);
+  return Boolean(findPageMarkingEntry(config, pageUrl));
+}
+
+function normalizeUrlPath(pathname) {
+  if (typeof pathname !== "string" || !pathname) {
+    return "/";
+  }
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+function toLooseUrlKey(value, baseUrl) {
+  if (typeof value !== "string" || !value) {
+    return "";
+  }
+  try {
+    const url = new URL(value, baseUrl || location.href);
+    const host = url.host.toLowerCase();
+    const path = normalizeUrlPath(url.pathname);
+    return `${host}${path}${url.search || ""}`;
+  } catch {
+    return "";
+  }
+}
+
+export function findPageMarkingEntry(configValue, pageUrl) {
+  const pageMarkings = configValue && configValue.pageMarkings;
+  if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
+    return null;
+  }
+  if (pageMarkings[pageUrl]) {
+    return pageMarkings[pageUrl];
+  }
+  const targetLooseKey = toLooseUrlKey(pageUrl, state.baseUrl || pageUrl);
+  if (!targetLooseKey) {
+    return null;
+  }
+  const matchingKey = Object.keys(pageMarkings).find((url) =>
+    toLooseUrlKey(url, state.baseUrl || pageUrl) === targetLooseKey
+  );
+  return matchingKey ? pageMarkings[matchingKey] : null;
 }
 
 export function collectImmutableElements() {
@@ -5678,7 +5739,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
     configValue.pageMarkings = {};
   }
-  const existing = configValue.pageMarkings[pageUrl];
+  const existing = findPageMarkingEntry(configValue, pageUrl);
   if (existing && Array.isArray(existing.xpaths)) {
     if (!normalizePageEntryPageType(existing.pageType) && currentPageType) {
       existing.pageType = currentPageType;
@@ -6096,7 +6157,7 @@ export function getDraftPageEntry(pageUrl) {
   ) {
     return null;
   }
-  return state.config.pageMarkings[pageUrl] || null;
+  return findPageMarkingEntry(state.config, pageUrl);
 }
 
 export function getSavedPageEntry(pageUrl) {

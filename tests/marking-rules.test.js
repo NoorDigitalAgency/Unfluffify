@@ -180,9 +180,22 @@ test("expanded exclusion boundaries allow a single adjacent visual sibling pair"
       qualifyingChildBoundaryCount: 1,
       hasOnlyLayoutWrapperChain: false,
       hasMixedSiblingContent: true,
-      hasAdjacentVisualSiblingPair: true
+      hasAdjacentVisualSiblingPair: true,
+      isSectionLikeUnit: true
     }),
     true
+  );
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: false,
+      hasDirectTextualBoundary: false,
+      qualifyingChildBoundaryCount: 1,
+      hasOnlyLayoutWrapperChain: false,
+      hasMixedSiblingContent: true,
+      hasAdjacentVisualSiblingPair: true,
+      isSectionLikeUnit: false
+    }),
+    false
   );
 });
 
