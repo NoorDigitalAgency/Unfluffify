@@ -4468,7 +4468,6 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  finalizeLayerRender(layerGhostState);
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
