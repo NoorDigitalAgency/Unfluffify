@@ -655,6 +655,17 @@ export function normalizePageMarkings(pageMarkings) {
     if (includeResult.changed) {
       changed = true;
     }
+    if (!Array.isArray(entry.selectorSuppressedXpaths) && entry.selectorSuppressedXpaths !== undefined) {
+      changed = true;
+    }
+    const rawSelectorSuppressed = Array.isArray(entry.selectorSuppressedXpaths)
+      ? entry.selectorSuppressedXpaths
+      : [];
+    const selectorSuppressedResult = normalizeUniqueXpathList(rawSelectorSuppressed);
+    const selectorSuppressedXpaths = selectorSuppressedResult.values;
+    if (selectorSuppressedResult.changed) {
+      changed = true;
+    }
     if (!Array.isArray(entry.submissionXpaths) && entry.submissionXpaths !== undefined) {
       changed = true;
     }
@@ -688,6 +699,7 @@ export function normalizePageMarkings(pageMarkings) {
       xpaths,
       consentXpaths,
       includeXpaths,
+      selectorSuppressedXpaths,
       submissionXpaths,
       renderedHtml,
       rawHtml
@@ -821,6 +833,7 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     xpaths: [],
     consentXpaths: [],
     includeXpaths: [],
+    selectorSuppressedXpaths: [],
     submissionXpaths: [],
     renderedHtml: "",
     rawHtml: ""
@@ -904,6 +917,9 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
         : [],
       includeXpaths: Array.isArray(safeEntry.includeXpaths)
         ? safeEntry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+        : [],
+      selectorSuppressedXpaths: Array.isArray(safeEntry.selectorSuppressedXpaths)
+        ? safeEntry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
         : [],
       submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
         ? safeEntry.submissionXpaths

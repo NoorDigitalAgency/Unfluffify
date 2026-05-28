@@ -146,8 +146,19 @@ function getEntryFingerprint(entry) {
           .map((xpath) => `consent:${xpath}`)
           .sort()
       : [];
+  const selectorSuppressedFingerprint = Array.isArray(entry.selectorSuppressedXpaths)
+      ? entry.selectorSuppressedXpaths
+          .filter((xpath) => typeof xpath === "string" && xpath)
+          .map((xpath) => `selectorSuppressed:${xpath}`)
+          .sort()
+      : [];
   const pageTypeFingerprint = `pageType:${normalizePageEntryPageType(entry.pageType)}`;
-  return xpathFingerprint.concat(includeFingerprint, consentFingerprint, pageTypeFingerprint);
+  return xpathFingerprint.concat(
+    includeFingerprint,
+    consentFingerprint,
+    selectorSuppressedFingerprint,
+    pageTypeFingerprint
+  );
 }
 
 function isClippedByOverflow(el) {
@@ -2025,15 +2036,48 @@ function collectImplicitIncludedElementsOutsideExplicit(
 
 function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const normalized = normalizeAiSelectorSet(selectorSet);
+  const suppressedXpaths = Array.isArray(options && options.suppressedXpaths)
+    ? options.suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    : [];
+  const suppressedElements = suppressedXpaths
+    .map((xpath) => getElementFromXPath(xpath))
+    .filter((element) => element && element.nodeType === 1);
+  const isSuppressedSelectorElement = (element) => {
+    if (!element || !suppressedXpaths.length) {
+      return false;
+    }
+    for (const suppressedElement of suppressedElements) {
+      if (suppressedElement === element || suppressedElement.contains(element)) {
+        return true;
+      }
+    }
+    const xpath = getXPath(element);
+    if (!xpath) {
+      return false;
+    }
+    return suppressedXpaths.some((suppressedXpath) =>
+      suppressedXpath === xpath || isXPathDescendant(suppressedXpath, xpath)
+    );
+  };
   const excludedElements = new Set(
     collapseElementsByNesting(collectSelectorElements(normalized.exclusionSelectors), {
       prefer: "shallowest"
     })
   );
+  for (const element of Array.from(excludedElements)) {
+    if (isSuppressedSelectorElement(element)) {
+      excludedElements.delete(element);
+    }
+  }
   const rawIncludedElements = collectSelectorElements(normalized.inclusionSelectors);
   const includedElements = new Set();
   rawIncludedElements.forEach((el) => {
-    if (el && el.nodeType === 1 && !isWithinConsentElement(el)) {
+    if (
+      el &&
+      el.nodeType === 1 &&
+      !isWithinConsentElement(el) &&
+      !isSuppressedSelectorElement(el)
+    ) {
       includedElements.add(el);
     }
   });
@@ -2322,6 +2366,7 @@ export function normalizePageEntryXpaths(entry) {
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
   entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
+  entry.selectorSuppressedXpaths = normalizeXPathList(entry.selectorSuppressedXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
   entry.rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
@@ -3438,7 +3483,8 @@ function isExpandedExclusionBoundarySignalsValid(el, signals) {
     hasDirectTextualBoundary: Boolean(signals && signals.hasDirectTextualBoundary),
     qualifyingChildBoundaryCount: signals && signals.qualifyingChildBoundaryCount,
     hasOnlyLayoutWrapperChain: Boolean(signals && signals.hasOnlyLayoutWrapperChain),
-    hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent)
+    hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent),
+    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair)
   });
 }
 
@@ -3450,7 +3496,8 @@ function getExpandedExclusionBoundarySignals(el, options = {}) {
     visibleChildCount: 0,
     hasDirectTextualBoundary: false,
     hasOnlyLayoutWrapperChain: false,
-    hasMixedSiblingContent: false
+    hasMixedSiblingContent: false,
+    hasAdjacentVisualSiblingPair: false
   };
   if (!el || el.nodeType !== 1) {
     return signals;
@@ -3506,6 +3553,11 @@ function getExpandedExclusionBoundarySignals(el, options = {}) {
     signals.qualifyingChildBoundaryCount === 0 &&
     signals.textualWrapperChildCount === 1 &&
     signals.nonBoundaryVisibleChildCount === 0;
+  signals.hasAdjacentVisualSiblingPair =
+    signals.visibleChildCount === 2 &&
+    signals.qualifyingChildBoundaryCount === 1 &&
+    signals.textualWrapperChildCount === 0 &&
+    signals.nonBoundaryVisibleChildCount === 1;
   signals.hasMixedSiblingContent =
     signals.nonBoundaryVisibleChildCount > 0 &&
     (signals.qualifyingChildBoundaryCount > 0 || signals.textualWrapperChildCount > 0);
@@ -4634,11 +4686,15 @@ function renderHighlightsInner() {
   };
   let aiContent = new Set();
   let aiExcludedDescendants = new Set();
+  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths
+    : [];
   if (hasAiSelectors) {
     const aiCollections = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet, {
       ignoreVisibilityForInclusionDetection: true,
       preserveExplicitIncludedDescendants: true,
-      includeAllExplicitMatches: true
+      includeAllExplicitMatches: true,
+      suppressedXpaths: selectorSuppressedXpaths
     });
     for (const el of aiCollections.included || []) {
       if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
@@ -5267,6 +5323,9 @@ export function clonePageEntry(entry) {
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
     consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
+    selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
+      ? entry.selectorSuppressedXpaths
+      : [],
     submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
     renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
     rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : ""

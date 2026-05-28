@@ -172,6 +172,34 @@ test("expanded exclusion boundaries allow cohesive grouped content without direc
   );
 });
 
+test("expanded exclusion boundaries allow a single adjacent visual sibling pair", () => {
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: false,
+      hasDirectTextualBoundary: false,
+      qualifyingChildBoundaryCount: 1,
+      hasOnlyLayoutWrapperChain: false,
+      hasMixedSiblingContent: true,
+      hasAdjacentVisualSiblingPair: true
+    }),
+    true
+  );
+});
+
+test("expanded exclusion boundaries still block broader mixed sibling wrappers without the narrow pair escape hatch", () => {
+  assert.equal(
+    isValidExpandedExclusionBoundary({
+      hasDirectOwnText: false,
+      hasDirectTextualBoundary: false,
+      qualifyingChildBoundaryCount: 1,
+      hasOnlyLayoutWrapperChain: false,
+      hasMixedSiblingContent: true,
+      hasAdjacentVisualSiblingPair: false
+    }),
+    false
+  );
+});
+
 test("expanded exclusions block body and sole visual body wrapper roots", () => {
   assert.equal(shouldBlockExpandedExclusionRoot({ isBody: true }), true);
   assert.equal(shouldBlockExpandedExclusionRoot({ isSoleVisualBodyWrapper: true }), true);

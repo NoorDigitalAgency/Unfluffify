@@ -122,6 +122,39 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
 });
 
+test("page marking selector suppression xpaths are normalized and included in sync payloads", () => {
+  const normalized = normalizeConfig("https://example.com", {
+    pageMarkings: {
+      "https://example.com/current": {
+        timestamp: "2026-01-01T00:00:00Z",
+        pageType: "listing",
+        xpaths: [{ xpath: "/html/body/main", excluded: true }],
+        includeXpaths: [],
+        consentXpaths: [],
+        selectorSuppressedXpaths: [
+          "/html/body/main/section",
+          "/html/body/main/section",
+          ""
+        ],
+        submissionXpaths: [],
+        renderedHtml: "<main></main>",
+        rawHtml: "<main></main>"
+      }
+    }
+  }).config;
+
+  assert.deepEqual(
+    normalized.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
+    ["/html/body/main/section"]
+  );
+
+  const payload = createConfigSyncPayload("https://example.com", normalized);
+  assert.deepEqual(
+    payload.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
+    ["/html/body/main/section"]
+  );
+});
+
 test("page save reconciliation normalizes pending local save locks", () => {
   const normalized = normalizePageSaveReconciliation({
     status: "pending",

@@ -4044,15 +4044,18 @@ async function maybeResumePersistedAiRun() {
   }
 }
 
-async function refreshUi() {
-  const response = await runWithPopupBusyOverlay(
-    PopupText.overlay.loadingPopupAndPreparing,
-    () => refreshUiInner(),
-    {
-      delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
-      suppressIfActive: true
-    }
-  );
+async function refreshUi(options = {}) {
+  const useBusyOverlay = options.useBusyOverlay !== false;
+  const response = useBusyOverlay
+    ? await runWithPopupBusyOverlay(
+      PopupText.overlay.loadingPopupAndPreparing,
+      () => refreshUiInner(),
+      {
+        delayMs: POPUP_BUSY_OVERLAY_DELAY_MS,
+        suppressIfActive: true
+      }
+    )
+    : await refreshUiInner();
   maybeResumePersistedAiRun().catch(() => {});
   return response;
 }
@@ -5230,7 +5233,7 @@ async function handleExplicitExcludeRemove(xpath) {
     uiModule.showToast(PopupText.explicitSelection.excludeUpdateFailed);
     return;
   }
-  await refreshUi();
+  await refreshUi({ useBusyOverlay: false });
 }
 
 async function handleExplicitIncludeView(xpath) {
@@ -5264,7 +5267,7 @@ async function handleExplicitIncludeRemove(xpath) {
     uiModule.showToast(PopupText.explicitSelection.includeUpdateFailed);
     return;
   }
-  await refreshUi();
+  await refreshUi({ useBusyOverlay: false });
 }
 
 async function navigateActiveTabToUrl(url) {
@@ -6734,7 +6737,7 @@ function scheduleRefresh() {
   state.refreshTimer = window.setTimeout(async () => {
     state.refreshTimer = 0;
     await helpers.ensureActiveTab();
-    await refreshUi();
+    await refreshUi({ useBusyOverlay: false });
   }, 120);
 }
 

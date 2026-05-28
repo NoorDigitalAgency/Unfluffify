@@ -473,7 +473,7 @@ test("parent marking inherits a cohesive section boundary through wrapper chains
   });
 });
 
-test("parent marking rejects inherited wrapper chains whose first branch mixes content and media", () => {
+test("parent marking allows inherited wrapper chains with one content branch and one adjacent visual branch", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const heading = createElement({
       tagName: "h2",
@@ -529,7 +529,7 @@ test("parent marking rejects inherited wrapper chains whose first branch mixes c
 
     assert.equal(
       isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      false
+      true
     );
   });
 });

@@ -122,6 +122,7 @@ let silentHighlightingUrlTimer = 0;
 
 const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
+const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
 
 let propertyLockPort = null;
 let propertyLockState = null;
@@ -136,6 +137,7 @@ let propertyLockLastBlockedToastAt = 0;
 let propertyLockAutoTakeAttempted = false;
 let propertyLockConnectedSiteId = null;
 let propertyLockSyncToken = 0;
+let propertyLockReconnectTimer = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -3365,14 +3367,65 @@ function getStoredAiSelectorSet(baseConfig) {
   return config.getNewestConfigSelectorSet(baseConfig).selectorSet;
 }
 
-function getEffectiveAiSelectorSet(baseConfig) {
-  return getStoredAiSelectorSet(baseConfig);
+function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
+  const pageMarkings = baseConfig && typeof baseConfig === "object"
+    ? baseConfig.pageMarkings
+    : null;
+  const entry = pageMarkings && typeof pageMarkings === "object"
+    ? pageMarkings[pageUrl]
+    : null;
+  return Array.isArray(entry && entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    : [];
 }
 
-function collectNodesFromSelectors(selectors) {
+function getEffectiveAiSelectorSet(baseConfig) {
+  const storedSelectors = getStoredAiSelectorSet(baseConfig);
+  const suppressedXpaths = getSelectorSuppressedXpaths(baseConfig);
+  if (!suppressedXpaths.length) {
+    return storedSelectors;
+  }
+  return {
+    ...storedSelectors,
+    suppressedXpaths
+  };
+}
+
+function resolveSuppressedSelectorBoundaries(suppressedXpaths) {
+  const xpaths = Array.isArray(suppressedXpaths)
+    ? suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    : [];
+  return {
+    xpaths,
+    elements: xpaths
+      .map((xpath) => core.getElementFromXPath(xpath))
+      .filter((element) => element && element.nodeType === 1)
+  };
+}
+
+function isSuppressedSelectorNode(node, suppressedBoundaries) {
+  if (!node || node.nodeType !== 1 || !suppressedBoundaries || !suppressedBoundaries.xpaths.length) {
+    return false;
+  }
+  for (const element of suppressedBoundaries.elements) {
+    if (element === node || element.contains(node)) {
+      return true;
+    }
+  }
+  const xpath = core.getXPath(node);
+  if (!xpath) {
+    return false;
+  }
+  return suppressedBoundaries.xpaths.some((suppressedXpath) =>
+    suppressedXpath === xpath || core.isXPathDescendant(suppressedXpath, xpath)
+  );
+}
+
+function collectNodesFromSelectors(selectors, options = {}) {
   const nodes = new Set();
   const selectorByNode = new Map();
-  selectors.forEach((rawSelector) => {
+  const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
+  (Array.isArray(selectors) ? selectors : []).forEach((rawSelector) => {
     if (typeof rawSelector !== "string") {
       return;
     }
@@ -3382,7 +3435,7 @@ function collectNodesFromSelectors(selectors) {
     }
     try {
       document.querySelectorAll(selector).forEach((node) => {
-        if (!isExtensionUiNode(node)) {
+        if (!isExtensionUiNode(node) && !isSuppressedSelectorNode(node, suppressedBoundaries)) {
           nodes.add(node);
           if (!selectorByNode.has(node)) {
             selectorByNode.set(node, selector);
@@ -4277,8 +4330,15 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     keepAllExplicitMatches: true
   };
   const normalized = normalizeAiSelectorSet(selectorSet);
-  const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors);
-  const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors);
+  const suppressedXpaths = Array.isArray(selectorSet && selectorSet.suppressedXpaths)
+    ? selectorSet.suppressedXpaths
+    : [];
+  const excludedMatches = collectNodesFromSelectors(normalized.exclusionSelectors, {
+    suppressedXpaths
+  });
+  const includedMatches = collectNodesFromSelectors(normalized.inclusionSelectors, {
+    suppressedXpaths
+  });
   const filteredIncludedNodes = new Set();
   const filteredInclusionSelectorByNode = new Map();
   for (const node of includedMatches.nodes || []) {
@@ -4902,8 +4962,28 @@ function resetPropertyLockUiState() {
   renderPropertyLockBanner();
 }
 
+function clearPropertyLockReconnectTimer() {
+  if (!propertyLockReconnectTimer) {
+    return;
+  }
+  window.clearTimeout(propertyLockReconnectTimer);
+  propertyLockReconnectTimer = 0;
+}
+
+function schedulePropertyLockReconnect(options = {}) {
+  const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
+  if (propertyLockReconnectTimer) {
+    return;
+  }
+  propertyLockReconnectTimer = window.setTimeout(() => {
+    propertyLockReconnectTimer = 0;
+    syncPropertyLockConnection({ forceSiteIdRefresh }).then();
+  }, PROPERTY_LOCK_RECONNECT_DELAY_MS);
+}
+
 function disconnectPropertyLockPort(options = {}) {
   const { notifyBackground = true } = options || {};
+  clearPropertyLockReconnectTimer();
   const currentPort = propertyLockPort;
   const currentSiteId = propertyLockConnectedSiteId;
   propertyLockPort = null;
@@ -4932,6 +5012,7 @@ function disconnectPropertyLockPort(options = {}) {
 
 async function syncPropertyLockConnection(options = {}) {
   const syncToken = ++propertyLockSyncToken;
+  clearPropertyLockReconnectTimer();
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
     ? options.pageUrl
     : location.href;
@@ -4978,6 +5059,7 @@ async function syncPropertyLockConnection(options = {}) {
       propertyLockPort = null;
       propertyLockConnectedSiteId = null;
       resetPropertyLockUiState();
+      schedulePropertyLockReconnect();
     });
     nextPort.postMessage({
       type: PROPERTY_LOCK_CONTENT_CONNECT,
@@ -4987,6 +5069,7 @@ async function syncPropertyLockConnection(options = {}) {
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
     resetPropertyLockUiState();
+    schedulePropertyLockReconnect({ forceSiteIdRefresh });
   }
 }
 
@@ -5004,15 +5087,71 @@ function handlePropertyLockPortMessage(message) {
 }
 
 function sendPropertyLockActivity() {
-  if (propertyLockPort) {
+  if (!propertyLockPort) {
+    schedulePropertyLockReconnect();
+    return;
+  }
+  try {
     propertyLockPort.postMessage({ type: PROPERTY_LOCK_CONTENT_ACTIVITY });
+  } catch (error) {
+    propertyLockPort = null;
+    propertyLockConnectedSiteId = null;
+    resetPropertyLockUiState();
+    schedulePropertyLockReconnect();
   }
 }
 
 function sendPropertyLockMessage(type, payload = {}) {
-  if (propertyLockPort) {
-    propertyLockPort.postMessage({ type, ...payload });
+  if (!propertyLockPort) {
+    schedulePropertyLockReconnect();
+    return;
   }
+  try {
+    propertyLockPort.postMessage({ type, ...payload });
+  } catch (error) {
+    propertyLockPort = null;
+    propertyLockConnectedSiteId = null;
+    resetPropertyLockUiState();
+    schedulePropertyLockReconnect();
+  }
+}
+
+function addSelectorSuppressedXpath(entry, xpath) {
+  if (!entry || typeof entry !== "object") {
+    return;
+  }
+  const currentXpaths = Array.isArray(entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths.filter((value) => typeof value === "string" && value)
+    : [];
+  if (!xpath) {
+    entry.selectorSuppressedXpaths = currentXpaths;
+    return;
+  }
+  if (currentXpaths.some((existingXpath) =>
+    existingXpath === xpath || core.isXPathDescendant(existingXpath, xpath)
+  )) {
+    entry.selectorSuppressedXpaths = currentXpaths;
+    return;
+  }
+  entry.selectorSuppressedXpaths = currentXpaths
+    .filter((existingXpath) => !core.isXPathDescendant(xpath, existingXpath))
+    .concat(xpath);
+}
+
+function clearSelectorSuppressedXpathsWithin(entry, xpath) {
+  if (!entry || typeof entry !== "object") {
+    return;
+  }
+  const currentXpaths = Array.isArray(entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths.filter((value) => typeof value === "string" && value)
+    : [];
+  if (!xpath) {
+    entry.selectorSuppressedXpaths = currentXpaths;
+    return;
+  }
+  entry.selectorSuppressedXpaths = currentXpaths.filter((existingXpath) =>
+    existingXpath !== xpath && !core.isXPathDescendant(xpath, existingXpath)
+  );
 }
 
 function applyPropertyLockServerMessage(serverMessage) {
@@ -6041,6 +6180,11 @@ export function main() {
       } else if (targetItem && !targetItem.excluded) {
         cleanupDescendantIncludeOverrides(xpath, target);
       }
+        if (excluded) {
+          clearSelectorSuppressedXpathsWithin(entry, xpath);
+        } else {
+          addSelectorSuppressedXpath(entry, xpath);
+        }
       entry.includeXpaths = includeXpaths;
       entry.xpaths = items;
       core.touchPageEntryTimestamp(entry);
@@ -6122,6 +6266,11 @@ export function main() {
         }
       } else if (existingIndex >= 0) {
         includeXpaths.splice(existingIndex, 1);
+      }
+      if (included) {
+        clearSelectorSuppressedXpathsWithin(entry, xpath);
+      } else {
+        addSelectorSuppressedXpath(entry, xpath);
       }
       entry.includeXpaths = includeXpaths;
       core.touchPageEntryTimestamp(entry);

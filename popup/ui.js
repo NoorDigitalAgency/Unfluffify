@@ -255,9 +255,9 @@ function renderListItems(items, emptyText, renderItem) {
   return items.map(renderItem);
 }
 
-function icon(name, extraClass = "") {
+function icon(name, extraClass = "", btn = false) {
   return h("span", {
-    class: classNames("mdi", `mdi-${name}`, "btn-icon", extraClass),
+    class: classNames("mdi", `mdi-${name}`, "mdi-18px", btn && "btn-icon", extraClass),
     "aria-hidden": "true"
   });
 }
@@ -285,7 +285,7 @@ function renderRemoteSupportErrorNotice(view, handlers) {
         title: PopupText.configuration.dismissNoticeLabel,
         onClick: handlers.onRemoteSupportErrorDismiss
       },
-      icon("close")
+      icon("close", "", true)
     )
   );
 }
@@ -336,7 +336,7 @@ function renderRemoteSupportMediaButton({ id, title, iconName, active, available
       title,
       onClick
     },
-    icon(iconName)
+    icon(iconName, "", true)
   );
 }
 
@@ -443,7 +443,7 @@ function renderRemoteSupportDock(view, handlers) {
           class: "u-btn-secondary remote-support-dock__externalize",
           onClick: handlers.onRemoteSupportDockExternalize
         },
-        icon("open-in-new"),
+        icon("open-in-new", "", true),
         minimized ? "External" : "Open in PiP"
       ),
       h(
@@ -454,7 +454,7 @@ function renderRemoteSupportDock(view, handlers) {
           class: "u-btn-danger remote-support-dock__end",
           onClick: handlers.onRemoteSupportEnd
         },
-        icon("lan-disconnect"),
+        icon("lan-disconnect", "", true),
         minimized ? null : PopupText.configuration.remoteSupportEndButton
       )
     )
@@ -1240,7 +1240,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         "button",
         {
           type: "button",
-          class: "todo-header",
+          class: "todo-header mdi mdi-triangle mdi-rotate-90",
           "aria-expanded": sectionExpanded ? "true" : "false",
           onClick: handlers.onTodoSectionToggle
         },
@@ -2210,7 +2210,7 @@ function renderConfigurationExtrasSection(view, handlers) {
       "button",
       {
         type: "button",
-        class: "config-extras-header",
+        class: "config-extras-header mdi mdi-triangle mdi-rotate-90",
         "aria-expanded": expanded ? "true" : "false",
         onClick: handlers.onConfigurationExtrasToggle
       },

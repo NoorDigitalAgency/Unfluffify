@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   PROPERTY_LOCK_STATE_UNLOCKED,
@@ -72,4 +73,26 @@ test("createInactiveLockState returns an unlocked non-editor snapshot", () => {
     expiresAtUtc: "",
     secondsRemaining: null
   });
+});
+
+test("content-main reconnects property lock after an unexpected active port disconnect", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?resetPropertyLockUiState\(\);[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}\);/
+  );
+});
+
+test("content-main requests a reconnect when property lock activity or page commands have no active port", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /function sendPropertyLockActivity\(\) \{[\s\S]*?if \(!propertyLockPort\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /function sendPropertyLockMessage\(type, payload = \{\}\) \{[\s\S]*?if \(!propertyLockPort\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
+  );
 });

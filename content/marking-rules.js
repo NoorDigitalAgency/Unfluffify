@@ -63,13 +63,17 @@ export function isValidExpandedExclusionBoundary(options = {}) {
   );
   const hasOnlyLayoutWrapperChain = Boolean(options.hasOnlyLayoutWrapperChain);
   const hasMixedSiblingContent = Boolean(options.hasMixedSiblingContent);
+  const hasAdjacentVisualSiblingPair = Boolean(options.hasAdjacentVisualSiblingPair);
   if (hasDirectOwnText || hasDirectTextualBoundary) {
     return true;
   }
-  if (hasOnlyLayoutWrapperChain || hasMixedSiblingContent) {
+  if (hasOnlyLayoutWrapperChain) {
     return false;
   }
-  return qualifyingChildBoundaryCount >= 2;
+  if (hasMixedSiblingContent && !hasAdjacentVisualSiblingPair) {
+    return false;
+  }
+  return qualifyingChildBoundaryCount >= 2 || hasAdjacentVisualSiblingPair;
 }
 
 export function shouldBlockExpandedExclusionRoot(options = {}) {
