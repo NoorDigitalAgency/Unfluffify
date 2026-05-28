@@ -6,7 +6,10 @@ test("support page no longer renders an inline join form and includes fullscreen
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
   assert.equal(source.includes("uf-support-page-join-form"), false);
+  assert.equal(source.includes("uf-support-page__rail"), false);
   assert.match(source, /uf-support-page-fullscreen/);
+  assert.match(source, /uf-support-page__connect-card/);
+  assert.match(source, /uf-support-page__sidebar-card/);
   assert.match(source, /extension popup while this \/support tab stays focused on viewing/i);
   assert.match(source, /Session will end in .* due to requester inactivity/);
 });

@@ -981,7 +981,8 @@ function ensureRemoteSupportSupportPageStyles() {
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__hero,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__rail,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__connect-card,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__sidebar-card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__caption {
       display: none;
     }
@@ -1000,8 +1001,9 @@ function ensureRemoteSupportSupportPageStyles() {
       backdrop-filter: none;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__rail,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
       min-width: 0;
     }
 
@@ -1012,7 +1014,8 @@ function ensureRemoteSupportSupportPageStyles() {
       justify-self: center;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__rail {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card,
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
       width: min(360px, 100%);
       justify-self: start;
     }
@@ -1043,10 +1046,6 @@ function ensureRemoteSupportSupportPageStyles() {
       font-weight: 800;
       letter-spacing: -0.04em;
       line-height: 1;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
-      margin-top: 18px;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta {
@@ -1666,26 +1665,24 @@ function ensureRemoteSupportSupportPageUi() {
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
           </div>
-          <aside class="uf-support-page__rail" data-uf-extension-ui="true">
-            <div class="uf-support-page__card uf-support-page__connect-card" data-uf-extension-ui="true">
-              <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support page</div>
-              <p class="uf-support-page__status" data-uf-extension-ui="true">Use the extension popup to join. The page surface stays dedicated to the shared screen.</p>
-              <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
-                <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
-                <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
-              </div>
+          <div class="uf-support-page__card uf-support-page__connect-card" data-uf-extension-ui="true">
+            <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support page</div>
+            <p class="uf-support-page__status" data-uf-extension-ui="true">Use the extension popup to join. The page surface stays dedicated to the shared screen.</p>
+            <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
+              <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
+              <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
             </div>
-            <div class="uf-support-page__card uf-support-page__sidebar-card" hidden data-uf-extension-ui="true">
-              <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
-              <div id="uf-support-page-sidebar-sim" class="uf-support-page__sidebar-sim" data-uf-extension-ui="true">
-                <div id="uf-support-page-sidebar-surface" class="uf-support-page__sidebar-surface is-disabled" tabindex="-1" aria-disabled="true" data-uf-extension-ui="true">
-                  <canvas id="uf-support-page-sidebar-frame" class="uf-support-page__sidebar-frame" hidden data-uf-extension-ui="true"></canvas>
-                  <div id="uf-support-page-sidebar-placeholder" class="uf-support-page__sidebar-placeholder-surface" data-uf-extension-ui="true"></div>
-                </div>
-                <p class="uf-support-page__sidebar-caption" data-uf-extension-ui="true">Live supportee Unfluffify sidebar information appears here. Remote control is disabled.</p>
+          </div>
+          <div class="uf-support-page__card uf-support-page__sidebar-card" hidden data-uf-extension-ui="true">
+            <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
+            <div id="uf-support-page-sidebar-sim" class="uf-support-page__sidebar-sim" data-uf-extension-ui="true">
+              <div id="uf-support-page-sidebar-surface" class="uf-support-page__sidebar-surface is-disabled" tabindex="-1" aria-disabled="true" data-uf-extension-ui="true">
+                <canvas id="uf-support-page-sidebar-frame" class="uf-support-page__sidebar-frame" hidden data-uf-extension-ui="true"></canvas>
+                <div id="uf-support-page-sidebar-placeholder" class="uf-support-page__sidebar-placeholder-surface" data-uf-extension-ui="true"></div>
               </div>
+              <p class="uf-support-page__sidebar-caption" data-uf-extension-ui="true">Live supportee Unfluffify sidebar information appears here. Remote control is disabled.</p>
             </div>
-          </aside>
+          </div>
         </section>
       </div>
     `;
