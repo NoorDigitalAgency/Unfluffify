@@ -201,8 +201,8 @@ const initialViewState = {
   remoteSupportSoundEnabled: false,
   remoteSupportPreviewImage: "",
   remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
-  remoteSupportLocalCameraFrame: "",
-  remoteSupportRemoteCameraFrame: "",
+  remoteSupportLocalCameraActive: false,
+  remoteSupportRemoteCameraActive: false,
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -349,8 +349,8 @@ function renderRemoteSupportDock(view, handlers) {
   const dockState = view.remoteSupportDockState || REMOTE_SUPPORT_DOCK_STATE_EMBEDDED;
   const minimized = dockState === REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED;
   const floating = dockState === REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP;
-  const localFrame = view.remoteSupportLocalCameraFrame || "";
-  const remoteFrame = view.remoteSupportRemoteCameraFrame || "";
+  const localCameraActive = Boolean(view.remoteSupportLocalCameraActive);
+  const remoteCameraActive = Boolean(view.remoteSupportRemoteCameraActive);
 
   return h(
     "section",
@@ -367,17 +367,33 @@ function renderRemoteSupportDock(view, handlers) {
       h(
         "div",
         { class: "remote-support-dock__tile" },
-        localFrame
-          ? h("img", { src: localFrame, alt: "Local camera preview", class: "remote-support-dock__tile-image" })
-          : h("div", { class: "remote-support-dock__tile-placeholder" }, "Local camera"),
+        h("video", {
+          ref: (el) => { refs.localCameraVideo = el; },
+          class: "remote-support-dock__tile-image",
+          autoPlay: true,
+          muted: true,
+          playsInline: true,
+          hidden: !localCameraActive
+        }),
+        !localCameraActive
+          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Local camera")
+          : null,
         minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "You")
       ),
       h(
         "div",
         { class: "remote-support-dock__tile" },
-        remoteFrame
-          ? h("img", { src: remoteFrame, alt: "Remote camera preview", class: "remote-support-dock__tile-image" })
-          : h("div", { class: "remote-support-dock__tile-placeholder" }, "Supporter camera"),
+        h("video", {
+          ref: (el) => { refs.remoteCameraVideo = el; },
+          class: "remote-support-dock__tile-image",
+          autoPlay: true,
+          muted: true,
+          playsInline: true,
+          hidden: !remoteCameraActive
+        }),
+        !remoteCameraActive
+          ? h("div", { class: "remote-support-dock__tile-placeholder" }, "Supporter camera")
+          : null,
         minimized ? null : h("span", { class: "remote-support-dock__tile-label" }, "Supporter")
       )
     ),

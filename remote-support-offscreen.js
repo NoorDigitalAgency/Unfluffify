@@ -14,6 +14,8 @@ const REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH = 420;
 const REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT = 760;
 const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
+const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH = 200;
+const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT = 112;
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -351,7 +353,9 @@ function createTransportRuntime(session) {
     localCaptureTrack: null,
     localCameraStream: null,
     remoteCameraStream: null,
-    popupPreviewIntervalId: 0,
+    localCameraPreviewEl: null,
+    remoteCameraPreviewEl: null,
+    popupPreviewLoopActive: false,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -433,9 +437,40 @@ function setRequesterMediaTrackEnabled(runtime, control, enabled) {
   return getRequesterMediaState(runtime);
 }
 
+function createCameraPreviewVideo(stream) {
+  if (!stream || typeof document === "undefined") {
+    return null;
+  }
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.srcObject = stream;
+  return video;
+}
+
+async function captureStreamBitmap(videoElement) {
+  if (!videoElement || !videoElement.srcObject || typeof createImageBitmap !== "function") {
+    return null;
+  }
+  const track = getFirstTrack(videoElement.srcObject, "video");
+  if (!track || track.readyState === "ended") {
+    return null;
+  }
+  try {
+    return await createImageBitmap(videoElement, {
+      resizeWidth: REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH,
+      resizeHeight: REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT,
+      resizeQuality: "medium"
+    });
+  } catch {
+    return null;
+  }
+}
+
 function postRequesterPopupMediaPreview(runtime, {
-  localCameraFrame = "",
-  remoteCameraFrame = ""
+  localCameraBitmap = null,
+  remoteCameraBitmap = null
 } = {}) {
   if (!runtime || runtime.role !== "requester" || typeof BroadcastChannel !== "function") {
     return;
@@ -446,8 +481,8 @@ function postRequesterPopupMediaPreview(runtime, {
     channel.postMessage({
       tabId: runtime.tabId,
       sessionId: runtime.sessionId,
-      localCameraFrame,
-      remoteCameraFrame
+      localCameraBitmap,
+      remoteCameraBitmap
     });
     channel.close();
   } catch (error) {
@@ -455,80 +490,50 @@ function postRequesterPopupMediaPreview(runtime, {
   }
 }
 
-function captureStreamPreview(stream) {
-  const track = getFirstTrack(stream, "video");
-  if (!track || typeof document === "undefined") {
-    return "";
-  }
-
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-  video.srcObject = stream;
-  return video.play()
-    .catch(() => {})
-    .then(() => new Promise((resolve) => {
-      const width = Math.max(1, Number(video.videoWidth) || 160);
-      const height = Math.max(1, Number(video.videoHeight) || 90);
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) {
-        resolve("");
-        return;
-      }
-      try {
-        context.drawImage(video, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
-      } catch {
-        resolve("");
-      } finally {
-        try {
-          video.pause();
-        } catch (error) {}
-        video.srcObject = null;
-      }
-    }));
-}
-
 function stopRequesterPopupMediaPreview(runtime) {
   if (!runtime) {
     return;
   }
-  if (runtime.popupPreviewIntervalId) {
-    clearInterval(runtime.popupPreviewIntervalId);
-    runtime.popupPreviewIntervalId = 0;
-  }
+  runtime.popupPreviewLoopActive = false;
   postRequesterPopupMediaPreview(runtime, {});
+}
+
+function schedulePopupPreviewTick(runtime) {
+  window.setTimeout(async () => {
+    if (!runtime.popupPreviewLoopActive) {
+      return;
+    }
+    const activeRuntime = getTransportRuntime(runtime.sessionId);
+    if (!activeRuntime || activeRuntime.shuttingDown) {
+      stopRequesterPopupMediaPreview(runtime);
+      return;
+    }
+    const [localCameraBitmap, remoteCameraBitmap] = await Promise.all([
+      captureStreamBitmap(activeRuntime.localCameraPreviewEl),
+      captureStreamBitmap(activeRuntime.remoteCameraPreviewEl)
+    ]);
+    postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap, remoteCameraBitmap });
+    localCameraBitmap?.close();
+    remoteCameraBitmap?.close();
+    if (runtime.popupPreviewLoopActive) {
+      schedulePopupPreviewTick(runtime);
+    }
+  }, 700);
 }
 
 function startRequesterPopupMediaPreview(runtime) {
   if (
     !runtime ||
     runtime.role !== "requester" ||
-    runtime.popupPreviewIntervalId ||
+    runtime.popupPreviewLoopActive ||
     typeof BroadcastChannel !== "function" ||
     typeof document === "undefined"
   ) {
     return;
   }
 
-  runtime.popupPreviewIntervalId = setInterval(async () => {
-    const activeRuntime = getTransportRuntime(runtime.sessionId);
-    if (!activeRuntime || activeRuntime.shuttingDown) {
-      stopRequesterPopupMediaPreview(runtime);
-      return;
-    }
-    const [localCameraFrame, remoteCameraFrame] = await Promise.all([
-      captureStreamPreview(activeRuntime.localCameraStream),
-      captureStreamPreview(activeRuntime.remoteCameraStream)
-    ]);
-    postRequesterPopupMediaPreview(activeRuntime, {
-      localCameraFrame,
-      remoteCameraFrame
-    });
-  }, 700);
+  runtime.popupPreviewLoopActive = true;
+  schedulePopupPreviewTick(runtime);
 }
 
 function updatePeerConnectionDiagnostics(runtime, peerConnection = runtime && runtime.peerConnection) {
@@ -1193,7 +1198,9 @@ function resetTransportResources(runtime) {
   runtime.localCaptureTrack = null;
   runtime.localCameraStream = null;
   runtime.remoteCameraStream = null;
-  runtime.popupPreviewIntervalId = 0;
+  runtime.localCameraPreviewEl = null;
+  runtime.remoteCameraPreviewEl = null;
+  runtime.popupPreviewLoopActive = false;
   runtime.sidebarCaptureCanvas = null;
   runtime.sidebarCaptureContext = null;
   runtime.sidebarCaptureStream = null;
@@ -1291,6 +1298,7 @@ async function ensureLocalCameraAndMicTracks(runtime, peerConnection) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     runtime.localCameraStream = stream;
+    runtime.localCameraPreviewEl = createCameraPreviewVideo(stream);
     postRequesterMediaState(runtime);
     startRequesterPopupMediaPreview(runtime);
     if (typeof peerConnection.addTrack === "function") {
@@ -1580,6 +1588,7 @@ async function ensurePeerConnection(runtime, offerer) {
       runtime.remoteCameraStream = event.streams && event.streams[0]
         ? event.streams[0]
         : new MediaStream([event.track]);
+      runtime.remoteCameraPreviewEl = createCameraPreviewVideo(runtime.remoteCameraStream);
       startRequesterPopupMediaPreview(runtime);
     }
   };

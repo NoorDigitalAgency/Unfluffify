@@ -540,6 +540,12 @@ let lastRemoteSupportSidebarSnapshotKey = "";
 let remoteSupportSidebarStreamChannel = null;
 let remoteSupportPopupMediaChannel = null;
 let remoteSupportDockPiPWindow = null;
+let remoteSupportLocalCameraCanvas = null;
+let remoteSupportLocalCameraCtx = null;
+let remoteSupportLocalCameraMediaStream = null;
+let remoteSupportRemoteCameraCanvas = null;
+let remoteSupportRemoteCameraCtx = null;
+let remoteSupportRemoteCameraMediaStream = null;
 let remoteSupportSidebarStreamAnimationFrame = 0;
 let remoteSupportSidebarStreamCaptureInFlight = false;
 let remoteSupportSidebarStreamDirty = false;
@@ -3055,8 +3061,8 @@ async function refreshUiInner() {
   nextViewState.remoteSupportSoundAvailable = Boolean(scopedRemoteSupportState.supporteeAudioAvailable);
   nextViewState.remoteSupportSoundEnabled = Boolean(scopedRemoteSupportState.supporteeAudioEnabled);
   nextViewState.remoteSupportDockState = normalizeRemoteSupportDockState(scopedRemoteSupportState.dockState);
-  nextViewState.remoteSupportLocalCameraFrame = state.remoteSupportLocalCameraFrame || "";
-  nextViewState.remoteSupportRemoteCameraFrame = state.remoteSupportRemoteCameraFrame || "";
+  nextViewState.remoteSupportLocalCameraActive = Boolean(state.remoteSupportLocalCameraActive);
+  nextViewState.remoteSupportRemoteCameraActive = Boolean(state.remoteSupportRemoteCameraActive);
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
@@ -4448,18 +4454,24 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportSoundAvailable: Boolean(nextState.supporteeAudioAvailable),
     remoteSupportSoundEnabled: Boolean(nextState.supporteeAudioEnabled),
     remoteSupportDockState: normalizeRemoteSupportDockState(nextState.dockState),
-    remoteSupportLocalCameraFrame: state.remoteSupportLocalCameraFrame || "",
-    remoteSupportRemoteCameraFrame: state.remoteSupportRemoteCameraFrame || "",
+    remoteSupportLocalCameraActive: Boolean(state.remoteSupportLocalCameraActive),
+    remoteSupportRemoteCameraActive: Boolean(state.remoteSupportRemoteCameraActive),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
     remoteSupportStatusText: statusText,
     remoteSupportError: nextState.error || ""
   });
   if (!nextState.active) {
-    state.remoteSupportLocalCameraFrame = "";
-    state.remoteSupportRemoteCameraFrame = "";
+    state.remoteSupportLocalCameraActive = false;
+    state.remoteSupportRemoteCameraActive = false;
+    remoteSupportLocalCameraCanvas = null;
+    remoteSupportLocalCameraCtx = null;
+    remoteSupportLocalCameraMediaStream = null;
+    remoteSupportRemoteCameraCanvas = null;
+    remoteSupportRemoteCameraCtx = null;
+    remoteSupportRemoteCameraMediaStream = null;
     uiModule.setViewState({
-      remoteSupportLocalCameraFrame: "",
-      remoteSupportRemoteCameraFrame: "",
+      remoteSupportLocalCameraActive: false,
+      remoteSupportRemoteCameraActive: false,
       remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED
     });
   }
@@ -4693,16 +4705,41 @@ function ensureRemoteSupportPopupMediaChannel() {
       return;
     }
 
-    state.remoteSupportLocalCameraFrame = typeof message.localCameraFrame === "string"
-      ? message.localCameraFrame
-      : "";
-    state.remoteSupportRemoteCameraFrame = typeof message.remoteCameraFrame === "string"
-      ? message.remoteCameraFrame
-      : "";
+    const { localCameraBitmap, remoteCameraBitmap } = message;
+
+    if (localCameraBitmap instanceof ImageBitmap) {
+      if (!remoteSupportLocalCameraCanvas) {
+        remoteSupportLocalCameraCanvas = document.createElement("canvas");
+        remoteSupportLocalCameraCtx = remoteSupportLocalCameraCanvas.getContext("2d");
+        remoteSupportLocalCameraMediaStream = remoteSupportLocalCameraCanvas.captureStream(30);
+      }
+      remoteSupportLocalCameraCanvas.width = localCameraBitmap.width;
+      remoteSupportLocalCameraCanvas.height = localCameraBitmap.height;
+      remoteSupportLocalCameraCtx?.drawImage(localCameraBitmap, 0, 0);
+      state.remoteSupportLocalCameraActive = true;
+    } else {
+      state.remoteSupportLocalCameraActive = false;
+    }
+
+    if (remoteCameraBitmap instanceof ImageBitmap) {
+      if (!remoteSupportRemoteCameraCanvas) {
+        remoteSupportRemoteCameraCanvas = document.createElement("canvas");
+        remoteSupportRemoteCameraCtx = remoteSupportRemoteCameraCanvas.getContext("2d");
+        remoteSupportRemoteCameraMediaStream = remoteSupportRemoteCameraCanvas.captureStream(30);
+      }
+      remoteSupportRemoteCameraCanvas.width = remoteCameraBitmap.width;
+      remoteSupportRemoteCameraCanvas.height = remoteCameraBitmap.height;
+      remoteSupportRemoteCameraCtx?.drawImage(remoteCameraBitmap, 0, 0);
+      state.remoteSupportRemoteCameraActive = true;
+    } else {
+      state.remoteSupportRemoteCameraActive = false;
+    }
+
     uiModule.setViewState({
-      remoteSupportLocalCameraFrame: state.remoteSupportLocalCameraFrame,
-      remoteSupportRemoteCameraFrame: state.remoteSupportRemoteCameraFrame
+      remoteSupportLocalCameraActive: state.remoteSupportLocalCameraActive,
+      remoteSupportRemoteCameraActive: state.remoteSupportRemoteCameraActive
     });
+    syncRemoteSupportCameraVideoRefs();
     syncRemoteSupportDockPiPWindow();
   };
   return remoteSupportPopupMediaChannel;
@@ -5497,8 +5534,8 @@ async function openRemoteSupportDockPiP() {
         .dock{display:grid;gap:10px}
         .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .tile{min-height:92px;overflow:hidden;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:#101a2b}
-        .tile img,.tile span{display:block;width:100%;height:100%}
-        .tile img{object-fit:cover}
+        .tile video,.tile span{display:block;width:100%;height:100%}
+        .tile video{object-fit:cover}
         .tile span{display:grid;place-items:center;color:#9eb4d2}
         .controls{display:flex;flex-wrap:wrap;gap:8px}
         button{border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:8px 10px;background:#101a2b;color:#fff;cursor:pointer}
@@ -5508,8 +5545,8 @@ async function openRemoteSupportDockPiP() {
     pipDocument.body.innerHTML = `
       <div class="dock">
         <div class="tiles">
-          <div class="tile"><img id="uf-pip-local" alt="Local camera" hidden><span id="uf-pip-local-empty">Local camera</span></div>
-          <div class="tile"><img id="uf-pip-remote" alt="Remote camera" hidden><span id="uf-pip-remote-empty">Supporter camera</span></div>
+          <div class="tile"><video id="uf-pip-local" autoplay muted playsinline hidden></video><span id="uf-pip-local-empty">Local camera</span></div>
+          <div class="tile"><video id="uf-pip-remote" autoplay muted playsinline hidden></video><span id="uf-pip-remote-empty">Supporter camera</span></div>
         </div>
         <div class="controls">
           <button id="uf-pip-camera">Camera</button>
@@ -5535,34 +5572,48 @@ async function openRemoteSupportDockPiP() {
   }
 }
 
+function syncRemoteSupportCameraVideoRefs() {
+  const refs = uiModule.getRefs();
+  if (refs.localCameraVideo && remoteSupportLocalCameraMediaStream) {
+    if (refs.localCameraVideo.srcObject !== remoteSupportLocalCameraMediaStream) {
+      refs.localCameraVideo.srcObject = remoteSupportLocalCameraMediaStream;
+    }
+  }
+  if (refs.remoteCameraVideo && remoteSupportRemoteCameraMediaStream) {
+    if (refs.remoteCameraVideo.srcObject !== remoteSupportRemoteCameraMediaStream) {
+      refs.remoteCameraVideo.srcObject = remoteSupportRemoteCameraMediaStream;
+    }
+  }
+}
+
 function syncRemoteSupportDockPiPWindow() {
   if (!remoteSupportDockPiPWindow || remoteSupportDockPiPWindow.closed) {
     return;
   }
   const pipDocument = remoteSupportDockPiPWindow.document;
-  const localImage = pipDocument.getElementById("uf-pip-local");
-  const remoteImage = pipDocument.getElementById("uf-pip-remote");
+  const localVideo = pipDocument.getElementById("uf-pip-local");
+  const remoteVideo = pipDocument.getElementById("uf-pip-remote");
   const localEmpty = pipDocument.getElementById("uf-pip-local-empty");
   const remoteEmpty = pipDocument.getElementById("uf-pip-remote-empty");
-  const localFrame = state.remoteSupportLocalCameraFrame || "";
-  const remoteFrame = state.remoteSupportRemoteCameraFrame || "";
-  if (localImage) {
-    localImage.hidden = !localFrame;
-    if (localFrame) {
-      localImage.src = localFrame;
+  const localActive = Boolean(state.remoteSupportLocalCameraActive);
+  const remoteActive = Boolean(state.remoteSupportRemoteCameraActive);
+  if (localVideo) {
+    if (remoteSupportLocalCameraMediaStream && localVideo.srcObject !== remoteSupportLocalCameraMediaStream) {
+      localVideo.srcObject = remoteSupportLocalCameraMediaStream;
     }
+    localVideo.hidden = !localActive;
   }
-  if (remoteImage) {
-    remoteImage.hidden = !remoteFrame;
-    if (remoteFrame) {
-      remoteImage.src = remoteFrame;
+  if (remoteVideo) {
+    if (remoteSupportRemoteCameraMediaStream && remoteVideo.srcObject !== remoteSupportRemoteCameraMediaStream) {
+      remoteVideo.srcObject = remoteSupportRemoteCameraMediaStream;
     }
+    remoteVideo.hidden = !remoteActive;
   }
   if (localEmpty) {
-    localEmpty.hidden = Boolean(localFrame);
+    localEmpty.hidden = localActive;
   }
   if (remoteEmpty) {
-    remoteEmpty.hidden = Boolean(remoteFrame);
+    remoteEmpty.hidden = remoteActive;
   }
 }
 
