@@ -16,6 +16,8 @@ const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH = 200;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_HEIGHT = 112;
+const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_FPS = 10;
+const REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS = Math.round(1000 / REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_FPS);
 
 const transportSessions = new Map();
 const dataChannelTextEncoder = new TextEncoder();
@@ -359,6 +361,8 @@ function createTransportRuntime(session) {
     popupPreviewLoopActive: false,
     localCameraPreviewCallbackPending: false,
     remoteCameraPreviewCallbackPending: false,
+    localCameraPreviewLastPublishedAt: 0,
+    remoteCameraPreviewLastPublishedAt: 0,
     sidebarCaptureCanvas: null,
     sidebarCaptureContext: null,
     sidebarCaptureStream: null,
@@ -509,6 +513,8 @@ function stopRequesterPopupMediaPreview(runtime) {
     return;
   }
   runtime.popupPreviewLoopActive = false;
+  runtime.localCameraPreviewLastPublishedAt = 0;
+  runtime.remoteCameraPreviewLastPublishedAt = 0;
   postRequesterPopupMediaPreview(runtime, { localCameraBitmap: null, remoteCameraBitmap: null });
   if (popupPreviewBroadcastChannel) {
     try {
@@ -529,10 +535,10 @@ function scheduleLocalCameraPreviewCallback(runtime) {
     return;
   }
   runtime.localCameraPreviewCallbackPending = true;
-  el.requestVideoFrameCallback(() => onLocalCameraPreviewFrame(runtime));
+  el.requestVideoFrameCallback((now) => onLocalCameraPreviewFrame(runtime, now));
 }
 
-async function onLocalCameraPreviewFrame(runtime) {
+async function onLocalCameraPreviewFrame(runtime, now) {
   const activeRuntime = getTransportRuntime(runtime.sessionId);
   if (!activeRuntime) {
     return;
@@ -546,6 +552,14 @@ async function onLocalCameraPreviewFrame(runtime) {
     return;
   }
   scheduleLocalCameraPreviewCallback(activeRuntime);
+  const frameTime = Number.isFinite(now) ? now : Date.now();
+  if (
+    frameTime - activeRuntime.localCameraPreviewLastPublishedAt <
+    REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  activeRuntime.localCameraPreviewLastPublishedAt = frameTime;
   const bitmap = await captureStreamBitmap(activeRuntime.localCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { localCameraBitmap: bitmap });
@@ -563,10 +577,10 @@ function scheduleRemoteCameraPreviewCallback(runtime) {
     return;
   }
   runtime.remoteCameraPreviewCallbackPending = true;
-  el.requestVideoFrameCallback(() => onRemoteCameraPreviewFrame(runtime));
+  el.requestVideoFrameCallback((now) => onRemoteCameraPreviewFrame(runtime, now));
 }
 
-async function onRemoteCameraPreviewFrame(runtime) {
+async function onRemoteCameraPreviewFrame(runtime, now) {
   const activeRuntime = getTransportRuntime(runtime.sessionId);
   if (!activeRuntime) {
     return;
@@ -580,6 +594,14 @@ async function onRemoteCameraPreviewFrame(runtime) {
     return;
   }
   scheduleRemoteCameraPreviewCallback(activeRuntime);
+  const frameTime = Number.isFinite(now) ? now : Date.now();
+  if (
+    frameTime - activeRuntime.remoteCameraPreviewLastPublishedAt <
+    REMOTE_SUPPORT_CAMERA_PREVIEW_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  activeRuntime.remoteCameraPreviewLastPublishedAt = frameTime;
   const bitmap = await captureStreamBitmap(activeRuntime.remoteCameraPreviewEl);
   try {
     postRequesterPopupMediaPreview(activeRuntime, { remoteCameraBitmap: bitmap });
