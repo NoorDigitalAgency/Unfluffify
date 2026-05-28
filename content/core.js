@@ -15,13 +15,9 @@ import {
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
 } from "./shared-inclusion.js";
 import {
-  chooseExcludeParentBoundaryTarget,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
-  isValidExpandedExclusionBoundary,
-  shouldAllowExplicitIncludeDescendantTarget,
   shouldAutoSeedMarkingsFromAiSelectors,
-  shouldBlockExpandedExclusionRoot,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
 
@@ -67,19 +63,16 @@ export const state = {
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
-  expandedExclusionBoundarySignalsCache: null,
   visibilityCache: null,
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null,
-  autoSeededPendingSavePageUrl: "",
-  suppressNextAutoSeedFromAiSelectors: false
+  autoSeededPendingSavePageUrl: ""
 };
 
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
-const SECTION_LIKE_BOUNDARY_TAGS = new Set(["SECTION", "ARTICLE", "MAIN", "ASIDE", "HEADER", "FOOTER"]);
 const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
@@ -97,7 +90,6 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
-const NON_VISUAL_BODY_WRAPPER_TAGS = new Set(["IFRAME", "STYLE", "LINK", "SCRIPT"]);
 
 let aiPreviewFocusElement = null;
 
@@ -536,44 +528,6 @@ function hasDirectText(el) {
   return false;
 }
 
-function isNonVisualBodyWrapperChild(el) {
-  return !el || el.nodeType !== 1 || NON_VISUAL_BODY_WRAPPER_TAGS.has(el.tagName);
-}
-
-function isSoleVisualBodyWrapper(el) {
-  if (!el || el.nodeType !== 1 || !document.body || el.parentElement !== document.body) {
-    return false;
-  }
-  const visualChildren = Array.from(document.body.children || []).filter((child) => {
-    if (isNonVisualBodyWrapperChild(child)) {
-      return false;
-    }
-    if (isWithinExtensionUi(child) || isWithinAiPopover(child) || isWithinConsentElement(child)) {
-      return false;
-    }
-    return isVisible(child);
-  });
-  return visualChildren.length === 1 && visualChildren[0] === el;
-}
-
-function isExpandedExclusionRootBlocked(el) {
-  return shouldBlockExpandedExclusionRoot({
-    isBody: Boolean(el && el === document.body),
-    isSoleVisualBodyWrapper: isSoleVisualBodyWrapper(el)
-  });
-}
-
-function isSectionLikeExpandedBoundary(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (SECTION_LIKE_BOUNDARY_TAGS.has(el.tagName)) {
-    return true;
-  }
-  const role = typeof el.getAttribute === "function" ? (el.getAttribute("role") || "").toLowerCase() : "";
-  return role === "region" || role === "article" || role === "main" || role === "complementary";
-}
-
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -797,70 +751,9 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     return true;
   }
   return shouldSelfMarkToggleableDefaultBoundary({
-    hasDirectOwnText,
     hasVisibleTextualDescendant,
     hasExplicitlyMarkedDescendant: hasExplicitlyMarkedDescendant(el)
   });
-}
-
-function isExplicitIncludeBoundaryCandidate(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
-    return false;
-  }
-  if (isSelfMarkableWithoutParentMode(el, options)) {
-    return true;
-  }
-  return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
-}
-
-function isGroupedBoundaryChildCandidate(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
-    return false;
-  }
-  if (!isTextualContainer(el, options)) {
-    return false;
-  }
-  if (isSelfMarkableWithoutParentMode(el, options)) {
-    return true;
-  }
-  return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
-}
-
-function isStructuredGroupExclusionCandidate(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
-    return false;
-  }
-  if (matchesToggleableDefaultExcluded(el) || hasDirectText(el)) {
-    return false;
-  }
-  if (!isTextualContainer(el, options)) {
-    return false;
-  }
-  const children = Array.from(el.children || []).filter((child) => {
-    if (!child || child.nodeType !== 1) {
-      return false;
-    }
-    if (isWithinAiPopover(child)) {
-      return false;
-    }
-    if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
-      return false;
-    }
-    return true;
-  });
-  if (children.length < 2) {
-    return false;
-  }
-  return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
 function matchesImmutableExcluded(el) {
@@ -2594,18 +2487,6 @@ function isExplicitlyIncludedElement(el, includeSet) {
   return Boolean(xpath && includeSet.has(xpath));
 }
 
-function isXpathWithinExplicitInclude(xpath, includeSet) {
-  if (!xpath || !includeSet || includeSet.size === 0) {
-    return false;
-  }
-  for (const includeXpath of includeSet) {
-    if (includeXpath && includeXpath !== xpath && isXPathDescendant(includeXpath, xpath)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function createOverlay() {
   if (state.overlay) {
     return;
@@ -2646,7 +2527,6 @@ function createOverlay() {
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
-      #unfluffify-overlay .uf-layer[data-layer="ghost"] { z-index: 1; }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
       #unfluffify-overlay .uf-layer[data-layer="ai-content-excluded"] { z-index: 4; }
@@ -2686,16 +2566,6 @@ function createOverlay() {
       #unfluffify-overlay .uf-hard-locked {
         border: 1px dashed rgba(156, 107, 107, 0.45);
         background: transparent;
-      }
-      #unfluffify-overlay .uf-ghost-exclude {
-        border: 2px dashed rgba(198, 40, 40, 0.45);
-        background: transparent;
-        opacity: 0.55;
-      }
-      #unfluffify-overlay .uf-ghost-include {
-        border: 2px dotted rgba(46, 125, 50, 0.45);
-        background: transparent;
-        opacity: 0.55;
       }
       #unfluffify-overlay .uf-default {
         border: 1px solid #2e7d32;
@@ -2766,7 +2636,6 @@ function createOverlay() {
   overlay.id = "unfluffify-overlay";
 
   const layerKeys = [
-    "ghost",
     "hard",
     "explicit-exclude",
     "explicit-include",
@@ -3434,237 +3303,31 @@ function getTargetElement(x, y) {
   return null;
 }
 
-function hasDirectTextualDescendantBoundary(el) {
-  const options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
+
+function hasMultipleMarkableDescendants(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
-  for (const node of Array.from(el.children || [])) {
+  const stack = Array.from(el.children);
+  while (stack.length) {
+    const node = stack.pop();
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (
-      isWithinAiPopover(node) ||
-      isWithinConsentElement(node) ||
-      isWithinImmutableExcluded(node) ||
-      !isVisible(node)
-    ) {
+    if (isWithinAiPopover(node)) {
       continue;
     }
-    if (
-      hasDirectText(node) ||
-      isSelfMarkableWithoutParentMode(node, options) ||
-      isTextualContainer(node, options) ||
-      isStructuredGroupExclusionCandidate(node, options)
-    ) {
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    if (isSelfMarkableWithoutParentMode(node, options)) {
       return true;
     }
-  }
-  return false;
-}
-
-function getVisibleExpandedBoundaryChildren(el) {
-  if (!el || el.nodeType !== 1) {
-    return [];
-  }
-  return Array.from(el.children || []).filter((node) => {
-    if (!node || node.nodeType !== 1) {
-      return false;
-    }
-    if (
-      isWithinAiPopover(node) ||
-      isWithinConsentElement(node) ||
-      isWithinImmutableExcluded(node) ||
-      !isVisible(node)
-    ) {
-      return false;
-    }
-    return true;
-  });
-}
-
-function getExpandedExclusionBoundarySignalsCache() {
-  if (!state.expandedExclusionBoundarySignalsCache) {
-    state.expandedExclusionBoundarySignalsCache = new WeakMap();
-  }
-  return state.expandedExclusionBoundarySignalsCache;
-}
-
-function isExpandedExclusionBoundarySignalsValid(el, signals) {
-  return isValidExpandedExclusionBoundary({
-    hasDirectOwnText: hasDirectText(el),
-    hasDirectTextualBoundary: Boolean(signals && signals.hasDirectTextualBoundary),
-    qualifyingChildBoundaryCount: signals && signals.qualifyingChildBoundaryCount,
-    hasOnlyLayoutWrapperChain: Boolean(signals && signals.hasOnlyLayoutWrapperChain),
-    hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent),
-    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair),
-    isSectionLikeUnit: isSectionLikeExpandedBoundary(el)
-  });
-}
-
-function getExpandedExclusionBoundarySignals(el, options = {}) {
-  const signals = {
-    qualifyingChildBoundaryCount: 0,
-    textualWrapperChildCount: 0,
-    nonBoundaryVisibleChildCount: 0,
-    visibleChildCount: 0,
-    hasDirectTextualBoundary: false,
-    hasOnlyLayoutWrapperChain: false,
-    hasMixedSiblingContent: false,
-    hasAdjacentVisualSiblingPair: false
-  };
-  if (!el || el.nodeType !== 1) {
-    return signals;
-  }
-  const visibleChildren = getVisibleExpandedBoundaryChildren(el);
-  signals.visibleChildCount = visibleChildren.length;
-  for (const node of visibleChildren) {
-
-    const structuredGroupBoundary = isStructuredGroupExclusionCandidate(node, options);
-    const toggleableBoundary =
-      !structuredGroupBoundary &&
-      matchesToggleableDefaultExcluded(node) &&
-      isTextualContainer(node, options);
-    const selfMarkableBoundary =
-      !structuredGroupBoundary &&
-      !toggleableBoundary &&
-      isSelfMarkableWithoutParentMode(node, options);
-    const directTextBoundary = hasDirectText(node);
-    const inheritedChildBoundary =
-      !structuredGroupBoundary &&
-      !toggleableBoundary &&
-      !selfMarkableBoundary &&
-      !directTextBoundary &&
-      isTextualContainer(node, options) &&
-      isExpandedExclusionBoundarySignalsValid(
-        node,
-        resolveExpandedExclusionBoundarySignals(node, options)
-      );
-
-    if (
-      structuredGroupBoundary ||
-      toggleableBoundary ||
-      selfMarkableBoundary ||
-      directTextBoundary ||
-      inheritedChildBoundary
-    ) {
-      signals.qualifyingChildBoundaryCount += 1;
-      continue;
-    }
-
-    if (isTextualContainer(node, options)) {
-      signals.textualWrapperChildCount += 1;
-      continue;
-    }
-
-    signals.nonBoundaryVisibleChildCount += 1;
-  }
-  signals.hasDirectTextualBoundary =
-    signals.qualifyingChildBoundaryCount === 1 &&
-    signals.textualWrapperChildCount === 0 &&
-    signals.nonBoundaryVisibleChildCount === 0;
-  signals.hasOnlyLayoutWrapperChain =
-    signals.qualifyingChildBoundaryCount === 0 &&
-    signals.textualWrapperChildCount === 1 &&
-    signals.nonBoundaryVisibleChildCount === 0;
-  signals.hasAdjacentVisualSiblingPair =
-    signals.visibleChildCount === 2 &&
-    signals.qualifyingChildBoundaryCount === 1 &&
-    signals.textualWrapperChildCount === 0 &&
-    signals.nonBoundaryVisibleChildCount === 1;
-  signals.hasMixedSiblingContent =
-    signals.nonBoundaryVisibleChildCount > 0 &&
-    (signals.qualifyingChildBoundaryCount > 0 || signals.textualWrapperChildCount > 0);
-  return signals;
-}
-
-function resolveExpandedExclusionBoundarySignals(el, options = {}) {
-  const useCache = !options.ignoreVisibilityForInclusionDetection;
-  const cache = useCache ? getExpandedExclusionBoundarySignalsCache() : null;
-  if (cache && cache.has(el)) {
-    return cache.get(el);
-  }
-
-  let current = el;
-  let signals = getExpandedExclusionBoundarySignals(current, options);
-
-  while (
-    current &&
-    current.nodeType === 1 &&
-    !hasDirectText(current) &&
-    signals.hasOnlyLayoutWrapperChain
-  ) {
-    const visibleChildren = getVisibleExpandedBoundaryChildren(current);
-    if (visibleChildren.length !== 1) {
-      break;
-    }
-    current = visibleChildren[0];
-    signals = getExpandedExclusionBoundarySignals(current, options);
-  }
-
-  if (cache) {
-    cache.set(el, signals);
-  }
-
-  return signals;
-}
-
-function isExpandedExclusionContentBoundaryCandidate(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (isExpandedExclusionRootBlocked(el)) {
-    return false;
-  }
-  if (!isTextualContainer(el, options)) {
-    return false;
-  }
-
-  const signals = resolveExpandedExclusionBoundarySignals(el, options);
-  return isExpandedExclusionBoundarySignalsValid(el, signals);
-}
-
-function isPointOverMarkableDescendant(el, options = {}) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  const hitPoint = options && options.hitPoint;
-  if (
-    !hitPoint ||
-    !Number.isFinite(Number(hitPoint.x)) ||
-    !Number.isFinite(Number(hitPoint.y)) ||
-    typeof document.elementsFromPoint !== "function"
-  ) {
-    return true;
-  }
-  const descendantOptions = {
-    ...options,
-    allowParent: false,
-    explicitlyExcluded: false,
-    explicitlyIncluded: false
-  };
-  const elements = document.elementsFromPoint(Number(hitPoint.x), Number(hitPoint.y));
-  for (const node of elements) {
-    if (!node || node.nodeType !== 1 || node === el) {
-      continue;
-    }
-    if (node === document.documentElement || node === document.body) {
-      continue;
-    }
-    if (!el.contains(node)) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinImmutableExcluded(node)) {
-      continue;
-    }
-    if (isSelfMarkableWithoutParentMode(node, descendantOptions)) {
-      return true;
-    }
-    if (matchesToggleableDefaultExcluded(node) && isTextualContainer(node, descendantOptions)) {
-      return true;
-    }
-    if (isStructuredGroupExclusionCandidate(node, descendantOptions)) {
-      return true;
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
     }
   }
   return false;
@@ -3732,103 +3395,7 @@ function createExcludedAncestorChecker(options = {}) {
 }
 
 function resolveMarkableElement(el, config, options) {
-  if (!el || el.nodeType !== 1) {
-    return null;
-  }
-
-  const currentOptions = {
-    ...(options || {})
-  };
-  const ancestorOptions = {
-    ...currentOptions,
-    allowParent: false,
-    explicitlyExcluded: false,
-    explicitlyIncluded: false,
-    preferMixedTextAncestor: false
-  };
-
-  if (currentOptions.allowParent) {
-    const selfStructuredGroup =
-      !isWithinAiPopover(el) &&
-      !isWithinConsentElement(el) &&
-      isStructuredGroupExclusionCandidate(el, ancestorOptions);
-    const selfToggleableBoundary =
-      !isWithinAiPopover(el) &&
-      !isWithinConsentElement(el) &&
-      matchesToggleableDefaultExcluded(el) &&
-      isTextualContainer(el, ancestorOptions);
-    const selfContentBoundary =
-      !selfStructuredGroup &&
-      !selfToggleableBoundary &&
-      !isWithinAiPopover(el) &&
-      !isWithinConsentElement(el) &&
-      isExpandedExclusionContentBoundaryCandidate(el, ancestorOptions);
-    const ancestorCandidates = [];
-    let ancestor = el.parentElement;
-    while (ancestor && ancestor.nodeType === 1) {
-      if (ancestor === document.documentElement || ancestor === document.body) {
-        break;
-      }
-      if (!isWithinAiPopover(ancestor) && !isWithinConsentElement(ancestor)) {
-        const structuredGroupBoundary = isStructuredGroupExclusionCandidate(
-          ancestor,
-          ancestorOptions
-        );
-        const toggleableBoundary =
-          !structuredGroupBoundary &&
-          matchesToggleableDefaultExcluded(ancestor) &&
-          isTextualContainer(ancestor);
-        const markableBoundary =
-          !structuredGroupBoundary &&
-          !toggleableBoundary &&
-          isMarkableElement(ancestor, config, ancestorOptions);
-        const contentBoundary =
-          !structuredGroupBoundary &&
-          !toggleableBoundary &&
-          isExpandedExclusionContentBoundaryCandidate(ancestor, ancestorOptions);
-        ancestorCandidates.push({
-          value: ancestor,
-          isStructuredGroup: structuredGroupBoundary,
-          isToggleableBoundary: toggleableBoundary,
-          isContentBoundary: contentBoundary,
-          isMarkable: markableBoundary
-        });
-      }
-      ancestor = ancestor.parentElement;
-    }
-    const preferredBoundary = chooseExcludeParentBoundaryTarget({
-      selfValue: el,
-      selfStructuredGroup,
-      selfToggleableBoundary,
-      selfContentBoundary,
-      ancestors: ancestorCandidates
-    });
-    if (preferredBoundary) {
-      return preferredBoundary;
-    }
-  }
-
-  if (currentOptions.preferMixedTextAncestor) {
-    let ancestor = el.parentElement;
-    while (ancestor && ancestor.nodeType === 1) {
-      if (ancestor === document.documentElement || ancestor === document.body) {
-        break;
-      }
-      if (
-        !isWithinAiPopover(ancestor) &&
-        !isWithinConsentElement(ancestor) &&
-        isExplicitIncludeBoundaryCandidate(ancestor, ancestorOptions)
-      ) {
-        return ancestor;
-      }
-      ancestor = ancestor.parentElement;
-    }
-    if (isExplicitIncludeBoundaryCandidate(el, ancestorOptions)) {
-      return el;
-    }
-  }
-
-  if (!isMarkableElement(el, config, currentOptions)) {
+  if (!isMarkableElement(el, config, options)) {
     return null;
   }
   return el;
@@ -3838,7 +3405,6 @@ function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
   const preferExplicitTarget = !options || options.preferExplicitTarget !== false;
-  const preferMixedTextAncestor = Boolean(options && options.preferMixedTextAncestor);
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
   const explicitParentSet = options && options.explicitParentSet;
@@ -3875,20 +3441,12 @@ function getMarkableTarget(x, y, options) {
         xpath && excludedSet && excludedSet.size > 0 && excludedSet.has(xpath);
       const explicitlyIncluded =
         xpath && includeSet && includeSet.size > 0 && includeSet.has(xpath);
-      const withinExplicitIncludedParent =
-        xpath && includeSet && includeSet.size > 0 && isXpathWithinExplicitInclude(xpath, includeSet);
       const withinExplicitExcludedParent =
         !allowExcludedParentChildren &&
         xpath &&
         explicitParentSet &&
         explicitParentSet.size > 0 &&
         isWithinExplicitExcludedXpath(xpath, explicitParentSet);
-      if (!shouldAllowExplicitIncludeDescendantTarget({
-        insideExplicitIncludeAncestor: withinExplicitIncludedParent,
-        isExactExplicitInclude: explicitlyIncluded
-      })) {
-        continue;
-      }
       if (withinExplicitExcludedParent && !explicitlyIncluded) {
         continue;
       }
@@ -3917,13 +3475,6 @@ function getMarkableTarget(x, y, options) {
         allowExplicitTarget && isExplicitlyExcludedElement(el, excludedSet);
     const explicitlyIncluded =
         allowExplicitTarget && isExplicitlyIncludedElement(el, includeSet);
-    const xpath = includeSet && includeSet.size > 0 ? getXPath(el) : "";
-    if (!shouldAllowExplicitIncludeDescendantTarget({
-      insideExplicitIncludeAncestor: isXpathWithinExplicitInclude(xpath, includeSet),
-      isExactExplicitInclude: Boolean(xpath && includeSet && includeSet.has(xpath))
-    })) {
-      continue;
-    }
     if (
       requireExcludedAncestor &&
       !explicitlyExcluded &&
@@ -3938,7 +3489,6 @@ function getMarkableTarget(x, y, options) {
       explicitlyExcluded,
       explicitlyIncluded,
       allowImmutableChildren,
-      preferMixedTextAncestor,
       hitPoint: { x, y }
     });
     if (resolved) {
@@ -3963,12 +3513,8 @@ function updateHoverHighlight(
     return;
   }
   const savedVisibilityCache = state.visibilityCache;
-  const savedBoundarySignalsCache = state.expandedExclusionBoundarySignalsCache;
   if (!savedVisibilityCache) {
     state.visibilityCache = new Map();
-  }
-  if (!savedBoundarySignalsCache) {
-    state.expandedExclusionBoundarySignalsCache = new WeakMap();
   }
   const layerState = beginLayerRender(layerHover);
   try {
@@ -3980,7 +3526,6 @@ function updateHoverHighlight(
       allowParent,
       allowExplicitTarget: true,
       preferExplicitTarget: allowExcludedParentChildren,
-      preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
       excludedSet,
       includeSet,
       explicitParentSet,
@@ -4001,7 +3546,6 @@ function updateHoverHighlight(
     finalizeLayerRender(layerState);
   } finally {
     state.visibilityCache = savedVisibilityCache;
-    state.expandedExclusionBoundarySignalsCache = savedBoundarySignalsCache;
   }
 }
 
@@ -4374,7 +3918,6 @@ function handleToggleEvent(event) {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
-    preferMixedTextAncestor: mode === "include" && !allowParent,
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -4609,7 +4152,6 @@ function getVisibleRects(el) {
 
 function invalidateCachedCollections() {
   state.cachedCollections = null;
-  state.expandedExclusionBoundarySignalsCache = null;
 }
 
 function renderHighlights() {
@@ -4643,14 +4185,9 @@ function renderHighlightsInner() {
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
-  const suppressAutoSeedFromAiSelectors = Boolean(
-    state.suppressNextAutoSeedFromAiSelectors
-  );
-  state.suppressNextAutoSeedFromAiSelectors = false;
   if (shouldAutoSeedMarkingsFromAiSelectors({
     hasAiSelectors,
-    hasSavedMarkingsForPage,
-    suppressAutoSeed: suppressAutoSeedFromAiSelectors
+    hasSavedMarkingsForPage
   })) {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
@@ -4765,7 +4302,6 @@ function renderHighlightsInner() {
     }
   }
 
-  const hiddenStoredExplicitInclude = [];
   const filteredExplicitInclude = [];
   for (const el of explicitInclude) {
     if (
@@ -4774,10 +4310,6 @@ function renderHighlightsInner() {
       !isWithinElementSet(el, consentExcluded) &&
       !explicitExclude.has(el)
     ) {
-      if (!isVisible(el)) {
-        hiddenStoredExplicitInclude.push(el);
-        continue;
-      }
       filteredExplicitInclude.push(el);
     }
   }
@@ -4785,9 +4317,9 @@ function renderHighlightsInner() {
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
 
-  // Hidden explicit excludes render below in ghostExcludeElements, not as hard exclusions.
   const hardExcludedSet = new Set([
-    ...immutableExcluded
+    ...immutableExcluded,
+    ...hiddenStoredExplicitExclude
   ]);
 
   const defaultTargets = collectDefaultHighlightTargets(document.body, {
@@ -4805,12 +4337,6 @@ function renderHighlightsInner() {
   });
 
   const collections = {
-    ghostExcludeElements: hiddenStoredExplicitExclude.filter((el) =>
-      hasRenderableTextForHighlight(el, null, null, null)
-    ),
-    ghostIncludeElements: hiddenStoredExplicitInclude.filter((el) =>
-      hasRenderableTextForHighlight(el, null, null, null)
-    ),
     hardElements: Array.from(hardExcludedSet).filter((el) =>
       !isWithinElementSet(el, consentExcluded) &&
       hasRenderableTextForHighlight(el, null, null, null)
@@ -4849,7 +4375,6 @@ function repositionHighlights(collections) {
 }
 
 function drawCollections(collections, getRects) {
-  const layerGhostState = beginLayerRender(state.layers["ghost"]);
   const layerHardState = beginLayerRender(state.layers["hard"]);
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
@@ -4857,26 +4382,6 @@ function drawCollections(collections, getRects) {
   const layerAiContentExcludedState = beginLayerRender(state.layers["ai-content-excluded"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
-
-  for (const el of collections.ghostExcludeElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "exclude", visible: false });
-      drawMultiRectReuse(
-        layerGhostState, rects, presentation.className, el, "ghost-exclude", null
-      );
-    }
-  }
-
-  for (const el of collections.ghostIncludeElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include", visible: false });
-      drawMultiRectReuse(
-        layerGhostState, rects, presentation.className, el, "ghost-include", null
-      );
-    }
-  }
 
   for (const el of collections.hardElements) {
     const rects = getRects(el);
@@ -4890,7 +4395,7 @@ function drawCollections(collections, getRects) {
   for (const el of collections.explicitExcludeElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "exclude", visible: true });
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
         layerExplicitExcludeState,
         rects,
@@ -4905,7 +4410,7 @@ function drawCollections(collections, getRects) {
   for (const el of collections.explicitIncludeElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include", visible: true });
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
         layerExplicitIncludeState,
         rects,
@@ -5451,14 +4956,7 @@ export function isMarkableElement(el, config, options) {
   if (!options || !options.allowParent) {
     return false;
   }
-  if (isExpandedExclusionRootBlocked(el)) {
-    return false;
-  }
-  if (!isPointOverMarkableDescendant(el, options || {})) {
-    return false;
-  }
-  const signals = resolveExpandedExclusionBoundarySignals(el, options || {});
-  return isExpandedExclusionBoundarySignalsValid(el, signals);
+  return hasMultipleMarkableDescendants(el, options || {});
 }
 
 export function canApplyExplicitInclude(
@@ -5467,12 +4965,6 @@ export function canApplyExplicitInclude(
   pageUrl = location.href,
   entryOverride = null
 ) {
-  if (isExplicitIncludeBoundaryCandidate(el, {
-    allowParent: false,
-    allowImmutableChildren: false
-  })) {
-    return true;
-  }
   if (isMarkableElement(el, configValue, {
     allowParent: false,
     allowImmutableChildren: false
@@ -5833,7 +5325,6 @@ export function disable() {
   state.currentPageUrl = "";
   state.currentPageEntry = null;
   state.autoSeededPendingSavePageUrl = "";
-  state.suppressNextAutoSeedFromAiSelectors = false;
   state.pageSaveReconciliation = null;
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
@@ -5869,7 +5360,6 @@ export function disable() {
   }
   state.isScrolling = false;
   state.cachedCollections = null;
-  state.expandedExclusionBoundarySignalsCache = null;
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   removeOverlay();

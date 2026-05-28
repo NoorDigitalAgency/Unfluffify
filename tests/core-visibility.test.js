@@ -305,39 +305,6 @@ test("submission visibility rejects fixed boxes outside the viewport", () => {
   }, { scrollHeight: 1600 });
 });
 
-test("parent marking rejects layout shells when the pointer is on empty background", () => {
-  withVisibilityDom(({ documentElement, body }) => {
-    const firstText = createElement({
-      tagName: "p",
-      text: "First text block",
-      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
-    });
-    const secondText = createElement({
-      tagName: "p",
-      text: "Second text block",
-      rect: { top: 140, right: 320, bottom: 200, left: 20, width: 300, height: 60 }
-    });
-    const shell = createElement({
-      parentElement: body,
-      children: [firstText, secondText],
-      rect: { top: 0, right: 1200, bottom: 800, left: 0, width: 1200, height: 800 }
-    });
-    const sibling = createElement({
-      parentElement: body,
-      text: "Sibling content",
-      rect: { top: 720, right: 320, bottom: 760, left: 20, width: 300, height: 40 }
-    });
-    body.children.push(shell, sibling);
-    body.childNodes.push(shell, sibling);
-    globalThis.document.elementsFromPoint = () => [shell, body, documentElement];
-
-    assert.equal(
-      isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 8, y: 450 } }),
-      false
-    );
-  });
-});
-
 test("parent marking still allows expanded boundaries over markable content", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const firstText = createElement({
@@ -536,34 +503,3 @@ test("parent marking allows inherited wrapper chains with one content branch and
   });
 });
 
-test("parent marking blocks body and the sole visual body wrapper", () => {
-  withVisibilityDom(({ documentElement, body }) => {
-    const textBlock = createElement({
-      tagName: "p",
-      text: "Wrapped text block",
-      rect: { top: 40, right: 320, bottom: 100, left: 20, width: 300, height: 60 }
-    });
-    const wrapper = createElement({
-      parentElement: body,
-      children: [textBlock],
-      rect: { top: 0, right: 500, bottom: 180, left: 0, width: 500, height: 180 }
-    });
-    const script = createElement({
-      tagName: "script",
-      parentElement: body,
-      rect: { top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0 }
-    });
-    body.children.push(wrapper, script);
-    body.childNodes.push(wrapper, script);
-    globalThis.document.elementsFromPoint = () => [textBlock, wrapper, body, documentElement];
-
-    assert.equal(
-      isMarkableElement(wrapper, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      false
-    );
-    assert.equal(
-      isMarkableElement(body, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      false
-    );
-  });
-});

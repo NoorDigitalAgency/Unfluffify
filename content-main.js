@@ -3333,7 +3333,6 @@ function restoreAiPreviewDraftState(restoreState) {
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
   state.autoSeededPendingSavePageUrl =
     restoreState.previousAutoSeededPendingSavePageUrl || "";
-  state.suppressNextAutoSeedFromAiSelectors = true;
 }
 
 function scheduleAiComputeLockRelease(expiresAt) {
