@@ -233,7 +233,7 @@ function toneUtilityClass(tone) {
 }
 
 function warningNoticeClass(...extraClasses) {
-  return classNames("notice", "u-tone-warning", "u-surface-tone", ...extraClasses);
+  return classNames("u-alert", "u-alert-warn", ...extraClasses);
 }
 
 function renderListItems(items, emptyText, renderItem) {
@@ -262,13 +262,13 @@ function renderRemoteSupportErrorNotice(view, handlers) {
 
   return h(
     "div",
-    { class: warningNoticeClass("notice--dismissible"), role: "status", "aria-live": "polite" },
-    h("span", { class: "notice__content" }, message),
+    { class: warningNoticeClass("u-alert--dismissible"), role: "status", "aria-live": "polite" },
+    h("span", { class: "u-alert__content" }, message),
     h(
       "button",
       {
         type: "button",
-        class: "notice__dismiss",
+        class: "u-alert__dismiss",
         "aria-label": PopupText.configuration.dismissNoticeLabel,
         title: PopupText.configuration.dismissNoticeLabel,
         onClick: handlers.onRemoteSupportErrorDismiss
@@ -337,11 +337,16 @@ function renderRemoteSupportedMediaControls(view, handlers) {
 }
 
 function statusToneClass(tone) {
-  const normalizedTone =
-    tone === "success" || tone === "warning" || tone === "danger"
-      ? tone
-      : "muted";
-  return classNames("status-text", `status-text--${normalizedTone}`);
+  switch (tone) {
+    case "success":
+      return classNames("status-text", "u-color-success");
+    case "warning":
+      return classNames("status-text", "u-color-warning");
+    case "danger":
+      return classNames("status-text", "u-color-danger");
+    default:
+      return classNames("status-text", "u-color-muted");
+  }
 }
 
 function formatCandidateWordsCount(wordsCount) {
@@ -459,7 +464,7 @@ function renderPropertyLockIndicator(view, handlers) {
         {
           key: "suggest",
           type: "button",
-          class: "property-lock__button button-secondary",
+          class: "property-lock__button u-btn-secondary",
           onClick: handlers.onPropertyLockSuggest
         },
         propertyLockText.takeoverSuggestButton
@@ -515,7 +520,7 @@ function renderPropertyLockIndicator(view, handlers) {
         {
           key: "reject",
           type: "button",
-          class: "property-lock__button button-secondary",
+          class: "property-lock__button u-btn-secondary",
           onClick: handlers.onPropertyLockRejectSuggestion
         },
         propertyLockText.rejectButton
@@ -738,7 +743,7 @@ function renderRemoteSupportSection(view, handlers) {
           {
             id: "remote-support-request",
             type: "button",
-            class: classNames("full-width", requesting && "loading"),
+            class: classNames("u-full-width", requesting && "loading"),
             disabled: sessionActive || requesting,
             "aria-busy": requesting ? "true" : "false",
             onClick: handlers.onRemoteSupportRequest
@@ -768,7 +773,7 @@ function renderRemoteSupportSection(view, handlers) {
           {
             id: "remote-support-end",
             type: "button",
-            class: "full-width warning",
+            class: "u-full-width u-btn-danger",
             onClick: handlers.onRemoteSupportEnd
           },
           icon("close-octagon"),
@@ -820,7 +825,7 @@ function renderRemoteSupportControllerView(view, handlers) {
         {
           id: "remote-support-end",
           type: "button",
-          class: "warning remote-support-controller__end",
+          class: "u-btn-danger remote-support-controller__end",
           onClick: handlers.onRemoteSupportEnd
         },
         icon("close-octagon"),
@@ -889,7 +894,7 @@ function renderRenderModeEditor(view, handlers) {
           {
             id: "render-mode-inspect-with-javascript",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.renderModeInspectButtonsDisabled,
             onClick: handlers.onRenderModeInspectWithJavaScript
           },
@@ -905,7 +910,7 @@ function renderRenderModeEditor(view, handlers) {
           {
             id: "render-mode-inspect-without-javascript",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.renderModeInspectButtonsDisabled,
             onClick: handlers.onRenderModeInspectWithoutJavaScript
           },
@@ -1098,7 +1103,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
               {
                 id: "todo-controls-menu-toggle",
                 type: "button",
-                class: "section-menu-button button-secondary",
+                class: "section-menu-button u-btn-secondary",
                 "aria-haspopup": "menu",
                 "aria-expanded": view.todoControlsMenuOpen ? "true" : "false",
                 title: PopupText.pageTypes.controlsMenu,
@@ -1487,7 +1492,7 @@ function App({ state: view, actions: handlers }) {
                   {
                     id: "base-page-menu-toggle",
                     type: "button",
-                    class: "section-menu-button button-secondary",
+                    class: "section-menu-button u-btn-secondary",
                     "aria-haspopup": "menu",
                     "aria-expanded": view.basePageMenuOpen ? "true" : "false",
                     title: PopupText.tooltips.basePageUrls,
@@ -1562,8 +1567,8 @@ function App({ state: view, actions: handlers }) {
 
 function renderAiControlsContent(view, handlers) {
   const computeButtonClass = classNames(
-    "full-width",
-    "margin-above",
+    "u-full-width",
+    "u-mt-2",
     view.computeButtonLoading && "loading"
   );
 
@@ -1798,7 +1803,7 @@ function renderLynxChecklistPopover(view, handlers) {
           {
             id: "lynx-checklist-cancel",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             onClick: handlers.onLynxChecklistCancel
           },
           icon("arrow-left"),
@@ -1886,7 +1891,7 @@ function renderMarkingView({state: view, actions: handlers}) {
           {
             id: "page-revert",
             type: "button",
-            class: "button-secondary",
+            class: "u-btn-secondary",
             disabled: view.pageRevertDisabled,
             onClick: handlers.onPageRevert
           },
@@ -2052,40 +2057,40 @@ function renderConfigurationExtrasSection(view, handlers) {
 }
 
 function renderCssSelectorsSection({ state: view, actions: handlers }) {
-    const previewClass = classNames("full-width");
-    const submitClass = classNames(
-      "full-width",
-      view.saveExcludesButtonLoading && "loading"
-    );
-    return h(
-      Fragment,
-      null,
-      h(
-        "button",
-        {
-          id: "preview-latest",
-          class: previewClass,
-          type: "button",
-          disabled: view.previewLatestButtonDisabled,
-          onClick: handlers.onPreviewLatest
-        },
-        icon("eye-outline"),
-        PopupText.actions.previewLatest
-      ),
-      h("div", { class: "section-divider", role: "separator" }),
-      h(
-        "button",
-        {
-          id: "save-excludes",
-          class: submitClass,
-          type: "button",
-          disabled: view.saveExcludesButtonDisabled,
-          onClick: handlers.onSaveExcludes
-        },
-        icon("cloud-upload-outline"),
-        view.saveExcludesButtonText
-      )
-    );
+  const previewClass = classNames("u-full-width", "u-btn-secondary");
+  const submitClass = classNames(
+    "u-full-width",
+    view.saveExcludesButtonLoading && "loading"
+  );
+  return h(
+    Fragment,
+    null,
+    h(
+      "button",
+      {
+        id: "preview-latest",
+        class: previewClass,
+        type: "button",
+        disabled: view.previewLatestButtonDisabled,
+        onClick: handlers.onPreviewLatest
+      },
+      icon("eye-outline"),
+      PopupText.actions.previewLatest
+    ),
+    h("div", { class: "section-divider", role: "separator" }),
+    h(
+      "button",
+      {
+        id: "save-excludes",
+        class: submitClass,
+        type: "button",
+        disabled: view.saveExcludesButtonDisabled,
+        onClick: handlers.onSaveExcludes
+      },
+      icon("cloud-upload-outline"),
+      view.saveExcludesButtonText
+    )
+  );
 }
 
   function renderEditableConfigurationField(options) {
