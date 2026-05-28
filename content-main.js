@@ -1747,10 +1747,10 @@ function ensureRemoteSupportSupportPageUi() {
               </div>
               <button id="uf-support-page-fullscreen" class="uf-support-page__button uf-support-page__button--compact" type="button" data-uf-extension-ui="true">Enter fullscreen</button>
             </div>
-            <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
-            <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
-            <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
-            <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
+              <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
+              <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
+              <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
+              <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
           </div>
