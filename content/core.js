@@ -67,6 +67,7 @@ export const state = {
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
+  expandedExclusionBoundarySignalsCache: null,
   visibilityCache: null,
   hoverRaf: 0,
   currentPageUrl: "",
@@ -3424,6 +3425,13 @@ function getVisibleExpandedBoundaryChildren(el) {
   });
 }
 
+function getExpandedExclusionBoundarySignalsCache() {
+  if (!state.expandedExclusionBoundarySignalsCache) {
+    state.expandedExclusionBoundarySignalsCache = new WeakMap();
+  }
+  return state.expandedExclusionBoundarySignalsCache;
+}
+
 function isExpandedExclusionBoundarySignalsValid(el, signals) {
   return isValidExpandedExclusionBoundary({
     hasDirectOwnText: hasDirectText(el),
@@ -3505,6 +3513,12 @@ function getExpandedExclusionBoundarySignals(el, options = {}) {
 }
 
 function resolveExpandedExclusionBoundarySignals(el, options = {}) {
+  const useCache = !options.ignoreVisibilityForInclusionDetection;
+  const cache = useCache ? getExpandedExclusionBoundarySignalsCache() : null;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+
   let current = el;
   let signals = getExpandedExclusionBoundarySignals(current, options);
 
@@ -3520,6 +3534,10 @@ function resolveExpandedExclusionBoundarySignals(el, options = {}) {
     }
     current = visibleChildren[0];
     signals = getExpandedExclusionBoundarySignals(current, options);
+  }
+
+  if (cache) {
+    cache.set(el, signals);
   }
 
   return signals;
@@ -4512,6 +4530,7 @@ function getVisibleRects(el) {
 
 function invalidateCachedCollections() {
   state.cachedCollections = null;
+  state.expandedExclusionBoundarySignalsCache = null;
 }
 
 function renderHighlights() {
@@ -5710,6 +5729,7 @@ export function disable() {
   }
   state.isScrolling = false;
   state.cachedCollections = null;
+  state.expandedExclusionBoundarySignalsCache = null;
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   removeOverlay();

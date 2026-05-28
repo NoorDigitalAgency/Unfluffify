@@ -330,6 +330,26 @@ async function stageCollectedFiles(collectedFiles, stagingDirectory) {
   return sortedFiles;
 }
 
+async function updateStagedManifestReleaseVersion(stagingDirectory, options = {}) {
+  const buildVersion = typeof options.buildVersion === "string"
+    ? options.buildVersion.trim()
+    : "";
+  const originalVersion = typeof options.originalVersion === "string"
+    ? options.originalVersion.trim()
+    : "";
+  if (!buildVersion || !originalVersion) {
+    return null;
+  }
+
+  const manifestPath = path.join(stagingDirectory, "manifest.json");
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const releaseDisplayVersion = `${originalVersion}.${buildVersion}`;
+  manifest.version_name = releaseDisplayVersion;
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}
+`, "utf8");
+  return releaseDisplayVersion;
+}
+
 async function writeMetadataFile(metadataFilePath, metadata) {
   if (!metadataFilePath) {
     return;
@@ -343,14 +363,18 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const manifestPath = path.join(REPO_ROOT, "manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-  const version = typeof manifest.version === "string" && manifest.version.trim()
+  const originalVersion = typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()
     : "0.0.0";
   const timestamp = typeof args.timestamp === "string" && args.timestamp.trim()
     ? args.timestamp.trim()
     : formatTimestamp();
-  const archiveFileName = `Unfluffify-v${version}-${timestamp}.zip`;
+  const buildVersion = typeof args["build-version"] === "string" && args["build-version"].trim()
+    ? args["build-version"].trim()
+    : "";
+  const archiveFileName = `Unfluffify-v${originalVersion}-${timestamp}.zip`;
   const latestAliasFileName = "Unfluffify-latest.zip";
+  const versionLatestAliasFileName = `Unfluffify-v${originalVersion}-latest.zip`;
   const stagingDirectory = path.resolve(
     REPO_ROOT,
     typeof args["stage-dir"] === "string" && args["stage-dir"].trim()
@@ -372,14 +396,21 @@ async function main() {
   }
 
   const stagedFiles = await stageCollectedFiles(collectorState.collectedFiles, stagingDirectory);
+  const releaseDisplayVersion = await updateStagedManifestReleaseVersion(stagingDirectory, {
+    buildVersion,
+    originalVersion
+  });
   const metadata = {
     archiveFileName,
     latestAliasFileName,
+    originalVersion,
     releaseTag: DEFAULT_RELEASE_TAG,
+    releaseDisplayVersion,
     stagedFiles,
     stageDir: stagingDirectory,
     timestamp,
-    version
+    version: originalVersion,
+    versionLatestAliasFileName
   };
 
   await writeMetadataFile(metadataFilePath, metadata);
