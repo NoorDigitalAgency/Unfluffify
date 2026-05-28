@@ -4450,6 +4450,7 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportStatusText: statusText,
     remoteSupportInactivityCountdownActive: Boolean(nextState.inactivityCountdownActive),
     remoteSupportInactivitySecondsRemaining: Math.max(0, Math.trunc(Number(nextState.inactivitySecondsRemaining) || 0)),
+    remoteSupportInactivityCountdownText: formatRemoteSupportCountdown(nextState.inactivitySecondsRemaining),
     remoteSupportError: nextState.error || ""
   });
   if (!nextState.active) {
@@ -4517,7 +4518,7 @@ function buildRemoteSupportStatusText(stateValue) {
   const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
   const streamLabel = stateValue.connected ? " • view-only" : "";
   const countdownLabel = Boolean(stateValue.inactivityCountdownActive)
-    ? ` • inactive timeout in ${formatRemoteSupportCountdown(stateValue.inactivitySecondsRemaining)}`
+    ? ` • session ends in ${formatRemoteSupportCountdown(stateValue.inactivitySecondsRemaining)}`
     : "";
   return `${mode}${connectedLabel}${streamLabel}${countdownLabel}`;
 }

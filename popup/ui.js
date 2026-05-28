@@ -205,6 +205,7 @@ const initialViewState = {
   remoteSupportRemoteCameraActive: false,
   remoteSupportInactivityCountdownActive: false,
   remoteSupportInactivitySecondsRemaining: 0,
+  remoteSupportInactivityCountdownText: "0:00",
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -301,7 +302,7 @@ function renderRemoteSupportInactivityNotice(view, handlers) {
     h(
       "span",
       { class: "notice__content" },
-      PopupText.configuration.remoteSupportInactivityCountdownNotice(view.remoteSupportInactivitySecondsRemaining || 0)
+      PopupText.configuration.remoteSupportInactivityCountdownNotice(view.remoteSupportInactivityCountdownText || "0:00")
     ),
     isRequester
       ? h(
