@@ -1,6 +1,6 @@
 export const DEVTOOLS_SOURCE_FILTER_ALL = "all";
 
-const KNOWN_DEVTOOLS_SOURCES = ["worker", "popup", "content", "extension"];
+const KNOWN_DEVTOOLS_SOURCES = ["worker", "popup", "content", "page", "extension"];
 
 /**
  * Normalizes a source identifier used by the custom DevTools panels.
@@ -22,6 +22,7 @@ export function formatSourceLabel(source) {
   if (normalized === "popup") return "popup.html";
   if (normalized === "worker") return "background worker";
   if (normalized === "content") return "page content script";
+  if (normalized === "page") return "page scripts";
   return normalized;
 }
 

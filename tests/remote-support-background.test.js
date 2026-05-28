@@ -1176,6 +1176,44 @@ test("extension telemetry feeds Unfluffify panels and requester remote peer", as
       {
         type: "remoteSupportExtensionTelemetry",
         tabId: 41,
+        channel: "console",
+        entry: {
+          source: "page",
+          level: "info",
+          message: "page bridge active"
+        }
+      },
+      {}
+    );
+
+    assert.equal(
+      consolePort.postedMessages.some(
+        (message) =>
+          message.type === "remoteSupportConsoleEntry" &&
+          message.entry &&
+          message.entry.source === "page" &&
+          message.entry.message === "page bridge active"
+      ),
+      true
+    );
+    assert.equal(
+      transportMessages.some(
+        (message) =>
+          message.type === "remoteSupportTransportSendData" &&
+          message.sessionId === "sess_extension_telemetry" &&
+          message.messageType === "telemetry" &&
+          message.payload &&
+          message.payload.channel === "console" &&
+          message.payload.entry &&
+          message.payload.entry.source === "page"
+      ),
+      true
+    );
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportExtensionTelemetry",
+        tabId: 41,
         channel: "network",
         entry: {
           source: "worker",
@@ -1782,28 +1820,13 @@ test("supporting sessions wait for the primary transport channel before marking 
 
     assert.equal(joinResponse.ok, true);
 
-    await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportTransportEvent",
-        source: "remoteSupportOffscreen",
-        event: {
-          type: "channel-open",
-          sessionId: "sess_primary_channel",
-          channelKey: "sidebar"
-        }
-      },
-      {
-        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
-      }
-    );
-
     let stateResponse = await handleRemoteSupportBackgroundMessage(
       { type: "getRemoteSupportState", tabId: 21 },
       {}
     );
 
     assert.equal(stateResponse.ok, true);
-    assert.equal(stateResponse.state.partnerConnected, true);
+    assert.equal(stateResponse.state.partnerConnected, false);
     assert.equal(stateResponse.state.connected, false);
     assert.equal(
       transportMessages.some(
@@ -1903,6 +1926,7 @@ test("remote support is view-only and does not send remote control commands", as
     );
 
     assert.equal(commandResponse.ok, false);
+    assert.match(commandResponse.error, /Remote control is not available/);
     assert.equal(
       transportMessages.some((message) => message.type === "remoteSupportTransportSendData" && message.messageType === "command"),
       false
@@ -1914,10 +1938,10 @@ test("remote support is view-only and does not send remote control commands", as
   }
 });
 
-test("remote support replays cached requester sidebar snapshots on sidebar channel open and forwards incoming sidebar snapshots to the support page", async () => {
+test("remote support starts requester and supporter sessions with only the page data channel", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
-  const { chromeMock, tabMessages, transportMessages } = createChromeMock();
+  const { chromeMock, transportMessages } = createChromeMock();
   let requestCount = 0;
 
   globalThis.fetch = async () => {
@@ -1927,7 +1951,7 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
         ok: true,
         async json() {
           return {
-            sessionId: "sess_requester_sidebar",
+            sessionId: "sess_requester_page_channel",
             supportCode: "112233",
             expiresAt: "2026-05-24T08:10:00.000Z",
             webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
@@ -1941,7 +1965,7 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
       ok: true,
       async json() {
         return {
-          sessionId: "sess_supporter_sidebar",
+          sessionId: "sess_supporter_page_channel",
           supportCode: "112233",
           expiresAt: "2026-05-24T08:10:00.000Z",
           webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
@@ -1969,68 +1993,7 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
     assert.equal(requestResponse.ok, true);
     assert.deepEqual(
       transportMessages[0].session.dataChannels,
-      [{ key: "page" }, { key: "sidebar" }]
-    );
-
-    const snapshotResponse = await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportUpdateSidebarSnapshot",
-        tabId: 18,
-        snapshot: {
-          active: true,
-          currentView: "Marking",
-          currentPageUrl: "https://example.com/page",
-          summaryRows: [{ label: "Extension", value: "Enabled" }]
-        }
-      },
-      { tab: { id: 18 } }
-    );
-
-    assert.equal(snapshotResponse.ok, true);
-    const sidebarSendCountBeforeChannelOpen = transportMessages.filter(
-      (message) =>
-        message.type === "remoteSupportTransportSendData" &&
-        message.sessionId === "sess_requester_sidebar" &&
-        message.channelKey === "sidebar" &&
-        message.messageType === "sidebar-state"
-    ).length;
-
-    await handleRemoteSupportBackgroundMessage(
-      {
-        type: "remoteSupportTransportEvent",
-        source: "remoteSupportOffscreen",
-        event: {
-          type: "channel-open",
-          sessionId: "sess_requester_sidebar",
-          channelKey: "sidebar"
-        }
-      },
-      {
-        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
-      }
-    );
-
-    const sidebarSendCountAfterChannelOpen = transportMessages.filter(
-      (message) =>
-        message.type === "remoteSupportTransportSendData" &&
-        message.sessionId === "sess_requester_sidebar" &&
-        message.channelKey === "sidebar" &&
-        message.messageType === "sidebar-state"
-    ).length;
-
-    assert.equal(sidebarSendCountAfterChannelOpen > sidebarSendCountBeforeChannelOpen, true);
-    assert.equal(
-      transportMessages.some(
-        (message) =>
-          message.type === "remoteSupportTransportSendData" &&
-          message.sessionId === "sess_requester_sidebar" &&
-          message.channelKey === "sidebar" &&
-          message.messageType === "sidebar-state" &&
-          message.payload &&
-          message.payload.snapshot &&
-          message.payload.snapshot.currentView === "Marking"
-      ),
-      true
+      [{ key: "page" }]
     );
 
     const joinResponse = await handleRemoteSupportBackgroundMessage(
@@ -2045,34 +2008,9 @@ test("remote support replays cached requester sidebar snapshots on sidebar chann
     );
 
     assert.equal(joinResponse.ok, true);
-
-    await handleTransportEvent({
-      type: "incoming-message",
-      sessionId: "sess_supporter_sidebar",
-      channelKey: "sidebar",
-      message: {
-        type: "sidebar-state",
-        payload: {
-          snapshot: {
-            active: true,
-            currentView: "Configuration",
-            currentPageUrl: "https://example.com/remote",
-            summaryRows: [{ label: "Extension", value: "Disabled" }]
-          }
-        }
-      }
-    });
-
-    assert.equal(
-      tabMessages.some(
-        ({ tabId, message }) =>
-          tabId === 77 &&
-          message &&
-          message.type === "remoteSupportSidebarStateChanged" &&
-          message.snapshot &&
-          message.snapshot.currentView === "Configuration"
-      ),
-      true
+    assert.deepEqual(
+      transportMessages[1].session.dataChannels,
+      [{ key: "page" }]
     );
   } finally {
     await terminateRemoteSupportSession("Test cleanup");

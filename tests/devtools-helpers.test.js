@@ -15,6 +15,7 @@ test("devtools source helpers normalize and format known sources", () => {
   assert.equal(formatSourceLabel("worker"), "background worker");
   assert.equal(formatSourceLabel("popup"), "popup.html");
   assert.equal(formatSourceLabel("content"), "page content script");
+  assert.equal(formatSourceLabel("page"), "page scripts");
 });
 
 test("devtools source filter options include all plus known and dynamic sources", () => {
@@ -26,11 +27,11 @@ test("devtools source filter options include all plus known and dynamic sources"
 
   assert.deepEqual(
     options.map((option) => option.value),
-    [DEVTOOLS_SOURCE_FILTER_ALL, "worker", "popup", "content", "extension", "support-page"]
+    [DEVTOOLS_SOURCE_FILTER_ALL, "worker", "popup", "content", "page", "extension", "support-page"]
   );
   assert.deepEqual(
     options.map((option) => option.label),
-    ["All sources", "background worker", "popup.html", "page content script", "extension", "support-page"]
+    ["All sources", "background worker", "popup.html", "page content script", "page scripts", "extension", "support-page"]
   );
 });
 

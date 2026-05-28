@@ -1,0 +1,392 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+const KNOWN_ASSET_EXTENSIONS = new Set([
+  ".css",
+  ".gif",
+  ".html",
+  ".jpeg",
+  ".jpg",
+  ".js",
+  ".json",
+  ".mjs",
+  ".otf",
+  ".png",
+  ".svg",
+  ".ttf",
+  ".webp",
+  ".woff",
+  ".woff2"
+]);
+const JS_EXTENSIONS = new Set([".js", ".mjs"]);
+const HTML_EXTENSIONS = new Set([".html"]);
+const CSS_EXTENSIONS = new Set([".css"]);
+const DEFAULT_RELEASE_TAG = "extension-latest";
+
+function parseArgs(argv) {
+  const args = {};
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      continue;
+    }
+
+    const [rawKey, rawInlineValue] = token.split("=", 2);
+    const key = rawKey.slice(2);
+    if (!key) {
+      continue;
+    }
+
+    if (typeof rawInlineValue === "string") {
+      args[key] = rawInlineValue;
+      continue;
+    }
+
+    const nextToken = argv[index + 1];
+    if (typeof nextToken === "string" && !nextToken.startsWith("--")) {
+      args[key] = nextToken;
+      index += 1;
+      continue;
+    }
+
+    args[key] = true;
+  }
+
+  return args;
+}
+
+function formatTimestamp(date = new Date()) {
+  const year = String(date.getUTCFullYear()).slice(-2);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${year}${month}${day}-${hours}${minutes}`;
+}
+
+function normalizeRelativePath(relativePath) {
+  if (typeof relativePath !== "string") {
+    return "";
+  }
+
+  const normalized = relativePath.replace(/\\/g, "/").trim();
+  if (!normalized || normalized.startsWith("/") || normalized.startsWith("../")) {
+    return "";
+  }
+
+  const resolved = path.posix.normalize(normalized);
+  if (!resolved || resolved === "." || resolved.startsWith("../")) {
+    return "";
+  }
+
+  return resolved;
+}
+
+function isLocalAssetSpecifier(specifier) {
+  if (typeof specifier !== "string") {
+    return false;
+  }
+
+  const trimmedSpecifier = specifier.trim();
+  if (!trimmedSpecifier) {
+    return false;
+  }
+
+  if (
+    trimmedSpecifier.startsWith("#") ||
+    trimmedSpecifier.startsWith("data:") ||
+    trimmedSpecifier.startsWith("javascript:") ||
+    trimmedSpecifier.startsWith("mailto:") ||
+    trimmedSpecifier.startsWith("tel:") ||
+    trimmedSpecifier.includes("://")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function stripQueryAndHash(specifier) {
+  return String(specifier || "").split(/[?#]/, 1)[0];
+}
+
+function hasKnownAssetExtension(specifier) {
+  const extension = path.posix.extname(stripQueryAndHash(specifier)).toLowerCase();
+  return KNOWN_ASSET_EXTENSIONS.has(extension);
+}
+
+function resolveAssetSpecifier(fromRelativePath, specifier) {
+  if (!isLocalAssetSpecifier(specifier) || !hasKnownAssetExtension(specifier)) {
+    return "";
+  }
+
+  const sanitizedSpecifier = stripQueryAndHash(specifier).replace(/^\//, "");
+  const fromDirectory = fromRelativePath ? path.posix.dirname(fromRelativePath) : ".";
+  const candidate = sanitizedSpecifier.startsWith("./") || sanitizedSpecifier.startsWith("../")
+    ? path.posix.normalize(path.posix.join(fromDirectory, sanitizedSpecifier))
+    : path.posix.normalize(sanitizedSpecifier);
+
+  return normalizeRelativePath(candidate);
+}
+
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function isFile(filePath) {
+  try {
+    const stats = await fs.stat(filePath);
+    return stats.isFile();
+  } catch (error) {
+    return false;
+  }
+}
+
+async function collectManifestEntryPoints(manifest) {
+  const entryPoints = new Set(["manifest.json"]);
+
+  if (manifest && manifest.background && typeof manifest.background.service_worker === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.background.service_worker));
+  }
+
+  if (manifest && manifest.action && typeof manifest.action.default_popup === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.action.default_popup));
+  }
+
+  if (typeof manifest.devtools_page === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.devtools_page));
+  }
+
+  if (manifest && manifest.options_ui && typeof manifest.options_ui.page === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.options_ui.page));
+  }
+
+  if (typeof manifest.options_page === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.options_page));
+  }
+
+  if (manifest && manifest.side_panel && typeof manifest.side_panel.default_path === "string") {
+    entryPoints.add(normalizeRelativePath(manifest.side_panel.default_path));
+  }
+
+  for (const contentScript of Array.isArray(manifest.content_scripts) ? manifest.content_scripts : []) {
+    for (const scriptPath of Array.isArray(contentScript && contentScript.js) ? contentScript.js : []) {
+      entryPoints.add(normalizeRelativePath(scriptPath));
+    }
+    for (const stylePath of Array.isArray(contentScript && contentScript.css) ? contentScript.css : []) {
+      entryPoints.add(normalizeRelativePath(stylePath));
+    }
+  }
+
+  for (const iconPath of Object.values(manifest && manifest.icons && typeof manifest.icons === "object" ? manifest.icons : {})) {
+    if (typeof iconPath === "string") {
+      entryPoints.add(normalizeRelativePath(iconPath));
+    }
+  }
+
+  for (const resourceGroup of Array.isArray(manifest.web_accessible_resources) ? manifest.web_accessible_resources : []) {
+    for (const resourcePath of Array.isArray(resourceGroup && resourceGroup.resources) ? resourceGroup.resources : []) {
+      if (typeof resourcePath !== "string" || resourcePath.includes("*")) {
+        continue;
+      }
+      entryPoints.add(normalizeRelativePath(resourcePath));
+    }
+  }
+
+  const normalized = [];
+  for (const candidate of entryPoints) {
+    if (!candidate) {
+      continue;
+    }
+
+    const absolutePath = path.join(REPO_ROOT, candidate);
+    if (await isFile(absolutePath)) {
+      normalized.push(candidate);
+    }
+  }
+
+  return normalized;
+}
+
+async function collectDependencies(relativePath, collectorState) {
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!normalizedPath || collectorState.seenFiles.has(normalizedPath)) {
+    return;
+  }
+
+  const absolutePath = path.join(REPO_ROOT, normalizedPath);
+  if (!(await isFile(absolutePath))) {
+    return;
+  }
+
+  collectorState.seenFiles.add(normalizedPath);
+  collectorState.collectedFiles.add(normalizedPath);
+
+  const extension = path.extname(normalizedPath).toLowerCase();
+  if (!JS_EXTENSIONS.has(extension) && !HTML_EXTENSIONS.has(extension) && !CSS_EXTENSIONS.has(extension)) {
+    return;
+  }
+
+  const source = await fs.readFile(absolutePath, "utf8");
+  let matches = [];
+  if (JS_EXTENSIONS.has(extension)) {
+    matches = collectJsAssetSpecifiers(source, normalizedPath);
+  } else if (HTML_EXTENSIONS.has(extension)) {
+    matches = collectHtmlAssetSpecifiers(source, normalizedPath);
+  } else if (CSS_EXTENSIONS.has(extension)) {
+    matches = collectCssAssetSpecifiers(source, normalizedPath);
+  }
+
+  for (const dependencyPath of matches) {
+    await collectDependencies(dependencyPath, collectorState);
+  }
+}
+
+function collectJsAssetSpecifiers(source, fromRelativePath) {
+  const dependencies = new Set();
+  const importPatterns = [
+    /\bimport\s+(?:[^"'`]+?\s+from\s+)?["']([^"']+)["']/g,
+    /\bexport\s+[^"'`]*?\s+from\s+["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g
+  ];
+  const assetLiteralPattern = /["']([^"'\n\r]+\.(?:css|gif|html|jpeg|jpg|js|json|mjs|otf|png|svg|ttf|webp|woff|woff2))(?:[?#][^"']*)?["']/g;
+
+  for (const pattern of importPatterns) {
+    for (const match of source.matchAll(pattern)) {
+      const resolved = resolveAssetSpecifier(fromRelativePath, match[1]);
+      if (resolved) {
+        dependencies.add(resolved);
+      }
+    }
+  }
+
+  for (const match of source.matchAll(assetLiteralPattern)) {
+    const resolved = resolveAssetSpecifier(fromRelativePath, match[1]);
+    if (resolved) {
+      dependencies.add(resolved);
+    }
+  }
+
+  return [...dependencies];
+}
+
+function collectHtmlAssetSpecifiers(source, fromRelativePath) {
+  const dependencies = new Set();
+  const assetPattern = /\b(?:src|href)=(["'])([^"']+)\1/g;
+
+  for (const match of source.matchAll(assetPattern)) {
+    const resolved = resolveAssetSpecifier(fromRelativePath, match[2]);
+    if (resolved) {
+      dependencies.add(resolved);
+    }
+  }
+
+  return [...dependencies];
+}
+
+function collectCssAssetSpecifiers(source, fromRelativePath) {
+  const dependencies = new Set();
+  const importPattern = /@import\s+(?:url\()?\s*["']?([^"')\s]+)["']?\s*\)?/g;
+  const urlPattern = /url\(\s*["']?([^"')\s]+)["']?\s*\)/g;
+
+  for (const match of source.matchAll(importPattern)) {
+    const resolved = resolveAssetSpecifier(fromRelativePath, match[1]);
+    if (resolved) {
+      dependencies.add(resolved);
+    }
+  }
+
+  for (const match of source.matchAll(urlPattern)) {
+    const resolved = resolveAssetSpecifier(fromRelativePath, match[1]);
+    if (resolved) {
+      dependencies.add(resolved);
+    }
+  }
+
+  return [...dependencies];
+}
+
+async function stageCollectedFiles(collectedFiles, stagingDirectory) {
+  await fs.rm(stagingDirectory, { recursive: true, force: true });
+  await fs.mkdir(stagingDirectory, { recursive: true });
+
+  const sortedFiles = [...collectedFiles].sort((left, right) => left.localeCompare(right));
+  for (const relativePath of sortedFiles) {
+    const sourcePath = path.join(REPO_ROOT, relativePath);
+    const destinationPath = path.join(stagingDirectory, relativePath);
+    await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+    await fs.copyFile(sourcePath, destinationPath);
+  }
+
+  return sortedFiles;
+}
+
+async function writeMetadataFile(metadataFilePath, metadata) {
+  if (!metadataFilePath) {
+    return;
+  }
+
+  await fs.mkdir(path.dirname(metadataFilePath), { recursive: true });
+  await fs.writeFile(metadataFilePath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const manifestPath = path.join(REPO_ROOT, "manifest.json");
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  const version = typeof manifest.version === "string" && manifest.version.trim()
+    ? manifest.version.trim()
+    : "0.0.0";
+  const timestamp = typeof args.timestamp === "string" && args.timestamp.trim()
+    ? args.timestamp.trim()
+    : formatTimestamp();
+  const archiveFileName = `Unfluffify-v${version}-${timestamp}.zip`;
+  const latestAliasFileName = "Unfluffify-latest.zip";
+  const stagingDirectory = path.resolve(
+    REPO_ROOT,
+    typeof args["stage-dir"] === "string" && args["stage-dir"].trim()
+      ? args["stage-dir"]
+      : path.join(".tmp", "extension-package")
+  );
+  const metadataFilePath = typeof args["metadata-file"] === "string" && args["metadata-file"].trim()
+    ? path.resolve(REPO_ROOT, args["metadata-file"])
+    : "";
+
+  const entryPoints = await collectManifestEntryPoints(manifest);
+  const collectorState = {
+    seenFiles: new Set(),
+    collectedFiles: new Set()
+  };
+
+  for (const entryPoint of entryPoints) {
+    await collectDependencies(entryPoint, collectorState);
+  }
+
+  const stagedFiles = await stageCollectedFiles(collectorState.collectedFiles, stagingDirectory);
+  const metadata = {
+    archiveFileName,
+    latestAliasFileName,
+    releaseTag: DEFAULT_RELEASE_TAG,
+    stagedFiles,
+    stageDir: stagingDirectory,
+    timestamp,
+    version
+  };
+
+  await writeMetadataFile(metadataFilePath, metadata);
+  process.stdout.write(`${JSON.stringify(metadata)}\n`);
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

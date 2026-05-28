@@ -41,18 +41,17 @@ This document defines the extension-side remote support implementation and the e
 - Audio tracks are attached to the same peer connection for bidirectional spoken guidance.
 - If camera or microphone capture is denied, the session continues with display sharing and telemetry.
 
-### 3) Sidebar mirror
+### 3) Page telemetry bridge
 
-- The requester popup/side-panel captures the Unfluffify sidebar surface into a sidebar-specific WebRTC data/video path and publishes lightweight sidebar state snapshots.
-- The `/support` page renders the live sidebar mirror next to the main screen and keeps a snapshot fallback for startup or capture gaps.
-- The sidebar mirror is informational only; supporter pointer, scroll, click, and key input is not forwarded to the supportee.
-- The supportee can continue normal marking, highlighting, and sidebar work while the supporter observes.
+- `content-main.js` injects `common/page-telemetry.js` into the page world so actual page scripts can be observed in addition to the extension content script.
+- The injected bridge forwards page-world `console`, `fetch`, and XHR telemetry back through the content script to background with the `page` source label.
+- Payload capture stays disabled by default and follows the same `includePayloads` control flow as the supporting DevTools network panel.
 
-### 4) Telemetry stream
+### 4) Extension telemetry stream
 
 - Console and network telemetry is collected from Unfluffify extension contexts (popup/side panel, content script, and service worker where available) and forwarded to background.
-- Telemetry is labeled by source (`page content script`, `popup.html`, `background worker`, or other extension context) so DevTools tabs can distinguish page/content, popup, and background activity.
-- Support side receives telemetry over data channel and displays it in DevTools panels.
+- Telemetry is labeled by source (`page scripts`, `page content script`, `popup.html`, `background worker`, or other extension context) so DevTools tabs can distinguish page-world, content-script, popup, and background activity.
+- Support side receives telemetry over the page data channel and displays it in DevTools panels.
 
 ## DevTools panels
 
@@ -235,7 +234,7 @@ Server responsibilities:
 
 ### Extension-side telemetry
 
-The Unfluffify Console and Network DevTools panels consume telemetry from extension contexts that can be instrumented safely in MV3: popup/side-panel, content script running on the page, and service worker. Each context installs `installExtensionTelemetry()` to record its own `console`, `fetch`, and XHR activity and forward it through the background relay with a clear source label.
+The Unfluffify Console and Network DevTools panels consume telemetry from popup/side-panel, content script, injected page-world bridge, and service worker contexts. Each context installs `installExtensionTelemetry()` and forwards its own `console`, `fetch`, and XHR activity through the background relay with a clear source label.
 
 ### `includePayloads` gating (three-layer defence)
 
@@ -257,7 +256,7 @@ The "Include payloads" checkbox in the network panel is synchronised with the ac
 
 ### View-only surface guards
 
-Supporter-side surfaces render the shared Chrome window and sidebar information without forwarding `mousemove`, `click`, `wheel`, or `keydown` commands. Background also rejects legacy `remoteSupportSendCommand` and `remoteSupportSetControlOwner` messages so stale UI cannot regain remote-control capability.
+Supporter-side surfaces render the shared Chrome window and media guidance previews without forwarding `mousemove`, `click`, `wheel`, or `keydown` commands. Background also rejects legacy `remoteSupportSendCommand` and `remoteSupportSetControlOwner` messages so stale UI cannot regain remote-control capability.
 
 ### True UTF-8 byte clamping
 

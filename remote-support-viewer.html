@@ -101,56 +101,6 @@
         outline-offset: 2px;
       }
 
-      #viewer-remote-meta {
-        padding: 10px 12px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        background: rgba(8, 13, 22, 0.76);
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
-      }
-
-      body[data-dock-state="embedded_minimized"] #viewer-remote-meta,
-      body[data-dock-state="fullscreen_active"] #viewer-remote-meta {
-        padding: 8px 10px;
-      }
-
-      body[data-dock-state="embedded_minimized"] #viewer-remote-meta dt,
-      body[data-dock-state="fullscreen_active"] #viewer-remote-meta dt {
-        font-size: 9px;
-      }
-
-      body[data-dock-state="embedded_minimized"] #viewer-remote-meta dd,
-      body[data-dock-state="fullscreen_active"] #viewer-remote-meta dd {
-        font-size: 11px;
-      }
-
-      #viewer-remote-meta dl {
-        margin: 0;
-        display: grid;
-        gap: 7px;
-      }
-
-      #viewer-remote-meta div {
-        display: grid;
-        gap: 2px;
-      }
-
-      #viewer-remote-meta dt {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: rgba(185, 206, 235, 0.72);
-      }
-
-      #viewer-remote-meta dd {
-        margin: 0;
-        font-size: 12px;
-        line-height: 1.35;
-        color: #f4f7ff;
-        word-break: break-word;
-      }
-
       #viewer-video,
       #viewer-placeholder {
         position: absolute;
@@ -190,8 +140,6 @@
   <body>
     <video id="viewer-video" autoplay playsinline muted hidden></video>
     <audio id="remote-audio" autoplay></audio>
-    <video id="sidebar-video" autoplay playsinline muted hidden></video>
-    <canvas id="sidebar-canvas" hidden></canvas>
     <aside id="viewer-sidecar" aria-label="Remote support media">
       <div class="viewer-camera-slot">
         <video id="remote-camera-video" autoplay playsinline muted hidden></video>
@@ -205,26 +153,6 @@
         <button id="viewer-open-external" class="viewer-action" type="button">External</button>
         <button id="viewer-end-session" class="viewer-action is-active" type="button">Terminate</button>
       </div>
-      <section id="viewer-remote-meta" aria-label="Remote participant details">
-        <dl>
-          <div>
-            <dt>Name</dt>
-            <dd id="viewer-remote-name">Waiting...</dd>
-          </div>
-          <div>
-            <dt>OS</dt>
-            <dd id="viewer-remote-os">Waiting...</dd>
-          </div>
-          <div>
-            <dt>Chrome</dt>
-            <dd id="viewer-remote-chrome">Waiting...</dd>
-          </div>
-          <div>
-            <dt>Unfluffify</dt>
-            <dd id="viewer-remote-extension">Waiting...</dd>
-          </div>
-        </dl>
-      </section>
     </aside>
     <div id="viewer-placeholder">Waiting for the live remote surface...</div>
     <script type="module" src="remote-support-viewer.js"></script>

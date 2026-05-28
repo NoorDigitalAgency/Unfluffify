@@ -3,7 +3,6 @@ import {
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
-  REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
   REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
@@ -15,9 +14,7 @@ import {
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
   createInactiveRemoteSupportState,
-  createInactiveRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportDockState,
-  normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl
 } from "./remote-support.js";
@@ -106,33 +103,6 @@ function applyRequesterMediaState(runtime, mediaStateLike) {
   return mediaState;
 }
 
-function getExtensionVersion() {
-  if (!chrome || !chrome.runtime || typeof chrome.runtime.getManifest !== "function") {
-    return "";
-  }
-
-  try {
-    const manifest = chrome.runtime.getManifest();
-    return manifest && typeof manifest.version === "string"
-      ? manifest.version.trim()
-      : "";
-  } catch (error) {
-    return "";
-  }
-}
-
-function createRequesterPeerMetadata(runtime) {
-  if (!runtime || !runtime.state) {
-    return null;
-  }
-
-  return {
-    platform: typeof runtime.state.supporteePlatform === "string" ? runtime.state.supporteePlatform : "",
-    userAgent: typeof runtime.state.supporteeUserAgent === "string" ? runtime.state.supporteeUserAgent : "",
-    extensionVersion: getExtensionVersion()
-  };
-}
-
 function hasActiveOffscreenTransportSessions() {
   return Array.from(sessionRuntimes.values()).some(
     (runtime) =>
@@ -177,12 +147,9 @@ function createSessionRuntime({
       includePayloads,
       dockState: REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
       startedAt: Date.now(),
-      supporteePlatform: "",
-      supporteeUserAgent: "",
       error: "",
       lastActivityAt: Date.now()
     }),
-    sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     usesVideoStream: false,
     inactivityIntervalId: 0,
@@ -455,44 +422,6 @@ function broadcastRuntimeState(runtime) {
 
   rememberTabSnapshot(runtime.state.tabId, runtime.state);
   broadcastTabState(runtime.state.tabId);
-}
-
-function broadcastSidebarSnapshot(runtime, snapshotLike = runtime && runtime.sidebarSnapshot) {
-  if (!runtime || runtime.state.tabId === null) {
-    return;
-  }
-
-  const snapshot = normalizeRemoteSupportSidebarSnapshot(snapshotLike);
-  runtime.sidebarSnapshot = snapshot;
-
-  const event = {
-    type: "remoteSupportSidebarStateChanged",
-    snapshot,
-    tabId: runtime.state.tabId,
-    sessionId: runtime.state.sessionId
-  };
-
-  publishRuntimeEvent(event);
-  postRuntimeEventToTab(runtime.state.tabId, event);
-}
-
-async function syncRequesterSidebarSnapshot(runtime) {
-  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    return false;
-  }
-
-  const snapshot = normalizeRemoteSupportSidebarSnapshot(runtime.sidebarSnapshot);
-  runtime.sidebarSnapshot = snapshot;
-  if (!snapshot.active) {
-    return false;
-  }
-
-  return sendDataMessage(
-    runtime,
-    "sidebar-state",
-    { snapshot },
-    REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
-  );
 }
 
 function broadcastConsoleEntry(runtime, entry) {
@@ -1439,14 +1368,6 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
     return;
   }
 
-  if (message.type === "sidebar-state") {
-    runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(
-      message.payload && message.payload.snapshot
-    );
-    broadcastSidebarSnapshot(runtime, runtime.sidebarSnapshot);
-    return;
-  }
-
   if (message.type === "telemetry") {
     const channel = message.payload && message.payload.channel;
     const entry = message.payload && message.payload.entry;
@@ -1548,7 +1469,6 @@ async function deactivateRuntime(runtime, reason) {
 
   clearRuntimeIntervals(runtime);
   clearRuntimeBuffers(runtime);
-  runtime.sidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 
   runtime.state.active = false;
   runtime.state.connected = false;
@@ -1710,8 +1630,6 @@ export async function handleRequestSupportCode(message) {
         throw new Error("Screen sharing was cancelled or unavailable");
       }
       runtime.usesVideoStream = true;
-      runtime.state.supporteePlatform = typeof navigator !== "undefined" && navigator.platform ? navigator.platform : "";
-      runtime.state.supporteeUserAgent = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
       const transportStartResponse = await sendRemoteSupportTransportStartRequest(runtime, {
         sessionId,
         supportCode,
@@ -1722,8 +1640,7 @@ export async function handleRequestSupportCode(message) {
         mediaStreamId: displayCapture.streamId,
         canRequestAudioTrack: displayCapture.canRequestAudioTrack,
         dataChannels: [
-          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
-          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE }
         ]
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
@@ -1849,8 +1766,7 @@ export async function handleJoinSupportSession(message) {
         iceServers,
         remoteParticipantName: typeof payload.partnerIdentity === "string" ? payload.partnerIdentity : "",
         dataChannels: [
-          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE },
-          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR }
+          { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE }
         ]
       });
       assertSuccessfulOffscreenResponse(transportStartResponse, "Failed to start remote support transport");
@@ -1914,25 +1830,6 @@ export async function handleTransportEvent(message) {
       void sendDataMessage(runtime, "control-include-payloads", {
         enabled: Boolean(runtime.state.includePayloads)
       });
-    }
-
-    if (
-      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-      isPrimaryTransportChannelKey(event.channelKey)
-    ) {
-      await sendDataMessage(
-        runtime,
-        "peer-metadata",
-        createRequesterPeerMetadata(runtime),
-        REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
-      );
-    }
-
-    if (
-      runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-      event.channelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
-    ) {
-      await syncRequesterSidebarSnapshot(runtime);
     }
 
     return { ok: true };
@@ -2131,17 +2028,6 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
       ok: true,
       state: getRuntimePublicState(runtime)
     };
-  }
-
-  if (message.type === "remoteSupportUpdateSidebarSnapshot") {
-    const runtime = resolveRuntimeTarget(message, sender);
-    if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-      return { ok: false };
-    }
-
-    runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
-    await syncRequesterSidebarSnapshot(runtime);
-    return { ok: true };
   }
 
   if (message.type === "remoteSupportDismissError") {

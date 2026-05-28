@@ -1,0 +1,180 @@
+name: Build Extension Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-package
+  cancel-in-progress: false
+
+jobs:
+  package-extension:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Stage extension files
+        id: package
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/unfluffify-extension"
+          metadata_path="$work_dir/metadata.json"
+          stage_dir="$work_dir/stage"
+
+          mkdir -p "$work_dir"
+          node ./scripts/package-extension.mjs --stage-dir "$stage_dir" --metadata-file "$metadata_path" > /dev/null
+
+          METADATA_PATH="$metadata_path" node --input-type=module <<'EOF' >> "$GITHUB_OUTPUT"
+          import { readFileSync } from "node:fs";
+
+          const metadata = JSON.parse(readFileSync(process.env.METADATA_PATH, "utf8"));
+          const outputs = {
+            archive_name: metadata.archiveFileName,
+            latest_alias_name: metadata.latestAliasFileName,
+            metadata_path: process.env.METADATA_PATH,
+            release_tag: metadata.releaseTag,
+            stage_dir: metadata.stageDir,
+            timestamp: metadata.timestamp,
+            version: metadata.version
+          };
+
+          for (const [key, value] of Object.entries(outputs)) {
+            process.stdout.write(`${key}=${value}\n`);
+          }
+          EOF
+
+      - name: Create zip archives
+        id: archive
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/unfluffify-extension"
+          archive_path="$work_dir/${{ steps.package.outputs.archive_name }}"
+          latest_alias_path="$work_dir/${{ steps.package.outputs.latest_alias_name }}"
+
+          cd "${{ steps.package.outputs.stage_dir }}"
+          zip -qr "$archive_path" .
+          cp "$archive_path" "$latest_alias_path"
+
+          {
+            echo "archive_path=$archive_path"
+            echo "latest_alias_path=$latest_alias_path"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare latest release
+        id: release
+        uses: actions/github-script@v7
+        env:
+          ARCHIVE_NAME: ${{ steps.package.outputs.archive_name }}
+          EXT_TIMESTAMP: ${{ steps.package.outputs.timestamp }}
+          EXT_VERSION: ${{ steps.package.outputs.version }}
+          LATEST_ALIAS_NAME: ${{ steps.package.outputs.latest_alias_name }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const releaseTag = process.env.RELEASE_TAG;
+            const releaseName = "Latest Extension Package";
+
+            let release;
+            try {
+              const existingRelease = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: releaseTag
+              });
+              release = existingRelease.data;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+
+              const createdRelease = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: releaseTag,
+                name: releaseName,
+                draft: false,
+                prerelease: false,
+                generate_release_notes: false,
+                make_latest: "false"
+              });
+              release = createdRelease.data;
+            }
+
+            const existingAssets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner,
+              repo,
+              release_id: release.id,
+              per_page: 100
+            });
+
+            for (const asset of existingAssets) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner,
+                repo,
+                asset_id: asset.id
+              });
+            }
+
+            const releaseUrl = `https://github.com/${owner}/${repo}/releases/tag/${releaseTag}`;
+            const latestDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${releaseTag}/${process.env.LATEST_ALIAS_NAME}`;
+            const timestampedDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${releaseTag}/${process.env.ARCHIVE_NAME}`;
+            const body = [
+              "Latest automated extension package for Unfluffify.",
+              "",
+              `Version: ${process.env.EXT_VERSION}`,
+              `Built (UTC): ${process.env.EXT_TIMESTAMP}`,
+              "",
+              `Permanent direct download: ${latestDownloadUrl}`,
+              `Release page: ${releaseUrl}`,
+              `Timestamped asset: ${timestampedDownloadUrl}`
+            ].join("\n");
+
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              tag_name: releaseTag,
+              name: releaseName,
+              body,
+              draft: false,
+              prerelease: false,
+              make_latest: "false"
+            });
+
+            core.setOutput("latest_download_url", latestDownloadUrl);
+            core.setOutput("release_url", releaseUrl);
+            core.setOutput("timestamped_download_url", timestampedDownloadUrl);
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.release_tag }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.archive.outputs.archive_path }}
+            ${{ steps.archive.outputs.latest_alias_path }}
+
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Extension Package"
+            echo
+            echo "- Version: ${{ steps.package.outputs.version }}"
+            echo "- Timestamp (UTC): ${{ steps.package.outputs.timestamp }}"
+            echo "- Timestamped asset: [${{ steps.package.outputs.archive_name }}](${{ steps.release.outputs.timestamped_download_url }})"
+            echo "- Permanent download: [${{ steps.package.outputs.latest_alias_name }}](${{ steps.release.outputs.latest_download_url }})"
+            echo "- Release page: [${{ steps.package.outputs.release_tag }}](${{ steps.release.outputs.release_url }})"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -23,6 +23,9 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
   if (options.selfStructuredGroup || options.selfToggleableBoundary) {
     return selfValue;
   }
+  if (options.selfContentBoundary) {
+    return selfValue;
+  }
   const ancestors = Array.isArray(options.ancestors) ? options.ancestors : [];
   const structuredGroupAncestor = ancestors.find(
     (candidate) => candidate && candidate.isStructuredGroup && candidate.value
@@ -36,6 +39,12 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
   if (toggleableAncestor) {
     return toggleableAncestor.value;
   }
+  const contentBoundaryAncestor = ancestors.find(
+    (candidate) => candidate && candidate.isContentBoundary && candidate.value
+  );
+  if (contentBoundaryAncestor) {
+    return contentBoundaryAncestor.value;
+  }
   let broadestMarkableAncestor = null;
   ancestors.forEach((candidate) => {
     if (candidate && candidate.isMarkable && candidate.value) {
@@ -48,7 +57,19 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
 export function isValidExpandedExclusionBoundary(options = {}) {
   const hasDirectOwnText = Boolean(options.hasDirectOwnText);
   const hasDirectTextualBoundary = Boolean(options.hasDirectTextualBoundary);
-  return hasDirectOwnText || hasDirectTextualBoundary;
+  const qualifyingChildBoundaryCount = Math.max(
+    0,
+    Math.trunc(Number(options.qualifyingChildBoundaryCount) || 0)
+  );
+  const hasOnlyLayoutWrapperChain = Boolean(options.hasOnlyLayoutWrapperChain);
+  const hasMixedSiblingContent = Boolean(options.hasMixedSiblingContent);
+  if (hasDirectOwnText || hasDirectTextualBoundary) {
+    return true;
+  }
+  if (hasOnlyLayoutWrapperChain || hasMixedSiblingContent) {
+    return false;
+  }
+  return qualifyingChildBoundaryCount >= 2;
 }
 
 export function shouldBlockExpandedExclusionRoot(options = {}) {

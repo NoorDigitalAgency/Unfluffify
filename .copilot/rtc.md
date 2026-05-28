@@ -8,7 +8,7 @@ RTC = rolling task context.
 - Support-page pointer mapping remains available for visual cursor positioning only; supporter input is not forwarded to the supportee.
 - Popup remote-support view removed stale remote-control handlers and control-owner copy to align with enforced view-only behavior.
 - Support-page frame updates are throttled/debounced at the image sink instead of forcing a full page rerender for every incoming frame.
-- Supportee sidebar simulation is wired end-to-end as an observational mirror: popup view-state snapshots -> background cache/replay -> `sidebar` RTC channel -> supporter `/support` nested sidebar card.
+- Page-world telemetry is wired end-to-end through the injected `common/page-telemetry.js` bridge: page scripts -> content bridge -> background relay -> local/remote DevTools panels.
 - Offscreen transport guards against stale same-key channel replacement: the new channel is registered before the old one is closed, and stale `onclose` / `onerror` events are ignored so a healthy peer connection does not self-terminate.
 - Remote page reflection now requests Chrome-window display sharing first, keeps tab capture only as a compatibility fallback, and renders the shared stream in the supporter viewer iframe.
 - Both peers attempt camera/microphone tracks for bidirectional guidance; denied camera/mic permissions produce warnings but do not stop display sharing.
@@ -17,4 +17,4 @@ RTC = rolling task context.
 
 ## Remaining Gaps
 
-- Live browser validation is still needed for permission prompts, real Chrome-window selection, camera/microphone playback, navigation, sidebar sync, telemetry, and teardown.
+- Live browser validation is still needed for permission prompts, real Chrome-window selection, camera/microphone playback, navigation, page telemetry, and teardown.

@@ -28,11 +28,8 @@ import {
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
 import {
-  createInactiveRemoteSupportSidebarSnapshot,
-  normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
   REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
-  REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   formatRemoteSupportCountdown,
   normalizeRemoteSupportDockState
@@ -192,6 +189,9 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_FALLBACK_ID = "unfluffify-support-page-fallbac
 const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_FRAME_ID = "uf-support-page-viewer";
 const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_PATH = "remote-support-viewer.html";
 const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS = 10000;
+const PAGE_TELEMETRY_SCRIPT_ID = "unfluffify-page-telemetry-script";
+const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
+const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
@@ -199,7 +199,6 @@ let remoteSupportIncludePayloads = false;
 let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
-let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 let remoteSupportSupportPageLastFrame = "";
 let remoteSupportSupportPageRenderedFrame = "";
 let remoteSupportSupportPageElements = null;
@@ -212,14 +211,10 @@ let remoteSupportSupportPageViewerIntrinsicWidth = 0;
 let remoteSupportSupportPageViewerIntrinsicHeight = 0;
 let remoteSupportSupportPageViewerVideoActive = false;
 let remoteSupportSupportPageFullscreenActive = false;
-let remoteSupportSupportPageSidebarLastFrame = "";
-let remoteSupportSupportPageSidebarIntrinsicWidth = 0;
-let remoteSupportSupportPageSidebarIntrinsicHeight = 0;
 let remoteSupportMediaQuietingActive = false;
 let remoteSupportMediaQuietObserver = null;
 const remoteSupportQuietedMediaElements = new Map();
-let remoteSupportSupportPageSidebarVideoActive = false;
-let remoteSupportSupportPageSidebarFrameVersion = 0;
+let pageTelemetryBridgeListenerBound = false;
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
@@ -316,17 +311,6 @@ function updateRemoteSupportSupportPageViewerVideoState({ active = false, width 
   syncRemoteSupportSupportPageFrame();
 }
 
-function updateRemoteSupportSupportPageSidebarVideoState({ active = false, width = 0, height = 0 } = {}) {
-  remoteSupportSupportPageSidebarVideoActive = Boolean(active);
-  remoteSupportSupportPageSidebarIntrinsicWidth = Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0;
-  remoteSupportSupportPageSidebarIntrinsicHeight = Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0;
-  if (!remoteSupportSupportPageSidebarVideoActive) {
-    remoteSupportSupportPageSidebarLastFrame = "";
-    clearRemoteSupportSupportPageSidebarCanvas();
-  }
-  renderRemoteSupportSupportPageSidebar();
-}
-
 function isRemoteSupportFrameBitmap(value) {
   return Boolean(
     value &&
@@ -349,87 +333,6 @@ function closeRemoteSupportFrameBitmap(bitmap) {
   }
 }
 
-function clearRemoteSupportSupportPageSidebarCanvas() {
-  const elements = remoteSupportSupportPageElements;
-  const canvas = elements && elements.sidebarFrame;
-  if (!canvas || typeof canvas.getContext !== "function") {
-    return;
-  }
-
-  const context = canvas.getContext("2d", { alpha: false });
-  if (context) {
-    context.clearRect(0, 0, canvas.width || 1, canvas.height || 1);
-  }
-}
-
-function drawRemoteSupportSupportPageSidebarFrameSource(source, width, height) {
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  const canvas = elements && elements.sidebarFrame;
-  if (!canvas || typeof canvas.getContext !== "function") {
-    closeRemoteSupportFrameBitmap(source);
-    return false;
-  }
-
-  const frameWidth = Math.max(1, Math.trunc(Number(width) || Number(source && source.width) || remoteSupportSupportPageSidebarIntrinsicWidth || 1));
-  const frameHeight = Math.max(1, Math.trunc(Number(height) || Number(source && source.height) || remoteSupportSupportPageSidebarIntrinsicHeight || 1));
-  if (canvas.width !== frameWidth) {
-    canvas.width = frameWidth;
-  }
-  if (canvas.height !== frameHeight) {
-    canvas.height = frameHeight;
-  }
-
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context) {
-    closeRemoteSupportFrameBitmap(source);
-    return false;
-  }
-
-  try {
-    context.clearRect(0, 0, frameWidth, frameHeight);
-    context.drawImage(source, 0, 0, frameWidth, frameHeight);
-    remoteSupportSupportPageSidebarIntrinsicWidth = frameWidth;
-    remoteSupportSupportPageSidebarIntrinsicHeight = frameHeight;
-    remoteSupportSupportPageSidebarLastFrame = "live";
-    renderRemoteSupportSupportPageSidebar();
-    return true;
-  } catch (error) {
-    return false;
-  } finally {
-    closeRemoteSupportFrameBitmap(source);
-  }
-}
-
-function drawRemoteSupportSupportPageSidebarFrame(message) {
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  const width = Number.isFinite(Number(message.width)) ? Math.max(0, Math.trunc(Number(message.width))) : 0;
-  const height = Number.isFinite(Number(message.height)) ? Math.max(0, Math.trunc(Number(message.height))) : 0;
-  const frameVersion = (remoteSupportSupportPageSidebarFrameVersion += 1);
-
-  if (isRemoteSupportFrameBitmap(message.bitmap)) {
-    drawRemoteSupportSupportPageSidebarFrameSource(message.bitmap, width, height);
-    return;
-  }
-
-  const dataUrl = typeof message.dataUrl === "string" ? message.dataUrl : "";
-  if (!dataUrl) {
-    return;
-  }
-
-  const image = new Image();
-  image.onload = () => {
-    if (remoteSupportSupportPageSidebarFrameVersion !== frameVersion) {
-      return;
-    }
-
-    drawRemoteSupportSupportPageSidebarFrameSource(image, width, height);
-  };
-  image.src = dataUrl;
-}
-
 function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote support viewer unavailable") {
   if (remoteSupportSupportPageViewerPort) {
     try {
@@ -445,9 +348,6 @@ function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote su
   resolveRemoteSupportSupportPageViewerWaiters(false);
   clearRemoteSupportSupportPageViewerPendingRequests(errorMessage);
   updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
-  remoteSupportSupportPageSidebarLastFrame = "";
-  clearRemoteSupportSupportPageSidebarCanvas();
-  updateRemoteSupportSupportPageSidebarVideoState({ active: false, width: 0, height: 0 });
 }
 
 function handleRemoteSupportSupportPageViewerPortMessage(event) {
@@ -506,19 +406,6 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
       // Ignore transport event delivery failures while the background reloads.
     });
     return;
-  }
-
-  if (message.type === "sidebar-video-state") {
-    updateRemoteSupportSupportPageSidebarVideoState({
-      active: Boolean(message.active),
-      width: message.width,
-      height: message.height
-    });
-    return;
-  }
-
-  if (message.type === "sidebar-frame") {
-    drawRemoteSupportSupportPageSidebarFrame(message);
   }
 }
 
@@ -777,7 +664,88 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
     stopRemoteSupportMediaQuieting();
   }
 
+  syncPageTelemetryControl();
   syncRemoteSupportTerminateButton();
+}
+
+function forwardPageTelemetryMessage(message) {
+  if (
+    !message ||
+    typeof message !== "object" ||
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.sendMessage !== "function"
+  ) {
+    return;
+  }
+
+  Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => {});
+}
+
+function handlePageTelemetryWindowMessage(event) {
+  if (!event || event.source !== window) {
+    return;
+  }
+
+  const data = event.data && typeof event.data === "object" ? event.data : null;
+  if (!data || data.__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER) {
+    return;
+  }
+
+  const message = data.message && typeof data.message === "object" ? data.message : null;
+  if (!message || message.type !== "remoteSupportExtensionTelemetry") {
+    return;
+  }
+
+  forwardPageTelemetryMessage(message);
+}
+
+function syncPageTelemetryControl() {
+  if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+    return;
+  }
+
+  window.postMessage({
+    __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
+    includePayloads: remoteSupportIncludePayloads
+  }, "*");
+}
+
+function ensurePageTelemetryBridge() {
+  if (
+    typeof window === "undefined" ||
+    typeof document !== "object" ||
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getURL !== "function"
+  ) {
+    return;
+  }
+
+  if (!pageTelemetryBridgeListenerBound) {
+    window.addEventListener("message", handlePageTelemetryWindowMessage);
+    pageTelemetryBridgeListenerBound = true;
+  }
+
+  const existingScript = document.getElementById(PAGE_TELEMETRY_SCRIPT_ID);
+  if (existingScript) {
+    syncPageTelemetryControl();
+    return;
+  }
+
+  const parent = document.head || document.documentElement;
+  if (!parent || typeof document.createElement !== "function") {
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.id = PAGE_TELEMETRY_SCRIPT_ID;
+  script.type = "module";
+  script.src = chrome.runtime.getURL("common/page-telemetry.js");
+  script.addEventListener("load", () => {
+    syncPageTelemetryControl();
+  }, { once: true });
+  parent.appendChild(script);
 }
 
 async function syncRemoteSupportSessionStateFromBackground() {
@@ -982,7 +950,6 @@ function ensureRemoteSupportSupportPageStyles() {
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__hero,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__connect-card,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__sidebar-card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__caption {
       display: none;
     }
@@ -1002,8 +969,7 @@ function ensureRemoteSupportSupportPageStyles() {
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
       min-width: 0;
     }
 
@@ -1014,8 +980,7 @@ function ensureRemoteSupportSupportPageStyles() {
       justify-self: center;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-card {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
       width: min(360px, 100%);
       justify-self: start;
     }
@@ -1212,200 +1177,6 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__notice-dismiss:focus-visible {
       outline: 2px solid #ffffff;
       outline-offset: 2px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-sim {
-      display: grid;
-      gap: 14px;
-      min-height: 240px;
-      margin-top: 12px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-surface {
-      position: relative;
-      display: block;
-      min-height: 240px;
-      overflow: hidden;
-      border-radius: 20px;
-      border: 1px solid rgba(143, 177, 222, 0.14);
-      background: rgba(13, 22, 36, 0.92);
-      outline: none;
-      cursor: default;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-surface.is-disabled {
-      cursor: not-allowed;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder-surface {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-frame {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      display: block;
-      width: auto;
-      height: auto;
-      max-width: 100%;
-      max-height: 100%;
-      transform: translate(-50%, -50%);
-      background: #04080f;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-frame[hidden],
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder-surface[hidden] {
-      display: none;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder-surface {
-      display: grid;
-      place-items: center;
-      padding: 20px;
-      text-align: center;
-      color: #b7c6dd;
-      line-height: 1.6;
-      overflow: auto;
-      background:
-        radial-gradient(circle at top, rgba(108, 169, 255, 0.14), transparent 34%),
-        linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(7, 12, 20, 0.98));
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder-surface.has-snapshot {
-      display: block;
-      padding: 12px;
-      text-align: left;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-caption {
-      margin: 0;
-      color: #9eb4d2;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-shell {
-      display: grid;
-      gap: 14px;
-      padding: 16px;
-      border-radius: 20px;
-      background: rgba(13, 22, 36, 0.92);
-      border: 1px solid rgba(143, 177, 222, 0.14);
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-title {
-      margin: 0;
-      color: #ffffff;
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(108, 169, 255, 0.16);
-      color: #9dc7ff;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-details {
-      display: grid;
-      gap: 10px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail {
-      display: grid;
-      gap: 4px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail-label,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-section-title {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #7ea4d4;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-detail-value {
-      color: #e8edf6;
-      font-size: 13px;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-rows,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-sections {
-      display: grid;
-      gap: 10px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-      font-size: 13px;
-      line-height: 1.45;
-      color: #b7c6dd;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-row strong {
-      color: #e8edf6;
-      font-weight: 600;
-      text-align: right;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-status-list,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-list {
-      display: grid;
-      gap: 8px;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-status-list li,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-list li {
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(108, 169, 255, 0.08);
-      border: 1px solid rgba(143, 177, 222, 0.1);
-      color: #d8e3f2;
-      font-size: 13px;
-      line-height: 1.45;
-      word-break: break-word;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-placeholder {
-      display: grid;
-      place-items: center;
-      min-height: 180px;
-      padding: 20px;
-      border-radius: 20px;
-      border: 1px dashed rgba(143, 177, 222, 0.22);
-      background: rgba(13, 22, 36, 0.6);
-      color: #b7c6dd;
-      text-align: center;
-      line-height: 1.6;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__caption {
@@ -1673,16 +1444,6 @@ function ensureRemoteSupportSupportPageUi() {
               <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
             </div>
           </div>
-          <div class="uf-support-page__card uf-support-page__sidebar-card" hidden data-uf-extension-ui="true">
-            <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Supportee sidebar</div>
-            <div id="uf-support-page-sidebar-sim" class="uf-support-page__sidebar-sim" data-uf-extension-ui="true">
-              <div id="uf-support-page-sidebar-surface" class="uf-support-page__sidebar-surface is-disabled" tabindex="-1" aria-disabled="true" data-uf-extension-ui="true">
-                <canvas id="uf-support-page-sidebar-frame" class="uf-support-page__sidebar-frame" hidden data-uf-extension-ui="true"></canvas>
-                <div id="uf-support-page-sidebar-placeholder" class="uf-support-page__sidebar-placeholder-surface" data-uf-extension-ui="true"></div>
-              </div>
-              <p class="uf-support-page__sidebar-caption" data-uf-extension-ui="true">Live supportee Unfluffify sidebar information appears here. Remote control is disabled.</p>
-            </div>
-          </div>
         </section>
       </div>
     `;
@@ -1697,10 +1458,6 @@ function ensureRemoteSupportSupportPageUi() {
       endButton: null,
       passiveState: root.querySelector("#uf-support-page-passive-state"),
       fullscreenButton: root.querySelector("#uf-support-page-fullscreen"),
-      sidebarSimulation: root.querySelector("#uf-support-page-sidebar-sim"),
-      sidebarSurface: root.querySelector("#uf-support-page-sidebar-surface"),
-      sidebarFrame: root.querySelector("#uf-support-page-sidebar-frame"),
-      sidebarPlaceholder: root.querySelector("#uf-support-page-sidebar-placeholder"),
       surface: root.querySelector("#uf-support-page-surface"),
       viewer: root.querySelector("#uf-support-page-viewer"),
       frame: root.querySelector("#uf-support-page-frame"),
@@ -1721,217 +1478,9 @@ function ensureRemoteSupportSupportPageUi() {
     remoteSupportSupportPageElements.surface.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
-
-    remoteSupportSupportPageElements.sidebarSurface.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-    });
   }
 
   return remoteSupportSupportPageElements;
-}
-
-function createRemoteSupportSupportPageTextNode(tagName, className, text) {
-  const node = document.createElement(tagName);
-  node.className = className;
-  node.setAttribute("data-uf-extension-ui", "true");
-  node.textContent = text;
-  return node;
-}
-
-function appendRemoteSupportSupportPageSidebarDetail(parent, label, value) {
-  if (!value) {
-    return;
-  }
-
-  const detail = document.createElement("div");
-  detail.className = "uf-support-page__sidebar-detail";
-  detail.setAttribute("data-uf-extension-ui", "true");
-  detail.append(
-    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-detail-label", label),
-    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-detail-value", value)
-  );
-  parent.appendChild(detail);
-}
-
-function appendRemoteSupportSupportPageSidebarSection(parent, title, items) {
-  if (!Array.isArray(items) || !items.length) {
-    return;
-  }
-
-  const section = document.createElement("section");
-  section.className = "uf-support-page__sidebar-section";
-  section.setAttribute("data-uf-extension-ui", "true");
-  section.appendChild(
-    createRemoteSupportSupportPageTextNode("div", "uf-support-page__sidebar-section-title", title)
-  );
-
-  const list = document.createElement("ul");
-  list.className = "uf-support-page__sidebar-list";
-  list.setAttribute("data-uf-extension-ui", "true");
-  items.forEach((item) => {
-    const listItem = createRemoteSupportSupportPageTextNode("li", "", item);
-    list.appendChild(listItem);
-  });
-
-  section.appendChild(list);
-  parent.appendChild(section);
-}
-
-function replaceRemoteSupportSupportPageChildren(parent, children = []) {
-  if (!parent) {
-    return;
-  }
-
-  parent.textContent = "";
-  children.forEach((child) => {
-    if (child) {
-      parent.appendChild(child);
-    }
-  });
-}
-
-function setRemoteSupportSupportPageSidebarPlaceholderText(placeholder, text) {
-  if (!placeholder) {
-    return;
-  }
-
-  placeholder.classList.remove("has-snapshot");
-  placeholder.textContent = text;
-}
-
-function renderRemoteSupportSupportPageSidebarSnapshot(placeholder, snapshot) {
-  if (!placeholder) {
-    return;
-  }
-
-  placeholder.classList.add("has-snapshot");
-
-  const shell = document.createElement("div");
-  shell.className = "uf-support-page__sidebar-shell";
-  shell.setAttribute("data-uf-extension-ui", "true");
-
-  const header = document.createElement("div");
-  header.className = "uf-support-page__sidebar-header";
-  header.setAttribute("data-uf-extension-ui", "true");
-  header.append(
-    createRemoteSupportSupportPageTextNode("h3", "uf-support-page__sidebar-title", "Unfluffify sidebar"),
-    createRemoteSupportSupportPageTextNode("span", "uf-support-page__sidebar-pill", snapshot.currentView || "Live")
-  );
-  shell.appendChild(header);
-
-  const details = document.createElement("div");
-  details.className = "uf-support-page__sidebar-details";
-  details.setAttribute("data-uf-extension-ui", "true");
-  appendRemoteSupportSupportPageSidebarDetail(details, "Page", snapshot.currentPageUrl);
-  appendRemoteSupportSupportPageSidebarDetail(details, "Base URL", snapshot.currentBaseUrl);
-  appendRemoteSupportSupportPageSidebarDetail(details, "Mode", snapshot.renderModeValue);
-  if (details.children.length) {
-    shell.appendChild(details);
-  }
-
-  const statusItems = [
-    snapshot.remoteSupportStatusText,
-    snapshot.pageDraftStatusText,
-    snapshot.syncLoadStatusText,
-    snapshot.syncSaveStatusText,
-    ...snapshot.notices
-  ].filter(Boolean);
-  if (statusItems.length) {
-    const statusList = document.createElement("ul");
-    statusList.className = "uf-support-page__sidebar-status-list";
-    statusList.setAttribute("data-uf-extension-ui", "true");
-    statusItems.forEach((item) => {
-      statusList.appendChild(createRemoteSupportSupportPageTextNode("li", "", item));
-    });
-    shell.appendChild(statusList);
-  }
-
-  if (Array.isArray(snapshot.summaryRows) && snapshot.summaryRows.length) {
-    const rows = document.createElement("div");
-    rows.className = "uf-support-page__sidebar-rows";
-    rows.setAttribute("data-uf-extension-ui", "true");
-    snapshot.summaryRows.forEach((row) => {
-      const label = row && typeof row.label === "string" ? row.label : "";
-      const value = row && typeof row.value === "string" ? row.value : "";
-      if (!label && !value) {
-        return;
-      }
-
-      const rowNode = document.createElement("div");
-      rowNode.className = "uf-support-page__sidebar-row";
-      rowNode.setAttribute("data-uf-extension-ui", "true");
-      rowNode.append(
-        createRemoteSupportSupportPageTextNode("span", "", label),
-        createRemoteSupportSupportPageTextNode("strong", "", value)
-      );
-      rows.appendChild(rowNode);
-    });
-    if (rows.children.length) {
-      shell.appendChild(rows);
-    }
-  }
-
-  const sections = document.createElement("div");
-  sections.className = "uf-support-page__sidebar-sections";
-  sections.setAttribute("data-uf-extension-ui", "true");
-  appendRemoteSupportSupportPageSidebarSection(sections, "Marked pages", snapshot.markedPages);
-  appendRemoteSupportSupportPageSidebarSection(sections, "Page type groups", snapshot.pageTypeGroups);
-  if (sections.children.length) {
-    shell.appendChild(sections);
-  }
-
-  if (shell.children.length <= 1) {
-    shell.appendChild(
-      createRemoteSupportSupportPageTextNode(
-        "div",
-        "uf-support-page__sidebar-placeholder",
-        "Sidebar state is connected. Waiting for live video frames from the requester side panel."
-      )
-    );
-  }
-
-  replaceRemoteSupportSupportPageChildren(placeholder, [shell]);
-}
-
-function renderRemoteSupportSupportPageSidebar() {
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.sidebarSurface || !elements.sidebarFrame || !elements.sidebarPlaceholder) {
-    return;
-  }
-
-  const snapshot = normalizeRemoteSupportSidebarSnapshot(remoteSupportSupportPageSidebarSnapshot);
-  const hasLiveSidebar = Boolean(remoteSupportSupportPageSidebarVideoActive && remoteSupportSupportPageSidebarLastFrame);
-  elements.sidebarSurface.classList.add("is-disabled");
-  elements.sidebarSurface.setAttribute("aria-disabled", "true");
-  elements.sidebarSurface.tabIndex = -1;
-
-  if (hasLiveSidebar) {
-    elements.sidebarFrame.hidden = false;
-    elements.sidebarPlaceholder.hidden = true;
-    return;
-  }
-
-  elements.sidebarFrame.hidden = true;
-  clearRemoteSupportSupportPageSidebarCanvas();
-  elements.sidebarPlaceholder.hidden = false;
-
-  if (!remoteSupportSupportPageState.active) {
-    setRemoteSupportSupportPageSidebarPlaceholderText(
-      elements.sidebarPlaceholder,
-      "Join a support session to mirror the supportee's Unfluffify sidebar here."
-    );
-    return;
-  }
-
-  if (snapshot.active) {
-    renderRemoteSupportSupportPageSidebarSnapshot(elements.sidebarPlaceholder, snapshot);
-    return;
-  }
-
-  setRemoteSupportSupportPageSidebarPlaceholderText(
-    elements.sidebarPlaceholder,
-    "Waiting for the requester to publish a live Unfluffify sidebar surface. Open the Unfluffify side panel on the requester tab if it is not already open."
-  );
 }
 
 function syncRemoteSupportSupportPageFrame() {
@@ -2013,7 +1562,6 @@ function renderRemoteSupportSupportPage() {
   elements.surface.setAttribute("aria-disabled", "true");
   elements.surface.tabIndex = -1;
   syncRemoteSupportSupportPageViewerVisibility();
-  renderRemoteSupportSupportPageSidebar();
 
   scheduleRemoteSupportSupportPageFrameRender({ immediate: true });
 }
@@ -2024,12 +1572,8 @@ function applyRemoteSupportSupportPageState(nextState) {
     remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
   }
   if (!remoteSupportSupportPageState.active) {
-    remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
-    remoteSupportSupportPageSidebarLastFrame = "";
-    clearRemoteSupportSupportPageSidebarCanvas();
     updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
-    updateRemoteSupportSupportPageSidebarVideoState({ active: false, width: 0, height: 0 });
     remoteSupportSupportPageFullscreenActive = false;
   }
   renderRemoteSupportSupportPage();
@@ -5724,6 +5268,7 @@ export function main() {
     source: "content",
     getIncludePayloads: () => remoteSupportIncludePayloads
   });
+  ensurePageTelemetryBridge();
 
   initializeRemoteSupportSupportPage();
   syncRemoteSupportSessionStateFromBackground().then();
@@ -5883,21 +5428,6 @@ export function main() {
         ? message.frame
         : (message.frame && typeof message.frame.dataUrl === "string" ? message.frame.dataUrl : "");
       scheduleRemoteSupportSupportPageFrameRender();
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (isRemoteSupportSupportPage() && message.type === "remoteSupportSidebarStateChanged") {
-      if (
-        Number.isFinite(remoteSupportSupportPageTabId) &&
-        Number.isFinite(message.tabId) &&
-        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
-      ) {
-        return;
-      }
-
-      remoteSupportSupportPageSidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
-      renderRemoteSupportSupportPageSidebar();
       sendResponse({ ok: true });
       return;
     }

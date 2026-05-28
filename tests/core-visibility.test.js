@@ -399,6 +399,141 @@ test("parent marking allows a text-bearing ancestor with one direct textual chil
   });
 });
 
+test("parent marking inherits a cohesive section boundary through wrapper chains", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const heading = createElement({
+      tagName: "h2",
+      text: "Lediga jobb",
+      rect: { top: 40, right: 340, bottom: 80, left: 20, width: 320, height: 40 }
+    });
+    const intro = createElement({
+      tagName: "p",
+      text: "Nedan publiceras några av våra senaste uppdrag.",
+      rect: { top: 90, right: 420, bottom: 140, left: 20, width: 400, height: 50 }
+    });
+    const cta = createElement({
+      tagName: "a",
+      text: "Se fler lediga jobb",
+      rect: { top: 150, right: 260, bottom: 190, left: 20, width: 240, height: 40 }
+    });
+    const headerBlock = createElement({
+      children: [heading, intro, cta],
+      rect: { top: 30, right: 700, bottom: 210, left: 10, width: 690, height: 180 }
+    });
+    const card1 = createElement({
+      tagName: "article",
+      children: [
+        createElement({ tagName: "h3", text: "Norge", rect: { top: 260, right: 180, bottom: 290, left: 20, width: 160, height: 30 } }),
+        createElement({ tagName: "p", text: "Lediga uppdrag som lakare pa sjukhus", rect: { top: 295, right: 360, bottom: 340, left: 20, width: 340, height: 45 } })
+      ],
+      rect: { top: 240, right: 380, bottom: 360, left: 10, width: 370, height: 120 }
+    });
+    const card2 = createElement({
+      tagName: "article",
+      children: [
+        createElement({ tagName: "h3", text: "Danmark", rect: { top: 260, right: 580, bottom: 290, left: 410, width: 170, height: 30 } }),
+        createElement({ tagName: "p", text: "Rontgensjukskoterskor till uppdrag i Danmark", rect: { top: 295, right: 760, bottom: 340, left: 410, width: 350, height: 45 } })
+      ],
+      rect: { top: 240, right: 780, bottom: 360, left: 400, width: 380, height: 120 }
+    });
+    const listBlock = createElement({
+      children: [card1, card2],
+      rect: { top: 220, right: 820, bottom: 380, left: 0, width: 820, height: 160 }
+    });
+    const sectionContent = createElement({
+      children: [headerBlock, listBlock],
+      rect: { top: 20, right: 840, bottom: 400, left: 0, width: 840, height: 380 }
+    });
+    const container = createElement({
+      children: [sectionContent],
+      rect: { top: 10, right: 860, bottom: 420, left: 0, width: 860, height: 410 }
+    });
+    const padding = createElement({
+      children: [container],
+      rect: { top: 0, right: 880, bottom: 440, left: 0, width: 880, height: 440 }
+    });
+    const section = createElement({
+      parentElement: body,
+      children: [padding],
+      rect: { top: 0, right: 900, bottom: 460, left: 0, width: 900, height: 460 }
+    });
+    const sibling = createElement({
+      parentElement: body,
+      text: "Sibling content",
+      rect: { top: 500, right: 320, bottom: 540, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(section, sibling);
+    body.childNodes.push(section, sibling);
+    globalThis.document.elementsFromPoint = () => [heading, headerBlock, sectionContent, container, padding, section, body, documentElement];
+
+    assert.equal(
+      isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
+      true
+    );
+  });
+});
+
+test("parent marking rejects inherited wrapper chains whose first branch mixes content and media", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const heading = createElement({
+      tagName: "h2",
+      text: "Vardbemanning och bemanning inom omsorg",
+      rect: { top: 40, right: 420, bottom: 80, left: 20, width: 400, height: 40 }
+    });
+    const bodyText = createElement({
+      tagName: "p",
+      text: "Bonliva ar ledande inom svensk vardbemanning och omsorgsbemanning.",
+      rect: { top: 90, right: 520, bottom: 150, left: 20, width: 500, height: 60 }
+    });
+    const contentBlock = createElement({
+      children: [heading, bodyText],
+      rect: { top: 30, right: 620, bottom: 180, left: 10, width: 610, height: 150 }
+    });
+    const image = createElement({
+      tagName: "img",
+      rect: { top: 40, right: 860, bottom: 260, left: 660, width: 200, height: 220 }
+    });
+    const imageWrapper = createElement({
+      children: [image],
+      rect: { top: 20, right: 880, bottom: 280, left: 640, width: 240, height: 260 }
+    });
+    const grid = createElement({
+      children: [contentBlock, imageWrapper],
+      rect: { top: 10, right: 900, bottom: 300, left: 0, width: 900, height: 290 }
+    });
+    const paddingLarge = createElement({
+      children: [grid],
+      rect: { top: 0, right: 920, bottom: 320, left: 0, width: 920, height: 320 }
+    });
+    const container = createElement({
+      children: [paddingLarge],
+      rect: { top: 0, right: 940, bottom: 340, left: 0, width: 940, height: 340 }
+    });
+    const padding = createElement({
+      children: [container],
+      rect: { top: 0, right: 960, bottom: 360, left: 0, width: 960, height: 360 }
+    });
+    const section = createElement({
+      parentElement: body,
+      children: [padding],
+      rect: { top: 0, right: 980, bottom: 380, left: 0, width: 980, height: 380 }
+    });
+    const sibling = createElement({
+      parentElement: body,
+      text: "Sibling content",
+      rect: { top: 420, right: 320, bottom: 460, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(section, sibling);
+    body.childNodes.push(section, sibling);
+    globalThis.document.elementsFromPoint = () => [heading, contentBlock, grid, paddingLarge, container, padding, section, body, documentElement];
+
+    assert.equal(
+      isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
+      false
+    );
+  });
+});
+
 test("parent marking blocks body and the sole visual body wrapper", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const textBlock = createElement({

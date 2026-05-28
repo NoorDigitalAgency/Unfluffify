@@ -1,7 +1,6 @@
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
-  REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
   REMOTE_SUPPORT_PORT_TRANSPORT
 } from "./common/remote-support.js";
@@ -9,9 +8,6 @@ import {
 const REMOTE_SUPPORT_TRANSPORT_TARGET = "remoteSupportOffscreen";
 const REMOTE_SUPPORT_CHUNK_MESSAGE_TYPE = "__remoteSupportChunk";
 const REMOTE_SUPPORT_FALLBACK_MAX_MESSAGE_SIZE_BYTES = 64 * 1024;
-const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
-const REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH = 420;
-const REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT = 760;
 const REMOTE_SUPPORT_SESSION_END_GRACE_MS = 400;
 const REMOTE_SUPPORT_VIDEO_MAX_FRAME_RATE = 60;
 const REMOTE_SUPPORT_CAMERA_PREVIEW_MAX_WIDTH = 200;
@@ -25,7 +21,6 @@ const dataChannelTextEncoder = new TextEncoder();
 let keepAlivePort = null;
 let keepAliveReconnectTimer = 0;
 let nextChunkTransferId = 0;
-let sidebarStreamChannel = null;
 let popupPreviewBroadcastChannel = null;
 
 function normalizeTabId(value) {
@@ -65,31 +60,6 @@ function normalizeTransportStateValue(value) {
   return isNonEmptyString(value) ? value.trim() : "";
 }
 
-function ensureSidebarStreamChannel() {
-  if (sidebarStreamChannel || typeof BroadcastChannel !== "function") {
-    return sidebarStreamChannel;
-  }
-
-  sidebarStreamChannel = new BroadcastChannel(REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME);
-  sidebarStreamChannel.onmessage = (event) => {
-    handleSidebarStreamMessage(event && event.data);
-  };
-  return sidebarStreamChannel;
-}
-
-function postSidebarStreamMessage(message) {
-  const channel = ensureSidebarStreamChannel();
-  if (!channel) {
-    return;
-  }
-
-  try {
-    channel.postMessage(message);
-  } catch (error) {
-    // Ignore local sidebar mirror messaging failures.
-  }
-}
-
 function hasActiveSessions() {
   return transportSessions.size > 0;
 }
@@ -100,21 +70,6 @@ function getTransportRuntime(sessionId) {
   }
 
   return transportSessions.get(sessionId.trim()) || null;
-}
-
-function getRequesterRuntimeByTabId(tabId) {
-  const normalizedTabId = normalizeTabId(tabId);
-  if (normalizedTabId === null) {
-    return null;
-  }
-
-  for (const runtime of transportSessions.values()) {
-    if (runtime.role === "requester" && runtime.tabId === normalizedTabId) {
-      return runtime;
-    }
-  }
-
-  return null;
 }
 
 function createIceServerKey(entry) {
@@ -363,13 +318,6 @@ function createTransportRuntime(session) {
     remoteCameraPreviewTimer: 0,
     localCameraPreviewCallbackPending: false,
     remoteCameraPreviewCallbackPending: false,
-    sidebarCaptureCanvas: null,
-    sidebarCaptureContext: null,
-    sidebarCaptureStream: null,
-    sidebarCaptureTrack: null,
-    sidebarCaptureWidth: 0,
-    sidebarCaptureHeight: 0,
-    sidebarFrameVersion: 0,
     dataChannels: new Map(),
     dataChannelBindingIds: new Map(),
     nextDataChannelBindingId: 0,
@@ -1029,215 +977,6 @@ function configureLowLatencyVideoSender(sender) {
   }
 }
 
-function clearRequesterSidebarCaptureSurface(runtime) {
-  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext) {
-    return;
-  }
-
-  runtime.sidebarCaptureContext.fillStyle = "#04080f";
-  runtime.sidebarCaptureContext.fillRect(
-    0,
-    0,
-    runtime.sidebarCaptureCanvas.width,
-    runtime.sidebarCaptureCanvas.height
-  );
-}
-
-function setRequesterSidebarCaptureSize(runtime, width, height) {
-  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext) {
-    return;
-  }
-
-  const nextWidth = Math.max(1, Math.trunc(Number(width) || REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH));
-  const nextHeight = Math.max(1, Math.trunc(Number(height) || REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT));
-  if (
-    runtime.sidebarCaptureCanvas.width === nextWidth &&
-    runtime.sidebarCaptureCanvas.height === nextHeight
-  ) {
-    return;
-  }
-
-  runtime.sidebarCaptureCanvas.width = nextWidth;
-  runtime.sidebarCaptureCanvas.height = nextHeight;
-  runtime.sidebarCaptureWidth = nextWidth;
-  runtime.sidebarCaptureHeight = nextHeight;
-  clearRequesterSidebarCaptureSurface(runtime);
-}
-
-async function ensureRequesterSidebarVideoTrack(runtime, peerConnection) {
-  if (
-    !runtime ||
-    runtime.role !== "requester" ||
-    runtime.sidebarCaptureTrack
-  ) {
-    return;
-  }
-
-  if (typeof document !== "object" || typeof document.createElement !== "function") {
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context || typeof canvas.captureStream !== "function") {
-    return;
-  }
-
-  runtime.sidebarCaptureCanvas = canvas;
-  runtime.sidebarCaptureContext = context;
-  setRequesterSidebarCaptureSize(runtime, REMOTE_SUPPORT_SIDEBAR_DEFAULT_WIDTH, REMOTE_SUPPORT_SIDEBAR_DEFAULT_HEIGHT);
-
-  const stream = canvas.captureStream();
-  const track = stream && typeof stream.getVideoTracks === "function"
-    ? stream.getVideoTracks()[0]
-    : null;
-  if (!track) {
-    stopLocalCaptureStream(stream);
-    runtime.sidebarCaptureCanvas = null;
-    runtime.sidebarCaptureContext = null;
-    return;
-  }
-
-  configureLowLatencyVideoTrack(track);
-
-  runtime.sidebarCaptureStream = stream;
-  runtime.sidebarCaptureTrack = track;
-  clearRequesterSidebarCaptureSurface(runtime);
-
-  if (typeof peerConnection.addTrack === "function") {
-    configureLowLatencyVideoSender(peerConnection.addTrack(track, stream));
-  }
-}
-
-function isImageBitmapLike(value) {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof value.width === "number" &&
-    typeof value.height === "number" &&
-    typeof value.close === "function"
-  );
-}
-
-function isBlobLike(value) {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof value.size === "number" &&
-    typeof value.type === "string"
-  );
-}
-
-function closeFrameSource(source) {
-  if (!source || typeof source.close !== "function") {
-    return;
-  }
-
-  try {
-    source.close();
-  } catch (error) {
-    // Ignore decoded frame cleanup mismatches.
-  }
-}
-
-async function createRequesterSidebarFrameSource(frame) {
-  if (!frame || typeof frame !== "object") {
-    return null;
-  }
-
-  if (isImageBitmapLike(frame.bitmap)) {
-    return frame.bitmap;
-  }
-
-  if (isBlobLike(frame.blob) && typeof createImageBitmap === "function") {
-    try {
-      return await createImageBitmap(frame.blob);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  if (!isNonEmptyString(frame.dataUrl) || typeof Image !== "function") {
-    return null;
-  }
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      resolve(image);
-    };
-    image.onerror = () => {
-      resolve(null);
-    };
-    image.src = frame.dataUrl;
-  });
-}
-
-async function drawRequesterSidebarFrame(runtime, frame, width, height) {
-  if (!runtime || !runtime.sidebarCaptureCanvas || !runtime.sidebarCaptureContext || !frame || typeof frame !== "object") {
-    return;
-  }
-
-  setRequesterSidebarCaptureSize(runtime, width, height);
-  const currentFrameVersion = (runtime.sidebarFrameVersion += 1);
-  const source = await createRequesterSidebarFrameSource(frame);
-  if (!source) {
-    return;
-  }
-
-  try {
-    if (runtime.sidebarFrameVersion !== currentFrameVersion || !runtime.sidebarCaptureContext || !runtime.sidebarCaptureCanvas) {
-      return;
-    }
-
-    runtime.sidebarCaptureContext.clearRect(
-      0,
-      0,
-      runtime.sidebarCaptureCanvas.width,
-      runtime.sidebarCaptureCanvas.height
-    );
-    runtime.sidebarCaptureContext.drawImage(
-      source,
-      0,
-      0,
-      runtime.sidebarCaptureCanvas.width,
-      runtime.sidebarCaptureCanvas.height
-    );
-    if (runtime.sidebarCaptureTrack && typeof runtime.sidebarCaptureTrack.requestFrame === "function") {
-      runtime.sidebarCaptureTrack.requestFrame();
-    }
-  } finally {
-    closeFrameSource(source);
-  }
-}
-
-function handleRequesterSidebarMirrorCommand(runtime, command) {
-  if (!runtime || runtime.tabId === null || !command || typeof command !== "object") {
-    return;
-  }
-
-  postSidebarStreamMessage({
-    type: "command",
-    tabId: runtime.tabId,
-    command
-  });
-}
-
-function handleSidebarStreamMessage(message) {
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  const runtime = getRequesterRuntimeByTabId(message.tabId);
-  if (!runtime) {
-    return;
-  }
-
-  if (message.type === "frame") {
-    void drawRequesterSidebarFrame(runtime, message, message.width, message.height);
-  }
-}
-
 function clearPendingFatalTransport(runtime) {
   if (!runtime || !runtime.pendingFatalTransportTimer) {
     return;
@@ -1305,7 +1044,6 @@ function resetTransportResources(runtime) {
   stopLocalCaptureStream(runtime.localCaptureStream);
   stopLocalCaptureStream(runtime.localCameraStream);
   stopLocalCaptureStream(runtime.remoteCameraStream);
-  stopLocalCaptureStream(runtime.sidebarCaptureStream);
   stopRequesterPopupMediaPreview(runtime);
 
   runtime.dataChannels.clear();
@@ -1320,13 +1058,6 @@ function resetTransportResources(runtime) {
   runtime.localCameraPreviewEl = null;
   runtime.remoteCameraPreviewEl = null;
   runtime.popupPreviewLoopActive = false;
-  runtime.sidebarCaptureCanvas = null;
-  runtime.sidebarCaptureContext = null;
-  runtime.sidebarCaptureStream = null;
-  runtime.sidebarCaptureTrack = null;
-  runtime.sidebarCaptureWidth = 0;
-  runtime.sidebarCaptureHeight = 0;
-  runtime.sidebarFrameVersion = 0;
   runtime.nextDataChannelBindingId = 0;
   runtime.pendingFatalTransportTimer = 0;
   runtime.pendingFatalTransportReason = "";
@@ -1602,15 +1333,6 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
       return;
     }
 
-    if (
-      runtime.role === "requester" &&
-      normalizedChannelKey === REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR &&
-      message.type === "command"
-    ) {
-      handleRequesterSidebarMirrorCommand(runtime, message.payload || {});
-      return;
-    }
-
     postTransportEvent({
       type: "incoming-message",
       sessionId: runtime.sessionId,
@@ -1731,7 +1453,6 @@ async function ensurePeerConnection(runtime, offerer) {
   if (!offerer) {
     await ensureRequesterDisplayTrack(runtime, peerConnection);
     await ensureLocalCameraAndMicTracks(runtime, peerConnection);
-    await ensureRequesterSidebarVideoTrack(runtime, peerConnection);
     startRequesterPopupMediaPreview(runtime);
   }
 
@@ -2032,7 +1753,6 @@ async function startTransport(session) {
     dataChannels: dataChannelDescriptors
   });
   transportSessions.set(runtime.sessionId, runtime);
-  ensureSidebarStreamChannel();
 
   void connectSignalingSocket(runtime).catch((error) => {
     handleFatalTransportError(runtime.sessionId, error);

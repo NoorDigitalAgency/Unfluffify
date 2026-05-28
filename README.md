@@ -5,6 +5,30 @@ A Chrome extension (Manifest V3) that helps extract meaningful content from web 
 The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md).
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
+## Packaging Workflow
+
+Run the GitHub Actions workflow at `.github/workflows/build-extension-package.yml` with **Run workflow**.
+
+Each run:
+
+- stages only files reachable from the extension runtime surface (manifest entrypoints, imported modules, HTML/CSS assets, and extension-local file references)
+- creates a timestamped archive named `Unfluffify-v<manifest-version>-<yymmdd-hhmm>.zip` using a UTC timestamp
+- refreshes the `extension-latest` release with that timestamped asset and a stable alias named `Unfluffify-latest.zip`
+
+Permanent direct download URL:
+
+`https://github.com/NoorDigitalAgency/Unfluffify/releases/download/extension-latest/Unfluffify-latest.zip`
+
+Permanent release page:
+
+`https://github.com/NoorDigitalAgency/Unfluffify/releases/tag/extension-latest`
+
+For a local dry run of the staging logic, run:
+
+```bash
+npm run package:extension -- --stage-dir .tmp/extension-package
+```
+
 ## Features
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, etc.)
@@ -37,7 +61,7 @@ The script uses Node's built-in test runner with `--test-force-exit` so mocked e
 
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
-The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, view-only display sharing, sidebar/cursor mirroring, extension-side telemetry with headers/timing, and dismissible session notices.
+The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, view-only display sharing, page-world telemetry bridging, extension-side telemetry with headers/timing, and dismissible session notices.
 
 ## Project Structure
 

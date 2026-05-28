@@ -9,7 +9,7 @@ test("support page no longer renders an inline join form and includes fullscreen
   assert.equal(source.includes("uf-support-page__rail"), false);
   assert.match(source, /uf-support-page-fullscreen/);
   assert.match(source, /uf-support-page__connect-card/);
-  assert.match(source, /uf-support-page__sidebar-card/);
+  assert.equal(source.includes("uf-support-page__sidebar-card"), false);
   assert.match(source, /extension popup while this \/support tab stays focused on viewing/i);
   assert.match(source, /Session will end in .* due to requester inactivity/);
 });
@@ -19,5 +19,7 @@ test("support viewer dock includes an externalize action and terminate control",
 
   assert.match(source, /viewer-open-external/);
   assert.match(source, /viewer-end-session/);
-  assert.match(source, /viewer-remote-meta/);
+  assert.equal(source.includes("viewer-remote-meta"), false);
+  assert.equal(source.includes("sidebar-video"), false);
+  assert.equal(source.includes("sidebar-canvas"), false);
 });

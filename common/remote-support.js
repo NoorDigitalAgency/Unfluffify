@@ -17,7 +17,6 @@ export const REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES = 3 * 1024 * 1024;
 export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT = "default";
 export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE = "page";
-export const REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR = "sidebar";
 export const REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT = "remote-support";
 
 export const REMOTE_SUPPORT_PORT_CONSOLE = "unfluffify-remote-support-console";
@@ -46,8 +45,6 @@ export function createInactiveRemoteSupportState() {
     supporteeAudioEnabled: false,
     dockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
     startedAt: 0,
-    supporteePlatform: "",
-    supporteeUserAgent: "",
     error: "",
     lastActivityAt: 0,
     inactivityCountdownActive: false,
@@ -83,94 +80,6 @@ export function formatRemoteSupportCountdown(value) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
-}
-
-function normalizeRemoteSupportSidebarText(value, maxLength = 240) {
-  return typeof value === "string"
-    ? value.trim().slice(0, maxLength)
-    : "";
-}
-
-function normalizeRemoteSupportSidebarRows(rows) {
-  const normalizedRows = [];
-
-  for (const candidate of Array.isArray(rows) ? rows : []) {
-    if (!candidate || typeof candidate !== "object") {
-      continue;
-    }
-
-    const label = normalizeRemoteSupportSidebarText(candidate.label, 64);
-    const value = normalizeRemoteSupportSidebarText(candidate.value, 160);
-    if (!label || !value) {
-      continue;
-    }
-
-    normalizedRows.push({ label, value });
-    if (normalizedRows.length >= 8) {
-      break;
-    }
-  }
-
-  return normalizedRows;
-}
-
-function normalizeRemoteSupportSidebarItems(items, itemMaxLength = 180) {
-  const normalizedItems = [];
-
-  for (const candidate of Array.isArray(items) ? items : []) {
-    const value = normalizeRemoteSupportSidebarText(candidate, itemMaxLength);
-    if (!value) {
-      continue;
-    }
-
-    normalizedItems.push(value);
-    if (normalizedItems.length >= 6) {
-      break;
-    }
-  }
-
-  return normalizedItems;
-}
-
-export function createInactiveRemoteSupportSidebarSnapshot() {
-  return {
-    active: false,
-    currentView: "",
-    currentPageUrl: "",
-    currentBaseUrl: "",
-    remoteSupportStatusText: "",
-    renderModeValue: "",
-    pageDraftStatusText: "",
-    syncLoadStatusText: "",
-    syncSaveStatusText: "",
-    summaryRows: [],
-    markedPages: [],
-    pageTypeGroups: [],
-    notices: []
-  };
-}
-
-export function normalizeRemoteSupportSidebarSnapshot(snapshotLike) {
-  const normalized = {
-    ...createInactiveRemoteSupportSidebarSnapshot(),
-    ...(snapshotLike && typeof snapshotLike === "object" ? snapshotLike : {})
-  };
-
-  normalized.active = Boolean(normalized.active);
-  normalized.currentView = normalizeRemoteSupportSidebarText(normalized.currentView, 32);
-  normalized.currentPageUrl = normalizeRemoteSupportSidebarText(normalized.currentPageUrl);
-  normalized.currentBaseUrl = normalizeRemoteSupportSidebarText(normalized.currentBaseUrl);
-  normalized.remoteSupportStatusText = normalizeRemoteSupportSidebarText(normalized.remoteSupportStatusText);
-  normalized.renderModeValue = normalizeRemoteSupportSidebarText(normalized.renderModeValue, 48);
-  normalized.pageDraftStatusText = normalizeRemoteSupportSidebarText(normalized.pageDraftStatusText);
-  normalized.syncLoadStatusText = normalizeRemoteSupportSidebarText(normalized.syncLoadStatusText);
-  normalized.syncSaveStatusText = normalizeRemoteSupportSidebarText(normalized.syncSaveStatusText);
-  normalized.summaryRows = normalizeRemoteSupportSidebarRows(normalized.summaryRows);
-  normalized.markedPages = normalizeRemoteSupportSidebarItems(normalized.markedPages);
-  normalized.pageTypeGroups = normalizeRemoteSupportSidebarItems(normalized.pageTypeGroups);
-  normalized.notices = normalizeRemoteSupportSidebarItems(normalized.notices, 220);
-
-  return normalized;
 }
 
 export function isAjaxResourceType(value) {
@@ -237,8 +146,6 @@ export function scopeRemoteSupportStateToTab(state, tabId) {
     startedAt: Number(state.startedAt) || 0,
     inactivityCountdownActive: Boolean(state.inactivityCountdownActive),
     inactivitySecondsRemaining: Math.max(0, Math.trunc(Number(state.inactivitySecondsRemaining) || 0)),
-    supporteePlatform: typeof state.supporteePlatform === "string" ? state.supporteePlatform : "",
-    supporteeUserAgent: typeof state.supporteeUserAgent === "string" ? state.supporteeUserAgent : "",
     tabId: normalizeRemoteSupportTabId(state.tabId)
   };
 }

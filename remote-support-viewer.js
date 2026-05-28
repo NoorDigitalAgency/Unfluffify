@@ -259,7 +259,6 @@ function createTransportRuntime(session) {
     sessionId: session.sessionId.trim(),
     supportCode: session.supportCode.trim(),
     role: session.role,
-    remoteParticipantName: isNonEmptyString(session.remoteParticipantName) ? session.remoteParticipantName.trim() : "",
     wsUrl: session.wsUrl.trim(),
     iceServers: normalizeIceServers(session.iceServers),
     dataChannelDescriptors: normalizeDataChannelDescriptors(session.dataChannels),
@@ -270,13 +269,8 @@ function createTransportRuntime(session) {
     remoteStream: null,
     remoteCameraStream: null,
     localCameraStream: null,
-    sidebarStream: null,
     remoteVideoSurfaceCount: 0,
     remoteAudioAttached: false,
-    sidebarFrameRequestId: 0,
-    sidebarFrameRafId: 0,
-    sidebarFrameVersion: 0,
-    sidebarFrameInFlight: false,
     pendingFatalTransportTimer: 0,
     pendingFatalTransportReason: "",
     lastPeerConnectionState: "",
@@ -553,53 +547,6 @@ function postVideoState(runtime, active, width = 0, height = 0) {
   });
 }
 
-function postSidebarVideoState(runtime, active, width = 0, height = 0) {
-  postPortMessage({
-    type: "sidebar-video-state",
-    sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
-    active: Boolean(active),
-    width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
-    height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
-  });
-}
-
-function closeFrameBitmap(bitmap) {
-  if (!bitmap || typeof bitmap.close !== "function") {
-    return;
-  }
-
-  try {
-    bitmap.close();
-  } catch (error) {
-    // Ignore decoded frame cleanup mismatches.
-  }
-}
-
-function postSidebarFrame(runtime, frame, width = 0, height = 0) {
-  if (!frame || typeof frame !== "object") {
-    return false;
-  }
-
-  const message = {
-    type: "sidebar-frame",
-    sessionId: runtime && runtime.sessionId ? runtime.sessionId : "",
-    width: Number.isFinite(Number(width)) ? Math.max(0, Math.trunc(Number(width))) : 0,
-    height: Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0
-  };
-
-  const transfer = [];
-  if (frame.bitmap) {
-    message.bitmap = frame.bitmap;
-    transfer.push(frame.bitmap);
-  } else if (isNonEmptyString(frame.dataUrl)) {
-    message.dataUrl = frame.dataUrl;
-  } else {
-    return false;
-  }
-
-  return postPortMessage(message, transfer);
-}
-
 function ensureViewerElements() {
   return {
     video: document.getElementById("viewer-video"),
@@ -610,45 +557,8 @@ function ensureViewerElements() {
     silentButton: document.getElementById("viewer-toggle-silent"),
     externalButton: document.getElementById("viewer-open-external"),
     endButton: document.getElementById("viewer-end-session"),
-    remoteName: document.getElementById("viewer-remote-name"),
-    remoteOs: document.getElementById("viewer-remote-os"),
-    remoteChrome: document.getElementById("viewer-remote-chrome"),
-    remoteExtension: document.getElementById("viewer-remote-extension"),
-    sidebarVideo: document.getElementById("sidebar-video"),
-    sidebarCanvas: document.getElementById("sidebar-canvas"),
     placeholder: document.getElementById("viewer-placeholder")
   };
-}
-
-function normalizeMetadataValue(value, fallback = "Waiting...") {
-  return isNonEmptyString(value) ? value.trim() : fallback;
-}
-
-function parseRemotePlatform(userAgent, fallbackPlatform = "") {
-  const normalizedPlatform = isNonEmptyString(fallbackPlatform) ? fallbackPlatform.trim() : "";
-  if (/windows/i.test(normalizedPlatform) || /windows nt/i.test(userAgent || "")) {
-    return "Windows";
-  }
-  if (/mac/i.test(normalizedPlatform) || /mac os x/i.test(userAgent || "")) {
-    return "macOS";
-  }
-  if (/linux/i.test(normalizedPlatform) || /linux/i.test(userAgent || "")) {
-    return "Linux";
-  }
-  if (/android/i.test(normalizedPlatform) || /android/i.test(userAgent || "")) {
-    return "Android";
-  }
-  if (/iphone|ipad|ios/i.test(normalizedPlatform) || /iphone|ipad|cpu (?:iphone )?os/i.test(userAgent || "")) {
-    return "iOS";
-  }
-  return normalizedPlatform || "Waiting...";
-}
-
-function parseChromeVersion(userAgent) {
-  const match = typeof userAgent === "string"
-    ? userAgent.match(/Chrom(?:e|ium)\/([0-9.]+)/i)
-    : null;
-  return match && match[1] ? match[1] : "Waiting...";
 }
 
 function applyToggleButtonState(button, active) {
@@ -682,28 +592,6 @@ function setSilentState(silent) {
   applyToggleButtonState(elements.silentButton, Boolean(silent));
 }
 
-function updateRemoteParticipantMeta({
-  name = "",
-  platform = "",
-  userAgent = "",
-  extensionVersion = ""
-} = {}) {
-  const elements = ensureViewerElements();
-  if (elements.remoteName) {
-    elements.remoteName.textContent = normalizeMetadataValue(name);
-  }
-  if (elements.remoteOs) {
-    elements.remoteOs.textContent = parseRemotePlatform(userAgent, platform);
-  }
-  if (elements.remoteChrome) {
-    elements.remoteChrome.textContent = parseChromeVersion(userAgent);
-  }
-  if (elements.remoteExtension) {
-    elements.remoteExtension.textContent = normalizeMetadataValue(extensionVersion);
-  }
-  syncDockPiPWindow();
-}
-
 function applyDockState(dockState) {
   currentDockState = normalizeRemoteSupportDockState(dockState);
   document.body.dataset.dockState = currentDockState;
@@ -721,23 +609,6 @@ function syncDockPiPWindow() {
   }
   if (localCamera) {
     localCamera.srcObject = activeRuntime && activeRuntime.localCameraStream ? activeRuntime.localCameraStream : null;
-  }
-  const name = pipDocument.getElementById("pip-remote-name");
-  const os = pipDocument.getElementById("pip-remote-os");
-  const chromeVersion = pipDocument.getElementById("pip-remote-chrome");
-  const extension = pipDocument.getElementById("pip-remote-extension");
-  const elements = ensureViewerElements();
-  if (name && elements.remoteName) {
-    name.textContent = elements.remoteName.textContent || "Waiting...";
-  }
-  if (os && elements.remoteOs) {
-    os.textContent = elements.remoteOs.textContent || "Waiting...";
-  }
-  if (chromeVersion && elements.remoteChrome) {
-    chromeVersion.textContent = elements.remoteChrome.textContent || "Waiting...";
-  }
-  if (extension && elements.remoteExtension) {
-    extension.textContent = elements.remoteExtension.textContent || "Waiting...";
   }
 }
 
@@ -798,12 +669,6 @@ async function openDockPiP() {
           <button id="pip-silent">Silent</button>
           <button id="pip-end" class="danger">Terminate</button>
         </div>
-        <dl>
-          <div><dt>Name</dt><dd id="pip-remote-name">Waiting...</dd></div>
-          <div><dt>OS</dt><dd id="pip-remote-os">Waiting...</dd></div>
-          <div><dt>Chrome</dt><dd id="pip-remote-chrome">Waiting...</dd></div>
-          <div><dt>Unfluffify</dt><dd id="pip-remote-extension">Waiting...</dd></div>
-        </dl>
       </div>
     `;
     pipDocument.getElementById("pip-mute").addEventListener("click", () => {
@@ -946,25 +811,6 @@ function detachRemoteStream() {
   }
 
   setSilentState(false);
-
-  if (elements.sidebarVideo) {
-    try {
-      elements.sidebarVideo.pause();
-    } catch (error) {
-      // Ignore media pause races.
-    }
-
-    elements.sidebarVideo.onloadedmetadata = null;
-    elements.sidebarVideo.onresize = null;
-    elements.sidebarVideo.srcObject = null;
-  }
-
-  if (elements.sidebarCanvas) {
-    const context = elements.sidebarCanvas.getContext("2d", { alpha: false });
-    if (context) {
-      context.clearRect(0, 0, elements.sidebarCanvas.width, elements.sidebarCanvas.height);
-    }
-  }
   syncDockPiPWindow();
 }
 
@@ -1070,7 +916,6 @@ function resetTransportResources(runtime) {
   closeSignalingSocket(runtime.signalingSocket);
   detachRemoteStream();
   stopLocalMediaStream(runtime.localCameraStream);
-  cancelSidebarFrameRelay(runtime);
 
   runtime.dataChannels.clear();
   runtime.peerConnection = null;
@@ -1079,13 +924,8 @@ function resetTransportResources(runtime) {
   runtime.remoteStream = null;
   runtime.remoteCameraStream = null;
   runtime.localCameraStream = null;
-  runtime.sidebarStream = null;
   runtime.remoteVideoSurfaceCount = 0;
   runtime.remoteAudioAttached = false;
-  runtime.sidebarFrameRequestId = 0;
-  runtime.sidebarFrameRafId = 0;
-  runtime.sidebarFrameVersion = 0;
-  runtime.sidebarFrameInFlight = false;
   runtime.pendingFatalTransportTimer = 0;
   runtime.pendingFatalTransportReason = "";
   runtime.lastIceCandidateError = "";
@@ -1137,118 +977,6 @@ function sendSessionEnded(runtime, reason = "Session ended") {
 
 function sendResponse(requestId, response) {
   postPortMessage({ type: "response", requestId, response });
-}
-
-function cancelSidebarFrameRelay(runtime) {
-  if (!runtime) {
-    return;
-  }
-
-  const elements = ensureViewerElements();
-  const video = elements.sidebarVideo;
-  if (
-    runtime.sidebarFrameRequestId &&
-    video &&
-    typeof video.cancelVideoFrameCallback === "function"
-  ) {
-    try {
-      video.cancelVideoFrameCallback(runtime.sidebarFrameRequestId);
-    } catch (error) {
-      // Ignore callback cancellation races.
-    }
-  }
-
-  if (runtime.sidebarFrameRafId) {
-    window.cancelAnimationFrame(runtime.sidebarFrameRafId);
-  }
-
-  runtime.sidebarFrameRequestId = 0;
-  runtime.sidebarFrameRafId = 0;
-}
-
-function scheduleSidebarFrameRelay(runtime) {
-  if (!runtime || runtime.sidebarFrameRequestId || runtime.sidebarFrameRafId || runtime.sidebarFrameInFlight) {
-    return;
-  }
-
-  const relayFrame = async () => {
-    const currentRuntime = getTransportRuntime(runtime.sessionId);
-    if (!currentRuntime || currentRuntime.shuttingDown) {
-      return;
-    }
-
-    const elements = ensureViewerElements();
-    const video = elements.sidebarVideo;
-    const canvas = elements.sidebarCanvas;
-    if (!video || !canvas) {
-      return;
-    }
-
-    const width = Math.max(0, Number(video.videoWidth) || 0);
-    const height = Math.max(0, Number(video.videoHeight) || 0);
-    if (!width || !height) {
-      scheduleSidebarFrameRelay(currentRuntime);
-      return;
-    }
-
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) {
-      scheduleSidebarFrameRelay(currentRuntime);
-      return;
-    }
-
-    currentRuntime.sidebarFrameInFlight = true;
-    const currentFrameVersion = (currentRuntime.sidebarFrameVersion += 1);
-    try {
-      context.drawImage(video, 0, 0, width, height);
-      if (typeof createImageBitmap === "function") {
-        const bitmap = await createImageBitmap(canvas);
-        const activeRuntime = getTransportRuntime(runtime.sessionId);
-        if (!activeRuntime || activeRuntime.shuttingDown || activeRuntime.sidebarFrameVersion !== currentFrameVersion) {
-          closeFrameBitmap(bitmap);
-          return;
-        }
-
-        if (!postSidebarFrame(activeRuntime, { bitmap }, width, height)) {
-          closeFrameBitmap(bitmap);
-        }
-      } else {
-        postSidebarFrame(currentRuntime, { dataUrl: canvas.toDataURL("image/webp", 0.72) }, width, height);
-      }
-    } catch (error) {
-      // Ignore transient draw races while tracks are updating.
-    } finally {
-      const activeRuntime = getTransportRuntime(runtime.sessionId);
-      if (activeRuntime) {
-        activeRuntime.sidebarFrameInFlight = false;
-      }
-    }
-
-    const nextRuntime = getTransportRuntime(runtime.sessionId);
-    if (nextRuntime && !nextRuntime.shuttingDown) {
-      scheduleSidebarFrameRelay(nextRuntime);
-    }
-  };
-
-  const elements = ensureViewerElements();
-  const video = elements.sidebarVideo;
-  if (video && typeof video.requestVideoFrameCallback === "function") {
-    runtime.sidebarFrameRequestId = video.requestVideoFrameCallback(() => {
-      runtime.sidebarFrameRequestId = 0;
-      relayFrame();
-    });
-    return;
-  }
-
-  runtime.sidebarFrameRafId = window.requestAnimationFrame(() => {
-    runtime.sidebarFrameRafId = 0;
-    relayFrame();
-  });
 }
 
 
@@ -1373,46 +1101,6 @@ function attachRemoteStream(runtime, streamLike, track = null) {
     elements.remoteCameraVideo.hidden = false;
     void elements.remoteCameraVideo.play().catch(() => {});
     syncDockPiPWindow();
-    return;
-  }
-
-  if (!elements.sidebarVideo) {
-    return;
-  }
-
-  runtime.sidebarStream = stream;
-  if (elements.sidebarVideo.srcObject !== stream) {
-    elements.sidebarVideo.srcObject = stream;
-  }
-
-  const syncSidebarVideoState = () => {
-    const width = Number(elements.sidebarVideo.videoWidth) || 0;
-    const height = Number(elements.sidebarVideo.videoHeight) || 0;
-    const active = Boolean(width && height);
-    postSidebarVideoState(runtime, active, width, height);
-    if (active) {
-      scheduleSidebarFrameRelay(runtime);
-    }
-  };
-
-  elements.sidebarVideo.onloadedmetadata = () => {
-    syncSidebarVideoState();
-    void elements.sidebarVideo.play().catch(() => {
-      // Ignore autoplay restrictions for muted inline playback.
-    });
-  };
-  elements.sidebarVideo.onresize = syncSidebarVideoState;
-  syncSidebarVideoState();
-
-  if (track && typeof track.addEventListener === "function") {
-    track.addEventListener("ended", () => {
-      const currentRuntime = getTransportRuntime(runtime.sessionId);
-      if (!currentRuntime || currentRuntime.shuttingDown) {
-        return;
-      }
-
-      postSidebarVideoState(currentRuntime, false, 0, 0);
-    });
   }
 }
 
@@ -1491,16 +1179,6 @@ function bindDataChannel(runtime, channel, channelKey = getDefaultDataChannelKey
 
     const message = consumeChunkedDataChannelMessage(runtime, parsedMessage);
     if (!message) {
-      return;
-    }
-
-    if (message.type === "peer-metadata") {
-      updateRemoteParticipantMeta({
-        name: runtime.remoteParticipantName,
-        platform: message.payload && typeof message.payload.platform === "string" ? message.payload.platform : "",
-        userAgent: message.payload && typeof message.payload.userAgent === "string" ? message.payload.userAgent : "",
-        extensionVersion: message.payload && typeof message.payload.extensionVersion === "string" ? message.payload.extensionVersion : ""
-      });
       return;
     }
 
@@ -1889,10 +1567,6 @@ async function startTransport(session) {
   const dataChannelDescriptors = normalizeDataChannelDescriptors(session.dataChannels);
   const existingRuntime = getTransportRuntime(session.sessionId);
   if (existingRuntime && haveMatchingTransportConfig(existingRuntime, session, iceServers, dataChannelDescriptors)) {
-    existingRuntime.remoteParticipantName = isNonEmptyString(session.remoteParticipantName)
-      ? session.remoteParticipantName.trim()
-      : existingRuntime.remoteParticipantName;
-    updateRemoteParticipantMeta({ name: existingRuntime.remoteParticipantName });
     return;
   }
 
@@ -1907,7 +1581,6 @@ async function startTransport(session) {
   });
   activeRuntime = runtime;
   initializeViewerControls();
-  updateRemoteParticipantMeta({ name: runtime.remoteParticipantName });
   setViewerPlaceholder("Connecting to the remote page...");
   setDockState(REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP).then();
 
@@ -2002,7 +1675,6 @@ function attachControlPort(port) {
   if (activeRuntime && activeRuntime.remoteStream) {
     const elements = ensureViewerElements();
     postVideoState(activeRuntime, Boolean(elements.video && elements.video.videoWidth && elements.video.videoHeight), elements.video && elements.video.videoWidth, elements.video && elements.video.videoHeight);
-    postSidebarVideoState(activeRuntime, Boolean(elements.sidebarVideo && elements.sidebarVideo.videoWidth && elements.sidebarVideo.videoHeight), elements.sidebarVideo && elements.sidebarVideo.videoWidth, elements.sidebarVideo && elements.sidebarVideo.videoHeight);
   }
 }
 

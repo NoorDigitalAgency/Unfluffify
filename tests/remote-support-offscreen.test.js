@@ -724,7 +724,7 @@ test("requester popup camera previews sample video frames at the configured inte
     enabled: true,
     stop() {}
   };
-  const sidebarTrack = {
+  const canvasTrack = {
     kind: "video",
     contentHint: "",
     readyState: "live",
@@ -906,10 +906,10 @@ test("requester popup camera previews sample video frames at the configured inte
           captureStream() {
             return {
               getTracks() {
-                return [sidebarTrack];
+                return [canvasTrack];
               },
               getVideoTracks() {
-                return [sidebarTrack];
+                return [canvasTrack];
               }
             };
           }
@@ -2380,7 +2380,7 @@ test("remote support offscreen supports multiple named data channels in one sess
   globalThis.RTCPeerConnection = FakeRTCPeerConnection;
 
   try {
-    await import(`../remote-support-offscreen.js?case=${Date.now()}-multi-channel`);
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-page-channel`);
 
     assert.equal(runtimeMessageListeners.length, 1);
 
@@ -2398,8 +2398,7 @@ test("remote support offscreen supports multiple named data channels in one sess
           wsUrl: "wss://api.example.com/webrtc?token=one",
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
           dataChannels: [
-            { key: "page", label: "remote-support-page" },
-            { key: "sidebar", label: "remote-support-sidebar" }
+            { key: "page", label: "remote-support-page" }
           ]
         }
       },
@@ -2414,10 +2413,10 @@ test("remote support offscreen supports multiple named data channels in one sess
     await delay(0);
 
     assert.deepEqual(startResponse, { ok: true });
-    assert.equal(dataChannels.length, 2);
+    assert.equal(dataChannels.length, 1);
     assert.deepEqual(
       dataChannels.map((channel) => channel.label),
-      ["remote-support-page", "remote-support-sidebar"]
+      ["remote-support-page"]
     );
     assert.equal(
       backgroundEvents.some(
@@ -2429,16 +2428,6 @@ test("remote support offscreen supports multiple named data channels in one sess
       ),
       true
     );
-    assert.equal(
-      backgroundEvents.some(
-        (message) =>
-          message.type === "remoteSupportTransportEvent" &&
-          message.event &&
-          message.event.type === "channel-open" &&
-          message.event.channelKey === "sidebar"
-      ),
-      true
-    );
 
     let sendResponse;
     listener(
@@ -2446,8 +2435,8 @@ test("remote support offscreen supports multiple named data channels in one sess
         target: "remoteSupportOffscreen",
         type: "remoteSupportTransportSendData",
         sessionId: "sess_multi_channel",
-        channelKey: "sidebar",
-        messageType: "sidebar-state",
+        channelKey: "page",
+        messageType: "page-state",
         payload: { section: "todo", expanded: true }
       },
       {},
@@ -2457,18 +2446,17 @@ test("remote support offscreen supports multiple named data channels in one sess
     );
 
     assert.deepEqual(sendResponse, { ok: true });
-    assert.deepEqual(dataChannels[0].sent, []);
-    assert.deepEqual(dataChannels[1].sent, [
+    assert.deepEqual(dataChannels[0].sent, [
       {
-        type: "sidebar-state",
+        type: "page-state",
         payload: { section: "todo", expanded: true }
       }
     ]);
 
     backgroundEvents.length = 0;
-    dataChannels[1].onmessage({
+    dataChannels[0].onmessage({
       data: JSON.stringify({
-        type: "sidebar-action",
+        type: "page-state",
         payload: { type: "toggle-section", section: "todo" }
       })
     });
@@ -2482,8 +2470,8 @@ test("remote support offscreen supports multiple named data channels in one sess
     );
 
     assert.ok(incomingMessageEvent);
-    assert.equal(incomingMessageEvent.event.channelKey, "sidebar");
-    assert.equal(incomingMessageEvent.event.message.type, "sidebar-action");
+    assert.equal(incomingMessageEvent.event.channelKey, "page");
+    assert.equal(incomingMessageEvent.event.message.type, "page-state");
     assert.deepEqual(incomingMessageEvent.event.message.payload, {
       type: "toggle-section",
       section: "todo"
@@ -2669,8 +2657,7 @@ test("remote support offscreen ignores close events from superseded data channel
           wsUrl: "wss://api.example.com/webrtc?token=one",
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
           dataChannels: [
-            { key: "page", label: "remote-support-page" },
-            { key: "sidebar", label: "remote-support-sidebar" }
+            { key: "page", label: "remote-support-page" }
           ]
         }
       },
@@ -2901,8 +2888,7 @@ test("remote support offscreen attaches requester window fallback and camera/mic
           canRequestAudioTrack: false,
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
           dataChannels: [
-            { key: "page", label: "remote-support-page" },
-            { key: "sidebar", label: "remote-support-sidebar" }
+            { key: "page", label: "remote-support-page" }
           ]
         }
       },

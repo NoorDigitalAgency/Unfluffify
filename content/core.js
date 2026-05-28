@@ -3404,6 +3404,142 @@ function hasDirectTextualDescendantBoundary(el) {
   return false;
 }
 
+function getVisibleExpandedBoundaryChildren(el) {
+  if (!el || el.nodeType !== 1) {
+    return [];
+  }
+  return Array.from(el.children || []).filter((node) => {
+    if (!node || node.nodeType !== 1) {
+      return false;
+    }
+    if (
+      isWithinAiPopover(node) ||
+      isWithinConsentElement(node) ||
+      isWithinImmutableExcluded(node) ||
+      !isVisible(node)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function isExpandedExclusionBoundarySignalsValid(el, signals) {
+  return isValidExpandedExclusionBoundary({
+    hasDirectOwnText: hasDirectText(el),
+    hasDirectTextualBoundary: Boolean(signals && signals.hasDirectTextualBoundary),
+    qualifyingChildBoundaryCount: signals && signals.qualifyingChildBoundaryCount,
+    hasOnlyLayoutWrapperChain: Boolean(signals && signals.hasOnlyLayoutWrapperChain),
+    hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent)
+  });
+}
+
+function getExpandedExclusionBoundarySignals(el, options = {}) {
+  const signals = {
+    qualifyingChildBoundaryCount: 0,
+    textualWrapperChildCount: 0,
+    nonBoundaryVisibleChildCount: 0,
+    visibleChildCount: 0,
+    hasDirectTextualBoundary: false,
+    hasOnlyLayoutWrapperChain: false,
+    hasMixedSiblingContent: false
+  };
+  if (!el || el.nodeType !== 1) {
+    return signals;
+  }
+  const visibleChildren = getVisibleExpandedBoundaryChildren(el);
+  signals.visibleChildCount = visibleChildren.length;
+  for (const node of visibleChildren) {
+
+    const structuredGroupBoundary = isStructuredGroupExclusionCandidate(node, options);
+    const toggleableBoundary =
+      !structuredGroupBoundary &&
+      matchesToggleableDefaultExcluded(node) &&
+      isTextualContainer(node, options);
+    const selfMarkableBoundary =
+      !structuredGroupBoundary &&
+      !toggleableBoundary &&
+      isSelfMarkableWithoutParentMode(node, options);
+    const directTextBoundary = hasDirectText(node);
+    const inheritedChildBoundary =
+      !structuredGroupBoundary &&
+      !toggleableBoundary &&
+      !selfMarkableBoundary &&
+      !directTextBoundary &&
+      isTextualContainer(node, options) &&
+      isExpandedExclusionBoundarySignalsValid(
+        node,
+        resolveExpandedExclusionBoundarySignals(node, options)
+      );
+
+    if (
+      structuredGroupBoundary ||
+      toggleableBoundary ||
+      selfMarkableBoundary ||
+      directTextBoundary ||
+      inheritedChildBoundary
+    ) {
+      signals.qualifyingChildBoundaryCount += 1;
+      continue;
+    }
+
+    if (isTextualContainer(node, options)) {
+      signals.textualWrapperChildCount += 1;
+      continue;
+    }
+
+    signals.nonBoundaryVisibleChildCount += 1;
+  }
+  signals.hasDirectTextualBoundary =
+    signals.qualifyingChildBoundaryCount === 1 &&
+    signals.textualWrapperChildCount === 0 &&
+    signals.nonBoundaryVisibleChildCount === 0;
+  signals.hasOnlyLayoutWrapperChain =
+    signals.qualifyingChildBoundaryCount === 0 &&
+    signals.textualWrapperChildCount === 1 &&
+    signals.nonBoundaryVisibleChildCount === 0;
+  signals.hasMixedSiblingContent =
+    signals.nonBoundaryVisibleChildCount > 0 &&
+    (signals.qualifyingChildBoundaryCount > 0 || signals.textualWrapperChildCount > 0);
+  return signals;
+}
+
+function resolveExpandedExclusionBoundarySignals(el, options = {}) {
+  let current = el;
+  let signals = getExpandedExclusionBoundarySignals(current, options);
+
+  while (
+    current &&
+    current.nodeType === 1 &&
+    !hasDirectText(current) &&
+    signals.hasOnlyLayoutWrapperChain
+  ) {
+    const visibleChildren = getVisibleExpandedBoundaryChildren(current);
+    if (visibleChildren.length !== 1) {
+      break;
+    }
+    current = visibleChildren[0];
+    signals = getExpandedExclusionBoundarySignals(current, options);
+  }
+
+  return signals;
+}
+
+function isExpandedExclusionContentBoundaryCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isExpandedExclusionRootBlocked(el)) {
+    return false;
+  }
+  if (!isTextualContainer(el, options)) {
+    return false;
+  }
+
+  const signals = resolveExpandedExclusionBoundarySignals(el, options);
+  return isExpandedExclusionBoundarySignalsValid(el, signals);
+}
+
 function isPointOverMarkableDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -3537,6 +3673,12 @@ function resolveMarkableElement(el, config, options) {
       !isWithinConsentElement(el) &&
       matchesToggleableDefaultExcluded(el) &&
       isTextualContainer(el, ancestorOptions);
+    const selfContentBoundary =
+      !selfStructuredGroup &&
+      !selfToggleableBoundary &&
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      isExpandedExclusionContentBoundaryCandidate(el, ancestorOptions);
     const ancestorCandidates = [];
     let ancestor = el.parentElement;
     while (ancestor && ancestor.nodeType === 1) {
@@ -3556,10 +3698,15 @@ function resolveMarkableElement(el, config, options) {
           !structuredGroupBoundary &&
           !toggleableBoundary &&
           isMarkableElement(ancestor, config, ancestorOptions);
+        const contentBoundary =
+          !structuredGroupBoundary &&
+          !toggleableBoundary &&
+          isExpandedExclusionContentBoundaryCandidate(ancestor, ancestorOptions);
         ancestorCandidates.push({
           value: ancestor,
           isStructuredGroup: structuredGroupBoundary,
           isToggleableBoundary: toggleableBoundary,
+          isContentBoundary: contentBoundary,
           isMarkable: markableBoundary
         });
       }
@@ -3569,6 +3716,7 @@ function resolveMarkableElement(el, config, options) {
       selfValue: el,
       selfStructuredGroup,
       selfToggleableBoundary,
+      selfContentBoundary,
       ancestors: ancestorCandidates
     });
     if (preferredBoundary) {
@@ -5209,10 +5357,8 @@ export function isMarkableElement(el, config, options) {
   if (!isPointOverMarkableDescendant(el, options || {})) {
     return false;
   }
-  return isValidExpandedExclusionBoundary({
-    hasDirectOwnText: hasDirectText(el),
-    hasDirectTextualBoundary: hasDirectTextualDescendantBoundary(el, options || {})
-  });
+  const signals = resolveExpandedExclusionBoundarySignals(el, options || {});
+  return isExpandedExclusionBoundarySignalsValid(el, signals);
 }
 
 export function canApplyExplicitInclude(

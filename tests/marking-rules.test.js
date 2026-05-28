@@ -123,33 +123,43 @@ test("nearest nested toggleable default ancestor wins over broadest toggleable a
   );
 });
 
-test("falls back to the broadest non-toggleable markable ancestor", () => {
-  const nearestMarkable = { name: "section" };
+test("nearest cohesive content boundary wins over a broader generic markable ancestor", () => {
+  const nearestContentBoundary = { name: "section" };
   const broadestMarkable = { name: "article" };
   assert.equal(
     chooseExcludeParentBoundaryTarget({
       selfValue: null,
       ancestors: [
-        { value: nearestMarkable, isStructuredGroup: false, isToggleableBoundary: false, isMarkable: true },
+        {
+          value: nearestContentBoundary,
+          isStructuredGroup: false,
+          isToggleableBoundary: false,
+          isContentBoundary: true,
+          isMarkable: true
+        },
         { value: broadestMarkable, isStructuredGroup: false, isToggleableBoundary: false, isMarkable: true }
       ]
     }),
-    broadestMarkable
+    nearestContentBoundary
   );
 });
 
-test("expanded exclusion boundaries require direct text or one direct textual boundary", () => {
+test("expanded exclusion boundaries allow cohesive grouped content without direct own text", () => {
   assert.equal(
     isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
-      hasDirectTextualBoundary: false
+      hasDirectTextualBoundary: false,
+      qualifyingChildBoundaryCount: 0
     }),
     false
   );
   assert.equal(
     isValidExpandedExclusionBoundary({
       hasDirectOwnText: false,
-      hasDirectTextualBoundary: true
+      hasDirectTextualBoundary: false,
+      qualifyingChildBoundaryCount: 2,
+      hasOnlyLayoutWrapperChain: false,
+      hasMixedSiblingContent: false
     }),
     true
   );
