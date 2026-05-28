@@ -4,8 +4,6 @@ export const REMOTE_SUPPORT_MODE_BEING_SUPPORTED = "being_supported";
 
 export const REMOTE_SUPPORT_ROLE_SUPPORTER = "supporter";
 export const REMOTE_SUPPORT_ROLE_REQUESTER = "requester";
-export const REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER = REMOTE_SUPPORT_ROLE_SUPPORTER;
-export const REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER = REMOTE_SUPPORT_ROLE_REQUESTER;
 export const REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP = "floating_pip";
 export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED = "embedded";
 export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED = "embedded_minimized";
@@ -35,7 +33,6 @@ export function createInactiveRemoteSupportState() {
     sessionId: "",
     supportCode: "",
     expiresAt: "",
-    controlOwner: "",
     includePayloads: false,
     connected: false,
     streaming: false,
@@ -82,29 +79,6 @@ function normalizeRemoteSupportSidebarText(value, maxLength = 240) {
   return typeof value === "string"
     ? value.trim().slice(0, maxLength)
     : "";
-}
-
-function normalizeRemoteSupportCursorValue(value, maxLength = 512) {
-  return typeof value === "string"
-    ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, maxLength)
-    : "";
-}
-
-function normalizeRemoteSupportCursorOwner(value) {
-  return value === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    : value === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      : "";
-}
-
-function normalizeRemoteSupportCursorCoordinate(value) {
-  const normalizedValue = Number(value);
-  if (!Number.isFinite(normalizedValue)) {
-    return null;
-  }
-
-  return Math.max(0, Math.min(1, normalizedValue));
 }
 
 function normalizeRemoteSupportSidebarRows(rows) {
@@ -185,38 +159,6 @@ export function normalizeRemoteSupportSidebarSnapshot(snapshotLike) {
   normalized.markedPages = normalizeRemoteSupportSidebarItems(normalized.markedPages);
   normalized.pageTypeGroups = normalizeRemoteSupportSidebarItems(normalized.pageTypeGroups);
   normalized.notices = normalizeRemoteSupportSidebarItems(normalized.notices, 220);
-
-  return normalized;
-}
-
-export function createInactiveRemoteSupportCursorSnapshot() {
-  return {
-    active: false,
-    cursor: "",
-    x: null,
-    y: null,
-    owner: ""
-  };
-}
-
-export function normalizeRemoteSupportCursorSnapshot(snapshotLike) {
-  const normalized = {
-    ...createInactiveRemoteSupportCursorSnapshot(),
-    ...(snapshotLike && typeof snapshotLike === "object" ? snapshotLike : {})
-  };
-
-  normalized.active = Boolean(normalized.active);
-  normalized.cursor = normalizeRemoteSupportCursorValue(normalized.cursor);
-  normalized.x = normalizeRemoteSupportCursorCoordinate(normalized.x);
-  normalized.y = normalizeRemoteSupportCursorCoordinate(normalized.y);
-  normalized.owner = normalizeRemoteSupportCursorOwner(normalized.owner);
-
-  if (!normalized.active) {
-    normalized.cursor = "";
-    normalized.x = null;
-    normalized.y = null;
-    normalized.owner = "";
-  }
 
   return normalized;
 }

@@ -16,14 +16,12 @@ import {
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
-  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   getRemoteSupportDockFallbackState,
   getRemoteSupportPageUrl,
   isRemoteSupportStateForTab,
   isRemoteSupportPageUrl,
   isAjaxResourceType,
-  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportDockState,
   normalizeRemoteSupportCode,
   resolveEndpointUrl,
@@ -68,7 +66,6 @@ test("createInactiveRemoteSupportState returns the correct inactive shape", () =
   assert.equal(state.sessionId, "");
   assert.equal(state.supportCode, "");
   assert.equal(state.expiresAt, "");
-  assert.equal(state.controlOwner, "");
   assert.equal(state.includePayloads, false);
   assert.equal(state.connected, false);
   assert.equal(state.streaming, false);
@@ -84,48 +81,6 @@ test("createInactiveRemoteSupportState returns a fresh object each call", () => 
   assert.notEqual(a, b);
   a.sessionId = "mutated";
   assert.equal(b.sessionId, "");
-});
-
-test("createInactiveRemoteSupportCursorSnapshot returns the correct inactive shape", () => {
-  assert.deepEqual(createInactiveRemoteSupportCursorSnapshot(), {
-    active: false,
-    cursor: "",
-    x: null,
-    y: null,
-    owner: ""
-  });
-});
-
-test("normalizeRemoteSupportCursorSnapshot keeps valid cursor strings, position, and owner", () => {
-  assert.deepEqual(
-    normalizeRemoteSupportCursorSnapshot({
-      active: true,
-      cursor: '  url("https://example.com/cursor.cur") 4 4, pointer\n',
-      x: 1.5,
-      y: 0.25,
-      owner: "supporter"
-    }),
-    {
-      active: true,
-      cursor: 'url("https://example.com/cursor.cur") 4 4, pointer',
-      x: 1,
-      y: 0.25,
-      owner: "supporter"
-    }
-  );
-});
-
-test("normalizeRemoteSupportCursorSnapshot clears the cursor when inactive", () => {
-  assert.deepEqual(
-    normalizeRemoteSupportCursorSnapshot({ active: false, cursor: "text", x: 0.4, y: 0.2, owner: "requester" }),
-    {
-      active: false,
-      cursor: "",
-      x: null,
-      y: null,
-      owner: ""
-    }
-  );
 });
 
 // ──────────────────────────────────────────────────────────────

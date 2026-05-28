@@ -1,6 +1,4 @@
 import {
-  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
-  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
@@ -15,11 +13,9 @@ import {
   REMOTE_SUPPORT_PORT_TRANSPORT,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
   clampPayloadSize,
-  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportState,
   createInactiveRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportDockState,
-  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportCode,
   resolveEndpointUrl
@@ -57,14 +53,6 @@ function normalizeTabId(tabId) {
   return Math.trunc(tabId);
 }
 
-function normalizeControlOwner(owner) {
-  return owner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    : owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      : "";
-}
-
 function normalizeStateSnapshot(stateLike) {
   const normalized = {
     ...createInactiveRemoteSupportState(),
@@ -84,7 +72,6 @@ function normalizeStateSnapshot(stateLike) {
   normalized.supporteeAudioEnabled = Boolean(normalized.supporteeAudioEnabled);
   normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
   normalized.tabId = normalizeTabId(normalized.tabId);
-  normalized.controlOwner = normalizeControlOwner(normalized.controlOwner);
 
   return normalized;
 }
@@ -170,8 +157,7 @@ function createSessionRuntime({
   supportCode,
   expiresAt,
   transportSignature = "",
-  includePayloads = false,
-  controlOwner = REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+  includePayloads = false
 }) {
   const runtime = {
     state: normalizeStateSnapshot({
@@ -182,7 +168,6 @@ function createSessionRuntime({
       sessionId,
       supportCode,
       expiresAt,
-      controlOwner,
       connected: false,
       partnerConnected: false,
       streaming: false,
@@ -194,7 +179,6 @@ function createSessionRuntime({
       error: "",
       lastActivityAt: Date.now()
     }),
-    cursorSnapshot: createInactiveRemoteSupportCursorSnapshot(),
     sidebarSnapshot: createInactiveRemoteSupportSidebarSnapshot(),
     transportSignature,
     usesVideoStream: false,
@@ -489,25 +473,6 @@ function broadcastSidebarSnapshot(runtime, snapshotLike = runtime && runtime.sid
   postRuntimeEventToTab(runtime.state.tabId, event);
 }
 
-function broadcastCursorSnapshot(runtime, snapshotLike = runtime && runtime.cursorSnapshot) {
-  if (!runtime || runtime.state.tabId === null) {
-    return;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
-  runtime.cursorSnapshot = snapshot;
-
-  const event = {
-    type: "remoteSupportCursorStateChanged",
-    snapshot,
-    tabId: runtime.state.tabId,
-    sessionId: runtime.state.sessionId
-  };
-
-  publishRuntimeEvent(event);
-  postRuntimeEventToTab(runtime.state.tabId, event);
-}
-
 async function syncRequesterSidebarSnapshot(runtime) {
   if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
     return false;
@@ -524,25 +489,6 @@ async function syncRequesterSidebarSnapshot(runtime) {
     "sidebar-state",
     { snapshot },
     REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR
-  );
-}
-
-async function syncRequesterCursorSnapshot(runtime) {
-  if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    return false;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(runtime.cursorSnapshot);
-  runtime.cursorSnapshot = snapshot;
-  if (!snapshot.active) {
-    return false;
-  }
-
-  return sendDataMessage(
-    runtime,
-    "cursor-state",
-    { snapshot },
-    REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE
   );
 }
 
@@ -1198,37 +1144,12 @@ async function setContentModeForSession(runtime, active) {
         active: Boolean(active),
         mode: active ? runtime.state.mode : REMOTE_SUPPORT_MODE_INACTIVE,
         role: active ? runtime.state.role : "",
-        controlOwner: active ? runtime.state.controlOwner : "",
         includePayloads: Boolean(runtime.state.includePayloads)
       }
     });
   } catch (error) {
     // The content script may not be available yet or the tab may be navigating.
   }
-}
-
-async function setRuntimeControlOwner(runtime, controlOwner, { syncRemote = false } = {}) {
-  if (!runtime || !runtime.state.active) {
-    return false;
-  }
-
-  const normalizedControlOwner = normalizeControlOwner(controlOwner);
-  if (!normalizedControlOwner) {
-    return false;
-  }
-
-  runtime.state.controlOwner = normalizedControlOwner;
-  updateSessionActivity(runtime);
-  broadcastRuntimeState(runtime);
-  await setContentModeForSession(runtime, true);
-
-  if (syncRemote) {
-    await sendDataMessage(runtime, "control-owner", {
-      owner: normalizedControlOwner
-    });
-  }
-
-  return true;
 }
 
 function clearTabSnapshotError(tabId) {
@@ -1449,10 +1370,6 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
 
   updateSessionActivity(runtime);
 
-  if (message.type === "command" || message.type === "control-owner") {
-    return;
-  }
-
   if (message.type === "frame") {
     if (!isPrimaryTransportChannelKey(channelKey)) {
       return;
@@ -1467,18 +1384,6 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
 
     publishRuntimeEvent(event);
     postRuntimeEventToTab(runtime.state.tabId, event);
-    return;
-  }
-
-  if (message.type === "cursor-state") {
-    if (!isPrimaryTransportChannelKey(channelKey)) {
-      return;
-    }
-
-    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(
-      message.payload && message.payload.snapshot
-    );
-    broadcastCursorSnapshot(runtime, runtime.cursorSnapshot);
     return;
   }
 
@@ -1556,8 +1461,7 @@ async function beginSession({ mode, role, tabId, sessionId, supportCode, expires
     supportCode,
     expiresAt,
     transportSignature,
-    includePayloads: false,
-    controlOwner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
+    includePayloads: false
   });
   runtime.state.dockState = normalizeRemoteSupportDockState(previousDockState || runtime.state.dockState);
 
@@ -1964,7 +1868,6 @@ export async function handleTransportEvent(message) {
       runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
       isPrimaryTransportChannelKey(event.channelKey)
     ) {
-      await syncRequesterCursorSnapshot(runtime);
       await sendDataMessage(
         runtime,
         "peer-metadata",
@@ -2155,6 +2058,10 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     return { ok: false, error: "Remote control is not available in support sessions" };
   }
 
+  if (message.type === "remoteSupportSetControlOwner") {
+    return { ok: false, error: "Remote control is not available in support sessions" };
+  }
+
   if (message.type === "remoteSupportUpdateSidebarSnapshot") {
     const runtime = resolveRuntimeTarget(message, sender);
     if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
@@ -2164,26 +2071,6 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
     runtime.sidebarSnapshot = normalizeRemoteSupportSidebarSnapshot(message.snapshot);
     await syncRequesterSidebarSnapshot(runtime);
     return { ok: true };
-  }
-
-  if (message.type === "remoteSupportUpdateCursorSnapshot") {
-    const runtime = resolveRuntimeTarget(message, sender);
-    if (!runtime || !runtime.state.active || runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-      return { ok: false };
-    }
-
-    runtime.cursorSnapshot = normalizeRemoteSupportCursorSnapshot(message.snapshot);
-    await syncRequesterCursorSnapshot(runtime);
-    return { ok: true };
-  }
-
-  if (message.type === "remoteSupportSetControlOwner") {
-    const runtime = resolveRuntimeTarget(message, sender);
-    return {
-      ok: false,
-      error: "Remote control is not available in support sessions",
-      state: getRuntimePublicState(runtime)
-    };
   }
 
   if (message.type === "remoteSupportDismissError") {

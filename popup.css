@@ -7,47 +7,6 @@ body.is-busy {
   overflow: visible;
 }
 
-.remote-support-sidebar-cursor {
-  position: fixed;
-  z-index: 2147483647;
-  left: 0;
-  top: 0;
-  width: 18px;
-  height: 18px;
-  border: 2px solid #ffffff;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 78%, #ffffff 22%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent), 0 4px 14px rgba(0, 0, 0, 0.24);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: opacity 80ms ease;
-}
-
-.remote-support-sidebar-cursor.is-visible {
-  opacity: 1;
-}
-
-.remote-support-sidebar-cursor.is-clicking::after {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  border: 2px solid color-mix(in srgb, var(--accent) 62%, #ffffff 38%);
-  border-radius: 999px;
-  animation: remote-support-sidebar-cursor-click 220ms ease-out;
-}
-
-@keyframes remote-support-sidebar-cursor-click {
-  from {
-    opacity: 0.9;
-    transform: scale(0.72);
-  }
-  to {
-    opacity: 0;
-    transform: scale(1.35);
-  }
-}
-
 .app-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

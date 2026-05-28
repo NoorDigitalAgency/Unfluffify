@@ -28,15 +28,11 @@ import {
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
 import {
-  createInactiveRemoteSupportCursorSnapshot,
   createInactiveRemoteSupportSidebarSnapshot,
-  normalizeRemoteSupportCursorSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
   REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
-  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
-  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   normalizeRemoteSupportDockState
 } from "./common/remote-support.js";
@@ -185,8 +181,6 @@ function createAiPreviewState() {
 }
 
 let aiPreviewState = createAiPreviewState();
-const REMOTE_SUPPORT_CURSOR_ID = "unfluffify-remote-support-cursor";
-const REMOTE_SUPPORT_CURSOR_STYLE_ID = "unfluffify-remote-support-cursor-style";
 const REMOTE_SUPPORT_TERMINATE_BUTTON_ID = "unfluffify-remote-support-terminate";
 const REMOTE_SUPPORT_TERMINATE_STYLE_ID = "unfluffify-remote-support-terminate-style";
 const REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR = 'meta[name="unfluffify-remote-support-page"][content="support"]';
@@ -200,21 +194,16 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS = 10000;
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
-let remoteSupportControlOwner = "";
 let remoteSupportIncludePayloads = false;
 let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
-let remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
-let remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
 let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
 let remoteSupportSupportPageJoinCode = "";
 let remoteSupportSupportPageJoinLoading = false;
 let remoteSupportSupportPageLastFrame = "";
 let remoteSupportSupportPageRenderedFrame = "";
 let remoteSupportSupportPageElements = null;
-let remoteSupportSupportPagePointerMoveRaf = 0;
-let remoteSupportSupportPagePendingPointerMove = null;
 let remoteSupportSupportPageViewerPort = null;
 let remoteSupportSupportPageViewerReady = false;
 let remoteSupportSupportPageViewerReadyWaiters = [];
@@ -232,20 +221,12 @@ let remoteSupportMediaQuietObserver = null;
 const remoteSupportQuietedMediaElements = new Map();
 let remoteSupportSupportPageSidebarVideoActive = false;
 let remoteSupportSupportPageSidebarFrameVersion = 0;
-let remoteSupportSupportPageSidebarPointerMoveRaf = 0;
-let remoteSupportSupportPagePendingSidebarPointerMove = null;
-let remoteSupportCommandReplayDepth = 0;
-let remoteSupportLastResolvedCursorPoint = null;
-let remoteSupportLastPublishedCursorSnapshotKey = "";
-let remoteSupportPendingRequesterCursorPoint = null;
-let remoteSupportRequesterCursorRaf = 0;
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
     active: false,
     mode: "inactive",
     role: "",
-    controlOwner: "",
     tabId: Number.isFinite(tabId) ? Math.trunc(tabId) : null,
     sessionId: "",
     supportCode: "",
@@ -272,12 +253,6 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
   normalized.streaming = Boolean(normalized.streaming);
   normalized.includePayloads = Boolean(normalized.includePayloads);
   normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
-  normalized.controlOwner =
-    normalized.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-      ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-      : normalized.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-        ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-        : "";
   normalized.tabId = Number.isFinite(Number(normalized.tabId))
     ? Math.trunc(Number(normalized.tabId))
     : (Number.isFinite(fallbackTabId) ? Math.trunc(fallbackTabId) : null);
@@ -336,7 +311,6 @@ function updateRemoteSupportSupportPageViewerVideoState({ active = false, width 
   remoteSupportSupportPageViewerIntrinsicHeight = Number.isFinite(Number(height)) ? Math.max(0, Math.trunc(Number(height))) : 0;
   syncRemoteSupportSupportPageViewerVisibility();
   syncRemoteSupportSupportPageFrame();
-  syncRemoteSupportSupportPageCursorOverlay();
 }
 
 function updateRemoteSupportSupportPageSidebarVideoState({ active = false, width = 0, height = 0 } = {}) {
@@ -348,96 +322,6 @@ function updateRemoteSupportSupportPageSidebarVideoState({ active = false, width
     clearRemoteSupportSupportPageSidebarCanvas();
   }
   renderRemoteSupportSupportPageSidebar();
-}
-
-function normalizeRemoteSupportPointRatio(value) {
-  const normalizedValue = Number(value);
-  if (!Number.isFinite(normalizedValue)) {
-    return null;
-  }
-
-  return Math.max(0, Math.min(1, normalizedValue));
-}
-
-function getRemoteSupportCursorKind(cursorValue) {
-  const normalizedCursor = String(cursorValue || "").toLowerCase();
-  if (!normalizedCursor || normalizedCursor === "auto" || normalizedCursor === "default") {
-    return "default";
-  }
-  if (normalizedCursor.includes("not-allowed") || normalizedCursor.includes("no-drop")) {
-    return "blocked";
-  }
-  if (normalizedCursor.includes("wait") || normalizedCursor.includes("progress")) {
-    return "wait";
-  }
-  if (normalizedCursor.includes("text") || normalizedCursor.includes("vertical-text")) {
-    return "text";
-  }
-  if (normalizedCursor.includes("pointer")) {
-    return "pointer";
-  }
-  if (normalizedCursor.includes("move") || normalizedCursor.includes("grab")) {
-    return "move";
-  }
-  if (normalizedCursor.includes("resize")) {
-    return "resize";
-  }
-  if (normalizedCursor.includes("crosshair")) {
-    return "crosshair";
-  }
-  if (normalizedCursor.includes("help")) {
-    return "help";
-  }
-
-  return "custom";
-}
-
-function getRemoteSupportCursorStatusLabel(cursorValue) {
-  const kind = getRemoteSupportCursorKind(cursorValue);
-  if (kind === "default") {
-    return "";
-  }
-  if (kind === "blocked") {
-    return "not allowed";
-  }
-
-  return kind;
-}
-
-function applyRemoteSupportCursorPresentation(cursor, snapshotLike) {
-  if (!cursor) {
-    return;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
-  const cursorValue = snapshot.cursor || "default";
-  const cursorKind = getRemoteSupportCursorKind(cursorValue);
-  const cursorLabel = getRemoteSupportCursorStatusLabel(cursorValue);
-
-  cursor.dataset.ufRemoteSupportCursorKind = cursorKind;
-  cursor.dataset.ufRemoteSupportCursorOwner = snapshot.owner || "";
-  cursor.style.cursor = cursorValue;
-  if (cursorLabel) {
-    cursor.setAttribute("data-cursor-label", cursorLabel);
-  } else {
-    cursor.removeAttribute("data-cursor-label");
-  }
-}
-
-function buildRemoteSupportCursorSnapshot({
-  active = true,
-  cursor = "",
-  x = null,
-  y = null,
-  owner = ""
-} = {}) {
-  return normalizeRemoteSupportCursorSnapshot({
-    active,
-    cursor,
-    x,
-    y,
-    owner
-  });
 }
 
 function isRemoteSupportFrameBitmap(value) {
@@ -557,7 +441,6 @@ function resetRemoteSupportSupportPageViewerConnection(errorMessage = "Remote su
   remoteSupportSupportPageViewerReady = false;
   resolveRemoteSupportSupportPageViewerWaiters(false);
   clearRemoteSupportSupportPageViewerPendingRequests(errorMessage);
-  remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
   updateRemoteSupportSupportPageViewerVideoState({ active: false, width: 0, height: 0 });
   remoteSupportSupportPageSidebarLastFrame = "";
   clearRemoteSupportSupportPageSidebarCanvas();
@@ -736,14 +619,6 @@ function isBeingSupportedMode() {
   return remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
 }
 
-function isSupporterControlOwner(owner = remoteSupportControlOwner) {
-  return owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER;
-}
-
-function shouldBlockLocalRemoteSupportInput() {
-  return isBeingSupportedMode() && isSupporterControlOwner();
-}
-
 function restoreRemoteSupportQuietedVideo(video) {
   const quietedState = remoteSupportQuietedMediaElements.get(video);
   if (!quietedState) {
@@ -888,22 +763,7 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
 
   remoteSupportMode = active ? String(remoteSupportState.mode || "inactive") : "inactive";
   remoteSupportRole = active ? String(remoteSupportState.role || "") : "";
-  remoteSupportControlOwner = active && remoteSupportState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    : active && remoteSupportState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      : "";
   remoteSupportIncludePayloads = active ? Boolean(remoteSupportState.includePayloads) : false;
-
-  if (!active || remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
-    remoteSupportLastResolvedCursorPoint = null;
-    remoteSupportLastPublishedCursorSnapshotKey = "";
-    remoteSupportPendingRequesterCursorPoint = null;
-    if (remoteSupportRequesterCursorRaf) {
-      window.cancelAnimationFrame(remoteSupportRequesterCursorRaf);
-      remoteSupportRequesterCursorRaf = 0;
-    }
-  }
 
   if (isBeingSupportedMode()) {
     if (document.activeElement && typeof document.activeElement.blur === "function") {
@@ -912,10 +772,6 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
     startRemoteSupportMediaQuieting();
   } else {
     stopRemoteSupportMediaQuieting();
-  }
-
-  if (!shouldBlockLocalRemoteSupportInput()) {
-    hideRemoteSupportCursor();
   }
 
   syncRemoteSupportTerminateButton();
@@ -938,272 +794,6 @@ async function syncRemoteSupportSessionStateFromBackground() {
 
 function isRemoteSupportSupportPage() {
   return Boolean(document.querySelector(REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR));
-}
-
-function ensureRemoteSupportCursor() {
-  let style = document.getElementById(REMOTE_SUPPORT_CURSOR_STYLE_ID);
-  if (!style) {
-    style = document.createElement("style");
-    style.id = REMOTE_SUPPORT_CURSOR_STYLE_ID;
-    style.setAttribute("data-uf-extension-ui", "true");
-    style.textContent = `
-      #${REMOTE_SUPPORT_CURSOR_ID} {
-        position: fixed;
-        width: 22px;
-        height: 22px;
-        margin: 0;
-        color: #3a7cff;
-        pointer-events: none;
-        z-index: 2147483647;
-        transform: translate3d(-100px, -100px, 0);
-        filter: drop-shadow(0 2px 5px rgba(2, 6, 14, 0.55));
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 0;
-        height: 0;
-        border-top: 18px solid currentColor;
-        border-right: 11px solid transparent;
-        transform: rotate(-14deg);
-        transform-origin: 1px 1px;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}::after {
-        content: attr(data-cursor-label);
-        position: absolute;
-        left: 15px;
-        top: 16px;
-        max-width: 96px;
-        padding: 3px 6px;
-        border-radius: 999px;
-        background: rgba(4, 8, 15, 0.86);
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        color: #ffffff;
-        font: 700 10px/1.2 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
-        white-space: nowrap;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}:not([data-cursor-label])::after {
-        display: none;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="text"]::before {
-        left: 6px;
-        top: -2px;
-        width: 4px;
-        height: 25px;
-        border: 0;
-        border-radius: 999px;
-        background: currentColor;
-        box-shadow: -5px 0 0 -3px #ffffff, 5px 0 0 -3px #ffffff;
-        transform: none;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="blocked"]::before,
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="wait"]::before {
-        width: 18px;
-        height: 18px;
-        border: 3px solid currentColor;
-        border-radius: 50%;
-        background: transparent;
-        transform: none;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="blocked"]::before {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.82);
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="move"]::before,
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="resize"]::before,
-      #${REMOTE_SUPPORT_CURSOR_ID}[data-uf-remote-support-cursor-kind="crosshair"]::before {
-        left: 1px;
-        top: 10px;
-        width: 22px;
-        height: 3px;
-        border: 0;
-        border-radius: 999px;
-        background: currentColor;
-        box-shadow: 0 -9px 0 -1px currentColor, 0 9px 0 -1px currentColor;
-        transform: none;
-      }
-      #${REMOTE_SUPPORT_CURSOR_ID}[hidden] {
-        display: none;
-      }
-    `;
-    (document.head || document.documentElement).appendChild(style);
-  }
-  let cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
-  if (!cursor) {
-    cursor = document.createElement("div");
-    cursor.id = REMOTE_SUPPORT_CURSOR_ID;
-    cursor.setAttribute("data-uf-extension-ui", "true");
-    cursor.setAttribute("aria-hidden", "true");
-    (document.body || document.documentElement).appendChild(cursor);
-  }
-  return cursor;
-}
-
-function setRemoteSupportCursorPosition(xRatio, yRatio, snapshotLike = {}) {
-  const cursor = ensureRemoteSupportCursor();
-  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
-  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-  const normalizedX = normalizeRemoteSupportPointRatio(xRatio) ?? 0;
-  const normalizedY = normalizeRemoteSupportPointRatio(yRatio) ?? 0;
-  const x = normalizedX * viewportWidth;
-  const y = normalizedY * viewportHeight;
-  applyRemoteSupportCursorPresentation(cursor, {
-    active: true,
-    x: normalizedX,
-    y: normalizedY,
-    owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
-    ...snapshotLike
-  });
-  cursor.hidden = false;
-  cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-  return {
-    x,
-    y,
-    xRatio: normalizedX,
-    yRatio: normalizedY
-  };
-}
-
-function hideRemoteSupportCursor() {
-  const cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
-  if (cursor) {
-    cursor.hidden = true;
-  }
-}
-
-function buildRemoteSupportCursorSnapshotAtPoint(clientX, clientY, options = {}) {
-  const target = document.elementFromPoint(clientX, clientY);
-  if (!target || target.nodeType !== 1) {
-    return createInactiveRemoteSupportCursorSnapshot();
-  }
-
-  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
-  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-  const xRatio = normalizeRemoteSupportPointRatio(options.xRatio) ?? Math.max(0, Math.min(1, clientX / viewportWidth));
-  const yRatio = normalizeRemoteSupportPointRatio(options.yRatio) ?? Math.max(0, Math.min(1, clientY / viewportHeight));
-
-  try {
-    return buildRemoteSupportCursorSnapshot({
-      active: true,
-      cursor: window.getComputedStyle(target).cursor || "",
-      x: xRatio,
-      y: yRatio,
-      owner: options.owner || remoteSupportControlOwner
-    });
-  } catch (error) {
-    return createInactiveRemoteSupportCursorSnapshot();
-  }
-}
-
-async function publishRemoteSupportCursorSnapshot(snapshotLike) {
-  if (!isBeingSupportedMode()) {
-    return false;
-  }
-
-  const snapshot = normalizeRemoteSupportCursorSnapshot(snapshotLike);
-  const snapshotKey = JSON.stringify(snapshot);
-  if (snapshotKey === remoteSupportLastPublishedCursorSnapshotKey) {
-    return true;
-  }
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "remoteSupportUpdateCursorSnapshot",
-      snapshot
-    });
-    if (response && response.ok) {
-      remoteSupportLastPublishedCursorSnapshotKey = snapshotKey;
-      return true;
-    }
-  } catch (error) {
-    // Ignore transient message delivery failures while the background reloads.
-  }
-
-  return false;
-}
-
-async function syncRemoteSupportCursorSnapshotForPoint(point, options = {}) {
-  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-    return false;
-  }
-
-  remoteSupportLastResolvedCursorPoint = {
-    x: Number(point.x),
-    y: Number(point.y),
-    xRatio: normalizeRemoteSupportPointRatio(point.xRatio ?? options.xRatio),
-    yRatio: normalizeRemoteSupportPointRatio(point.yRatio ?? options.yRatio),
-    owner: options.owner || remoteSupportControlOwner
-  };
-
-  const snapshot = buildRemoteSupportCursorSnapshotAtPoint(point.x, point.y, {
-    owner: options.owner || remoteSupportControlOwner,
-    xRatio: remoteSupportLastResolvedCursorPoint.xRatio,
-    yRatio: remoteSupportLastResolvedCursorPoint.yRatio
-  });
-
-  if (snapshot.active && snapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER && shouldBlockLocalRemoteSupportInput()) {
-    const cursor = document.getElementById(REMOTE_SUPPORT_CURSOR_ID);
-    applyRemoteSupportCursorPresentation(cursor, snapshot);
-  }
-
-  return publishRemoteSupportCursorSnapshot(snapshot);
-}
-
-function scheduleRemoteSupportCursorSnapshotRefresh() {
-  if (!remoteSupportLastResolvedCursorPoint) {
-    return;
-  }
-
-  window.requestAnimationFrame(() => {
-    void syncRemoteSupportCursorSnapshotForPoint(remoteSupportLastResolvedCursorPoint, {
-      owner: remoteSupportLastResolvedCursorPoint.owner,
-      xRatio: remoteSupportLastResolvedCursorPoint.xRatio,
-      yRatio: remoteSupportLastResolvedCursorPoint.yRatio
-    });
-  });
-}
-
-function shouldPublishRequesterCursorSnapshot() {
-  return isBeingSupportedMode() && remoteSupportControlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
-}
-
-function queueRequesterCursorSnapshot(point) {
-  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-    return;
-  }
-
-  remoteSupportPendingRequesterCursorPoint = {
-    x: Number(point.x),
-    y: Number(point.y)
-  };
-  if (remoteSupportRequesterCursorRaf) {
-    return;
-  }
-
-  remoteSupportRequesterCursorRaf = window.requestAnimationFrame(() => {
-    remoteSupportRequesterCursorRaf = 0;
-    const nextPoint = remoteSupportPendingRequesterCursorPoint;
-    remoteSupportPendingRequesterCursorPoint = null;
-    if (!nextPoint || !shouldPublishRequesterCursorSnapshot()) {
-      return;
-    }
-
-    void syncRemoteSupportCursorSnapshotForPoint(nextPoint, {
-      owner: REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    });
-  });
-}
-
-function handleRemoteSupportRequesterCursorMove(event) {
-  if (!shouldPublishRequesterCursorSnapshot() || !event || !event.isTrusted) {
-    return;
-  }
-
-  queueRequesterCursorSnapshot({
-    x: Number(event.clientX),
-    y: Number(event.clientY)
-  });
 }
 
 function ensureRemoteSupportTerminateButton() {
@@ -1542,94 +1132,6 @@ function ensureRemoteSupportSupportPageStyles() {
       z-index: 2;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 22px;
-      height: 22px;
-      z-index: 4;
-      color: #3a7cff;
-      pointer-events: none;
-      transform: translate3d(-100px, -100px, 0);
-      filter: drop-shadow(0 2px 5px rgba(2, 6, 14, 0.62));
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 0;
-      height: 0;
-      border-top: 18px solid currentColor;
-      border-right: 11px solid transparent;
-      transform: rotate(-14deg);
-      transform-origin: 1px 1px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor::after {
-      content: attr(data-cursor-label);
-      position: absolute;
-      left: 15px;
-      top: 16px;
-      max-width: 96px;
-      padding: 3px 6px;
-      border-radius: 999px;
-      background: rgba(4, 8, 15, 0.88);
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      color: #ffffff;
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1.2;
-      white-space: nowrap;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor:not([data-cursor-label])::after,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[hidden] {
-      display: none;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="text"]::before {
-      left: 6px;
-      top: -2px;
-      width: 4px;
-      height: 25px;
-      border: 0;
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: -5px 0 0 -3px #ffffff, 5px 0 0 -3px #ffffff;
-      transform: none;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="blocked"]::before,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="wait"]::before {
-      width: 18px;
-      height: 18px;
-      border: 3px solid currentColor;
-      border-radius: 50%;
-      background: transparent;
-      transform: none;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="blocked"]::before {
-      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.82);
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="move"]::before,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="resize"]::before,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__cursor[data-uf-remote-support-cursor-kind="crosshair"]::before {
-      left: 1px;
-      top: 10px;
-      width: 22px;
-      height: 3px;
-      border: 0;
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: 0 -9px 0 -1px currentColor, 0 9px 0 -1px currentColor;
-      transform: none;
-    }
-
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface img {
       z-index: 1;
     }
@@ -1949,11 +1451,8 @@ function buildRemoteSupportSupportPageStatusText() {
   }
 
   if (remoteSupportSupportPageState.mode === "supporting") {
-    const controlLabel = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-      ? " The requester currently has control."
-      : " You currently have control.";
     return remoteSupportSupportPageState.connected
-      ? `Connected.${controlLabel}`
+      ? "Connected."
       : "Support session started. Waiting for the requester to finish connecting.";
   }
 
@@ -1969,28 +1468,11 @@ function buildRemoteSupportSupportPageSurfaceText() {
     return "Start or join a support session to make this page mirror the remote tab.";
   }
 
-  if (remoteSupportSupportPageState.connected && remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER) {
-    return "The requester currently has control. Use Take control when you are ready to resume remote input.";
-  }
-
   if (!remoteSupportSupportPageState.connected) {
     return "Waiting for the remote page to connect...";
   }
 
   return "Connected. Waiting for the live remote surface...";
-}
-
-function canControlFromRemoteSupportSupportPage() {
-  return Boolean(
-    remoteSupportSupportPageState.active &&
-    remoteSupportSupportPageState.mode === "supporting" &&
-    remoteSupportSupportPageState.connected &&
-    remoteSupportSupportPageState.controlOwner !== REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-  );
-}
-
-function canControlSidebarFromRemoteSupportSupportPage() {
-  return false;
 }
 
 function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
@@ -2034,48 +1516,6 @@ function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
     width: renderedWidth,
     height: renderedHeight
   };
-}
-
-function createRemoteSupportSupportPagePointerPayload(event, options = {}) {
-  if (!event || !event.currentTarget || typeof event.currentTarget.getBoundingClientRect !== "function") {
-    return null;
-  }
-
-  const rect = getRemoteSupportSupportPageSurfaceRect(
-    event.currentTarget,
-    options.frame || (remoteSupportSupportPageElements && remoteSupportSupportPageElements.frame),
-    options
-  );
-  const width = Math.max(1, rect.width || 1);
-  const height = Math.max(1, rect.height || 1);
-  const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / width));
-  const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / height));
-  return { x, y };
-}
-
-async function sendRemoteSupportSupportPageCommand() {
-  return false;
-}
-
-function queueRemoteSupportSupportPagePointerMove(pointer) {
-  remoteSupportSupportPagePendingPointerMove = pointer;
-  if (remoteSupportSupportPagePointerMoveRaf) {
-    return;
-  }
-
-  remoteSupportSupportPagePointerMoveRaf = window.requestAnimationFrame(() => {
-    remoteSupportSupportPagePointerMoveRaf = 0;
-    const nextPointer = remoteSupportSupportPagePendingPointerMove;
-    remoteSupportSupportPagePendingPointerMove = null;
-    if (!nextPointer) {
-      return;
-    }
-
-    sendRemoteSupportSupportPageCommand({
-      type: "pointer-move",
-      ...nextPointer
-    }).then();
-  });
 }
 
 function handleRemoteSupportSupportPageJoinCodeInput(event) {
@@ -2187,38 +1627,6 @@ async function handleRemoteSupportSupportPageEnd() {
   }
 
   await refreshRemoteSupportSupportPageState();
-}
-
-async function setRemoteSupportControlOwner(controlOwner) {
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "remoteSupportSetControlOwner",
-      controlOwner
-    });
-
-    if (response && response.ok) {
-      if (isRemoteSupportSupportPage()) {
-        applyRemoteSupportSupportPageState(response.state || null);
-      }
-      return true;
-    }
-  } catch (error) {
-    // Fall through to a background refresh.
-  }
-
-  if (isRemoteSupportSupportPage()) {
-    await refreshRemoteSupportSupportPageState();
-  } else {
-    await syncRemoteSupportSessionStateFromBackground();
-  }
-  return false;
-}
-
-async function handleRemoteSupportSupportPageControlToggle() {
-  const nextOwner = remoteSupportSupportPageState.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-    ? REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-    : REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER;
-  await setRemoteSupportControlOwner(nextOwner);
 }
 
 async function dismissRemoteSupportSupportPageError() {
@@ -2340,10 +1748,9 @@ function ensureRemoteSupportSupportPageUi() {
               <button id="uf-support-page-fullscreen" class="uf-support-page__button uf-support-page__button--compact" type="button" data-uf-extension-ui="true">Enter fullscreen</button>
             </div>
             <div id="uf-support-page-surface" class="uf-support-page__surface is-disabled" tabindex="0" aria-disabled="true" data-uf-extension-ui="true">
-              <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
-              <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
-              <div id="uf-support-page-cursor" class="uf-support-page__cursor" hidden aria-hidden="true" data-uf-extension-ui="true"></div>
-              <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
+            <iframe id="uf-support-page-viewer" class="uf-support-page__viewer" title="Live remote support viewer" hidden data-uf-extension-ui="true"></iframe>
+            <img id="uf-support-page-frame" alt="Live remote page reflection" hidden data-uf-extension-ui="true">
+            <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
           </div>
@@ -2390,14 +1797,12 @@ function ensureRemoteSupportSupportPageUi() {
       sidebarPlaceholder: root.querySelector("#uf-support-page-sidebar-placeholder"),
       surface: root.querySelector("#uf-support-page-surface"),
       viewer: root.querySelector("#uf-support-page-viewer"),
-      cursor: root.querySelector("#uf-support-page-cursor"),
       frame: root.querySelector("#uf-support-page-frame"),
       placeholder: root.querySelector("#uf-support-page-placeholder")
     };
 
     remoteSupportSupportPageElements.frame.decoding = "async";
     initializeRemoteSupportSupportPageViewer(remoteSupportSupportPageElements.viewer);
-    window.addEventListener("resize", syncRemoteSupportSupportPageSurfaceCursor);
 
     remoteSupportSupportPageElements.errorDismiss.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2407,155 +1812,16 @@ function ensureRemoteSupportSupportPageUi() {
       event.preventDefault();
       toggleRemoteSupportSupportPageFullscreen().then();
     });
-    remoteSupportSupportPageElements.surface.addEventListener("mousemove", (event) => {
-      if (!canControlFromRemoteSupportSupportPage()) {
-        return;
-      }
-      const pointer = createRemoteSupportSupportPagePointerPayload(event);
-      if (!pointer) {
-        return;
-      }
-      updateRemoteSupportSupportPageLocalCursorSnapshot(pointer);
-      queueRemoteSupportSupportPagePointerMove(pointer);
-    });
-    remoteSupportSupportPageElements.surface.addEventListener("click", (event) => {
-      if (!canControlFromRemoteSupportSupportPage()) {
-        return;
-      }
-      const pointer = createRemoteSupportSupportPagePointerPayload(event);
-      if (!pointer) {
-        return;
-      }
-      updateRemoteSupportSupportPageLocalCursorSnapshot(pointer);
-      remoteSupportSupportPageElements.surface.focus({ preventScroll: true });
-      sendRemoteSupportSupportPageCommand({
-        type: "pointer-click",
-        ...pointer,
-        button: Number.isFinite(event.button) ? event.button : 0
-      }).then();
-    });
     remoteSupportSupportPageElements.surface.addEventListener("wheel", (event) => {
       event.preventDefault();
-      if (!canControlFromRemoteSupportSupportPage()) {
-        return;
-      }
-      sendRemoteSupportSupportPageCommand({
-        type: "scroll",
-        deltaX: Number(event.deltaX) || 0,
-        deltaY: Number(event.deltaY) || 0
-      }).then();
     }, { passive: false });
-    remoteSupportSupportPageElements.surface.addEventListener("keydown", (event) => {
-      if (!event || !event.key) {
-        return;
-      }
-      event.preventDefault();
-      if (!canControlFromRemoteSupportSupportPage()) {
-        return;
-      }
-      sendRemoteSupportSupportPageCommand({
-        type: "key",
-        key: String(event.key),
-        code: String(event.code || ""),
-        ctrlKey: Boolean(event.ctrlKey),
-        altKey: Boolean(event.altKey),
-        shiftKey: Boolean(event.shiftKey),
-        metaKey: Boolean(event.metaKey)
-      }).then();
-    });
     remoteSupportSupportPageElements.surface.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
 
-    remoteSupportSupportPageElements.sidebarSurface.addEventListener("mousemove", (event) => {
-      if (!canControlSidebarFromRemoteSupportSupportPage()) {
-        return;
-      }
-      const pointer = createRemoteSupportSupportPagePointerPayload(event, {
-        surface: remoteSupportSupportPageElements.sidebarSurface,
-        frame: remoteSupportSupportPageElements.sidebarFrame,
-        intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
-        intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
-      });
-      if (!pointer) {
-        return;
-      }
-      remoteSupportSupportPagePendingSidebarPointerMove = pointer;
-      if (remoteSupportSupportPageSidebarPointerMoveRaf) {
-        return;
-      }
-
-      remoteSupportSupportPageSidebarPointerMoveRaf = window.requestAnimationFrame(() => {
-        remoteSupportSupportPageSidebarPointerMoveRaf = 0;
-        const nextPointer = remoteSupportSupportPagePendingSidebarPointerMove;
-        remoteSupportSupportPagePendingSidebarPointerMove = null;
-        if (!nextPointer) {
-          return;
-        }
-
-        sendRemoteSupportSupportPageCommand({
-          type: "pointer-move",
-          ...nextPointer
-        }, REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR).then();
-      });
-    });
-    remoteSupportSupportPageElements.sidebarSurface.addEventListener("click", (event) => {
-      event.preventDefault();
-      if (!canControlSidebarFromRemoteSupportSupportPage()) {
-        return;
-      }
-      const pointer = createRemoteSupportSupportPagePointerPayload(event, {
-        surface: remoteSupportSupportPageElements.sidebarSurface,
-        frame: remoteSupportSupportPageElements.sidebarFrame,
-        intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
-        intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
-      });
-      if (!pointer) {
-        return;
-      }
-      remoteSupportSupportPageElements.sidebarSurface.focus({ preventScroll: true });
-      sendRemoteSupportSupportPageCommand({
-        type: "pointer-click",
-        ...pointer,
-        button: Number.isFinite(event.button) ? event.button : 0
-      }, REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR).then();
-    });
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("wheel", (event) => {
       event.preventDefault();
-      if (!canControlSidebarFromRemoteSupportSupportPage()) {
-        return;
-      }
-      const pointer = createRemoteSupportSupportPagePointerPayload(event, {
-        surface: remoteSupportSupportPageElements.sidebarSurface,
-        frame: remoteSupportSupportPageElements.sidebarFrame,
-        intrinsicWidth: remoteSupportSupportPageSidebarIntrinsicWidth,
-        intrinsicHeight: remoteSupportSupportPageSidebarIntrinsicHeight
-      });
-      sendRemoteSupportSupportPageCommand({
-        type: "scroll",
-        ...pointer,
-        deltaX: Number(event.deltaX) || 0,
-        deltaY: Number(event.deltaY) || 0
-      }, REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR).then();
     }, { passive: false });
-    remoteSupportSupportPageElements.sidebarSurface.addEventListener("keydown", (event) => {
-      if (!event || !event.key) {
-        return;
-      }
-      event.preventDefault();
-      if (!canControlSidebarFromRemoteSupportSupportPage()) {
-        return;
-      }
-      sendRemoteSupportSupportPageCommand({
-        type: "key",
-        key: String(event.key),
-        code: String(event.code || ""),
-        ctrlKey: Boolean(event.ctrlKey),
-        altKey: Boolean(event.altKey),
-        shiftKey: Boolean(event.shiftKey),
-        metaKey: Boolean(event.metaKey)
-      }, REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR).then();
-    });
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
@@ -2768,88 +2034,6 @@ function renderRemoteSupportSupportPageSidebar() {
   );
 }
 
-function getRemoteSupportSupportPageSurfaceCursorValue() {
-  const snapshot = getRemoteSupportSupportPageEffectiveCursorSnapshot();
-  if (!snapshot.active || !snapshot.cursor) {
-    return "auto";
-  }
-
-  return snapshot.cursor;
-}
-
-function syncRemoteSupportSupportPageSurfaceCursor() {
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.surface) {
-    return;
-  }
-
-  elements.surface.style.cursor = "auto";
-  syncRemoteSupportSupportPageCursorOverlay();
-}
-
-function getRemoteSupportSupportPageEffectiveCursorSnapshot() {
-  if (!remoteSupportSupportPageState.active) {
-    return createInactiveRemoteSupportCursorSnapshot();
-  }
-
-  const remoteSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
-  const localSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageLocalCursorSnapshot);
-  const controlOwner = remoteSupportSupportPageState.controlOwner;
-
-  if (controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER) {
-    if (remoteSnapshot.active && remoteSnapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER) {
-      return remoteSnapshot;
-    }
-    if (localSnapshot.active) {
-      return buildRemoteSupportCursorSnapshot({
-        ...localSnapshot,
-        cursor: remoteSnapshot.cursor || localSnapshot.cursor,
-        owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-      });
-    }
-    return createInactiveRemoteSupportCursorSnapshot();
-  }
-
-  if (controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER) {
-    if (
-      remoteSnapshot.active &&
-      (remoteSnapshot.owner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER || !remoteSnapshot.owner)
-    ) {
-      return buildRemoteSupportCursorSnapshot({
-        ...remoteSnapshot,
-        owner: REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-      });
-    }
-    return createInactiveRemoteSupportCursorSnapshot();
-  }
-
-  return createInactiveRemoteSupportCursorSnapshot();
-}
-
-function syncRemoteSupportSupportPageCursorOverlay() {
-  const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
-  if (!elements || !elements.cursor) {
-    return;
-  }
-  elements.cursor.hidden = true;
-}
-
-function updateRemoteSupportSupportPageLocalCursorSnapshot(pointer) {
-  if (!pointer || !Number.isFinite(Number(pointer.x)) || !Number.isFinite(Number(pointer.y))) {
-    return;
-  }
-
-  const remoteSnapshot = normalizeRemoteSupportCursorSnapshot(remoteSupportSupportPageCursorSnapshot);
-  remoteSupportSupportPageLocalCursorSnapshot = buildRemoteSupportCursorSnapshot({
-    active: true,
-    x: pointer.x,
-    y: pointer.y,
-    cursor: remoteSnapshot.cursor,
-    owner: REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER
-  });
-  syncRemoteSupportSupportPageSurfaceCursor();
-}
-
 function syncRemoteSupportSupportPageFrame() {
   const elements = remoteSupportSupportPageElements || ensureRemoteSupportSupportPageUi();
   if (!elements) {
@@ -2892,7 +2076,6 @@ function syncRemoteSupportSupportPageFrame() {
 
 function scheduleRemoteSupportSupportPageFrameRender() {
   syncRemoteSupportSupportPageFrame();
-  syncRemoteSupportSupportPageCursorOverlay();
 }
 
 function renderRemoteSupportSupportPage() {
@@ -2902,7 +2085,6 @@ function renderRemoteSupportSupportPage() {
   }
 
   const active = Boolean(remoteSupportSupportPageState.active);
-  const canControl = false;
   const errorText = typeof remoteSupportSupportPageState.error === "string"
     ? remoteSupportSupportPageState.error.trim()
     : "";
@@ -2924,10 +2106,9 @@ function renderRemoteSupportSupportPage() {
       : "Enter fullscreen";
   }
 
-  elements.surface.classList.toggle("is-disabled", !canControl);
-  elements.surface.setAttribute("aria-disabled", canControl ? "false" : "true");
-  elements.surface.tabIndex = canControl ? 0 : -1;
-  syncRemoteSupportSupportPageSurfaceCursor();
+  elements.surface.classList.toggle("is-disabled", true);
+  elements.surface.setAttribute("aria-disabled", "true");
+  elements.surface.tabIndex = -1;
   syncRemoteSupportSupportPageViewerVisibility();
   renderRemoteSupportSupportPageSidebar();
 
@@ -2935,17 +2116,11 @@ function renderRemoteSupportSupportPage() {
 }
 
 function applyRemoteSupportSupportPageState(nextState) {
-  const previousControlOwner = remoteSupportSupportPageState.controlOwner;
   remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState(nextState);
   if (Number.isFinite(remoteSupportSupportPageState.tabId)) {
     remoteSupportSupportPageTabId = remoteSupportSupportPageState.tabId;
   }
-  if (previousControlOwner !== remoteSupportSupportPageState.controlOwner) {
-    remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
-  }
   if (!remoteSupportSupportPageState.active) {
-    remoteSupportSupportPageCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
-    remoteSupportSupportPageLocalCursorSnapshot = createInactiveRemoteSupportCursorSnapshot();
     remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
     remoteSupportSupportPageLastFrame = "";
     remoteSupportSupportPageSidebarLastFrame = "";
@@ -3008,237 +2183,6 @@ function initializeRemoteSupportSupportPage() {
     }
   });
   refreshRemoteSupportSupportPageState().then();
-}
-
-function focusRemoteTarget(target) {
-  if (!target || typeof target.focus !== "function") {
-    return;
-  }
-
-  try {
-    target.focus({ preventScroll: true });
-  } catch {
-    target.focus();
-  }
-}
-
-function isIntrinsicInteractiveElement(target) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-
-  const tagName = String(target.tagName || "").toLowerCase();
-  return ["a", "button", "input", "label", "option", "select", "summary", "textarea"].includes(tagName);
-}
-
-function isTextEditableElement(target) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  const tagName = String(target.tagName || "").toLowerCase();
-  if (tagName === "textarea") {
-    return true;
-  }
-
-  if (tagName !== "input") {
-    return false;
-  }
-
-  const type = String(target.type || "text").toLowerCase();
-  return ![
-    "button",
-    "checkbox",
-    "color",
-    "file",
-    "hidden",
-    "image",
-    "radio",
-    "range",
-    "reset",
-    "submit"
-  ].includes(type);
-}
-
-function dispatchEditableInputEvent(target) {
-  target.dispatchEvent(new Event("input", {
-    bubbles: true,
-    cancelable: false,
-    composed: true
-  }));
-}
-
-function applyRemoteTextInputCommand(target, command) {
-  if (!isTextEditableElement(target) || !command || command.ctrlKey || command.altKey || command.metaKey) {
-    return false;
-  }
-
-  focusRemoteTarget(target);
-
-  if (target.isContentEditable && typeof document.execCommand === "function") {
-    const key = String(command.key || "");
-    if (key.length === 1) {
-      document.execCommand("insertText", false, key);
-      return true;
-    }
-    if (key === "Backspace") {
-      document.execCommand("delete", false);
-      return true;
-    }
-    if (key === "Delete") {
-      document.execCommand("forwardDelete", false);
-      return true;
-    }
-    if (key === "Enter") {
-      document.execCommand("insertLineBreak", false);
-      return true;
-    }
-    return false;
-  }
-
-  const value = typeof target.value === "string" ? target.value : "";
-  const selectionStart = Number.isInteger(target.selectionStart) ? target.selectionStart : value.length;
-  const selectionEnd = Number.isInteger(target.selectionEnd) ? target.selectionEnd : selectionStart;
-  const key = String(command.key || "");
-
-  let nextValue = value;
-  let nextCaret = selectionStart;
-
-  if (key.length === 1) {
-    nextValue = `${value.slice(0, selectionStart)}${key}${value.slice(selectionEnd)}`;
-    nextCaret = selectionStart + key.length;
-  } else if (key === "Backspace") {
-    if (selectionStart !== selectionEnd) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart;
-    } else if (selectionStart > 0) {
-      nextValue = `${value.slice(0, selectionStart - 1)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart - 1;
-    }
-  } else if (key === "Delete") {
-    if (selectionStart !== selectionEnd) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart;
-    } else if (selectionStart < value.length) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionStart + 1)}`;
-      nextCaret = selectionStart;
-    }
-  } else if (key === "Enter" && String(target.tagName || "").toLowerCase() === "textarea") {
-    nextValue = `${value.slice(0, selectionStart)}\n${value.slice(selectionEnd)}`;
-    nextCaret = selectionStart + 1;
-  } else {
-    return false;
-  }
-
-  if (nextValue === value) {
-    return true;
-  }
-
-  target.value = nextValue;
-  if (typeof target.setSelectionRange === "function") {
-    target.setSelectionRange(nextCaret, nextCaret);
-  }
-  dispatchEditableInputEvent(target);
-  return true;
-}
-
-function dispatchRemotePointerClick(target, clientX, clientY, button = 0) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-  focusRemoteTarget(target);
-  const mouseEventInit = {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    clientX,
-    clientY,
-    button
-  };
-  target.dispatchEvent(new MouseEvent("mousedown", mouseEventInit));
-  target.dispatchEvent(new MouseEvent("mouseup", mouseEventInit));
-
-  if (isIntrinsicInteractiveElement(target) && typeof target.click === "function") {
-    target.click();
-    return true;
-  }
-
-  target.dispatchEvent(new MouseEvent("click", mouseEventInit));
-  return true;
-}
-
-function executeRemoteSupportCommand(command) {
-  if (!shouldBlockLocalRemoteSupportInput() || !command || typeof command !== "object") {
-    return;
-  }
-  const type = typeof command.type === "string" ? command.type : "";
-  if (!type) {
-    return;
-  }
-  if (type === "pointer-move") {
-    const point = setRemoteSupportCursorPosition(command.x, command.y);
-    void syncRemoteSupportCursorSnapshotForPoint(point);
-    return;
-  }
-  if (type === "pointer-click") {
-    const point = setRemoteSupportCursorPosition(command.x, command.y);
-    const target = document.elementFromPoint(point.x, point.y);
-    dispatchRemotePointerClick(target, point.x, point.y, Number(command.button) || 0);
-    void syncRemoteSupportCursorSnapshotForPoint(point);
-    scheduleRemoteSupportCursorSnapshotRefresh();
-    return;
-  }
-  if (type === "scroll") {
-    window.scrollBy({
-      left: Number(command.deltaX) || 0,
-      top: Number(command.deltaY) || 0,
-      behavior: "auto"
-    });
-    scheduleRemoteSupportCursorSnapshotRefresh();
-    return;
-  }
-  if (type === "key") {
-    const eventInit = {
-      key: String(command.key || ""),
-      code: String(command.code || ""),
-      ctrlKey: Boolean(command.ctrlKey),
-      altKey: Boolean(command.altKey),
-      shiftKey: Boolean(command.shiftKey),
-      metaKey: Boolean(command.metaKey),
-      bubbles: true,
-      cancelable: true
-    };
-    const target = document.activeElement && document.activeElement.nodeType === 1
-      ? document.activeElement
-      : document.documentElement;
-    remoteSupportCommandReplayDepth += 1;
-    try {
-      target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-      applyRemoteTextInputCommand(target, command);
-      target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
-    } finally {
-      remoteSupportCommandReplayDepth = Math.max(0, remoteSupportCommandReplayDepth - 1);
-    }
-  }
-}
-
-function handleBlockedLocalExtensionInteraction(event) {
-  if (!shouldBlockLocalRemoteSupportInput() || !event || !event.isTrusted) {
-    return;
-  }
-
-  const target = event.target && event.target.nodeType === 1 ? event.target : null;
-  if (target && typeof target.closest === "function" && target.closest('[data-uf-extension-ui="true"]')) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
 }
 
 async function loadGlobalAiSettingsForContent() {
@@ -6918,15 +5862,6 @@ export function main() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (shouldBlockLocalRemoteSupportInput() && !remoteSupportCommandReplayDepth) {
-      if (event.isTrusted) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-      }
-      return;
-    }
-
     const primaryModifier = event.ctrlKey || event.metaKey;
     if (!primaryModifier || event.altKey || event.shiftKey || event.repeat) {
       return;
@@ -6971,10 +5906,6 @@ export function main() {
   }, true);
 
   document.addEventListener("click", (event) => {
-    if (shouldBlockLocalRemoteSupportInput()) {
-      handleBlockedLocalExtensionInteraction(event);
-      return;
-    }
     if (state.enabled) {
       return;
     }
@@ -6983,13 +5914,6 @@ export function main() {
     }
     handleSilentSelectorClickCopy(event);
   }, true);
-  document.addEventListener("mousemove", handleRemoteSupportRequesterCursorMove, true);
-  document.addEventListener("mousedown", handleBlockedLocalExtensionInteraction, true);
-  document.addEventListener("mouseup", handleBlockedLocalExtensionInteraction, true);
-  document.addEventListener("click", handleBlockedLocalExtensionInteraction, true);
-  document.addEventListener("wheel", handleBlockedLocalExtensionInteraction, true);
-  document.addEventListener("keydown", handleBlockedLocalExtensionInteraction, true);
-  document.addEventListener("keyup", handleBlockedLocalExtensionInteraction, true);
   document.addEventListener("mousedown", handleBlockedPropertyLockInteraction, true);
   document.addEventListener("mouseup", handleBlockedPropertyLockInteraction, true);
   document.addEventListener("click", handleBlockedPropertyLockInteraction, true);
@@ -7080,21 +6004,6 @@ export function main() {
       return;
     }
 
-    if (isRemoteSupportSupportPage() && message.type === "remoteSupportCursorStateChanged") {
-      if (
-        Number.isFinite(remoteSupportSupportPageTabId) &&
-        Number.isFinite(message.tabId) &&
-        Math.trunc(message.tabId) !== remoteSupportSupportPageTabId
-      ) {
-        return;
-      }
-
-      remoteSupportSupportPageCursorSnapshot = normalizeRemoteSupportCursorSnapshot(message.snapshot);
-      syncRemoteSupportSupportPageSurfaceCursor();
-      sendResponse({ ok: true });
-      return;
-    }
-
     if (message.type === "setEnabled") {
       if (message.enabled) {
         state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
@@ -7135,15 +6044,8 @@ export function main() {
       sendResponse({
         ok: true,
         mode: remoteSupportMode,
-        role: remoteSupportRole,
-        controlOwner: remoteSupportControlOwner
+        role: remoteSupportRole
       });
-      return;
-    }
-
-    if (message.type === "remoteSupportCommand" || message.type === "remoteSupportExecuteCommand") {
-      executeRemoteSupportCommand(message.command || null);
-      sendResponse({ ok: true });
       return;
     }
 

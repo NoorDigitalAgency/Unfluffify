@@ -92,8 +92,6 @@ import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   createInactiveRemoteSupportSidebarSnapshot,
   normalizeRemoteSupportSidebarSnapshot,
-  REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER,
-  REMOTE_SUPPORT_CONTROL_OWNER_SUPPORTER,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
@@ -467,7 +465,6 @@ const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const REMOTE_SUPPORT_SIDEBAR_SNAPSHOT_DEBOUNCE_MS = 150;
 const REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME = "unfluffify-remote-support-sidebar-stream";
 const REMOTE_SUPPORT_SIDEBAR_STREAM_IMAGE_QUALITY = 0.72;
-const REMOTE_SUPPORT_SIDEBAR_CURSOR_ID = "unfluffify-remote-support-sidebar-cursor";
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
 const THEME_DEFAULT = "nordic";
@@ -551,7 +548,6 @@ let remoteSupportSidebarStreamCaptureInFlight = false;
 let remoteSupportSidebarStreamDirty = false;
 let remoteSupportSidebarStreamObserver = null;
 let remoteSupportSidebarStreamListenersBound = false;
-let remoteSupportSidebarCursorHideTimer = 0;
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -3043,7 +3039,6 @@ async function refreshUiInner() {
       : ViewText.previewBlockedDefault
   };
   const remoteSupportMode = scopedRemoteSupportState.mode || "inactive";
-  const remoteSupportControlOwner = scopedRemoteSupportState.controlOwner || "";
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
@@ -3069,8 +3064,7 @@ async function refreshUiInner() {
   nextViewState.remoteSupportStatusText = buildRemoteSupportStatusText({
     active: nextViewState.remoteSupportSessionActive,
     mode: remoteSupportMode,
-    connected: nextViewState.remoteSupportConnected,
-    controlOwner: remoteSupportControlOwner
+    connected: nextViewState.remoteSupportConnected
   });
   nextViewState.remoteSupportError = scopedRemoteSupportState.error || "";
   const baseUrlReady = Boolean(state.currentBaseUrl);
@@ -4432,12 +4426,10 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     ? state.currentTab.id
     : null;
   const nextState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  const remoteSupportControlOwner = nextState.controlOwner || "";
   const statusText = buildRemoteSupportStatusText({
     active: Boolean(nextState.active),
     mode: nextState.mode || "inactive",
-    connected: Boolean(nextState.connected),
-    controlOwner: remoteSupportControlOwner
+    connected: Boolean(nextState.connected)
   });
   uiModule.setViewState({
     remoteSupportSessionActive: Boolean(nextState.active),
@@ -4672,21 +4664,6 @@ function ensureRemoteSupportSidebarStreamChannel() {
   }
 
   remoteSupportSidebarStreamChannel = new BroadcastChannel(REMOTE_SUPPORT_SIDEBAR_STREAM_CHANNEL_NAME);
-  remoteSupportSidebarStreamChannel.onmessage = (event) => {
-    const message = event && event.data && typeof event.data === "object"
-      ? event.data
-      : null;
-    if (!message || message.type !== "command") {
-      return;
-    }
-
-    const activeTabId = getRemoteSupportSidebarStreamTabId();
-    if (activeTabId === null || Number(message.tabId) !== activeTabId) {
-      return;
-    }
-
-    applyRemoteSupportSidebarCommand(message.command);
-  };
   return remoteSupportSidebarStreamChannel;
 }
 
@@ -4777,113 +4754,6 @@ function stopRemoteSupportSidebarStreamPublishing() {
   }
 
   remoteSupportSidebarStreamDirty = false;
-  hideRemoteSupportSidebarCursor();
-}
-
-function ensureRemoteSupportSidebarCursor() {
-  let cursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
-  if (cursor) {
-    return cursor;
-  }
-
-  cursor = document.createElement("div");
-  cursor.id = REMOTE_SUPPORT_SIDEBAR_CURSOR_ID;
-  cursor.className = "remote-support-sidebar-cursor";
-  cursor.setAttribute("aria-hidden", "true");
-  cursor.setAttribute("data-uf-extension-ui", "true");
-  cursor.hidden = true;
-  (document.body || document.documentElement).appendChild(cursor);
-  return cursor;
-}
-
-function hideRemoteSupportSidebarCursor() {
-  if (remoteSupportSidebarCursorHideTimer) {
-    window.clearTimeout(remoteSupportSidebarCursorHideTimer);
-    remoteSupportSidebarCursorHideTimer = 0;
-  }
-
-  const cursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
-  if (!cursor) {
-    return;
-  }
-
-  cursor.hidden = true;
-  cursor.classList.remove("is-visible", "is-clicking");
-}
-
-function showRemoteSupportSidebarCursor(point, { click = false } = {}) {
-  if (!point) {
-    return;
-  }
-
-  const cursor = ensureRemoteSupportSidebarCursor();
-  cursor.hidden = false;
-  cursor.style.left = `${Math.round(Number(point.x) || 0)}px`;
-  cursor.style.top = `${Math.round(Number(point.y) || 0)}px`;
-  cursor.classList.add("is-visible");
-
-  if (click) {
-    cursor.classList.remove("is-clicking");
-    cursor.getBoundingClientRect();
-    cursor.classList.add("is-clicking");
-  }
-
-  if (remoteSupportSidebarCursorHideTimer) {
-    window.clearTimeout(remoteSupportSidebarCursorHideTimer);
-  }
-  remoteSupportSidebarCursorHideTimer = window.setTimeout(() => {
-    const activeCursor = document.getElementById(REMOTE_SUPPORT_SIDEBAR_CURSOR_ID);
-    if (activeCursor) {
-      activeCursor.classList.remove("is-visible", "is-clicking");
-      activeCursor.hidden = true;
-    }
-    remoteSupportSidebarCursorHideTimer = 0;
-  }, 2500);
-}
-
-function shouldMirrorLocalRemoteSupportSidebarPointer() {
-  const publicationContext = getRemoteSupportSidebarPublicationContext();
-  return Boolean(
-    publicationContext &&
-    publicationContext.tabId !== null &&
-    publicationContext.state &&
-    publicationContext.state.active &&
-    publicationContext.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
-    publicationContext.state.controlOwner === REMOTE_SUPPORT_CONTROL_OWNER_REQUESTER
-  );
-}
-
-function getLocalRemoteSupportSidebarPointer(event) {
-  if (!event || !event.isTrusted || !shouldMirrorLocalRemoteSupportSidebarPointer()) {
-    return null;
-  }
-
-  const width = Math.max(1, Math.round(window.innerWidth || document.documentElement.clientWidth || 1));
-  const height = Math.max(1, Math.round(window.innerHeight || document.documentElement.clientHeight || 1));
-  return {
-    x: Math.max(0, Math.min(width, Number(event.clientX) || 0)),
-    y: Math.max(0, Math.min(height, Number(event.clientY) || 0))
-  };
-}
-
-function handleLocalRemoteSupportSidebarPointerMove(event) {
-  const point = getLocalRemoteSupportSidebarPointer(event);
-  if (!point) {
-    return;
-  }
-
-  showRemoteSupportSidebarCursor(point);
-  scheduleRemoteSupportSidebarStreamCapture();
-}
-
-function handleLocalRemoteSupportSidebarClick(event) {
-  const point = getLocalRemoteSupportSidebarPointer(event);
-  if (!point) {
-    return;
-  }
-
-  showRemoteSupportSidebarCursor(point, { click: true });
-  scheduleRemoteSupportSidebarStreamCapture();
 }
 
 function ensureRemoteSupportSidebarStreamObservation() {
@@ -4902,8 +4772,6 @@ function ensureRemoteSupportSidebarStreamObservation() {
     document.addEventListener("change", () => {
       scheduleRemoteSupportSidebarStreamCapture();
     }, true);
-    document.addEventListener("mousemove", handleLocalRemoteSupportSidebarPointerMove, true);
-    document.addEventListener("click", handleLocalRemoteSupportSidebarClick, true);
   }
 
   if (remoteSupportSidebarStreamObserver || typeof MutationObserver !== "function" || !document.documentElement) {
@@ -4919,242 +4787,6 @@ function ensureRemoteSupportSidebarStreamObservation() {
     subtree: true,
     characterData: true
   });
-}
-
-function focusRemoteSupportSidebarTarget(target) {
-  if (!target || typeof target.focus !== "function") {
-    return;
-  }
-
-  try {
-    target.focus({ preventScroll: true });
-  } catch {
-    target.focus();
-  }
-}
-
-function isRemoteSupportSidebarTextEditableElement(target) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  const tagName = String(target.tagName || "").toLowerCase();
-  if (tagName === "textarea") {
-    return true;
-  }
-
-  if (tagName !== "input") {
-    return false;
-  }
-
-  const type = String(target.type || "text").toLowerCase();
-  return ![
-    "button",
-    "checkbox",
-    "color",
-    "file",
-    "hidden",
-    "image",
-    "radio",
-    "range",
-    "reset",
-    "submit"
-  ].includes(type);
-}
-
-function dispatchRemoteSupportSidebarEditableInputEvent(target) {
-  target.dispatchEvent(new Event("input", {
-    bubbles: true,
-    cancelable: false,
-    composed: true
-  }));
-}
-
-function applyRemoteSupportSidebarTextInputCommand(target, command) {
-  if (!isRemoteSupportSidebarTextEditableElement(target) || !command || command.ctrlKey || command.altKey || command.metaKey) {
-    return false;
-  }
-
-  focusRemoteSupportSidebarTarget(target);
-  const key = String(command.key || "");
-
-  if (target.isContentEditable && typeof document.execCommand === "function") {
-    if (key.length === 1) {
-      document.execCommand("insertText", false, key);
-      return true;
-    }
-    if (key === "Backspace") {
-      document.execCommand("delete", false);
-      return true;
-    }
-    if (key === "Delete") {
-      document.execCommand("forwardDelete", false);
-      return true;
-    }
-    if (key === "Enter") {
-      document.execCommand("insertLineBreak", false);
-      return true;
-    }
-    return false;
-  }
-
-  const value = typeof target.value === "string" ? target.value : "";
-  const selectionStart = Number.isInteger(target.selectionStart) ? target.selectionStart : value.length;
-  const selectionEnd = Number.isInteger(target.selectionEnd) ? target.selectionEnd : selectionStart;
-
-  let nextValue = value;
-  let nextCaret = selectionStart;
-
-  if (key.length === 1) {
-    nextValue = `${value.slice(0, selectionStart)}${key}${value.slice(selectionEnd)}`;
-    nextCaret = selectionStart + key.length;
-  } else if (key === "Backspace") {
-    if (selectionStart !== selectionEnd) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart;
-    } else if (selectionStart > 0) {
-      nextValue = `${value.slice(0, selectionStart - 1)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart - 1;
-    }
-  } else if (key === "Delete") {
-    if (selectionStart !== selectionEnd) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionEnd)}`;
-      nextCaret = selectionStart;
-    } else if (selectionStart < value.length) {
-      nextValue = `${value.slice(0, selectionStart)}${value.slice(selectionStart + 1)}`;
-      nextCaret = selectionStart;
-    }
-  } else if (key === "Enter" && String(target.tagName || "").toLowerCase() === "textarea") {
-    nextValue = `${value.slice(0, selectionStart)}\n${value.slice(selectionEnd)}`;
-    nextCaret = selectionStart + 1;
-  } else {
-    return false;
-  }
-
-  if (nextValue === value) {
-    return true;
-  }
-
-  target.value = nextValue;
-  if (typeof target.setSelectionRange === "function") {
-    target.setSelectionRange(nextCaret, nextCaret);
-  }
-  dispatchRemoteSupportSidebarEditableInputEvent(target);
-  return true;
-}
-
-function dispatchRemoteSupportSidebarPointerClick(target, clientX, clientY, button = 0) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-
-  focusRemoteSupportSidebarTarget(target);
-  const mouseEventInit = {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    clientX,
-    clientY,
-    button
-  };
-
-  target.dispatchEvent(new MouseEvent("mousedown", mouseEventInit));
-  target.dispatchEvent(new MouseEvent("mouseup", mouseEventInit));
-  if (typeof target.click === "function") {
-    target.click();
-    return true;
-  }
-
-  target.dispatchEvent(new MouseEvent("click", mouseEventInit));
-  return true;
-}
-
-function resolveRemoteSupportSidebarPoint(command) {
-  const root = document.documentElement;
-  const width = Math.max(1, Number(root && root.clientWidth) || window.innerWidth || 1);
-  const height = Math.max(1, Number(root && root.clientHeight) || window.innerHeight || 1);
-  return {
-    x: Math.max(0, Math.min(width - 1, Math.round((Number(command && command.x) || 0) * width))),
-    y: Math.max(0, Math.min(height - 1, Math.round((Number(command && command.y) || 0) * height)))
-  };
-}
-
-function applyRemoteSupportSidebarCommand(command) {
-  if (!command || typeof command !== "object") {
-    return;
-  }
-
-  const type = typeof command.type === "string" ? command.type : "";
-  if (!type) {
-    return;
-  }
-
-  if (type === "pointer-move") {
-    const point = resolveRemoteSupportSidebarPoint(command);
-    showRemoteSupportSidebarCursor(point);
-    const target = document.elementFromPoint(point.x, point.y) || document.body;
-    if (!target) {
-      return;
-    }
-
-    target.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      clientX: point.x,
-      clientY: point.y,
-      buttons: 0
-    }));
-    return;
-  }
-
-  if (type === "pointer-click") {
-    const point = resolveRemoteSupportSidebarPoint(command);
-    showRemoteSupportSidebarCursor(point, { click: true });
-    const target = document.elementFromPoint(point.x, point.y) || document.body;
-    dispatchRemoteSupportSidebarPointerClick(target, point.x, point.y, Number(command.button) || 0);
-    return;
-  }
-
-  if (type === "scroll") {
-    const point = resolveRemoteSupportSidebarPoint(command);
-    showRemoteSupportSidebarCursor(point);
-    const target = document.elementFromPoint(point.x, point.y) || document.scrollingElement || document.documentElement;
-    target.dispatchEvent(new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      clientX: point.x,
-      clientY: point.y,
-      deltaX: Number(command.deltaX) || 0,
-      deltaY: Number(command.deltaY) || 0
-    }));
-    return;
-  }
-
-  if (type === "key") {
-    const eventInit = {
-      key: String(command.key || ""),
-      code: String(command.code || ""),
-      ctrlKey: Boolean(command.ctrlKey),
-      altKey: Boolean(command.altKey),
-      shiftKey: Boolean(command.shiftKey),
-      metaKey: Boolean(command.metaKey),
-      bubbles: true,
-      cancelable: true,
-      composed: true
-    };
-    const target = document.activeElement && document.activeElement.nodeType === 1
-      ? document.activeElement
-      : document.documentElement;
-    target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-    applyRemoteSupportSidebarTextInputCommand(target, command);
-    target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
-  }
 }
 
 function collectRemoteSupportSidebarCaptureCssText() {
