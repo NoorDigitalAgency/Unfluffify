@@ -96,3 +96,14 @@ test("content-main requests a reconnect when property lock activity or page comm
     /function sendPropertyLockMessage\(type, payload = \{\}\) \{[\s\S]*?if \(!propertyLockPort\) \{[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?return;[\s\S]*?\}/
   );
 });
+
+test("content-main connects property lock before Live Page candidate verification completes", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const syncStart = source.indexOf("async function syncPropertyLockConnection");
+  const connectIndex = source.indexOf("type: PROPERTY_LOCK_CONTENT_CONNECT", syncStart);
+  const candidateIndex = source.indexOf("resolvePropertyLockCandidateState(target)", syncStart);
+
+  assert.ok(syncStart >= 0);
+  assert.ok(connectIndex > syncStart);
+  assert.ok(candidateIndex > connectIndex);
+});

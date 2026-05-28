@@ -79,6 +79,8 @@ export const state = {
 export const CONSENT_HIDDEN_ATTR = "data-uf-consent-hidden";
 const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
+const SECTION_LIKE_BOUNDARY_TAGS = new Set(["SECTION", "ARTICLE", "MAIN", "ASIDE", "HEADER", "FOOTER"]);
+const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
@@ -559,6 +561,17 @@ function isExpandedExclusionRootBlocked(el) {
     isBody: Boolean(el && el === document.body),
     isSoleVisualBodyWrapper: isSoleVisualBodyWrapper(el)
   });
+}
+
+function isSectionLikeExpandedBoundary(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (SECTION_LIKE_BOUNDARY_TAGS.has(el.tagName)) {
+    return true;
+  }
+  const role = typeof el.getAttribute === "function" ? (el.getAttribute("role") || "").toLowerCase() : "";
+  return role === "region" || role === "article" || role === "main" || role === "complementary";
 }
 
 function matchesToggleableDefaultExcluded(el) {
@@ -1593,7 +1606,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   if (changed) {
     touchPageEntryTimestamp(entry);
   }
-  configValue.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
   return { createdEntry: true, changed };
 }
 
@@ -3355,7 +3368,7 @@ function recordPageSnapshot(configValue, pageUrl) {
   });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
-  configValue.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
 }
 
 function getMarkId(el) {
@@ -3484,7 +3497,8 @@ function isExpandedExclusionBoundarySignalsValid(el, signals) {
     qualifyingChildBoundaryCount: signals && signals.qualifyingChildBoundaryCount,
     hasOnlyLayoutWrapperChain: Boolean(signals && signals.hasOnlyLayoutWrapperChain),
     hasMixedSiblingContent: Boolean(signals && signals.hasMixedSiblingContent),
-    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair)
+    hasAdjacentVisualSiblingPair: Boolean(signals && signals.hasAdjacentVisualSiblingPair),
+    isSectionLikeUnit: isSectionLikeExpandedBoundary(el)
   });
 }
 
@@ -3948,34 +3962,47 @@ function updateHoverHighlight(
   if (!layerHover) {
     return;
   }
+  const savedVisibilityCache = state.visibilityCache;
+  const savedBoundarySignalsCache = state.expandedExclusionBoundarySignalsCache;
+  if (!savedVisibilityCache) {
+    state.visibilityCache = new Map();
+  }
+  if (!savedBoundarySignalsCache) {
+    state.expandedExclusionBoundarySignalsCache = new WeakMap();
+  }
   const layerState = beginLayerRender(layerHover);
-  const explicitParentSet = getExcludedXPathSet(state.config, location.href);
-  const excludedSet =
-    allowParent || allowExcludedParentChildren ? null : explicitParentSet;
-  const includeSet = getIncludeXPathSet(state.config, location.href);
-  const target = getMarkableTarget(x, y, {
-    allowParent,
-    allowExplicitTarget: true,
-    preferExplicitTarget: allowExcludedParentChildren,
-    preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
-    excludedSet,
-    includeSet,
-    explicitParentSet,
-    allowExcludedParentChildren,
-    allowImmutableChildren,
-    requireExcludedAncestor: false
-  });
-  if (!target) {
+  try {
+    const explicitParentSet = getExcludedXPathSet(state.config, location.href);
+    const excludedSet =
+      allowParent || allowExcludedParentChildren ? null : explicitParentSet;
+    const includeSet = getIncludeXPathSet(state.config, location.href);
+    const target = getMarkableTarget(x, y, {
+      allowParent,
+      allowExplicitTarget: true,
+      preferExplicitTarget: allowExcludedParentChildren,
+      preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
+      excludedSet,
+      includeSet,
+      explicitParentSet,
+      allowExcludedParentChildren,
+      allowImmutableChildren,
+      requireExcludedAncestor: false
+    });
+    if (!target) {
+      finalizeLayerRender(layerState);
+      return;
+    }
+    const rects = getVisibleRects(target);
+    if (rects.length === 0) {
+      finalizeLayerRender(layerState);
+      return;
+    }
+    drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
     finalizeLayerRender(layerState);
-    return;
+  } finally {
+    state.visibilityCache = savedVisibilityCache;
+    state.expandedExclusionBoundarySignalsCache = savedBoundarySignalsCache;
   }
-  const rects = getVisibleRects(target);
-  if (rects.length === 0) {
-    finalizeLayerRender(layerState);
-    return;
-  }
-  drawMultiRectReuse(layerState, rects, "uf-hover", target, null, null);
-  finalizeLayerRender(layerState);
 }
 
 function refreshHoverHighlight() {
@@ -4079,7 +4106,7 @@ function toggleExplicitExclude(target) {
     entry.xpaths = items;
     touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
-    config.pageMarkings[location.href] = entry;
+    setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
     scheduleRender(getExplicitMarkingRenderOptions());
     scheduleSnapshotSave();
@@ -4210,7 +4237,7 @@ function toggleExplicitExclude(target) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-  config.pageMarkings[location.href] = entry;
+  setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
@@ -4256,7 +4283,7 @@ function toggleExplicitInclude(target) {
       entry.xpaths = items;
       touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
-      config.pageMarkings[location.href] = entry;
+      setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
       scheduleRender(getExplicitMarkingRenderOptions());
       scheduleSnapshotSave();
@@ -4309,7 +4336,7 @@ function toggleExplicitInclude(target) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-  config.pageMarkings[location.href] = entry;
+  setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
@@ -4612,12 +4639,7 @@ function renderHighlightsInner() {
   const pageUrl = location.href;
   const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
   const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
-  const existingPageEntry =
-    state.config &&
-    state.config.pageMarkings &&
-    typeof state.config.pageMarkings === "object"
-      ? state.config.pageMarkings[pageUrl] || null
-      : null;
+  const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
@@ -5204,7 +5226,7 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
   }
   entry.consentXpaths = normalized;
   touchPageEntryTimestamp(entry);
-  state.config.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(state.config.pageMarkings, pageUrl, entry);
   if (notifyOnChange) {
     notifyDraftStatus(pageUrl);
     chrome.runtime.sendMessage({
@@ -5594,7 +5616,66 @@ export function hasPageMarkingEntry(config, pageUrl) {
   if (!config || !config.pageMarkings || typeof config.pageMarkings !== "object") {
     return false;
   }
-  return Boolean(config.pageMarkings[pageUrl]);
+  return Boolean(findPageMarkingEntry(config, pageUrl));
+}
+
+// Normalize URL paths so "/page" and "/page/" resolve to the same page-marking entry.
+function normalizeUrlPath(pathname) {
+  if (typeof pathname !== "string" || !pathname) {
+    return "/";
+  }
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+// Build a stable page-marking key for equivalent URLs by ignoring trailing slashes.
+function toLooseUrlKey(value, baseUrl) {
+  if (typeof value !== "string" || !value) {
+    return "";
+  }
+  try {
+    const url = new URL(value, baseUrl || location.href);
+    const host = url.host.toLowerCase();
+    const path = normalizeUrlPath(url.pathname);
+    return `${host}${path}${url.search || ""}`;
+  } catch {
+    return "";
+  }
+}
+
+export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
+  const pageMarkings = configValue && configValue.pageMarkings;
+  if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
+    return null;
+  }
+  if (pageMarkings[pageUrl]) {
+    return pageMarkings[pageUrl];
+  }
+  const targetLooseKey = toLooseUrlKey(pageUrl, baseUrl || pageUrl);
+  if (!targetLooseKey) {
+    return null;
+  }
+  const lookupBaseUrl = baseUrl || pageUrl;
+  let cached = pageMarkingEntryLookupCache.get(pageMarkings);
+  if (!cached || cached.baseUrl !== lookupBaseUrl) {
+    const entriesByLooseKey = new Map();
+    Object.keys(pageMarkings).forEach((url) => {
+      const looseKey = toLooseUrlKey(url, lookupBaseUrl);
+      if (looseKey && !entriesByLooseKey.has(looseKey)) {
+        entriesByLooseKey.set(looseKey, pageMarkings[url]);
+      }
+    });
+    cached = { baseUrl: lookupBaseUrl, entriesByLooseKey };
+    pageMarkingEntryLookupCache.set(pageMarkings, cached);
+  }
+  return cached.entriesByLooseKey.get(targetLooseKey) || null;
+}
+
+// Write an entry into a pageMarkings object and evict its loose-lookup cache
+// so that the next findPageMarkingEntry call rebuilds with up-to-date data.
+function setPageMarkingEntry(pageMarkings, url, entry) {
+  pageMarkings[url] = entry;
+  pageMarkingEntryLookupCache.delete(pageMarkings);
 }
 
 export function collectImmutableElements() {
@@ -5656,7 +5737,7 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
     config.pageMarkings = {};
   }
-  config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
+  setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
 }
 
 export function getPageMarkingEntry(configValue, pageUrl, options) {
@@ -5678,7 +5759,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
   if (!configValue.pageMarkings || typeof configValue.pageMarkings !== "object") {
     configValue.pageMarkings = {};
   }
-  const existing = configValue.pageMarkings[pageUrl];
+  const existing = findPageMarkingEntry(configValue, pageUrl);
   if (existing && Array.isArray(existing.xpaths)) {
     if (!normalizePageEntryPageType(existing.pageType) && currentPageType) {
       existing.pageType = currentPageType;
@@ -5697,7 +5778,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     rawHtml: ""
   };
   if (create && persist) {
-    configValue.pageMarkings[pageUrl] = entry;
+    setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
   }
   return entry;
 }
@@ -6096,7 +6177,7 @@ export function getDraftPageEntry(pageUrl) {
   ) {
     return null;
   }
-  return state.config.pageMarkings[pageUrl] || null;
+  return findPageMarkingEntry(state.config, pageUrl);
 }
 
 export function getSavedPageEntry(pageUrl) {
@@ -6410,7 +6491,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   }
   if (shouldPersist) {
-    config.pageMarkings[pageUrl] = entry;
+    setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }

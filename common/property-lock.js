@@ -70,6 +70,17 @@ export const PROPERTY_LOCK_BACKGROUND_GET_STATE = "getPropertyLockState";
 export const PROPERTY_LOCK_BACKGROUND_STATE_UPDATE = "propertyLockStateUpdate";
 export const PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS = "propertyLockConnectionStatus";
 
+export function normalizePropertyLockSiteId(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 ? Math.trunc(value) : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const numericValue = Number(value.trim());
+    return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : null;
+  }
+  return null;
+}
+
 /**
  * Build WebSocket URL for property lock service.
  * 

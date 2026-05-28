@@ -45,6 +45,7 @@ import {
   PROPERTY_LOCK_ACTIVITY_DEBOUNCE_MS,
   PROPERTY_LOCK_RECONNECT_DELAY_MS,
   PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
+  normalizePropertyLockSiteId,
   buildPropertyLockWssUrl,
   normalizeLockStateMessage,
   createInactiveLockState
@@ -147,8 +148,16 @@ function handlePropertyLockPortConnect(port) {
     const { type, siteId: msgSiteId, ...rest } = message;
 
     // First message should be connect
-    if (type === PROPERTY_LOCK_CONTENT_CONNECT && msgSiteId) {
-      const nextSiteId = typeof msgSiteId === "number" ? msgSiteId : null;
+    if (type === PROPERTY_LOCK_CONTENT_CONNECT) {
+      const nextSiteId = normalizePropertyLockSiteId(msgSiteId);
+      if (!nextSiteId) {
+        port.postMessage({
+          type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+          connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+          error: "invalid_site_id"
+        });
+        return;
+      }
       if (siteId && nextSiteId && siteId !== nextSiteId) {
         const previousSiteId = detachPortFromSite(portId, portEntry);
         if (previousSiteId) {
@@ -230,7 +239,8 @@ function handlePropertyLockPortConnect(port) {
  * Create if missing, reuse if exists.
  */
 function ensureConnectionForSiteId(siteId) {
-  if (typeof siteId !== "number") {
+  siteId = normalizePropertyLockSiteId(siteId);
+  if (!siteId) {
     return;
   }
 
@@ -513,8 +523,8 @@ function scheduleDisconnectCheck(siteId) {
  * Handle getPropertyLockState message from popup.
  */
 export async function handleGetPropertyLockState(message, sender) {
-  const siteId = message.siteId;
-  if (typeof siteId !== "number") {
+  const siteId = normalizePropertyLockSiteId(message.siteId);
+  if (!siteId) {
     return { state: createInactiveLockState() };
   }
 
@@ -537,8 +547,8 @@ export async function handleGetPropertyLockState(message, sender) {
 }
 
 function handlePropertyLockCommand(message) {
-  const siteId = message.siteId;
-  if (typeof siteId !== "number") {
+  const siteId = normalizePropertyLockSiteId(message.siteId);
+  if (!siteId) {
     return { ok: false };
   }
 
