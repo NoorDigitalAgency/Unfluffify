@@ -122,7 +122,7 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
 });
 
-test("page marking selector suppression xpaths are normalized and excluded from sync payloads", () => {
+test("page marking selector suppression xpaths are normalized and included in sync payloads", () => {
   const normalized = normalizeConfig("https://example.com", {
     pageMarkings: {
       "https://example.com/current": {
@@ -149,12 +149,9 @@ test("page marking selector suppression xpaths are normalized and excluded from 
   );
 
   const payload = createConfigSyncPayload("https://example.com", normalized);
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(
-      payload.pageMarkings["https://example.com/current"],
-      "selectorSuppressedXpaths"
-    ),
-    false
+  assert.deepEqual(
+    payload.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
+    ["/html/body/main/section"]
   );
 });
 

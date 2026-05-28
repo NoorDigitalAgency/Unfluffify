@@ -918,6 +918,9 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
       includeXpaths: Array.isArray(safeEntry.includeXpaths)
         ? safeEntry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
         : [],
+      selectorSuppressedXpaths: Array.isArray(safeEntry.selectorSuppressedXpaths)
+        ? safeEntry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+        : [],
       submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
         ? safeEntry.submissionXpaths
           .map((item) => ({
