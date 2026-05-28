@@ -52,7 +52,7 @@ export const PROPERTY_LOCK_WS_ERROR = "error";
 export const PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS = 120_000; // 2 minutes
 export const PROPERTY_LOCK_ACTIVITY_DEBOUNCE_MS = 5_000; // 5 seconds
 export const PROPERTY_LOCK_RECONNECT_DELAY_MS = 2_000; // 2 seconds
-export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 30_000; // 30 seconds before closing WebSocket if no ports
+export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 5_000; // 5 seconds before closing WebSocket if no ports
 
 /**
  * Content script to background message types.

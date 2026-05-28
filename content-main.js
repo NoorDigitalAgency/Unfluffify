@@ -54,6 +54,7 @@ import {
   PROPERTY_LOCK_STATE_TRANSFER,
   PROPERTY_LOCK_PORT_NAME,
   PROPERTY_LOCK_CONTENT_CONNECT,
+  PROPERTY_LOCK_CONTENT_DISCONNECT,
   PROPERTY_LOCK_CONTENT_ACTIVITY,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
   PROPERTY_LOCK_CONTENT_SUGGEST,
@@ -134,6 +135,7 @@ let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockAutoTakeAttempted = false;
 let propertyLockConnectedSiteId = null;
+let propertyLockSyncToken = 0;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -1743,36 +1745,7 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
   return null;
 }
 
-async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
-  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
-  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
-    return { ok: false, reason: "Set Base Page URL in the Unfluffify popup first." };
-  }
-  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
-  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
-    return { ok: false, reason: "Open the Unfluffify popup first." };
-  }
-  const currentConfigs = await config.getConfigs();
-  const normalizedConfig = config.normalizeConfig(
-    normalizedBaseUrl,
-    currentConfigs[normalizedBaseUrl]
-  ).config;
-  let siteId = normalizeSiteIdValue(normalizedConfig.siteId);
-  if (!siteId) {
-    siteId = await resolveSiteIdFromGraphql({
-      stageBase: stageBaseValue,
-      pageUrl,
-      tokenValue
-    });
-    if (siteId) {
-      await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-        targetConfig.siteId = siteId;
-      });
-    }
-  }
-  if (!siteId) {
-    return { ok: false, reason: "Open the Unfluffify popup first." };
-  }
+async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
   const response = await fetch(graphqlEndpoint, {
     method: "POST",
@@ -1795,14 +1768,76 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
     payload = null;
   }
   if (!response.ok || !payload || Array.isArray(payload.errors)) {
-    return { ok: false, reason: "Unable to verify Live Page candidates." };
+    return {
+      ok: false,
+      pageTypes: [],
+      reason: "Unable to verify Live Page candidates."
+    };
   }
   const normalized = normalizePropertyPageTypes(
     payload && payload.data
       ? payload.data.propertyPageTypes
       : null
   );
-  const candidateState = getCurrentPageCandidateState(pageUrl, normalized.pageTypes);
+  return {
+    ok: true,
+    pageTypes: normalized.pageTypes || []
+  };
+}
+
+async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
+  const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+    ? options.pageUrl
+    : location.href;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
+    return { ok: false, reason: "Set Base Page URL in the Unfluffify popup first." };
+  }
+
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return { ok: false, reason: "Open the Unfluffify popup first." };
+  }
+
+  const currentConfigs = await config.getConfigs();
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    currentConfigs[normalizedBaseUrl]
+  ).config;
+  const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
+  let siteId = storedSiteId;
+  if (Boolean(options.forceSiteIdRefresh) || !siteId) {
+    const resolvedSiteId = await resolveSiteIdFromGraphql({
+      stageBase: stageBaseValue,
+      pageUrl,
+      tokenValue
+    });
+    if (resolvedSiteId) {
+      siteId = resolvedSiteId;
+      if (siteId !== storedSiteId) {
+        await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+          targetConfig.siteId = siteId;
+        });
+      }
+    }
+  }
+  if (!siteId) {
+    return { ok: false, reason: "Open the Unfluffify popup first." };
+  }
+
+  const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
+    siteId,
+    stageBaseValue,
+    tokenValue
+  );
+  if (!propertyPageTypesResult.ok) {
+    return {
+      ok: false,
+      reason: propertyPageTypesResult.reason || "Unable to verify Live Page candidates."
+    };
+  }
+
+  const candidateState = getCurrentPageCandidateState(pageUrl, propertyPageTypesResult.pageTypes);
   if (candidateState.status === "empty") {
     return { ok: false, reason: "Live Pages are not prepared for this site yet." };
   }
@@ -1812,7 +1847,22 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
   if (candidateState.status !== "candidate" || !candidateState.pageTypeKey) {
     return { ok: false, reason: "This page is not a current Live Page candidate." };
   }
-  return { ok: true, pageType: candidateState.pageTypeKey };
+
+  return {
+    ok: true,
+    baseUrl: normalizedBaseUrl,
+    siteId,
+    pageType: candidateState.pageTypeKey,
+    candidateState
+  };
+}
+
+async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href) {
+  const target = await resolveCurrentLivePageTarget(baseUrl, { pageUrl });
+  if (!target.ok || !target.pageType) {
+    return { ok: false, reason: target.reason || "This page is not a current Live Page candidate." };
+  }
+  return { ok: true, pageType: target.pageType };
 }
 
 function normalizeAiPreviewItems(items) {
@@ -3166,6 +3216,10 @@ function startSilentHighlightingUrlWatcher() {
     }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
+      syncPropertyLockConnection({
+        pageUrl: lastUrl,
+        forceSiteIdRefresh: true
+      }).then();
       refreshSilentHighlightings().then();
     }
   }, 800);
@@ -4838,54 +4892,74 @@ function handleBlockedPropertyLockInteraction(event) {
   showPropertyLockBlockedToast();
 }
 
-async function resolveCurrentPropertyLockSiteId() {
-  if (!state.enabled || !state.baseUrl) {
-    return null;
-  }
-
-  const normalizedBaseUrl = utils.normalizeBaseUrl(state.baseUrl) || state.baseUrl;
-  const configs = await config.getConfigs();
-  const currentConfig = config.normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]).config;
-  let siteId = normalizeSiteIdValue(currentConfig.siteId);
-  if (siteId) {
-    return siteId;
-  }
-
-  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
-  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
-    return null;
-  }
-
-  siteId = await resolveSiteIdFromGraphql({
-    stageBase: stageBaseValue,
-    pageUrl: location.href,
-    tokenValue
-  });
-  if (siteId) {
-    await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-      targetConfig.siteId = siteId;
-    });
-  }
-  return siteId || null;
+function resetPropertyLockUiState() {
+  propertyLockState = null;
+  propertyLockSuggestionId = "";
+  propertyLockSuggestionFromName = "";
+  propertyLockAutoTakeAttempted = false;
+  propertyLockBannerCountdownValue = 0;
+  updatePropertyLockBannerMode();
+  renderPropertyLockBanner();
 }
 
-async function initPropertyLockConnection() {
-  const siteId = await resolveCurrentPropertyLockSiteId();
-  if (!siteId) {
+function disconnectPropertyLockPort(options = {}) {
+  const { notifyBackground = true } = options || {};
+  const currentPort = propertyLockPort;
+  const currentSiteId = propertyLockConnectedSiteId;
+  propertyLockPort = null;
+  propertyLockConnectedSiteId = null;
+
+  if (currentPort) {
+    if (notifyBackground && currentSiteId) {
+      try {
+        currentPort.postMessage({
+          type: PROPERTY_LOCK_CONTENT_DISCONNECT,
+          siteId: currentSiteId
+        });
+      } catch (error) {
+        // Background may already have torn down the port.
+      }
+    }
+    try {
+      currentPort.disconnect();
+    } catch (error) {
+      // Port may already be disconnected.
+    }
+  }
+
+  resetPropertyLockUiState();
+}
+
+async function syncPropertyLockConnection(options = {}) {
+  const syncToken = ++propertyLockSyncToken;
+  const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+    ? options.pageUrl
+    : location.href;
+  const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
+  const baseUrl = await resolveBaseUrlForCurrentPage();
+  const target = baseUrl
+    ? await resolveCurrentLivePageTarget(baseUrl, {
+      pageUrl,
+      forceSiteIdRefresh
+    })
+    : null;
+
+  if (syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
     return;
   }
 
+  if (!target || !target.ok || !target.siteId) {
+    disconnectPropertyLockPort();
+    return;
+  }
+
+  const siteId = target.siteId;
   if (propertyLockPort && propertyLockConnectedSiteId === siteId) {
     return;
   }
 
   if (propertyLockPort) {
-    try {
-      propertyLockPort.disconnect();
-    } catch (error) {
-      // Port may already be disconnected.
-    }
-    propertyLockPort = null;
+    disconnectPropertyLockPort();
   }
 
   if (propertyLockConnectedSiteId !== siteId) {
@@ -4903,9 +4977,7 @@ async function initPropertyLockConnection() {
       }
       propertyLockPort = null;
       propertyLockConnectedSiteId = null;
-      propertyLockAutoTakeAttempted = false;
-      propertyLockBannerMode = "no_banner";
-      renderPropertyLockBanner();
+      resetPropertyLockUiState();
     });
     nextPort.postMessage({
       type: PROPERTY_LOCK_CONTENT_CONNECT,
@@ -4914,6 +4986,7 @@ async function initPropertyLockConnection() {
   } catch (error) {
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
+    resetPropertyLockUiState();
   }
 }
 
@@ -5299,7 +5372,9 @@ export function main() {
       lastTrackedUrlHostname = urlInfo.hostname;
     }
     
-    initPropertyLockConnection();
+    syncPropertyLockConnection({
+      forceSiteIdRefresh: !state.enabled || !state.baseUrl
+    }).then();
     refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
   });
@@ -5569,6 +5644,7 @@ export function main() {
         core.disable();
         refreshSilentHighlightings().then();
       }
+      syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
       sendResponse({ ok: true });
       return;
     }
@@ -5576,6 +5652,7 @@ export function main() {
     if (message.type === "forceRefresh") {
       core.refreshFromTabState().then(() => {
         refreshEnabledAiHighlights();
+        syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
         refreshSilentHighlightings().then(() => {
           sendResponse({ ok: true });
         });
@@ -6142,6 +6219,7 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
+    syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
     refreshSilentHighlightings().then();
   });
 

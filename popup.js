@@ -3202,37 +3202,6 @@ async function refreshUiInner() {
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
   state.currentSiteId = liveSiteId;
-  if (liveSiteId && state.currentBaseUrl && tokenValue) {
-    if (state.propertyLockSiteId !== liveSiteId) {
-      resetPropertyLockState();
-      state.propertyLockSiteId = liveSiteId;
-    }
-    const lockResponse = await fetchPropertyLockState(liveSiteId);
-    const nextLockState = normalizeLockStateMessage(
-      lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
-    );
-    const previousLockState = state.propertyLockState;
-    if (
-      !previousLockState ||
-      previousLockState.state !== nextLockState.state ||
-      previousLockState.isEditor !== nextLockState.isEditor ||
-      previousLockState.editorIdentity !== nextLockState.editorIdentity
-    ) {
-      clearPropertyLockTransientState();
-    }
-    state.propertyLockState = nextLockState;
-    applyPropertyLockConnectionStatus(
-      lockResponse && lockResponse.connectionStatus
-        ? lockResponse.connectionStatus
-        : PROPERTY_LOCK_CONNECTION_CONNECTED,
-      lockResponse && lockResponse.error ? lockResponse.error : ""
-    );
-    state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
-    state.propertyLockName = (lockResponse && lockResponse.name) || "";
-  } else {
-    resetPropertyLockState();
-  }
-  Object.assign(nextViewState, buildPropertyLockViewState());
   let propertyPageTypes = [];
   let propertyPageTypesFetchError = "";
   if (
@@ -3361,6 +3330,40 @@ async function refreshUiInner() {
     pageUrl,
     pageTypeCoverageModel.pageTypes
   );
+  const propertyLockCandidateSiteId = currentPageCandidateState.status === "candidate"
+    ? liveSiteId
+    : null;
+  if (propertyLockCandidateSiteId && state.currentBaseUrl && tokenValue) {
+    if (state.propertyLockSiteId !== propertyLockCandidateSiteId) {
+      resetPropertyLockState();
+      state.propertyLockSiteId = propertyLockCandidateSiteId;
+    }
+    const lockResponse = await fetchPropertyLockState(propertyLockCandidateSiteId);
+    const nextLockState = normalizeLockStateMessage(
+      lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
+    );
+    const previousLockState = state.propertyLockState;
+    if (
+      !previousLockState ||
+      previousLockState.state !== nextLockState.state ||
+      previousLockState.isEditor !== nextLockState.isEditor ||
+      previousLockState.editorIdentity !== nextLockState.editorIdentity
+    ) {
+      clearPropertyLockTransientState();
+    }
+    state.propertyLockState = nextLockState;
+    applyPropertyLockConnectionStatus(
+      lockResponse && lockResponse.connectionStatus
+        ? lockResponse.connectionStatus
+        : PROPERTY_LOCK_CONNECTION_CONNECTED,
+      lockResponse && lockResponse.error ? lockResponse.error : ""
+    );
+    state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
+    state.propertyLockName = (lockResponse && lockResponse.name) || "";
+  } else {
+    resetPropertyLockState();
+  }
+  Object.assign(nextViewState, buildPropertyLockViewState());
   const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
   const pageTypeUiBlocked = Boolean(
     tabInScope &&

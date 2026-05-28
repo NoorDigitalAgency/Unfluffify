@@ -14,6 +14,7 @@
 import {
   PROPERTY_LOCK_PORT_NAME,
   PROPERTY_LOCK_CONTENT_CONNECT,
+  PROPERTY_LOCK_CONTENT_DISCONNECT,
   PROPERTY_LOCK_CONTENT_ACTIVITY,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
   PROPERTY_LOCK_CONTENT_RELEASE,
@@ -101,6 +102,18 @@ function hasContentPortsForSiteId(siteId) {
   );
 }
 
+function detachPortFromSite(portId, portEntry) {
+  const currentSiteId = typeof (portEntry && portEntry.siteId) === "number"
+    ? portEntry.siteId
+    : null;
+  if (!currentSiteId) {
+    return null;
+  }
+  contentScriptPorts.delete(portId);
+  portEntry.siteId = null;
+  return currentSiteId;
+}
+
 /**
  * Initialize property lock background module.
  * Sets up port listener for content script connections.
@@ -135,7 +148,14 @@ function handlePropertyLockPortConnect(port) {
 
     // First message should be connect
     if (type === PROPERTY_LOCK_CONTENT_CONNECT && msgSiteId) {
-      siteId = typeof msgSiteId === "number" ? msgSiteId : null;
+      const nextSiteId = typeof msgSiteId === "number" ? msgSiteId : null;
+      if (siteId && nextSiteId && siteId !== nextSiteId) {
+        const previousSiteId = detachPortFromSite(portId, portEntry);
+        if (previousSiteId) {
+          scheduleDisconnectCheck(previousSiteId);
+        }
+      }
+      siteId = nextSiteId;
       portEntry.siteId = siteId;
       contentScriptPorts.set(portId, portEntry);
 
@@ -147,6 +167,15 @@ function handlePropertyLockPortConnect(port) {
 
     // All other messages require prior connect
     if (!siteId) {
+      return;
+    }
+
+    if (type === PROPERTY_LOCK_CONTENT_DISCONNECT) {
+      const disconnectedSiteId = detachPortFromSite(portId, portEntry) || siteId;
+      siteId = null;
+      if (disconnectedSiteId) {
+        scheduleDisconnectCheck(disconnectedSiteId);
+      }
       return;
     }
 
@@ -184,10 +213,11 @@ function handlePropertyLockPortConnect(port) {
   }
 
   function onPortDisconnect() {
-    contentScriptPorts.delete(portId);
-    
-    if (siteId) {
-      scheduleDisconnectCheck(siteId);
+    const disconnectedSiteId = detachPortFromSite(portId, portEntry) || siteId;
+    siteId = null;
+
+    if (disconnectedSiteId) {
+      scheduleDisconnectCheck(disconnectedSiteId);
     }
   }
 
@@ -460,7 +490,7 @@ function scheduleReconnect(runtime) {
 }
 
 /**
- * Schedule check for port disconnection (after 30s delay).
+ * Schedule check for port disconnection after the navigation grace delay.
  * Close WebSocket if no ports remain connected for this siteId.
  */
 function scheduleDisconnectCheck(siteId) {
