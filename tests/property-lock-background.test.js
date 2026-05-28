@@ -273,50 +273,6 @@ test("property lock opens a new runtime for a different site immediately and dro
     globalStageBase: "stage.example.test",
     globalToken: "secret-token"
   });
-
-  test("property lock accepts numeric string site IDs and rejects invalid connect messages", async () => {
-    const originalChrome = globalThis.chrome;
-    const originalWebSocket = globalThis.WebSocket;
-    const FakeWebSocket = createFakeWebSocketClass();
-    const { chromeMock, connectPort } = createChromeMock({
-      globalStageBase: "stage.example.test",
-      globalToken: "secret-token"
-    });
-
-    globalThis.chrome = chromeMock;
-    globalThis.WebSocket = FakeWebSocket;
-
-    try {
-      const { initPropertyLockBackground, handleGetPropertyLockState } = await loadPropertyLockBackgroundModule();
-      initPropertyLockBackground();
-
-      const invalidPort = connectPort();
-      invalidPort.emitMessage({
-        type: PROPERTY_LOCK_CONTENT_CONNECT,
-        siteId: "not-a-site"
-      });
-      await flushAsyncWork();
-
-      assert.equal(FakeWebSocket.instances.length, 0);
-      assert.equal(invalidPort.postedMessages[0].type, "propertyLockConnectionStatus");
-      assert.equal(invalidPort.postedMessages[0].error, "invalid_site_id");
-
-      const validPort = connectPort();
-      validPort.emitMessage({
-        type: PROPERTY_LOCK_CONTENT_CONNECT,
-        siteId: "303"
-      });
-      await flushAsyncWork();
-
-      assert.equal(FakeWebSocket.instances.length, 1);
-      const state = await handleGetPropertyLockState({ siteId: "303" }, {});
-      assert.equal(state.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-    } finally {
-      globalThis.chrome = originalChrome;
-      globalThis.WebSocket = originalWebSocket;
-    }
-  });
-
   globalThis.chrome = chromeMock;
   globalThis.WebSocket = FakeWebSocket;
 
@@ -374,6 +330,49 @@ test("property lock opens a new runtime for a different site immediately and dro
     assert.equal(newSiteState.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
   } finally {
     timerController.restore();
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("property lock accepts numeric string site IDs and rejects invalid connect messages", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const FakeWebSocket = createFakeWebSocketClass();
+  const { chromeMock, connectPort } = createChromeMock({
+    globalStageBase: "stage.example.test",
+    globalToken: "secret-token"
+  });
+
+  globalThis.chrome = chromeMock;
+  globalThis.WebSocket = FakeWebSocket;
+
+  try {
+    const { initPropertyLockBackground, handleGetPropertyLockState } = await loadPropertyLockBackgroundModule();
+    initPropertyLockBackground();
+
+    const invalidPort = connectPort();
+    invalidPort.emitMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId: "not-a-site"
+    });
+    await flushAsyncWork();
+
+    assert.equal(FakeWebSocket.instances.length, 0);
+    assert.equal(invalidPort.postedMessages[0].type, "propertyLockConnectionStatus");
+    assert.equal(invalidPort.postedMessages[0].error, "invalid_site_id");
+
+    const validPort = connectPort();
+    validPort.emitMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId: "303"
+    });
+    await flushAsyncWork();
+
+    assert.equal(FakeWebSocket.instances.length, 1);
+    const state = await handleGetPropertyLockState({ siteId: "303" }, {});
+    assert.equal(state.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
+  } finally {
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;
   }

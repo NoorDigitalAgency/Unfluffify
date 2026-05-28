@@ -5271,7 +5271,7 @@ async function handleExplicitIncludeRemove(xpath) {
     uiModule.showToast(PopupText.explicitSelection.includeUpdateFailed);
     return;
   }
-  await refreshUi({ useBusyOverlay: false });
+  await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
 async function navigateActiveTabToUrl(url) {
@@ -6741,7 +6741,7 @@ function scheduleRefresh() {
   state.refreshTimer = window.setTimeout(async () => {
     state.refreshTimer = 0;
     await helpers.ensureActiveTab();
-    await refreshUi({ useBusyOverlay: false });
+    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
   }, 120);
 }
 
