@@ -1839,75 +1839,6 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     };
   }
 
-  async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
-    const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-      ? options.pageUrl
-      : location.href;
-    const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
-    if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
-      return { ok: false, reason: "not_in_base_url" };
-    }
-
-    const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
-    if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
-      return { ok: false, reason: "missing_lock_settings" };
-    }
-
-    const currentConfigs = await config.getConfigs();
-    const normalizedConfig = config.normalizeConfig(
-      normalizedBaseUrl,
-      currentConfigs[normalizedBaseUrl]
-    ).config;
-    const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
-    let siteId = storedSiteId;
-    if (Boolean(options.forceSiteIdRefresh) || !siteId) {
-      const resolvedSiteId = await resolveSiteIdFromGraphql({
-        stageBase: stageBaseValue,
-        pageUrl,
-        tokenValue
-      });
-      if (resolvedSiteId) {
-        siteId = resolvedSiteId;
-        if (siteId !== storedSiteId) {
-          await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-            targetConfig.siteId = siteId;
-          });
-        }
-      }
-    }
-    if (!siteId) {
-      return { ok: false, reason: "missing_site_id" };
-    }
-    return {
-      ok: true,
-      baseUrl: normalizedBaseUrl,
-      pageUrl,
-      siteId,
-      stageBaseValue,
-      tokenValue
-    };
-  }
-
-  async function resolvePropertyLockCandidateState(target) {
-    if (!target || !target.ok) {
-      return { ok: false, candidate: false };
-    }
-    const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
-      target.siteId,
-      target.stageBaseValue,
-      target.tokenValue
-    );
-    if (!propertyPageTypesResult.ok) {
-      return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
-    }
-    const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
-    return {
-      ok: true,
-      candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
-      candidateState
-    };
-  }
-
   const candidateState = getCurrentPageCandidateState(pageUrl, propertyPageTypesResult.pageTypes);
   if (candidateState.status === "empty") {
     return { ok: false, reason: "Live Pages are not prepared for this site yet." };
@@ -1924,6 +1855,75 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     baseUrl: normalizedBaseUrl,
     siteId,
     pageType: candidateState.pageTypeKey,
+    candidateState
+  };
+}
+
+async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
+  const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+    ? options.pageUrl
+    : location.href;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
+    return { ok: false, reason: "not_in_base_url" };
+  }
+
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return { ok: false, reason: "missing_lock_settings" };
+  }
+
+  const currentConfigs = await config.getConfigs();
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    currentConfigs[normalizedBaseUrl]
+  ).config;
+  const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
+  let siteId = storedSiteId;
+  if (Boolean(options.forceSiteIdRefresh) || !siteId) {
+    const resolvedSiteId = await resolveSiteIdFromGraphql({
+      stageBase: stageBaseValue,
+      pageUrl,
+      tokenValue
+    });
+    if (resolvedSiteId) {
+      siteId = resolvedSiteId;
+      if (siteId !== storedSiteId) {
+        await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+          targetConfig.siteId = siteId;
+        });
+      }
+    }
+  }
+  if (!siteId) {
+    return { ok: false, reason: "missing_site_id" };
+  }
+  return {
+    ok: true,
+    baseUrl: normalizedBaseUrl,
+    pageUrl,
+    siteId,
+    stageBaseValue,
+    tokenValue
+  };
+}
+
+async function resolvePropertyLockCandidateState(target) {
+  if (!target || !target.ok) {
+    return { ok: false, candidate: false };
+  }
+  const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
+    target.siteId,
+    target.stageBaseValue,
+    target.tokenValue
+  );
+  if (!propertyPageTypesResult.ok) {
+    return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
+  }
+  const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
+  return {
+    ok: true,
+    candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
     candidateState
   };
 }

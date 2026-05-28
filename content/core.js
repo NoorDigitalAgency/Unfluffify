@@ -2529,7 +2529,6 @@ function createOverlay() {
       }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
-      #unfluffify-overlay .uf-layer[data-layer="ai-content-excluded"] { z-index: 4; }
       #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
       #unfluffify-overlay .uf-layer[data-layer="ai-content"] { z-index: 6; }
       #unfluffify-overlay .uf-layer[data-layer="explicit-include"] { z-index: 7; }
@@ -2597,10 +2596,6 @@ function createOverlay() {
       #unfluffify-overlay .uf-ai-content.uf-ai-content-overlay {
         background-color: transparent;
       }
-      #unfluffify-overlay .uf-ai-content-excluded {
-        border: 3px solid #c62828;
-        background: rgba(198, 40, 40, 0.2);
-      }
       #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
@@ -2640,7 +2635,6 @@ function createOverlay() {
     "explicit-exclude",
     "explicit-include",
     "ai-content",
-    "ai-content-excluded",
     "default",
     "focus",
     "hover"
@@ -4225,7 +4219,7 @@ function renderHighlightsInner() {
   };
   const shouldSkipAiCollectionElement = (
       el,
-      { skipExplicitExcludedUnlessIncluded = false, skipExplicitIncluded = false } = {}
+      { skipExplicitExcludedUnlessIncluded = false } = {}
   ) => {
     if (!el || el.nodeType !== 1) {
       return true;
@@ -4238,13 +4232,9 @@ function renderHighlightsInner() {
         && !isWithinExplicitInclude(el)) {
       return true;
     }
-    if (skipExplicitIncluded && isWithinExplicitInclude(el)) {
-      return true;
-    }
     return false;
   };
   let aiContent = new Set();
-  let aiExcludedDescendants = new Set();
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths
     : [];
@@ -4261,12 +4251,6 @@ function renderHighlightsInner() {
       }
       aiContent.add(el);
     }
-    for (const el of aiCollections.excluded || []) {
-      if (shouldSkipAiCollectionElement(el, { skipExplicitIncluded: true })) {
-        continue;
-      }
-      aiExcludedDescendants.add(el);
-    }
     for (const el of explicitInclude) {
       if (shouldSkipAiCollectionElement(el)) {
         continue;
@@ -4279,8 +4263,7 @@ function renderHighlightsInner() {
     ...consentExcluded,
     ...explicitExclude,
     ...explicitInclude,
-    ...aiContent,
-    ...aiExcludedDescendants
+    ...aiContent
   ]);
   const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
@@ -4330,7 +4313,6 @@ function renderHighlightsInner() {
       ...hardExcludedSet,
       ...consentExcluded,
       ...explicitExclude,
-      ...aiExcludedDescendants,
       ...explicitInclude,
       ...aiContent
     ])
@@ -4345,7 +4327,6 @@ function renderHighlightsInner() {
     explicitIncludeElements: filteredExplicitInclude,
     aiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
-    aiContentExcludedElements: Array.from(aiExcludedDescendants),
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
@@ -4379,7 +4360,6 @@ function drawCollections(collections, getRects) {
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
-  const layerAiContentExcludedState = beginLayerRender(state.layers["ai-content-excluded"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -4445,20 +4425,6 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  for (const el of collections.aiContentExcludedElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentExcludedState,
-        rects,
-        "uf-ai-content-excluded",
-        el,
-        "ai-content-excluded",
-        markedElements
-      );
-    }
-  }
-
   for (const el of collections.defaultElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
@@ -4472,7 +4438,6 @@ function drawCollections(collections, getRects) {
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
   finalizeLayerRender(layerAiContentState);
-  finalizeLayerRender(layerAiContentExcludedState);
   finalizeLayerRender(layerDefaultState);
 
   updateFocusHighlight();
