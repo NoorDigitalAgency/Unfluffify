@@ -1606,7 +1606,7 @@ function seedMarkingsFromAiSelectorsForUnmarkedPage(
   if (changed) {
     touchPageEntryTimestamp(entry);
   }
-  configValue.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
   return { createdEntry: true, changed };
 }
 
@@ -3368,7 +3368,7 @@ function recordPageSnapshot(configValue, pageUrl) {
   });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
-  configValue.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
 }
 
 function getMarkId(el) {
@@ -4106,7 +4106,7 @@ function toggleExplicitExclude(target) {
     entry.xpaths = items;
     touchPageEntryTimestamp(entry);
     normalizePageEntryXpaths(entry);
-    config.pageMarkings[location.href] = entry;
+    setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
     scheduleRender(getExplicitMarkingRenderOptions());
     scheduleSnapshotSave();
@@ -4237,7 +4237,7 @@ function toggleExplicitExclude(target) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-  config.pageMarkings[location.href] = entry;
+  setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
@@ -4283,7 +4283,7 @@ function toggleExplicitInclude(target) {
       entry.xpaths = items;
       touchPageEntryTimestamp(entry);
       normalizePageEntryXpaths(entry);
-      config.pageMarkings[location.href] = entry;
+      setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
       scheduleRender(getExplicitMarkingRenderOptions());
       scheduleSnapshotSave();
@@ -4336,7 +4336,7 @@ function toggleExplicitInclude(target) {
   entry.xpaths = items;
   touchPageEntryTimestamp(entry);
   normalizePageEntryXpaths(entry);
-  config.pageMarkings[location.href] = entry;
+  setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
   scheduleRender(getExplicitMarkingRenderOptions());
   scheduleSnapshotSave();
@@ -5226,7 +5226,7 @@ function syncConsentXpaths(pageUrl, consentXpaths, options) {
   }
   entry.consentXpaths = normalized;
   touchPageEntryTimestamp(entry);
-  state.config.pageMarkings[pageUrl] = entry;
+  setPageMarkingEntry(state.config.pageMarkings, pageUrl, entry);
   if (notifyOnChange) {
     notifyDraftStatus(pageUrl);
     chrome.runtime.sendMessage({
@@ -5671,6 +5671,13 @@ export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseU
   return cached.entriesByLooseKey.get(targetLooseKey) || null;
 }
 
+// Write an entry into a pageMarkings object and evict its loose-lookup cache
+// so that the next findPageMarkingEntry call rebuilds with up-to-date data.
+function setPageMarkingEntry(pageMarkings, url, entry) {
+  pageMarkings[url] = entry;
+  pageMarkingEntryLookupCache.delete(pageMarkings);
+}
+
 export function collectImmutableElements() {
   const immutable = new Set();
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
@@ -5730,7 +5737,7 @@ export function mergeDraftEntry(config, pageUrl, draftEntry, savedEntry) {
   if (!config.pageMarkings || typeof config.pageMarkings !== "object") {
     config.pageMarkings = {};
   }
-  config.pageMarkings[pageUrl] = clonePageEntry(draftEntry);
+  setPageMarkingEntry(config.pageMarkings, pageUrl, clonePageEntry(draftEntry));
 }
 
 export function getPageMarkingEntry(configValue, pageUrl, options) {
@@ -5771,7 +5778,7 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     rawHtml: ""
   };
   if (create && persist) {
-    configValue.pageMarkings[pageUrl] = entry;
+    setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
   }
   return entry;
 }
@@ -6484,7 +6491,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     entry.timestamp = normalizeEntryTimestampValue(entry.timestamp);
   }
   if (shouldPersist) {
-    config.pageMarkings[pageUrl] = entry;
+    setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
