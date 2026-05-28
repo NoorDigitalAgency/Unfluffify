@@ -449,6 +449,9 @@ function createCameraPreviewVideo(stream) {
   video.playsInline = true;
   video.autoplay = true;
   video.srcObject = stream;
+  if (typeof video.play === "function") {
+    video.play().catch(() => {});
+  }
   return video;
 }
 

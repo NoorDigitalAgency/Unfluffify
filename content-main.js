@@ -199,8 +199,6 @@ let remoteSupportTerminatePending = false;
 let remoteSupportSupportPageTabId = null;
 let remoteSupportSupportPageState = createRemoteSupportSupportPageState();
 let remoteSupportSupportPageSidebarSnapshot = createInactiveRemoteSupportSidebarSnapshot();
-let remoteSupportSupportPageJoinCode = "";
-let remoteSupportSupportPageJoinLoading = false;
 let remoteSupportSupportPageLastFrame = "";
 let remoteSupportSupportPageRenderedFrame = "";
 let remoteSupportSupportPageElements = null;
@@ -1518,97 +1516,6 @@ function getRemoteSupportSupportPageSurfaceRect(surface, frame, options = {}) {
   };
 }
 
-function handleRemoteSupportSupportPageJoinCodeInput(event) {
-  remoteSupportSupportPageJoinCode = event && event.target && typeof event.target.value === "string"
-    ? event.target.value.trim().toUpperCase()
-    : "";
-  remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-    ...remoteSupportSupportPageState,
-    error: ""
-  });
-  if (remoteSupportSupportPageElements && remoteSupportSupportPageElements.joinInput) {
-    remoteSupportSupportPageElements.joinInput.value = remoteSupportSupportPageJoinCode;
-  }
-  renderRemoteSupportSupportPage();
-}
-
-async function handleRemoteSupportSupportPageJoin() {
-  if (remoteSupportSupportPageJoinLoading) {
-    return;
-  }
-
-  if (!Number.isFinite(remoteSupportSupportPageTabId)) {
-    await refreshRemoteSupportSupportPageState();
-  }
-
-  const supportCode = remoteSupportSupportPageJoinCode.trim();
-  if (!supportCode) {
-    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-      ...remoteSupportSupportPageState,
-      error: "Enter a valid six-digit support code before joining."
-    });
-    renderRemoteSupportSupportPage();
-    return;
-  }
-
-  const {
-    tokenValue,
-    configEndpointValue
-  } = await loadGlobalAiSettingsForContent();
-
-  if (!configEndpointValue) {
-    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-      ...remoteSupportSupportPageState,
-      error: "Set the Configuration Endpoint in Unfluffify before joining support."
-    });
-    renderRemoteSupportSupportPage();
-    return;
-  }
-
-  if (!tokenValue) {
-    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-      ...remoteSupportSupportPageState,
-      error: "Sign in to Unfluffify before joining a support session."
-    });
-    renderRemoteSupportSupportPage();
-    return;
-  }
-
-  remoteSupportSupportPageJoinLoading = true;
-  renderRemoteSupportSupportPage();
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "remoteSupportJoin",
-      endpointValue: configEndpointValue,
-      tokenValue,
-      tabId: remoteSupportSupportPageTabId,
-      supportCode
-    });
-
-    if (!response || !response.ok) {
-      remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-        ...remoteSupportSupportPageState,
-        error: (response && response.error) || "Unable to join support session"
-      });
-      renderRemoteSupportSupportPage();
-      return;
-    }
-
-    remoteSupportSupportPageJoinCode = "";
-    applyRemoteSupportSupportPageState(response.state || null);
-  } catch (error) {
-    remoteSupportSupportPageState = normalizeRemoteSupportSupportPageState({
-      ...remoteSupportSupportPageState,
-      error: error && error.message ? error.message : "Unable to join support session"
-    });
-    renderRemoteSupportSupportPage();
-  } finally {
-    remoteSupportSupportPageJoinLoading = false;
-    renderRemoteSupportSupportPage();
-  }
-}
-
 async function handleRemoteSupportSupportPageEnd() {
   try {
     const response = await chrome.runtime.sendMessage({
@@ -1781,9 +1688,6 @@ function ensureRemoteSupportSupportPageUi() {
 
     remoteSupportSupportPageElements = {
       root,
-      joinForm: null,
-      joinInput: null,
-      joinButton: null,
       error: root.querySelector("#uf-support-page-error"),
       errorText: root.querySelector("#uf-support-page-error-text"),
       errorDismiss: root.querySelector("#uf-support-page-error-dismiss"),
@@ -1812,16 +1716,10 @@ function ensureRemoteSupportSupportPageUi() {
       event.preventDefault();
       toggleRemoteSupportSupportPageFullscreen().then();
     });
-    remoteSupportSupportPageElements.surface.addEventListener("wheel", (event) => {
-      event.preventDefault();
-    }, { passive: false });
     remoteSupportSupportPageElements.surface.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
 
-    remoteSupportSupportPageElements.sidebarSurface.addEventListener("wheel", (event) => {
-      event.preventDefault();
-    }, { passive: false });
     remoteSupportSupportPageElements.sidebarSurface.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
@@ -2177,11 +2075,6 @@ function initializeRemoteSupportSupportPage() {
   ensureRemoteSupportSupportPageUi();
   renderRemoteSupportSupportPage();
   document.addEventListener("fullscreenchange", syncRemoteSupportSupportPageFullscreenState);
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && document.fullscreenElement) {
-      syncRemoteSupportSupportPageFullscreenState();
-    }
-  });
   refreshRemoteSupportSupportPageState().then();
 }
 
