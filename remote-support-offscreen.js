@@ -530,13 +530,16 @@ function scheduleLocalCameraPreviewCallback(runtime) {
 }
 
 async function onLocalCameraPreviewFrame(runtime) {
-  runtime.localCameraPreviewCallbackPending = false;
-  if (!runtime.popupPreviewLoopActive) {
+  const activeRuntime = getTransportRuntime(runtime.sessionId);
+  if (!activeRuntime) {
     return;
   }
-  const activeRuntime = getTransportRuntime(runtime.sessionId);
-  if (!activeRuntime || activeRuntime.shuttingDown) {
-    stopRequesterPopupMediaPreview(runtime);
+  activeRuntime.localCameraPreviewCallbackPending = false;
+  if (!activeRuntime.popupPreviewLoopActive) {
+    return;
+  }
+  if (activeRuntime.shuttingDown) {
+    stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
   const bitmap = await captureStreamBitmap(activeRuntime.localCameraPreviewEl);
@@ -561,13 +564,16 @@ function scheduleRemoteCameraPreviewCallback(runtime) {
 }
 
 async function onRemoteCameraPreviewFrame(runtime) {
-  runtime.remoteCameraPreviewCallbackPending = false;
-  if (!runtime.popupPreviewLoopActive) {
+  const activeRuntime = getTransportRuntime(runtime.sessionId);
+  if (!activeRuntime) {
     return;
   }
-  const activeRuntime = getTransportRuntime(runtime.sessionId);
-  if (!activeRuntime || activeRuntime.shuttingDown) {
-    stopRequesterPopupMediaPreview(runtime);
+  activeRuntime.remoteCameraPreviewCallbackPending = false;
+  if (!activeRuntime.popupPreviewLoopActive) {
+    return;
+  }
+  if (activeRuntime.shuttingDown) {
+    stopRequesterPopupMediaPreview(activeRuntime);
     return;
   }
   const bitmap = await captureStreamBitmap(activeRuntime.remoteCameraPreviewEl);
