@@ -5619,6 +5619,7 @@ export function hasPageMarkingEntry(config, pageUrl) {
   return Boolean(findPageMarkingEntry(config, pageUrl));
 }
 
+// Normalize URL paths so "/page" and "/page/" resolve to the same page-marking entry.
 function normalizeUrlPath(pathname) {
   if (typeof pathname !== "string" || !pathname) {
     return "/";
@@ -5627,6 +5628,7 @@ function normalizeUrlPath(pathname) {
   return trimmed || "/";
 }
 
+// Build a stable page-marking key for equivalent URLs by ignoring trailing slashes.
 function toLooseUrlKey(value, baseUrl) {
   if (typeof value !== "string" || !value) {
     return "";
@@ -5641,7 +5643,7 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-export function findPageMarkingEntry(configValue, pageUrl) {
+export function findPageMarkingEntry(configValue, pageUrl, baseUrl = state.baseUrl || pageUrl) {
   const pageMarkings = configValue && configValue.pageMarkings;
   if (!pageMarkings || typeof pageMarkings !== "object" || !pageUrl) {
     return null;
@@ -5649,11 +5651,11 @@ export function findPageMarkingEntry(configValue, pageUrl) {
   if (pageMarkings[pageUrl]) {
     return pageMarkings[pageUrl];
   }
-  const targetLooseKey = toLooseUrlKey(pageUrl, state.baseUrl || pageUrl);
+  const targetLooseKey = toLooseUrlKey(pageUrl, baseUrl || pageUrl);
   if (!targetLooseKey) {
     return null;
   }
-  const lookupBaseUrl = state.baseUrl || pageUrl;
+  const lookupBaseUrl = baseUrl || pageUrl;
   let cached = pageMarkingEntryLookupCache.get(pageMarkings);
   if (!cached || cached.baseUrl !== lookupBaseUrl) {
     const entriesByLooseKey = new Map();

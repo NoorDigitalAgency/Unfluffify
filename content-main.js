@@ -88,7 +88,6 @@ const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
 const PAGE_TOAST_ID = "unfluffify-page-toast";
 const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
-const pageMarkingEntryLookupCache = new WeakMap();
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["content", "excluded"];
@@ -3430,33 +3429,6 @@ function toLooseUrlKey(value, baseUrl) {
   }
 }
 
-function findPageMarkingEntry(pageMarkings, pageUrl = location.href, baseUrl = "") {
-  if (!pageMarkings || typeof pageMarkings !== "object") {
-    return null;
-  }
-  if (pageMarkings[pageUrl]) {
-    return pageMarkings[pageUrl];
-  }
-  const targetLooseKey = toLooseUrlKey(pageUrl, baseUrl || pageUrl);
-  if (!targetLooseKey) {
-    return null;
-  }
-  const lookupBaseUrl = baseUrl || pageUrl;
-  let cached = pageMarkingEntryLookupCache.get(pageMarkings);
-  if (!cached || cached.baseUrl !== lookupBaseUrl) {
-    const entriesByLooseKey = new Map();
-    Object.keys(pageMarkings).forEach((url) => {
-      const looseKey = toLooseUrlKey(url, lookupBaseUrl);
-      if (looseKey && !entriesByLooseKey.has(looseKey)) {
-        entriesByLooseKey.set(looseKey, pageMarkings[url]);
-      }
-    });
-    cached = { baseUrl: lookupBaseUrl, entriesByLooseKey };
-    pageMarkingEntryLookupCache.set(pageMarkings, cached);
-  }
-  return cached.entriesByLooseKey.get(targetLooseKey) || null;
-}
-
 function getStoredAiSelectorSet(baseConfig) {
   if (!baseConfig || typeof baseConfig !== "object") {
     return { exclusionSelectors: [], inclusionSelectors: [] };
@@ -3468,7 +3440,7 @@ function getSelectorSuppressedXpaths(baseConfig, pageUrl = location.href) {
   const pageMarkings = baseConfig && typeof baseConfig === "object"
     ? baseConfig.pageMarkings
     : null;
-  const entry = findPageMarkingEntry(pageMarkings, pageUrl, state.baseUrl || "");
+  const entry = core.findPageMarkingEntry({ pageMarkings }, pageUrl, state.baseUrl || "");
   return Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
@@ -4916,7 +4888,7 @@ async function refreshSilentHighlightings() {
       savedLooseUrls.add(loose);
     }
   });
-  const storedEntry = findPageMarkingEntry(pageMarkings, pageUrl, baseUrl);
+  const storedEntry = core.findPageMarkingEntry({ pageMarkings }, pageUrl, baseUrl);
   const storedConsentXpaths =
     storedEntry && Array.isArray(storedEntry.consentXpaths)
       ? storedEntry.consentXpaths
