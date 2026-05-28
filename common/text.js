@@ -424,6 +424,8 @@ export const PopupText = Object.freeze({
     remoteSupportEnableMicrophoneButton: "Enable microphone", // Tooltip and accessibility label for the supported popup microphone toggle when microphone is off.
     remoteSupportMuteSoundButton: "Mute shared sound", // Tooltip and accessibility label for the supported popup shared-audio toggle when sound is on.
     remoteSupportUnmuteSoundButton: "Unmute shared sound", // Tooltip and accessibility label for the supported popup shared-audio toggle when sound is off.
+    remoteSupportInactivityCountdownNotice: (secondsRemaining) => `Session will end in ${Math.max(0, Math.trunc(Number(secondsRemaining) || 0))}s due to inactivity.`, // Warning shown during the last minute before inactivity timeout.
+    remoteSupportContinueButton: "Continue session", // Button label for requester-side inactivity timeout rescue.
     dismissNoticeLabel: "Dismiss notice", // Accessibility label for icon-only temporary warning dismiss buttons.
     endpointSectionTitle: "Endpoints", // Section title for the combined endpoint and Stage Base configuration fields.
     endpointFieldLabel: "Configuration Endpoint", // Label for the remote configuration endpoint input.

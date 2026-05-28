@@ -1016,6 +1016,83 @@ test("network devtools panel is the only include-payloads writer for its attache
   }
 });
 
+test("remote support continue session is requester-only", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+  const responses = [
+    {
+      sessionId: "sess_requester_continue",
+      supportCode: "555666",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=requester",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+    },
+    {
+      sessionId: "sess_supporter_continue",
+      supportCode: "666777",
+      expiresAt: "2026-05-24T08:10:00.000Z",
+      webrtcWsUrl: "wss://api.example.com/webrtc?token=supporter",
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+    }
+  ];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return responses.shift();
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const requesterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 41,
+        pageUrl: "https://example.com/a"
+      },
+      { tab: { id: 41 } }
+    );
+    const supporterResponse = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 42,
+        supportCode: "666777"
+      },
+      { tab: { id: 42 } }
+    );
+
+    assert.equal(requesterResponse.ok, true);
+    assert.equal(supporterResponse.ok, true);
+
+    const requesterContinue = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportContinueSession", tabId: 41 },
+      { tab: { id: 41 } }
+    );
+    const supporterContinue = await handleRemoteSupportBackgroundMessage(
+      { type: "remoteSupportContinueSession", tabId: 42 },
+      { tab: { id: 42 } }
+    );
+
+    assert.equal(requesterContinue.ok, true);
+    assert.equal(requesterContinue.state.active, true);
+    assert.equal(supporterContinue.ok, false);
+    assert.equal(supporterContinue.error, "Only the requester can continue the session");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("extension telemetry feeds Unfluffify panels and requester remote peer", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;

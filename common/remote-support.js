@@ -9,7 +9,8 @@ export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED = "embedded";
 export const REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED = "embedded_minimized";
 export const REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE = "fullscreen_active";
 
-export const REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS = 7 * 60 * 1000;
+export const REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
+export const REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS = 60 * 1000;
 export const REMOTE_SUPPORT_FRAME_INTERVAL_MS = 250;
 export const REMOTE_SUPPORT_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024;
 export const REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -48,7 +49,9 @@ export function createInactiveRemoteSupportState() {
     supporteePlatform: "",
     supporteeUserAgent: "",
     error: "",
-    lastActivityAt: 0
+    lastActivityAt: 0,
+    inactivityCountdownActive: false,
+    inactivitySecondsRemaining: 0
   };
 }
 
@@ -73,6 +76,13 @@ export function getRemoteSupportDockFallbackState(value) {
 
 export function shouldShowRemoteSupportPopupJoin(pageVisible, state) {
   return Boolean(pageVisible) && !Boolean(state && state.active);
+}
+
+export function formatRemoteSupportCountdown(value) {
+  const totalSeconds = Math.max(0, Math.trunc(Number(value) || 0));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 function normalizeRemoteSupportSidebarText(value, maxLength = 240) {
@@ -225,6 +235,8 @@ export function scopeRemoteSupportStateToTab(state, tabId) {
     supporteeAudioEnabled: Boolean(state.supporteeAudioEnabled),
     dockState: normalizeRemoteSupportDockState(state.dockState),
     startedAt: Number(state.startedAt) || 0,
+    inactivityCountdownActive: Boolean(state.inactivityCountdownActive),
+    inactivitySecondsRemaining: Math.max(0, Math.trunc(Number(state.inactivitySecondsRemaining) || 0)),
     supporteePlatform: typeof state.supporteePlatform === "string" ? state.supporteePlatform : "",
     supporteeUserAgent: typeof state.supporteeUserAgent === "string" ? state.supporteeUserAgent : "",
     tabId: normalizeRemoteSupportTabId(state.tabId)

@@ -8,6 +8,7 @@ test("support page no longer renders an inline join form and includes fullscreen
   assert.equal(source.includes("uf-support-page-join-form"), false);
   assert.match(source, /uf-support-page-fullscreen/);
   assert.match(source, /extension popup while this \/support tab stays focused on viewing/i);
+  assert.match(source, /Session will end in .* due to requester inactivity/);
 });
 
 test("support viewer dock includes an externalize action and terminate control", () => {

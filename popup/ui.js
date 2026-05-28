@@ -203,6 +203,8 @@ const initialViewState = {
   remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
   remoteSupportLocalCameraActive: false,
   remoteSupportRemoteCameraActive: false,
+  remoteSupportInactivityCountdownActive: false,
+  remoteSupportInactivitySecondsRemaining: 0,
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
@@ -284,6 +286,35 @@ function renderRemoteSupportErrorNotice(view, handlers) {
       },
       icon("close")
     )
+  );
+}
+
+function renderRemoteSupportInactivityNotice(view, handlers) {
+  if (!view.remoteSupportInactivityCountdownActive) {
+    return null;
+  }
+
+  const isRequester = view.remoteSupportMode === "being_supported";
+  return h(
+    "div",
+    { class: warningNoticeClass("notice--dismissible"), role: "status", "aria-live": "polite" },
+    h(
+      "span",
+      { class: "notice__content" },
+      PopupText.configuration.remoteSupportInactivityCountdownNotice(view.remoteSupportInactivitySecondsRemaining || 0)
+    ),
+    isRequester
+      ? h(
+          "button",
+          {
+            id: "remote-support-continue",
+            type: "button",
+            class: "notice__dismiss",
+            onClick: handlers.onRemoteSupportContinue
+          },
+          PopupText.configuration.remoteSupportContinueButton
+        )
+      : null
   );
 }
 
@@ -889,6 +920,7 @@ function renderRemoteSupportSection(view, handlers) {
       ? h("div", { class: "hint", role: "status", "aria-live": "polite" }, view.remoteSupportStatusText)
       : null,
     renderRemoteSupportErrorNotice(view, handlers),
+    renderRemoteSupportInactivityNotice(view, handlers),
     supporting
       ? h("div", { class: "hint" }, PopupText.configuration.remoteSupportPageControlHint)
       : null,
@@ -948,7 +980,8 @@ function renderRemoteSupportControllerView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        renderRemoteSupportErrorNotice(view, handlers)
+        renderRemoteSupportErrorNotice(view, handlers),
+        renderRemoteSupportInactivityNotice(view, handlers)
       ),
       h(
         "button",
@@ -998,7 +1031,8 @@ function renderRemoteSupportedView(view, handlers) {
               h("strong", null, view.remoteSupportCode || "------")
             )
           : null,
-        renderRemoteSupportErrorNotice(view, handlers)
+        renderRemoteSupportErrorNotice(view, handlers),
+        renderRemoteSupportInactivityNotice(view, handlers)
       ),
       renderRemoteSupportedMediaControls(view, handlers)
     ),

@@ -34,6 +34,7 @@ import {
   REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
+  formatRemoteSupportCountdown,
   normalizeRemoteSupportDockState
 } from "./common/remote-support.js";
 import {
@@ -235,7 +236,9 @@ function createRemoteSupportSupportPageState(tabId = null) {
     includePayloads: false,
     dockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
     error: "",
-    lastActivityAt: 0
+    lastActivityAt: 0,
+    inactivityCountdownActive: false,
+    inactivitySecondsRemaining: 0
   };
 }
 
@@ -251,6 +254,8 @@ function normalizeRemoteSupportSupportPageState(stateLike, fallbackTabId = remot
   normalized.streaming = Boolean(normalized.streaming);
   normalized.includePayloads = Boolean(normalized.includePayloads);
   normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
+  normalized.inactivityCountdownActive = Boolean(normalized.inactivityCountdownActive);
+  normalized.inactivitySecondsRemaining = Math.max(0, Math.trunc(Number(normalized.inactivitySecondsRemaining) || 0));
   normalized.tabId = Number.isFinite(Number(normalized.tabId))
     ? Math.trunc(Number(normalized.tabId))
     : (Number.isFinite(fallbackTabId) ? Math.trunc(fallbackTabId) : null);
@@ -1993,8 +1998,11 @@ function renderRemoteSupportSupportPage() {
     elements.errorText.textContent = errorText;
   }
   if (elements.passiveState) {
+    const inactivityCountdownText = Boolean(remoteSupportSupportPageState.inactivityCountdownActive)
+      ? ` Session will end in ${formatRemoteSupportCountdown(remoteSupportSupportPageState.inactivitySecondsRemaining)} due to requester inactivity.`
+      : "";
     elements.passiveState.textContent = active
-      ? "The support session is live. Use the dock or the extension popup to manage the connection."
+      ? `The support session is live. Use the dock or the extension popup to manage the connection.${inactivityCountdownText}`
       : "Join a support session from the Unfluffify extension popup while this /support tab stays focused on viewing.";
   }
   if (elements.fullscreenButton) {

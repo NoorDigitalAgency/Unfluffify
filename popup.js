@@ -99,6 +99,7 @@ import {
   isRemoteSupportPageUrl,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_SUPPORTING,
+  formatRemoteSupportCountdown,
   normalizeRemoteSupportDockState,
   scopeRemoteSupportStateToTab,
   shouldLockRemoteSupportConfigurationView
@@ -4427,11 +4428,7 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     ? state.currentTab.id
     : null;
   const nextState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  const statusText = buildRemoteSupportStatusText({
-    active: Boolean(nextState.active),
-    mode: nextState.mode || "inactive",
-    connected: Boolean(nextState.connected)
-  });
+  const statusText = buildRemoteSupportStatusText(nextState);
   uiModule.setViewState({
     remoteSupportSessionActive: Boolean(nextState.active),
     remoteSupportMode: nextState.mode || "inactive",
@@ -4451,6 +4448,8 @@ function syncRemoteSupportViewState(remoteSupportState = null) {
     remoteSupportRemoteCameraActive: Boolean(state.remoteSupportRemoteCameraActive),
     remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
     remoteSupportStatusText: statusText,
+    remoteSupportInactivityCountdownActive: Boolean(nextState.inactivityCountdownActive),
+    remoteSupportInactivitySecondsRemaining: Math.max(0, Math.trunc(Number(nextState.inactivitySecondsRemaining) || 0)),
     remoteSupportError: nextState.error || ""
   });
   if (!nextState.active) {
@@ -4517,7 +4516,10 @@ function buildRemoteSupportStatusText(stateValue) {
     : "Supporting";
   const connectedLabel = stateValue.connected ? " • connected" : " • waiting for peer";
   const streamLabel = stateValue.connected ? " • view-only" : "";
-  return `${mode}${connectedLabel}${streamLabel}`;
+  const countdownLabel = Boolean(stateValue.inactivityCountdownActive)
+    ? ` • inactive timeout in ${formatRemoteSupportCountdown(stateValue.inactivitySecondsRemaining)}`
+    : "";
+  return `${mode}${connectedLabel}${streamLabel}${countdownLabel}`;
 }
 
 function normalizeRemoteSupportSidebarListItem(candidate) {
@@ -5333,6 +5335,27 @@ async function handleRemoteSupportEnd() {
   state.remoteSupportLastFrame = "";
   syncRemoteSupportViewState(state.remoteSupportState);
   uiModule.setViewState({ remoteSupportPreviewImage: "" });
+  await refreshUi();
+}
+
+async function handleRemoteSupportContinue() {
+  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : undefined;
+  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(state.remoteSupportState, currentTabId);
+  const response = await messages.sendRuntimeMessage({
+    type: "remoteSupportContinueSession",
+    tabId: currentTabId,
+    sessionId: typeof scopedRemoteSupportState.sessionId === "string"
+      ? scopedRemoteSupportState.sessionId
+      : ""
+  });
+  if (!response || !response.ok) {
+    uiModule.showToast((response && response.error) || "Unable to continue remote support session");
+    return;
+  }
+  state.remoteSupportState = response.state || state.remoteSupportState;
+  syncRemoteSupportViewState(state.remoteSupportState);
   await refreshUi();
 }
 
@@ -7198,6 +7221,7 @@ async function init() {
     onRemoteSupportCameraToggle: handleRemoteSupportCameraToggle,
     onRemoteSupportMicrophoneToggle: handleRemoteSupportMicrophoneToggle,
     onRemoteSupportSoundToggle: handleRemoteSupportSoundToggle,
+    onRemoteSupportContinue: handleRemoteSupportContinue,
     onRemoteSupportDockExternalize: handleRemoteSupportDockExternalize,
     onRemoteSupportErrorDismiss: handleRemoteSupportErrorDismiss,
     onPropertyLockTake: handlePropertyLockTake,

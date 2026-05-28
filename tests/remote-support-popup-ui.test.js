@@ -8,4 +8,6 @@ test("popup remote support UI renders popup-owned join controls and requester ex
   assert.match(source, /remote-support-join-code/);
   assert.match(source, /remoteSupportJoinButton/);
   assert.match(source, /remote-support-externalize/);
+  assert.match(source, /remote-support-continue/);
+  assert.match(source, /remoteSupportInactivityCountdownNotice/);
 });

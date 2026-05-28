@@ -5,6 +5,7 @@ import {
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_SIDEBAR,
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
+  REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS,
   REMOTE_SUPPORT_MODE_BEING_SUPPORTED,
   REMOTE_SUPPORT_MODE_INACTIVE,
   REMOTE_SUPPORT_MODE_SUPPORTING,
@@ -72,6 +73,8 @@ function normalizeStateSnapshot(stateLike) {
   normalized.supporteeAudioEnabled = Boolean(normalized.supporteeAudioEnabled);
   normalized.dockState = normalizeRemoteSupportDockState(normalized.dockState);
   normalized.tabId = normalizeTabId(normalized.tabId);
+  normalized.inactivityCountdownActive = Boolean(normalized.inactivityCountdownActive);
+  normalized.inactivitySecondsRemaining = Math.max(0, Math.trunc(Number(normalized.inactivitySecondsRemaining) || 0));
 
   return normalized;
 }
@@ -738,6 +741,41 @@ function updateSessionActivity(runtime) {
   }
 
   runtime.state.lastActivityAt = Date.now();
+  runtime.state.inactivityCountdownActive = false;
+  runtime.state.inactivitySecondsRemaining = 0;
+}
+
+function getRuntimeInactivitySecondsRemaining(runtime, now = Date.now()) {
+  if (!runtime || !runtime.state || !runtime.state.active) {
+    return 0;
+  }
+
+  const elapsed = Math.max(0, now - (Number(runtime.state.lastActivityAt) || 0));
+  const remainingMs = REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS - elapsed;
+  if (remainingMs <= 0 || remainingMs > REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS) {
+    return 0;
+  }
+
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+function syncRuntimeInactivityCountdown(runtime, now = Date.now()) {
+  if (!runtime || !runtime.state) {
+    return false;
+  }
+
+  const secondsRemaining = getRuntimeInactivitySecondsRemaining(runtime, now);
+  const countdownActive = secondsRemaining > 0;
+  if (
+    runtime.state.inactivityCountdownActive === countdownActive &&
+    runtime.state.inactivitySecondsRemaining === secondsRemaining
+  ) {
+    return false;
+  }
+
+  runtime.state.inactivityCountdownActive = countdownActive;
+  runtime.state.inactivitySecondsRemaining = secondsRemaining;
+  return true;
 }
 
 function getRemoteSupportErrorMessage(error, fallback) {
@@ -1355,12 +1393,17 @@ function startInactivityMonitor(runtime) {
       return;
     }
 
-    if (Date.now() - runtime.state.lastActivityAt < REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS) {
+    const now = Date.now();
+    const elapsed = Math.max(0, now - (Number(runtime.state.lastActivityAt) || 0));
+    if (elapsed < REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS) {
+      if (syncRuntimeInactivityCountdown(runtime, now)) {
+        broadcastRuntimeState(runtime);
+      }
       return;
     }
 
-    terminateRemoteSupportSession({ sessionId: runtime.state.sessionId }, "Remote support session timed out").then();
-  }, 10000);
+    terminateRemoteSupportSession({ sessionId: runtime.state.sessionId }, "Remote support session timed out due to inactivity").then();
+  }, 1000);
 }
 
 async function handleIncomingDataMessage(runtime, message, channelKey = "") {
@@ -1369,6 +1412,11 @@ async function handleIncomingDataMessage(runtime, message, channelKey = "") {
   }
 
   updateSessionActivity(runtime);
+
+  if (message.type === "session-activity") {
+    broadcastRuntimeState(runtime);
+    return;
+  }
 
   if (message.type === "frame") {
     if (!isPrimaryTransportChannelKey(channelKey)) {
@@ -2060,6 +2108,25 @@ export async function handleRemoteSupportBackgroundMessage(message, sender) {
 
   if (message.type === "remoteSupportSetControlOwner") {
     return { ok: false, error: "Remote control is not available in support sessions" };
+  }
+
+  if (message.type === "remoteSupportContinueSession") {
+    const runtime = resolveRuntimeTarget(message, sender);
+    if (!runtime || !runtime.state.active) {
+      return { ok: false, error: "Remote support session is not active" };
+    }
+    if (runtime.state.mode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+      return { ok: false, error: "Only the requester can continue the session" };
+    }
+    updateSessionActivity(runtime);
+    broadcastRuntimeState(runtime);
+    await sendDataMessage(runtime, "session-activity", {
+      continuedAt: Date.now()
+    });
+    return {
+      ok: true,
+      state: getRuntimePublicState(runtime)
+    };
   }
 
   if (message.type === "remoteSupportUpdateSidebarSnapshot") {

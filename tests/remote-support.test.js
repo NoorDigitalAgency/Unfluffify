@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS,
+  REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS,
   REMOTE_SUPPORT_FRAME_INTERVAL_MS,
   REMOTE_SUPPORT_PAYLOAD_MAX_BYTES,
   REMOTE_SUPPORT_TOTAL_PAYLOAD_MAX_BYTES,
@@ -17,6 +18,7 @@ import {
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
   REMOTE_SUPPORT_DOCK_STATE_FULLSCREEN_ACTIVE,
   createInactiveRemoteSupportState,
+  formatRemoteSupportCountdown,
   getRemoteSupportDockFallbackState,
   getRemoteSupportPageUrl,
   isRemoteSupportStateForTab,
@@ -37,8 +39,12 @@ import {
 // Constants
 // ──────────────────────────────────────────────────────────────
 
-test("inactivity timeout is 7 minutes in ms", () => {
-  assert.equal(REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS, 7 * 60 * 1000);
+test("inactivity timeout is 10 minutes in ms", () => {
+  assert.equal(REMOTE_SUPPORT_INACTIVITY_TIMEOUT_MS, 10 * 60 * 1000);
+});
+
+test("inactivity warning window is 1 minute in ms", () => {
+  assert.equal(REMOTE_SUPPORT_INACTIVITY_WARNING_WINDOW_MS, 60 * 1000);
 });
 
 test("frame interval is 250 ms", () => {
@@ -73,6 +79,8 @@ test("createInactiveRemoteSupportState returns the correct inactive shape", () =
   assert.equal(state.dockState, REMOTE_SUPPORT_DOCK_STATE_EMBEDDED);
   assert.equal(state.error, "");
   assert.equal(state.lastActivityAt, 0);
+  assert.equal(state.inactivityCountdownActive, false);
+  assert.equal(state.inactivitySecondsRemaining, 0);
 });
 
 test("createInactiveRemoteSupportState returns a fresh object each call", () => {
@@ -290,6 +298,12 @@ test("shouldShowRemoteSupportPopupJoin only shows join controls on the support p
   assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: false }), true);
   assert.equal(shouldShowRemoteSupportPopupJoin(true, { active: true }), false);
   assert.equal(shouldShowRemoteSupportPopupJoin(false, { active: false }), false);
+});
+
+test("formatRemoteSupportCountdown returns m:ss countdown text", () => {
+  assert.equal(formatRemoteSupportCountdown(59), "0:59");
+  assert.equal(formatRemoteSupportCountdown(60), "1:00");
+  assert.equal(formatRemoteSupportCountdown(-5), "0:00");
 });
 
 // ──────────────────────────────────────────────────────────────
