@@ -19,7 +19,8 @@ This document defines the extension-side remote support implementation and the e
 - DevTools console/network panels attach to the inspected tab and only receive state and telemetry for that tab's active support session.
 - Session ends when either side terminates, the tab closes, or inactivity timeout is reached.
 - Ended-session and transient transport warnings are retained in the tab-scoped inactive state until the user dismisses them with the icon-only notice button in the popup or `/support` page.
-- Inactivity timeout: **7 minutes** without remote activity.
+- Inactivity timeout: **10 minutes** without remote activity.
+- During the final minute, both peers see a live countdown warning; the requester can rescue the session with a "Continue session" action from the popup.
 - One active session per tab.
 - Being-supported mode blocks local extension-owned interactions on page UI.
 - Supporting mode disables regular popup controls and uses the dedicated `/support` view-only support surface.
@@ -222,7 +223,7 @@ Server responsibilities:
 - Manual end by either peer.
 - Active tab closed on being-supported side.
 - WebRTC/signaling disconnect.
-- Inactivity timeout (7 minutes).
+- Inactivity timeout (10 minutes).
 
 ## Temporary notices
 

@@ -682,6 +682,356 @@ test("requester media control messages toggle camera, microphone, and shared sou
   }
 });
 
+test("requester popup camera previews sample video frames at the configured interval", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalBroadcastChannel = globalThis.BroadcastChannel;
+  const originalCreateImageBitmap = globalThis.createImageBitmap;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  const runtimeMessageListeners = [];
+  const previewCallbacks = [];
+  const previewMessages = [];
+  const pendingTimers = [];
+
+  const displayVideoTrack = {
+    kind: "video",
+    contentHint: "",
+    readyState: "live",
+    enabled: true,
+    stop() {},
+    addEventListener() {}
+  };
+  const displayAudioTrack = {
+    kind: "audio",
+    enabled: true,
+    stop() {}
+  };
+  const cameraVideoTrack = {
+    kind: "video",
+    contentHint: "",
+    readyState: "live",
+    enabled: true,
+    stop() {}
+  };
+  const microphoneTrack = {
+    kind: "audio",
+    enabled: true,
+    stop() {}
+  };
+  const sidebarTrack = {
+    kind: "video",
+    contentHint: "",
+    readyState: "live",
+    enabled: true,
+    stop() {},
+    requestFrame() {}
+  };
+
+  const fakeDisplayStream = {
+    getTracks() {
+      return [displayVideoTrack, displayAudioTrack];
+    },
+    getVideoTracks() {
+      return [displayVideoTrack];
+    },
+    getAudioTracks() {
+      return [displayAudioTrack];
+    }
+  };
+  const fakeCameraStream = {
+    getTracks() {
+      return [cameraVideoTrack, microphoneTrack];
+    },
+    getVideoTracks() {
+      return [cameraVideoTrack];
+    },
+    getAudioTracks() {
+      return [microphoneTrack];
+    }
+  };
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "new";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.onicecandidate = null;
+      this.onicecandidateerror = null;
+      this.oniceconnectionstatechange = null;
+      this.onicegatheringstatechange = null;
+      this.onsignalingstatechange = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+      this.ontrack = null;
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async createAnswer() {
+      return { type: "answer", sdp: "answer-sdp" };
+    }
+
+    async addIceCandidate() {}
+
+    addTrack() {
+      return {
+        getParameters() {
+          return {};
+        },
+        async setParameters() {}
+      };
+    }
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      this.onmessage = null;
+    }
+
+    postMessage(message) {
+      if (this.name === "unfluffify-remote-support-popup-media") {
+        previewMessages.push(message);
+      }
+    }
+
+    close() {}
+  }
+
+  function flushNextTimer() {
+    const timer = pendingTimers.shift();
+    if (!timer || timer.cleared) {
+      return;
+    }
+    timer.callback();
+  }
+
+  globalThis.setTimeout = (callback, delay = 0) => {
+    const timer = { callback, delay, cleared: false };
+    pendingTimers.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer) {
+      timer.cleared = true;
+    }
+  };
+
+  globalThis.window = {
+    addEventListener() {},
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout
+  };
+  globalThis.document = {
+    createElement(tagName) {
+      if (tagName === "video") {
+        return {
+          muted: false,
+          playsInline: false,
+          autoplay: false,
+          srcObject: null,
+          videoWidth: 640,
+          videoHeight: 360,
+          play() {
+            return Promise.resolve();
+          },
+          requestVideoFrameCallback(callback) {
+            previewCallbacks.push(callback);
+            return previewCallbacks.length;
+          }
+        };
+      }
+
+      if (tagName === "canvas") {
+        return {
+          width: 0,
+          height: 0,
+          getContext() {
+            return {
+              clearRect() {},
+              drawImage() {},
+              fillRect() {},
+              fillStyle: "#000"
+            };
+          },
+          captureStream() {
+            return {
+              getTracks() {
+                return [sidebarTrack];
+              },
+              getVideoTracks() {
+                return [sidebarTrack];
+              }
+            };
+          }
+        };
+      }
+
+      throw new Error(`Unexpected element requested: ${tagName}`);
+    }
+  };
+  globalThis.BroadcastChannel = FakeBroadcastChannel;
+  globalThis.createImageBitmap = async () => ({
+    width: 160,
+    height: 90,
+    close() {}
+  });
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage() {
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getUserMedia(constraints) {
+          if (constraints && constraints.video && constraints.video.mandatory) {
+            return fakeDisplayStream;
+          }
+
+          return fakeCameraStream;
+        }
+      }
+    }
+  });
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-preview-throttle`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_requester_preview_throttle",
+          supportCode: "111111",
+          role: "requester",
+          tabId: 22,
+          wsUrl: "wss://api.example.com/webrtc?token=requester-preview",
+          mediaStreamId: "stream-22",
+          captureSource: "screen",
+          canRequestAudioTrack: true,
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+          dataChannels: [{ key: "page", label: "remote-support-page" }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(previewCallbacks.length, 1);
+    assert.equal(pendingTimers.length, 0);
+
+    await previewCallbacks[0](0);
+
+    assert.equal(previewMessages.length, 1);
+    assert.equal(previewCallbacks.length, 1);
+    assert.equal(pendingTimers.length, 1);
+    assert.equal(pendingTimers[0].delay, 100);
+
+    flushNextTimer();
+
+    assert.equal(previewCallbacks.length, 2);
+    assert.equal(pendingTimers.length, 0);
+
+    await previewCallbacks[1](100);
+
+    assert.equal(previewMessages.length, 2);
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
+    globalThis.BroadcastChannel = originalBroadcastChannel;
+    globalThis.createImageBitmap = originalCreateImageBitmap;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});
+
 test("remote support offscreen queues ICE candidates received before the remote description", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;

@@ -169,6 +169,28 @@ li button span.mdi::before {
   margin-right: 0;
 }
 
+.u-alert__action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.u-alert__action:hover {
+  color: var(--accent-dark);
+}
+
+.u-alert__action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+
 .u-w-100 { width: 100%; }
 .u-d-none { display: none; }
 .u-d-block { display: block; }
