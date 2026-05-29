@@ -4342,12 +4342,16 @@ function collectExplicitMarkingElements(entry) {
   return { explicitExcludeElements, explicitIncludeElements };
 }
 
-function drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getRects) {
+function drawExplicitMarkingLayers(
+  explicitExcludeElements,
+  explicitIncludeElements,
+  computeElementRects
+) {
   const drawStartedAt = nowMs();
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
   for (const el of explicitExcludeElements) {
-    const rects = getRects(el);
+    const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
@@ -4361,7 +4365,7 @@ function drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeEleme
     }
   }
   for (const el of explicitIncludeElements) {
-    const rects = getRects(el);
+    const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(

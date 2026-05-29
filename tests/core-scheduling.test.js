@@ -7,7 +7,7 @@ import {
   state
 } from "../content/core.js";
 
-function withFakeTimers(callback) {
+function withFakeTimers(callback, options = {}) {
   const originalWindow = globalThis.window;
   const originalState = {
     baseUrl: state.baseUrl,
@@ -17,6 +17,7 @@ function withFakeTimers(callback) {
   };
   const scheduled = [];
   const cleared = [];
+  const idleCallbacks = [];
   let nextId = 1;
   globalThis.window = {
     setTimeout(fn, delay) {
@@ -29,12 +30,20 @@ function withFakeTimers(callback) {
       cleared.push(id);
     }
   };
+  if (options.withIdleCallback) {
+    globalThis.window.requestIdleCallback = (fn, idleOptions) => {
+      const id = nextId;
+      nextId += 1;
+      idleCallbacks.push({ id, fn, options: idleOptions });
+      return id;
+    };
+  }
   state.baseUrl = "https://example.com";
   state.config = { pageMarkings: {} };
   state.snapshotTimer = 0;
   state.draftPersistTimer = 0;
   try {
-    callback({ scheduled, cleared });
+    callback({ scheduled, cleared, idleCallbacks });
   } finally {
     globalThis.window = originalWindow;
     state.baseUrl = originalState.baseUrl;
@@ -54,6 +63,16 @@ test("snapshot saves are debounced so only the latest timer remains pending", ()
     assert.equal(scheduled[1].delay, 250);
     assert.deepEqual(cleared, [scheduled[0].id]);
     assert.equal(state.snapshotTimer, scheduled[1].id);
+  });
+
+  test("snapshot generation is deferred to an idle callback when available", () => {
+    withFakeTimers(({ scheduled, idleCallbacks }) => {
+      scheduleSnapshotSave(100);
+      scheduled[0].fn();
+
+      assert.equal(idleCallbacks.length, 1);
+      assert.deepEqual(idleCallbacks[0].options, { timeout: 5000 });
+    }, { withIdleCallback: true });
   });
 });
 
