@@ -87,6 +87,7 @@ const SILENT_HIGHLIGHTINGS_ACTIVE_ATTR = "data-uf-silent-highlightings";
 const SILENT_CONTENT_POSITION_ATTR = "data-uf-silent-content-position";
 const SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR = "data-uf-silent-selector-include";
 const SILENT_SELECTOR_EXCLUDE_ATTR = "data-uf-silent-selector-exclude";
+const SILENT_TITLE_COPY_ATTR = "data-uf-silent-title-copy";
 const AI_PREVIEW_CLICKABLE_ATTR = "data-uf-ai-preview-clickable";
 const SILENT_SELECTOR_TITLE_PREFIX = "Unfluffify selector: ";
 const PAGE_SAVE_MOBILE_SIMULATION_REQUIRED_MESSAGE =
@@ -2083,6 +2084,7 @@ function handleAiPreviewClick(event) {
   event.stopPropagation();
   event.stopImmediatePropagation();
   if (target) {
+    copyTextToClipboard(target.element.getAttribute("title") || target.xpath).then();
     core.focusPreviewElement(target.element, { center: false });
     setAiPreviewFocusedXpath(target.xpath);
     return true;
@@ -2099,6 +2101,7 @@ const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
   SILENT_CONTENT_POSITION_ATTR,
   SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR,
   SILENT_SELECTOR_EXCLUDE_ATTR,
+  SILENT_TITLE_COPY_ATTR,
   core.CONSENT_HIDDEN_ATTR
 ]);
 
@@ -3002,6 +3005,7 @@ function clearSilentSelectorAnnotations() {
     }
     node.removeAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR);
     node.removeAttribute(SILENT_SELECTOR_EXCLUDE_ATTR);
+    node.removeAttribute(SILENT_TITLE_COPY_ATTR);
     const originalTitleState = silentSelectorOriginalTitles.get(node);
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
@@ -3080,6 +3084,7 @@ function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
   if (attrName && normalizedSelector) {
     node.setAttribute(attrName, normalizedSelector);
   }
+  node.setAttribute(SILENT_TITLE_COPY_ATTR, "on");
   node.setAttribute("title", title);
   silentSelectorAnnotatedNodes.add(node);
 }
@@ -3187,20 +3192,15 @@ function handleSilentSelectorClickCopy(event) {
   if (!target || isExtensionUiNode(target)) {
     return;
   }
-  const annotated = target.closest(
-    `[${SILENT_SELECTOR_EXCLUDE_ATTR}], [${SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR}]`
-  );
+  const annotated = target.closest(`[${SILENT_TITLE_COPY_ATTR}]`);
   if (!annotated || isExtensionUiNode(annotated)) {
     return;
   }
-  const selector =
-    annotated.getAttribute(SILENT_SELECTOR_EXCLUDE_ATTR) ||
-    annotated.getAttribute(SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR) ||
-    "";
-  if (!selector) {
+  const title = annotated.getAttribute("title") || "";
+  if (!title) {
     return;
   }
-  copyTextToClipboard(selector).then();
+  copyTextToClipboard(title).then();
 }
 
 function clearSilentHighlightingMarks() {
