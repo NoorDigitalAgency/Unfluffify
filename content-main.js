@@ -3341,6 +3341,7 @@ function restoreAiPreviewDraftState(restoreState) {
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
+  core.state.autoSeedSuppressedPageUrl = previousDraftEntry ? "" : pageUrl;
   state.autoSeededPendingSavePageUrl =
     restoreState.previousAutoSeededPendingSavePageUrl || "";
 }

@@ -5,7 +5,11 @@ export function shouldSelfMarkToggleableDefaultBoundary(options = {}) {
 }
 
 export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
-  return Boolean(options.hasAiSelectors && !options.hasSavedMarkingsForPage);
+  return Boolean(
+    options.hasAiSelectors &&
+    !options.hasSavedMarkingsForPage &&
+    !options.suppressAutoSeed
+  );
 }
 
 export function getExplicitMarkingRenderOptions() {

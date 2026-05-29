@@ -76,6 +76,7 @@ export const state = {
   currentPageUrl: "",
   currentPageEntry: null,
   autoSeededPendingSavePageUrl: "",
+  autoSeedSuppressedPageUrl: "",
   toggleAckTimer: 0,
   toggleInFlightKey: "",
   lastToggleActionKey: "",
@@ -3416,6 +3417,7 @@ function hasMultipleMarkableDescendants(el, options = {}) {
     return false;
   }
   const stack = Array.from(el.children);
+  let markableDescendantCount = 0;
   while (stack.length) {
     const node = stack.pop();
     if (!node || node.nodeType !== 1) {
@@ -3431,7 +3433,10 @@ function hasMultipleMarkableDescendants(el, options = {}) {
       continue;
     }
     if (isSelfMarkableWithoutParentMode(node, options)) {
-      return true;
+      markableDescendantCount += 1;
+      if (markableDescendantCount >= 2) {
+        return true;
+      }
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
@@ -4530,11 +4535,13 @@ function renderHighlightsInner() {
   const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
+  const suppressAutoSeed = state.autoSeedSuppressedPageUrl === pageUrl;
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
   if (shouldAutoSeedMarkingsFromAiSelectors({
     hasAiSelectors,
-    hasSavedMarkingsForPage
+    hasSavedMarkingsForPage,
+    suppressAutoSeed
   })) {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
@@ -5682,6 +5689,7 @@ export function disable() {
   state.currentPageUrl = "";
   state.currentPageEntry = null;
   state.autoSeededPendingSavePageUrl = "";
+  state.autoSeedSuppressedPageUrl = "";
   state.toggleInFlightKey = "";
   state.lastToggleActionKey = "";
   state.lastToggleActionAt = 0;

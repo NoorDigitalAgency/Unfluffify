@@ -61,6 +61,17 @@ test("AI auto-seed is skipped when the page already has saved markings", () => {
   );
 });
 
+test("AI auto-seed is skipped when the page is temporarily suppressed", () => {
+  assert.equal(
+    shouldAutoSeedMarkingsFromAiSelectors({
+      hasAiSelectors: true,
+      hasSavedMarkingsForPage: false,
+      suppressAutoSeed: true
+    }),
+    false
+  );
+});
+
 test("AI auto-seed is skipped when there are no AI selectors", () => {
   assert.equal(
     shouldAutoSeedMarkingsFromAiSelectors({

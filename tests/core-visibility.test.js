@@ -159,6 +159,7 @@ test("visible elements pass the visibility guard", () => {
   });
 });
 
+
 test("aria-hidden elements fail the visibility guard", () => {
   withVisibilityDom(({ body }) => {
     const element = createElement({ parentElement: body, attrs: { "aria-hidden": "true" } });
@@ -338,7 +339,7 @@ test("parent marking still allows expanded boundaries over markable content", ()
   });
 });
 
-test("parent marking allows a text-bearing ancestor with one direct textual child", () => {
+test("parent marking rejects a wrapper with only one markable child", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const textBlock = createElement({
       tagName: "p",
@@ -361,7 +362,7 @@ test("parent marking allows a text-bearing ancestor with one direct textual chil
 
     assert.equal(
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      true
+      false
     );
   });
 });
@@ -502,4 +503,3 @@ test("parent marking allows inherited wrapper chains with one content branch and
     );
   });
 });
-
