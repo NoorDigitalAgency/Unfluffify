@@ -8,6 +8,13 @@ let geometryGeneration = 0
 let configGeneration = 0
 let pageMarkingGeneration = 0
 
+// Unit Separator keeps selector list fingerprints distinct without colliding
+// with ordinary selector text, while remaining stable across modules.
+export const SELECTOR_LIST_DELIMITER = "\u001f"
+// Record Separator keeps the composite cache key compact while separating the
+// higher-level cache dimensions from the selector list delimiter above.
+export const CACHE_KEY_COMPONENT_SEPARATOR = "\u001e"
+
 function normalizeSelectorList(selectors) {
   if (!Array.isArray(selectors)) {
     return []
@@ -41,7 +48,26 @@ function getSelectorQueryRootId(root) {
 }
 
 export function getSelectorFingerprint(selectors) {
-  return normalizeSelectorList(selectors).join("\u001f")
+  return normalizeSelectorList(selectors).join(SELECTOR_LIST_DELIMITER)
+}
+
+function buildSelectorCacheKey({
+  pageUrl = "",
+  scope = "",
+  rootId = "",
+  selectors = "",
+  suppressionFingerprint = ""
+} = {}) {
+  return [
+    pageUrl,
+    scope,
+    rootId,
+    selectors,
+    suppressionFingerprint,
+    String(domStructureGeneration),
+    String(configGeneration),
+    String(pageMarkingGeneration)
+  ].join(CACHE_KEY_COMPONENT_SEPARATOR)
 }
 
 export function invalidateSharedSelectorCache({
@@ -95,16 +121,13 @@ export function collectCachedSelectorMatches({
   }
 
   const fingerprint = getSelectorFingerprint(normalizedSelectors)
-  const cacheKey = JSON.stringify({
+  const cacheKey = buildSelectorCacheKey({
     pageUrl: typeof pageUrl === "string" ? pageUrl : "",
     scope: typeof scope === "string" ? scope : "",
     rootId: getSelectorQueryRootId(root),
     selectors: fingerprint,
     suppressionFingerprint:
-      typeof suppressionFingerprint === "string" ? suppressionFingerprint : "",
-    domStructureGeneration,
-    configGeneration,
-    pageMarkingGeneration
+      typeof suppressionFingerprint === "string" ? suppressionFingerprint : ""
   })
 
   const cachedEntry = selectorQueryCache.get(cacheKey)
@@ -143,10 +166,10 @@ export function collectCachedSelectorMatches({
   })
 
   selectorQueryCache.set(cacheKey, {
-    nodes: Array.from(nodes),
+    nodes: new Set(nodes),
     selectorByNode: includeSelectorByNode
-      ? Array.from(selectorByNode.entries())
-      : []
+      ? new Map(selectorByNode)
+      : new Map()
   })
 
   return {

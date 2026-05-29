@@ -43,6 +43,7 @@ import {
 } from "./content/silent-highlight-rules.js";
 import {
   collectCachedSelectorMatches,
+  SELECTOR_LIST_DELIMITER,
   getSelectorFingerprint,
   invalidateSharedSelectorCache
 } from "./content/shared-selector-cache.js";
@@ -120,6 +121,9 @@ const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "aria-hidden",
   "open"
 ]);
+// Record Separator keeps the composite suppression fingerprint separate from
+// the selector fingerprint's Unit Separator without colliding with selector text.
+const SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR = "\u001e";
 
 let silentHighlightingUrlTimer = 0;
 
@@ -3208,21 +3212,16 @@ function startSilentHighlightingObserver() {
       if (!shouldRefreshForSilentMutation(mutation)) {
         continue;
       }
-      if (mutation.type === "attributes") {
-        const attributeName = mutation.attributeName || "";
-        if (SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(attributeName)) {
-          if (mutationTargetTouchesSilentCollections(mutation.target)) {
-            needsPositionRefresh = true;
-          }
-          continue;
+      if (mutation.type !== "attributes") {
+        needsFullRefresh = true;
+        break;
+      }
+      const attributeName = mutation.attributeName || "";
+      if (SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(attributeName)) {
+        if (mutationTargetTouchesSilentCollections(mutation.target)) {
+          needsPositionRefresh = true;
         }
-        if (
-          mutationTargetTouchesSilentCollections(mutation.target) &&
-          SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS.has(attributeName)
-        ) {
-          needsFullRefresh = true;
-          break;
-        }
+        continue;
       }
       needsFullRefresh = true;
       break;
@@ -3506,7 +3505,7 @@ function getSuppressedSelectorFingerprint(suppressedXpaths) {
     .filter((xpath) => typeof xpath === "string" && xpath)
     .slice()
     .sort()
-    .join("\u001f");
+    .join(SELECTOR_LIST_DELIMITER);
 }
 
 function collectNodesFromSelectors(selectors, options = {}) {
@@ -3519,7 +3518,7 @@ function collectNodesFromSelectors(selectors, options = {}) {
     suppressionFingerprint: [
       getSelectorFingerprint(selectors),
       getSuppressedSelectorFingerprint(options.suppressedXpaths)
-    ].join("\u001e"),
+    ].join(SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR),
     includeSelectorByNode: true,
     shouldIncludeNode: (node) =>
       !isExtensionUiNode(node) &&
