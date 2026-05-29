@@ -79,6 +79,10 @@ export const state = {
   toggleInFlightKey: "",
   lastToggleActionKey: "",
   lastToggleActionAt: 0,
+  explicitOverlayRefreshScheduled: false,
+  explicitOverlayRefreshHandle: 0,
+  explicitOverlayRefreshHandleType: "",
+  explicitOverlayRefreshEntry: null,
   perfEnabled: null
 };
 
@@ -4416,13 +4420,62 @@ function scheduleExplicitToggleFullRender() {
   }, EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS);
 }
 
+export function scheduleExplicitOverlayRefresh(entry) {
+  state.explicitOverlayRefreshEntry = entry;
+  if (state.explicitOverlayRefreshScheduled) {
+    return;
+  }
+  state.explicitOverlayRefreshScheduled = true;
+  const runRefresh = () => {
+    const pendingEntry = state.explicitOverlayRefreshEntry;
+    state.explicitOverlayRefreshScheduled = false;
+    state.explicitOverlayRefreshHandle = 0;
+    state.explicitOverlayRefreshHandleType = "";
+    state.explicitOverlayRefreshEntry = null;
+    if (!pendingEntry) {
+      return;
+    }
+    const coalesceStartedAt = nowMs();
+    refreshExplicitMarkingOverlay(pendingEntry);
+    scheduleRender(getExplicitMarkingRenderOptions());
+    logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    state.explicitOverlayRefreshHandle = window.requestAnimationFrame(runRefresh);
+    state.explicitOverlayRefreshHandleType = "raf";
+  } else if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+    state.explicitOverlayRefreshHandle = window.setTimeout(runRefresh, 0);
+    state.explicitOverlayRefreshHandleType = "timeout";
+  } else {
+    runRefresh();
+  }
+}
+
+function cancelExplicitOverlayRefresh() {
+  if (!state.explicitOverlayRefreshScheduled) {
+    return;
+  }
+  const handle = state.explicitOverlayRefreshHandle;
+  const type = state.explicitOverlayRefreshHandleType;
+  if (handle && typeof window !== "undefined") {
+    if (type === "raf" && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(handle);
+    } else if (type === "timeout" && typeof window.clearTimeout === "function") {
+      window.clearTimeout(handle);
+    }
+  }
+  state.explicitOverlayRefreshScheduled = false;
+  state.explicitOverlayRefreshHandle = 0;
+  state.explicitOverlayRefreshHandleType = "";
+  state.explicitOverlayRefreshEntry = null;
+}
+
 function completeExplicitToggle(entry, target, type, mutationStartedAt) {
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
-  refreshExplicitMarkingOverlay(entry);
-  scheduleRender(getExplicitMarkingRenderOptions());
+  scheduleExplicitOverlayRefresh(entry);
   scheduleExplicitToggleFullRender();
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
   notifyDraftStatus(location.href);
@@ -5632,6 +5685,7 @@ export function disable() {
     window.clearTimeout(state.explicitFullRenderTimer);
     state.explicitFullRenderTimer = 0;
   }
+  cancelExplicitOverlayRefresh();
   if (state.renderRaf) {
     window.cancelAnimationFrame(state.renderRaf);
     state.renderRaf = 0;
