@@ -4379,6 +4379,7 @@ function renderHighlightsInner() {
     return false;
   };
   let aiContent = new Set();
+  let selectorExcludedElements = [];
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths
     : [];
@@ -4395,6 +4396,15 @@ function renderHighlightsInner() {
       }
       aiContent.add(el);
     }
+    for (const el of aiCollections.excluded || []) {
+      if (shouldSkipAiCollectionElement(el)) {
+        continue;
+      }
+      if (explicitInclude.has(el) || isWithinElementSet(el, explicitInclude)) {
+        continue;
+      }
+      selectorExcludedElements.push(el);
+    }
     for (const el of explicitInclude) {
       if (shouldSkipAiCollectionElement(el)) {
         continue;
@@ -4402,12 +4412,14 @@ function renderHighlightsInner() {
       aiContent.add(el);
     }
   }
+  const selectorExcludedSet = new Set(selectorExcludedElements);
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
     ...explicitExclude,
     ...explicitInclude,
-    ...aiContent
+    ...aiContent,
+    ...selectorExcludedSet
   ]);
   const hasHigherPrecedence = (el) => precedenceSet.has(el);
 
@@ -4458,7 +4470,8 @@ function renderHighlightsInner() {
       ...consentExcluded,
       ...explicitExclude,
       ...explicitInclude,
-      ...aiContent
+      ...aiContent,
+      ...selectorExcludedSet
     ])
   });
 
@@ -4471,6 +4484,7 @@ function renderHighlightsInner() {
     explicitIncludeElements: filteredExplicitInclude,
     aiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
+    selectorExcludedElements: Array.from(selectorExcludedSet).sort(compareDocumentOrder),
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
