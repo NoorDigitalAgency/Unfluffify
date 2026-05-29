@@ -1371,6 +1371,43 @@ function collectDefaultHighlightTargets(root, options) {
   return results;
 }
 
+export function collectDefaultLayerElements(root, options = {}) {
+  const immutableExcluded = new Set(options.immutableExcluded || []);
+  const consentExcluded = new Set(options.consentExcluded || []);
+  const explicitExclude = new Set(options.explicitExclude || []);
+  const explicitInclude = new Set(options.explicitInclude || []);
+  const aiContent = new Set(options.aiContent || []);
+  const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
+  const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
+  const precedenceSet = new Set([
+    ...immutableExcluded,
+    ...consentExcluded,
+    ...explicitExclude,
+    ...explicitInclude,
+    ...aiContent,
+    ...selectorExcluded
+  ]);
+  const hardExcludedSet = new Set([
+    ...immutableExcluded,
+    ...hiddenStoredExplicitExclude
+  ]);
+
+  return collectDefaultHighlightTargets(root, {
+    excludedSet: precedenceSet,
+    hardExcludedSet,
+    hasHigherPrecedence: (el) => precedenceSet.has(el),
+    // Selector-excluded elements do not render their own marking-mode layer, so
+    // only the matched element should suppress the default layer, not its whole subtree.
+    excludedAncestorSet: new Set([
+      ...hardExcludedSet,
+      ...consentExcluded,
+      ...explicitExclude,
+      ...explicitInclude,
+      ...aiContent
+    ])
+  });
+}
+
 function collectSelectorElements(selectors) {
   return collectCachedSelectorMatches({
     root: document,
@@ -4639,16 +4676,6 @@ function renderHighlightsInner() {
       aiContent.add(el);
     }
   }
-  const precedenceSet = new Set([
-    ...immutableExcluded,
-    ...consentExcluded,
-    ...explicitExclude,
-    ...explicitInclude,
-    ...aiContent,
-    ...selectorExcludedSet
-  ]);
-  const hasHigherPrecedence = (el) => precedenceSet.has(el);
-
   const hiddenStoredExplicitExclude = [];
   const filteredExplicitExclude = [];
   for (const el of explicitExclude) {
@@ -4687,18 +4714,14 @@ function renderHighlightsInner() {
     ...hiddenStoredExplicitExclude
   ]);
 
-  const defaultTargets = collectDefaultHighlightTargets(document.body, {
-    excludedSet: precedenceSet,
-    hardExcludedSet,
-    hasHigherPrecedence,
-    excludedAncestorSet: new Set([
-      ...hardExcludedSet,
-      ...consentExcluded,
-      ...explicitExclude,
-      ...explicitInclude,
-      ...aiContent,
-      ...selectorExcludedSet
-    ])
+  const defaultTargets = collectDefaultLayerElements(document.body, {
+    immutableExcluded,
+    consentExcluded,
+    explicitExclude,
+    explicitInclude,
+    aiContent,
+    selectorExcluded: selectorExcludedSet,
+    hiddenStoredExplicitExclude
   });
 
   const collections = {

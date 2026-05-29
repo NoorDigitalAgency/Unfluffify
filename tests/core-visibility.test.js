@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  collectDefaultLayerElements,
   getMutationRenderMode,
   isMarkableElement,
   isVisible,
@@ -336,6 +337,70 @@ test("parent marking still allows expanded boundaries over markable content", ()
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
       true
     );
+  });
+});
+
+test("default layer keeps markable descendants inside selector-matched exclusions", () => {
+  withVisibilityDom(({ body }) => {
+    const child = createElement({
+      parentElement: body,
+      text: "Visible markable descendant",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const selectorMatchedAncestor = createElement({
+      parentElement: body,
+      children: [child],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(selectorMatchedAncestor);
+    body.childNodes.push(selectorMatchedAncestor);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      selectorExcluded: new Set([selectorMatchedAncestor])
+    });
+
+    assert.deepEqual(defaultElements, [child]);
+  });
+});
+
+test("default layer still suppresses selector-matched elements themselves", () => {
+  withVisibilityDom(({ body }) => {
+    const selectorMatchedElement = createElement({
+      parentElement: body,
+      text: "Selector-matched element",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(selectorMatchedElement);
+    body.childNodes.push(selectorMatchedElement);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      selectorExcluded: new Set([selectorMatchedElement])
+    });
+
+    assert.deepEqual(defaultElements, []);
+  });
+});
+
+test("default layer still suppresses descendants inside explicit exclusions", () => {
+  withVisibilityDom(({ body }) => {
+    const child = createElement({
+      parentElement: body,
+      text: "Visible markable descendant",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const explicitExcludedAncestor = createElement({
+      parentElement: body,
+      children: [child],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(explicitExcludedAncestor);
+    body.childNodes.push(explicitExcludedAncestor);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      explicitExclude: new Set([explicitExcludedAncestor])
+    });
+
+    assert.deepEqual(defaultElements, []);
   });
 });
 

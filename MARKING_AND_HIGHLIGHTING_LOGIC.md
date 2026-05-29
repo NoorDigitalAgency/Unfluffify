@@ -295,7 +295,7 @@ The rendered overlay is split into these logical collections:
 - AI content elements
 - default elements
 
-AI excluded content is still collected to suppress default marking inside selector-excluded regions, but it is not rendered as a dedicated overlay layer.
+AI excluded content is still collected for selector-matched elements, but it is not rendered as a dedicated overlay layer.
 
 ### Ghost explicit elements
 
@@ -332,7 +332,7 @@ These come from:
 
 These come from the resolved AI exclusion selectors after selector-suppressed XPath overrides are removed and explicit include boundaries are honored.
 
-They are used to suppress default marking targets inside selector-excluded regions, but they do not render as a separate marking-mode layer.
+The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer. AI excluded content does not render as a separate marking-mode layer.
 
 ### Default elements
 
@@ -346,6 +346,8 @@ They are the lowest-precedence visible content candidates that remain after remo
 - explicit includes,
 - AI included content,
 - AI excluded content.
+
+When a selector-excluded ancestor has markable descendants that are not themselves matched by a selector and are not blocked by default toggleable or immutable exclusions, those descendants remain eligible for the default plain-green markable layer.
 
 ## Precedence Order
 

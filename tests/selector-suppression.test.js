@@ -21,7 +21,7 @@ test("core render path and silent highlighting both honor selector suppression x
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(normalizedAiSelectorSet, \{[\s\S]*?suppressedXpaths: selectorSuppressedXpaths/);
 });
 
-test("marking mode suppresses default marks inside selector-excluded AI regions", () => {
+test("marking mode keeps selector-matched elements off the default layer without suppressing their whole subtree", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
   assert.match(coreSource, /for \(const el of aiCollections\.excluded \|\| \[\]\) \{/);
@@ -31,15 +31,19 @@ test("marking mode suppresses default marks inside selector-excluded AI regions"
   );
   assert.match(
     coreSource,
-    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.selectorExcludedSet[\s\S]*?\]\);/
+    /export function collectDefaultLayerElements\(root, options = \{\}\) \{[\s\S]*?const selectorExcluded = new Set\(options\.selectorExcluded \|\| options\.selectorExcludedSet \|\| \[\]\);/
   );
   assert.match(
     coreSource,
-    /excludedAncestorSet: new Set\(\[[\s\S]*?\.\.\.selectorExcludedSet[\s\S]*?\]\)/
+    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.selectorExcluded[\s\S]*?\]\);/
+  );
+  assert.doesNotMatch(
+    coreSource,
+    /excludedAncestorSet: new Set\(\[[\s\S]*?\.\.\.selectorExcluded[\s\S]*?\]\)/
   );
 });
 
-test("marking logic docs describe AI selector exclusions as default-suppression only", () => {
+test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
     "utf8"
@@ -48,7 +52,11 @@ test("marking logic docs describe AI selector exclusions as default-suppression 
   assert.doesNotMatch(docSource, /^- AI excluded content elements$/m);
   assert.match(
     docSource,
-    /AI excluded content is still collected to suppress default marking inside selector-excluded regions, but it is not rendered as a dedicated overlay layer\./
+    /AI excluded content is still collected for selector-matched elements, but it is not rendered as a dedicated overlay layer\./
+  );
+  assert.match(
+    docSource,
+    /The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer\./
   );
 });
 
