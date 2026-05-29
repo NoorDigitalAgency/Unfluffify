@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  filterDefaultElementsForExplicitMarks,
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingPresentation,
   getExplicitMarkingRenderOptions,
@@ -81,11 +82,41 @@ test("explicit marking renders use cached collections before the deferred rebuil
 
 test("explicit marking full renders are invalidating and rate-limited", () => {
   assert.deepEqual(getExplicitMarkingFullRenderOptions(), {
-    delay: 0,
+    delay: 120,
     minInterval: 500,
     invalidate: true,
     reason: "explicit-toggle-full-rebuild"
   });
+});
+
+test("explicit marking refresh removes stale related default elements", () => {
+  const parent = {
+    name: "parent",
+    contains(element) {
+      return element === child;
+    }
+  };
+  const child = {
+    name: "child",
+    contains() {
+      return false;
+    }
+  };
+  const sibling = {
+    name: "sibling",
+    contains() {
+      return false;
+    }
+  };
+
+  assert.deepEqual(
+    filterDefaultElementsForExplicitMarks([parent, child, sibling], [parent]),
+    [sibling]
+  );
+  assert.deepEqual(
+    filterDefaultElementsForExplicitMarks([parent, child, sibling], [child]),
+    [sibling]
+  );
 });
 
 test("duplicate user toggles on the same target and mode are ignored in a short window", () => {

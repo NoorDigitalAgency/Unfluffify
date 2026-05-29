@@ -18,6 +18,7 @@ import {
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
+  filterDefaultElementsForExplicitMarks,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldIgnoreDuplicateUserToggle,
   shouldSelfMarkToggleableDefaultBoundary
@@ -83,6 +84,7 @@ export const state = {
   explicitOverlayRefreshHandle: 0,
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null,
+  explicitFullRenderToken: 0,
   perfEnabled: null
 };
 
@@ -4403,20 +4405,29 @@ function refreshExplicitMarkingOverlay(entry) {
     state.cachedCollections.explicitIncludeElements = explicitIncludeElements;
     state.cachedCollections.aiAnimatedExplicitIncludeElements =
       explicitIncludeElements.filter((el) => aiContentSet.has(el));
-    state.cachedCollections.defaultElements = (state.cachedCollections.defaultElements || [])
-      .filter((el) => !explicitSet.has(el));
+    state.cachedCollections.defaultElements = filterDefaultElementsForExplicitMarks(
+      state.cachedCollections.defaultElements || [],
+      Array.from(explicitSet)
+    );
   }
   drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getVisibleRects);
   logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
 }
 
 function scheduleExplicitToggleFullRender() {
+  state.explicitFullRenderToken += 1;
+  const renderToken = state.explicitFullRenderToken;
   if (state.explicitFullRenderTimer) {
     window.clearTimeout(state.explicitFullRenderTimer);
   }
   state.explicitFullRenderTimer = window.setTimeout(() => {
     state.explicitFullRenderTimer = 0;
-    scheduleRender(getExplicitMarkingFullRenderOptions());
+    runWhenIdle(() => {
+      if (renderToken !== state.explicitFullRenderToken) {
+        return;
+      }
+      scheduleRender(getExplicitMarkingFullRenderOptions());
+    });
   }, EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS);
 }
 

@@ -19,11 +19,33 @@ export function getExplicitMarkingRenderOptions() {
 
 export function getExplicitMarkingFullRenderOptions() {
   return {
-    delay: 0,
+    delay: 120,
     minInterval: 500,
     invalidate: true,
     reason: "explicit-toggle-full-rebuild"
   };
+}
+
+export function filterDefaultElementsForExplicitMarks(defaultElements = [], explicitElements = []) {
+  if (!Array.isArray(defaultElements) || defaultElements.length === 0) {
+    return [];
+  }
+  if (!Array.isArray(explicitElements) || explicitElements.length === 0) {
+    return defaultElements;
+  }
+  return defaultElements.filter((defaultElement) => {
+    if (!defaultElement) {
+      return false;
+    }
+    return !explicitElements.some((explicitElement) => {
+      if (!explicitElement) {
+        return false;
+      }
+      return defaultElement === explicitElement ||
+        (typeof defaultElement.contains === "function" && defaultElement.contains(explicitElement)) ||
+        (typeof explicitElement.contains === "function" && explicitElement.contains(defaultElement));
+    });
+  });
 }
 
 export const USER_TOGGLE_DUPLICATE_WINDOW_MS = 320;
