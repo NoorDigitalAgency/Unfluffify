@@ -21,6 +21,13 @@ export function shouldCollectSilentExcludedSource(options = {}) {
   );
 }
 
+export function shouldRetainIncludedSource(options = {}) {
+  return Boolean(
+    options.explicitlyIncluded ||
+    options.visibleToUser
+  );
+}
+
 export function sampleSettledSilentHighlightPosition(
   previousState = {},
   signature = "",

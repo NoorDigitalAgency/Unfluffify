@@ -266,6 +266,8 @@ An active full silent-highlight refresh always repaints the overlay, even if the
 
 Silent exclusion source selection is visibility-agnostic. Selector-excluded and inferred excluded boundaries stay in the silent-highlight source set even when they are temporarily non-drawable, such as Webflow-style `opacity: 0` fade-ins. Current visibility only affects whether rects are drawn at that moment, not whether the exclusion boundary is tracked.
 
+Included source selection is stricter: hidden implicit included nodes are dropped from silent highlighting and preview results, while hidden explicit included nodes stay eligible and render with the ghost include presentation.
+
 Marking overlay updates watch style attribute changes as well as class, id, hidden, aria-hidden, child-list, and text mutations. Opacity, visibility, displacement, and animation-driven style changes therefore trigger a redraw/reposition pass instead of leaving stale markings.
 
 ## Regression Coverage
@@ -327,6 +329,8 @@ These come from:
 
 - explicit include elements that are also part of the AI-included content model,
 - implicit AI-included XPath items stored as `excluded === false`.
+
+Hidden implicit AI-included nodes are filtered back out before marking-mode rendering, silent highlighting, and preview collection. Only explicit included sources may remain when hidden; those render with ghost include styling instead of the normal included overlay.
 
 ### AI excluded content
 

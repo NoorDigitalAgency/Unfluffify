@@ -19,6 +19,7 @@ import {
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
   filterDefaultElementsForExplicitMarks,
+  isStoredExcludeStateUserModified,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldIgnoreDuplicateUserToggle,
   shouldSelfMarkToggleableDefaultBoundary
@@ -27,6 +28,7 @@ import {
   collectCachedSelectorMatches,
   invalidateSharedSelectorCache
 } from "./shared-selector-cache.js";
+import { shouldRetainIncludedSource } from "./silent-highlight-rules.js";
 
 export const state = {
   enabled: false,
@@ -1203,10 +1205,10 @@ function hasExplicitUserMarkings(entry) {
       return true;
     }
     const isDefaultExcluded = matchesToggleableDefaultExcluded(el);
-    if (item.excluded && !isDefaultExcluded) {
-      return true;
-    }
-    if (!item.excluded && isDefaultExcluded) {
+    if (isStoredExcludeStateUserModified({
+      isExcluded: item.excluded,
+      isDefaultExcluded
+    })) {
       return true;
     }
   }
@@ -2126,13 +2128,19 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
         { prefer: "shallowest" }
       )
   ).filter((el) =>
-    explicitIncludedSet.has(el) ||
-    hasRenderableTextForHighlight(
-      el,
-      excludedElements,
-      includedElements,
-      inclusionContextSet,
-      options
+    shouldRetainIncludedSource({
+      explicitlyIncluded: explicitIncludedSet.has(el),
+      visibleToUser: isVisible(el) || !isDefinitelyHiddenSubtreeElement(el)
+    }) &&
+    (
+      explicitIncludedSet.has(el) ||
+      hasRenderableTextForHighlight(
+        el,
+        excludedElements,
+        includedElements,
+        inclusionContextSet,
+        options
+      )
     )
   );
   const includedScopeRootsForExcludedTraversal = collapseElementsByNesting(includedElements, {
@@ -2704,9 +2712,17 @@ function createOverlay() {
         border: 3px solid #1b5e20;
         background: rgba(27, 94, 32, 0.2);
       }
+      #unfluffify-overlay .uf-explicit-include-ghost {
+        border: 1px dotted rgba(27, 94, 32, 0.45);
+        background: transparent;
+      }
       #unfluffify-overlay .uf-explicit-exclude {
         border: 3px solid #c62828;
         background: rgba(198, 40, 40, 0.2);
+      }
+      #unfluffify-overlay .uf-explicit-exclude-ghost {
+        border: 1px dashed rgba(198, 40, 40, 0.45);
+        background: transparent;
       }
       @keyframes uf-interaction-pulse {
         0% { opacity: 0.95; transform: scale(1); }
@@ -4349,9 +4365,7 @@ function getVisibleRects(el) {
 }
 
 function collectExplicitMarkingElements(entry) {
-  const explicitExclude = collectXPathElements(
-      collectExcludedXPaths(entry && entry.xpaths)
-  );
+  const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
   const explicitIncludeSet = new Set(explicitInclude);
@@ -4364,19 +4378,37 @@ function collectExplicitMarkingElements(entry) {
     return false;
   };
   const explicitExcludeElements = [];
-  for (const el of explicitExclude) {
+  const hiddenExplicitExcludeElements = [];
+  for (const item of items) {
+    if (!item || !item.xpath || !item.excluded) {
+      continue;
+    }
+    const el = getElementFromXPath(item.xpath);
+    if (!el) {
+      continue;
+    }
+    if (!isStoredExcludeStateUserModified({
+      isExcluded: item.excluded,
+      isDefaultExcluded: matchesToggleableDefaultExcluded(el)
+    })) {
+      continue;
+    }
     if (
       consentExcluded.has(el) ||
       isWithinElementSet(el, consentExcluded) ||
       isWithinExplicitInclude(el) ||
-      !isVisible(el) ||
       isWithinImmutableExcluded(el)
     ) {
+      continue;
+    }
+    if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
+      hiddenExplicitExcludeElements.push(el);
       continue;
     }
     explicitExcludeElements.push(el);
   }
   const explicitIncludeElements = [];
+  const hiddenExplicitIncludeElements = [];
   for (const el of explicitInclude) {
     if (
       isWithinImmutableExcluded(el) ||
@@ -4386,14 +4418,24 @@ function collectExplicitMarkingElements(entry) {
     ) {
       continue;
     }
+    if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
+      hiddenExplicitIncludeElements.push(el);
+      continue;
+    }
     explicitIncludeElements.push(el);
   }
-  return { explicitExcludeElements, explicitIncludeElements };
+  return {
+    explicitExcludeElements,
+    hiddenExplicitExcludeElements,
+    hiddenExplicitIncludeElements,
+    explicitIncludeElements
+  };
 }
 
 function drawExplicitMarkingLayers(
   explicitExcludeElements,
   explicitIncludeElements,
+  hiddenExplicitIncludeElements,
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
@@ -4427,11 +4469,25 @@ function drawExplicitMarkingLayers(
       );
     }
   }
+  for (const el of hiddenExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "explicit-include-ghost",
+        null
+      );
+    }
+  }
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
     excludeCount: explicitExcludeElements.length,
-    includeCount: explicitIncludeElements.length
+    includeCount: explicitIncludeElements.length + (hiddenExplicitIncludeElements || []).length
   });
 }
 
@@ -4440,13 +4496,20 @@ function refreshExplicitMarkingOverlay(entry) {
     return;
   }
   const refreshStartedAt = nowMs();
-  const { explicitExcludeElements, explicitIncludeElements } = collectExplicitMarkingElements(entry);
+  const {
+    explicitExcludeElements,
+    explicitIncludeElements,
+    hiddenExplicitIncludeElements
+  } = collectExplicitMarkingElements(entry);
   const cachedCollections = state.cachedCollections;
   if (cachedCollections) {
-    const explicitSet = new Set(explicitExcludeElements.concat(explicitIncludeElements));
+    const explicitSet = new Set(
+      explicitExcludeElements.concat(explicitIncludeElements, hiddenExplicitIncludeElements)
+    );
     const aiContentSet = new Set(cachedCollections.aiContentElements || []);
     cachedCollections.explicitExcludeElements = explicitExcludeElements;
     cachedCollections.explicitIncludeElements = explicitIncludeElements;
+    cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
     cachedCollections.aiAnimatedExplicitIncludeElements =
       explicitIncludeElements.filter((el) => aiContentSet.has(el));
     cachedCollections.defaultElements = filterDefaultElementsForExplicitMarks(
@@ -4457,7 +4520,12 @@ function refreshExplicitMarkingOverlay(entry) {
   if (cachedCollections) {
     drawCollections(cachedCollections, getVisibleRects);
   } else {
-    drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getVisibleRects);
+    drawExplicitMarkingLayers(
+      explicitExcludeElements,
+      explicitIncludeElements,
+      hiddenExplicitIncludeElements,
+      getVisibleRects
+    );
   }
   logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
 }
@@ -4658,6 +4726,9 @@ function renderHighlightsInner() {
       if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
         continue;
       }
+      if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
+        continue;
+      }
       aiContent.add(el);
     }
     for (const el of aiCollections.excluded || []) {
@@ -4673,38 +4744,18 @@ function renderHighlightsInner() {
       if (shouldSkipAiCollectionElement(el)) {
         continue;
       }
+      if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
+        continue;
+      }
       aiContent.add(el);
     }
   }
-  const hiddenStoredExplicitExclude = [];
-  const filteredExplicitExclude = [];
-  for (const el of explicitExclude) {
-    if (consentExcluded.has(el) || isWithinElementSet(el, consentExcluded)) {
-      continue;
-    }
-    if (isWithinExplicitInclude(el)) {
-      continue;
-    }
-    if (!isVisible(el)) {
-      hiddenStoredExplicitExclude.push(el);
-      continue;
-    }
-    if (!immutableExcluded.has(el)) {
-      filteredExplicitExclude.push(el);
-    }
-  }
-
-  const filteredExplicitInclude = [];
-  for (const el of explicitInclude) {
-    if (
-      !immutableExcluded.has(el) &&
-      !consentExcluded.has(el) &&
-      !isWithinElementSet(el, consentExcluded) &&
-      !explicitExclude.has(el)
-    ) {
-      filteredExplicitInclude.push(el);
-    }
-  }
+  const {
+    explicitExcludeElements: filteredExplicitExclude,
+    hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
+    hiddenExplicitIncludeElements,
+    explicitIncludeElements: filteredExplicitInclude
+  } = collectExplicitMarkingElements(entry);
   const aiAnimatedExplicitIncludeElements = hasAiSelectors
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
@@ -4731,6 +4782,7 @@ function renderHighlightsInner() {
     ),
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
+    hiddenExplicitIncludeElements,
     aiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
     selectorExcludedElements: Array.from(selectorExcludedSet),
@@ -4760,6 +4812,13 @@ function getRectsInViewport(el) {
     return getCollapsedTextualFallbackRects(el);
   }
   return [];
+}
+
+function getGhostRects(el) {
+  if (!el || el.nodeType !== 1) {
+    return [];
+  }
+  return collectRectsFromClientRects(el.getClientRects());
 }
 
 function repositionHighlights(collections) {
@@ -4808,6 +4867,21 @@ function drawCollections(collections, getRects) {
         presentation.className,
         el,
         "explicit-include",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.hiddenExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "explicit-include-ghost",
         markedElements
       );
     }

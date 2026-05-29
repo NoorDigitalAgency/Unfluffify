@@ -6,6 +6,7 @@ import {
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingPresentation,
   getExplicitMarkingRenderOptions,
+  isStoredExcludeStateUserModified,
   shouldIgnoreDuplicateUserToggle,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
@@ -77,6 +78,40 @@ test("AI auto-seed is skipped when there are no AI selectors", () => {
     shouldAutoSeedMarkingsFromAiSelectors({
       hasAiSelectors: false,
       hasSavedMarkingsForPage: false
+    }),
+    false
+  );
+});
+
+test("stored exclude state is considered user-modified when it differs from the default posture", () => {
+  assert.equal(
+    isStoredExcludeStateUserModified({
+      isExcluded: true,
+      isDefaultExcluded: false
+    }),
+    true
+  );
+  assert.equal(
+    isStoredExcludeStateUserModified({
+      isExcluded: false,
+      isDefaultExcluded: true
+    }),
+    true
+  );
+});
+
+test("stored exclude state is not considered user-modified when it matches the default posture", () => {
+  assert.equal(
+    isStoredExcludeStateUserModified({
+      isExcluded: true,
+      isDefaultExcluded: true
+    }),
+    false
+  );
+  assert.equal(
+    isStoredExcludeStateUserModified({
+      isExcluded: false,
+      isDefaultExcluded: false
     }),
     false
   );
@@ -182,6 +217,13 @@ test("explicit include presentation uses the non-ghost include class", () => {
   assert.deepEqual(
     getExplicitMarkingPresentation({ type: "include" }),
     { ghost: false, className: "uf-explicit-include" }
+  );
+});
+
+test("ghost explicit include presentation uses the ghost include class", () => {
+  assert.deepEqual(
+    getExplicitMarkingPresentation({ type: "include", ghost: true }),
+    { ghost: true, className: "uf-explicit-include-ghost" }
   );
 });
 

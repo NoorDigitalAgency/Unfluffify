@@ -5,6 +5,7 @@ import {
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS,
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_STABLE_SAMPLES,
   shouldCollectSilentExcludedSource,
+  shouldRetainIncludedSource,
   shouldRenderSilentHighlightOverlay,
   sampleSettledSilentHighlightPosition
 } from "../content/silent-highlight-rules.js";
@@ -108,5 +109,29 @@ test("silent excluded sources still respect explicit include boundaries", () => 
       definitelyHiddenSubtree: false
     }),
     false
+  );
+});
+
+test("hidden included sources are retained only when explicitly included", () => {
+  assert.equal(
+    shouldRetainIncludedSource({
+      explicitlyIncluded: true,
+      visibleToUser: false
+    }),
+    true
+  );
+  assert.equal(
+    shouldRetainIncludedSource({
+      explicitlyIncluded: false,
+      visibleToUser: false
+    }),
+    false
+  );
+  assert.equal(
+    shouldRetainIncludedSource({
+      explicitlyIncluded: false,
+      visibleToUser: true
+    }),
+    true
   );
 });

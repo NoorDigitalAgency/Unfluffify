@@ -12,6 +12,10 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
   );
 }
 
+export function isStoredExcludeStateUserModified(options = {}) {
+  return Boolean(Boolean(options.isExcluded) !== Boolean(options.isDefaultExcluded));
+}
+
 export function getExplicitMarkingRenderOptions() {
   return {
     delay: 80,
@@ -78,8 +82,15 @@ export function shouldIgnoreDuplicateUserToggle(options = {}) {
 
 export function getExplicitMarkingPresentation(options = {}) {
   const type = options.type === "include" ? "include" : "exclude";
+  const ghost = Boolean(options.ghost);
   return {
-    ghost: false,
-    className: type === "include" ? "uf-explicit-include" : "uf-explicit-exclude"
+    ghost,
+    className: type === "include"
+      ? ghost
+        ? "uf-explicit-include-ghost"
+        : "uf-explicit-include"
+      : ghost
+        ? "uf-explicit-exclude-ghost"
+        : "uf-explicit-exclude"
   };
 }
