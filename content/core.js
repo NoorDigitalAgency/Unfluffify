@@ -4379,7 +4379,7 @@ function renderHighlightsInner() {
     return false;
   };
   let aiContent = new Set();
-  let selectorExcludedElements = [];
+  const selectorExcludedSet = new Set();
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths
     : [];
@@ -4403,7 +4403,7 @@ function renderHighlightsInner() {
       if (explicitInclude.has(el) || isWithinElementSet(el, explicitInclude)) {
         continue;
       }
-      selectorExcludedElements.push(el);
+      selectorExcludedSet.add(el);
     }
     for (const el of explicitInclude) {
       if (shouldSkipAiCollectionElement(el)) {
@@ -4412,7 +4412,6 @@ function renderHighlightsInner() {
       aiContent.add(el);
     }
   }
-  const selectorExcludedSet = new Set(selectorExcludedElements);
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -4484,7 +4483,7 @@ function renderHighlightsInner() {
     explicitIncludeElements: filteredExplicitInclude,
     aiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
-    selectorExcludedElements: Array.from(selectorExcludedSet).sort(compareDocumentOrder),
+    selectorExcludedElements: Array.from(selectorExcludedSet),
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
