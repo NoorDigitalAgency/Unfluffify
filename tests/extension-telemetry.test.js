@@ -37,6 +37,11 @@ function createTelemetryTarget(options = {}) {
   };
 }
 
+async function flushTelemetryTasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 test("fetch telemetry sends requestHeaderCount and responseHeaderCount as integers", async () => {
   const { target, messages, setFetch } = createTelemetryTarget();
 
@@ -134,12 +139,45 @@ test("fetch telemetry includes payload when getIncludePayloads returns true", as
   }));
 
   await target.fetch("https://api.example.com/data", { method: "POST", body: "request-data" });
+  await flushTelemetryTasks();
 
   const networkMessage = messages.find((m) => m.channel === "network");
   assert.ok(networkMessage, "should have a network telemetry message");
   assert.ok(networkMessage.entry.payload, "payload should be present when includePayloads is true");
   assert.equal(networkMessage.entry.payload.request, "request-data", "request body should be captured");
   assert.equal(networkMessage.entry.payload.response, "response-data", "response body should be captured");
+});
+
+test("fetch telemetry preserves the original rejected promise while logging failure telemetry", async () => {
+  const { target, messages, setFetch } = createTelemetryTarget();
+  const fetchError = new TypeError("Failed to fetch");
+  let underlyingPromise = null;
+
+  setFetch(() => {
+    underlyingPromise = Promise.reject(fetchError);
+    underlyingPromise.catch(() => {});
+    return underlyingPromise;
+  });
+
+  const wrappedResult = target.fetch("https://api.example.com/data", { method: "POST" });
+
+  assert.strictEqual(
+    wrappedResult,
+    underlyingPromise,
+    "wrapped fetch should return the original fetch promise"
+  );
+
+  await assert.rejects(wrappedResult, (error) => {
+    assert.strictEqual(error, fetchError, "wrapped fetch should reject with the original error object");
+    return true;
+  });
+
+  await Promise.resolve();
+
+  const networkMessage = messages.find((m) => m.channel === "network");
+  assert.ok(networkMessage, "should have a network telemetry message");
+  assert.equal(networkMessage.entry.statusCode, 0, "failure telemetry should report statusCode 0");
+  assert.equal(networkMessage.entry.error, "Failed to fetch", "failure telemetry should capture the fetch error message");
 });
 
 test("fetch telemetry counts headers from array-form headers", async () => {

@@ -222,7 +222,7 @@ function installFetchTelemetry(target, options) {
     return;
   }
 
-  const wrappedFetch = async function(...args) {
+  const wrappedFetch = function(...args) {
     const startedAt = Date.now();
     const input = args[0];
     const init = args[1] || {};
@@ -231,33 +231,10 @@ function installFetchTelemetry(target, options) {
     const requestBody = init && Object.prototype.hasOwnProperty.call(init, "body")
       ? init.body
       : undefined;
+    const requestHeaderCount = getFetchRequestHeaderCount(input, init);
 
-    try {
-      const response = await originalFetch.apply(this, args);
-      let responseBody = "";
-      if (shouldIncludePayloads(options) && response && typeof response.clone === "function") {
-        try {
-          responseBody = await response.clone().text();
-        } catch (error) {
-          responseBody = "";
-        }
-      }
-
-      postTelemetryMessage(options, "network", {
-        source: "fetch",
-        type: "fetch",
-        url: clampUrl(url),
-        method,
-        statusCode: Number(response && response.status) || 0,
-        startedAt,
-        completedAt: Date.now(),
-        loadTimeMs: Math.max(0, Date.now() - startedAt),
-        requestHeaderCount: getFetchRequestHeaderCount(input, init),
-        responseHeaderCount: countHeaders(response && response.headers),
-        payload: createPayloadFromFetch(options, requestBody, responseBody)
-      });
-      return response;
-    } catch (error) {
+    const postFailureTelemetry = (error) => {
+      const completedAt = Date.now();
       postTelemetryMessage(options, "network", {
         source: "fetch",
         type: "fetch",
@@ -265,15 +242,52 @@ function installFetchTelemetry(target, options) {
         method,
         statusCode: 0,
         startedAt,
-        completedAt: Date.now(),
-        loadTimeMs: Math.max(0, Date.now() - startedAt),
-        requestHeaderCount: getFetchRequestHeaderCount(input, init),
+        completedAt,
+        loadTimeMs: Math.max(0, completedAt - startedAt),
+        requestHeaderCount,
         responseHeaderCount: 0,
         payload: null,
         error: clampTelemetryText(error && error.message ? error.message : error)
       });
+    };
+
+    let fetchResult;
+    try {
+      fetchResult = originalFetch.apply(this, args);
+    } catch (error) {
+      postFailureTelemetry(error);
       throw error;
     }
+
+    Promise.resolve(fetchResult)
+      .then(async (response) => {
+        let responseBody = "";
+        if (shouldIncludePayloads(options) && response && typeof response.clone === "function") {
+          try {
+            responseBody = await response.clone().text();
+          } catch (error) {
+            responseBody = "";
+          }
+        }
+
+        const completedAt = Date.now();
+        postTelemetryMessage(options, "network", {
+          source: "fetch",
+          type: "fetch",
+          url: clampUrl(url),
+          method,
+          statusCode: Number(response && response.status) || 0,
+          startedAt,
+          completedAt,
+          loadTimeMs: Math.max(0, completedAt - startedAt),
+          requestHeaderCount,
+          responseHeaderCount: countHeaders(response && response.headers),
+          payload: createPayloadFromFetch(options, requestBody, responseBody)
+        });
+      }, postFailureTelemetry)
+      .catch(() => {});
+
+    return fetchResult;
   };
 
   wrappedFetch.__unfluffifyExtensionTelemetryInstalled = true;
