@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  getExplicitMarkingFullRenderOptions,
   getExplicitMarkingPresentation,
   getExplicitMarkingRenderOptions,
   shouldIgnoreDuplicateUserToggle,
@@ -69,12 +70,21 @@ test("AI auto-seed is skipped when there are no AI selectors", () => {
   );
 });
 
-test("explicit marking renders use the standard scheduleRender defaults", () => {
+test("explicit marking renders use cached collections before the deferred rebuild", () => {
   assert.deepEqual(getExplicitMarkingRenderOptions(), {
+    delay: 80,
+    minInterval: 200,
+    invalidate: false,
+    reason: "explicit-toggle-reposition"
+  });
+});
+
+test("explicit marking full renders are invalidating and rate-limited", () => {
+  assert.deepEqual(getExplicitMarkingFullRenderOptions(), {
     delay: 0,
-    minInterval: 0,
+    minInterval: 500,
     invalidate: true,
-    reason: "explicit-toggle"
+    reason: "explicit-toggle-full-rebuild"
   });
 });
 

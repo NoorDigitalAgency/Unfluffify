@@ -10,10 +10,19 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
 
 export function getExplicitMarkingRenderOptions() {
   return {
+    delay: 80,
+    minInterval: 200,
+    invalidate: false,
+    reason: "explicit-toggle-reposition"
+  };
+}
+
+export function getExplicitMarkingFullRenderOptions() {
+  return {
     delay: 0,
-    minInterval: 0,
+    minInterval: 500,
     invalidate: true,
-    reason: "explicit-toggle"
+    reason: "explicit-toggle-full-rebuild"
   };
 }
 

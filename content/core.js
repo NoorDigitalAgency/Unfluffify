@@ -15,6 +15,7 @@ import {
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
 } from "./shared-inclusion.js";
 import {
+  getExplicitMarkingFullRenderOptions,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
   shouldAutoSeedMarkingsFromAiSelectors,
@@ -51,6 +52,7 @@ export const state = {
   markedElements: new Set(),
   renderRaf: 0,
   renderTimer: 0,
+  explicitFullRenderTimer: 0,
   pendingRenderInvalidate: false,
   lastRenderAt: 0,
   scrollHideTimer: 0,
@@ -87,6 +89,11 @@ const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
+const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 650;
+const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 2500;
+const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
+const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
+const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
   "[id^=\"unfluffify-\"]",
@@ -161,6 +168,13 @@ function logTogglePerf(label, startedAt, details = null) {
   } catch {
     // Ignore diagnostics failures.
   }
+}
+
+function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback(callback, { timeout });
+  }
+  return window.setTimeout(callback, 0);
 }
 
 function isTagSelector (selector){
@@ -3311,12 +3325,14 @@ function recordPageSnapshot(configValue, pageUrl) {
   if (!configValue || !pageUrl) {
     return;
   }
+  const snapshotStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
   syncPageMarkings(configValue, pageUrl, immutableExcluded);
   const entry = getPageMarkingEntry(configValue, pageUrl);
   const snapshot = createSanitizedPageSnapshot({
     renderMode: config.getConfigRenderMode(configValue)
   });
+  logTogglePerf("snapshot.serialize", snapshotStartedAt, { pageUrl });
   entry.renderedHtml = snapshot.renderedHtml;
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
   setPageMarkingEntry(configValue.pageMarkings, pageUrl, entry);
@@ -3715,6 +3731,7 @@ function toggleExplicitExclude(target) {
     return;
   }
 
+  const mutationStartedAt = nowMs();
   const config = state.config;
   const entry = getPageMarkingEntry(config, location.href);
   const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
@@ -3746,10 +3763,7 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
-    scheduleRender(getExplicitMarkingRenderOptions());
-    scheduleSnapshotSave();
-    notifyDraftStatus(location.href);
-    scheduleDraftPersist(state.baseUrl);
+    completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -3877,10 +3891,7 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  scheduleRender(getExplicitMarkingRenderOptions());
-  scheduleSnapshotSave();
-  notifyDraftStatus(location.href);
-  scheduleDraftPersist(state.baseUrl);
+  completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
 }
 
 function toggleExplicitInclude(target) {
@@ -3901,6 +3912,7 @@ function toggleExplicitInclude(target) {
     return;
   }
 
+  const mutationStartedAt = nowMs();
   const config = state.config;
   const entry = getPageMarkingEntry(config, location.href);
   const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
@@ -3935,10 +3947,7 @@ function toggleExplicitInclude(target) {
       normalizePageEntryXpaths(entry);
       setPageMarkingEntry(config.pageMarkings, location.href, entry);
       state.config = config;
-      scheduleRender(getExplicitMarkingRenderOptions());
-      scheduleSnapshotSave();
-      notifyDraftStatus(location.href);
-      scheduleDraftPersist(state.baseUrl);
+      completeExplicitToggle(entry, target, "include", mutationStartedAt);
       return;
     }
     if (matchesToggleableDefaultExcluded(target)) {
@@ -3988,10 +3997,7 @@ function toggleExplicitInclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  scheduleRender(getExplicitMarkingRenderOptions());
-  scheduleSnapshotSave();
-  notifyDraftStatus(location.href);
-  scheduleDraftPersist(state.baseUrl);
+  completeExplicitToggle(entry, target, "include", mutationStartedAt);
 }
 
 function handleToggleEvent(event) {
@@ -4021,6 +4027,7 @@ function handleToggleEvent(event) {
   const excludedSet =
     allowParent || allowExcludedParentChildren ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
+  const targetResolutionStartedAt = nowMs();
   const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
     allowExplicitTarget: true,
@@ -4031,6 +4038,10 @@ function handleToggleEvent(event) {
     allowExcludedParentChildren,
     allowImmutableChildren,
     requireExcludedAncestor: false
+  });
+  logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
+    mode,
+    hadTarget: Boolean(target)
   });
   if (target) {
     const xpath = getXPath(target);
@@ -4285,6 +4296,132 @@ function getVisibleRects(el) {
   return [];
 }
 
+function collectExplicitMarkingElements(entry) {
+  const explicitExclude = collectXPathElements(
+      collectExcludedXPaths(entry && entry.xpaths)
+  );
+  const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
+  const consentExcluded = collectConsentExcludedElements();
+  const explicitIncludeSet = new Set(explicitInclude);
+  const isWithinExplicitInclude = (el) => {
+    for (const includeEl of explicitIncludeSet) {
+      if (includeEl && includeEl !== el && includeEl.contains(el)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const explicitExcludeElements = [];
+  for (const el of explicitExclude) {
+    if (
+      consentExcluded.has(el) ||
+      isWithinElementSet(el, consentExcluded) ||
+      isWithinExplicitInclude(el) ||
+      !isVisible(el) ||
+      isWithinImmutableExcluded(el)
+    ) {
+      continue;
+    }
+    explicitExcludeElements.push(el);
+  }
+  const explicitIncludeElements = [];
+  for (const el of explicitInclude) {
+    if (
+      isWithinImmutableExcluded(el) ||
+      consentExcluded.has(el) ||
+      isWithinElementSet(el, consentExcluded) ||
+      explicitExclude.has(el)
+    ) {
+      continue;
+    }
+    explicitIncludeElements.push(el);
+  }
+  return { explicitExcludeElements, explicitIncludeElements };
+}
+
+function drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getRects) {
+  const drawStartedAt = nowMs();
+  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
+  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
+  for (const el of explicitExcludeElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
+      drawMultiRectReuse(
+        layerExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "explicit-exclude",
+        null
+      );
+    }
+  }
+  for (const el of explicitIncludeElements) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
+      drawMultiRectReuse(
+        layerExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "explicit-include",
+        null
+      );
+    }
+  }
+  finalizeLayerRender(layerExplicitExcludeState);
+  finalizeLayerRender(layerExplicitIncludeState);
+  logTogglePerf("draw.explicit-layers", drawStartedAt, {
+    excludeCount: explicitExcludeElements.length,
+    includeCount: explicitIncludeElements.length
+  });
+}
+
+function refreshExplicitMarkingOverlay(entry) {
+  if (!state.enabled || !state.overlay) {
+    return;
+  }
+  const refreshStartedAt = nowMs();
+  const { explicitExcludeElements, explicitIncludeElements } = collectExplicitMarkingElements(entry);
+  if (state.cachedCollections) {
+    const explicitSet = new Set(explicitExcludeElements.concat(explicitIncludeElements));
+    const aiContentSet = new Set(state.cachedCollections.aiContentElements || []);
+    state.cachedCollections.explicitExcludeElements = explicitExcludeElements;
+    state.cachedCollections.explicitIncludeElements = explicitIncludeElements;
+    state.cachedCollections.aiAnimatedExplicitIncludeElements =
+      explicitIncludeElements.filter((el) => aiContentSet.has(el));
+    state.cachedCollections.defaultElements = (state.cachedCollections.defaultElements || [])
+      .filter((el) => !explicitSet.has(el));
+  }
+  drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getVisibleRects);
+  logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
+}
+
+function scheduleExplicitToggleFullRender() {
+  if (state.explicitFullRenderTimer) {
+    window.clearTimeout(state.explicitFullRenderTimer);
+  }
+  state.explicitFullRenderTimer = window.setTimeout(() => {
+    state.explicitFullRenderTimer = 0;
+    scheduleRender(getExplicitMarkingFullRenderOptions());
+  }, EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS);
+}
+
+function completeExplicitToggle(entry, target, type, mutationStartedAt) {
+  logTogglePerf("toggle.mutation", mutationStartedAt, {
+    type,
+    hasTarget: Boolean(target)
+  });
+  refreshExplicitMarkingOverlay(entry);
+  scheduleRender(getExplicitMarkingRenderOptions());
+  scheduleExplicitToggleFullRender();
+  scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
+  notifyDraftStatus(location.href);
+  scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);
+}
+
 function invalidateCachedCollections() {
   state.cachedCollections = null;
 }
@@ -4309,10 +4446,13 @@ function renderHighlightsInner() {
 
   const cached = state.cachedCollections;
   if (cached) {
+    const drawStartedAt = nowMs();
     repositionHighlights(cached);
+    logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
     return;
   }
 
+  const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
   const pageUrl = location.href;
   const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
@@ -4487,6 +4627,7 @@ function renderHighlightsInner() {
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
+  logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
     state.autoSeededPendingSavePageUrl = pageUrl;
@@ -4494,7 +4635,9 @@ function renderHighlightsInner() {
     notifyDraftStatus(pageUrl);
   }
 
+  const drawStartedAt = nowMs();
   drawCollections(collections, getVisibleRects);
+  logTogglePerf("draw.collections", drawStartedAt, { pageUrl });
   logTogglePerf("render.total", renderStartedAt, { pageUrl });
 }
 
@@ -5005,7 +5148,7 @@ export function notifyDraftStatus(pageUrl) {
   }).then();
 }
 
-export function scheduleSnapshotSave(delayMs = 1000) {
+export function scheduleSnapshotSave(delayMs = DEFAULT_SNAPSHOT_SAVE_DELAY_MS) {
   if (!state.baseUrl || !state.config) {
     return;
   }
@@ -5017,7 +5160,14 @@ export function scheduleSnapshotSave(delayMs = 1000) {
     if (!state.baseUrl || !state.config) {
       return;
     }
-    recordPageSnapshot(state.config, location.href);
+    runWhenIdle(() => {
+      if (!state.baseUrl || !state.config) {
+        return;
+      }
+      const snapshotStartedAt = nowMs();
+      recordPageSnapshot(state.config, location.href);
+      logTogglePerf("snapshot.generate", snapshotStartedAt);
+    });
   }, Math.max(0, Math.trunc(delayMs)));
 }
 
@@ -5034,8 +5184,11 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
     if (!targetBaseUrl || !state.config) {
       return;
     }
+    const persistStartedAt = nowMs();
     saveConfig(targetBaseUrl, state.config).catch(() => {
       // Keep manual marking responsive; persistence failures are non-blocking.
+    }).finally(() => {
+      logTogglePerf("draft.persist", persistStartedAt);
     });
   }, Math.max(0, Math.trunc(delayMs)));
 }
@@ -5470,6 +5623,10 @@ export function disable() {
   if (state.renderTimer) {
     window.clearTimeout(state.renderTimer);
     state.renderTimer = 0;
+  }
+  if (state.explicitFullRenderTimer) {
+    window.clearTimeout(state.explicitFullRenderTimer);
+    state.explicitFullRenderTimer = 0;
   }
   if (state.renderRaf) {
     window.cancelAnimationFrame(state.renderRaf);
