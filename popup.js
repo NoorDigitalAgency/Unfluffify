@@ -2783,16 +2783,12 @@ async function refreshUiInner(options = {}) {
   const previewState = tabInScope
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
-  const previewMode = typeof (previewState && previewState.mode) === "string"
-    ? previewState.mode
-    : "";
-  const previewActive = Boolean(previewState && previewState.active && previewMode === "preview");
-  const previewItems = Array.isArray(previewState && previewState.items)
-    ? previewState.items.filter((item) => item && typeof item === "object" && typeof item.xpath === "string")
-    : [];
-  const previewFocusedXpath = typeof (previewState && previewState.focusedXpath) === "string"
-    ? previewState.focusedXpath
-    : "";
+  const {
+    previewActive,
+    previewItems,
+    previewFocusedXpath,
+    previewShowAllCategories
+  } = buildPreviewViewState(previewState);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let discoveredBaseUrlFromGraphql = "";
@@ -3060,6 +3056,7 @@ async function refreshUiInner(options = {}) {
     previewActive,
     previewItems,
     previewFocusedXpath,
+    previewShowAllCategories,
     previewBlocked: previewActive,
     previewBlockedMessage: previewActive
       ? PopupText.preview.blockedActive
@@ -6719,6 +6716,63 @@ async function handleExitPreviewMode() {
   }
 }
 
+function normalizePreviewItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .filter((item) => item && typeof item === "object" && typeof item.xpath === "string")
+    .map((item) => ({
+      xpath: item.xpath,
+      text: typeof item.text === "string" ? item.text : "",
+      title: typeof item.title === "string" && item.title ? item.title : item.xpath,
+      kind: typeof item.kind === "string" ? item.kind : ""
+    }));
+}
+
+function buildPreviewViewState(previewState) {
+  const previewMode = typeof (previewState && previewState.mode) === "string"
+    ? previewState.mode
+    : "";
+  return {
+    previewActive: Boolean(previewState && previewState.active && previewMode === "preview"),
+    previewItems: normalizePreviewItems(previewState && previewState.items),
+    previewFocusedXpath: typeof (previewState && previewState.focusedXpath) === "string"
+      ? previewState.focusedXpath
+      : "",
+    previewShowAllCategories: Boolean(
+      previewState &&
+      previewState.active &&
+      previewMode === "preview" &&
+      previewState.showAllCategories
+    )
+  };
+}
+
+async function handlePreviewShowAllCategoriesChange(event) {
+  const nextChecked = Boolean(event && event.target && event.target.checked);
+  const previousChecked = Boolean(uiModule.getViewState().previewShowAllCategories);
+  uiModule.setViewState({ previewShowAllCategories: nextChecked });
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    uiModule.setViewState({ previewShowAllCategories: previousChecked });
+    return;
+  }
+  try {
+    const response = await messages.sendTabMessage({
+      type: "setAiPreviewExpandedMode",
+      active: nextChecked
+    });
+    if (!response || !response.ok) {
+      throw new Error(PopupText.preview.updateFailed);
+    }
+    uiModule.setViewState(buildPreviewViewState(response));
+  } catch (error) {
+    uiModule.setViewState({ previewShowAllCategories: previousChecked });
+    uiModule.showToast((error && error.message) || PopupText.preview.updateFailed);
+    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+  }
+}
+
 async function handlePreviewItemFocus(xpath) {
   if (!xpath || !await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -6829,6 +6883,7 @@ async function init() {
     onSaveExcludes: handleSaveExcludes,
     onPreviewLatest: handlePreviewLatest,
     onPreviewItemFocus: handlePreviewItemFocus,
+    onPreviewShowAllCategoriesChange: handlePreviewShowAllCategoriesChange,
     onExitPreviewMode: handleExitPreviewMode,
     onExplicitExcludeView: handleExplicitExcludeView,
     onExplicitExcludeRemove: handleExplicitExcludeRemove,

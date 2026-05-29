@@ -174,12 +174,25 @@ let aiComputeLockReleaseTimer = 0;
 let deviceEmulationHotkeyBusy = false;
 const silentSelectorOriginalTitles = new WeakMap();
 const aiPreviewOriginalTitles = new WeakMap();
+const AI_PREVIEW_KIND_EXCLUDED = "excluded";
+const AI_PREVIEW_KIND_EXPLICIT_INCLUDED = "explicit_included";
+const AI_PREVIEW_KIND_IMPLICIT_INCLUDED = "implicit_included";
+const AI_PREVIEW_KIND_UNDETECTED = "undetected";
+const AI_PREVIEW_KINDS = new Set([
+  AI_PREVIEW_KIND_EXCLUDED,
+  AI_PREVIEW_KIND_EXPLICIT_INCLUDED,
+  AI_PREVIEW_KIND_IMPLICIT_INCLUDED,
+  AI_PREVIEW_KIND_UNDETECTED
+]);
 
 function createAiPreviewState() {
   return {
     active: false,
     mode: "",
     items: [],
+    defaultItems: [],
+    expandedItems: [],
+    showAllCategories: false,
     itemXpathSet: new Set(),
     focusedXpath: "",
     previousEnabled: false,
@@ -1953,21 +1966,63 @@ function normalizeAiPreviewItems(items) {
     .filter((item) => item && typeof item === "object")
     .map((item) => ({
       xpath: typeof item.xpath === "string" ? item.xpath : "",
-      text: typeof item.text === "string" ? item.text : ""
+      text: typeof item.text === "string" ? item.text : "",
+      title: typeof item.title === "string" && item.title
+        ? item.title
+        : (typeof item.xpath === "string" ? item.xpath : ""),
+      kind: AI_PREVIEW_KINDS.has(item.kind) ? item.kind : ""
     }))
     .filter((item) => item.xpath);
 }
 
-function setAiPreviewItems(items) {
+function setAiPreviewItems(items, options = {}) {
   const normalized = normalizeAiPreviewItems(items);
+  const previousFocusedXpath = aiPreviewState.focusedXpath;
+  const nextItemXpathSet = new Set(normalized.map((item) => item.xpath));
+  const preserveFocusedXpath = Boolean(options.preserveFocusedXpath);
+  const keepFocusedXpath = Boolean(
+    preserveFocusedXpath &&
+      previousFocusedXpath &&
+      nextItemXpathSet.has(previousFocusedXpath)
+  );
   aiPreviewState.items = normalized;
-  aiPreviewState.itemXpathSet = new Set(normalized.map((item) => item.xpath));
-  aiPreviewState.focusedXpath = "";
+  aiPreviewState.itemXpathSet = nextItemXpathSet;
+  aiPreviewState.focusedXpath = keepFocusedXpath ? previousFocusedXpath : "";
+  if (!keepFocusedXpath && previousFocusedXpath) {
+    core.clearFocusHighlight();
+    notifyAiPreviewFocusChanged("");
+  }
   syncAiPreviewClickableTargets(normalized);
 }
 
-function setAiPreviewClickableTitle(node, xpath) {
-  if (!node || node.nodeType !== 1 || typeof xpath !== "string" || !xpath) {
+function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
+  aiPreviewState.defaultItems = normalizeAiPreviewItems(defaultItems);
+  aiPreviewState.expandedItems = normalizeAiPreviewItems(expandedItems);
+  aiPreviewState.showAllCategories = Boolean(options.showAllCategories);
+  setAiPreviewItems(
+    aiPreviewState.showAllCategories
+      ? aiPreviewState.expandedItems
+      : aiPreviewState.defaultItems,
+    { preserveFocusedXpath: true }
+  );
+}
+
+function setAiPreviewExpandedMode(active) {
+  if (!aiPreviewState.active || aiPreviewState.mode !== "preview") {
+    return false;
+  }
+  aiPreviewState.showAllCategories = Boolean(active);
+  setAiPreviewItems(
+    aiPreviewState.showAllCategories
+      ? aiPreviewState.expandedItems
+      : aiPreviewState.defaultItems,
+    { preserveFocusedXpath: true }
+  );
+  return true;
+}
+
+function setAiPreviewClickableTitle(node, title) {
+  if (!node || node.nodeType !== 1 || typeof title !== "string" || !title) {
     return;
   }
   const previous = aiPreviewOriginalTitles.get(node);
@@ -1976,16 +2031,16 @@ function setAiPreviewClickableTitle(node, xpath) {
     aiPreviewOriginalTitles.set(node, {
       hadTitle,
       title: hadTitle ? (node.getAttribute("title") || "") : "",
-      previewTitle: xpath
+      previewTitle: title
     });
   } else {
     aiPreviewOriginalTitles.set(node, {
       hadTitle: Boolean(previous.hadTitle),
       title: typeof previous.title === "string" ? previous.title : "",
-      previewTitle: xpath
+      previewTitle: title
     });
   }
-  node.setAttribute("title", xpath);
+  node.setAttribute("title", title);
 }
 
 function clearAiPreviewClickableTargets() {
@@ -2017,6 +2072,9 @@ function syncAiPreviewClickableTargets(items) {
   }
   items.forEach((item) => {
     const xpath = item && typeof item.xpath === "string" ? item.xpath : "";
+    const title = item && typeof item.title === "string" && item.title
+      ? item.title
+      : xpath;
     if (!xpath) {
       return;
     }
@@ -2025,7 +2083,7 @@ function syncAiPreviewClickableTargets(items) {
       return;
     }
     node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
-    setAiPreviewClickableTitle(node, xpath);
+    setAiPreviewClickableTitle(node, title);
     aiPreviewClickableNodes.add(node);
   });
 }
@@ -2092,6 +2150,173 @@ function handleAiPreviewClick(event) {
   core.clearFocusHighlight();
   setAiPreviewFocusedXpath("");
   return true;
+}
+
+function resolveAiPreviewSelectorForNode(node, selectorByNode) {
+  if (!node || node.nodeType !== 1 || !(selectorByNode instanceof Map) || !selectorByNode.size) {
+    return "";
+  }
+  if (selectorByNode.has(node)) {
+    return selectorByNode.get(node) || "";
+  }
+  let nearestAncestorDistance = Number.POSITIVE_INFINITY;
+  let nearestAncestorSelector = "";
+  let nearestDescendantDistance = Number.POSITIVE_INFINITY;
+  let nearestDescendantSelector = "";
+  for (const [matchedNode, selector] of selectorByNode.entries()) {
+    if (!matchedNode || matchedNode.nodeType !== 1 || typeof selector !== "string" || !selector) {
+      continue;
+    }
+    if (matchedNode.contains(node)) {
+      let distance = 0;
+      let current = node;
+      while (current && current !== matchedNode) {
+        distance += 1;
+        current = current.parentElement;
+      }
+      if (distance < nearestAncestorDistance) {
+        nearestAncestorDistance = distance;
+        nearestAncestorSelector = selector;
+      }
+      continue;
+    }
+    if (node.contains(matchedNode)) {
+      let distance = 0;
+      let current = matchedNode;
+      while (current && current !== node) {
+        distance += 1;
+        current = current.parentElement;
+      }
+      if (distance < nearestDescendantDistance) {
+        nearestDescendantDistance = distance;
+        nearestDescendantSelector = selector;
+      }
+    }
+  }
+  return nearestAncestorSelector || nearestDescendantSelector;
+}
+
+function isWithinTrackedPreviewNode(node, trackedNodes) {
+  for (const trackedNode of trackedNodes) {
+    if (trackedNode === node || trackedNode.contains(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasTrackedPreviewDescendant(node, trackedNodes) {
+  for (const trackedNode of trackedNodes) {
+    if (trackedNode !== node && node.contains(trackedNode)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function collectUndetectedAiPreviewNodes(trackedNodes) {
+  if (!document.body) {
+    return [];
+  }
+  const results = [];
+  const stack = [document.body];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
+      continue;
+    }
+    if (isWithinTrackedPreviewNode(node, trackedNodes)) {
+      continue;
+    }
+    const containsTrackedDescendant = hasTrackedPreviewDescendant(node, trackedNodes);
+    const isVisibleMarkable = core.isVisible(node) && core.isMarkableElement(node, state.config, {
+      allowParent: false,
+      allowImmutableChildren: false
+    });
+    if (isVisibleMarkable && !containsTrackedDescendant) {
+      results.push(node);
+      continue;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return results.sort(compareNodeOrder);
+}
+
+function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
+  const defaultPreviewItems = normalizeAiPreviewItems(defaultItems);
+  const defaultTextByXpath = new Map(
+    defaultPreviewItems.map((item) => [item.xpath, item.text])
+  );
+  const collections = collectIncludedNodesFromSelectorSet(selectorSet);
+  const explicitIncludedSet = new Set(collections.explicitIncluded || []);
+  const implicitIncluded = (collections.included || []).filter((node) => !explicitIncludedSet.has(node));
+  const trackedNodes = [
+    ...(collections.excluded || []),
+    ...(collections.included || [])
+  ].filter((node) => node && node.nodeType === 1);
+  const rows = [];
+  const seenXpaths = new Set();
+
+  function pushRow(node, kind, selector = "") {
+    if (!node || node.nodeType !== 1) {
+      return;
+    }
+    const xpath = core.getXPath(node);
+    if (!xpath || seenXpaths.has(xpath)) {
+      return;
+    }
+    const text = defaultTextByXpath.get(xpath) || core.getElementLabel(node);
+    if (!text) {
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    rows.push({
+      xpath,
+      text,
+      kind,
+      title:
+        kind === AI_PREVIEW_KIND_EXCLUDED || kind === AI_PREVIEW_KIND_EXPLICIT_INCLUDED
+          ? buildSilentHighlightTitle(selector, xpath)
+          : xpath,
+      top: rect.top + window.scrollY,
+      left: rect.left + window.scrollX
+    });
+    seenXpaths.add(xpath);
+  }
+
+  (collections.excluded || []).forEach((node) => {
+    pushRow(
+      node,
+      AI_PREVIEW_KIND_EXCLUDED,
+      resolveAiPreviewSelectorForNode(node, collections.exclusionSelectorByNode)
+    );
+  });
+  (collections.explicitIncluded || []).forEach((node) => {
+    pushRow(
+      node,
+      AI_PREVIEW_KIND_EXPLICIT_INCLUDED,
+      resolveAiPreviewSelectorForNode(node, collections.inclusionSelectorByNode)
+    );
+  });
+  implicitIncluded.forEach((node) => {
+    pushRow(node, AI_PREVIEW_KIND_IMPLICIT_INCLUDED);
+  });
+  collectUndetectedAiPreviewNodes(trackedNodes).forEach((node) => {
+    pushRow(node, AI_PREVIEW_KIND_UNDETECTED);
+  });
+
+  rows.sort((left, right) => {
+    if (left.top === right.top) {
+      return left.left - right.left;
+    }
+    return left.top - right.top;
+  });
+  return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
 }
 
 const SILENT_HIGHLIGHTING_INTERNAL_ATTRS = new Set([
@@ -3505,6 +3730,9 @@ async function enterAiPreviewMode(options = {}) {
       active: true,
       mode: nextMode,
       items: [],
+      defaultItems: [],
+      expandedItems: [],
+      showAllCategories: false,
       itemXpathSet: new Set(),
       focusedXpath: "",
       previousEnabled: Boolean(state.enabled),
@@ -5928,9 +6156,30 @@ export function main() {
         ok: true,
         active: aiPreviewState.active,
         mode: aiPreviewState.mode || "",
+        showAllCategories: aiPreviewState.showAllCategories,
         items: aiPreviewState.items.map((item) => ({
           xpath: item.xpath,
-          text: item.text
+          text: item.text,
+          title: item.title,
+          kind: item.kind
+        })),
+        focusedXpath: aiPreviewState.focusedXpath
+      });
+      return;
+    }
+
+    if (message.type === "setAiPreviewExpandedMode") {
+      const updated = setAiPreviewExpandedMode(Boolean(message.active));
+      sendResponse({
+        ok: updated,
+        active: aiPreviewState.active,
+        mode: aiPreviewState.mode || "",
+        showAllCategories: aiPreviewState.showAllCategories,
+        items: aiPreviewState.items.map((item) => ({
+          xpath: item.xpath,
+          text: item.text,
+          title: item.title,
+          kind: item.kind
         })),
         focusedXpath: aiPreviewState.focusedXpath
       });
@@ -6580,18 +6829,21 @@ export function main() {
     if (message.type === "showAiPreview") {
       (async () => {
         const selectorSet = normalizeAiSelectorSet(message.selectorSet);
-        let items = [];
+        let defaultItems = [];
+        let expandedItems = [];
         try {
-          items = core.collectPreviewItems(selectorSet);
+          defaultItems = core.collectPreviewItems(selectorSet);
+          expandedItems = buildAiPreviewItemsWithCategories(selectorSet, defaultItems);
         } catch {
-          items = [];
+          defaultItems = [];
+          expandedItems = [];
         }
         await enterAiPreviewMode({ mode: "preview" });
-        setAiPreviewItems(items);
-        core.showAiPopover(items, {
+        setAiPreviewItemSets(defaultItems, expandedItems, { showAllCategories: false });
+        core.showAiPopover(defaultItems, {
           onClose: () => exitAiPreviewMode()
         });
-        sendResponse({ ok: true, count: items.length });
+        sendResponse({ ok: true, count: defaultItems.length });
       })().catch(() => {
         sendResponse({ ok: false });
       });

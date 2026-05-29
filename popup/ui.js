@@ -171,6 +171,7 @@ const initialViewState = {
   previewActive: false,
   previewItems: [],
   previewFocusedXpath: "",
+  previewShowAllCategories: false,
   previewBlocked: false,
   previewBlockedMessage: ViewText.previewBlockedDefault,
   aiRunSpinnerNote: "",
@@ -1426,6 +1427,9 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
 
 function renderPreviewSidebar(view, handlers) {
   const openingPreview = view.previewBlocked && !view.previewActive;
+  const previewTitle = view.previewShowAllCategories
+    ? PopupText.preview.sidebarAllTitle
+    : PopupText.preview.sidebarTitle;
   const listItems = openingPreview
     ? [
         h("li", { class: "preview-sidebar__empty", key: "loading" }, PopupText.preview.loading)
@@ -1433,18 +1437,25 @@ function renderPreviewSidebar(view, handlers) {
     : view.previewItems.length
       ? view.previewItems.map((item, index) => {
           const active = item.xpath === view.previewFocusedXpath;
+          const kindClass = view.previewShowAllCategories && item.kind
+            ? `preview-sidebar__item--${item.kind}`
+            : "";
           return h(
             "li",
             {
               key: item.xpath,
-              class: classNames("preview-sidebar__item", active && "preview-sidebar__item--active")
+              class: classNames(
+                "preview-sidebar__item",
+                kindClass,
+                active && "preview-sidebar__item--active"
+              )
             },
             h(
               "button",
               {
                 type: "button",
                 class: "preview-sidebar__item-button",
-                title: item.xpath,
+                title: item.title || item.xpath,
                 onClick: () => handlers.onPreviewItemFocus(item.xpath),
                 ref: (el) => {
                   if (active) {
@@ -1467,7 +1478,7 @@ function renderPreviewSidebar(view, handlers) {
     h(
       "div",
       { class: "preview-sidebar__header" },
-      h("div", { class: "section-title" }, PopupText.preview.sidebarTitle),
+      h("div", { class: "section-title" }, previewTitle),
       h(
         "button",
         {
@@ -1479,6 +1490,27 @@ function renderPreviewSidebar(view, handlers) {
         },
         icon("exit-to-app")
       )
+    ),
+    h(
+      "label",
+      {
+        class: classNames(
+          "preview-sidebar__toggle",
+          openingPreview && "preview-sidebar__toggle--disabled"
+        ),
+        title: PopupText.preview.showAllCategoriesTitle
+      },
+      h(
+        "span",
+        { class: "preview-sidebar__toggle-text" },
+        PopupText.preview.showAllCategoriesLabel
+      ),
+      h("input", {
+        type: "checkbox",
+        checked: view.previewShowAllCategories,
+        disabled: openingPreview || !view.previewActive,
+        onChange: handlers.onPreviewShowAllCategoriesChange
+      })
     ),
     h(
       "div",
@@ -1642,7 +1674,7 @@ function App({ state: view, actions: handlers }) {
           h(
             "label",
             { class: "field field--compact" },
-            h("span", { class: "control-label" }, icon("home-outline", "field-icon"), PopupText.baseUrl.fieldLabel),
+            h("span", { class: "control-label" }, icon("home-outline", "field-icon"), h("span", { class: "control-label-text" }, PopupText.baseUrl.fieldLabel)),
             h(
               "div",
               { class: "u-flex property-url-row" },
@@ -2664,6 +2696,7 @@ export function setPreviewBlocked(isBlocked, message = ViewText.previewBlockedDe
     previewActive: isBlocked ? viewState.previewActive : false,
     previewItems: isBlocked ? viewState.previewItems : [],
     previewFocusedXpath: isBlocked ? viewState.previewFocusedXpath : "",
+    previewShowAllCategories: isBlocked ? viewState.previewShowAllCategories : false,
     previewBlockedMessage: isBlocked
       ? (message || ViewText.previewBlockedDefault)
       : ViewText.previewBlockedDefault
