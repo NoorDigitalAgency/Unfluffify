@@ -2697,8 +2697,8 @@ function ensureSilentHighlightingStyles() {
         background: rgba(68, 181, 50, 0.08);
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-immutable {
-        background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.15), rgba(225, 70, 70, 0.15) 20px, rgba(225, 150, 70, 0.15) 20px, rgb(225, 150, 70, 0.15) 40px);
-        border: 2px dashed rgba(225, 70, 70, 0.5);
+        background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.1), rgba(225, 70, 70, 0.1) 20px, rgba(225, 150, 70, 0.1) 20px, rgb(225, 150, 70, 0.1) 40px);
+        border: 2px dashed rgba(225, 70, 70, 0.25);
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-content-ghost {
         border: 1px dotted rgba(68, 181, 50, 0.45);
