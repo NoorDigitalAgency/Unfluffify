@@ -81,6 +81,8 @@ const CONSENT_BYPASS_STYLE_ID = "uf-consent-bypass";
 const CONSENT_SELECTOR = REMOVABLE_ELEMENT_SELECTORS.join(",");
 const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
+const TOGGLE_ACK_ANIMATION_MS = 160;
+const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
   "[id^=\"unfluffify-\"]",
@@ -2654,7 +2656,13 @@ function createOverlay() {
         100% { opacity: 0; transform: scale(1.02); }
       }
       #unfluffify-overlay .uf-interaction-ack {
-        animation: uf-interaction-pulse 160ms ease-out forwards;
+        animation: uf-interaction-pulse ${TOGGLE_ACK_ANIMATION_MS}ms ease-out forwards;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #unfluffify-overlay .uf-interaction-ack {
+          animation: none;
+          opacity: 0.6;
+        }
       }
       #unfluffify-overlay .uf-toast {
         position: fixed;
@@ -2946,7 +2954,7 @@ function showImmediateToggleAcknowledgement(target, mode) {
   state.toggleAckTimer = window.setTimeout(() => {
     state.toggleAckTimer = 0;
     clearLayer(state.layers["interaction"]);
-  }, 180);
+  }, TOGGLE_ACK_CLEAR_MS);
 }
 
 function ensureAiPopoverStyle() {
@@ -4031,7 +4039,7 @@ function handleToggleEvent(event) {
   });
   if (target) {
     const xpath = getXPath(target);
-    const interactionNow = Date.now();
+    const interactionNow = nowMs();
     if (shouldIgnoreDuplicateUserToggle({
       targetXpath: xpath,
       mode,
@@ -5306,6 +5314,7 @@ export function scheduleRender(options) {
     });
     return;
   }
+  // Observer/mutation-driven renders stay slightly delayed by default to reduce redraw churn.
   const { delay = 50, minInterval = 0, reason = "unspecified" } = options || {};
   const now = Date.now();
   const sinceLast = now - (state.lastRenderAt || 0);
