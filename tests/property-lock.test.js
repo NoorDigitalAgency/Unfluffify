@@ -122,6 +122,17 @@ test("content-main resolves property lock targets without requiring current exte
   assert.doesNotMatch(resolverSource, /!normalizedBaseUrl \|\| !pageUrl \|\| !utils\.isPageWithinBaseUrl\(pageUrl, normalizedBaseUrl\)/);
 });
 
+test("content-main treats property lock site-id fetch failures as a null lookup", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const resolverStart = source.indexOf("async function resolveSiteIdFromGraphql");
+  const resolverEnd = source.indexOf("function extractUrlPathAndHostname", resolverStart);
+  const resolverSource = source.slice(resolverStart, resolverEnd);
+
+  assert.ok(resolverStart >= 0);
+  assert.match(resolverSource, /try \{[\s\S]*?const response = await fetch\(graphqlEndpoint, \{/);
+  assert.match(resolverSource, /\} catch \(error\) \{\s*return null;\s*\}/);
+});
+
 test("content-main starts property lock sync immediately during content-script initialization", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");

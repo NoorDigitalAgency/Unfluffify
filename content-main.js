@@ -1676,36 +1676,40 @@ async function resolveSiteIdFromGraphql(options = {}) {
   if (!graphqlEndpoint || !pageUrl) {
     return null;
   }
-  const response = await fetch(graphqlEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
-    },
-    body: JSON.stringify({
-      query: URL_SEARCH_INFO_QUERY,
-      variables: {
-        url: pageUrl,
-        includePageInfo: false
-      }
-    })
-  });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  let payload = null;
   try {
-    payload = await response.json();
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
+      },
+      body: JSON.stringify({
+        query: URL_SEARCH_INFO_QUERY,
+        variables: {
+          url: pageUrl,
+          includePageInfo: false
+        }
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+    if (!response.ok || !payload || Array.isArray(payload.errors)) {
+      return null;
+    }
+    return normalizeSiteIdValue(
+      payload &&
+        payload.data &&
+        payload.data.urlSearchInfo &&
+        payload.data.urlSearchInfo.domainId
+    );
   } catch (error) {
-    payload = null;
-  }
-  if (!response.ok || !payload || Array.isArray(payload.errors)) {
     return null;
   }
-  return normalizeSiteIdValue(
-    payload &&
-      payload.data &&
-      payload.data.urlSearchInfo &&
-      payload.data.urlSearchInfo.domainId
-  );
 }
 
 function extractUrlPathAndHostname(url = location.href) {
