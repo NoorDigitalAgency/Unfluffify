@@ -3227,8 +3227,9 @@ function startSilentHighlightingObserver() {
       break;
     }
 
-    if (needsFullRefresh) {
+if (needsFullRefresh) {
       invalidateSharedSelectorCache({ domStructure: true });
+      silentHighlightingPositionRefreshPending = true;
       scheduleSilentHighlightingsRefresh();
       return;
     }
