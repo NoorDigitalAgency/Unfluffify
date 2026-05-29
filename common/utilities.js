@@ -601,7 +601,7 @@ export async function attachDebugger(tabId) {
  * Detaches the debugger from a tab.
  * @async
  * @param {number} tabId - The Chrome tab ID to detach from
- * @returns {Promise<{ok: boolean, error?: string}>} Result of the detach operation
+ * @returns {Promise<{ok: boolean, alreadyDetached?: boolean, error?: string}>} Result of the detach operation
  */
 export async function detachDebugger(tabId) {
   if (!tabId) {
@@ -614,6 +614,9 @@ export async function detachDebugger(tabId) {
     return { ok: true };
   } catch (error) {
     const errorMessage = (error && error.message) || "Failed to detach debugger";
+    if (/not attached/i.test(errorMessage)) {
+      return { ok: true, alreadyDetached: true };
+    }
     console.error("Error detaching debugger:", errorMessage);
     return { ok: false, error: errorMessage };
   }
