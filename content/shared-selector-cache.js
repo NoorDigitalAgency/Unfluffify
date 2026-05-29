@@ -156,7 +156,7 @@ export function collectCachedSelectorMatches({
           continue
         }
         nodes.add(node)
-        if (includeSelectorByNode && !selectorByNode.has(node)) {
+        if (!selectorByNode.has(node)) {
           selectorByNode.set(node, selector)
         }
       }
@@ -167,14 +167,12 @@ export function collectCachedSelectorMatches({
 
   selectorQueryCache.set(cacheKey, {
     nodes: new Set(nodes),
-    selectorByNode: includeSelectorByNode
-      ? new Map(selectorByNode)
-      : new Map()
+    selectorByNode: new Map(selectorByNode)
   })
 
   return {
     nodes,
-    selectorByNode,
+    selectorByNode: includeSelectorByNode ? selectorByNode : new Map(),
     fingerprint
   }
 }

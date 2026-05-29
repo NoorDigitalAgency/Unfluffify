@@ -2600,6 +2600,7 @@ function createOverlay() {
       #unfluffify-overlay .uf-layer[data-layer="explicit-include"] { z-index: 7; }
       #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 8; }
       #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
+      #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 10; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
         opacity: 0;
       }
@@ -4536,6 +4537,9 @@ function renderHighlightsInner() {
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   const suppressAutoSeed = state.autoSeedSuppressedPageUrl === pageUrl;
+  if (suppressAutoSeed) {
+    state.autoSeedSuppressedPageUrl = "";
+  }
   let hasEntry = hasPageMarkingEntry(state.config, pageUrl);
   let autoSeededFromAiSelectors = false;
   if (shouldAutoSeedMarkingsFromAiSelectors({

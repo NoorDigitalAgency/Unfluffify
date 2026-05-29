@@ -65,3 +65,39 @@ test("shared selector cache reuses selector matches until invalidated", () => {
   assert.deepEqual(calls, ["article", "main"]);
   assert.equal(thirdResult.nodes.size, 2);
 });
+
+test("shared selector cache retains selector owners for later callers", () => {
+  invalidateSharedSelectorCache({ reset: true });
+
+  const article = { nodeType: 1, tagName: "ARTICLE" };
+  const calls = [];
+  const root = {
+    querySelectorAll(selector) {
+      calls.push(selector);
+      return selector === "article" ? [article] : [];
+    }
+  };
+
+  const firstResult = collectCachedSelectorMatches({
+    root,
+    selectors: ["article"],
+    pageUrl: "https://example.com/article",
+    scope: "test"
+  });
+
+  assert.deepEqual(calls, ["article"]);
+  assert.equal(firstResult.nodes.has(article), true);
+  assert.equal(firstResult.selectorByNode.size, 0);
+
+  calls.length = 0;
+  const secondResult = collectCachedSelectorMatches({
+    root,
+    selectors: ["article"],
+    pageUrl: "https://example.com/article",
+    scope: "test",
+    includeSelectorByNode: true
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(secondResult.selectorByNode.get(article), "article");
+});
