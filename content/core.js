@@ -4404,19 +4404,24 @@ function refreshExplicitMarkingOverlay(entry) {
   }
   const refreshStartedAt = nowMs();
   const { explicitExcludeElements, explicitIncludeElements } = collectExplicitMarkingElements(entry);
-  if (state.cachedCollections) {
+  const cachedCollections = state.cachedCollections;
+  if (cachedCollections) {
     const explicitSet = new Set(explicitExcludeElements.concat(explicitIncludeElements));
-    const aiContentSet = new Set(state.cachedCollections.aiContentElements || []);
-    state.cachedCollections.explicitExcludeElements = explicitExcludeElements;
-    state.cachedCollections.explicitIncludeElements = explicitIncludeElements;
-    state.cachedCollections.aiAnimatedExplicitIncludeElements =
+    const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+    cachedCollections.explicitExcludeElements = explicitExcludeElements;
+    cachedCollections.explicitIncludeElements = explicitIncludeElements;
+    cachedCollections.aiAnimatedExplicitIncludeElements =
       explicitIncludeElements.filter((el) => aiContentSet.has(el));
-    state.cachedCollections.defaultElements = filterDefaultElementsForExplicitMarks(
-      state.cachedCollections.defaultElements || [],
+    cachedCollections.defaultElements = filterDefaultElementsForExplicitMarks(
+      cachedCollections.defaultElements || [],
       Array.from(explicitSet)
     );
   }
-  drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getVisibleRects);
+  if (cachedCollections) {
+    drawCollections(cachedCollections, getVisibleRects);
+  } else {
+    drawExplicitMarkingLayers(explicitExcludeElements, explicitIncludeElements, getVisibleRects);
+  }
   logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
 }
 

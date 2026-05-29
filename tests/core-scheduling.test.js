@@ -13,6 +13,9 @@ function withFakeTimers(callback, options = {}) {
   const originalState = {
     baseUrl: state.baseUrl,
     config: state.config,
+    renderRaf: state.renderRaf,
+    renderTimer: state.renderTimer,
+    pendingRenderInvalidate: state.pendingRenderInvalidate,
     snapshotTimer: state.snapshotTimer,
     draftPersistTimer: state.draftPersistTimer,
     explicitOverlayRefreshScheduled: state.explicitOverlayRefreshScheduled,
@@ -60,6 +63,9 @@ function withFakeTimers(callback, options = {}) {
   }
   state.baseUrl = "https://example.com";
   state.config = { pageMarkings: {} };
+  state.renderRaf = 0;
+  state.renderTimer = 0;
+  state.pendingRenderInvalidate = false;
   state.snapshotTimer = 0;
   state.draftPersistTimer = 0;
   state.explicitOverlayRefreshScheduled = false;
@@ -72,6 +78,9 @@ function withFakeTimers(callback, options = {}) {
     globalThis.window = originalWindow;
     state.baseUrl = originalState.baseUrl;
     state.config = originalState.config;
+    state.renderRaf = originalState.renderRaf;
+    state.renderTimer = originalState.renderTimer;
+    state.pendingRenderInvalidate = originalState.pendingRenderInvalidate;
     state.snapshotTimer = originalState.snapshotTimer;
     state.draftPersistTimer = originalState.draftPersistTimer;
     state.explicitOverlayRefreshScheduled = originalState.explicitOverlayRefreshScheduled;
