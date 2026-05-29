@@ -55,6 +55,11 @@ body {
   line-height: 1.35;
 }
 
+.control-label-text {
+  margin: auto 0;
+  line-height: normal;
+}
+
 .readout {
   flex: 1;
   min-width: 0;
@@ -1631,7 +1636,7 @@ button.property-lock__button {
 }
 
 .todo-header[aria-expanded="true"]::before {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 
 .todo-header:hover {
@@ -1958,7 +1963,10 @@ span.todo-candidate-link {
 
 .todo-indicator {
   margin-right: 0;
-  font-size: 16px;
+}
+
+.todo-indicator:before {
+  vertical-align: middle;
 }
 
 .todo-indicator--done {
@@ -2372,4 +2380,9 @@ button.close-bar__stop-sharing:focus-visible {
     display: grid;
     gap: 4px;
   }
+}
+
+.mdi:has(.mdi-18px.mdi:before):before
+{
+    vertical-align: middle;
 }
