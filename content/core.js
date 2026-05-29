@@ -21,6 +21,10 @@ import {
   shouldIgnoreDuplicateUserToggle,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
+import {
+  collectCachedSelectorMatches,
+  invalidateSharedSelectorCache
+} from "./shared-selector-cache.js";
 
 export const state = {
   enabled: false,
@@ -1344,24 +1348,15 @@ function collectDefaultHighlightTargets(root, options) {
 }
 
 function collectSelectorElements(selectors) {
-  const elements = new Set();
-  for (const rawSelector of Array.isArray(selectors) ? selectors : []) {
-    if (typeof rawSelector !== "string") {
-      continue;
-    }
-    const selector = rawSelector.trim();
-    if (!selector) {
-      continue;
-    }
-    try {
-      document.querySelectorAll(selector).forEach((el) => {
-        elements.add(el);
-      });
-    } catch {
-      // Ignore invalid selectors
-    }
-  }
-  return elements;
+  return collectCachedSelectorMatches({
+    root: document,
+    selectors,
+    pageUrl:
+      typeof window !== "undefined" && window.location
+        ? window.location.href
+        : "",
+    scope: "core-selector-elements"
+  }).nodes;
 }
 
 function seedMarkingsFromAiSelectorsForUnmarkedPage(
@@ -4613,6 +4608,9 @@ function startObservers() {
       const renderMode = getMutationRenderMode(mutations);
       if (renderMode === "none") {
         return;
+      }
+      if (renderMode === "rebuild") {
+        invalidateSharedSelectorCache({ domStructure: true });
       }
       scheduleRender({
         delay: 120,

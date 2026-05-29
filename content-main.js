@@ -42,6 +42,11 @@ import {
   sampleSettledSilentHighlightPosition
 } from "./content/silent-highlight-rules.js";
 import {
+  collectCachedSelectorMatches,
+  getSelectorFingerprint,
+  invalidateSharedSelectorCache
+} from "./content/shared-selector-cache.js";
+import {
   isAiSubmissionDocumentRootXpath,
   resolveAiSubmissionRowState
 } from "./content/submission-rules.js";
@@ -111,8 +116,6 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "open"
 ]);
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
-  "class",
-  "style",
   "hidden",
   "aria-hidden",
   "open"
@@ -3213,12 +3216,20 @@ function startSilentHighlightingObserver() {
           }
           continue;
         }
+        if (
+          mutationTargetTouchesSilentCollections(mutation.target) &&
+          SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS.has(attributeName)
+        ) {
+          needsFullRefresh = true;
+          break;
+        }
       }
       needsFullRefresh = true;
       break;
     }
 
     if (needsFullRefresh) {
+      invalidateSharedSelectorCache({ domStructure: true });
       scheduleSilentHighlightingsRefresh();
       return;
     }
@@ -3487,32 +3498,33 @@ function isSuppressedSelectorNode(node, suppressedBoundaries) {
   );
 }
 
+function getSuppressedSelectorFingerprint(suppressedXpaths) {
+  if (!Array.isArray(suppressedXpaths)) {
+    return "";
+  }
+  return suppressedXpaths
+    .filter((xpath) => typeof xpath === "string" && xpath)
+    .slice()
+    .sort()
+    .join("\u001f");
+}
+
 function collectNodesFromSelectors(selectors, options = {}) {
-  const nodes = new Set();
-  const selectorByNode = new Map();
   const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
-  (Array.isArray(selectors) ? selectors : []).forEach((rawSelector) => {
-    if (typeof rawSelector !== "string") {
-      return;
-    }
-    const selector = rawSelector.trim();
-    if (!selector) {
-      return;
-    }
-    try {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (!isExtensionUiNode(node) && !isSuppressedSelectorNode(node, suppressedBoundaries)) {
-          nodes.add(node);
-          if (!selectorByNode.has(node)) {
-            selectorByNode.set(node, selector);
-          }
-        }
-      });
-    } catch {
-      // Ignore invalid selectors
-    }
+  return collectCachedSelectorMatches({
+    root: document,
+    selectors,
+    pageUrl: location.href,
+    scope: "silent-highlight-selectors",
+    suppressionFingerprint: [
+      getSelectorFingerprint(selectors),
+      getSuppressedSelectorFingerprint(options.suppressedXpaths)
+    ].join("\u001e"),
+    includeSelectorByNode: true,
+    shouldIncludeNode: (node) =>
+      !isExtensionUiNode(node) &&
+      !isSuppressedSelectorNode(node, suppressedBoundaries)
   });
-  return { nodes, selectorByNode };
 }
 
 function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {
