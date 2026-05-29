@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   collectDefaultLayerElements,
+  collectToggleableDefaultExcludedElements,
+  canApplyExplicitInclude,
   getMutationRenderMode,
   isMarkableElement,
   isVisible,
@@ -381,6 +383,116 @@ test("default layer still suppresses selector-matched elements themselves", () =
   });
 });
 
+test("toggleable boundary collection includes visible footers with immutable and textual descendants", () => {
+  withVisibilityDom(({ body }) => {
+    const logo = createElement({
+      tagName: "img",
+      rect: { top: 20, right: 120, bottom: 60, left: 20, width: 100, height: 40 }
+    });
+    const text = createElement({
+      tagName: "p",
+      text: "Footer navigation text",
+      rect: { top: 70, right: 320, bottom: 110, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [logo, text],
+      rect: { top: 10, right: 420, bottom: 140, left: 10, width: 410, height: 130 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), [footer]);
+  });
+});
+
+test("toggleable boundary collection skips hidden duplicate boundaries", () => {
+  withVisibilityDom(({ body }) => {
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      text: "Mobile footer duplicate",
+      rect: { top: 10, right: 420, bottom: 140, left: 10, width: 410, height: 130 },
+      style: { display: "none" }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
+  });
+});
+
+test("explicitly included outer default boundaries still allow nested default boundaries", () => {
+  withVisibilityDom(({ body }) => {
+    const nestedAside = createElement({
+      tagName: "aside",
+      text: "Nested default exclusion",
+      rect: { top: 40, right: 320, bottom: 90, left: 20, width: 300, height: 50 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [nestedAside],
+      rect: { top: 10, right: 420, bottom: 140, left: 10, width: 410, height: 130 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    assert.deepEqual(
+      collectToggleableDefaultExcludedElements(new Set([footer]), {
+        boundarySelfSkip: new Set([footer]),
+        boundarySubtreeSkip: new Set()
+      }),
+      [nestedAside]
+    );
+  });
+});
+
+test("AI-included default boundaries suppress the whole boundary subtree", () => {
+  withVisibilityDom(({ body }) => {
+    const nestedAside = createElement({
+      tagName: "aside",
+      text: "Nested default exclusion",
+      rect: { top: 40, right: 320, bottom: 90, left: 20, width: 300, height: 50 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [nestedAside],
+      rect: { top: 10, right: 420, bottom: 140, left: 10, width: 410, height: 130 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    assert.deepEqual(
+      collectToggleableDefaultExcludedElements(new Set(), {
+        boundarySubtreeSkip: new Set([footer])
+      }),
+      []
+    );
+  });
+});
+
+test("explicit include can lift a visible structural default boundary with immutable descendants", () => {
+  withVisibilityDom(({ body }) => {
+    const logo = createElement({ tagName: "img" });
+    const text = createElement({ tagName: "p", text: "Footer text" });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [logo, text]
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    assert.equal(
+      canApplyExplicitInclude(footer, { pageMarkings: {} }, "https://example.test/"),
+      true
+    );
+  });
+});
+
 test("default layer still suppresses descendants inside explicit exclusions", () => {
   withVisibilityDom(({ body }) => {
     const child = createElement({
@@ -401,6 +513,37 @@ test("default layer still suppresses descendants inside explicit exclusions", ()
     });
 
     assert.deepEqual(defaultElements, []);
+  });
+});
+
+test("default layer suppresses the toggleable-default boundary itself and all its descendants", () => {
+  withVisibilityDom(({ body }) => {
+    const child = createElement({
+      parentElement: body,
+      text: "Header text",
+      rect: { top: 30, right: 320, bottom: 60, left: 20, width: 300, height: 30 }
+    });
+    const defaultBoundary = createElement({
+      tagName: "header",
+      parentElement: body,
+      children: [child],
+      rect: { top: 10, right: 420, bottom: 80, left: 10, width: 410, height: 70 }
+    });
+    body.children.push(defaultBoundary);
+    body.childNodes.push(defaultBoundary);
+    const sibling = createElement({
+      parentElement: body,
+      text: "Sibling outside the boundary",
+      rect: { top: 120, right: 320, bottom: 160, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(sibling);
+    body.childNodes.push(sibling);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      toggleableDefaultExcluded: new Set([defaultBoundary])
+    });
+
+    assert.deepEqual(defaultElements, [sibling]);
   });
 });
 

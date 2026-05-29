@@ -4,6 +4,45 @@ export function shouldSelfMarkToggleableDefaultBoundary(options = {}) {
   return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant;
 }
 
+export function shouldPromoteDefaultBoundaryToInclude(options = {}) {
+  if (options.mode !== "exclude") {
+    return false;
+  }
+  if (options.shiftHeld || options.altHeld) {
+    return false;
+  }
+  if (!options.defaultBoundaryExists) {
+    return false;
+  }
+  if (options.isWithinAiIncluded || options.isWithinExplicitIncluded) {
+    return false;
+  }
+  if (options.defaultBoundaryAlreadyUserModified) {
+    return false;
+  }
+  return true;
+}
+
+export function shouldCollectToggleableDefaultBoundary(options = {}) {
+  if (!options.isToggleableDefaultExcluded) {
+    return false;
+  }
+  if (options.isHiddenSubtree) {
+    return false;
+  }
+  if (
+    options.isWithinAiIncluded ||
+    options.isWithinAiPopover ||
+    options.isWithinExplicitIncluded ||
+    options.isWithinConsent ||
+    options.isWithinExtensionUi ||
+    options.isImmutableExcluded
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
   return Boolean(
     options.hasAiSelectors &&

@@ -2,17 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  filterDefaultElementsForExplicitMarks,
-  getExplicitMarkingFullRenderOptions,
-  getExplicitMarkingPresentation,
-  getExplicitMarkingRenderOptions,
   isStoredExcludeStateUserModified,
-  shouldIgnoreDuplicateUserToggle,
-  shouldAutoSeedMarkingsFromAiSelectors,
+  shouldCollectToggleableDefaultBoundary,
+  shouldPromoteDefaultBoundaryToInclude,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
 
-test("toggleable default boundary self-marks when no visible textual descendant and no explicitly marked descendant", () => {
+test("toggleable boundary self-markability remains a target-shape rule, not boundary identity", () => {
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
       hasVisibleTextualDescendant: false,
@@ -20,9 +16,6 @@ test("toggleable default boundary self-marks when no visible textual descendant 
     }),
     true
   );
-});
-
-test("toggleable default boundary is blocked when a visible textual descendant exists", () => {
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
       hasVisibleTextualDescendant: true,
@@ -30,9 +23,6 @@ test("toggleable default boundary is blocked when a visible textual descendant e
     }),
     false
   );
-});
-
-test("toggleable default boundary is blocked when an explicitly marked descendant exists", () => {
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
       hasVisibleTextualDescendant: false,
@@ -42,201 +32,78 @@ test("toggleable default boundary is blocked when an explicitly marked descendan
   );
 });
 
-test("AI auto-seed runs for unmarked pages that have AI selectors", () => {
+test("visible toggleable default boundaries are collected regardless of visible immutable descendants", () => {
   assert.equal(
-    shouldAutoSeedMarkingsFromAiSelectors({
-      hasAiSelectors: true,
-      hasSavedMarkingsForPage: false
+    shouldCollectToggleableDefaultBoundary({
+      isToggleableDefaultExcluded: true,
+      isHiddenSubtree: false,
+      hasVisibleImmutableDescendant: true
     }),
     true
   );
 });
 
-test("AI auto-seed is skipped when the page already has saved markings", () => {
-  assert.equal(
-    shouldAutoSeedMarkingsFromAiSelectors({
-      hasAiSelectors: true,
-      hasSavedMarkingsForPage: true
-    }),
-    false
-  );
-});
-
-test("AI auto-seed is skipped when the page is temporarily suppressed", () => {
-  assert.equal(
-    shouldAutoSeedMarkingsFromAiSelectors({
-      hasAiSelectors: true,
-      hasSavedMarkingsForPage: false,
-      suppressAutoSeed: true
-    }),
-    false
-  );
-});
-
-test("AI auto-seed is skipped when there are no AI selectors", () => {
-  assert.equal(
-    shouldAutoSeedMarkingsFromAiSelectors({
-      hasAiSelectors: false,
-      hasSavedMarkingsForPage: false
-    }),
-    false
-  );
-});
-
-test("stored exclude state is considered user-modified when it differs from the default posture", () => {
-  assert.equal(
-    isStoredExcludeStateUserModified({
-      isExcluded: true,
-      isDefaultExcluded: false
-    }),
-    true
-  );
-  assert.equal(
-    isStoredExcludeStateUserModified({
-      isExcluded: false,
-      isDefaultExcluded: true
-    }),
-    true
-  );
-});
-
-test("stored exclude state is not considered user-modified when it matches the default posture", () => {
-  assert.equal(
-    isStoredExcludeStateUserModified({
-      isExcluded: true,
-      isDefaultExcluded: true
-    }),
-    false
-  );
-  assert.equal(
-    isStoredExcludeStateUserModified({
-      isExcluded: false,
-      isDefaultExcluded: false
-    }),
-    false
-  );
-});
-
-test("explicit marking renders use cached collections before the deferred rebuild", () => {
-  assert.deepEqual(getExplicitMarkingRenderOptions(), {
-    delay: 80,
-    minInterval: 200,
-    invalidate: false,
-    reason: "explicit-toggle-reposition"
-  });
-});
-
-test("explicit marking full renders are invalidating and rate-limited", () => {
-  assert.deepEqual(getExplicitMarkingFullRenderOptions(), {
-    delay: 120,
-    minInterval: 500,
-    invalidate: true,
-    reason: "explicit-toggle-full-rebuild"
-  });
-});
-
-test("explicit marking refresh removes stale related default elements", () => {
-  const parent = {
-    name: "parent",
-    contains(element) {
-      return element === child;
-    }
+test("toggleable default boundary collection rejects hidden and higher-precedence boundaries", () => {
+  const base = {
+    isToggleableDefaultExcluded: true,
+    isHiddenSubtree: false
   };
-  const child = {
-    name: "child",
-    contains() {
-      return false;
-    }
-  };
-  const sibling = {
-    name: "sibling",
-    contains() {
-      return false;
-    }
-  };
-
-  assert.deepEqual(
-    filterDefaultElementsForExplicitMarks([parent, child, sibling], [parent]),
-    [sibling]
-  );
-  assert.deepEqual(
-    filterDefaultElementsForExplicitMarks([parent, child, sibling], [child]),
-    [sibling]
-  );
+  for (const blocked of [
+    { isToggleableDefaultExcluded: false },
+    { isHiddenSubtree: true },
+    { isWithinAiIncluded: true },
+    { isWithinAiPopover: true },
+    { isWithinExplicitIncluded: true },
+    { isWithinConsent: true },
+    { isWithinExtensionUi: true },
+    { isImmutableExcluded: true }
+  ]) {
+    assert.equal(
+      shouldCollectToggleableDefaultBoundary({ ...base, ...blocked }),
+      false
+    );
+  }
 });
 
-test("duplicate user toggles on the same target and mode are ignored in a short window", () => {
+test("stored default-exclude state is user-modified only when it differs from the default posture", () => {
   assert.equal(
-    shouldIgnoreDuplicateUserToggle({
-      targetXpath: "/HTML/BODY/DIV[1]",
-      mode: "exclude",
-      now: 1000,
-      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
-      lastActionAt: 780
-    }),
+    isStoredExcludeStateUserModified({ isExcluded: true, isDefaultExcluded: true }),
+    false
+  );
+  assert.equal(
+    isStoredExcludeStateUserModified({ isExcluded: false, isDefaultExcluded: false }),
+    false
+  );
+  assert.equal(
+    isStoredExcludeStateUserModified({ isExcluded: false, isDefaultExcluded: true }),
+    true
+  );
+  assert.equal(
+    isStoredExcludeStateUserModified({ isExcluded: true, isDefaultExcluded: false }),
     true
   );
 });
 
-test("duplicate user toggles are ignored while the same target and mode is in-flight", () => {
-  assert.equal(
-    shouldIgnoreDuplicateUserToggle({
-      targetXpath: "/HTML/BODY/DIV[1]",
-      mode: "include",
-      now: 2000,
-      inFlightKey: "include:/HTML/BODY/DIV[1]"
-    }),
-    true
-  );
-});
-
-test("fast repeated clicks on a different mode or target still proceed", () => {
-  assert.equal(
-    shouldIgnoreDuplicateUserToggle({
-      targetXpath: "/HTML/BODY/DIV[1]",
-      mode: "include",
-      now: 1000,
-      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
-      lastActionAt: 900
-    }),
-    false
-  );
-  assert.equal(
-    shouldIgnoreDuplicateUserToggle({
-      targetXpath: "/HTML/BODY/DIV[2]",
-      mode: "exclude",
-      now: 1000,
-      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
-      lastActionAt: 900
-    }),
-    false
-  );
-});
-
-test("explicit include presentation uses the non-ghost include class", () => {
-  assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "include" }),
-    { ghost: false, className: "uf-explicit-include" }
-  );
-});
-
-test("ghost explicit include presentation uses the ghost include class", () => {
-  assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "include", ghost: true }),
-    { ghost: true, className: "uf-explicit-include-ghost" }
-  );
-});
-
-test("explicit exclude presentation uses the non-ghost exclude class", () => {
-  assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "exclude" }),
-    { ghost: false, className: "uf-explicit-exclude" }
-  );
-});
-
-test("explicit marking presentation defaults to exclude when type is unrecognised", () => {
-  assert.deepEqual(
-    getExplicitMarkingPresentation({}),
-    { ghost: false, className: "uf-explicit-exclude" }
-  );
+test("plain exclude clicks promote only eligible default boundaries to explicit include", () => {
+  const base = {
+    mode: "exclude",
+    shiftHeld: false,
+    altHeld: false,
+    defaultBoundaryExists: true
+  };
+  assert.equal(shouldPromoteDefaultBoundaryToInclude(base), true);
+  for (const blocked of [
+    { mode: "include" },
+    { shiftHeld: true },
+    { altHeld: true },
+    { defaultBoundaryExists: false },
+    { isWithinAiIncluded: true },
+    { isWithinExplicitIncluded: true },
+    { defaultBoundaryAlreadyUserModified: true }
+  ]) {
+    assert.equal(
+      shouldPromoteDefaultBoundaryToInclude({ ...base, ...blocked }),
+      false
+    );
+  }
 });

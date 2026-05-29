@@ -21,7 +21,9 @@ import {
   filterDefaultElementsForExplicitMarks,
   isStoredExcludeStateUserModified,
   shouldAutoSeedMarkingsFromAiSelectors,
+  shouldCollectToggleableDefaultBoundary,
   shouldIgnoreDuplicateUserToggle,
+  shouldPromoteDefaultBoundaryToInclude,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
 import {
@@ -625,68 +627,6 @@ function matchesToggleableDefaultExcluded(el) {
   return false;
 }
 
-function hasNestedToggleableDefaultExcludedDescendant(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  const stack = Array.from(el.children || []);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesToggleableDefaultExcluded(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
-function hasVisibleImmutableDescendant(el) {
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  const stack = Array.from(el.children || []);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
-      continue;
-    }
-    if (matchesImmutableExcluded(node) && isVisible(node)) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
-function matchesAutoToggleableDefaultExcluded(el) {
-  if (!matchesToggleableDefaultExcluded(el)) {
-    return false;
-  }
-  if (!el || el.nodeType !== 1) {
-    return false;
-  }
-  if (!hasTextualDescendant(el)) {
-    return true;
-  }
-  if (hasNestedToggleableDefaultExcludedDescendant(el)) {
-    return true;
-  }
-  return !hasVisibleImmutableDescendant(el);
-}
-
 function isTextualContainer(el, options = {}) {
   const ignoreVisibilityForInclusionDetection = Boolean(
     options && options.ignoreVisibilityForInclusionDetection
@@ -865,7 +805,37 @@ function isWithinImmutableExcluded(el) {
 }
 
 function isToggleableDefaultExcludedElement(el, includedElements) {
-  return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
+  return matchesToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
+}
+
+function findOutermostToggleableDefaultBoundaryForElement(element, boundarySet, options = {}) {
+  if (!element || element.nodeType !== 1) {
+    return null;
+  }
+  const hasCachedBoundarySet = boundarySet && typeof boundarySet.has === "function";
+  const aiContent = options.aiContent;
+  const explicitInclude = options.explicitInclude;
+  if (aiContent && aiContent.size > 0 && isWithinElementSet(element, aiContent)) {
+    return null;
+  }
+  let node = element;
+  let outermostBoundary = null;
+  while (node && node.nodeType === 1) {
+    const nodeExplicitlyIncluded = Boolean(
+      explicitInclude && explicitInclude.size > 0 && explicitInclude.has(node)
+    );
+    if (nodeExplicitlyIncluded && !outermostBoundary) {
+      return null;
+    }
+    const isBoundary = hasCachedBoundarySet && boundarySet.size > 0
+      ? boundarySet.has(node)
+      : matchesToggleableDefaultExcluded(node);
+    if (isBoundary && !nodeExplicitlyIncluded) {
+      outermostBoundary = node;
+    }
+    node = node.parentElement;
+  }
+  return outermostBoundary;
 }
 
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
@@ -1291,7 +1261,7 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (
       !isWithinImmutableExcluded(node) &&
       (
-        (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
+        (matchesToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
         isSelfMarkableWithoutParentMode(node)
       )
     ) {
@@ -1381,13 +1351,15 @@ export function collectDefaultLayerElements(root, options = {}) {
   const aiContent = new Set(options.aiContent || []);
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
+  const toggleableDefaultExcluded = new Set(options.toggleableDefaultExcluded || []);
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
     ...explicitExclude,
     ...explicitInclude,
     ...aiContent,
-    ...selectorExcluded
+    ...selectorExcluded,
+    ...toggleableDefaultExcluded
   ]);
   const hardExcludedSet = new Set([
     ...immutableExcluded,
@@ -1405,7 +1377,8 @@ export function collectDefaultLayerElements(root, options = {}) {
       ...consentExcluded,
       ...explicitExclude,
       ...explicitInclude,
-      ...aiContent
+      ...aiContent,
+      ...toggleableDefaultExcluded
     ])
   });
 }
@@ -1880,10 +1853,16 @@ function collectSelectorExcludedElements(
   return Array.from(marked).sort(compareDocumentOrder);
 }
 
-function collectToggleableDefaultExcludedElements(includedElements) {
+export function collectToggleableDefaultExcludedElements(includedElements, options = {}) {
   if (!document.body) {
     return [];
   }
+  const boundarySelfSkipSet = new Set(
+    options.boundarySelfSkip || includedElements || []
+  );
+  const boundarySubtreeSkipSet = new Set(
+    options.boundarySubtreeSkip || includedElements || []
+  );
   const results = [];
   const stack = [document.body];
   while (stack.length) {
@@ -1891,17 +1870,32 @@ function collectToggleableDefaultExcludedElements(includedElements) {
     if (!el || el.nodeType !== 1) {
       continue;
     }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinExtensionUi(el)) {
-      continue;
-    }
-    if (isWithinElementSet(el, includedElements)) {
-      continue;
-    }
-    if (matchesImmutableExcluded(el)) {
-      continue;
-    }
-    if (matchesAutoToggleableDefaultExcluded(el)) {
+    const isToggleableDefaultExcluded = matchesToggleableDefaultExcluded(el);
+    const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
+    const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
+    if (shouldCollectToggleableDefaultBoundary({
+      isToggleableDefaultExcluded,
+      isHiddenSubtree: isToggleableDefaultExcluded &&
+        !isVisible(el) &&
+        isDefinitelyHiddenSubtreeElement(el),
+      isWithinAiIncluded: isWithinBoundarySubtreeSkip,
+      isWithinAiPopover: isWithinAiPopover(el),
+      isWithinExplicitIncluded: isBoundarySelfSkipped,
+      isWithinConsent: isWithinConsentElement(el),
+      isWithinExtensionUi: isWithinExtensionUi(el),
+      isImmutableExcluded: matchesImmutableExcluded(el)
+    })) {
       results.push(el);
+      continue;
+    }
+    if (
+      (isToggleableDefaultExcluded && !isBoundarySelfSkipped) ||
+      isWithinAiPopover(el) ||
+      isWithinConsentElement(el) ||
+      isWithinExtensionUi(el) ||
+      isWithinBoundarySubtreeSkip ||
+      matchesImmutableExcluded(el)
+    ) {
       continue;
     }
     for (let i = el.children.length - 1; i >= 0; i -= 1) {
@@ -3551,7 +3545,7 @@ function createExcludedAncestorChecker(options = {}) {
         node = node.parentElement;
         continue;
       }
-      if (matchesImmutableExcluded(node) || matchesAutoToggleableDefaultExcluded(node)) {
+      if (matchesImmutableExcluded(node) || matchesToggleableDefaultExcluded(node)) {
         return true;
       }
       node = node.parentElement;
@@ -3664,6 +3658,97 @@ function getMarkableTarget(x, y, options) {
   return null;
 }
 
+function getCachedDefaultBoundaryGateSets() {
+  const collections = state.cachedCollections;
+  if (!collections) {
+    return null;
+  }
+  const boundaryList = collections.defaultExcludedToggleElements;
+  return {
+    boundarySet: new Set(Array.isArray(boundaryList) ? boundaryList : []),
+    aiContent: new Set(collections.aiContentElements || []),
+    explicitInclude: new Set(collections.explicitIncludeElements || [])
+  };
+}
+
+function findToggleableDefaultBoundaryAt(x, y) {
+  const gates = getCachedDefaultBoundaryGateSets();
+  if (!gates) {
+    return null;
+  }
+  const elements = document.elementsFromPoint(x, y);
+  for (const el of elements) {
+    if (!el || el.nodeType !== 1) {
+      continue;
+    }
+    if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
+      continue;
+    }
+    if (el === document.documentElement || el === document.body) {
+      continue;
+    }
+    if (isWithinAiPopover(el) || isWithinConsentElement(el)) {
+      continue;
+    }
+    const boundary = findOutermostToggleableDefaultBoundaryForElement(el, gates.boundarySet, {
+      aiContent: gates.aiContent,
+      explicitInclude: gates.explicitInclude
+    });
+    if (boundary) {
+      return boundary;
+    }
+  }
+  return null;
+}
+
+function isDefaultBoundaryUserModified(boundary, entry) {
+  if (!boundary || !entry) {
+    return false;
+  }
+  const xpath = getXPath(boundary);
+  if (!xpath) {
+    return false;
+  }
+  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+  if (includeXpaths.includes(xpath)) {
+    return true;
+  }
+  const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  for (const item of items) {
+    if (item && item.xpath === xpath) {
+      return isStoredExcludeStateUserModified({
+        isExcluded: Boolean(item.excluded),
+        isDefaultExcluded: matchesToggleableDefaultExcluded(boundary)
+      });
+    }
+  }
+  return false;
+}
+
+function resolveDefaultBoundaryPromotion(x, y, event, mode) {
+  const shiftHeld = Boolean(event && event.shiftKey);
+  const altHeld = Boolean(event && event.altKey);
+  if (
+    !shouldPromoteDefaultBoundaryToInclude({
+      mode,
+      shiftHeld,
+      altHeld,
+      defaultBoundaryExists: true
+    })
+  ) {
+    return null;
+  }
+  const boundary = findToggleableDefaultBoundaryAt(x, y);
+  if (!boundary) {
+    return null;
+  }
+  const entry = state.currentPageEntry;
+  if (isDefaultBoundaryUserModified(boundary, entry)) {
+    return null;
+  }
+  return boundary;
+}
+
 function updateHoverHighlight(
   x,
   y,
@@ -3688,7 +3773,12 @@ function updateHoverHighlight(
     const excludedSet =
       allowParent || allowExcludedParentChildren ? null : explicitParentSet;
     const includeSet = getIncludeXPathSet(state.config, location.href);
-    const target = getMarkableTarget(x, y, {
+    const inferredMode = allowExcludedParentChildren ? "include" : "exclude";
+    const boundaryPromotion = resolveDefaultBoundaryPromotion(x, y, {
+      shiftKey: state.shiftHeld,
+      altKey: state.altHeld
+    }, inferredMode);
+    const target = boundaryPromotion || getMarkableTarget(x, y, {
       allowParent,
       allowExplicitTarget: true,
       preferExplicitTarget: allowExcludedParentChildren,
@@ -4096,7 +4186,13 @@ function handleToggleEvent(event) {
     allowParent || allowExcludedParentChildren ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const targetResolutionStartedAt = nowMs();
-  const target = getMarkableTarget(event.clientX, event.clientY, {
+  const boundaryPromotion = resolveDefaultBoundaryPromotion(
+    event.clientX,
+    event.clientY,
+    event,
+    mode
+  );
+  const target = boundaryPromotion || getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
@@ -4107,8 +4203,9 @@ function handleToggleEvent(event) {
     allowImmutableChildren,
     requireExcludedAncestor: false
   });
+  const effectiveMode = boundaryPromotion ? "include" : mode;
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
-    mode,
+    mode: effectiveMode,
     hasTarget: Boolean(target)
   });
   if (target) {
@@ -4116,22 +4213,22 @@ function handleToggleEvent(event) {
     const interactionNow = nowMs();
     if (shouldIgnoreDuplicateUserToggle({
       targetXpath: xpath,
-      mode,
+      mode: effectiveMode,
       now: interactionNow,
       inFlightKey: state.toggleInFlightKey,
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
-      logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
+      logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode: effectiveMode });
       return;
     }
     if (xpath) {
-      state.toggleInFlightKey = `${mode}:${xpath}`;
+      state.toggleInFlightKey = `${effectiveMode}:${xpath}`;
     }
-    showImmediateToggleAcknowledgement(target, mode);
+    showImmediateToggleAcknowledgement(target, effectiveMode);
     const applyStartedAt = nowMs();
     try {
-      if (mode === "include") {
+      if (effectiveMode === "include") {
         toggleExplicitInclude(target);
       } else {
         toggleExplicitExclude(target);
@@ -4142,10 +4239,13 @@ function handleToggleEvent(event) {
       }
     } finally {
       state.toggleInFlightKey = "";
-      logTogglePerf("toggle.apply", applyStartedAt, { mode });
+      logTogglePerf("toggle.apply", applyStartedAt, { mode: effectiveMode });
     }
   }
-  logTogglePerf("toggle.total", toggleStartedAt, { mode, hadTarget: Boolean(target) });
+  logTogglePerf("toggle.total", toggleStartedAt, {
+    mode: effectiveMode,
+    hadTarget: Boolean(target)
+  });
 }
 
 function handleClick(event) {
@@ -4765,6 +4865,21 @@ function renderHighlightsInner() {
     ...hiddenStoredExplicitExclude
   ]);
 
+  const toggleableDefaultExcludedAll = collectToggleableDefaultExcludedElements(
+    explicitInclude,
+    {
+      boundarySelfSkip: explicitInclude,
+      boundarySubtreeSkip: aiContent
+    }
+  );
+  const filteredExplicitExcludeSet = new Set(filteredExplicitExclude);
+  const defaultExcludedToggleElements = toggleableDefaultExcludedAll.filter((el) =>
+    !isWithinElementSet(el, consentExcluded) &&
+    !filteredExplicitExcludeSet.has(el) &&
+    !isWithinElementSet(el, filteredExplicitExcludeSet)
+  );
+  const toggleableDefaultExcludedSet = new Set(defaultExcludedToggleElements);
+
   const defaultTargets = collectDefaultLayerElements(document.body, {
     immutableExcluded,
     consentExcluded,
@@ -4772,13 +4887,15 @@ function renderHighlightsInner() {
     explicitInclude,
     aiContent,
     selectorExcluded: selectorExcludedSet,
-    hiddenStoredExplicitExclude
+    hiddenStoredExplicitExclude,
+    toggleableDefaultExcluded: toggleableDefaultExcludedSet
   });
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
       !isWithinElementSet(el, consentExcluded)
     ),
+    defaultExcludedToggleElements,
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     hiddenExplicitIncludeElements,
@@ -4837,6 +4954,15 @@ function drawCollections(collections, getRects) {
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerHardState, rects, "uf-hard-locked", el, "immutable", markedElements
+      );
+    }
+  }
+
+  for (const el of collections.defaultExcludedToggleElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerHardState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
       );
     }
   }
@@ -5434,6 +5560,9 @@ export function canApplyExplicitInclude(
   }
   if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
     return false;
+  }
+  if (matchesToggleableDefaultExcluded(el)) {
+    return true;
   }
   if (isVisible(el)) {
     return false;
@@ -6353,9 +6482,9 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (!xpath || seen.has(xpath)) {
       continue;
     }
-    const autoToggleableDefault = matchesAutoToggleableDefaultExcluded(el);
+    const toggleableDefault = matchesToggleableDefaultExcluded(el);
     if (
-      autoToggleableDefault &&
+      toggleableDefault &&
       explicitMarkedAncestorSet.has(el) &&
       !isExplicitlyMarkedXpath(xpath)
     ) {
