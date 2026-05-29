@@ -90,7 +90,7 @@ const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 650;
-const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 2500;
+const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
@@ -174,7 +174,10 @@ function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
   if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
     return window.requestIdleCallback(callback, { timeout });
   }
-  return window.setTimeout(callback, 0);
+  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+    return window.setTimeout(callback, 0);
+  }
+  return setTimeout(callback, 0);
 }
 
 function isTagSelector (selector){
@@ -4041,7 +4044,7 @@ function handleToggleEvent(event) {
   });
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
     mode,
-    hadTarget: Boolean(target)
+    hasTarget: Boolean(target)
   });
   if (target) {
     const xpath = getXPath(target);
@@ -5157,9 +5160,6 @@ export function scheduleSnapshotSave(delayMs = DEFAULT_SNAPSHOT_SAVE_DELAY_MS) {
   }
   state.snapshotTimer = window.setTimeout(() => {
     state.snapshotTimer = 0;
-    if (!state.baseUrl || !state.config) {
-      return;
-    }
     runWhenIdle(() => {
       if (!state.baseUrl || !state.config) {
         return;
