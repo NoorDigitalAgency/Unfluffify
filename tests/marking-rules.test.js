@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   getExplicitMarkingPresentation,
   getExplicitMarkingRenderOptions,
+  shouldIgnoreDuplicateUserToggle,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
@@ -70,10 +71,59 @@ test("AI auto-seed is skipped when there are no AI selectors", () => {
 
 test("explicit marking renders use the standard scheduleRender defaults", () => {
   assert.deepEqual(getExplicitMarkingRenderOptions(), {
-    delay: 50,
+    delay: 0,
     minInterval: 0,
-    invalidate: true
+    invalidate: true,
+    reason: "explicit-toggle"
   });
+});
+
+test("duplicate user toggles on the same target and mode are ignored in a short window", () => {
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "exclude",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 780
+    }),
+    true
+  );
+});
+
+test("duplicate user toggles are ignored while the same target and mode is in-flight", () => {
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "include",
+      now: 2000,
+      inFlightKey: "include:/HTML/BODY/DIV[1]"
+    }),
+    true
+  );
+});
+
+test("fast repeated clicks on a different mode or target still proceed", () => {
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "include",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 900
+    }),
+    false
+  );
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[2]",
+      mode: "exclude",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 900
+    }),
+    false
+  );
 });
 
 test("explicit include presentation uses the non-ghost include class", () => {

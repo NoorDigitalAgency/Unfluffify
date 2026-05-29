@@ -10,10 +10,35 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
 
 export function getExplicitMarkingRenderOptions() {
   return {
-    delay: 50,
+    delay: 0,
     minInterval: 0,
-    invalidate: true
+    invalidate: true,
+    reason: "explicit-toggle"
   };
+}
+
+export const USER_TOGGLE_DUPLICATE_WINDOW_MS = 320;
+
+export function shouldIgnoreDuplicateUserToggle(options = {}) {
+  const {
+    targetXpath = "",
+    mode = "exclude",
+    now = 0,
+    inFlightKey = "",
+    lastActionKey = "",
+    lastActionAt = 0
+  } = options;
+  if (!targetXpath) {
+    return false;
+  }
+  const key = `${mode}:${targetXpath}`;
+  if (inFlightKey && inFlightKey === key) {
+    return true;
+  }
+  if (!lastActionKey || lastActionKey !== key) {
+    return false;
+  }
+  return now - lastActionAt <= USER_TOGGLE_DUPLICATE_WINDOW_MS;
 }
 
 export function getExplicitMarkingPresentation(options = {}) {
