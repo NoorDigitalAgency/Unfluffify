@@ -2675,8 +2675,8 @@ function createOverlay() {
         background: rgba(183, 28, 28, 0.12);
       }
       #unfluffify-overlay .uf-hard-locked {
-        border: 1px dashed rgba(156, 107, 107, 0.45);
-        background: transparent;
+        background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.15), rgba(225, 70, 70, 0.15) 20px, rgba(225, 150, 70, 0.15) 20px, rgb(225, 150, 70, 0.15) 40px);
+        border: 2px dashed rgba(225, 70, 70, 0.5);
       }
       #unfluffify-overlay .uf-default {
         border: 1px solid #2e7d32;

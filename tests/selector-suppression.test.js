@@ -21,6 +21,36 @@ test("core render path and silent highlighting both honor selector suppression x
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(normalizedAiSelectorSet, \{[\s\S]*?suppressedXpaths: selectorSuppressedXpaths/);
 });
 
+test("content-main routes live-page GraphQL lookups through background runtime messages", () => {
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    contentSource,
+    /async function resolveSiteIdFromGraphql\(options = \{\}\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "resolveLivePageSiteId"/
+  );
+  assert.doesNotMatch(
+    contentSource,
+    /async function resolveSiteIdFromGraphql\(options = \{\}\) \{[\s\S]*?fetch\(/
+  );
+  assert.match(
+    contentSource,
+    /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "fetchLivePagePropertyPageTypes"/
+  );
+  assert.doesNotMatch(
+    contentSource,
+    /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?fetch\(/
+  );
+});
+
+test("background owns the live-page GraphQL transport handlers", () => {
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(backgroundSource, /async function resolveLivePageSiteId\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /async function fetchLivePagePropertyPageTypes\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
+});
+
 test("marking mode keeps selector-matched elements off the default layer without suppressing their whole subtree", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 

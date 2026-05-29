@@ -31,6 +31,14 @@ import {
   updateDeviceEmulation
 } from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
+import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
+import {
+  PROPERTY_PAGE_TYPES_QUERY,
+  URL_SEARCH_INFO_QUERY,
+  buildGraphqlEndpointFromStageBase,
+  maybeUpdateStoredTokenFromResponse,
+  normalizeSiteIdValue
+} from "./common/lynx-live-pages.js";
 import {
   handleRemoteSupportBackgroundMessage,
   handleRemoteSupportTabRemoved,
@@ -75,6 +83,111 @@ installExtensionTelemetry({
   }
 });
 console.info("Unfluffify background worker ready");
+
+async function resolveLivePageSiteId(options = {}) {
+  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const pageUrl = typeof options.pageUrl === "string" ? options.pageUrl.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue.trim() : "";
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!graphqlEndpoint || !pageUrl) {
+    return { ok: false, siteId: null };
+  }
+  try {
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
+      },
+      body: JSON.stringify({
+        query: URL_SEARCH_INFO_QUERY,
+        variables: {
+          url: pageUrl,
+          includePageInfo: false
+        }
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload || Array.isArray(payload.errors)) {
+      return { ok: false, siteId: null };
+    }
+    return {
+      ok: true,
+      siteId: normalizeSiteIdValue(
+        payload &&
+          payload.data &&
+          payload.data.urlSearchInfo &&
+          payload.data.urlSearchInfo.domainId
+      )
+    };
+  } catch {
+    return { ok: false, siteId: null };
+  }
+}
+
+async function fetchLivePagePropertyPageTypes(options = {}) {
+  const normalizedSiteId = normalizeSiteIdValue(options.siteId);
+  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue.trim() : "";
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!normalizedSiteId || !graphqlEndpoint) {
+    return {
+      ok: false,
+      pageTypes: [],
+      reason: "Unable to verify Live Page candidates."
+    };
+  }
+  try {
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
+      },
+      body: JSON.stringify({
+        query: PROPERTY_PAGE_TYPES_QUERY,
+        variables: {
+          domainId: normalizedSiteId
+        }
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload || Array.isArray(payload.errors)) {
+      return {
+        ok: false,
+        pageTypes: [],
+        reason: "Unable to verify Live Page candidates."
+      };
+    }
+    const normalized = normalizePropertyPageTypes(
+      payload && payload.data
+        ? payload.data.propertyPageTypes
+        : null
+    );
+    return {
+      ok: true,
+      pageTypes: normalized.pageTypes || []
+    };
+  } catch {
+    return {
+      ok: false,
+      pageTypes: [],
+      reason: "Unable to verify Live Page candidates."
+    };
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
@@ -347,6 +460,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch((error) => {
         sendResponse({ ok: false, error: error && error.message ? error.message : "IndexedDB remove failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "resolveLivePageSiteId") {
+    resolveLivePageSiteId({
+      stageBase: message.stageBase,
+      pageUrl: message.pageUrl,
+      tokenValue: message.tokenValue
+    })
+      .then((result) => {
+        sendResponse(result || { ok: false, siteId: null });
+      })
+      .catch(() => {
+        sendResponse({ ok: false, siteId: null });
+      });
+    return true;
+  }
+
+  if (message.type === "fetchLivePagePropertyPageTypes") {
+    fetchLivePagePropertyPageTypes({
+      siteId: message.siteId,
+      stageBase: message.stageBase,
+      tokenValue: message.tokenValue
+    })
+      .then((result) => {
+        sendResponse(result || {
+          ok: false,
+          pageTypes: [],
+          reason: "Unable to verify Live Page candidates."
+        });
+      })
+      .catch(() => {
+        sendResponse({
+          ok: false,
+          pageTypes: [],
+          reason: "Unable to verify Live Page candidates."
+        });
       });
     return true;
   }

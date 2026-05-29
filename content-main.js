@@ -19,11 +19,7 @@ import {
   normalizePropertyPageTypes
 } from "./common/lynx-checklist.js";
 import {
-  PROPERTY_PAGE_TYPES_QUERY,
-  URL_SEARCH_INFO_QUERY,
-  buildGraphqlEndpointFromStageBase,
   getCurrentPageCandidateState,
-  maybeUpdateStoredTokenFromResponse,
   normalizeSiteIdValue,
   normalizeStageBase as normalizeStageBaseValue
 } from "./common/lynx-live-pages.js";
@@ -1673,44 +1669,19 @@ async function resolveSiteIdFromGraphql(options = {}) {
     pageUrl = "",
     tokenValue = ""
   } = options;
-  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
-  if (!graphqlEndpoint || !pageUrl) {
+  if (!stageBase || !pageUrl) {
     return null;
   }
-  try {
-    const response = await fetch(graphqlEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {})
-      },
-      body: JSON.stringify({
-        query: URL_SEARCH_INFO_QUERY,
-        variables: {
-          url: pageUrl,
-          includePageInfo: false
-        }
-      })
-    });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      payload = null;
-    }
-    if (!response.ok || !payload || Array.isArray(payload.errors)) {
-      return null;
-    }
-    return normalizeSiteIdValue(
-      payload &&
-        payload.data &&
-        payload.data.urlSearchInfo &&
-        payload.data.urlSearchInfo.domainId
-    );
-  } catch (error) {
+  const response = await utils.sendRuntimeMessage({
+    type: "resolveLivePageSiteId",
+    stageBase,
+    pageUrl,
+    tokenValue
+  });
+  if (!response || !response.ok) {
     return null;
   }
+  return normalizeSiteIdValue(response.siteId);
 }
 
 function extractUrlPathAndHostname(url = location.href) {
@@ -1775,42 +1746,25 @@ async function recheckSiteIdForCurrentUrlPath(tabState) {
 }
 
 async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {
-  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBaseValue);
-  const response = await fetch(graphqlEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${tokenValue}`
-    },
-    body: JSON.stringify({
-      query: PROPERTY_PAGE_TYPES_QUERY,
-      variables: {
-        domainId: siteId
-      }
-    })
+  const response = await utils.sendRuntimeMessage({
+    type: "fetchLivePagePropertyPageTypes",
+    siteId,
+    stageBase: stageBaseValue,
+    tokenValue
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    payload = null;
-  }
-  if (!response.ok || !payload || Array.isArray(payload.errors)) {
+  if (!response || !response.ok) {
     return {
       ok: false,
       pageTypes: [],
-      reason: "Unable to verify Live Page candidates."
+      reason:
+        response && typeof response.reason === "string"
+          ? response.reason
+          : "Unable to verify Live Page candidates."
     };
   }
-  const normalized = normalizePropertyPageTypes(
-    payload && payload.data
-      ? payload.data.propertyPageTypes
-      : null
-  );
   return {
     ok: true,
-    pageTypes: normalized.pageTypes || []
+    pageTypes: Array.isArray(response.pageTypes) ? response.pageTypes : []
   };
 }
 
@@ -2743,8 +2697,8 @@ function ensureSilentHighlightingStyles() {
         background: rgba(68, 181, 50, 0.08);
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-immutable {
-        border: 1px dashed rgba(156, 107, 107, 0.45);
-        background: transparent;
+        background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.15), rgba(225, 70, 70, 0.15) 20px, rgba(225, 150, 70, 0.15) 20px, rgb(225, 150, 70, 0.15) 40px);
+        border: 2px dashed rgba(225, 70, 70, 0.5);
       }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-content-ghost {
         border: 1px dotted rgba(68, 181, 50, 0.45);
