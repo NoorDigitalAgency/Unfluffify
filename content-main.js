@@ -2818,6 +2818,19 @@ function renderSilentHighlightOverlay(collections) {
       collections.excludedSelectorByNode instanceof Map
         ? new Map(collections.excludedSelectorByNode)
         : new Map()
+    ,
+    explicitIncludeXpathByNode:
+      collections.explicitIncludeXpathByNode instanceof Map
+        ? new Map(collections.explicitIncludeXpathByNode)
+        : new Map(),
+    excludedXpathByNode:
+      collections.excludedXpathByNode instanceof Map
+        ? new Map(collections.excludedXpathByNode)
+        : new Map(),
+    implicitIncludeXpathByNode:
+      collections.implicitIncludeXpathByNode instanceof Map
+        ? new Map(collections.implicitIncludeXpathByNode)
+        : new Map()
   };
   scheduleSilentHighlightOverlayReveal();
 }
@@ -2993,7 +3006,10 @@ function clearSilentSelectorAnnotations() {
     if (originalTitleState && typeof originalTitleState === "object") {
       if (originalTitleState.hadTitle) {
         node.setAttribute("title", originalTitleState.title || "");
-      } else if ((node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)) {
+      } else if (
+        node.getAttribute("title") === originalTitleState.annotationTitle ||
+        (node.getAttribute("title") || "").startsWith(SILENT_SELECTOR_TITLE_PREFIX)
+      ) {
         node.removeAttribute("title");
       }
       silentSelectorOriginalTitles.delete(node);
@@ -3004,23 +3020,82 @@ function clearSilentSelectorAnnotations() {
   silentSelectorAnnotatedNodes.clear();
 }
 
-function setSilentSelectorAnnotation(node, kind, selector) {
-  if (!node || node.nodeType !== 1 || typeof selector !== "string" || !selector) {
+function buildSilentHighlightTitle(selector, xpath) {
+  const normalizedSelector = typeof selector === "string"
+    ? selector
+      .split("\n")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join("\n")
+    : "";
+  const normalizedXpath = typeof xpath === "string" ? xpath.trim() : "";
+  if (normalizedSelector && normalizedXpath) {
+    const selectorLines = normalizedSelector.split("\n").filter(Boolean);
+    if (selectorLines.length > 1) {
+      return [
+        "Matched CSS selectors:",
+        ...selectorLines,
+        "XPath:",
+        normalizedXpath
+      ].join("\n");
+    }
+    return [
+      `Matched CSS selector: ${selectorLines[0]}`,
+      `XPath: ${normalizedXpath}`
+    ].join("\n");
+  }
+  return normalizedXpath || normalizedSelector;
+}
+
+function setSilentSelectorAnnotation(node, kind, selector = "", xpath = "") {
+  if (!node || node.nodeType !== 1) {
+    return;
+  }
+  const normalizedSelector = typeof selector === "string" ? selector.trim() : "";
+  const normalizedXpath = typeof xpath === "string" ? xpath.trim() : "";
+  const title = buildSilentHighlightTitle(normalizedSelector, normalizedXpath);
+  if (!title) {
     return;
   }
   const attrName = kind === "excluded"
     ? SILENT_SELECTOR_EXCLUDE_ATTR
-    : SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR;
-  if (!silentSelectorOriginalTitles.has(node)) {
+    : kind === "included"
+      ? SILENT_SELECTOR_EXPLICIT_INCLUDE_ATTR
+      : "";
+  const previousTitleState = silentSelectorOriginalTitles.get(node);
+  if (!previousTitleState || typeof previousTitleState !== "object") {
     const hadTitle = node.hasAttribute("title");
     silentSelectorOriginalTitles.set(node, {
       hadTitle,
-      title: hadTitle ? (node.getAttribute("title") || "") : ""
+      title: hadTitle ? (node.getAttribute("title") || "") : "",
+      annotationTitle: title
+    });
+  } else {
+    silentSelectorOriginalTitles.set(node, {
+      hadTitle: Boolean(previousTitleState.hadTitle),
+      title: typeof previousTitleState.title === "string" ? previousTitleState.title : "",
+      annotationTitle: title
     });
   }
-  node.setAttribute(attrName, selector);
-  node.setAttribute("title", `${SILENT_SELECTOR_TITLE_PREFIX}${selector}`);
+  if (attrName && normalizedSelector) {
+    node.setAttribute(attrName, normalizedSelector);
+  }
+  node.setAttribute("title", title);
   silentSelectorAnnotatedNodes.add(node);
+}
+
+function buildSilentHighlightXpathByNode(nodes) {
+  const xpathByNode = new Map();
+  for (const node of nodes || []) {
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    const xpath = core.getXPath(node);
+    if (typeof xpath === "string" && xpath) {
+      xpathByNode.set(node, xpath);
+    }
+  }
+  return xpathByNode;
 }
 
 function applySilentSelectorAnnotations(collections) {
@@ -3036,11 +3111,36 @@ function applySilentSelectorAnnotations(collections) {
     collections.excludedSelectorByNode instanceof Map
       ? collections.excludedSelectorByNode
       : new Map();
-  explicitIncludeSelectorByNode.forEach((selector, node) => {
-    setSilentSelectorAnnotation(node, "included", selector);
+  const explicitIncludeXpathByNode =
+    collections.explicitIncludeXpathByNode instanceof Map
+      ? collections.explicitIncludeXpathByNode
+      : new Map();
+  const excludedXpathByNode =
+    collections.excludedXpathByNode instanceof Map
+      ? collections.excludedXpathByNode
+      : new Map();
+  const implicitIncludeXpathByNode =
+    collections.implicitIncludeXpathByNode instanceof Map
+      ? collections.implicitIncludeXpathByNode
+      : new Map();
+  explicitIncludeXpathByNode.forEach((xpath, node) => {
+    setSilentSelectorAnnotation(
+      node,
+      "included",
+      explicitIncludeSelectorByNode.get(node) || "",
+      xpath
+    );
   });
-  excludedSelectorByNode.forEach((selector, node) => {
-    setSilentSelectorAnnotation(node, "excluded", selector);
+  excludedXpathByNode.forEach((xpath, node) => {
+    setSilentSelectorAnnotation(
+      node,
+      "excluded",
+      excludedSelectorByNode.get(node) || "",
+      xpath
+    );
+  });
+  implicitIncludeXpathByNode.forEach((xpath, node) => {
+    setSilentSelectorAnnotation(node, "implicit", "", xpath);
   });
 }
 
@@ -4550,14 +4650,11 @@ function buildSilentHighlightingRenderKey(
   contentNodes,
   excludedNodes,
   explicitIncludeSelectorByNode = null,
-  excludedSelectorByNode = null
+  excludedSelectorByNode = null,
+  explicitIncludeXpathByNode = null,
+  excludedXpathByNode = null,
+  implicitIncludeXpathByNode = null
 ) {
-  const explicitIncludeSelectorEntries = explicitIncludeSelectorByNode instanceof Map
-    ? Array.from(explicitIncludeSelectorByNode.entries())
-    : [];
-  const excludedSelectorEntries = excludedSelectorByNode instanceof Map
-    ? Array.from(excludedSelectorByNode.entries())
-    : [];
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
@@ -4566,10 +4663,10 @@ function buildSilentHighlightingRenderKey(
     .map(getSilentRenderNodeId)
     .filter(Boolean)
     .sort((a, b) => a - b);
-  const explicitIncludeSelectorKey = JSON.stringify(
-    explicitIncludeSelectorEntries
-      .map(([node, selector]) => [getSilentRenderNodeId(node), selector || ""])
-      .filter(([id, selector]) => id && selector)
+  const buildNodeValueKey = (valueByNode) => JSON.stringify(
+    (valueByNode instanceof Map ? Array.from(valueByNode.entries()) : [])
+      .map(([node, value]) => [getSilentRenderNodeId(node), value || ""])
+      .filter(([id, value]) => id && value)
       .sort((left, right) => {
         if (left[0] !== right[0]) {
           return left[0] - right[0];
@@ -4577,22 +4674,19 @@ function buildSilentHighlightingRenderKey(
         return String(left[1]).localeCompare(String(right[1]));
       })
   );
-  const excludedSelectorKey = JSON.stringify(
-    excludedSelectorEntries
-      .map(([node, selector]) => [getSilentRenderNodeId(node), selector || ""])
-      .filter(([id, selector]) => id && selector)
-      .sort((left, right) => {
-        if (left[0] !== right[0]) {
-          return left[0] - right[0];
-        }
-        return String(left[1]).localeCompare(String(right[1]));
-      })
-  );
+  const explicitIncludeSelectorKey = buildNodeValueKey(explicitIncludeSelectorByNode);
+  const excludedSelectorKey = buildNodeValueKey(excludedSelectorByNode);
+  const explicitIncludeXpathKey = buildNodeValueKey(explicitIncludeXpathByNode);
+  const excludedXpathKey = buildNodeValueKey(excludedXpathByNode);
+  const implicitIncludeXpathKey = buildNodeValueKey(implicitIncludeXpathByNode);
   return [
     contentIds.join(","),
     excludedIds.join(","),
     explicitIncludeSelectorKey,
-    excludedSelectorKey
+    excludedSelectorKey,
+    explicitIncludeXpathKey,
+    excludedXpathKey,
+    implicitIncludeXpathKey
   ].join("|");
 }
 
@@ -4953,6 +5047,9 @@ async function refreshSilentHighlightings() {
   let excludedNodes = [];
   let explicitIncludeSelectorByRenderNode = new Map();
   let excludedSelectorByRenderNode = new Map();
+  let explicitIncludeXpathByRenderNode = new Map();
+  let excludedXpathByRenderNode = new Map();
+  let implicitIncludeXpathByRenderNode = new Map();
   if (hasSelectorHighlights) {
     try {
       const contentMarking = collectIncludedNodesFromSelectorSet(
@@ -4970,18 +5067,28 @@ async function refreshSilentHighlightings() {
         (node) => resolveSelectorForNode(node, contentMarking.inclusionSelectorByNode, false)
       );
       explicitIncludeSelectorByRenderNode = explicitIncludedRenderable.selectorByNode;
+      explicitIncludeXpathByRenderNode = buildSilentHighlightXpathByNode(
+        explicitIncludedRenderable.nodes
+      );
       const excludedRenderable = toRenderableNodeListWithSelectors(
         excludedSourcesForSilentOverlay,
         (node) => resolveSelectorForNode(node, contentMarking.exclusionSelectorByNode, true)
       );
       excludedNodes = excludedRenderable.nodes;
       excludedSelectorByRenderNode = excludedRenderable.selectorByNode;
+      excludedXpathByRenderNode = buildSilentHighlightXpathByNode(excludedNodes);
+      implicitIncludeXpathByRenderNode = buildSilentHighlightXpathByNode(
+        contentNodes.filter((node) => !explicitIncludeXpathByRenderNode.has(node))
+      );
     } catch {
       // Keep other silent highlighting features active even if selector processing fails.
       contentNodes = [];
       excludedNodes = [];
       explicitIncludeSelectorByRenderNode = new Map();
       excludedSelectorByRenderNode = new Map();
+      explicitIncludeXpathByRenderNode = new Map();
+      excludedXpathByRenderNode = new Map();
+      implicitIncludeXpathByRenderNode = new Map();
     }
   }
   const shouldBeActive = contentNodes.length > 0 || excludedNodes.length > 0;
@@ -4989,7 +5096,10 @@ async function refreshSilentHighlightings() {
     contentNodes,
     excludedNodes,
     explicitIncludeSelectorByRenderNode,
-    excludedSelectorByRenderNode
+    excludedSelectorByRenderNode,
+    explicitIncludeXpathByRenderNode,
+    excludedXpathByRenderNode,
+    implicitIncludeXpathByRenderNode
   );
   const renderChanged =
     renderKey !== lastSilentHighlightingRenderKey ||
@@ -5006,7 +5116,10 @@ async function refreshSilentHighlightings() {
       contentNodes,
       excludedNodes,
       explicitIncludeSelectorByNode: explicitIncludeSelectorByRenderNode,
-      excludedSelectorByNode: excludedSelectorByRenderNode
+      excludedSelectorByNode: excludedSelectorByRenderNode,
+      explicitIncludeXpathByNode: explicitIncludeXpathByRenderNode,
+      excludedXpathByNode: excludedXpathByRenderNode,
+      implicitIncludeXpathByNode: implicitIncludeXpathByRenderNode
     });
   } else if (renderChanged) {
     clearSilentHighlightOverlay();
