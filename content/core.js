@@ -4777,8 +4777,7 @@ function renderHighlightsInner() {
 
   const collections = {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
-      !isWithinElementSet(el, consentExcluded) &&
-      hasRenderableTextForHighlight(el, null, null, null)
+      !isWithinElementSet(el, consentExcluded)
     ),
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,

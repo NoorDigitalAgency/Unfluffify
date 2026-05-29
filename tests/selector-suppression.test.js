@@ -43,6 +43,19 @@ test("marking mode keeps selector-matched elements off the default layer without
   );
 });
 
+test("marking mode keeps immutable hard elements eligible without requiring renderable text", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(
+    coreSource,
+    /hardElements: Array\.from\(hardExcludedSet\)\.filter\(\(el\) =>\s*!isWithinElementSet\(el, consentExcluded\)\s*\),/
+  );
+  assert.doesNotMatch(
+    coreSource,
+    /hardElements: Array\.from\(hardExcludedSet\)\.filter\(\(el\) =>[\s\S]*?hasRenderableTextForHighlight\(el, null, null, null\)/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),

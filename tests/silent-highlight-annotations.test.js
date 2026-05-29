@@ -59,6 +59,26 @@ test("silent highlight keeps source-node collections so reflowed overlays can be
   );
 });
 
+test("silent highlighting keeps immutable sources on a dedicated immutable overlay layer", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /const SILENT_HIGHLIGHT_LAYER_KEYS = \["immutable", "content", "excluded"\];/);
+  assert.match(source, /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \.uf-silent-immutable \{[\s\S]*?border: 1px dashed rgba\(156, 107, 107, 0\.45\);[\s\S]*?background: transparent;/);
+  assert.match(source, /function collectImmutableDefaultExcludedNodes\(includedNodes\) \{/);
+  assert.match(
+    source,
+    /function buildSilentHighlightRenderableCollections\(collections\) \{[\s\S]*?const sourceImmutableNodes = cloneSilentHighlightNodes\([\s\S]*?const immutableNodes = toRenderableNodeList\(sourceImmutableNodes\);[\s\S]*?return \{[\s\S]*?immutableNodes,[\s\S]*?sourceImmutableNodes,[\s\S]*?contentNodes,[\s\S]*?excludedNodes/
+  );
+  assert.match(
+    source,
+    /function renderSilentHighlightOverlay\(collections\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
+  );
+  assert.match(
+    source,
+    /refreshSilentHighlightings\(\) \{[\s\S]*?const immutableSourcesForSilentOverlay = Array\.isArray\(contentMarking\.immutableExcluded\)[\s\S]*?sourceImmutableNodes: immutableSourcesForSilentOverlay/
+  );
+});
+
 test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

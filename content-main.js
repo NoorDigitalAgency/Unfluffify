@@ -98,7 +98,7 @@ const PAGE_TOAST_STYLE_ID = "unfluffify-page-toast-style";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
-const SILENT_HIGHLIGHT_LAYER_KEYS = ["content", "excluded"];
+const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
 const SILENT_SETTLE_REPOSITION_SAMPLE_MS = 120;
@@ -2742,6 +2742,10 @@ function ensureSilentHighlightingStyles() {
         border: 2px dashed #44b532;
         background: rgba(68, 181, 50, 0.08);
       }
+      #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-immutable {
+        border: 1px dashed rgba(156, 107, 107, 0.45);
+        background: transparent;
+      }
       #${SILENT_HIGHLIGHT_OVERLAY_ID} .uf-silent-content-ghost {
         border: 1px dotted rgba(68, 181, 50, 0.45);
         background: transparent;
@@ -2982,6 +2986,11 @@ function cloneSilentHighlightNodeValueMap(valueByNode) {
 }
 
 function buildSilentHighlightRenderableCollections(collections) {
+  const sourceImmutableNodes = cloneSilentHighlightNodes(
+    Array.isArray(collections && collections.sourceImmutableNodes)
+      ? collections.sourceImmutableNodes
+      : collections && collections.immutableNodes
+  );
   const sourceContentNodes = cloneSilentHighlightNodes(
     Array.isArray(collections && collections.sourceContentNodes)
       ? collections.sourceContentNodes
@@ -3016,6 +3025,7 @@ function buildSilentHighlightRenderableCollections(collections) {
       ? collections.sourceExclusionSelectorByNode
       : collections && collections.excludedSelectorByNode
   );
+  const immutableNodes = toRenderableNodeList(sourceImmutableNodes);
   const contentNodes = toRenderableNodeList(sourceContentNodes);
   const explicitIncludedRenderable = toRenderableNodeListWithSelectors(
     sourceExplicitIncludeNodes,
@@ -3040,8 +3050,10 @@ function buildSilentHighlightRenderableCollections(collections) {
     contentNodes.filter((node) => !explicitIncludeXpathByNode.has(node))
   );
   return {
+    immutableNodes,
     contentNodes,
     excludedNodes,
+    sourceImmutableNodes,
     sourceContentNodes,
     sourceExcludedNodes,
     sourceExplicitIncludeNodes,
@@ -3089,12 +3101,17 @@ function renderSilentHighlightOverlay(collections) {
     return;
   }
   setSilentHighlightOverlayHidden(true);
+  const immutableNodes = Array.from(collections.immutableNodes || []);
   const contentNodes = Array.from(collections.contentNodes || []);
   const ghostContentNodeSet = new Set(collections.ghostContentNodes || []);
   const excludedNodes = Array.from(collections.excludedNodes || []);
+  const immutableLayerState = beginSilentLayerRender("immutable");
   const contentLayerState = beginSilentLayerRender("content");
   const excludedLayerState = beginSilentLayerRender("excluded");
 
+  immutableNodes.forEach((node) => {
+    drawSilentRectsForNode(immutableLayerState, node, "uf-silent-immutable");
+  });
   contentNodes.forEach((node) => {
     drawSilentRectsForNode(
       contentLayerState,
@@ -3115,12 +3132,15 @@ function renderSilentHighlightOverlay(collections) {
     );
   });
 
+  finalizeSilentLayerRender(immutableLayerState);
   finalizeSilentLayerRender(contentLayerState);
   finalizeSilentLayerRender(excludedLayerState);
   applySilentSelectorAnnotations(collections);
   silentHighlightCollections = {
+    immutableNodes,
     contentNodes,
     excludedNodes,
+    sourceImmutableNodes: cloneSilentHighlightNodes(collections.sourceImmutableNodes),
     sourceContentNodes: cloneSilentHighlightNodes(collections.sourceContentNodes),
     sourceExcludedNodes: cloneSilentHighlightNodes(collections.sourceExcludedNodes),
     sourceExplicitIncludeNodes: cloneSilentHighlightNodes(collections.sourceExplicitIncludeNodes),
@@ -3197,6 +3217,7 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
       });
     });
   };
+  appendNodes(collections.immutableNodes, "immutable");
   appendNodes(collections.contentNodes, "content");
   appendNodes(collections.excludedNodes, "excluded");
   entries.sort();
@@ -3635,9 +3656,11 @@ function mutationTargetTouchesSilentCollections(target) {
     return false;
   }
   const trackedNodes = [
+    ...(silentHighlightCollections.sourceImmutableNodes || []),
     ...(silentHighlightCollections.sourceContentNodes || []),
     ...(silentHighlightCollections.sourceExcludedNodes || []),
     ...(silentHighlightCollections.sourceExplicitIncludeNodes || []),
+    ...(silentHighlightCollections.immutableNodes || []),
     ...(silentHighlightCollections.contentNodes || []),
     ...(silentHighlightCollections.excludedNodes || [])
   ];
@@ -4733,6 +4756,36 @@ function collectToggleableDefaultExcludedNodes(includedNodes) {
   return results.sort(compareNodeOrder);
 }
 
+function collectImmutableDefaultExcludedNodes(includedNodes) {
+  if (!document.body) {
+    return [];
+  }
+  const results = [];
+  const stack = [document.body];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isExtensionUiNode(node) || isWithinConsentBoundary(node)) {
+      continue;
+    }
+    if (matchesImmutableDefaultSelector(node)) {
+      if (!isWithinNodeSet(node, includedNodes) && core.isVisible(node)) {
+        results.push(node);
+      }
+      continue;
+    }
+    if (isWithinNodeSet(node, includedNodes)) {
+      continue;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return results.sort(compareNodeOrder);
+}
+
 function collectExplicitIncludedNodes(
   explicitIncludedMatches,
   excludedNodes,
@@ -4911,6 +4964,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     !isIncludedNodeAvailableForUser(node)
   );
   const explicitIncludedContextSet = buildInclusionContextSet(explicitIncludedSet);
+  const immutableExcluded = collectImmutableDefaultExcludedNodes(explicitIncludedSet);
   const toggleableDefaultExcluded = collectToggleableDefaultExcludedNodes(explicitIncludedSet);
   const excludedBoundaryNodes = new Set([
     ...Array.from(excludedNodes),
@@ -4964,6 +5018,7 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
   return {
     included,
     excluded,
+    immutableExcluded,
     explicitIncluded,
     hiddenExplicitIncluded,
     inclusionSelectorByNode: filteredInclusionSelectorByNode,
@@ -4987,6 +5042,7 @@ function getSilentRenderNodeId(node) {
 }
 
 function buildSilentHighlightingRenderKey(
+  immutableNodes,
   contentNodes,
   excludedNodes,
   ghostContentNodes = [],
@@ -4996,6 +5052,10 @@ function buildSilentHighlightingRenderKey(
   excludedXpathByNode = null,
   implicitIncludeXpathByNode = null
 ) {
+  const immutableIds = immutableNodes
+    .map(getSilentRenderNodeId)
+    .filter(Boolean)
+    .sort((a, b) => a - b);
   const contentIds = contentNodes
     .map(getSilentRenderNodeId)
     .filter(Boolean)
@@ -5025,6 +5085,7 @@ function buildSilentHighlightingRenderKey(
   const excludedXpathKey = buildNodeValueKey(excludedXpathByNode);
   const implicitIncludeXpathKey = buildNodeValueKey(implicitIncludeXpathByNode);
   return [
+    immutableIds.join(","),
     contentIds.join(","),
     excludedIds.join(","),
     ghostContentIds.join(","),
@@ -5394,7 +5455,9 @@ async function refreshSilentHighlightings() {
   }
   let contentNodes = [];
   let excludedNodes = [];
+  let immutableNodes = [];
   let renderCollections = buildSilentHighlightRenderableCollections({
+    sourceImmutableNodes: [],
     sourceContentNodes: [],
     sourceExcludedNodes: [],
     sourceExplicitIncludeNodes: [],
@@ -5409,10 +5472,14 @@ async function refreshSilentHighlightings() {
       const excludedSourcesForSilentOverlay = Array.isArray(contentMarking.excluded)
         ? contentMarking.excluded
         : [];
+      const immutableSourcesForSilentOverlay = Array.isArray(contentMarking.immutableExcluded)
+        ? contentMarking.immutableExcluded
+        : [];
       const explicitIncludedSources = Array.isArray(contentMarking.explicitIncluded)
         ? contentMarking.explicitIncluded
         : [];
       renderCollections = buildSilentHighlightRenderableCollections({
+        sourceImmutableNodes: immutableSourcesForSilentOverlay,
         sourceContentNodes: contentMarking.included,
         sourceExcludedNodes: excludedSourcesForSilentOverlay,
         sourceExplicitIncludeNodes: explicitIncludedSources,
@@ -5420,13 +5487,16 @@ async function refreshSilentHighlightings() {
         sourceInclusionSelectorByNode: contentMarking.inclusionSelectorByNode,
         sourceExclusionSelectorByNode: contentMarking.exclusionSelectorByNode
       });
+      immutableNodes = renderCollections.immutableNodes;
       contentNodes = renderCollections.contentNodes;
       excludedNodes = renderCollections.excludedNodes;
     } catch {
       // Keep other silent highlighting features active even if selector processing fails.
+      immutableNodes = [];
       contentNodes = [];
       excludedNodes = [];
       renderCollections = buildSilentHighlightRenderableCollections({
+        sourceImmutableNodes: [],
         sourceContentNodes: [],
         sourceExcludedNodes: [],
         sourceExplicitIncludeNodes: [],
@@ -5435,8 +5505,10 @@ async function refreshSilentHighlightings() {
       });
     }
   }
-  const shouldBeActive = contentNodes.length > 0 || excludedNodes.length > 0;
+  const shouldBeActive =
+    immutableNodes.length > 0 || contentNodes.length > 0 || excludedNodes.length > 0;
   const renderKey = buildSilentHighlightingRenderKey(
+    immutableNodes,
     contentNodes,
     excludedNodes,
     renderCollections.ghostContentNodes,
