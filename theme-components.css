@@ -1963,10 +1963,12 @@ span.todo-candidate-link {
 
 .todo-indicator {
   margin-right: 0;
+  display: flex;
 }
 
-.todo-indicator:before {
-  vertical-align: middle;
+.mdi-18px.todo-indicator::before {
+  line-height: 1;
+  margin-top: 1px;
 }
 
 .todo-indicator--done {
@@ -2380,9 +2382,4 @@ button.close-bar__stop-sharing:focus-visible {
     display: grid;
     gap: 4px;
   }
-}
-
-.mdi:has(.mdi-18px.mdi:before):before
-{
-    vertical-align: middle;
 }
