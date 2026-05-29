@@ -97,7 +97,7 @@ test("content-main requests a reconnect when property lock activity or page comm
   );
 });
 
-test("content-main connects property lock before Live Page candidate verification completes", () => {
+test("content-main connects property lock without gating on Live Page candidate verification", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection");
   const connectIndex = source.indexOf("type: PROPERTY_LOCK_CONTENT_CONNECT", syncStart);
@@ -105,5 +105,30 @@ test("content-main connects property lock before Live Page candidate verificatio
 
   assert.ok(syncStart >= 0);
   assert.ok(connectIndex > syncStart);
-  assert.ok(candidateIndex > connectIndex);
+  assert.equal(candidateIndex, -1);
+});
+
+test("content-main resolves property lock targets without requiring current extension base-url state", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
+  const resolverEnd = source.indexOf("async function resolveCurrentPageTypeForMarking", resolverStart);
+  const resolverSource = source.slice(resolverStart, resolverEnd);
+
+  assert.ok(resolverStart >= 0);
+  assert.match(resolverSource, /const matchingBaseUrl = utils\.findMatchingBaseUrl\(pageUrl, currentConfigs\);/);
+  assert.match(resolverSource, /const normalizedBaseUrl = utils\.normalizeBaseUrl\(matchingBaseUrl\) \|\| matchingBaseUrl \|\| "";/);
+  assert.match(resolverSource, /const storedSiteId = normalizeSiteIdValue\(normalizedConfig && normalizedConfig\.siteId\);/);
+  assert.match(resolverSource, /if \(normalizedBaseUrl && siteId !== storedSiteId\) \{/);
+  assert.doesNotMatch(resolverSource, /!normalizedBaseUrl \|\| !pageUrl \|\| !utils\.isPageWithinBaseUrl\(pageUrl, normalizedBaseUrl\)/);
+});
+
+test("content-main starts property lock sync immediately during content-script initialization", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const mainStart = source.indexOf("export function main()");
+  const immediateSyncIndex = source.indexOf("syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();", mainStart);
+  const refreshIndex = source.indexOf("core.refreshFromTabState().then(async () => {", mainStart);
+
+  assert.ok(mainStart >= 0);
+  assert.ok(immediateSyncIndex > mainStart);
+  assert.ok(refreshIndex > immediateSyncIndex);
 });

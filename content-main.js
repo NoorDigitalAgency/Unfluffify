@@ -1881,13 +1881,12 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
   };
 }
 
-async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
+async function resolveCurrentPropertyLockConnectionTarget(options = {}) {
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
     ? options.pageUrl
     : location.href;
-  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
-  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
-    return { ok: false, reason: "not_in_base_url" };
+  if (!pageUrl) {
+    return { ok: false, reason: "missing_page_url" };
   }
 
   const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
@@ -1896,11 +1895,15 @@ async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {})
   }
 
   const currentConfigs = await config.getConfigs();
-  const normalizedConfig = config.normalizeConfig(
-    normalizedBaseUrl,
-    currentConfigs[normalizedBaseUrl]
-  ).config;
-  const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
+  const matchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, currentConfigs);
+  const normalizedBaseUrl = utils.normalizeBaseUrl(matchingBaseUrl) || matchingBaseUrl || "";
+  const normalizedConfig = normalizedBaseUrl
+    ? config.normalizeConfig(
+      normalizedBaseUrl,
+      currentConfigs[normalizedBaseUrl]
+    ).config
+    : null;
+  const storedSiteId = normalizeSiteIdValue(normalizedConfig && normalizedConfig.siteId);
   let siteId = storedSiteId;
   if (Boolean(options.forceSiteIdRefresh) || !siteId) {
     const resolvedSiteId = await resolveSiteIdFromGraphql({
@@ -1910,7 +1913,7 @@ async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {})
     });
     if (resolvedSiteId) {
       siteId = resolvedSiteId;
-      if (siteId !== storedSiteId) {
+      if (normalizedBaseUrl && siteId !== storedSiteId) {
         await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
           targetConfig.siteId = siteId;
         });
@@ -1927,26 +1930,6 @@ async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {})
     siteId,
     stageBaseValue,
     tokenValue
-  };
-}
-
-async function resolvePropertyLockCandidateState(target) {
-  if (!target || !target.ok) {
-    return { ok: false, candidate: false };
-  }
-  const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
-    target.siteId,
-    target.stageBaseValue,
-    target.tokenValue
-  );
-  if (!propertyPageTypesResult.ok) {
-    return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
-  }
-  const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
-  return {
-    ok: true,
-    candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
-    candidateState
   };
 }
 
@@ -5542,13 +5525,10 @@ async function syncPropertyLockConnection(options = {}) {
     ? options.pageUrl
     : location.href;
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
-  const baseUrl = await resolveBaseUrlForCurrentPage();
-  const target = baseUrl
-    ? await resolveCurrentPropertyLockConnectionTarget(baseUrl, {
-      pageUrl,
-      forceSiteIdRefresh
-    })
-    : null;
+  const target = await resolveCurrentPropertyLockConnectionTarget({
+    pageUrl,
+    forceSiteIdRefresh
+  });
 
   if (syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
     return;
@@ -5594,14 +5574,6 @@ async function syncPropertyLockConnection(options = {}) {
       schedulePropertyLockReconnect({ forceSiteIdRefresh });
       return;
     }
-  }
-
-  const candidateState = await resolvePropertyLockCandidateState(target);
-  if (syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
-    return;
-  }
-  if (candidateState.ok && !candidateState.candidate) {
-    disconnectPropertyLockPort();
   }
 }
 
@@ -6016,6 +5988,7 @@ export function main() {
 
   initializeRemoteSupportSupportPage();
   syncRemoteSupportSessionStateFromBackground().then();
+  syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
 
   core.refreshFromTabState().then(async () => {
     // Check if URL path changed (e.g., language change on same domain)
