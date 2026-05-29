@@ -1444,6 +1444,7 @@ function renderPreviewSidebar(view, handlers) {
               {
                 type: "button",
                 class: "preview-sidebar__item-button",
+                title: item.xpath,
                 onClick: () => handlers.onPreviewItemFocus(item.xpath),
                 ref: (el) => {
                   if (active) {
@@ -1452,7 +1453,7 @@ function renderPreviewSidebar(view, handlers) {
                 }
               },
               h("span", { class: "preview-sidebar__item-index", "aria-hidden": "true" }, `${index + 1}.`),
-              h("span", { class: "preview-sidebar__item-text", title: item.text }, item.text)
+              h("span", { class: "preview-sidebar__item-text" }, item.text)
             )
           );
         })

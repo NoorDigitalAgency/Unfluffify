@@ -172,6 +172,7 @@ let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
 let deviceEmulationHotkeyBusy = false;
 const silentSelectorOriginalTitles = new WeakMap();
+const aiPreviewOriginalTitles = new WeakMap();
 
 function createAiPreviewState() {
   return {
@@ -1964,6 +1965,28 @@ function setAiPreviewItems(items) {
   syncAiPreviewClickableTargets(normalized);
 }
 
+function setAiPreviewClickableTitle(node, xpath) {
+  if (!node || node.nodeType !== 1 || typeof xpath !== "string" || !xpath) {
+    return;
+  }
+  const previous = aiPreviewOriginalTitles.get(node);
+  if (!previous || typeof previous !== "object") {
+    const hadTitle = node.hasAttribute("title");
+    aiPreviewOriginalTitles.set(node, {
+      hadTitle,
+      title: hadTitle ? (node.getAttribute("title") || "") : "",
+      previewTitle: xpath
+    });
+  } else {
+    aiPreviewOriginalTitles.set(node, {
+      hadTitle: Boolean(previous.hadTitle),
+      title: typeof previous.title === "string" ? previous.title : "",
+      previewTitle: xpath
+    });
+  }
+  node.setAttribute("title", xpath);
+}
+
 function clearAiPreviewClickableTargets() {
   if (!aiPreviewClickableNodes.size) {
     return;
@@ -1973,6 +1996,15 @@ function clearAiPreviewClickableTargets() {
       continue;
     }
     node.removeAttribute(AI_PREVIEW_CLICKABLE_ATTR);
+    const originalTitleState = aiPreviewOriginalTitles.get(node);
+    if (originalTitleState && typeof originalTitleState === "object") {
+      if (originalTitleState.hadTitle) {
+        node.setAttribute("title", originalTitleState.title || "");
+      } else if (node.getAttribute("title") === originalTitleState.previewTitle) {
+        node.removeAttribute("title");
+      }
+      aiPreviewOriginalTitles.delete(node);
+    }
   }
   aiPreviewClickableNodes.clear();
 }
@@ -1992,6 +2024,7 @@ function syncAiPreviewClickableTargets(items) {
       return;
     }
     node.setAttribute(AI_PREVIEW_CLICKABLE_ATTR, "on");
+    setAiPreviewClickableTitle(node, xpath);
     aiPreviewClickableNodes.add(node);
   });
 }
