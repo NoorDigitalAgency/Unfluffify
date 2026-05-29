@@ -48,12 +48,25 @@ test("max settle timeout still guarantees a redraw if movement never stabilizes"
   assert.equal(runSamples(samples), 21);
 });
 
-test("full active silent highlight refresh repaints even when the render key is unchanged", () => {
+test("full active silent highlight refresh repaints when the render key is unchanged", () => {
   assert.equal(
     shouldRenderSilentHighlightOverlay({
       shouldBeActive: true,
       renderChanged: false,
       positionRefreshPending: false,
+      hasOverlay: true,
+      isFullRefresh: true
+    }),
+    true
+  );
+});
+
+test("full active silent highlight refresh still repaints when positions changed", () => {
+  assert.equal(
+    shouldRenderSilentHighlightOverlay({
+      shouldBeActive: true,
+      renderChanged: false,
+      positionRefreshPending: true,
       hasOverlay: true,
       isFullRefresh: true
     }),

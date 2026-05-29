@@ -1,10 +1,6 @@
 export function shouldSelfMarkToggleableDefaultBoundary(options = {}) {
-  const hasDirectOwnText = Boolean(options.hasDirectOwnText);
   const hasVisibleTextualDescendant = Boolean(options.hasVisibleTextualDescendant);
   const hasExplicitlyMarkedDescendant = Boolean(options.hasExplicitlyMarkedDescendant);
-  if (hasDirectOwnText) {
-    return true;
-  }
   return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant;
 }
 
@@ -16,97 +12,74 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
   );
 }
 
-export function chooseExcludeParentBoundaryTarget(options = {}) {
-  const selfValue = Object.prototype.hasOwnProperty.call(options, "selfValue")
-    ? options.selfValue
-    : null;
-  if (options.selfStructuredGroup || options.selfToggleableBoundary) {
-    return selfValue;
-  }
-  if (options.selfContentBoundary) {
-    return selfValue;
-  }
-  const ancestors = Array.isArray(options.ancestors) ? options.ancestors : [];
-  const structuredGroupAncestor = ancestors.find(
-    (candidate) => candidate && candidate.isStructuredGroup && candidate.value
-  );
-  if (structuredGroupAncestor) {
-    return structuredGroupAncestor.value;
-  }
-  const toggleableAncestor = ancestors.find(
-    (candidate) => candidate && candidate.isToggleableBoundary && candidate.value
-  );
-  if (toggleableAncestor) {
-    return toggleableAncestor.value;
-  }
-  const contentBoundaryAncestor = ancestors.find(
-    (candidate) => candidate && candidate.isContentBoundary && candidate.value
-  );
-  if (contentBoundaryAncestor) {
-    return contentBoundaryAncestor.value;
-  }
-  let broadestMarkableAncestor = null;
-  ancestors.forEach((candidate) => {
-    if (candidate && candidate.isMarkable && candidate.value) {
-      broadestMarkableAncestor = candidate.value;
-    }
-  });
-  return broadestMarkableAncestor;
-}
-
-export function isValidExpandedExclusionBoundary(options = {}) {
-  const hasDirectOwnText = Boolean(options.hasDirectOwnText);
-  const hasDirectTextualBoundary = Boolean(options.hasDirectTextualBoundary);
-  const qualifyingChildBoundaryCount = Math.max(
-    0,
-    Math.trunc(Number(options.qualifyingChildBoundaryCount) || 0)
-  );
-  const hasOnlyLayoutWrapperChain = Boolean(options.hasOnlyLayoutWrapperChain);
-  const hasMixedSiblingContent = Boolean(options.hasMixedSiblingContent);
-  const hasAdjacentVisualSiblingPair = Boolean(options.hasAdjacentVisualSiblingPair);
-  const isSectionLikeUnit = Boolean(options.isSectionLikeUnit);
-  if (hasDirectOwnText || hasDirectTextualBoundary) {
-    return true;
-  }
-  if (hasOnlyLayoutWrapperChain) {
-    return false;
-  }
-  if (hasMixedSiblingContent && !hasAdjacentVisualSiblingPair) {
-    return false;
-  }
-  return qualifyingChildBoundaryCount >= 2 || (hasAdjacentVisualSiblingPair && isSectionLikeUnit);
-}
-
-export function shouldBlockExpandedExclusionRoot(options = {}) {
-  return Boolean(options.isBody || options.isSoleVisualBodyWrapper);
-}
-
 export function getExplicitMarkingRenderOptions() {
   return {
-    delay: 0,
-    minInterval: 0,
-    invalidate: true
+    delay: 80,
+    minInterval: 200,
+    invalidate: false,
+    reason: "explicit-toggle-reposition"
   };
 }
 
-export function shouldAllowExplicitIncludeDescendantTarget(options = {}) {
-  if (!options.insideExplicitIncludeAncestor) {
+export function getExplicitMarkingFullRenderOptions() {
+  return {
+    delay: 120,
+    minInterval: 500,
+    invalidate: true,
+    reason: "explicit-toggle-full-rebuild"
+  };
+}
+
+export function filterDefaultElementsForExplicitMarks(defaultElements = [], explicitElements = []) {
+  if (!Array.isArray(defaultElements) || defaultElements.length === 0) {
+    return [];
+  }
+  if (!Array.isArray(explicitElements) || explicitElements.length === 0) {
+    return defaultElements;
+  }
+  return defaultElements.filter((defaultElement) => {
+    if (!defaultElement) {
+      return false;
+    }
+    return !explicitElements.some((explicitElement) => {
+      if (!explicitElement) {
+        return false;
+      }
+      return defaultElement === explicitElement ||
+        (typeof defaultElement.contains === "function" && defaultElement.contains(explicitElement)) ||
+        (typeof explicitElement.contains === "function" && explicitElement.contains(defaultElement));
+    });
+  });
+}
+
+export const USER_TOGGLE_DUPLICATE_WINDOW_MS = 320;
+
+export function shouldIgnoreDuplicateUserToggle(options = {}) {
+  const {
+    targetXpath = "",
+    mode = "exclude",
+    now = 0,
+    inFlightKey = "",
+    lastActionKey = "",
+    lastActionAt = 0
+  } = options;
+  if (!targetXpath) {
+    return false;
+  }
+  const key = `${mode}:${targetXpath}`;
+  if (inFlightKey && inFlightKey === key) {
     return true;
   }
-  return Boolean(options.isExactExplicitInclude);
+  if (!lastActionKey || lastActionKey !== key) {
+    return false;
+  }
+  return now - lastActionAt <= USER_TOGGLE_DUPLICATE_WINDOW_MS;
 }
 
 export function getExplicitMarkingPresentation(options = {}) {
   const type = options.type === "include" ? "include" : "exclude";
-  const visible = Boolean(options.visible);
-  if (visible) {
-    return {
-      ghost: false,
-      className: type === "include" ? "uf-explicit-include" : "uf-explicit-exclude"
-    };
-  }
   return {
-    ghost: true,
-    className: type === "include" ? "uf-ghost-include" : "uf-ghost-exclude"
+    ghost: false,
+    className: type === "include" ? "uf-explicit-include" : "uf-explicit-exclude"
   };
 }

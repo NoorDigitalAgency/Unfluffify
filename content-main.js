@@ -42,6 +42,12 @@ import {
   sampleSettledSilentHighlightPosition
 } from "./content/silent-highlight-rules.js";
 import {
+  collectCachedSelectorMatches,
+  SELECTOR_LIST_DELIMITER,
+  getSelectorFingerprint,
+  invalidateSharedSelectorCache
+} from "./content/shared-selector-cache.js";
+import {
   isAiSubmissionDocumentRootXpath,
   resolveAiSubmissionRowState
 } from "./content/submission-rules.js";
@@ -111,12 +117,13 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "open"
 ]);
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
-  "class",
-  "style",
   "hidden",
   "aria-hidden",
   "open"
 ]);
+// Record Separator keeps the composite suppression fingerprint separate from
+// the selector fingerprint's Unit Separator without colliding with selector text.
+const SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR = "\u001e";
 
 let silentHighlightingUrlTimer = 0;
 
@@ -1839,75 +1846,6 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     };
   }
 
-  async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
-    const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
-      ? options.pageUrl
-      : location.href;
-    const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
-    if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
-      return { ok: false, reason: "not_in_base_url" };
-    }
-
-    const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
-    if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
-      return { ok: false, reason: "missing_lock_settings" };
-    }
-
-    const currentConfigs = await config.getConfigs();
-    const normalizedConfig = config.normalizeConfig(
-      normalizedBaseUrl,
-      currentConfigs[normalizedBaseUrl]
-    ).config;
-    const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
-    let siteId = storedSiteId;
-    if (Boolean(options.forceSiteIdRefresh) || !siteId) {
-      const resolvedSiteId = await resolveSiteIdFromGraphql({
-        stageBase: stageBaseValue,
-        pageUrl,
-        tokenValue
-      });
-      if (resolvedSiteId) {
-        siteId = resolvedSiteId;
-        if (siteId !== storedSiteId) {
-          await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
-            targetConfig.siteId = siteId;
-          });
-        }
-      }
-    }
-    if (!siteId) {
-      return { ok: false, reason: "missing_site_id" };
-    }
-    return {
-      ok: true,
-      baseUrl: normalizedBaseUrl,
-      pageUrl,
-      siteId,
-      stageBaseValue,
-      tokenValue
-    };
-  }
-
-  async function resolvePropertyLockCandidateState(target) {
-    if (!target || !target.ok) {
-      return { ok: false, candidate: false };
-    }
-    const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
-      target.siteId,
-      target.stageBaseValue,
-      target.tokenValue
-    );
-    if (!propertyPageTypesResult.ok) {
-      return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
-    }
-    const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
-    return {
-      ok: true,
-      candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
-      candidateState
-    };
-  }
-
   const candidateState = getCurrentPageCandidateState(pageUrl, propertyPageTypesResult.pageTypes);
   if (candidateState.status === "empty") {
     return { ok: false, reason: "Live Pages are not prepared for this site yet." };
@@ -1924,6 +1862,75 @@ async function resolveCurrentLivePageTarget(baseUrl, options = {}) {
     baseUrl: normalizedBaseUrl,
     siteId,
     pageType: candidateState.pageTypeKey,
+    candidateState
+  };
+}
+
+async function resolveCurrentPropertyLockConnectionTarget(baseUrl, options = {}) {
+  const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
+    ? options.pageUrl
+    : location.href;
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, normalizedBaseUrl)) {
+    return { ok: false, reason: "not_in_base_url" };
+  }
+
+  const { stageBaseValue, tokenValue } = await loadGlobalAiSettingsForContent();
+  if (!normalizeStageBaseValue(stageBaseValue) || !tokenValue) {
+    return { ok: false, reason: "missing_lock_settings" };
+  }
+
+  const currentConfigs = await config.getConfigs();
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    currentConfigs[normalizedBaseUrl]
+  ).config;
+  const storedSiteId = normalizeSiteIdValue(normalizedConfig.siteId);
+  let siteId = storedSiteId;
+  if (Boolean(options.forceSiteIdRefresh) || !siteId) {
+    const resolvedSiteId = await resolveSiteIdFromGraphql({
+      stageBase: stageBaseValue,
+      pageUrl,
+      tokenValue
+    });
+    if (resolvedSiteId) {
+      siteId = resolvedSiteId;
+      if (siteId !== storedSiteId) {
+        await config.updateConfig(normalizedBaseUrl, (targetConfig) => {
+          targetConfig.siteId = siteId;
+        });
+      }
+    }
+  }
+  if (!siteId) {
+    return { ok: false, reason: "missing_site_id" };
+  }
+  return {
+    ok: true,
+    baseUrl: normalizedBaseUrl,
+    pageUrl,
+    siteId,
+    stageBaseValue,
+    tokenValue
+  };
+}
+
+async function resolvePropertyLockCandidateState(target) {
+  if (!target || !target.ok) {
+    return { ok: false, candidate: false };
+  }
+  const propertyPageTypesResult = await fetchPropertyPageTypesForSiteId(
+    target.siteId,
+    target.stageBaseValue,
+    target.tokenValue
+  );
+  if (!propertyPageTypesResult.ok) {
+    return { ok: false, candidate: true, reason: propertyPageTypesResult.reason || "" };
+  }
+  const candidateState = getCurrentPageCandidateState(target.pageUrl, propertyPageTypesResult.pageTypes);
+  return {
+    ok: true,
+    candidate: candidateState.status === "candidate" && Boolean(candidateState.pageTypeKey),
     candidateState
   };
 }
@@ -3205,20 +3212,24 @@ function startSilentHighlightingObserver() {
       if (!shouldRefreshForSilentMutation(mutation)) {
         continue;
       }
-      if (mutation.type === "attributes") {
-        const attributeName = mutation.attributeName || "";
-        if (SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(attributeName)) {
-          if (mutationTargetTouchesSilentCollections(mutation.target)) {
-            needsPositionRefresh = true;
-          }
-          continue;
+      if (mutation.type !== "attributes") {
+        needsFullRefresh = true;
+        break;
+      }
+      const attributeName = mutation.attributeName || "";
+      if (SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS.has(attributeName)) {
+        if (mutationTargetTouchesSilentCollections(mutation.target)) {
+          needsPositionRefresh = true;
         }
+        continue;
       }
       needsFullRefresh = true;
       break;
     }
 
-    if (needsFullRefresh) {
+if (needsFullRefresh) {
+      invalidateSharedSelectorCache({ domStructure: true });
+      silentHighlightingPositionRefreshPending = true;
       scheduleSilentHighlightingsRefresh();
       return;
     }
@@ -3331,9 +3342,9 @@ function restoreAiPreviewDraftState(restoreState) {
     delete state.config.pageMarkings[pageUrl];
   }
   core.setSavedPageEntry(pageUrl, restoreState.previousSavedEntry || null);
+  core.state.autoSeedSuppressedPageUrl = previousDraftEntry ? "" : pageUrl;
   state.autoSeededPendingSavePageUrl =
     restoreState.previousAutoSeededPendingSavePageUrl || "";
-  state.suppressNextAutoSeedFromAiSelectors = true;
 }
 
 function scheduleAiComputeLockRelease(expiresAt) {
@@ -3488,32 +3499,33 @@ function isSuppressedSelectorNode(node, suppressedBoundaries) {
   );
 }
 
+function getSuppressedSelectorFingerprint(suppressedXpaths) {
+  if (!Array.isArray(suppressedXpaths)) {
+    return "";
+  }
+  return suppressedXpaths
+    .filter((xpath) => typeof xpath === "string" && xpath)
+    .slice()
+    .sort()
+    .join(SELECTOR_LIST_DELIMITER);
+}
+
 function collectNodesFromSelectors(selectors, options = {}) {
-  const nodes = new Set();
-  const selectorByNode = new Map();
   const suppressedBoundaries = resolveSuppressedSelectorBoundaries(options.suppressedXpaths);
-  (Array.isArray(selectors) ? selectors : []).forEach((rawSelector) => {
-    if (typeof rawSelector !== "string") {
-      return;
-    }
-    const selector = rawSelector.trim();
-    if (!selector) {
-      return;
-    }
-    try {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (!isExtensionUiNode(node) && !isSuppressedSelectorNode(node, suppressedBoundaries)) {
-          nodes.add(node);
-          if (!selectorByNode.has(node)) {
-            selectorByNode.set(node, selector);
-          }
-        }
-      });
-    } catch {
-      // Ignore invalid selectors
-    }
+  return collectCachedSelectorMatches({
+    root: document,
+    selectors,
+    pageUrl: location.href,
+    scope: "silent-highlight-selectors",
+    suppressionFingerprint: [
+      getSelectorFingerprint(selectors),
+      getSuppressedSelectorFingerprint(options.suppressedXpaths)
+    ].join(SELECTOR_CACHE_SCOPE_FINGERPRINT_SEPARATOR),
+    includeSelectorByNode: true,
+    shouldIncludeNode: (node) =>
+      !isExtensionUiNode(node) &&
+      !isSuppressedSelectorNode(node, suppressedBoundaries)
   });
-  return { nodes, selectorByNode };
 }
 
 function resolveSelectorForNode(node, selectorByNode, allowAncestorMatch = false) {

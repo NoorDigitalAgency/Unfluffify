@@ -6,10 +6,8 @@ export function shouldRenderSilentHighlightOverlay(options = {}) {
   if (!shouldBeActive) {
     return false;
   }
-  if (options.isFullRefresh) {
-    return true;
-  }
   return Boolean(
+    options.isFullRefresh ||
     options.renderChanged ||
     options.positionRefreshPending ||
     !options.hasOverlay

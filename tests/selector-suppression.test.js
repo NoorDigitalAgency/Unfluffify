@@ -21,6 +21,37 @@ test("core render path and silent highlighting both honor selector suppression x
   assert.match(coreSource, /collectIncludedElementsFromSelectorSet\(normalizedAiSelectorSet, \{[\s\S]*?suppressedXpaths: selectorSuppressedXpaths/);
 });
 
+test("marking mode suppresses default marks inside selector-excluded AI regions", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(coreSource, /for \(const el of aiCollections\.excluded \|\| \[\]\) \{/);
+  assert.match(
+    coreSource,
+    /if \(explicitInclude\.has\(el\) \|\| isWithinElementSet\(el, explicitInclude\)\) \{\s*continue;\s*\}/
+  );
+  assert.match(
+    coreSource,
+    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.selectorExcludedSet[\s\S]*?\]\);/
+  );
+  assert.match(
+    coreSource,
+    /excludedAncestorSet: new Set\(\[[\s\S]*?\.\.\.selectorExcludedSet[\s\S]*?\]\)/
+  );
+});
+
+test("marking logic docs describe AI selector exclusions as default-suppression only", () => {
+  const docSource = readFileSync(
+    new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
+    "utf8"
+  );
+
+  assert.doesNotMatch(docSource, /^- AI excluded content elements$/m);
+  assert.match(
+    docSource,
+    /AI excluded content is still collected to suppress default marking inside selector-excluded regions, but it is not rendered as a dedicated overlay layer\./
+  );
+});
+
 test("page-scoped selector suppression lookup normalizes equivalent page URLs", () => {
   const originalBaseUrl = state.baseUrl;
   state.baseUrl = "https://example.test/";

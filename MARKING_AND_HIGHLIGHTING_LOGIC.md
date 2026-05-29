@@ -293,8 +293,9 @@ The rendered overlay is split into these logical collections:
 - explicit exclude elements
 - explicit include elements
 - AI content elements
-- AI excluded content elements
 - default elements
+
+AI excluded content is still collected to suppress default marking inside selector-excluded regions, but it is not rendered as a dedicated overlay layer.
 
 ### Ghost explicit elements
 
@@ -326,6 +327,12 @@ These come from:
 
 - explicit include elements that are also part of the AI-included content model,
 - implicit AI-included XPath items stored as `excluded === false`.
+
+### AI excluded content
+
+These come from the resolved AI exclusion selectors after selector-suppressed XPath overrides are removed and explicit include boundaries are honored.
+
+They are used to suppress default marking targets inside selector-excluded regions, but they do not render as a separate marking-mode layer.
 
 ### Default elements
 

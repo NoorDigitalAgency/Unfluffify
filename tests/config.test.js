@@ -7,7 +7,8 @@ import {
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
   normalizePageSaveReconciliation,
-  normalizeConfig
+  normalizeConfig,
+  normalizeConfigSyncPayload
 } from "../common/config.js";
 
 test("normalizeConfig preserves legacy page markings without pageType for later candidate reconciliation", () => {
@@ -151,6 +152,12 @@ test("page marking selector suppression xpaths are normalized and included in sy
   const payload = createConfigSyncPayload("https://example.com", normalized);
   assert.deepEqual(
     payload.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
+    ["/html/body/main/section"]
+  );
+
+  const roundTripped = normalizeConfigSyncPayload(payload, "https://example.com");
+  assert.deepEqual(
+    roundTripped.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
     ["/html/body/main/section"]
   );
 });

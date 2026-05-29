@@ -2,42 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  chooseExcludeParentBoundaryTarget,
-  getExplicitMarkingRenderOptions,
+  filterDefaultElementsForExplicitMarks,
+  getExplicitMarkingFullRenderOptions,
   getExplicitMarkingPresentation,
-  isValidExpandedExclusionBoundary,
-  shouldAllowExplicitIncludeDescendantTarget,
+  getExplicitMarkingRenderOptions,
+  shouldIgnoreDuplicateUserToggle,
   shouldAutoSeedMarkingsFromAiSelectors,
-  shouldBlockExpandedExclusionRoot,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
 
-test("direct-text toggleable defaults remain self-markable with descendants", () => {
+test("toggleable default boundary self-marks when no visible textual descendant and no explicitly marked descendant", () => {
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
-      hasDirectOwnText: true,
-      hasVisibleTextualDescendant: true,
-      hasExplicitlyMarkedDescendant: false
-    }),
-    true
-  );
-});
-
-test("toggleable defaults without direct text stay blocked by textual descendants", () => {
-  assert.equal(
-    shouldSelfMarkToggleableDefaultBoundary({
-      hasDirectOwnText: false,
-      hasVisibleTextualDescendant: true,
-      hasExplicitlyMarkedDescendant: false
-    }),
-    false
-  );
-});
-
-test("toggleable defaults without descendants can self-mark", () => {
-  assert.equal(
-    shouldSelfMarkToggleableDefaultBoundary({
-      hasDirectOwnText: false,
       hasVisibleTextualDescendant: false,
       hasExplicitlyMarkedDescendant: false
     }),
@@ -45,7 +21,47 @@ test("toggleable defaults without descendants can self-mark", () => {
   );
 });
 
-test("preview restore suppresses one-shot AI auto-seeding for unmarked pages", () => {
+test("toggleable default boundary is blocked when a visible textual descendant exists", () => {
+  assert.equal(
+    shouldSelfMarkToggleableDefaultBoundary({
+      hasVisibleTextualDescendant: true,
+      hasExplicitlyMarkedDescendant: false
+    }),
+    false
+  );
+});
+
+test("toggleable default boundary is blocked when an explicitly marked descendant exists", () => {
+  assert.equal(
+    shouldSelfMarkToggleableDefaultBoundary({
+      hasVisibleTextualDescendant: false,
+      hasExplicitlyMarkedDescendant: true
+    }),
+    false
+  );
+});
+
+test("AI auto-seed runs for unmarked pages that have AI selectors", () => {
+  assert.equal(
+    shouldAutoSeedMarkingsFromAiSelectors({
+      hasAiSelectors: true,
+      hasSavedMarkingsForPage: false
+    }),
+    true
+  );
+});
+
+test("AI auto-seed is skipped when the page already has saved markings", () => {
+  assert.equal(
+    shouldAutoSeedMarkingsFromAiSelectors({
+      hasAiSelectors: true,
+      hasSavedMarkingsForPage: true
+    }),
+    false
+  );
+});
+
+test("AI auto-seed is skipped when the page is temporarily suppressed", () => {
   assert.equal(
     shouldAutoSeedMarkingsFromAiSelectors({
       hasAiSelectors: true,
@@ -56,212 +72,129 @@ test("preview restore suppresses one-shot AI auto-seeding for unmarked pages", (
   );
 });
 
-test("AI auto-seeding still runs for unmarked pages outside preview restore", () => {
+test("AI auto-seed is skipped when there are no AI selectors", () => {
   assert.equal(
     shouldAutoSeedMarkingsFromAiSelectors({
-      hasAiSelectors: true,
-      hasSavedMarkingsForPage: false,
-      suppressAutoSeed: false
-    }),
-    true
-  );
-});
-
-test("structured group boundaries win immediately on direct Shift selection", () => {
-  const boundary = { name: "benefits-list" };
-  assert.equal(
-    chooseExcludeParentBoundaryTarget({
-      selfValue: boundary,
-      selfStructuredGroup: true,
-      selfToggleableBoundary: false,
-      ancestors: []
-    }),
-    boundary
-  );
-});
-
-test("directly clicked toggleable defaults win immediately on Shift selection", () => {
-  const boundary = { name: "form" };
-  assert.equal(
-    chooseExcludeParentBoundaryTarget({
-      selfValue: boundary,
-      selfStructuredGroup: false,
-      selfToggleableBoundary: true,
-      ancestors: []
-    }),
-    boundary
-  );
-});
-
-test("nearest structured group ancestor wins over broader candidates", () => {
-  const nearestStructured = { name: "button-group" };
-  const broaderToggleable = { name: "aside" };
-  assert.equal(
-    chooseExcludeParentBoundaryTarget({
-      selfValue: null,
-      ancestors: [
-        { value: nearestStructured, isStructuredGroup: true, isToggleableBoundary: false, isMarkable: false },
-        { value: broaderToggleable, isStructuredGroup: false, isToggleableBoundary: true, isMarkable: false }
-      ]
-    }),
-    nearestStructured
-  );
-});
-
-test("nearest nested toggleable default ancestor wins over broadest toggleable ancestor", () => {
-  const form = { name: "form" };
-  const aside = { name: "aside" };
-  assert.equal(
-    chooseExcludeParentBoundaryTarget({
-      selfValue: null,
-      ancestors: [
-        { value: form, isStructuredGroup: false, isToggleableBoundary: true, isMarkable: false },
-        { value: aside, isStructuredGroup: false, isToggleableBoundary: true, isMarkable: false }
-      ]
-    }),
-    form
-  );
-});
-
-test("nearest cohesive content boundary wins over a broader generic markable ancestor", () => {
-  const nearestContentBoundary = { name: "section" };
-  const broadestMarkable = { name: "article" };
-  assert.equal(
-    chooseExcludeParentBoundaryTarget({
-      selfValue: null,
-      ancestors: [
-        {
-          value: nearestContentBoundary,
-          isStructuredGroup: false,
-          isToggleableBoundary: false,
-          isContentBoundary: true,
-          isMarkable: true
-        },
-        { value: broadestMarkable, isStructuredGroup: false, isToggleableBoundary: false, isMarkable: true }
-      ]
-    }),
-    nearestContentBoundary
-  );
-});
-
-test("expanded exclusion boundaries allow cohesive grouped content without direct own text", () => {
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: false,
-      hasDirectTextualBoundary: false,
-      qualifyingChildBoundaryCount: 0
-    }),
-    false
-  );
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: false,
-      hasDirectTextualBoundary: false,
-      qualifyingChildBoundaryCount: 2,
-      hasOnlyLayoutWrapperChain: false,
-      hasMixedSiblingContent: false
-    }),
-    true
-  );
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: true,
-      hasDirectTextualBoundary: false
-    }),
-    true
-  );
-});
-
-test("expanded exclusion boundaries allow a single adjacent visual sibling pair", () => {
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: false,
-      hasDirectTextualBoundary: false,
-      qualifyingChildBoundaryCount: 1,
-      hasOnlyLayoutWrapperChain: false,
-      hasMixedSiblingContent: true,
-      hasAdjacentVisualSiblingPair: true,
-      isSectionLikeUnit: true
-    }),
-    true
-  );
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: false,
-      hasDirectTextualBoundary: false,
-      qualifyingChildBoundaryCount: 1,
-      hasOnlyLayoutWrapperChain: false,
-      hasMixedSiblingContent: true,
-      hasAdjacentVisualSiblingPair: true,
-      isSectionLikeUnit: false
+      hasAiSelectors: false,
+      hasSavedMarkingsForPage: false
     }),
     false
   );
 });
 
-test("expanded exclusion boundaries still block broader mixed sibling wrappers without the narrow pair escape hatch", () => {
-  assert.equal(
-    isValidExpandedExclusionBoundary({
-      hasDirectOwnText: false,
-      hasDirectTextualBoundary: false,
-      qualifyingChildBoundaryCount: 1,
-      hasOnlyLayoutWrapperChain: false,
-      hasMixedSiblingContent: true,
-      hasAdjacentVisualSiblingPair: false
-    }),
-    false
-  );
-});
-
-test("expanded exclusions block body and sole visual body wrapper roots", () => {
-  assert.equal(shouldBlockExpandedExclusionRoot({ isBody: true }), true);
-  assert.equal(shouldBlockExpandedExclusionRoot({ isSoleVisualBodyWrapper: true }), true);
-  assert.equal(shouldBlockExpandedExclusionRoot({ isBody: false, isSoleVisualBodyWrapper: false }), false);
-});
-
-test("explicit marking renders are scheduled for immediate invalidated feedback", () => {
+test("explicit marking renders use cached collections before the deferred rebuild", () => {
   assert.deepEqual(getExplicitMarkingRenderOptions(), {
-    delay: 0,
-    minInterval: 0,
-    invalidate: true
+    delay: 80,
+    minInterval: 200,
+    invalidate: false,
+    reason: "explicit-toggle-reposition"
   });
 });
 
-test("explicit include descendants are blocked until the include boundary is removed", () => {
-  assert.equal(
-    shouldAllowExplicitIncludeDescendantTarget({
-      insideExplicitIncludeAncestor: true,
-      isExactExplicitInclude: false
-    }),
-    false
+test("explicit marking full renders are invalidating and rate-limited", () => {
+  assert.deepEqual(getExplicitMarkingFullRenderOptions(), {
+    delay: 120,
+    minInterval: 500,
+    invalidate: true,
+    reason: "explicit-toggle-full-rebuild"
+  });
+});
+
+test("explicit marking refresh removes stale related default elements", () => {
+  const parent = {
+    name: "parent",
+    contains(element) {
+      return element === child;
+    }
+  };
+  const child = {
+    name: "child",
+    contains() {
+      return false;
+    }
+  };
+  const sibling = {
+    name: "sibling",
+    contains() {
+      return false;
+    }
+  };
+
+  assert.deepEqual(
+    filterDefaultElementsForExplicitMarks([parent, child, sibling], [parent]),
+    [sibling]
   );
-  assert.equal(
-    shouldAllowExplicitIncludeDescendantTarget({
-      insideExplicitIncludeAncestor: true,
-      isExactExplicitInclude: true
-    }),
-    true
+  assert.deepEqual(
+    filterDefaultElementsForExplicitMarks([parent, child, sibling], [child]),
+    [sibling]
   );
+});
+
+test("duplicate user toggles on the same target and mode are ignored in a short window", () => {
   assert.equal(
-    shouldAllowExplicitIncludeDescendantTarget({
-      insideExplicitIncludeAncestor: false,
-      isExactExplicitInclude: false
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "exclude",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 780
     }),
     true
   );
 });
 
-test("hidden explicit markings use ghost presentation classes", () => {
-  assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "include", visible: false }),
-    { ghost: true, className: "uf-ghost-include" }
+test("duplicate user toggles are ignored while the same target and mode is in-flight", () => {
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "include",
+      now: 2000,
+      inFlightKey: "include:/HTML/BODY/DIV[1]"
+    }),
+    true
   );
-  assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "exclude", visible: false }),
-    { ghost: true, className: "uf-ghost-exclude" }
+});
+
+test("fast repeated clicks on a different mode or target still proceed", () => {
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[1]",
+      mode: "include",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 900
+    }),
+    false
   );
+  assert.equal(
+    shouldIgnoreDuplicateUserToggle({
+      targetXpath: "/HTML/BODY/DIV[2]",
+      mode: "exclude",
+      now: 1000,
+      lastActionKey: "exclude:/HTML/BODY/DIV[1]",
+      lastActionAt: 900
+    }),
+    false
+  );
+});
+
+test("explicit include presentation uses the non-ghost include class", () => {
   assert.deepEqual(
-    getExplicitMarkingPresentation({ type: "include", visible: true }),
+    getExplicitMarkingPresentation({ type: "include" }),
     { ghost: false, className: "uf-explicit-include" }
+  );
+});
+
+test("explicit exclude presentation uses the non-ghost exclude class", () => {
+  assert.deepEqual(
+    getExplicitMarkingPresentation({ type: "exclude" }),
+    { ghost: false, className: "uf-explicit-exclude" }
+  );
+});
+
+test("explicit marking presentation defaults to exclude when type is unrecognised", () => {
+  assert.deepEqual(
+    getExplicitMarkingPresentation({}),
+    { ghost: false, className: "uf-explicit-exclude" }
   );
 });
