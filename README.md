@@ -2,7 +2,7 @@
 
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
-The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md).
+The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked b9-compatible contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
 ## Packaging Workflow
@@ -62,6 +62,12 @@ The script uses Node's built-in test runner with `--test-force-exit` so mocked e
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.
 The remote-support regressions also cover tab-scoped background state, concurrent offscreen transport sessions, view-only display sharing, page-world telemetry bridging, extension-side telemetry with headers/timing, and dismissible session notices.
+
+For marking-rule work, also run the focused guard suite:
+
+```bash
+node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+```
 
 ## Project Structure
 

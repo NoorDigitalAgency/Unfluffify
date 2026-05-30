@@ -29,11 +29,14 @@
 
 ## Marking and Highlighting Rules
 
+- The marking rules are a locked compatibility contract. Do not change taxonomy, target resolution, sync semantics, overlay projection, or default-exclusion behavior unless the user explicitly requests a marking-rules contract change.
+- Any legitimate marking contract change must update `MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`, `.copilot/plan.md`, `README.md`, and focused regression tests in the same commit.
 - Marking rules are anchored to commit `b9c86238b08dd0b0ee0231fcab7b214625e29670`: plain exclude clicks do not promote default-excluded boundaries to explicit includes.
 - Expanded exclusion targets are eligible when they own direct text or contain at least one self-markable descendant, matching the b9 parent-selection behavior.
 - Toggleable default exclusions are `FOOTER`, `FORM`, `LABEL`, `NAV`, `HEADER`, `DIALOG`, and `ASIDE`; `BUTTON` is immutable and `LINK` is not default-excluded.
 - Exclude clicks drill into markable descendants inside active toggleable default boundaries; the generated default ancestor is stored as `excluded: false` while the descendant becomes explicit. Blank/default-boundary clicks can still unmark the boundary itself.
-- Toggleable default exclusions have no separate visual layer: after sync decides a default boundary is excluded, it renders through the ordinary exclude marking path.
+- Toggleable defaults differ from user/CSS-selected exclusions only during the inclusion/exclusion decision. After sync decides a default boundary is excluded, it renders through the ordinary exclude marking path.
+- Toggleable default exclusions must not have a dedicated visual layer, CSS class, render collection, or post-hoc overlay rule.
 - A stored toggleable default row with `excluded: false` unmarks only that boundary without becoming a full explicit include subtree.
 - Stored unexcluded default boundaries also suppress their own default-layer marking, but not their descendants, to avoid visual-only ancestor ghosts around explicit descendant marks.
 - Default-layer collection remains b9-like and is not globally filtered by visible explicit marks; broad filtering can make implicit descendants flicker on alternating toggles.

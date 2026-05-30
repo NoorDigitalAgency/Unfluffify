@@ -113,6 +113,27 @@ test("marking mode renders synced default exclusions as ordinary exclude marking
   );
 });
 
+test("marking runtime keeps default exclusions decision-only", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const defaultLayerStart = coreSource.indexOf("export function collectDefaultLayerElements");
+  const defaultLayerEnd = coreSource.indexOf("function collectSelectorElements", defaultLayerStart);
+  const defaultLayerSource = coreSource.slice(defaultLayerStart, defaultLayerEnd);
+  const explicitCollectorStart = coreSource.indexOf("function collectExplicitMarkingElements");
+  const explicitCollectorEnd = coreSource.indexOf("export function collectStoredUnexcludedToggleableDefaultElements", explicitCollectorStart);
+  const explicitCollectorSource = coreSource.slice(explicitCollectorStart, explicitCollectorEnd);
+
+  assert.doesNotMatch(coreSource, /default-toggle|uf-hard-toggle|default-toggle-exclude/);
+  assert.doesNotMatch(coreSource, /defaultExcludedToggleElements/);
+  assert.doesNotMatch(coreSource, /filterDefaultElementsForExplicitMarks/);
+  assert.doesNotMatch(defaultLayerSource, /toggleableDefaultExcluded/);
+  assert.doesNotMatch(defaultLayerSource, /options\.toggleableDefaultExcluded/);
+  assert.doesNotMatch(explicitCollectorSource, /isStoredExcludeStateUserModified/);
+  assert.match(
+    coreSource,
+    /const storedUnexcludedToggleableDefaultElements =\s*collectStoredUnexcludedToggleableDefaultElements\(entry\);/
+  );
+});
+
 test("marking mode refresh reconciles default rows before drawing ordinary overlays", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshStart = coreSource.indexOf("function refreshExplicitMarkingOverlay");
@@ -223,6 +244,41 @@ test("marking logic docs describe selector exclusions as element-only default su
     docSource,
     /fast explicit-toggle overlay refreshes must run page\s+marking synchronization before collecting overlays/i
   );
+});
+
+test("marking contract is locked across docs, memory, plan, and README", () => {
+  const docSource = readFileSync(
+    new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
+    "utf8"
+  );
+  const knowledgeSource = readFileSync(
+    new URL("../.copilot/knowledge.md", import.meta.url),
+    "utf8"
+  );
+  const planSource = readFileSync(
+    new URL("../.copilot/plan.md", import.meta.url),
+    "utf8"
+  );
+  const readmeSource = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const constantsSource = readFileSync(
+    new URL("../common/constants.js", import.meta.url),
+    "utf8"
+  );
+
+  for (const source of [docSource, knowledgeSource]) {
+    assert.match(source, /locked (?:compatibility )?contract/i);
+    assert.match(source, /explicit(?:ly)? (?:asks|requests|requested|instructed)/i);
+    assert.match(source, /b9c86238b08dd0b0ee0231fcab7b214625e29670/);
+    assert.match(source, /no separate visual layer|must not have a dedicated visual layer/i);
+    assert.match(source, /ordinary exclude marking path|ordinary exclude overlay/i);
+  }
+  assert.match(docSource, /Toggleable defaults differ from user\/CSS-selected exclusions only while the\s+excluded\/included state is being decided/i);
+  assert.match(docSource, /Any legitimate contract change must update this document, `\.copilot\/knowledge\.md`,\s+`\.copilot\/plan\.md`, `README\.md`, and the focused regression tests/i);
+  assert.match(planSource, /Marking Contract Lock/);
+  assert.match(planSource, /Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks/i);
+  assert.match(readmeSource, /locked b9-compatible contract/i);
+  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/marking-rules\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
+  assert.match(constantsSource, /locked b9-compatible marking contract/);
 });
 
 test("page-scoped selector suppression lookup normalizes equivalent page URLs", () => {

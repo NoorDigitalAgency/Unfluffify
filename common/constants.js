@@ -49,6 +49,8 @@ const DEFAULT_EXCLUDED_TAG_SELECTORS = [
 
 /**
  * Tags that can be toggled between excluded and included by users.
+ * This taxonomy is part of the locked b9-compatible marking contract.
+ * Do not change it without an explicit marking-rules contract change.
  * @type {string[]}
  */
 export const DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS = [

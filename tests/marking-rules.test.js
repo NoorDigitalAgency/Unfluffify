@@ -113,6 +113,29 @@ test("b9 parent marking accepts a wrapper with one markable descendant", () => {
 });
 
 test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded", () => {
+  assert.deepEqual(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS, [
+    "FOOTER",
+    "FORM",
+    "LABEL",
+    "NAV",
+    "HEADER",
+    "DIALOG",
+    "ASIDE"
+  ]);
+  assert.deepEqual(DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS, [
+    "IMG",
+    "BUTTON",
+    "INPUT",
+    "NOSCRIPT",
+    "SELECT",
+    "TITLE",
+    "STYLE",
+    "SCRIPT",
+    "TEMPLATE",
+    "IFRAME",
+    "VIDEO"
+  ]);
+
   const toggleable = new Set(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS);
   const immutable = new Set(DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS);
   for (const tag of ["FOOTER", "FORM", "LABEL", "NAV", "HEADER", "DIALOG", "ASIDE"]) {

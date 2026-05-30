@@ -3,6 +3,33 @@
 This document is the source of truth for the marking rules restored from
 `b9c86238b08dd0b0ee0231fcab7b214625e29670`.
 
+## Locked Contract
+
+The marking rules in this document are a locked compatibility contract. Do not
+change the taxonomy, target resolution, sync semantics, overlay projection, or
+default-exclusion behavior unless the user explicitly asks for a marking-rules
+contract change.
+
+Any legitimate contract change must update this document, `.copilot/knowledge.md`,
+`.copilot/plan.md`, `README.md`, and the focused regression tests in the same
+commit. A change that only patches rendering, caching, hover targeting, or sync
+output is not sufficient if it alters the rules below.
+
+Non-negotiable invariants:
+
+- Toggleable defaults differ from user/CSS-selected exclusions only while the
+  excluded/included state is being decided.
+- After that decision, default exclusions are ordinary `{ xpath, excluded: true }`
+  rows and render through the ordinary exclude overlay.
+- Toggleable default exclusions must not have a dedicated visual layer, CSS
+  class, render collection, or post-hoc overlay rule.
+- A stored `{ xpath, excluded: false }` row for a toggleable default unmarks only
+  that exact boundary. It suppresses that boundary's own implicit/default
+  marking, but it does not suppress descendants or become a subtree include.
+- Fast refresh, caching, or performance work may only be an adaptation layer over
+  the b9 rules. It must sync page markings before drawing and must not create a
+  second source of marking truth.
+
 The implementation is split across:
 
 - `content/core.js` for DOM targeting, synchronization, and overlay rendering.
