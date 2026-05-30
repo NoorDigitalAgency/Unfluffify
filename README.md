@@ -3,6 +3,7 @@
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
 The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
+Property edit-lock ownership, takeover, heartbeat, and observer-refresh behavior is documented in [PROPERTY_LOCK.md](./PROPERTY_LOCK.md). That lock contract is also locked and should not be changed unless a task explicitly asks for property-lock behavior changes.
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
 ## Packaging Workflow
@@ -38,6 +39,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Device Simulation**: Emulate mobile and desktop viewports to test content extraction
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings
+- **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
@@ -88,6 +90,8 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 - **`xpath-utilities.js`** - XPath refinement and manipulation utilities
 - **`remote-support.js`** - Remote support constants, state factory, message helpers, and payload utilities
 - **`remote-support-background.js`** - Background-side per-tab session orchestration: tab-scoped state lookup, frame streaming, telemetry routing, view-only command rejection, DevTools attachment, and offscreen transport coordination
+- **`property-lock.js`** - Property edit-lock constants, timing windows, WebSocket protocol names, and normalized state helpers
+- **`property-lock-background.js`** - Background-side per-property/per-client lock WebSocket orchestration with stable page-session IDs and tab-local popup routing
 
 ### Offscreen Transport
 
@@ -112,6 +116,8 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
 - **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts
+- **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
+- **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 - **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
 - **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap, tab-scoped session isolation, DevTools routing, and transport-event handling
@@ -183,6 +189,7 @@ This extension uses Chrome's Manifest V3 (the current standard):
 - **Device Emulation** (session storage): `deviceEmulation:{tabId}`
 - **IndexedDB**: Stores detailed page markings, configurations, drafts
 - **Backend-saved marking cache**: Tracks the last confirmed backend page-marking payload separately from local drafts so candidate completion cannot be inferred from unsynced local data
+- **Property lock session ID**: The edit lock uses a stable page-session client ID, not the Chrome tab ID, so same-user duplicate tabs can be locked and transferred predictably
 - **Popup UI State**: In-memory state synchronized with persistent storage
 
 ### Message Passing

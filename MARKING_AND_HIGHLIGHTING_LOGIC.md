@@ -62,6 +62,11 @@ forced backend reload confirms that current page exists in the backend-saved
 cache. A new page with no saved local or remote data remains saveable with the
 default markings accepted as-is.
 
+Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
+mode must respect that contract: only the current property editor can mutate
+page markings, while locked passive observers may refresh remote state and
+silent-highlighting status without becoming a second source of truth.
+
 ## Exclusion Categories
 
 ### Immutable Defaults

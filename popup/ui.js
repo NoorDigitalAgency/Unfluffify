@@ -52,6 +52,10 @@ const initialViewState = {
   propertyLockTakeVisible: false,
   propertyLockTakeText: propertyLockText.takeoverButton,
   propertyLockContinueVisible: false,
+  propertyLockContinueText: propertyLockText.continueEditingButton,
+  propertyLockContinueDisabled: false,
+  propertyLockForceContinueVisible: false,
+  propertyLockForceContinueText: propertyLockText.continueEditingHereAnywayButton,
   propertyLockSuggestionVisible: false,
   propertyLockAcceptVisible: false,
   propertyLockRejectVisible: false,
@@ -619,9 +623,24 @@ function renderPropertyLockIndicator(view, handlers) {
           key: "continue",
           type: "button",
           class: "property-lock__button",
+          disabled: Boolean(view.propertyLockContinueDisabled),
           onClick: handlers.onPropertyLockContinue
         },
-        propertyLockText.continueEditingButton
+        view.propertyLockContinueText || propertyLockText.continueEditingButton
+      )
+    );
+  }
+  if (view.propertyLockForceContinueVisible) {
+    actions.push(
+      h(
+        "button",
+        {
+          key: "force-continue",
+          type: "button",
+          class: "property-lock__button u-btn-secondary",
+          onClick: handlers.onPropertyLockForceContinue
+        },
+        view.propertyLockForceContinueText || propertyLockText.continueEditingHereAnywayButton
       )
     );
   }

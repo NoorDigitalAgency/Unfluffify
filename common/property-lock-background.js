@@ -5,10 +5,10 @@
  * and orchestrates lock state between the server and all connected clients.
  * 
  * Architecture:
- * - One WebSocket per siteId (shared across all tabs)
- * - Each content script opens a long-lived port to background (kept alive by content script)
- * - Background forwards server messages to all ports on the same siteId
- * - Ports are tracked to know when to close WebSocket (all ports disconnected)
+ * - One WebSocket per property client session, keyed by siteId + stable clientId
+ * - Each content script opens a long-lived port and supplies its page-session clientId
+ * - Background forwards server messages only to ports for that client session
+ * - Tab IDs are used only for local popup-to-port lookup, never as lock identity
  */
 
 import {
@@ -16,6 +16,7 @@ import {
   PROPERTY_LOCK_CONTENT_CONNECT,
   PROPERTY_LOCK_CONTENT_DISCONNECT,
   PROPERTY_LOCK_CONTENT_ACTIVITY,
+  PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
   PROPERTY_LOCK_CONTENT_RELEASE,
   PROPERTY_LOCK_CONTENT_SUGGEST,
@@ -28,6 +29,7 @@ import {
   PROPERTY_LOCK_CONNECTION_CONNECTING,
   PROPERTY_LOCK_CONNECTION_CONNECTED,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+  PROPERTY_LOCK_STATE_LOCKED,
   PROPERTY_LOCK_WS_SUBSCRIBE,
   PROPERTY_LOCK_WS_HEARTBEAT,
   PROPERTY_LOCK_WS_ACTIVITY,
@@ -36,16 +38,23 @@ import {
   PROPERTY_LOCK_WS_SUGGEST_TAKEOVER,
   PROPERTY_LOCK_WS_RESPOND_TO_SUGGESTION,
   PROPERTY_LOCK_WS_CONTINUE_EDITING,
+  PROPERTY_LOCK_WS_CLIENT_STATUS,
   PROPERTY_LOCK_WS_SUBSCRIBED,
   PROPERTY_LOCK_WS_LOCK_STATE,
+  PROPERTY_LOCK_WS_DISCONNECT_WARNING,
   PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION,
   PROPERTY_LOCK_WS_SUGGESTION_RESPONSE,
   PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED,
   PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
   PROPERTY_LOCK_ACTIVITY_DEBOUNCE_MS,
+  PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS,
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
+  PROPERTY_LOCK_NETWORK_CHECK_TIMEOUT_MS,
+  PROPERTY_LOCK_NETWORK_CHECK_URLS,
   PROPERTY_LOCK_RECONNECT_DELAY_MS,
   PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
   normalizePropertyLockSiteId,
+  normalizePropertyLockClientId,
   buildPropertyLockWssUrl,
   normalizeLockStateMessage,
   createInactiveLockState
@@ -56,17 +65,25 @@ import * as utils from "./utilities.js";
  * WebSocket connection runtime for a single siteId.
  */
 class PropertyLockConnectionRuntime {
-  constructor(siteId) {
+  constructor(siteId, clientId) {
     this.siteId = siteId;
+    this.clientId = clientId;
+    this.connectionKey = buildConnectionKey(siteId, clientId);
     this.socket = null;
     this.state = createInactiveLockState();
     this.myIdentity = "";
     this.myName = "";
+    this.pageUrl = "";
+    this.tabId = null;
+    this.hasUnsavedChanges = false;
     this.isConnected = false;
     this.connectionStatus = PROPERTY_LOCK_CONNECTION_INACTIVE;
     this.connectionError = "";
     this.heartbeatTimer = null;
     this.activityDebounceTimer = null;
+    this.reconnectTimer = null;
+    this.connectionLossTimer = null;
+    this.networkCheckAbortController = null;
     this.lastActivityAt = 0;
     this.reconnectAttempts = 0;
     this.pendingSuggestions = new Map(); // suggestionId → {fromName, createdAt}
@@ -89,30 +106,54 @@ class PropertyLockConnectionRuntime {
       clearTimeout(this.activityDebounceTimer);
       this.activityDebounceTimer = null;
     }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.connectionLossTimer) {
+      clearTimeout(this.connectionLossTimer);
+      this.connectionLossTimer = null;
+    }
+    if (this.networkCheckAbortController) {
+      try {
+        this.networkCheckAbortController.abort();
+      } catch (e) {
+        // Ignore abort errors.
+      }
+      this.networkCheckAbortController = null;
+    }
   }
 }
 
 // Global state
-const lockConnections = new Map(); // siteId → PropertyLockConnectionRuntime
-const contentScriptPorts = new Map(); // portId → {port, siteId}
+const lockConnections = new Map(); // `${siteId}:${clientId}` → PropertyLockConnectionRuntime
+const contentScriptPorts = new Map(); // portId → {port, siteId, clientId, connectionKey, tabId}
 let portIdCounter = 0;
 
-function hasContentPortsForSiteId(siteId) {
+function buildConnectionKey(siteId, clientId) {
+  const normalizedSiteId = normalizePropertyLockSiteId(siteId);
+  const normalizedClientId = normalizePropertyLockClientId(clientId);
+  return normalizedSiteId && normalizedClientId ? `${normalizedSiteId}:${normalizedClientId}` : "";
+}
+
+function hasContentPortsForConnection(connectionKey) {
   return Array.from(contentScriptPorts.values()).some(
-    (entry) => entry.siteId === siteId
+    (entry) => entry.connectionKey === connectionKey
   );
 }
 
-function detachPortFromSite(portId, portEntry) {
-  const currentSiteId = typeof (portEntry && portEntry.siteId) === "number"
-    ? portEntry.siteId
-    : null;
-  if (!currentSiteId) {
+function detachPortFromConnection(portId, portEntry) {
+  const currentConnectionKey = typeof (portEntry && portEntry.connectionKey) === "string"
+    ? portEntry.connectionKey
+    : "";
+  if (!currentConnectionKey) {
     return null;
   }
   contentScriptPorts.delete(portId);
   portEntry.siteId = null;
-  return currentSiteId;
+  portEntry.clientId = "";
+  portEntry.connectionKey = "";
+  return currentConnectionKey;
 }
 
 /**
@@ -133,11 +174,20 @@ export function initPropertyLockBackground() {
 function handlePropertyLockPortConnect(port) {
   const portId = ++portIdCounter;
   let siteId = null;
+  let clientId = "";
+  let connectionKey = "";
 
   // Track port metadata
   const portEntry = {
     port,
-    siteId: null
+    siteId: null,
+    clientId: "",
+    connectionKey: "",
+    tabId: Number.isFinite(port && port.sender && port.sender.tab && port.sender.tab.id)
+      ? Math.trunc(port.sender.tab.id)
+      : null,
+    pageUrl: "",
+    hasUnsavedChanges: false
   };
 
   function onPortMessage(message) {
@@ -150,6 +200,7 @@ function handlePropertyLockPortConnect(port) {
     // First message should be connect
     if (type === PROPERTY_LOCK_CONTENT_CONNECT) {
       const nextSiteId = normalizePropertyLockSiteId(msgSiteId);
+      const nextClientId = normalizePropertyLockClientId(rest.clientId);
       if (!nextSiteId) {
         port.postMessage({
           type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
@@ -158,18 +209,40 @@ function handlePropertyLockPortConnect(port) {
         });
         return;
       }
-      if (siteId && nextSiteId && siteId !== nextSiteId) {
-        const previousSiteId = detachPortFromSite(portId, portEntry);
-        if (previousSiteId) {
-          scheduleDisconnectCheck(previousSiteId);
+      if (!nextClientId) {
+        port.postMessage({
+          type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+          connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+          error: "invalid_client_id"
+        });
+        return;
+      }
+      const nextConnectionKey = buildConnectionKey(nextSiteId, nextClientId);
+      if (connectionKey && nextConnectionKey && connectionKey !== nextConnectionKey) {
+        const previousConnectionKey = detachPortFromConnection(portId, portEntry);
+        if (previousConnectionKey) {
+          scheduleDisconnectCheck(previousConnectionKey);
         }
       }
       siteId = nextSiteId;
+      clientId = nextClientId;
+      connectionKey = nextConnectionKey;
       portEntry.siteId = siteId;
+      portEntry.clientId = clientId;
+      portEntry.connectionKey = connectionKey;
+      portEntry.pageUrl = typeof rest.pageUrl === "string" ? rest.pageUrl : "";
+      portEntry.hasUnsavedChanges = Boolean(rest.hasUnsavedChanges);
       contentScriptPorts.set(portId, portEntry);
 
-      if (siteId) {
-        ensureConnectionForSiteId(siteId);
+      if (connectionKey) {
+        const runtime = ensureConnectionForClient(siteId, clientId);
+        if (runtime) {
+          runtime.tabId = portEntry.tabId;
+          runtime.pageUrl = portEntry.pageUrl || runtime.pageUrl;
+          runtime.hasUnsavedChanges = portEntry.hasUnsavedChanges;
+          runtime.lastActivityAt = runtime.lastActivityAt || Date.now();
+          sendClientStatus(runtime);
+        }
       }
       return;
     }
@@ -180,53 +253,78 @@ function handlePropertyLockPortConnect(port) {
     }
 
     if (type === PROPERTY_LOCK_CONTENT_DISCONNECT) {
-      const disconnectedSiteId = detachPortFromSite(portId, portEntry) || siteId;
+      const disconnectedConnectionKey = detachPortFromConnection(portId, portEntry) || connectionKey;
       siteId = null;
-      if (disconnectedSiteId) {
-        scheduleDisconnectCheck(disconnectedSiteId);
+      clientId = "";
+      connectionKey = "";
+      if (disconnectedConnectionKey) {
+        scheduleDisconnectCheck(disconnectedConnectionKey);
       }
       return;
     }
 
-    const runtime = lockConnections.get(siteId);
+    if (type === PROPERTY_LOCK_CONTENT_DRAFT_STATUS) {
+      portEntry.hasUnsavedChanges = Boolean(rest.hasUnsavedChanges);
+      const runtime = lockConnections.get(connectionKey);
+      if (runtime) {
+        runtime.hasUnsavedChanges = portEntry.hasUnsavedChanges;
+        runtime.pageUrl = typeof rest.pageUrl === "string" ? rest.pageUrl : runtime.pageUrl;
+        sendClientStatus(runtime);
+      }
+      return;
+    }
+
+    const runtime = lockConnections.get(connectionKey);
     if (!runtime || !runtime.isConnected) {
       return;
     }
 
     switch (type) {
       case PROPERTY_LOCK_CONTENT_ACTIVITY:
-        debounceActivity(siteId);
+        debounceActivity(connectionKey);
         break;
       case PROPERTY_LOCK_CONTENT_TAKE_LOCK:
-        sendToServer(runtime, { type: PROPERTY_LOCK_WS_TAKE_LOCK });
+        markRuntimeActive(runtime);
+        sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_TAKE_LOCK));
         break;
       case PROPERTY_LOCK_CONTENT_RELEASE:
-        sendToServer(runtime, { type: PROPERTY_LOCK_WS_RELEASE_LOCK });
+        sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_RELEASE_LOCK));
         break;
       case PROPERTY_LOCK_CONTENT_SUGGEST:
-        sendToServer(runtime, { type: PROPERTY_LOCK_WS_SUGGEST_TAKEOVER });
+        sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_SUGGEST_TAKEOVER));
         break;
       case PROPERTY_LOCK_CONTENT_RESPOND:
         if (typeof rest.accept === "boolean" && rest.suggestionId) {
           sendToServer(runtime, {
             type: PROPERTY_LOCK_WS_RESPOND_TO_SUGGESTION,
             suggestionId: String(rest.suggestionId),
-            accept: rest.accept
+            accept: rest.accept,
+            clientId: runtime.clientId,
+            hasUnsavedChanges: runtime.hasUnsavedChanges,
+            discardUnsaved: Boolean(rest.discardUnsaved)
           });
         }
         break;
       case PROPERTY_LOCK_CONTENT_CONTINUE:
-        sendToServer(runtime, { type: PROPERTY_LOCK_WS_CONTINUE_EDITING });
+        markRuntimeActive(runtime);
+        promoteRuntimeAsLocalEditor(runtime);
+        sendToServer(runtime, {
+          ...createClientPayload(runtime, PROPERTY_LOCK_WS_CONTINUE_EDITING),
+          force: Boolean(rest.force),
+          discardPrevious: Boolean(rest.force || rest.discardPrevious)
+        });
         break;
     }
   }
 
   function onPortDisconnect() {
-    const disconnectedSiteId = detachPortFromSite(portId, portEntry) || siteId;
+    const disconnectedConnectionKey = detachPortFromConnection(portId, portEntry) || connectionKey;
     siteId = null;
+    clientId = "";
+    connectionKey = "";
 
-    if (disconnectedSiteId) {
-      scheduleDisconnectCheck(disconnectedSiteId);
+    if (disconnectedConnectionKey) {
+      scheduleDisconnectCheck(disconnectedConnectionKey);
     }
   }
 
@@ -234,25 +332,48 @@ function handlePropertyLockPortConnect(port) {
   port.onDisconnect.addListener(onPortDisconnect);
 }
 
-/**
- * Ensure WebSocket connection exists for a siteId.
- * Create if missing, reuse if exists.
- */
-function ensureConnectionForSiteId(siteId) {
-  siteId = normalizePropertyLockSiteId(siteId);
-  if (!siteId) {
-    return;
-  }
+function createClientPayload(runtime, type) {
+  return {
+    type,
+    siteId: runtime.siteId,
+    clientId: runtime.clientId,
+    pageUrl: runtime.pageUrl || "",
+    hasUnsavedChanges: Boolean(runtime.hasUnsavedChanges)
+  };
+}
 
-  let runtime = lockConnections.get(siteId);
+function markRuntimeActive(runtime) {
   if (runtime) {
-    return; // Already exists
+    runtime.lastActivityAt = Date.now();
+  }
+}
+
+/**
+ * Ensure WebSocket connection exists for a property client session.
+ * Create if missing, reuse if the same page session reconnects.
+ */
+function ensureConnectionForClient(siteId, clientId) {
+  siteId = normalizePropertyLockSiteId(siteId);
+  clientId = normalizePropertyLockClientId(clientId);
+  const connectionKey = buildConnectionKey(siteId, clientId);
+  if (!connectionKey) {
+    return null;
   }
 
-  runtime = new PropertyLockConnectionRuntime(siteId);
-  lockConnections.set(siteId, runtime);
+  let runtime = lockConnections.get(connectionKey);
+  if (runtime) {
+    if (runtime.reconnectTimer) {
+      clearTimeout(runtime.reconnectTimer);
+      runtime.reconnectTimer = null;
+    }
+    return runtime;
+  }
+
+  runtime = new PropertyLockConnectionRuntime(siteId, clientId);
+  lockConnections.set(connectionKey, runtime);
 
   connectWebSocket(runtime);
+  return runtime;
 }
 
 function setConnectionStatus(runtime, status, error = "") {
@@ -261,7 +382,7 @@ function setConnectionStatus(runtime, status, error = "") {
   }
   runtime.connectionStatus = status;
   runtime.connectionError = error;
-  broadcastToContentScriptPorts(runtime.siteId, {
+  broadcastToContentScriptPorts(runtime.connectionKey, {
     type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
     connectionStatus: status,
     error
@@ -272,7 +393,7 @@ function setConnectionStatus(runtime, status, error = "") {
  * Establish WebSocket connection for a runtime.
  */
 function connectWebSocket(runtime) {
-  if (runtime.isConnected || runtime.socket || !hasContentPortsForSiteId(runtime.siteId)) {
+  if (runtime.isConnected || runtime.socket || !hasContentPortsForConnection(runtime.connectionKey)) {
     return;
   }
 
@@ -315,23 +436,201 @@ function connectWebSocket(runtime) {
 function onWebSocketOpen(runtime) {
   runtime.isConnected = true;
   runtime.reconnectAttempts = 0;
+  if (runtime.connectionLossTimer) {
+    clearTimeout(runtime.connectionLossTimer);
+    runtime.connectionLossTimer = null;
+  }
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTED);
 
-  // Send subscribe message with siteId
-  sendToServer(runtime, {
-    type: PROPERTY_LOCK_WS_SUBSCRIBE,
-    siteId: runtime.siteId
-  });
+  sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_SUBSCRIBE));
+  sendClientStatus(runtime);
 
-  // Start heartbeat
   if (runtime.heartbeatTimer) {
     clearInterval(runtime.heartbeatTimer);
   }
   runtime.heartbeatTimer = setInterval(() => {
     if (runtime.isConnected && runtime.socket) {
-      sendToServer(runtime, { type: PROPERTY_LOCK_WS_HEARTBEAT });
+      const now = Date.now();
+      if (runtime.lastActivityAt && now - runtime.lastActivityAt > PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS) {
+        return;
+      }
+      sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_HEARTBEAT));
     }
   }, PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS);
+}
+
+function findLocalEditorRuntime(runtime) {
+  if (!runtime || !runtime.myIdentity) {
+    return null;
+  }
+  return Array.from(lockConnections.values()).find((candidate) =>
+    candidate !== runtime &&
+    candidate.siteId === runtime.siteId &&
+    candidate.state &&
+    candidate.state.isEditor &&
+    candidate.myIdentity &&
+    candidate.myIdentity === runtime.myIdentity
+  ) || null;
+}
+
+function promoteRuntimeAsLocalEditor(runtime) {
+  if (!runtime || !runtime.myIdentity) {
+    return;
+  }
+  const previousEditor = findLocalEditorRuntime(runtime);
+  if (previousEditor) {
+    previousEditor.state = {
+      ...previousEditor.state,
+      isEditor: false,
+      isSameUserEditor: true,
+      otherTabHasUnsavedChanges: false,
+      canContinueHere: false
+    };
+    previousEditor.hasUnsavedChanges = false;
+    broadcastToContentScriptPorts(previousEditor.connectionKey, {
+      type: PROPERTY_LOCK_WS_LOCK_STATE,
+      ...previousEditor.state
+    });
+  }
+  runtime.state = {
+    ...runtime.state,
+    state: PROPERTY_LOCK_STATE_LOCKED,
+    isEditor: true,
+    isSameUserEditor: false,
+    editorIdentity: runtime.myIdentity,
+    editorName: runtime.myName || runtime.myIdentity,
+    editorClientId: runtime.clientId,
+    otherTabHasUnsavedChanges: false,
+    canContinueHere: false
+  };
+  broadcastToContentScriptPorts(runtime.connectionKey, {
+    type: PROPERTY_LOCK_WS_LOCK_STATE,
+    ...runtime.state
+  });
+}
+
+function enrichLockStateForRuntime(runtime, lockState) {
+  if (!runtime || !lockState || typeof lockState !== "object") {
+    return lockState;
+  }
+  const nextState = { ...lockState };
+  if (
+    nextState.editorClientId &&
+    runtime.clientId &&
+    nextState.editorClientId !== runtime.clientId
+  ) {
+    nextState.isEditor = false;
+  }
+  if (!nextState.isEditor && runtime.myIdentity && nextState.editorIdentity === runtime.myIdentity) {
+    nextState.isSameUserEditor = true;
+  }
+  const localEditor = findLocalEditorRuntime(runtime);
+  if (!nextState.isEditor && localEditor) {
+    nextState.isSameUserEditor = true;
+    nextState.otherTabHasUnsavedChanges = Boolean(localEditor.hasUnsavedChanges);
+    nextState.canContinueHere = !localEditor.hasUnsavedChanges;
+  } else if (nextState.isEditor && localEditor) {
+    nextState.isEditor = false;
+    nextState.isSameUserEditor = true;
+    nextState.otherTabHasUnsavedChanges = Boolean(localEditor.hasUnsavedChanges);
+    nextState.canContinueHere = !localEditor.hasUnsavedChanges;
+  }
+  return nextState;
+}
+
+function decorateServerMessageForRuntime(runtime, message) {
+  if (!message || typeof message !== "object") {
+    return message;
+  }
+  if (message.type !== PROPERTY_LOCK_WS_LOCK_STATE) {
+    return message;
+  }
+  const normalized = enrichLockStateForRuntime(runtime, normalizeLockStateMessage(message, {
+    ownIdentity: runtime.myIdentity,
+    clientId: runtime.clientId
+  }));
+  return {
+    ...message,
+    ...normalized
+  };
+}
+
+function sendClientStatus(runtime) {
+  if (!runtime || !runtime.isConnected) {
+    return;
+  }
+  sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_CLIENT_STATUS));
+}
+
+async function checkNetworkConnectivity(runtime) {
+  if (typeof fetch !== "function") {
+    return true;
+  }
+  if (runtime.networkCheckAbortController) {
+    try {
+      runtime.networkCheckAbortController.abort();
+    } catch (e) {
+      // Ignore abort errors.
+    }
+  }
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  runtime.networkCheckAbortController = controller;
+  const timeout = setTimeout(() => {
+    if (controller) {
+      controller.abort();
+    }
+  }, PROPERTY_LOCK_NETWORK_CHECK_TIMEOUT_MS);
+  try {
+    for (const url of PROPERTY_LOCK_NETWORK_CHECK_URLS) {
+      try {
+        await fetch(url, {
+          cache: "no-store",
+          mode: "no-cors",
+          signal: controller ? controller.signal : undefined
+        });
+        return true;
+      } catch (e) {
+        // Try the next stable endpoint.
+      }
+    }
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    if (runtime.networkCheckAbortController === controller) {
+      runtime.networkCheckAbortController = null;
+    }
+  }
+}
+
+function startConnectionLossWatch(runtime, reason) {
+  if (!runtime || runtime.connectionLossTimer) {
+    return;
+  }
+  if (runtime.state && runtime.state.isEditor) {
+    broadcastToContentScriptPorts(runtime.connectionKey, {
+      type: PROPERTY_LOCK_WS_DISCONNECT_WARNING,
+      secondsRemaining: Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000),
+      reason: reason || "socket_closed"
+    });
+  }
+  runtime.connectionLossTimer = setTimeout(async () => {
+    runtime.connectionLossTimer = null;
+    if (runtime.isConnected || lockConnections.get(runtime.connectionKey) !== runtime) {
+      return;
+    }
+    const networkReachable = await checkNetworkConnectivity(runtime);
+    if (!networkReachable && !runtime.isConnected) {
+      setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, reason || "network_unavailable");
+      runtime.state = {
+        ...runtime.state,
+        isEditor: false
+      };
+      broadcastToContentScriptPorts(runtime.connectionKey, {
+        type: PROPERTY_LOCK_WS_LOCK_STATE,
+        ...runtime.state
+      });
+    }
+  }, PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS);
 }
 
 /**
@@ -357,7 +656,10 @@ function onWebSocketMessage(runtime, event) {
       runtime.myName = String(message.name || runtime.myIdentity);
       break;
     case PROPERTY_LOCK_WS_LOCK_STATE:
-      runtime.state = normalizeLockStateMessage(message);
+      runtime.state = enrichLockStateForRuntime(runtime, normalizeLockStateMessage(message, {
+        ownIdentity: runtime.myIdentity,
+        clientId: runtime.clientId
+      }));
       break;
     case PROPERTY_LOCK_WS_TAKEOVER_SUGGESTION:
       if (message.suggestionId) {
@@ -379,8 +681,7 @@ function onWebSocketMessage(runtime, event) {
       break;
   }
 
-  // Broadcast message to all content script ports on this siteId
-  broadcastToContentScriptPorts(runtime.siteId, message);
+  broadcastToContentScriptPorts(runtime.connectionKey, decorateServerMessageForRuntime(runtime, message));
 }
 
 /**
@@ -389,6 +690,7 @@ function onWebSocketMessage(runtime, event) {
 function onWebSocketError(runtime) {
   runtime.isConnected = false;
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_UNAVAILABLE, "socket_error");
+  startConnectionLossWatch(runtime, "socket_error");
   scheduleReconnect(runtime);
 }
 
@@ -402,6 +704,7 @@ function onWebSocketClose(runtime) {
     runtime.heartbeatTimer = null;
   }
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTING, "socket_closed");
+  startConnectionLossWatch(runtime, "socket_closed");
   scheduleReconnect(runtime);
 }
 
@@ -420,15 +723,35 @@ function sendToServer(runtime, message) {
   }
 }
 
+function getRuntimePortTabId(runtime) {
+  if (!runtime) {
+    return null;
+  }
+  if (Number.isFinite(runtime.tabId)) {
+    return runtime.tabId;
+  }
+  const portEntry = Array.from(contentScriptPorts.values()).find(
+    (entry) => entry.connectionKey === runtime.connectionKey && Number.isFinite(entry.tabId)
+  );
+  return portEntry ? portEntry.tabId : null;
+}
+
 /**
- * Broadcast server message to all content script ports on a siteId.
+ * Broadcast server message to ports for one client session.
  */
-function broadcastToContentScriptPorts(siteId, message) {
+function broadcastToContentScriptPorts(connectionKey, message) {
+  const runtime = lockConnections.get(connectionKey);
+  const siteId = runtime ? runtime.siteId : null;
+  const clientId = runtime ? runtime.clientId : "";
+  const tabId = getRuntimePortTabId(runtime);
   for (const [, portEntry] of contentScriptPorts) {
-    if (portEntry.siteId === siteId && portEntry.port) {
+    if (portEntry.connectionKey === connectionKey && portEntry.port) {
       try {
         portEntry.port.postMessage({
           type: PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+          siteId,
+          clientId,
+          tabId,
           message
         });
       } catch (e) {
@@ -441,6 +764,8 @@ function broadcastToContentScriptPorts(siteId, message) {
     const updatePromise = chrome.runtime.sendMessage({
       type: PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
       siteId,
+      clientId,
+      tabId,
       message
     });
     if (updatePromise && typeof updatePromise.catch === "function") {
@@ -454,8 +779,8 @@ function broadcastToContentScriptPorts(siteId, message) {
 /**
  * Debounce activity messages (5s window).
  */
-function debounceActivity(siteId) {
-  const runtime = lockConnections.get(siteId);
+function debounceActivity(connectionKey) {
+  const runtime = lockConnections.get(connectionKey);
   if (!runtime) {
     return;
   }
@@ -466,14 +791,14 @@ function debounceActivity(siteId) {
   }
 
   runtime.lastActivityAt = now;
-  sendToServer(runtime, { type: PROPERTY_LOCK_WS_ACTIVITY });
+  sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_ACTIVITY));
 }
 
 /**
  * Schedule WebSocket reconnect with exponential backoff.
  */
 function scheduleReconnect(runtime) {
-  if (lockConnections.get(runtime.siteId) !== runtime || !hasContentPortsForSiteId(runtime.siteId)) {
+  if (lockConnections.get(runtime.connectionKey) !== runtime || !hasContentPortsForConnection(runtime.connectionKey)) {
     return;
   }
 
@@ -492,8 +817,12 @@ function scheduleReconnect(runtime) {
     60_000 // Cap at 60s
   );
 
-  setTimeout(() => {
-    if (lockConnections.get(runtime.siteId) === runtime && hasContentPortsForSiteId(runtime.siteId)) {
+  if (runtime.reconnectTimer) {
+    clearTimeout(runtime.reconnectTimer);
+  }
+  runtime.reconnectTimer = setTimeout(() => {
+    runtime.reconnectTimer = null;
+    if (lockConnections.get(runtime.connectionKey) === runtime && hasContentPortsForConnection(runtime.connectionKey)) {
       connectWebSocket(runtime);
     }
   }, delay);
@@ -503,17 +832,17 @@ function scheduleReconnect(runtime) {
  * Schedule check for port disconnection after the navigation grace delay.
  * Close WebSocket if no ports remain connected for this siteId.
  */
-function scheduleDisconnectCheck(siteId) {
+function scheduleDisconnectCheck(connectionKey) {
   setTimeout(() => {
-    const portsForSiteId = Array.from(contentScriptPorts.values()).filter(
-      (entry) => entry.siteId === siteId
+    const portsForConnection = Array.from(contentScriptPorts.values()).filter(
+      (entry) => entry.connectionKey === connectionKey
     );
 
-    if (portsForSiteId.length === 0) {
-      const runtime = lockConnections.get(siteId);
+    if (portsForConnection.length === 0) {
+      const runtime = lockConnections.get(connectionKey);
       if (runtime) {
         runtime.dispose();
-        lockConnections.delete(siteId);
+        lockConnections.delete(connectionKey);
       }
     }
   }, PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS);
@@ -528,7 +857,7 @@ export async function handleGetPropertyLockState(message, sender) {
     return { state: createInactiveLockState() };
   }
 
-  const runtime = lockConnections.get(siteId);
+  const runtime = findRuntimeForRequest(message, sender);
   if (!runtime || !runtime.isConnected) {
     return {
       state: runtime ? runtime.state : createInactiveLockState(),
@@ -538,37 +867,69 @@ export async function handleGetPropertyLockState(message, sender) {
   }
 
   return {
-    state: runtime.state,
+    state: enrichLockStateForRuntime(runtime, runtime.state),
     identity: runtime.myIdentity,
     name: runtime.myName,
+    clientId: runtime.clientId,
     connectionStatus: runtime.connectionStatus,
     error: runtime.connectionError
   };
 }
 
-function handlePropertyLockCommand(message) {
+function findRuntimeForRequest(message, sender) {
   const siteId = normalizePropertyLockSiteId(message.siteId);
   if (!siteId) {
-    return { ok: false };
+    return null;
   }
+  const clientId = normalizePropertyLockClientId(message.clientId);
+  if (clientId) {
+    return lockConnections.get(buildConnectionKey(siteId, clientId)) || null;
+  }
+  const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
+    ? Math.trunc(sender.tab.id)
+    : null;
+  const tabId = Number.isFinite(message.tabId)
+    ? Math.trunc(message.tabId)
+    : senderTabId;
+  if (tabId !== null) {
+    const portEntry = Array.from(contentScriptPorts.values()).find(
+      (entry) => entry.siteId === siteId && entry.tabId === tabId && entry.connectionKey
+    );
+    if (portEntry) {
+      return lockConnections.get(portEntry.connectionKey) || null;
+    }
+  }
+  const runtimes = Array.from(lockConnections.values()).filter(
+    (runtime) => runtime.siteId === siteId
+  );
+  return runtimes.length === 1 ? runtimes[0] : null;
+}
 
-  const runtime = lockConnections.get(siteId);
+function handlePropertyLockCommand(message, sender) {
+  const runtime = findRuntimeForRequest(message, sender);
   if (!runtime || !runtime.isConnected) {
     return { ok: false };
   }
 
   switch (message.type) {
     case PROPERTY_LOCK_CONTENT_TAKE_LOCK:
-      sendToServer(runtime, { type: PROPERTY_LOCK_WS_TAKE_LOCK });
+      markRuntimeActive(runtime);
+      sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_TAKE_LOCK));
       return { ok: true };
     case PROPERTY_LOCK_CONTENT_RELEASE:
-      sendToServer(runtime, { type: PROPERTY_LOCK_WS_RELEASE_LOCK });
+      sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_RELEASE_LOCK));
       return { ok: true };
     case PROPERTY_LOCK_CONTENT_SUGGEST:
-      sendToServer(runtime, { type: PROPERTY_LOCK_WS_SUGGEST_TAKEOVER });
+      sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_SUGGEST_TAKEOVER));
       return { ok: true };
     case PROPERTY_LOCK_CONTENT_CONTINUE:
-      sendToServer(runtime, { type: PROPERTY_LOCK_WS_CONTINUE_EDITING });
+      markRuntimeActive(runtime);
+      promoteRuntimeAsLocalEditor(runtime);
+      sendToServer(runtime, {
+        ...createClientPayload(runtime, PROPERTY_LOCK_WS_CONTINUE_EDITING),
+        force: Boolean(message.force),
+        discardPrevious: Boolean(message.force || message.discardPrevious)
+      });
       return { ok: true };
     case PROPERTY_LOCK_CONTENT_RESPOND:
       if (typeof message.accept !== "boolean" || !message.suggestionId) {
@@ -577,8 +938,16 @@ function handlePropertyLockCommand(message) {
       sendToServer(runtime, {
         type: PROPERTY_LOCK_WS_RESPOND_TO_SUGGESTION,
         suggestionId: String(message.suggestionId),
-        accept: message.accept
+        accept: message.accept,
+        clientId: runtime.clientId,
+        hasUnsavedChanges: runtime.hasUnsavedChanges,
+        discardUnsaved: Boolean(message.discardUnsaved)
       });
+      return { ok: true };
+    case PROPERTY_LOCK_CONTENT_DRAFT_STATUS:
+      runtime.hasUnsavedChanges = Boolean(message.hasUnsavedChanges);
+      runtime.pageUrl = typeof message.pageUrl === "string" ? message.pageUrl : runtime.pageUrl;
+      sendClientStatus(runtime);
       return { ok: true };
     default:
       return { ok: false };
@@ -595,6 +964,10 @@ export async function handlePropertyLockBackgroundMessage(message, sender) {
 
   const { type } = message;
 
+  if (type === "pageDraftChanged") {
+    return handlePageDraftStatusMessage(message, sender);
+  }
+
   if (type === PROPERTY_LOCK_BACKGROUND_GET_STATE) {
     return handleGetPropertyLockState(message, sender);
   }
@@ -604,10 +977,39 @@ export async function handlePropertyLockBackgroundMessage(message, sender) {
     type === PROPERTY_LOCK_CONTENT_RELEASE ||
     type === PROPERTY_LOCK_CONTENT_SUGGEST ||
     type === PROPERTY_LOCK_CONTENT_RESPOND ||
-    type === PROPERTY_LOCK_CONTENT_CONTINUE
+    type === PROPERTY_LOCK_CONTENT_CONTINUE ||
+    type === PROPERTY_LOCK_CONTENT_DRAFT_STATUS
   ) {
-    return handlePropertyLockCommand(message);
+    return handlePropertyLockCommand(message, sender);
   }
 
   return { ok: false };
+}
+
+function handlePageDraftStatusMessage(message, sender) {
+  const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
+    ? Math.trunc(sender.tab.id)
+    : null;
+  if (senderTabId === null) {
+    return { ok: false };
+  }
+  const pageUrl = typeof message.pageUrl === "string" ? message.pageUrl : "";
+  const matchingEntries = Array.from(contentScriptPorts.values()).filter((entry) =>
+    entry.tabId === senderTabId &&
+    entry.connectionKey &&
+    (!pageUrl || !entry.pageUrl || entry.pageUrl === pageUrl)
+  );
+  matchingEntries.forEach((entry) => {
+    entry.hasUnsavedChanges = Boolean(message.dirty);
+    if (pageUrl) {
+      entry.pageUrl = pageUrl;
+    }
+    const runtime = lockConnections.get(entry.connectionKey);
+    if (runtime) {
+      runtime.hasUnsavedChanges = entry.hasUnsavedChanges;
+      runtime.pageUrl = pageUrl || runtime.pageUrl;
+      sendClientStatus(runtime);
+    }
+  });
+  return { ok: matchingEntries.length > 0 };
 }

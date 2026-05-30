@@ -97,6 +97,7 @@ export const state = {
   propertyLockConnectionError: "",
   propertyLockIdentity: "",
   propertyLockName: "",
+  propertyLockClientId: "",
   propertyLockSecondsRemaining: null,
   propertyLockSuggestionId: "",
   propertyLockSuggestionFromName: "",

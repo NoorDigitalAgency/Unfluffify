@@ -71,7 +71,9 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "propertyLockRelease",
   "propertyLockSuggest",
   "propertyLockRespondToSuggestion",
-  "propertyLockContinueEditing"
+  "propertyLockContinueEditing",
+  "propertyLockDraftStatus",
+  "pageDraftChanged"
 ]);
 
 initRemoteSupportBackground();

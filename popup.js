@@ -147,6 +147,7 @@ function resetPropertyLockState() {
   state.propertyLockConnectionError = "";
   state.propertyLockIdentity = "";
   state.propertyLockName = "";
+  state.propertyLockClientId = "";
   state.propertyLockSecondsRemaining = null;
   state.propertyLockSuggestionId = "";
   state.propertyLockSuggestionFromName = "";
@@ -171,7 +172,10 @@ function clearPropertyLockTransientState() {
 }
 
 function applyPropertyLockState(lockStateLike) {
-  state.propertyLockState = normalizeLockStateMessage(lockStateLike || createInactiveLockState());
+  state.propertyLockState = normalizeLockStateMessage(lockStateLike || createInactiveLockState(), {
+    ownIdentity: state.propertyLockIdentity,
+    clientId: state.propertyLockClientId
+  });
   clearPropertyLockTransientState();
 }
 
@@ -242,6 +246,11 @@ function applyPropertyLockServerMessage(serverMessage, siteId = null) {
   }
 
   if (type === PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED || type === PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN) {
+    state.propertyLockState = {
+      ...(state.propertyLockState || createInactiveLockState()),
+      transferFromName: String(serverMessage.transferFromName || serverMessage.fromName || state.propertyLockState?.transferFromName || ""),
+      transferToName: String(serverMessage.transferToName || serverMessage.toName || state.propertyLockState?.transferToName || state.propertyLockSuggestionFromName || "")
+    };
     state.propertyLockTransferCountdown = secondsRemaining;
     state.propertyLockSecondsRemaining = secondsRemaining;
     state.propertyLockSuggestionVisible = false;
@@ -276,6 +285,8 @@ function isPropertyLockBlockingEditing() {
 function buildPropertyLockViewState() {
   const lockState = state.propertyLockState || createInactiveLockState();
   const editorName = lockState.editorName || "Someone";
+  const sameUserEditor = Boolean(lockState.isSameUserEditor);
+  const otherTabHasUnsavedChanges = Boolean(lockState.otherTabHasUnsavedChanges);
   const secondsRemaining = state.propertyLockSecondsRemaining;
   const visible = Boolean(state.propertyLockSiteId);
   const viewState = {
@@ -288,6 +299,10 @@ function buildPropertyLockViewState() {
     propertyLockTakeVisible: false,
     propertyLockTakeText: propertyLockText.takeoverButton,
     propertyLockContinueVisible: false,
+    propertyLockContinueText: propertyLockText.continueEditingButton,
+    propertyLockContinueDisabled: false,
+    propertyLockForceContinueVisible: false,
+    propertyLockForceContinueText: propertyLockText.continueEditingHereAnywayButton,
     propertyLockSuggestionVisible: false,
     propertyLockAcceptVisible: false,
     propertyLockRejectVisible: false
@@ -352,6 +367,8 @@ function buildPropertyLockViewState() {
     viewState.propertyLockTone = "warning";
     viewState.propertyLockIcon = "swap-horizontal";
     viewState.propertyLockStatusText = propertyLockText.editorTransferCountdownMessage(
+      lockState.transferFromName || editorName,
+      lockState.transferToName || state.propertyLockSuggestionFromName || "the next editor",
       state.propertyLockTransferCountdown || 0
     );
     return viewState;
@@ -383,10 +400,12 @@ function buildPropertyLockViewState() {
   if (lockState.state === PROPERTY_LOCK_STATE_TAKEOVER_AVAILABLE) {
     viewState.propertyLockTone = "warning";
     viewState.propertyLockIcon = "lock-open-variant-outline";
-    viewState.propertyLockStatusText = propertyLockText.takeoverAvailableMessage;
+    viewState.propertyLockStatusText = lockState.isRecentEditor
+      ? propertyLockText.recentEditorInactiveMessage
+      : propertyLockText.takeoverAvailableMessage;
     viewState.propertyLockTakeVisible = true;
     viewState.propertyLockTakeText = lockState.isRecentEditor
-      ? propertyLockText.startEditingAgainButton
+      ? propertyLockText.continueEditingButton
       : propertyLockText.takeoverButton;
     return viewState;
   }
@@ -394,7 +413,11 @@ function buildPropertyLockViewState() {
   if (lockState.state === PROPERTY_LOCK_STATE_TRANSFER) {
     viewState.propertyLockTone = "warning";
     viewState.propertyLockIcon = "swap-horizontal";
-    viewState.propertyLockStatusText = propertyLockText.editorTransferCountdownMessage(secondsRemaining || 0);
+    viewState.propertyLockStatusText = propertyLockText.editorTransferCountdownMessage(
+      lockState.transferFromName || editorName,
+      lockState.transferToName || "the next editor",
+      secondsRemaining || 0
+    );
     return viewState;
   }
 
@@ -408,11 +431,24 @@ function buildPropertyLockViewState() {
 
   viewState.propertyLockTone = lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING ? "warning" : "danger";
   viewState.propertyLockIcon = "lock-outline";
-  viewState.propertyLockStatusText = lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING
-    ? propertyLockText.passiveExpiryCountdownMessage(editorName, secondsRemaining || 0)
-    : propertyLockText.passiveLockedMessage(editorName);
+  viewState.propertyLockStatusText = sameUserEditor
+    ? propertyLockText.sameUserLockedMessage
+    : lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING
+      ? propertyLockText.passiveExpiryCountdownMessage(editorName, secondsRemaining || 0)
+      : propertyLockText.passiveLockedMessage(editorName);
   viewState.propertyLockDetailText = propertyLockText.popupPassiveDetail;
-  viewState.propertyLockSuggestVisible = lockState.state === PROPERTY_LOCK_STATE_LOCKED || lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING;
+  if (sameUserEditor) {
+    viewState.propertyLockSuggestVisible = false;
+    viewState.propertyLockContinueVisible = true;
+    viewState.propertyLockContinueText = propertyLockText.continueEditingHereButton;
+    viewState.propertyLockContinueDisabled = otherTabHasUnsavedChanges;
+    viewState.propertyLockDetailText = otherTabHasUnsavedChanges
+      ? propertyLockText.otherTabUnsavedChangesLabel
+      : propertyLockText.popupSameUserPassiveDetail;
+    viewState.propertyLockForceContinueVisible = otherTabHasUnsavedChanges;
+  } else {
+    viewState.propertyLockSuggestVisible = lockState.state === PROPERTY_LOCK_STATE_LOCKED || lockState.state === PROPERTY_LOCK_STATE_EXPIRY_WARNING;
+  }
   return viewState;
 }
 
@@ -425,7 +461,10 @@ async function fetchPropertyLockState(siteId) {
   try {
     return await chrome.runtime.sendMessage({
       type: PROPERTY_LOCK_BACKGROUND_GET_STATE,
-      siteId: normalizedSiteId
+      siteId: normalizedSiteId,
+      tabId: state.currentTab && Number.isFinite(state.currentTab.id)
+        ? Math.trunc(state.currentTab.id)
+        : null
     });
   } catch (error) {
     return {
@@ -443,7 +482,15 @@ async function sendPropertyLockCommand(type, payload = {}) {
   }
 
   try {
-    return await chrome.runtime.sendMessage({ type, siteId, ...payload });
+    return await chrome.runtime.sendMessage({
+      type,
+      siteId,
+      tabId: state.currentTab && Number.isFinite(state.currentTab.id)
+        ? Math.trunc(state.currentTab.id)
+        : null,
+      hasUnsavedChanges: Boolean(state.currentDraftDirty || state.currentPageSaveReconciliationPending),
+      ...payload
+    });
   } catch (error) {
     return { ok: false };
   }
@@ -2171,11 +2218,16 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     localConfig.renderMode = mergedRenderMode.renderMode;
     localConfig.renderModeUpdatedAt = mergedRenderMode.updatedAt;
   }
-  const mergeResult = config.mergePageMarkingsByTimestamp(
-    localConfig.pageMarkings,
-    normalizedPayload.pageMarkings
+  const previousPageMarkingsSignature = JSON.stringify(config.normalizePageMarkings(localConfig.pageMarkings).normalized);
+  const incomingPageMarkings = config.normalizePageMarkings(normalizedPayload.pageMarkings).normalized;
+  const incomingPageMarkingsSignature = JSON.stringify(incomingPageMarkings);
+  const pageMarkingsChanged = previousPageMarkingsSignature !== incomingPageMarkingsSignature;
+  const replacedCurrentPage = Boolean(
+    currentPageUrl &&
+      pageMarkingsChanged &&
+      Object.prototype.hasOwnProperty.call(incomingPageMarkings, currentPageUrl)
   );
-  localConfig.pageMarkings = mergeResult.pageMarkings;
+  localConfig.pageMarkings = incomingPageMarkings;
   const selectorStateChanged = mergeSelectorsIntoConfig(localConfig, normalizedPayload);
   const shouldSave =
     !existingRaw ||
@@ -2183,7 +2235,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     siteIdChanged ||
     renderModeChanged ||
     selectorStateChanged ||
-    mergeResult.replacedUrls.length > 0;
+    pageMarkingsChanged;
   if (shouldSave) {
     allConfigs[baseUrl] = localConfig;
     await config.saveConfigs(allConfigs);
@@ -2191,7 +2243,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
   return {
     ok: true,
     changed: shouldSave,
-    replacedCurrentPage: mergeResult.replacedExistingUrls.includes(currentPageUrl),
+    replacedCurrentPage,
     baseUrl,
     invalidLoadedUrls
   };
@@ -2291,6 +2343,16 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     updateLastConfigLoadStatus(result);
     return result;
   }
+}
+
+function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  return Boolean(
+    normalizedSiteId &&
+      state.propertyLockSiteId === normalizedSiteId &&
+      state.propertyLockState &&
+      state.propertyLockState.isEditor
+  );
 }
 
 async function syncBaseConfigToServer(options = {}) {
@@ -2862,7 +2924,7 @@ async function refreshUiInner(options = {}) {
         localMatchingBaseUrl = discoveredBaseUrl;
         hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
       }
-      if (configEndpointValue) {
+      if (configEndpointValue && !shouldSkipRemoteConfigLoadForPropertyEditor(discoveryResult.siteId)) {
         remoteLoadResult = await loadRemoteConfigForCurrentPage({
           tabId: currentTabId,
           pageUrl,
@@ -2926,15 +2988,19 @@ async function refreshUiInner(options = {}) {
       }
       currentSiteId = siteIdResult.siteId;
       state.currentConfig = siteIdResult.config || state.currentConfig;
-      remoteLoadResult = await loadRemoteConfigForCurrentPage({
-        tabId: currentTabId,
-        pageUrl,
-        baseUrl: state.currentBaseUrl,
-        siteId: currentSiteId,
-        endpointValue: configEndpointValue,
-        tokenValue,
-        force: false
-      });
+      if (!shouldSkipRemoteConfigLoadForPropertyEditor(currentSiteId)) {
+        remoteLoadResult = await loadRemoteConfigForCurrentPage({
+          tabId: currentTabId,
+          pageUrl,
+          baseUrl: state.currentBaseUrl,
+          siteId: currentSiteId,
+          endpointValue: configEndpointValue,
+          tokenValue,
+          force: false
+        });
+      } else {
+        remoteLoadResult = { status: "skipped_editor", baseUrl: state.currentBaseUrl };
+      }
       if (remoteLoadResult && remoteLoadResult.status === "ok") {
         configs = await config.getConfigs();
         if (state.currentBaseUrl && configs[state.currentBaseUrl]) {
@@ -3376,8 +3442,15 @@ async function refreshUiInner(options = {}) {
     }
     if (!skipPropertyLockFetch || !state.propertyLockState) {
       const lockResponse = await fetchPropertyLockState(propertyLockCandidateSiteId);
+      state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
+      state.propertyLockName = (lockResponse && lockResponse.name) || "";
+      state.propertyLockClientId = (lockResponse && lockResponse.clientId) || "";
       const nextLockState = normalizeLockStateMessage(
-        lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState()
+        lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState(),
+        {
+          ownIdentity: state.propertyLockIdentity,
+          clientId: state.propertyLockClientId
+        }
       );
       const previousLockState = state.propertyLockState;
       if (
@@ -3395,8 +3468,6 @@ async function refreshUiInner(options = {}) {
           : PROPERTY_LOCK_CONNECTION_CONNECTED,
         lockResponse && lockResponse.error ? lockResponse.error : ""
       );
-      state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
-      state.propertyLockName = (lockResponse && lockResponse.name) || "";
     }
   } else {
     resetPropertyLockState();
@@ -5107,14 +5178,43 @@ async function handlePropertyLockContinue() {
   uiModule.setViewState(buildPropertyLockViewState());
 }
 
+async function handlePropertyLockForceContinue() {
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_CONTINUE, {
+    force: true,
+    discardPrevious: true
+  });
+  state.propertyLockInactivityWarningVisible = false;
+  state.propertyLockSecondsRemaining = null;
+  uiModule.setViewState(buildPropertyLockViewState());
+}
+
 async function handlePropertyLockAcceptSuggestion() {
   const suggestionId = state.propertyLockSuggestionId;
   if (!suggestionId) {
     return;
   }
+  let discardUnsaved = false;
+  if (state.currentDraftDirty || state.currentPageSaveReconciliationPending) {
+    const shouldSave = window.confirm(propertyLockText.transferSaveBeforeAcceptConfirm);
+    if (shouldSave) {
+      await handlePageSave();
+      await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+      if (state.currentDraftDirty || state.currentPageSaveReconciliationPending) {
+        uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
+        return;
+      }
+    } else {
+      const shouldDiscard = window.confirm(propertyLockText.transferDiscardBeforeAcceptConfirm);
+      if (!shouldDiscard) {
+        return;
+      }
+      discardUnsaved = true;
+    }
+  }
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_RESPOND, {
     suggestionId,
-    accept: true
+    accept: true,
+    discardUnsaved
   });
   state.propertyLockSuggestionVisible = false;
   state.propertyLockSuggestionId = "";
@@ -5439,12 +5539,27 @@ async function handleEnableToggle(event) {
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey
         });
-        await messages.sendTabMessageWithRetry({
+        const enableResponse = await messages.sendTabMessageWithRetry({
           type: "setEnabled",
           enabled: true,
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey
         });
+        if (!enableResponse || !enableResponse.ok) {
+          await utils.setTabState(tab.id, {
+            enabled: false,
+            baseUrl: effectiveBaseUrl,
+            pageType: ""
+          });
+          uiModule.setViewState({ toggleEnabled: false });
+          if (enableResponse && enableResponse.locked) {
+            uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
+          } else {
+            uiModule.showToast(PopupText.helper.activateFailedOnPage);
+          }
+          await refreshUi();
+          return;
+        }
         await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
       } else {
         await utils.setTabState(tab.id, {
@@ -6933,6 +7048,7 @@ async function init() {
     onPropertyLockTake: handlePropertyLockTake,
     onPropertyLockSuggest: handlePropertyLockSuggest,
     onPropertyLockContinue: handlePropertyLockContinue,
+    onPropertyLockForceContinue: handlePropertyLockForceContinue,
     onPropertyLockAcceptSuggestion: handlePropertyLockAcceptSuggestion,
     onPropertyLockRejectSuggestion: handlePropertyLockRejectSuggestion,
     onCompute: handleComputeSelectors,
@@ -7112,12 +7228,24 @@ async function init() {
     }
     if (message && message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE) {
       const messageSiteId = normalizeSiteIdValue(message.siteId);
+      const messageTabId = Number.isFinite(message.tabId) ? Math.trunc(message.tabId) : null;
+      if (
+        messageTabId !== null &&
+        state.currentTab &&
+        Number.isFinite(state.currentTab.id) &&
+        messageTabId !== Math.trunc(state.currentTab.id)
+      ) {
+        return;
+      }
       if (
         messageSiteId &&
         state.propertyLockSiteId &&
         messageSiteId !== state.propertyLockSiteId
       ) {
         return;
+      }
+      if (typeof message.clientId === "string" && message.clientId) {
+        state.propertyLockClientId = message.clientId;
       }
       const applied = applyPropertyLockServerMessage(message.message || null, messageSiteId);
       if (applied) {

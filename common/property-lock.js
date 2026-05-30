@@ -31,6 +31,7 @@ export const PROPERTY_LOCK_WS_RELEASE_LOCK = "release_lock";
 export const PROPERTY_LOCK_WS_SUGGEST_TAKEOVER = "suggest_takeover";
 export const PROPERTY_LOCK_WS_RESPOND_TO_SUGGESTION = "respond_to_suggestion";
 export const PROPERTY_LOCK_WS_CONTINUE_EDITING = "continue_editing";
+export const PROPERTY_LOCK_WS_CLIENT_STATUS = "client_status";
 
 /**
  * WebSocket message types (server to client).
@@ -49,10 +50,17 @@ export const PROPERTY_LOCK_WS_ERROR = "error";
 /**
  * Timing constants.
  */
-export const PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS = 120_000; // 2 minutes
+export const PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 export const PROPERTY_LOCK_ACTIVITY_DEBOUNCE_MS = 5_000; // 5 seconds
 export const PROPERTY_LOCK_RECONNECT_DELAY_MS = 2_000; // 2 seconds
-export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 5_000; // 5 seconds before closing WebSocket if no ports
+export const PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS = 30 * 60_000; // 30 minutes without interaction
+export const PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS = 70_000; // 70 seconds before lock loss is assumed
+export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 70_000; // 70 seconds before closing a client runtime
+export const PROPERTY_LOCK_NETWORK_CHECK_TIMEOUT_MS = 5_000;
+export const PROPERTY_LOCK_NETWORK_CHECK_URLS = Object.freeze([
+  "https://www.gstatic.com/generate_204",
+  "https://cloudflare.com/cdn-cgi/trace"
+]);
 
 /**
  * Content script to background message types.
@@ -61,6 +69,7 @@ export const PROPERTY_LOCK_PORT_NAME = "propertyLock";
 export const PROPERTY_LOCK_CONTENT_CONNECT = "propertyLockConnect";
 export const PROPERTY_LOCK_CONTENT_DISCONNECT = "propertyLockDisconnect";
 export const PROPERTY_LOCK_CONTENT_ACTIVITY = "propertyLockActivity";
+export const PROPERTY_LOCK_CONTENT_DRAFT_STATUS = "propertyLockDraftStatus";
 export const PROPERTY_LOCK_CONTENT_TAKE_LOCK = "propertyLockTakeLock";
 export const PROPERTY_LOCK_CONTENT_RELEASE = "propertyLockRelease";
 export const PROPERTY_LOCK_CONTENT_SUGGEST = "propertyLockSuggest";
@@ -79,6 +88,13 @@ export function normalizePropertyLockSiteId(value) {
     return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : null;
   }
   return null;
+}
+
+export function normalizePropertyLockClientId(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().slice(0, 128);
 }
 
 /**
@@ -132,17 +148,34 @@ export function buildPropertyLockWssUrl(endpointUrl, tokenValue) {
  * @param {object} message - Raw message from server
  * @returns {object} Normalized lock state
  */
-export function normalizeLockStateMessage(message) {
+export function normalizeLockStateMessage(message, options = {}) {
   if (!message || typeof message !== "object") {
     return createInactiveLockState();
   }
+  const ownIdentity = String(options.ownIdentity || "");
+  const ownClientId = normalizePropertyLockClientId(options.clientId || options.ownClientId || "");
+  const editorIdentity = String(message.editorIdentity || "");
+  const editorClientId = normalizePropertyLockClientId(message.editorClientId || "");
+  const rawIsEditor = Boolean(message.isEditor);
+  const isEditor = editorClientId && ownClientId && editorClientId !== ownClientId
+    ? false
+    : rawIsEditor;
 
   return {
     state: String(message.state || PROPERTY_LOCK_STATE_UNLOCKED),
-    editorIdentity: String(message.editorIdentity || ""),
+    editorIdentity,
+    editorClientId,
     editorName: String(message.editorName || ""),
-    isEditor: Boolean(message.isEditor),
+    isEditor,
     isRecentEditor: Boolean(message.isRecentEditor),
+    isSameUserEditor: Boolean(
+      message.isSameUserEditor ||
+        (!isEditor && ownIdentity && editorIdentity && ownIdentity === editorIdentity)
+    ),
+    otherTabHasUnsavedChanges: Boolean(message.otherTabHasUnsavedChanges),
+    canContinueHere: Boolean(message.canContinueHere),
+    transferFromName: String(message.transferFromName || message.fromName || ""),
+    transferToName: String(message.transferToName || message.toName || ""),
     expiresAtUtc: String(message.expiresAtUtc || ""),
     secondsRemaining: typeof message.secondsRemaining === "number" ? Math.max(0, Math.floor(message.secondsRemaining)) : null
   };
@@ -174,9 +207,15 @@ export function createInactiveLockState() {
   return {
     state: PROPERTY_LOCK_STATE_UNLOCKED,
     editorIdentity: "",
+    editorClientId: "",
     editorName: "",
     isEditor: false,
     isRecentEditor: false,
+    isSameUserEditor: false,
+    otherTabHasUnsavedChanges: false,
+    canContinueHere: false,
+    transferFromName: "",
+    transferToName: "",
     expiresAtUtc: "",
     secondsRemaining: null
   };

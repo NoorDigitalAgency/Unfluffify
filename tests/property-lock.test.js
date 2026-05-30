@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
+  PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS,
+  PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
+  PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
   PROPERTY_LOCK_STATE_UNLOCKED,
   buildPropertyLockWssUrl,
   createInactiveLockState,
@@ -48,6 +52,7 @@ test("normalizeLockStateMessage clamps countdown and preserves editor flags", ()
   const normalized = normalizeLockStateMessage({
     state: "expiry_warning",
     editorIdentity: "editor@example.test",
+    editorClientId: "client-a",
     editorName: "Editor",
     isEditor: true,
     isRecentEditor: false,
@@ -57,19 +62,51 @@ test("normalizeLockStateMessage clamps countdown and preserves editor flags", ()
 
   assert.equal(normalized.state, "expiry_warning");
   assert.equal(normalized.editorIdentity, "editor@example.test");
+  assert.equal(normalized.editorClientId, "client-a");
   assert.equal(normalized.editorName, "Editor");
   assert.equal(normalized.isEditor, true);
   assert.equal(normalized.isRecentEditor, false);
   assert.equal(normalized.secondsRemaining, 0);
 });
 
+test("normalizeLockStateMessage treats same-user different-client editor as a passive same-user lock", () => {
+  const normalized = normalizeLockStateMessage({
+    state: "locked",
+    editorIdentity: "editor@example.test",
+    editorClientId: "client-a",
+    editorName: "Editor",
+    isEditor: true,
+    otherTabHasUnsavedChanges: true
+  }, {
+    ownIdentity: "editor@example.test",
+    clientId: "client-b"
+  });
+
+  assert.equal(normalized.isEditor, false);
+  assert.equal(normalized.isSameUserEditor, true);
+  assert.equal(normalized.otherTabHasUnsavedChanges, true);
+});
+
+test("property lock timing constants preserve the editor warning windows", () => {
+  assert.equal(PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS, 30_000);
+  assert.equal(PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS, 30 * 60_000);
+  assert.equal(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS, 70_000);
+  assert.equal(PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS, 70_000);
+});
+
 test("createInactiveLockState returns an unlocked non-editor snapshot", () => {
   assert.deepEqual(createInactiveLockState(), {
     state: PROPERTY_LOCK_STATE_UNLOCKED,
     editorIdentity: "",
+    editorClientId: "",
     editorName: "",
     isEditor: false,
     isRecentEditor: false,
+    isSameUserEditor: false,
+    otherTabHasUnsavedChanges: false,
+    canContinueHere: false,
+    transferFromName: "",
+    transferToName: "",
     expiresAtUtc: "",
     secondsRemaining: null
   });
@@ -108,6 +145,21 @@ test("content-main connects property lock without gating on Live Page candidate 
   assert.equal(candidateIndex, -1);
 });
 
+test("content-main connects property lock with a stable client identity and does not auto-take before marking", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const syncStart = source.indexOf("async function syncPropertyLockConnection");
+  const syncEnd = source.indexOf("function handlePropertyLockPortMessage", syncStart);
+  const syncSource = source.slice(syncStart, syncEnd);
+  const applyStart = source.indexOf("function applyPropertyLockServerMessage");
+  const applyEnd = source.indexOf("function updatePropertyLockBannerMode", applyStart);
+  const applySource = source.slice(applyStart, applyEnd);
+
+  assert.match(source, /const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";/);
+  assert.match(source, /function getPropertyLockClientId\(\)/);
+  assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
+  assert.doesNotMatch(applySource, /PROPERTY_LOCK_CONTENT_TAKE_LOCK/);
+});
+
 test("content-main resolves property lock targets without requiring current extension base-url state", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const resolverStart = source.indexOf("async function resolveCurrentPropertyLockConnectionTarget");
@@ -129,7 +181,7 @@ test("content-main treats property lock site-id fetch failures as a null lookup"
   const resolverSource = source.slice(resolverStart, resolverEnd);
 
   assert.ok(resolverStart >= 0);
-  assert.match(resolverSource, /try \{[\s\S]*?const response = await fetch\(graphqlEndpoint, \{/);
+  assert.match(resolverSource, /try \{[\s\S]*?response = await utils\.sendRuntimeMessage\(\{/);
   assert.match(resolverSource, /\} catch \(error\) \{\s*return null;\s*\}/);
 });
 
@@ -142,4 +194,27 @@ test("content-main starts property lock sync immediately during content-script i
   assert.ok(mainStart >= 0);
   assert.ok(immediateSyncIndex > mainStart);
   assert.ok(refreshIndex > immediateSyncIndex);
+});
+
+test("property lock contract is documented with stable client and editor source-of-truth rules", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const propertyLockDoc = readFileSync(new URL("../PROPERTY_LOCK.md", import.meta.url), "utf8");
+
+  assert.match(readme, /PROPERTY_LOCK\.md/);
+  assert.match(propertyLockDoc, /stable page-session client ID/);
+  assert.match(propertyLockDoc, /not the Chrome tab ID/);
+  assert.match(propertyLockDoc, /single source of truth/);
+  assert.match(propertyLockDoc, /periodic remote loads must not replace the editor's local draft/);
+});
+
+test("popup remote loads replace local page markings instead of timestamp-merging editor drafts", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const mergeStart = source.indexOf("async function mergeServerConfigIntoLocal");
+  const mergeEnd = source.indexOf("async function loadRemoteConfigForCurrentPage", mergeStart);
+  const mergeSource = source.slice(mergeStart, mergeEnd);
+
+  assert.ok(mergeStart >= 0);
+  assert.match(mergeSource, /const incomingPageMarkings = config\.normalizePageMarkings\(normalizedPayload\.pageMarkings\)\.normalized;/);
+  assert.match(mergeSource, /localConfig\.pageMarkings = incomingPageMarkings;/);
+  assert.doesNotMatch(mergeSource, /mergePageMarkingsByTimestamp/);
 });
