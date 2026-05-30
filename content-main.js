@@ -6763,7 +6763,11 @@ export function main() {
             existingEl && target ? existingEl.contains(target) : core.isXPathDescendant(item.xpath, xpath);
           if (containsTarget) {
             cleanupDescendantIncludeOverrides(item.xpath, existingEl);
-            items.splice(i, 1);
+            if (existingEl && core.isDefaultToggleableExcludedElement(existingEl)) {
+              item.excluded = false;
+            } else {
+              items.splice(i, 1);
+            }
           }
         }
         for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {

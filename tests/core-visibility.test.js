@@ -12,7 +12,8 @@ import {
   isMarkableElement,
   isVisible,
   isVisibleForSubmission,
-  state
+  state,
+  syncPageMarkings
 } from "../content/core.js";
 
 const defaultStyle = {
@@ -352,7 +353,7 @@ test("parent marking still allows expanded boundaries over markable content", ()
   });
 });
 
-test("exclude clicks prefer an active toggleable default boundary over its child", () => {
+test("exclude clicks drill into descendants inside active toggleable default boundaries", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const originalConfig = state.config;
     const originalBaseUrl = state.baseUrl;
@@ -386,7 +387,56 @@ test("exclude clicks prefer an active toggleable default boundary over its child
           allowParent: false,
           allowExplicitTarget: true,
           preferExplicitTarget: false,
-          preferToggleableDefaultTarget: true,
+          excludedSet: new Set([footerXpath]),
+          includeSet: new Set(),
+          explicitParentSet: new Set([footerXpath]),
+          allowExcludedParentChildren: false,
+          allowImmutableChildren: false,
+          requireExcludedAncestor: false
+        }),
+        text
+      );
+    } finally {
+      state.config = originalConfig;
+      state.baseUrl = originalBaseUrl;
+    }
+  });
+});
+
+test("exclude clicks can still target active toggleable defaults when no descendant wins", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const originalConfig = state.config;
+    const originalBaseUrl = state.baseUrl;
+    const text = createElement({
+      tagName: "p",
+      text: "Footer text",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [text],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+    const footerXpath = getXPath(footer);
+    state.baseUrl = "https://example.test/";
+    state.config = {
+      pageMarkings: {
+        "https://example.test/": {
+          xpaths: [{ xpath: footerXpath, excluded: true }],
+          includeXpaths: []
+        }
+      }
+    };
+    globalThis.document.elementsFromPoint = () => [footer, body, documentElement];
+    try {
+      assert.equal(
+        getMarkableTarget(30, 50, {
+          allowParent: false,
+          allowExplicitTarget: true,
+          preferExplicitTarget: false,
           excludedSet: new Set([footerXpath]),
           includeSet: new Set(),
           explicitParentSet: new Set([footerXpath]),
@@ -437,7 +487,6 @@ test("exclude clicks still drill into children of non-toggleable excluded parent
           allowParent: false,
           allowExplicitTarget: true,
           preferExplicitTarget: false,
-          preferToggleableDefaultTarget: true,
           excludedSet: new Set([sectionXpath]),
           includeSet: new Set(),
           explicitParentSet: new Set([sectionXpath]),
@@ -611,6 +660,88 @@ test("stored unexcluded default boundaries are not redrawn as default exclusions
       }),
       [nestedAside]
     );
+  });
+});
+
+test("sync records an unexcluded default boundary around explicit descendant exclusions", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const child = createElement({
+      tagName: "p",
+      text: "Footer child to exclude",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [child],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+    const pageUrl = "https://example.test/default-descendant";
+    const footerXpath = getXPath(footer);
+    const childXpath = getXPath(child);
+    xpathMap.set(footerXpath, footer);
+    xpathMap.set(childXpath, child);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [
+            { xpath: footerXpath, excluded: true },
+            { xpath: childXpath, excluded: true }
+          ],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+    const footerItem = result.entry.xpaths.find((item) => item.xpath === footerXpath);
+    const childItem = result.entry.xpaths.find((item) => item.xpath === childXpath);
+
+    assert.deepEqual(footerItem, { xpath: footerXpath, excluded: false });
+    assert.deepEqual(childItem, { xpath: childXpath, excluded: true });
+  });
+});
+
+test("sync keeps a default boundary unexcluded after a descendant exclusion is removed", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const child = createElement({
+      tagName: "p",
+      text: "Footer child to restore",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [child],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+    const pageUrl = "https://example.test/default-descendant-restored";
+    const footerXpath = getXPath(footer);
+    const childXpath = getXPath(child);
+    xpathMap.set(footerXpath, footer);
+    xpathMap.set(childXpath, child);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [
+            { xpath: footerXpath, excluded: false },
+            { xpath: childXpath, excluded: false }
+          ],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+    const footerItem = result.entry.xpaths.find((item) => item.xpath === footerXpath);
+    const childItem = result.entry.xpaths.find((item) => item.xpath === childXpath);
+
+    assert.deepEqual(footerItem, { xpath: footerXpath, excluded: false });
+    assert.deepEqual(childItem, { xpath: childXpath, excluded: false });
   });
 });
 

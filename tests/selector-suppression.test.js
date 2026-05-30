@@ -149,6 +149,32 @@ test("marking mode refresh reconciles default-toggle cache after boundary unmark
   );
 });
 
+test("marking mode stores default ancestors as unexcluded when descendants are marked", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    coreSource,
+    /if \(matchesToggleableDefaultExcluded\(el\)\) \{\s*continue;\s*\}/
+  );
+  assert.match(
+    coreSource,
+    /const generatedDefaultExcludeSet = new Set\(\);[\s\S]*?const storedExplicitContextSet = new Set\(\);/
+  );
+  assert.match(
+    coreSource,
+    /toggleableDefault &&[\s\S]*?explicitMarkedAncestorSet\.has\(el\)[\s\S]*?items\.push\(\{ xpath, excluded: false \}\);/
+  );
+  assert.match(
+    coreSource,
+    /if \(existingEl && matchesToggleableDefaultExcluded\(existingEl\)\) \{\s*item\.excluded = false;/
+  );
+  assert.match(
+    contentSource,
+    /if \(existingEl && core\.isDefaultToggleableExcludedElement\(existingEl\)\) \{\s*item\.excluded = false;/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
@@ -170,7 +196,11 @@ test("marking logic docs describe selector exclusions as element-only default su
   );
   assert.match(
     docSource,
-    /default exclusion can be unmarked with one click/
+    /clicking a markable\s+descendant inside a default-excluded footer/i
+  );
+  assert.match(
+    docSource,
+    /broader generated default-excluded ancestors are converted to `excluded:\s+false`/
   );
 });
 

@@ -1146,6 +1146,9 @@ function collectExcludedParentElements(items) {
     if (isWithinImmutableExcluded(el)) {
       continue;
     }
+    if (matchesToggleableDefaultExcluded(el)) {
+      continue;
+    }
     parents.add(el);
   }
   return parents;
@@ -3501,7 +3504,6 @@ export function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
   const preferExplicitTarget = !options || options.preferExplicitTarget !== false;
-  const preferToggleableDefaultTarget = Boolean(options && options.preferToggleableDefaultTarget);
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
   const explicitParentSet = options && options.explicitParentSet;
@@ -3514,7 +3516,7 @@ export function getMarkableTarget(x, y, options) {
   const elements = document.elementsFromPoint(x, y);
   if (
     allowExplicitTarget &&
-    (preferExplicitTarget || preferToggleableDefaultTarget) &&
+    preferExplicitTarget &&
     ((excludedSet && excludedSet.size > 0) || (includeSet && includeSet.size > 0))
   ) {
     for (const el of elements) {
@@ -3545,16 +3547,6 @@ export function getMarkableTarget(x, y, options) {
         explicitParentSet.size > 0 &&
         isWithinExplicitExcludedXpath(xpath, explicitParentSet);
       if (withinExplicitExcludedParent && !explicitlyIncluded) {
-        continue;
-      }
-      if (
-        !preferExplicitTarget &&
-        !(
-          preferToggleableDefaultTarget &&
-          explicitlyExcluded &&
-          matchesToggleableDefaultExcluded(el)
-        )
-      ) {
         continue;
       }
       if (
@@ -3833,7 +3825,11 @@ function toggleExplicitExclude(target) {
         (!existingEl && isXPathDescendant(item.xpath, currentXPath))
       ) {
         cleanupDescendantIncludeOverrides(item.xpath, existingEl);
-        items.splice(i, 1);
+        if (existingEl && matchesToggleableDefaultExcluded(existingEl)) {
+          item.excluded = false;
+        } else {
+          items.splice(i, 1);
+        }
       }
     }
   };
@@ -4041,7 +4037,6 @@ function handleToggleEvent(event) {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
-    preferToggleableDefaultTarget: mode === "exclude",
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -6302,9 +6297,27 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       excludedLookup.set(item.xpath, Boolean(item.excluded));
     }
   }
+  const generatedDefaultExcludeSet = new Set();
+  const storedExplicitContextSet = new Set();
+  for (const item of entry.xpaths || []) {
+    if (!item || typeof item.xpath !== "string" || !item.xpath) {
+      continue;
+    }
+    const el = getCachedElementFromXPath(item.xpath);
+    if (item.excluded && el && matchesToggleableDefaultExcluded(el)) {
+      generatedDefaultExcludeSet.add(item.xpath);
+    } else {
+      storedExplicitContextSet.add(item.xpath);
+    }
+  }
   const explicitExcludeSet = new Set();
   for (const [xpath, excluded] of excludedLookup) {
-    if (excluded && typeof xpath === "string" && xpath) {
+    if (
+      excluded &&
+      typeof xpath === "string" &&
+      xpath &&
+      !generatedDefaultExcludeSet.has(xpath)
+    ) {
       explicitExcludeSet.add(xpath);
     }
   }
@@ -6341,7 +6354,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   entry.includeXpaths = filteredIncludeXpaths;
   const explicitMarkedAncestorSet = new Set();
   const explicitMarkedXpaths = new Set([
-    ...Array.from(excludedLookup.keys()),
+    ...storedExplicitContextSet,
     ...filteredIncludeXpaths
   ]);
   for (const xpath of explicitMarkedXpaths) {
@@ -6364,7 +6377,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (explicitIncludeSet.has(xpath)) {
       return true;
     }
-    return excludedLookup.has(xpath);
+    return storedExplicitContextSet.has(xpath);
   };
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
@@ -6412,6 +6425,8 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       explicitMarkedAncestorSet.has(el) &&
       !isExplicitlyMarkedXpath(xpath)
     ) {
+      seen.add(xpath);
+      items.push({ xpath, excluded: false });
       continue;
     }
     if (

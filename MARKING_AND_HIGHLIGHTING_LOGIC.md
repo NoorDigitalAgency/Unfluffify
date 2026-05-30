@@ -94,9 +94,11 @@ UI, consent UI, document roots, and immutable subtrees.
 Plain exclude clicks choose the nearest self-markable target. Already excluded
 non-default ancestors are not forced back into the selection path, so users can
 refine a broad exclusion by clicking deeper descendants. Active toggleable
-default boundaries are the exception: they are preferred over descendants in
-exclude mode so a visible footer, header, form, label, nav, dialog, or aside
-default exclusion can be unmarked with one click.
+default boundaries do not steal descendant clicks: clicking a markable
+descendant inside a default-excluded footer, header, form, label, nav, dialog,
+or aside records that boundary as `excluded: false` and records the descendant
+as the explicit exclusion. Clicking the default boundary itself, where no
+descendant wins target resolution, still unmarks that default boundary directly.
 
 `Shift+Click` enables parent selection. Under the restored b9 behavior, a parent
 boundary is eligible when it has direct text or at least one self-markable
@@ -131,6 +133,9 @@ When an element is explicitly excluded:
 - overlapping include rows are removed,
 - broader explicit exclude ancestors are removed when the new target is a more
   specific descendant,
+- broader generated default-excluded ancestors are converted to `excluded:
+  false` instead of being removed, so the descendant exclusion can live inside an
+  unexcluded default boundary,
 - hidden include overrides inside a removed excluded ancestor are cleaned up.
 
 When an explicit exclude is toggled off, descendant include overrides that only
