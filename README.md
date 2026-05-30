@@ -91,14 +91,14 @@ The remote-support regressions also cover tab-scoped background state, concurren
 ### Content Scripts (`/content`)
 
 - **`core.js`** - Main content script logic (3900+ lines): DOM manipulation, element selection, overlay rendering
-- **`marking-rules.js`** - Shared pure rules for toggleable markability and exclude parent-boundary selection
+- **`marking-rules.js`** - Shared pure rules for b9-aligned toggleable markability, parent-boundary eligibility, and explicit toggle pacing
 - **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
 - **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
 - **`constants.js`** - Content script constants (removable element selectors, etc.)
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for toggleable boundary markability, parent-boundary selection, explicit-include descendant blocking, expanded exclusion eligibility, and hidden explicit ghost presentation
+- **`marking-rules.test.js`** - Regression coverage for b9 default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
 - **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: exclusion roots (explicit, immutable, consent, hidden toggleable) plus included textual boundaries and explicit includes
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors

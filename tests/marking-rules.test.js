@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   isStoredExcludeStateUserModified,
+  shouldAllowParentMarkingBoundary,
   shouldCollectToggleableDefaultBoundary,
-  shouldPromoteDefaultBoundaryToInclude,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
 import {
@@ -32,7 +32,7 @@ test("toggleable boundary self-markability remains a target-shape rule, not boun
       hasVisibleTextualDescendant: false,
       hasExplicitlyMarkedDescendant: true
     }),
-    false
+    true
   );
 });
 
@@ -88,28 +88,28 @@ test("stored default-exclude state is user-modified only when it differs from th
   );
 });
 
-test("plain exclude clicks promote only eligible default boundaries to explicit include", () => {
-  const base = {
-    mode: "exclude",
-    shiftHeld: false,
-    altHeld: false,
-    defaultBoundaryExists: true
-  };
-  assert.equal(shouldPromoteDefaultBoundaryToInclude(base), true);
-  for (const blocked of [
-    { mode: "include" },
-    { shiftHeld: true },
-    { altHeld: true },
-    { defaultBoundaryExists: false },
-    { isWithinAiIncluded: true },
-    { isWithinExplicitIncluded: true },
-    { defaultBoundaryAlreadyUserModified: true }
-  ]) {
-    assert.equal(
-      shouldPromoteDefaultBoundaryToInclude({ ...base, ...blocked }),
-      false
-    );
-  }
+test("b9 parent marking accepts a wrapper with one markable descendant", () => {
+  assert.equal(
+    shouldAllowParentMarkingBoundary({
+      hasDirectText: false,
+      markableDescendantCount: 0
+    }),
+    false
+  );
+  assert.equal(
+    shouldAllowParentMarkingBoundary({
+      hasDirectText: false,
+      markableDescendantCount: 1
+    }),
+    true
+  );
+  assert.equal(
+    shouldAllowParentMarkingBoundary({
+      hasDirectText: true,
+      markableDescendantCount: 0
+    }),
+    true
+  );
 });
 
 test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded", () => {

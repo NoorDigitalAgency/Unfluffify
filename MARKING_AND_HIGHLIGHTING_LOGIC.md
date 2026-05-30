@@ -1,420 +1,195 @@
 # Marking And Highlighting Logic
 
-This document is the source of truth for how Unfluffify decides:
+This document is the source of truth for the marking rules restored from
+`b9c86238b08dd0b0ee0231fcab7b214625e29670`.
 
-- what can be marked,
-- what is highlighted,
-- how AI selector output is merged with manual markings,
-- how default exclusions behave,
-- how per-page XPath markings are regenerated and stored.
+The implementation is split across:
 
-The implementation lives primarily in `content/core.js`, with default selector categories in `common/constants.js`.
+- `content/core.js` for DOM targeting, synchronization, and overlay rendering.
+- `content/marking-rules.js` for pure marking decisions.
+- `content/submission-rules.js` for AI submission row decisions.
+- `content/silent-highlight-rules.js` for silent-highlight redraw/source rules.
+- `common/constants.js` for default exclusion categories.
 
 ## Core Model
 
-Unfluffify builds the page state from four inputs:
+A page marking entry combines four inputs:
 
-1. Immutable exclusions
-2. Toggleable default exclusions
-3. AI selector output
-4. Manual per-page XPath markings
+1. immutable default exclusions,
+2. toggleable default exclusions,
+3. AI selector matches,
+4. explicit per-page XPath choices.
 
-The page is then rendered into highlight layers and persisted back into `pageMarkings`.
+The resulting model renders marking overlays while marking mode is enabled and
+stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
 
 ## Exclusion Categories
 
-### Immutable exclusions
+### Immutable Defaults
 
-Immutable exclusions are elements that are always excluded and cannot be toggled by the user.
+Immutable defaults are always excluded and cannot be overridden from marking
+mode. They include `IMG`, `BUTTON`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`,
+`STYLE`, `SCRIPT`, `TEMPLATE`, `IFRAME`, and `VIDEO`.
 
-They come from `DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS` in `common/constants.js`.
+An element inside an immutable default subtree is not markable. Immutable nodes
+render as hard exclusions in marking mode and on the dedicated immutable layer
+in silent highlighting.
 
-Examples include:
+### Toggleable Defaults
 
-- `IMG`
-- `INPUT`
-- `SCRIPT`
-- `STYLE`
-- `IFRAME`
-- `VIDEO`
-
-If an element matches one of these selectors, or lives inside one, it is treated as hard-excluded.
-
-### Toggleable default exclusions
-
-Toggleable default exclusions are elements that start from an excluded posture, but the user may refine, unmark, or explicitly include them.
-
-They come from `DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS` in `common/constants.js`.
-
-Current default toggleable tags:
+Toggleable defaults start excluded but can be toggled by the user. The b9
+taxonomy is:
 
 - `FOOTER`
 - `FORM`
 - `LABEL`
-- `BUTTON`
 - `NAV`
 - `HEADER`
 - `DIALOG`
 - `ASIDE`
 
-Toggleable defaults still remain toggleable, but auto-applied default exclusion now uses structural rules instead of tag-specific exceptions. Content wrappers are not auto-applied as excluded boundaries when they contain meaningful text descendants and visible immutable media such as stretched hero images. Separately, once a descendant inside a toggleable default subtree has any explicit user marking, broader auto-default ancestors above that descendant are suppressed so the user can clear the subtree level by level without the ancestor snapping back in automatically.
+`BUTTON` is intentionally immutable, not toggleable. `LINK` is not a default
+exclusion.
 
-## Stored Per-Page Markings
+Toggleable defaults are not promoted to explicit includes by a plain exclude
+click. Exclude mode keeps drilling to the nearest markable content target unless
+the user holds `Shift` to select a broader boundary. Include mode is explicit:
+the user holds `Alt` and the selected target is written to `includeXpaths`.
 
-Each page entry in `config.pageMarkings[pageUrl]` stores:
+## Stored Page Entries
 
-- `timestamp`
+Each page entry may contain:
+
 - `title`
-- `xpaths`: ordered XPath items with `{ xpath, excluded }`
-- `includeXpaths`: ordered XPath list for explicit includes
+- `timestamp`
+- `xpaths`: ordered `{ xpath, excluded }` rows
+- `includeXpaths`: explicit include XPath rows
 - `consentXpaths`
+- `selectorSuppressedXpaths`
 - `submissionXpaths`
 - `renderedHtml`
 - `rawHtml`
 
-Important rules:
+`xpaths` stores excluded rows and generated/default posture rows. `includeXpaths`
+is the canonical explicit-include list. Normalization removes redundant nested
+rows when a broader boundary takes over a subtree.
 
-- `xpaths` holds both generated and explicit exclude-state items.
-- `includeXpaths` is the canonical list of explicit includes.
-- A given subtree is normalized so that broader and narrower markings do not coexist redundantly.
-- `submissionXpaths` is the final AI payload boundary list.
-- Submission boundaries are intentionally shallow: excluded ancestors suppress descendant exclusion rows unless the descendant is itself an explicit include.
-- Explicit includes always submit as included rows, even when they are currently hidden or live inside excluded ancestors.
+## Target Resolution
 
-## Markable Elements
+Targets are resolved from `document.elementsFromPoint(...)`, skipping extension
+UI, consent UI, document roots, and immutable subtrees.
 
-An element is markable only if it passes the content-side eligibility checks in `content/core.js`.
+### Exclude Mode
 
-### Self-markable elements
+Plain exclude clicks choose the nearest self-markable target. Already excluded
+ancestors are not forced back into the selection path, so users can refine a
+broad exclusion by clicking deeper descendants.
 
-An element is self-markable when it is a textual container and is not blocked by consent UI, extension UI, or immutable exclusions.
+`Shift+Click` enables parent selection. Under the restored b9 behavior, a parent
+boundary is eligible when it has direct text or at least one self-markable
+descendant. This intentionally allows single-content-branch wrappers to be
+selected as broader boundaries.
 
-The important distinction is between:
+### Include Mode
 
-- elements with their own direct text,
-- elements that only become textual because of descendants.
+`Alt` switches to include mode. Include mode can inspect descendants inside
+excluded parents and prefers explicit targets first. The selected element is
+stored in `includeXpaths` when it is eligible.
 
-Direct text means actual text-node content owned by the element itself, not only text inherited from descendants.
+Explicit include boundaries are closed boundaries: descendants under an active
+include are not targetable until the include itself is removed.
 
-For toggleable default exclusions, direct text keeps the boundary self-markable even when the element also contains nested textual descendants. This is what allows labels, buttons, and similar toggleable boundaries to stay targetable as their own unit instead of collapsing entirely to the nested child nodes.
+## Self-Markability
 
-Examples:
+An element is self-markable when it is a textual container and is not blocked by
+consent UI, extension UI, or immutable defaults.
 
-- `<span>Hello <strong>world</strong></span>`: the `span` has direct text and a descendant.
-- `<span><strong>world</strong></span>`: the `span` has no direct text.
+Direct text means text-node content owned by the element itself. Containers with
+only descendant text normally yield to the descendant. Toggleable default
+boundaries follow the b9 shape rule: they are self-markable only when they do
+not have a visible textual descendant. Existing explicit descendant markings do
+not by themselves suppress the boundary.
 
-That difference matters during include targeting.
+## Explicit Exclude Rules
 
-### Mixed-text ancestor preference
+When an element is explicitly excluded:
 
-When the user is in include mode and the pointer is over a descendant inside a mixed-text ancestor, Unfluffify prefers the nearest markable ancestor that has its own direct text.
+- redundant descendant exclude rows are removed,
+- overlapping include rows are removed,
+- broader explicit exclude ancestors are removed when the new target is a more
+  specific descendant,
+- hidden include overrides inside a removed excluded ancestor are cleaned up.
 
-This rule also applies to toggleable default-excluded boundaries that carry their own text, such as labels that contain both plain text and nested required markers.
-
-Example:
-
-```html
-<span>Hello <strong>world</strong></span>
-```
-
-In include mode, clicking on `strong` should resolve to the `span`, because the `span` owns real text outside the descendant and represents the logical content boundary the user sees.
-
-By contrast:
-
-```html
-<span><strong>world</strong></span>
-```
-
-Here the `span` has no own text, so the `strong` remains the appropriate target.
-
-### Parent selection with Shift
-
-In exclude mode, `Shift+Click` means “choose a broader eligible ancestor instead of the deepest eligible descendant under the pointer.”
-
-This is how users intentionally move back up to a broader boundary such as a form or sidebar container.
-
-An expanded exclusion boundary must either own direct text at its root level or contain more than one textual descendant. A parent with no direct text and only one textual descendant is not a valid exclusion target, even if it has other non-textual children.
-
-For structured non-text wrappers whose direct children are the separate textual boundaries the user sees, `Shift+Click` prefers the nearest such grouping ancestor. This is what allows containers like button groups and list wrappers to be excluded as one logical block.
-
-When multiple toggleable default exclusions are nested, `Shift+Click` prefers the nearest toggleable default ancestor in the clicked subtree rather than jumping straight to the broadest one. That keeps intermediate boundaries such as `FORM` inside `ASIDE` and `NAV` inside `HEADER` reachable.
-
-Without `Shift`, exclude mode prefers drilling down.
-
-## Pointer Target Resolution
-
-Target resolution is performed from `document.elementsFromPoint(...)`.
-
-The effective rules are:
-
-### Include mode
-
-- explicit targets are preferred first,
-- descendants inside excluded parents are allowed,
-- mixed-text ancestor promotion is enabled,
-- descendants inside explicit include parents are blocked until that explicit include is removed,
-- the result is the nearest meaningful content boundary.
-
-### Exclude mode
-
-- explicit exclude ancestors are not force-selected first,
-- direct clicks on the currently excluded element itself still resolve to that exact element,
-- direct clicks on a toggleable default boundary itself still resolve to that exact boundary when the user is intentionally selecting ancestors with `Shift`,
-- descendants inside excluded parents are still inspectable,
-- descendants inside explicit include parents are not inspectable or markable until the explicit include boundary is removed,
-- the default behavior is to drill down,
-- `Shift` is required to select a broader ancestor on purpose.
-
-This prevents a previously excluded parent from reasserting itself when the user is trying to refine the exclusion to a deeper child.
-
-## Exclusion Refinement Rules
-
-When a new explicit exclusion is applied, the exclusion hierarchy is normalized in both directions.
-
-### Descendant cleanup
-
-If a broader element is newly excluded, descendant markings inside that subtree are removed.
-
-Reason:
-
-- once the parent is excluded, separate descendant excludes are redundant.
-
-### Ancestor cleanup
-
-If a narrower descendant is newly excluded inside an already excluded ancestor, the broader ancestor exclusion is removed.
-
-Reason:
-
-- the user is refining the boundary,
-- the more specific target should replace the broader one,
-- non-`Shift` exclude clicks should drill deeper rather than bounce back up.
-
-This is the rule that prevents `ASIDE -> FORM -> LABEL` hierarchies from snapping back to the ancestor while the user is trying to go down a level.
-
-### Explicit include boundary protection
-
-Explicit includes are closed content boundaries. Their descendants do not show hover targeting and cannot be marked as either explicit includes or explicit excludes while the ancestor include remains active.
-
-The exact explicit include boundary itself remains targetable so the user can remove it. After the include is removed, the descendants return to their default or inherited marking behavior and may be marked normally.
-
-### Descendant include cleanup during exclusion removal
-
-If an excluded boundary is unmarked, any descendant explicit include overrides beneath that boundary are removed as well.
-
-The same cleanup also runs when a broader excluded ancestor is removed indirectly because the user refined the exclusion to a narrower descendant.
-
-Reason:
-
-- once the parent exclusion is gone, descendant explicit includes that only existed to punch holes through that exclusion become redundant,
-- the subtree should return to its default state instead of preserving stale include overrides.
+When an explicit exclude is toggled off, descendant include overrides that only
+existed to punch through that exclusion are removed with it.
 
 ## Explicit Include Rules
-
-Explicit includes are stored separately in `includeXpaths`.
 
 When an explicit include is added:
 
 - descendant excludes under that include are removed,
 - descendant includes under that include are removed,
-- the explicit include becomes the boundary for that subtree.
+- non-toggleable explicit excludes are converted away,
+- toggleable default rows can remain with `excluded: false` to record the user
+  override.
 
-Explicit includes always override default toggleable exclusions for the targeted subtree.
+Hidden explicit include choices remain stored while their DOM element exists and
+render as ghost include markings when they still have measurable geometry.
 
-If an element is temporarily hidden after being explicitly marked, the explicit marking remains stored while the element is present in the DOM. When the element still has a measurable box, it is rendered as a non-toggleable ghost marking: hidden includes use a semi-transparent dotted green border without a background, and hidden excludes use a semi-transparent dashed red border without a background. When it becomes visible again, the normal toggleable explicit marking returns.
+## AI Selector Integration
 
-## AI Selector Interpretation
-
-AI selectors are normalized into two lists:
-
-- `exclusionSelectors`
-- `inclusionSelectors`
-
-The content logic resolves these selectors to DOM elements and derives:
-
-- AI included content
-- AI excluded content
-
-### AI submission boundary rules
-
-The saved `submissionXpaths` sent for CSS-selector calculation follow these rules:
-
-- exclusion rows are only the root boundaries of excluded regions,
-- descendants under an already-submitted excluded root are omitted,
-- immutable exclusion roots are always submitted as excluded rows,
-- consent UI roots are submitted as excluded rows,
-- toggleable roots that are excluded by current page markings are submitted as excluded rows,
-- toggleable roots that are visually hidden at save time are also submitted as excluded rows,
-- document roots, off-document render boxes and definitively hidden implicit rows are omitted,
-- submission-visible textual boundaries that do not fall under those exclusion rules submit as included rows,
-- explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
-
-### AI inclusion eligibility
-
-An element is eligible for AI inclusion when it is:
-
-- not inside immutable exclusions,
-- not inside consent or extension UI,
-- not inside a submitted exclusion boundary unless explicitly included.
-
-Because auto-applied toggleable default exclusion is now structural, text inside content wrappers such as hero sections can still participate in implicit inclusion and silent highlighting when the wrapper is only carrying decorative immutable media, while true UI/control containers remain excluded by default.
-
-AI preview is read-only. Opening or closing the AI preview popover must not create or dirty a page draft by itself, even when the normal marking overlay would auto-seed an unmarked page from stored AI selectors. Preview restore suppresses that one auto-seed pass so the pre-preview draft state is preserved.
-
-Silent highlight overlay positions are refreshed not only on scroll and relevant DOM mutations, but also on detected layout shifts. Movement-driven repositioning waits for tracked elements to settle before redrawing, so long-running shifts do not leave overlays stuck at an intermediate position. Silent highlighting now covers the immutable permanent layer, the AI-included layer, and the AI-excluded layer; saved-page link highlighting is no longer part of that model.
-
-An active full silent-highlight refresh always repaints the overlay, even if the tracked node set and selector maps are unchanged. This prevents delayed visibility or render-box changes from being missed just because the render key stayed stable.
-
-Silent exclusion source selection is visibility-agnostic. Selector-excluded and inferred excluded boundaries stay in the silent-highlight source set even when they are temporarily non-drawable, such as Webflow-style `opacity: 0` fade-ins. Current visibility only affects whether rects are drawn at that moment, not whether the exclusion boundary is tracked.
-
-Included source selection is stricter: hidden implicit included nodes are dropped from silent highlighting and preview results, while hidden explicit included nodes stay eligible and render with the ghost include presentation.
-
-Marking overlay updates watch style attribute changes as well as class, id, hidden, aria-hidden, child-list, and text mutations. Opacity, visibility, displacement, and animation-driven style changes therefore trigger a redraw/reposition pass instead of leaving stale markings.
-
-## Regression Coverage
-
-The pure decision rules that are most likely to regress are covered by Node tests:
-
-- `tests/marking-rules.test.js` locks in toggleable self-markability and exclude parent-boundary selection.
-- `tests/marking-rules.test.js` also locks in the one-shot suppression rule that keeps AI preview restore from auto-seeding a new draft.
-- `tests/marking-rules.test.js` also locks in expanded exclusion eligibility, explicit-include descendant blocking, and hidden explicit ghost presentation.
-- `tests/submission-rules.test.js` locks in the final AI submission row decisions for exclusion roots, explicit includes, hidden toggleable roots, consent roots, immutable roots, and excluded-ancestor suppression.
-- `tests/core-visibility.test.js` locks in visibility semantics for hidden attributes, `aria-hidden`, and collapsed visibility.
-- `tests/core-visibility.test.js` also locks in that style mutations trigger overlay repositioning for dynamic visibility changes.
-- `tests/silent-highlight-rules.test.js` locks in the settle-before-redraw behavior for movement-driven silent highlighting.
-- `tests/silent-highlight-rules.test.js` also locks in the rule that a full active silent-highlight refresh must repaint even when the render key is unchanged.
-- `tests/silent-highlight-rules.test.js` also locks in the rule that temporarily hidden excluded nodes must remain collectable as silent-highlight sources.
-
-Run `npm test` from the repository root to execute the regression suite.
-
-## Highlight Collections
-
-The rendered overlay is split into these logical collections:
-
-- ghost explicit elements
-- hard elements
-- explicit exclude elements
-- explicit include elements
-- AI content elements
-- default elements
+AI selector matches are previewed and merged with page markings without replacing
+manual choices. Selector-excluded nodes suppress that exact element in the
+default marking layer, while unmatched markable descendants can still appear as
+default markable content.
 
 AI excluded content is still collected for selector-matched elements, but it is not rendered as a dedicated overlay layer.
 
-### Ghost explicit elements
+The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer.
 
-Ghost explicit elements are hidden stored explicit includes or excludes that must remain persisted but are not currently toggleable. They render below normal markable layers with static semi-transparent borders and no backgrounds.
+The AI preview is read-only. Opening and closing preview must not create or dirty
+a page draft by itself.
 
-### Hard elements
+## AI Submission Rows
 
-Hard elements are:
+`submissionXpaths` is the shallow boundary list sent for CSS selector
+calculation.
 
-- immutable exclusions.
+Rules:
 
-These render in the hard-excluded layer in marking mode and use the same permanent immutable treatment in silent highlighting mode. Visible geometry is enough for this layer; immutable elements do not need renderable text content to keep their permanent marking.
+- explicit includes always submit as included rows,
+- explicit excludes submit as excluded rows unless explicitly included,
+- descendants under an already submitted excluded ancestor are omitted unless
+  they are explicit includes,
+- consent roots, immutable roots, and hidden toggleable roots submit as excluded
+  rows,
+- visible textual markable content submits as included rows,
+- document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 
-### Explicit exclude elements
+## Silent Highlighting
 
-These come from the current page entry's excluded XPath items after filtering out:
+Silent highlighting uses three overlay layers:
 
-- consent exclusions,
-- immutable exclusions,
-- explicit-included subtrees.
+1. immutable exclusions,
+2. included content,
+3. excluded content.
 
-### Explicit include elements
+Immutable silent highlights use a subtle dashed border and transparent
+background. Hidden implicit includes are dropped, while hidden explicit includes
+can remain as ghost include sources. Excluded sources remain collectable while
+temporarily hidden; current renderability only controls whether a rect is drawn
+at that moment.
 
-These come from `includeXpaths` after removing invalid, consent, immutable, or overridden elements.
+Silent highlight redraws wait for tracked positions to settle after movement and
+force a repaint on full active refreshes even when the render key is unchanged.
 
-### AI content elements
+## Regression Coverage
 
-These come from:
+Focused rule coverage lives in:
 
-- explicit include elements that are also part of the AI-included content model,
-- implicit AI-included XPath items stored as `excluded === false`.
-
-Hidden implicit AI-included nodes are filtered back out before marking-mode rendering, silent highlighting, and preview collection. Only explicit included sources may remain when hidden; those render with ghost include styling instead of the normal included overlay.
-
-### AI excluded content
-
-These come from the resolved AI exclusion selectors after selector-suppressed XPath overrides are removed and explicit include boundaries are honored.
-
-The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer. AI excluded content does not render as a separate marking-mode layer.
-
-### Default elements
-
-Default elements are generated from the live DOM after higher-precedence layers are known.
-
-They are the lowest-precedence visible content candidates that remain after removing:
-
-- hard exclusions,
-- consent exclusions,
-- explicit excludes,
-- explicit includes,
-- AI included content,
-- AI excluded content.
-
-When a selector-excluded ancestor has markable descendants that are not themselves matched by a selector and are not blocked by default toggleable or immutable exclusions, those descendants remain eligible for the default plain-green markable layer.
-
-## Precedence Order
-
-When layers overlap, precedence is:
-
-1. Ghost explicit markings
-2. Immutable and hard exclusions
-3. Default content highlights
-4. AI excluded descendants
-5. Explicit excludes
-6. AI included content
-7. Explicit includes
-8. Focus and hover targeting
-
-Visual layers are ordered so immutable exclusions remain subtle, markable elements can appear above immutable overlaps, and inclusions remain easiest to see. Lower-precedence decision layers do not replace higher-precedence classification decisions.
-
-## Rebuild And Persistence Flow
-
-On render or relevant DOM/config changes, Unfluffify:
-
-1. collects immutable exclusions,
-2. loads the current page entry,
-3. optionally seeds a new page entry from AI selectors when the page is still unmarked,
-4. regenerates normalized `xpaths` and `includeXpaths`,
-5. builds the visual collections,
-6. schedules snapshot persistence and config persistence.
-
-The rebuild is intentionally idempotent:
-
-- broader and narrower redundant boundaries are collapsed,
-- invalid or disappeared elements are filtered out when possible,
-- hidden explicit includes are preserved when needed so accordion-like UI does not erase user intent.
-
-## Practical Behavior Summary
-
-### If the user excludes without Shift
-
-- choose the deepest meaningful target,
-- allow drilling inside already excluded ancestors,
-- do not drill inside explicit include ancestors until that include is removed,
-- replace broader excludes with the newly chosen deeper exclude.
-
-### If the user excludes with Shift
-
-- choose a broader eligible ancestor on purpose,
-- prefer the nearest structured grouping ancestor when the wrapper itself has no direct text but its direct children are the separate textual items,
-- use this when moving back up to a broader container.
-
-### If the user includes
-
-- prefer explicit targets first,
-- prefer mixed-text ancestors over purely nested text descendants,
-- allow inclusion inside excluded parents as a deliberate override,
-- do not target descendants inside an existing explicit include until the include boundary is removed.
-
-## Design Intent
-
-The system tries to keep one consistent mental model:
-
-- immutable things stay immutable,
-- default exclusions are a starting point, not a trap,
-- explicit user actions always refine the tree in the direction the user clicked,
-- include actions define the content boundary,
-- exclude actions carve out smaller excluded boundaries unless the user explicitly asks for a parent with `Shift`.
-
-If behavior changes in code, this document should be updated with the same change.
+- `tests/marking-rules.test.js`
+- `tests/core-visibility.test.js`
+- `tests/submission-rules.test.js`
+- `tests/silent-highlight-rules.test.js`
+- `tests/selector-suppression.test.js`
+- `tests/silent-highlight-annotations.test.js`

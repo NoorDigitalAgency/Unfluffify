@@ -20,10 +20,10 @@ import {
   getExplicitMarkingPresentation,
   filterDefaultElementsForExplicitMarks,
   isStoredExcludeStateUserModified,
+  shouldAllowParentMarkingBoundary,
   shouldAutoSeedMarkingsFromAiSelectors,
   shouldCollectToggleableDefaultBoundary,
   shouldIgnoreDuplicateUserToggle,
-  shouldPromoteDefaultBoundaryToInclude,
   shouldSelfMarkToggleableDefaultBoundary
 } from "./marking-rules.js";
 import {
@@ -702,44 +702,6 @@ function hasTextualImmutableDescendant(el, options = {}) {
   return false;
 }
 
-function hasExplicitlyMarkedDescendant(el) {
-  if (!el || el.nodeType !== 1 || !state.config) {
-    return false;
-  }
-  const explicitExcludeSet = getExcludedXPathSet(state.config, location.href);
-  const explicitIncludeSet = getIncludeXPathSet(state.config, location.href);
-  if (explicitExcludeSet.size === 0 && explicitIncludeSet.size === 0) {
-    return false;
-  }
-  const stack = Array.from(el.children || []);
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || node.nodeType !== 1) {
-      continue;
-    }
-    if (isWithinAiPopover(node)) {
-      continue;
-    }
-    if (isWithinConsentElement(node)) {
-      continue;
-    }
-    if (isWithinImmutableExcluded(node)) {
-      continue;
-    }
-    const xpath = getXPath(node);
-    if (
-      xpath &&
-      (explicitExcludeSet.has(xpath) || explicitIncludeSet.has(xpath))
-    ) {
-      return true;
-    }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-  }
-  return false;
-}
-
 function isSelfMarkableWithoutParentMode(el, options = {}) {
   if (!isTextualContainer(el, options)) {
     return false;
@@ -768,8 +730,7 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     return true;
   }
   return shouldSelfMarkToggleableDefaultBoundary({
-    hasVisibleTextualDescendant,
-    hasExplicitlyMarkedDescendant: hasExplicitlyMarkedDescendant(el)
+    hasVisibleTextualDescendant
   });
 }
 
@@ -806,36 +767,6 @@ function isWithinImmutableExcluded(el) {
 
 function isToggleableDefaultExcludedElement(el, includedElements) {
   return matchesToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
-}
-
-function findOutermostToggleableDefaultBoundaryForElement(element, boundarySet, options = {}) {
-  if (!element || element.nodeType !== 1) {
-    return null;
-  }
-  const hasCachedBoundarySet = boundarySet && typeof boundarySet.has === "function";
-  const aiContent = options.aiContent;
-  const explicitInclude = options.explicitInclude;
-  if (aiContent && aiContent.size > 0 && isWithinElementSet(element, aiContent)) {
-    return null;
-  }
-  let node = element;
-  let outermostBoundary = null;
-  while (node && node.nodeType === 1) {
-    const nodeExplicitlyIncluded = Boolean(
-      explicitInclude && explicitInclude.size > 0 && explicitInclude.has(node)
-    );
-    if (nodeExplicitlyIncluded && !outermostBoundary) {
-      return null;
-    }
-    const isBoundary = hasCachedBoundarySet && boundarySet.size > 0
-      ? boundarySet.has(node)
-      : matchesToggleableDefaultExcluded(node);
-    if (isBoundary && !nodeExplicitlyIncluded) {
-      outermostBoundary = node;
-    }
-    node = node.parentElement;
-  }
-  return outermostBoundary;
 }
 
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
@@ -3483,7 +3414,10 @@ function hasMultipleMarkableDescendants(el, options = {}) {
     }
     if (isSelfMarkableWithoutParentMode(node, options)) {
       markableDescendantCount += 1;
-      if (markableDescendantCount >= 2) {
+      if (shouldAllowParentMarkingBoundary({
+        hasDirectText: false,
+        markableDescendantCount
+      })) {
         return true;
       }
     }
@@ -3659,97 +3593,6 @@ function getMarkableTarget(x, y, options) {
   return null;
 }
 
-function getCachedDefaultBoundaryGateSets() {
-  const collections = state.cachedCollections;
-  if (!collections) {
-    return null;
-  }
-  const boundaryList = collections.defaultExcludedToggleElements;
-  return {
-    boundarySet: new Set(Array.isArray(boundaryList) ? boundaryList : []),
-    aiContent: new Set(collections.aiContentElements || []),
-    explicitInclude: new Set(collections.explicitIncludeElements || [])
-  };
-}
-
-function findToggleableDefaultBoundaryAt(x, y) {
-  const gates = getCachedDefaultBoundaryGateSets();
-  if (!gates) {
-    return null;
-  }
-  const elements = document.elementsFromPoint(x, y);
-  for (const el of elements) {
-    if (!el || el.nodeType !== 1) {
-      continue;
-    }
-    if (state.overlay && (el === state.overlay || state.overlay.contains(el))) {
-      continue;
-    }
-    if (el === document.documentElement || el === document.body) {
-      continue;
-    }
-    if (isWithinAiPopover(el) || isWithinConsentElement(el)) {
-      continue;
-    }
-    const boundary = findOutermostToggleableDefaultBoundaryForElement(el, gates.boundarySet, {
-      aiContent: gates.aiContent,
-      explicitInclude: gates.explicitInclude
-    });
-    if (boundary) {
-      return boundary;
-    }
-  }
-  return null;
-}
-
-function isDefaultBoundaryUserModified(boundary, entry) {
-  if (!boundary || !entry) {
-    return false;
-  }
-  const xpath = getXPath(boundary);
-  if (!xpath) {
-    return false;
-  }
-  const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
-  if (includeXpaths.includes(xpath)) {
-    return true;
-  }
-  const items = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  for (const item of items) {
-    if (item && item.xpath === xpath) {
-      return isStoredExcludeStateUserModified({
-        isExcluded: Boolean(item.excluded),
-        isDefaultExcluded: matchesToggleableDefaultExcluded(boundary)
-      });
-    }
-  }
-  return false;
-}
-
-function resolveDefaultBoundaryPromotion(x, y, event, mode) {
-  const shiftHeld = Boolean(event && event.shiftKey);
-  const altHeld = Boolean(event && event.altKey);
-  if (
-    !shouldPromoteDefaultBoundaryToInclude({
-      mode,
-      shiftHeld,
-      altHeld,
-      defaultBoundaryExists: true
-    })
-  ) {
-    return null;
-  }
-  const boundary = findToggleableDefaultBoundaryAt(x, y);
-  if (!boundary) {
-    return null;
-  }
-  const entry = state.currentPageEntry;
-  if (isDefaultBoundaryUserModified(boundary, entry)) {
-    return null;
-  }
-  return boundary;
-}
-
 function updateHoverHighlight(
   x,
   y,
@@ -3774,12 +3617,7 @@ function updateHoverHighlight(
     const excludedSet =
       allowParent || allowExcludedParentChildren ? null : explicitParentSet;
     const includeSet = getIncludeXPathSet(state.config, location.href);
-    const inferredMode = allowExcludedParentChildren ? "include" : "exclude";
-    const boundaryPromotion = resolveDefaultBoundaryPromotion(x, y, {
-      shiftKey: state.shiftHeld,
-      altKey: state.altHeld
-    }, inferredMode);
-    const target = boundaryPromotion || getMarkableTarget(x, y, {
+    const target = getMarkableTarget(x, y, {
       allowParent,
       allowExplicitTarget: true,
       preferExplicitTarget: allowExcludedParentChildren,
@@ -4187,13 +4025,7 @@ function handleToggleEvent(event) {
     allowParent || allowExcludedParentChildren ? null : explicitParentSet;
   const includeSet = getIncludeXPathSet(state.config, location.href);
   const targetResolutionStartedAt = nowMs();
-  const boundaryPromotion = resolveDefaultBoundaryPromotion(
-    event.clientX,
-    event.clientY,
-    event,
-    mode
-  );
-  const target = boundaryPromotion || getMarkableTarget(event.clientX, event.clientY, {
+  const target = getMarkableTarget(event.clientX, event.clientY, {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
@@ -4204,9 +4036,8 @@ function handleToggleEvent(event) {
     allowImmutableChildren,
     requireExcludedAncestor: false
   });
-  const effectiveMode = boundaryPromotion ? "include" : mode;
   logTogglePerf("toggle.target-resolution", targetResolutionStartedAt, {
-    mode: effectiveMode,
+    mode,
     hasTarget: Boolean(target)
   });
   if (target) {
@@ -4214,22 +4045,22 @@ function handleToggleEvent(event) {
     const interactionNow = nowMs();
     if (shouldIgnoreDuplicateUserToggle({
       targetXpath: xpath,
-      mode: effectiveMode,
+      mode,
       now: interactionNow,
       inFlightKey: state.toggleInFlightKey,
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
-      logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode: effectiveMode });
+      logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
       return;
     }
     if (xpath) {
-      state.toggleInFlightKey = `${effectiveMode}:${xpath}`;
+      state.toggleInFlightKey = `${mode}:${xpath}`;
     }
-    showImmediateToggleAcknowledgement(target, effectiveMode);
+    showImmediateToggleAcknowledgement(target, mode);
     const applyStartedAt = nowMs();
     try {
-      if (effectiveMode === "include") {
+      if (mode === "include") {
         toggleExplicitInclude(target);
       } else {
         toggleExplicitExclude(target);
@@ -4240,11 +4071,11 @@ function handleToggleEvent(event) {
       }
     } finally {
       state.toggleInFlightKey = "";
-      logTogglePerf("toggle.apply", applyStartedAt, { mode: effectiveMode });
+      logTogglePerf("toggle.apply", applyStartedAt, { mode });
     }
   }
   logTogglePerf("toggle.total", toggleStartedAt, {
-    mode: effectiveMode,
+    mode,
     hadTarget: Boolean(target)
   });
 }

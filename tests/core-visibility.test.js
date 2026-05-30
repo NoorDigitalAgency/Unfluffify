@@ -567,7 +567,7 @@ test("default layer suppresses the toggleable-default boundary itself and all it
   });
 });
 
-test("parent marking rejects a wrapper with only one markable child", () => {
+test("parent marking accepts a wrapper with one markable child", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const textBlock = createElement({
       tagName: "p",
@@ -590,7 +590,7 @@ test("parent marking rejects a wrapper with only one markable child", () => {
 
     assert.equal(
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      false
+      true
     );
   });
 });

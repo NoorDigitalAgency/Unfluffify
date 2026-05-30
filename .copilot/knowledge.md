@@ -29,7 +29,9 @@
 
 ## Marking and Highlighting Rules
 
-- Expanded exclusion targets must own direct text or contain more than one textual descendant; a parent with one textual descendant and no root text is not eligible.
+- Marking rules are anchored to commit `b9c86238b08dd0b0ee0231fcab7b214625e29670`: plain exclude clicks do not promote default-excluded boundaries to explicit includes.
+- Expanded exclusion targets are eligible when they own direct text or contain at least one self-markable descendant, matching the b9 parent-selection behavior.
+- Toggleable default exclusions are `FOOTER`, `FORM`, `LABEL`, `NAV`, `HEADER`, `DIALOG`, and `ASIDE`; `BUTTON` is immutable and `LINK` is not default-excluded.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.

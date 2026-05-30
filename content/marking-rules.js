@@ -1,26 +1,6 @@
 export function shouldSelfMarkToggleableDefaultBoundary(options = {}) {
   const hasVisibleTextualDescendant = Boolean(options.hasVisibleTextualDescendant);
-  const hasExplicitlyMarkedDescendant = Boolean(options.hasExplicitlyMarkedDescendant);
-  return !hasVisibleTextualDescendant && !hasExplicitlyMarkedDescendant;
-}
-
-export function shouldPromoteDefaultBoundaryToInclude(options = {}) {
-  if (options.mode !== "exclude") {
-    return false;
-  }
-  if (options.shiftHeld || options.altHeld) {
-    return false;
-  }
-  if (!options.defaultBoundaryExists) {
-    return false;
-  }
-  if (options.isWithinAiIncluded || options.isWithinExplicitIncluded) {
-    return false;
-  }
-  if (options.defaultBoundaryAlreadyUserModified) {
-    return false;
-  }
-  return true;
+  return !hasVisibleTextualDescendant;
 }
 
 export function shouldCollectToggleableDefaultBoundary(options = {}) {
@@ -53,6 +33,13 @@ export function shouldAutoSeedMarkingsFromAiSelectors(options = {}) {
 
 export function isStoredExcludeStateUserModified(options = {}) {
   return Boolean(Boolean(options.isExcluded) !== Boolean(options.isDefaultExcluded));
+}
+
+export function shouldAllowParentMarkingBoundary(options = {}) {
+  return Boolean(
+    options.hasDirectText ||
+    options.markableDescendantCount >= 1
+  );
 }
 
 export function getExplicitMarkingRenderOptions() {
