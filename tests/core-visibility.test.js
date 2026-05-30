@@ -694,7 +694,7 @@ test("stored unexcluded default boundaries do not draw a default-layer ghost", (
   });
 });
 
-test("explicit descendants under unexcluded defaults suppress wrapping default ghosts", () => {
+test("explicit descendants under unexcluded defaults keep implicit descendants visible", () => {
   withVisibilityDom(({ body }) => {
     const excludedA = createElement({
       tagName: "p",
@@ -748,7 +748,11 @@ test("explicit descendants under unexcluded defaults suppress wrapping default g
       unexcludedToggleableDefault: new Set([footer])
     });
 
-    assert.deepEqual(defaultElements, [defaultA]);
+    assert.equal(defaultElements.includes(footer), false);
+    assert.equal(defaultElements.includes(excludedA), false);
+    assert.equal(defaultElements.includes(excludedB), false);
+    assert.equal(defaultElements.includes(excludedC), false);
+    assert.equal(defaultElements.includes(defaultA), true);
   });
 });
 

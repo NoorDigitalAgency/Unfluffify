@@ -33,11 +33,11 @@
 - Expanded exclusion targets are eligible when they own direct text or contain at least one self-markable descendant, matching the b9 parent-selection behavior.
 - Toggleable default exclusions are `FOOTER`, `FORM`, `LABEL`, `NAV`, `HEADER`, `DIALOG`, and `ASIDE`; `BUTTON` is immutable and `LINK` is not default-excluded.
 - Exclude clicks drill into markable descendants inside active toggleable default boundaries; the generated default ancestor is stored as `excluded: false` while the descendant becomes explicit. Blank/default-boundary clicks can still unmark the boundary itself.
-- A stored toggleable default row with `excluded: false` unmarks only that boundary and must skip generated default-exclusion posture without becoming a full explicit include subtree.
+- A stored toggleable default row with `excluded: false` unmarks only that boundary and must skip the default-toggle layer without becoming a full explicit include subtree.
 - Stored unexcluded default boundaries also suppress their own default-layer marking, but not their descendants, to avoid visual-only ancestor ghosts around explicit descendant marks.
-- Default-layer targets are filtered against visible explicit markings so intermediate wrappers cannot draw descendant-counted ghost boxes around explicit marks.
+- Default-layer collection remains b9-like and is not globally filtered by visible explicit marks; broad filtering can make implicit descendants flicker on alternating toggles.
 - Fast explicit-toggle overlay refreshes must run `syncPageMarkings` before collecting overlays; otherwise generated default ancestors can be drawn from stale pre-sync state.
-- Generated toggleable default exclusions are logical boundaries, not visible marking boxes; the `default-toggle` layer is retained only to clear stale post-b9 boxes.
+- Toggleable default markings render on the lower `default-toggle` layer; immutable hard markings render above them so ancestor default boxes cannot cover locked descendants.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.

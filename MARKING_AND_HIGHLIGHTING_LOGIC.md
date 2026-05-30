@@ -56,12 +56,10 @@ click. Exclude mode keeps drilling to the nearest markable content target unless
 the user holds `Shift` to select a broader boundary. Include mode is explicit:
 the user holds `Alt` and the selected target is written to `includeXpaths`.
 
-In marking mode, generated toggleable default exclusions are logical exclusion
-boundaries, not visible exclusion markings. They suppress default-layer
-descendants and guide target resolution, but the overlay should not draw a
-header/footer/form/nav/etc. box unless the user creates a real explicit marking.
-The compatibility `default-toggle` layer is kept only so stale post-b9 boxes can
-be cleared during normal draw cycles.
+In marking mode, toggleable default exclusions render on the lower
+`default-toggle` overlay layer. Immutable exclusions render above that layer, so
+an immutable descendant such as a button or image remains visually locked even
+when a toggleable default ancestor is also visible as excluded.
 
 ## Stored Page Entries
 
@@ -83,14 +81,14 @@ rows when a broader boundary takes over a subtree.
 
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
-boundary's generated default-exclusion posture while still allowing nested
+boundary's default-excluded toggle layer while still allowing nested
 toggleable defaults to keep their own default behavior. It also suppresses that
 boundary's own default-layer marking without suppressing unmarked descendants,
 so the unmarked boundary does not render as a visual-only ghost around an
-explicit descendant marking. Default-layer candidates that wrap or sit inside
-visible explicit markings are filtered out, which prevents intermediate
-wrappers from drawing descendant-counted ghost boxes while preserving unmarked
-sibling descendants.
+explicit descendant marking. Default-layer collection intentionally remains
+otherwise b9-like: explicit marks should not globally filter unrelated implicit
+default targets, because that can make implicit descendant markings flicker on
+alternating toggles.
 
 Both full renders and fast explicit-toggle overlay refreshes must run page
 marking synchronization before collecting overlays. The fast refresh is only an

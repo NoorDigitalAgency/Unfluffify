@@ -18,7 +18,6 @@ import {
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
-  filterDefaultElementsForExplicitMarks,
   isStoredExcludeStateUserModified,
   shouldAllowParentMarkingBoundary,
   shouldAutoSeedMarkingsFromAiSelectors,
@@ -1287,12 +1286,6 @@ export function collectDefaultLayerElements(root, options = {}) {
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
   const toggleableDefaultExcluded = new Set(options.toggleableDefaultExcluded || []);
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
-  const explicitDefaultFilterElements = Array.isArray(options.explicitDefaultFilterElements)
-    ? options.explicitDefaultFilterElements
-    : [
-      ...explicitExclude,
-      ...explicitInclude
-    ].filter((el) => el && !hiddenStoredExplicitExclude.has(el));
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -1308,7 +1301,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...hiddenStoredExplicitExclude
   ]);
 
-  const defaultTargets = collectDefaultHighlightTargets(root, {
+  return collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
     hasHigherPrecedence: (el) => precedenceSet.has(el),
@@ -1324,10 +1317,6 @@ export function collectDefaultLayerElements(root, options = {}) {
       ...toggleableDefaultExcluded
     ])
   });
-  return filterDefaultElementsForExplicitMarks(
-    defaultTargets,
-    explicitDefaultFilterElements
-  );
 }
 
 function collectSelectorElements(selectors) {
@@ -2612,6 +2601,10 @@ function createOverlay() {
         box-shadow: 0px 0px 5px 5px #00acc178;
         opacity: 1;
         animation: blink 1s linear infinite !important;
+      }
+      #unfluffify-overlay .uf-hard-toggle {
+        border: 2px solid #b71c1c;
+        background: rgba(183, 28, 28, 0.12);
       }
       #unfluffify-overlay .uf-hard-locked {
         background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.1), rgba(225, 70, 70, 0.1) 20px, rgba(225, 150, 70, 0.1) 20px, rgb(225, 150, 70, 0.1) 40px);
@@ -4544,8 +4537,7 @@ function refreshExplicitMarkingOverlay(entry) {
       selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
       hiddenStoredExplicitExclude,
       toggleableDefaultExcluded: toggleableDefaultExcludedSet,
-      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements),
-      explicitDefaultFilterElements: explicitExcludeElements.concat(explicitIncludeElements)
+      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
     });
   }
   if (cachedCollections) {
@@ -4828,8 +4820,7 @@ function renderHighlightsInner() {
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
     toggleableDefaultExcluded: toggleableDefaultExcludedSet,
-    unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements),
-    explicitDefaultFilterElements: filteredExplicitExclude.concat(filteredExplicitInclude)
+    unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
   });
 
   const collections = {
@@ -4900,11 +4891,14 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  // Generated toggleable defaults are logical exclusion boundaries. They are
-  // still collected above to suppress default descendants, but b9 did not draw
-  // every generated footer/header/form/etc. as a visible marking. Keeping this
-  // layer in the render cycle clears stale post-b9 boxes without creating new
-  // cross-ancestor ghost markings.
+  for (const el of collections.defaultExcludedToggleElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerDefaultToggleState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
+      );
+    }
+  }
 
   for (const el of collections.explicitExcludeElements) {
     const rects = getRects(el);
