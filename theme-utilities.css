@@ -3,16 +3,11 @@
 .btn-icon {
   display: inline-block;
   flex-shrink: 0;
-  margin-right: 4px;
   font-size: 15px;
   line-height: 1;
   vertical-align: middle;
   width: 15px;
   height: 15px;
-}
-
-.list li button .btn-icon {
-  margin-right: 0;
 }
 
 .row-label {
@@ -78,6 +73,10 @@ li button span.mdi::before {
 .u-full-width {
   display: block;
   width: 100%;
+}
+
+button.u-full-width {
+  display: flex;
 }
 
 .u-border-top {

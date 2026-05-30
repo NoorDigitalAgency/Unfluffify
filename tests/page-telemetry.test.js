@@ -46,6 +46,11 @@ function createConsoleStub() {
   return consoleStub;
 }
 
+async function flushTelemetryTasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 async function withPageTelemetryEnvironment(callback) {
   const originalWindow = globalThis.window;
   const originalConsole = globalThis.console;
@@ -126,6 +131,7 @@ test("page telemetry includes fetch payloads only after the control message enab
       method: "POST",
       body: "request-body"
     });
+    await flushTelemetryTasks();
 
     const firstNetworkMessage = postedMessages.find(
       (message) =>
@@ -145,6 +151,7 @@ test("page telemetry includes fetch payloads only after the control message enab
       method: "POST",
       body: "request-body"
     });
+    await flushTelemetryTasks();
 
     const networkMessages = postedMessages.filter(
       (message) =>
