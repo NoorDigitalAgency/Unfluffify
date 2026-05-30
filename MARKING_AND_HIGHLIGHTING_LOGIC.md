@@ -85,7 +85,10 @@ boundary's default-excluded hard-toggle layer while still allowing nested
 toggleable defaults to keep their own default behavior. It also suppresses that
 boundary's own default-layer marking without suppressing unmarked descendants,
 so the unmarked boundary does not render as a visual-only ghost around an
-explicit descendant marking.
+explicit descendant marking. Default-layer candidates that wrap or sit inside
+visible explicit markings are filtered out, which prevents intermediate
+wrappers from drawing descendant-counted ghost boxes while preserving unmarked
+sibling descendants.
 
 ## Target Resolution
 

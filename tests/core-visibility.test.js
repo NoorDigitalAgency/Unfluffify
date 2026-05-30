@@ -694,6 +694,64 @@ test("stored unexcluded default boundaries do not draw a default-layer ghost", (
   });
 });
 
+test("explicit descendants under unexcluded defaults suppress wrapping default ghosts", () => {
+  withVisibilityDom(({ body }) => {
+    const excludedA = createElement({
+      tagName: "p",
+      text: "Excluded footer child A",
+      rect: { top: 70, right: 320, bottom: 100, left: 30, width: 290, height: 30 }
+    });
+    const defaultA = createElement({
+      tagName: "p",
+      text: "Still markable footer child",
+      rect: { top: 105, right: 320, bottom: 135, left: 30, width: 290, height: 30 }
+    });
+    const excludedB = createElement({
+      tagName: "p",
+      text: "Excluded footer child B",
+      rect: { top: 145, right: 320, bottom: 175, left: 30, width: 290, height: 30 }
+    });
+    const excludedC = createElement({
+      tagName: "p",
+      text: "Excluded footer child C",
+      rect: { top: 185, right: 320, bottom: 215, left: 30, width: 290, height: 30 }
+    });
+    const wrapperA = createElement({
+      tagName: "div",
+      text: "Wrapper A label",
+      children: [excludedA, defaultA],
+      rect: { top: 55, right: 410, bottom: 140, left: 20, width: 390, height: 85 }
+    });
+    const wrapperB = createElement({
+      tagName: "div",
+      text: "Wrapper B label",
+      children: [excludedB],
+      rect: { top: 140, right: 410, bottom: 180, left: 20, width: 390, height: 40 }
+    });
+    const wrapperC = createElement({
+      tagName: "div",
+      text: "Wrapper C label",
+      children: [excludedC],
+      rect: { top: 180, right: 410, bottom: 220, left: 20, width: 390, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [wrapperA, wrapperB, wrapperC],
+      rect: { top: 40, right: 430, bottom: 235, left: 10, width: 420, height: 195 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      explicitExclude: new Set([excludedA, excludedB, excludedC]),
+      unexcludedToggleableDefault: new Set([footer])
+    });
+
+    assert.deepEqual(defaultElements, [defaultA]);
+  });
+});
+
 test("sync records an unexcluded default boundary around explicit descendant exclusions", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const child = createElement({

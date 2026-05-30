@@ -18,6 +18,7 @@ import {
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
+  filterDefaultElementsForExplicitMarks,
   isStoredExcludeStateUserModified,
   shouldAllowParentMarkingBoundary,
   shouldAutoSeedMarkingsFromAiSelectors,
@@ -1286,6 +1287,12 @@ export function collectDefaultLayerElements(root, options = {}) {
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
   const toggleableDefaultExcluded = new Set(options.toggleableDefaultExcluded || []);
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
+  const explicitDefaultFilterElements = Array.isArray(options.explicitDefaultFilterElements)
+    ? options.explicitDefaultFilterElements
+    : [
+      ...explicitExclude,
+      ...explicitInclude
+    ].filter((el) => el && !hiddenStoredExplicitExclude.has(el));
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -1301,7 +1308,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...hiddenStoredExplicitExclude
   ]);
 
-  return collectDefaultHighlightTargets(root, {
+  const defaultTargets = collectDefaultHighlightTargets(root, {
     excludedSet: precedenceSet,
     hardExcludedSet,
     hasHigherPrecedence: (el) => precedenceSet.has(el),
@@ -1317,6 +1324,10 @@ export function collectDefaultLayerElements(root, options = {}) {
       ...toggleableDefaultExcluded
     ])
   });
+  return filterDefaultElementsForExplicitMarks(
+    defaultTargets,
+    explicitDefaultFilterElements
+  );
 }
 
 function collectSelectorElements(selectors) {
@@ -4527,7 +4538,8 @@ function refreshExplicitMarkingOverlay(entry) {
       selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
       hiddenStoredExplicitExclude,
       toggleableDefaultExcluded: toggleableDefaultExcludedSet,
-      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
+      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements),
+      explicitDefaultFilterElements: explicitExcludeElements.concat(explicitIncludeElements)
     });
   }
   if (cachedCollections) {
@@ -4810,7 +4822,8 @@ function renderHighlightsInner() {
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
     toggleableDefaultExcluded: toggleableDefaultExcludedSet,
-    unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
+    unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements),
+    explicitDefaultFilterElements: filteredExplicitExclude.concat(filteredExplicitInclude)
   });
 
   const collections = {
