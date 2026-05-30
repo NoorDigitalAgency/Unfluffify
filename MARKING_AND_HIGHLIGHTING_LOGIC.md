@@ -56,6 +56,11 @@ click. Exclude mode keeps drilling to the nearest markable content target unless
 the user holds `Shift` to select a broader boundary. Include mode is explicit:
 the user holds `Alt` and the selected target is written to `includeXpaths`.
 
+In marking mode, toggleable default exclusions render on the lower
+`default-toggle` overlay layer. Immutable exclusions render above that layer, so
+an immutable descendant such as a button or image remains visually locked even
+when a toggleable default ancestor is also visible as excluded.
+
 ## Stored Page Entries
 
 Each page entry may contain:

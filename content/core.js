@@ -2564,6 +2564,7 @@ function createOverlay() {
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
+      #unfluffify-overlay .uf-layer[data-layer="default-toggle"] { z-index: 1; }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
       #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
@@ -2690,6 +2691,7 @@ function createOverlay() {
   overlay.id = "unfluffify-overlay";
 
   const layerKeys = [
+    "default-toggle",
     "hard",
     "explicit-exclude",
     "explicit-include",
@@ -4810,6 +4812,7 @@ function repositionHighlights(collections) {
 }
 
 function drawCollections(collections, getRects) {
+  const layerDefaultToggleState = beginLayerRender(state.layers["default-toggle"]);
   const layerHardState = beginLayerRender(state.layers["hard"]);
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
@@ -4830,7 +4833,7 @@ function drawCollections(collections, getRects) {
     const rects = getRects(el);
     if (rects.length > 0) {
       drawMultiRectReuse(
-        layerHardState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
+        layerDefaultToggleState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
       );
     }
   }
@@ -4912,6 +4915,7 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  finalizeLayerRender(layerDefaultToggleState);
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);

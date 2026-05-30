@@ -103,6 +103,32 @@ test("marking mode skips stored unexcluded defaults on the hard-toggle layer", (
   );
 });
 
+test("marking mode renders toggleable defaults below immutable hard markings", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const defaultToggleLayerIndex = coreSource.indexOf(
+    '#unfluffify-overlay .uf-layer[data-layer="default-toggle"] { z-index: 1; }'
+  );
+  const hardLayerIndex = coreSource.indexOf(
+    '#unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }'
+  );
+
+  assert.notEqual(defaultToggleLayerIndex, -1);
+  assert.notEqual(hardLayerIndex, -1);
+  assert.equal(defaultToggleLayerIndex < hardLayerIndex, true);
+  assert.match(
+    coreSource,
+    /const layerDefaultToggleState = beginLayerRender\(state\.layers\["default-toggle"\]\);/
+  );
+  assert.match(
+    coreSource,
+    /layerDefaultToggleState,\s*rects,\s*"uf-hard-toggle",\s*el,\s*"default-toggle-exclude"/
+  );
+  assert.doesNotMatch(
+    coreSource,
+    /layerHardState,\s*rects,\s*"uf-hard-toggle",\s*el,\s*"default-toggle-exclude"/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
@@ -117,6 +143,10 @@ test("marking logic docs describe selector exclusions as element-only default su
   assert.match(
     docSource,
     /The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer\./
+  );
+  assert.match(
+    docSource,
+    /toggleable default exclusions render on the lower\s+`default-toggle` overlay layer/i
   );
 });
 
