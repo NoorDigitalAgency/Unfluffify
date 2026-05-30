@@ -119,7 +119,7 @@ test("implicit visible textual content submits as included", () => {
   );
 });
 
-test("implicit hidden textual content is omitted", () => {
+test("implicit hidden textual content submits as excluded", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
@@ -128,7 +128,7 @@ test("implicit hidden textual content is omitted", () => {
       visibleToUser: false,
       markableTextual: true
     }),
-    { shouldSubmit: false, excluded: false }
+    { shouldSubmit: true, excluded: true }
   );
 });
 
@@ -159,7 +159,7 @@ test("consent roots always submit as excluded", () => {
   );
 });
 
-test("immutable exclusion roots always submit as excluded", () => {
+test("immutable exclusion roots are omitted because immutable tags are sent separately", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
@@ -169,11 +169,11 @@ test("immutable exclusion roots always submit as excluded", () => {
       visibleToUser: false,
       markableTextual: true
     }),
-    { shouldSubmit: true, excluded: true }
+    { shouldSubmit: false, excluded: false }
   );
 });
 
-test("hidden toggleable roots submit as excluded", () => {
+test("hidden toggleable roots submit as excluded only when textual", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
@@ -184,6 +184,20 @@ test("hidden toggleable roots submit as excluded", () => {
       markableTextual: true
     }),
     { shouldSubmit: true, excluded: true }
+  );
+});
+
+test("hidden non-textual toggleable roots are omitted", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      hiddenToggleableRoot: true,
+      visibleToUser: false,
+      markableTextual: false
+    }),
+    { shouldSubmit: false, excluded: false }
   );
 });
 

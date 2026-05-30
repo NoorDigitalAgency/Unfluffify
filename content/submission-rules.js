@@ -25,19 +25,21 @@ export function resolveAiSubmissionRowState(options = {}) {
   }
 
   if (
-    options.consentExcludedRoot ||
-    options.immutableExcludedRoot ||
-    options.hiddenToggleableRoot
+    options.consentExcludedRoot
   ) {
     return { shouldSubmit: true, excluded: true };
   }
 
-  if (!options.visibleToUser) {
+  if (options.immutableExcludedRoot) {
     return { shouldSubmit: false, excluded: false };
   }
 
   if (!options.markableTextual) {
     return { shouldSubmit: false, excluded: false };
+  }
+
+  if (!options.visibleToUser) {
+    return { shouldSubmit: true, excluded: true };
   }
 
   return { shouldSubmit: true, excluded: false };

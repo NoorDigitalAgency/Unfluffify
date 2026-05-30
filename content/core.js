@@ -969,6 +969,72 @@ export function getXPath(el) {
   return `/${parts.join("/")}`;
 }
 
+function getSnapshotStripSelectors(options = {}) {
+  const extraStripSelectors = Array.isArray(options.extraStripSelectors)
+    ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
+    : [];
+  return EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
+}
+
+function matchesAnySelector(el, selectors) {
+  if (!el || el.nodeType !== 1 || typeof el.matches !== "function") {
+    return false;
+  }
+  for (const selector of selectors || []) {
+    try {
+      if (selector && el.matches(selector)) {
+        return true;
+      }
+    } catch {
+      // Ignore invalid selectors
+    }
+  }
+  return false;
+}
+
+function isStrippedFromSnapshot(el, options = {}) {
+  const stripSelectors = getSnapshotStripSelectors(options);
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (matchesAnySelector(node, stripSelectors)) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+export function getSnapshotXPath(el, options = {}) {
+  if (!el || el.nodeType !== 1 || isStrippedFromSnapshot(el, options)) {
+    return "";
+  }
+  const parts = [];
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (isStrippedFromSnapshot(node, options)) {
+      return "";
+    }
+    const tag = node.tagName.toLowerCase();
+    let index = 1;
+    let sibling = node.previousElementSibling;
+    while (sibling) {
+      if (
+        sibling.tagName === node.tagName &&
+        !isStrippedFromSnapshot(sibling, options)
+      ) {
+        index += 1;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    parts.unshift(`${tag}[${index}]`);
+    if (node === document.documentElement) {
+      break;
+    }
+    node = node.parentElement;
+  }
+  return `/${parts.join("/")}`;
+}
+
 export function isXPathDescendant(parentXpath, childXpath) {
   if (!parentXpath || !childXpath) {
     return false;
@@ -2345,10 +2411,7 @@ export function createSanitizedPageSnapshot(options = {}) {
   }
 
   const clone = root.cloneNode(true);
-  const extraStripSelectors = Array.isArray(options.extraStripSelectors)
-    ? options.extraStripSelectors.filter((value) => typeof value === "string" && value)
-    : [];
-  const stripSelectors = EXTENSION_SNAPSHOT_STRIP_SELECTORS.concat(extraStripSelectors);
+  const stripSelectors = getSnapshotStripSelectors(options);
   if (stripSelectors.length) {
     clone.querySelectorAll(stripSelectors.join(",")).forEach((node) => {
       node.remove();

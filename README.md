@@ -109,8 +109,8 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 ### Regression Tests (`/tests`)
 
 - **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
-- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: exclusion roots (explicit, immutable, consent, hidden toggleable) plus included textual boundaries and explicit includes
-- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards and dynamic style-mutation redraw decisions used by marking and submission
+- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: explicit/consent exclusions, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
+- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction

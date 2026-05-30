@@ -38,6 +38,13 @@ Backend-saved candidate completion completed:
 4. Clear page-save reconciliation only after the forced backend reload confirms the current page exists in the backend-saved cache.
 5. Preserve the initial-save path so a user can save a newly opened page with default markings accepted as-is.
 
+AI submission alignment completed:
+
+1. Compute AI submission XPath rows against the same sanitized DOM view as the saved `renderedHtml`, so extension UI cannot shift body-child indexes in the payload.
+2. Treat generated toggleable-default rows as marking posture only; they are not explicit AI exclusions.
+3. Submit hidden textual content as excluded at mobile-save time, while visible textual content remains included unless it is under an explicit excluded ancestor.
+4. Keep immutable defaults out of per-page XPath rows and rely on the immutable tag list in the AI payload.
+
 Future marking work:
 
 1. Start by reading `MARKING_AND_HIGHLIGHTING_LOGIC.md`.

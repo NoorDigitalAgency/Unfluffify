@@ -2361,8 +2361,8 @@ function getConfiguredRenderMode() {
   return config.getConfigRenderMode(state.config);
 }
 
-function createCurrentPageSnapshot() {
-  return core.createSanitizedPageSnapshot({
+function getCurrentPageSnapshotOptions() {
+  return {
     renderMode: getConfiguredRenderMode(),
     extraStripSelectors: [
       `#${PAGE_TOAST_ID}`,
@@ -2371,7 +2371,15 @@ function createCurrentPageSnapshot() {
       `#${SILENT_HIGHLIGHT_STYLE_ID}`
     ],
     titlePrefix: SILENT_SELECTOR_TITLE_PREFIX
-  });
+  };
+}
+
+function createCurrentPageSnapshot() {
+  return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
+}
+
+function getCurrentPageSnapshotXPath(node) {
+  return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
 }
 
 async function fetchCurrentPageRawHtml(pageUrl = location.href) {
@@ -2548,6 +2556,12 @@ async function saveCurrentPageDraft(options) {
   const currentSnapshot = createCurrentPageSnapshot();
   const currentRenderedHtml = currentSnapshot.renderedHtml;
   const currentRawHtml = await fetchCurrentPageRawHtml(pageUrl);
+  const immutableExcluded = core.collectImmutableElements();
+  const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+    allowCreate: true,
+    persist: true
+  });
+  const entry = core.getPageMarkingEntry(state.config, pageUrl);
   const currentSubmissionXpaths = collectAiSubmissionXpathsForCurrentPage();
   const savedEntryMatchesCurrentSnapshot = Boolean(
     savedEntry &&
@@ -2559,6 +2573,7 @@ async function saveCurrentPageDraft(options) {
     submissionXpathsEqual(savedEntry.submissionXpaths, currentSubmissionXpaths)
   );
   if (
+    !syncResult.changed &&
     !draftEntryChanged &&
     !reconciliationPending &&
     hasSavedEntry &&
@@ -2571,6 +2586,7 @@ async function saveCurrentPageDraft(options) {
     return { ok: true, saved: false, dirty: false };
   }
   if (
+    !syncResult.changed &&
     reconciliationPending &&
     !draftEntryChanged &&
     hasSavedEntry &&
@@ -2586,12 +2602,6 @@ async function saveCurrentPageDraft(options) {
   if (!hadReconciliationPending) {
     await core.setPageSaveReconciliationPending(targetBaseUrl, pageUrl, { reason: "saving" });
   }
-  const immutableExcluded = core.collectImmutableElements();
-  core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-    allowCreate: true,
-    persist: true
-  });
-  const entry = core.getPageMarkingEntry(state.config, pageUrl);
   entry.renderedHtml = currentRenderedHtml;
   entry.rawHtml = typeof currentRawHtml === "string"
     ? currentRawHtml
@@ -5231,27 +5241,43 @@ function collectAiSubmissionXpathsForCurrentPage() {
     }
   };
   const normalizeXPath = (value) => (typeof value === "string" ? value.trim() : "");
+  const toSnapshotXPath = (value) => {
+    const xpath = normalizeXPath(value);
+    if (!xpath) {
+      return "";
+    }
+    const element = core.getElementFromXPath(xpath);
+    if (!element) {
+      return "";
+    }
+    return getCurrentPageSnapshotXPath(element);
+  };
   const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   explicitRows.forEach((item) => {
     if (!item || typeof item.xpath !== "string") {
       return;
     }
-    const xpath = normalizeXPath(item.xpath);
+    const xpath = toSnapshotXPath(item.xpath);
     if (!xpath) {
       return;
     }
-    if (item.excluded) {
+    const element = core.getElementFromXPath(item.xpath);
+    if (
+      item.excluded &&
+      element &&
+      !core.isDefaultToggleableExcludedElement(element)
+    ) {
       explicitExcludedXpaths.add(xpath);
     }
   });
   (Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []).forEach((xpath) => {
-    const normalized = normalizeXPath(xpath);
+    const normalized = toSnapshotXPath(xpath);
     if (normalized) {
       explicitIncludedXpaths.add(normalized);
     }
   });
   (Array.isArray(entry && entry.consentXpaths) ? entry.consentXpaths : []).forEach((xpath) => {
-    const normalized = normalizeXPath(xpath);
+    const normalized = toSnapshotXPath(xpath);
     if (normalized) {
       consentXpaths.add(normalized);
       explicitExcludedXpaths.add(normalized);
@@ -5280,18 +5306,27 @@ function collectAiSubmissionXpathsForCurrentPage() {
   if (!document.body) {
     return rows;
   }
-  const stack = [document.body];
+  const stack = [{ node: document.body, insideImmutableExcluded: false }];
   while (stack.length) {
-    const node = stack.pop();
+    const stackItem = stack.pop();
+    const node = stackItem && stackItem.node;
+    const insideImmutableExcluded = Boolean(stackItem && stackItem.insideImmutableExcluded);
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
-    }
-    const xpath = core.getXPath(node);
+    const xpath = getCurrentPageSnapshotXPath(node);
     if (!xpath) {
       continue;
+    }
+    const immutableExcludedRoot = core.isImmutableExcludedElement(node);
+    if (insideImmutableExcluded || immutableExcludedRoot) {
+      continue;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push({
+        node: node.children[i],
+        insideImmutableExcluded: immutableExcludedRoot
+      });
     }
     if (isAiSubmissionDocumentRootXpath(xpath)) {
       continue;
@@ -5301,25 +5336,18 @@ function collectAiSubmissionXpathsForCurrentPage() {
     const insideExcludedAncestorRow = hasExcludedAncestorRow(xpath);
     const withinConsentBoundary = isWithinConsentBoundary(node);
     let visibleToUser = false;
-    let hiddenToggleableRoot = false;
-    let immutableExcludedRoot = false;
     let isMarkableTextual = false;
     if (!explicitlyExcluded) {
       visibleToUser = core.isVisibleForSubmission(node);
-      immutableExcludedRoot = core.isImmutableExcludedElement(node);
-      hiddenToggleableRoot = core.isDefaultToggleableExcludedElement(node) &&
-        !visibleToUser;
       if (
-        visibleToUser &&
         !explicitlyIncluded &&
         !insideExcludedAncestorRow &&
-        !withinConsentBoundary &&
-        !immutableExcludedRoot &&
-        !hiddenToggleableRoot
+        !withinConsentBoundary
       ) {
         isMarkableTextual = core.isMarkableElement(node, state.config, {
           allowParent: false,
-          allowImmutableChildren: false
+          allowImmutableChildren: false,
+          ignoreVisibilityForInclusionDetection: true
         });
       }
     }
@@ -5330,8 +5358,8 @@ function collectAiSubmissionXpathsForCurrentPage() {
       visibleToUser,
       consentExcludedRoot: withinConsentBoundary &&
         node.hasAttribute(core.CONSENT_HIDDEN_ATTR),
-      immutableExcludedRoot,
-      hiddenToggleableRoot,
+      immutableExcludedRoot: false,
+      hiddenToggleableRoot: false,
       markableTextual: isMarkableTextual
     });
     if (!submissionRow.shouldSubmit) {

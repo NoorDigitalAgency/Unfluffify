@@ -7,6 +7,7 @@ import {
   collectToggleableDefaultExcludedElements,
   canApplyExplicitInclude,
   getMarkableTarget,
+  getSnapshotXPath,
   getXPath,
   getMutationRenderMode,
   isMarkableElement,
@@ -44,7 +45,16 @@ function createElement(options = {}) {
         return (options.classes || []).includes(value);
       }
     },
-    matches() {
+    matches(selector) {
+      if (selector === "[data-uf-extension-ui=\"true\"]") {
+        return attrs.get("data-uf-extension-ui") === "true";
+      }
+      if (selector === "[id^=\"unfluffify-\"]") {
+        return typeof attrs.get("id") === "string" && attrs.get("id").startsWith("unfluffify-");
+      }
+      if (selector && selector.startsWith("#")) {
+        return attrs.get("id") === selector.slice(1);
+      }
       return false;
     },
     closest() {
@@ -88,6 +98,15 @@ function createElement(options = {}) {
     textContent: "",
     innerText: ""
   };
+  Object.defineProperty(element, "previousElementSibling", {
+    get() {
+      if (!this.parentElement || !Array.isArray(this.parentElement.children)) {
+        return null;
+      }
+      const index = this.parentElement.children.indexOf(this);
+      return index > 0 ? this.parentElement.children[index - 1] : null;
+    }
+  });
   const text = options.text || "";
   if (text) {
     element.childNodes.push({ nodeType: 3, textContent: text });
@@ -116,8 +135,8 @@ function withVisibilityDom(callback, options = {}) {
   const viewportWidth = options.viewportWidth || 1200;
   const viewportHeight = options.viewportHeight || 800;
   const xpathMap = new Map();
-  const documentElement = createElement();
-  const body = createElement({ parentElement: documentElement });
+  const documentElement = createElement({ tagName: "html" });
+  const body = createElement({ tagName: "body", parentElement: documentElement });
   documentElement.children.push(body);
   documentElement.childNodes.push(body);
   documentElement.clientWidth = viewportWidth;
@@ -318,6 +337,47 @@ test("submission visibility rejects fixed boxes outside the viewport", () => {
     body.childNodes.push(element);
     assert.equal(isVisibleForSubmission(element), false);
   }, { scrollHeight: 1600 });
+});
+
+test("snapshot xpaths ignore extension UI stripped from saved HTML", () => {
+  withVisibilityDom(({ body }) => {
+    const extensionRoot = createElement({
+      parentElement: body,
+      attrs: { "data-uf-extension-ui": "true" },
+      rect: { top: 0, right: 10, bottom: 10, left: 0, width: 10, height: 10 }
+    });
+    const contentRoot = createElement({
+      parentElement: body,
+      text: "Saved page content",
+      rect: { top: 20, right: 320, bottom: 80, left: 20, width: 300, height: 60 }
+    });
+    body.children.push(extensionRoot, contentRoot);
+    body.childNodes.push(extensionRoot, contentRoot);
+
+    assert.equal(getXPath(contentRoot), "/html[1]/body[1]/div[2]");
+    assert.equal(getSnapshotXPath(contentRoot), "/html[1]/body[1]/div[1]");
+    assert.equal(getSnapshotXPath(extensionRoot), "");
+  });
+});
+
+test("snapshot xpaths honor the same extra stripped nodes as saved HTML", () => {
+  withVisibilityDom(({ body }) => {
+    const transientRoot = createElement({
+      parentElement: body,
+      attrs: { id: "temporary-save-overlay" }
+    });
+    const contentRoot = createElement({
+      parentElement: body,
+      text: "Saved page content"
+    });
+    body.children.push(transientRoot, contentRoot);
+    body.childNodes.push(transientRoot, contentRoot);
+
+    assert.equal(
+      getSnapshotXPath(contentRoot, { extraStripSelectors: ["#temporary-save-overlay"] }),
+      "/html[1]/body[1]/div[1]"
+    );
+  });
 });
 
 test("parent marking still allows expanded boundaries over markable content", () => {

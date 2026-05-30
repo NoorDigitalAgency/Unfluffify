@@ -228,17 +228,28 @@ a page draft by itself.
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector
-calculation.
+calculation. Submission XPath rows are calculated in the same sanitized DOM view
+as `renderedHtml`: extension UI and other save-time strip selectors do not count
+when sibling indexes are assigned. This keeps saved HTML and saved XPath evidence
+aligned even when the extension has injected overlay or toast nodes into the live
+page.
 
 Rules:
 
 - explicit includes always submit as included rows,
-- explicit excludes submit as excluded rows unless explicitly included,
+- explicit excludes submit as excluded rows unless explicitly included; generated
+  toggleable-default rows are not treated as explicit exclusions,
 - descendants under an already submitted excluded ancestor are omitted unless
   they are explicit includes,
-- consent roots, immutable roots, and hidden toggleable roots submit as excluded
-  rows,
+- consent roots submit as excluded rows,
+- immutable defaults and their descendants are excluded by the immutable tag list
+  sent with the payload, not by per-page XPath rows,
 - visible textual markable content submits as included rows,
+- visually invisible textual markable content submits as excluded rows using the
+  mobile simulation geometry at save time; below-fold content is still considered
+  visible because the submission viewport is treated as page-height, while
+  content outside the viewport/document bounds is invisible,
+- non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 
 ## Silent Highlighting

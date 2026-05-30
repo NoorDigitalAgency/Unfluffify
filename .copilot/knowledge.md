@@ -24,7 +24,9 @@
 ## AI Submission Rules
 
 - Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
-- Exclusion roots include explicit excludes, immutable roots, hidden consent roots, toggleable default roots already excluded by markings, and toggleable roots that are currently invisible in mobile save mode.
+- Submission XPath indexes must be computed against the same sanitized DOM view as saved `renderedHtml`; extension UI and save-time stripped nodes do not count as siblings.
+- Exclusion rows include explicit excludes, consent roots, and implicit hidden textual content detected in mobile save mode. Generated toggleable-default rows are not explicit excludes.
+- Immutable defaults and descendants are excluded by the payload's immutable tag list only, not by per-page XPath rows.
 - Explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
 
 ## Page Save and Candidate Completion
