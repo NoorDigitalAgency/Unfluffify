@@ -4368,6 +4368,30 @@ function collectExplicitMarkingElements(entry) {
   };
 }
 
+export function collectStoredUnexcludedToggleableDefaultElements(entry) {
+  const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
+  const elements = [];
+  const seen = new Set();
+  for (const item of items) {
+    if (!item || !item.xpath || item.excluded) {
+      continue;
+    }
+    const el = getElementFromXPath(item.xpath);
+    if (!el || seen.has(el)) {
+      continue;
+    }
+    if (!matchesToggleableDefaultExcluded(el)) {
+      continue;
+    }
+    if (isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+      continue;
+    }
+    seen.add(el);
+    elements.push(el);
+  }
+  return elements;
+}
+
 function drawExplicitMarkingLayers(
   explicitExcludeElements,
   explicitIncludeElements,
@@ -4695,6 +4719,12 @@ function renderHighlightsInner() {
   const aiAnimatedExplicitIncludeElements = hasAiSelectors
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
+  const storedUnexcludedToggleableDefaultElements =
+    collectStoredUnexcludedToggleableDefaultElements(entry);
+  const defaultBoundarySelfSkip = new Set([
+    ...explicitInclude,
+    ...storedUnexcludedToggleableDefaultElements
+  ]);
 
   const hardExcludedSet = new Set([
     ...immutableExcluded,
@@ -4702,9 +4732,9 @@ function renderHighlightsInner() {
   ]);
 
   const toggleableDefaultExcludedAll = collectToggleableDefaultExcludedElements(
-    explicitInclude,
+    defaultBoundarySelfSkip,
     {
-      boundarySelfSkip: explicitInclude,
+      boundarySelfSkip: defaultBoundarySelfSkip,
       boundarySubtreeSkip: aiContent
     }
   );

@@ -86,6 +86,23 @@ test("marking mode keeps immutable hard elements eligible without requiring rend
   );
 });
 
+test("marking mode skips stored unexcluded defaults on the hard-toggle layer", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(
+    coreSource,
+    /const storedUnexcludedToggleableDefaultElements =\s*collectStoredUnexcludedToggleableDefaultElements\(entry\);/
+  );
+  assert.match(
+    coreSource,
+    /const defaultBoundarySelfSkip = new Set\(\[[\s\S]*?\.\.\.explicitInclude,[\s\S]*?\.\.\.storedUnexcludedToggleableDefaultElements[\s\S]*?\]\);/
+  );
+  assert.match(
+    coreSource,
+    /collectToggleableDefaultExcludedElements\(\s*defaultBoundarySelfSkip,[\s\S]*?boundarySelfSkip: defaultBoundarySelfSkip/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),

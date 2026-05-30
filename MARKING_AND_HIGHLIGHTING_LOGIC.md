@@ -74,6 +74,11 @@ Each page entry may contain:
 is the canonical explicit-include list. Normalization removes redundant nested
 rows when a broader boundary takes over a subtree.
 
+For toggleable default exclusions, a stored row with `excluded: false` is the
+user's explicit unmark for that exact default boundary. It must suppress the
+boundary's default-excluded hard-toggle layer while still allowing nested
+toggleable defaults to keep their own default behavior.
+
 ## Target Resolution
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension
@@ -131,7 +136,8 @@ When an explicit include is added:
 - descendant includes under that include are removed,
 - non-toggleable explicit excludes are converted away,
 - toggleable default rows can remain with `excluded: false` to record the user
-  override.
+  override. That row unmarks the exact default boundary; it is not treated as a
+  full explicit include subtree.
 
 Hidden explicit include choices remain stored while their DOM element exists and
 render as ghost include markings when they still have measurable geometry.

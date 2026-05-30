@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   collectDefaultLayerElements,
+  collectStoredUnexcludedToggleableDefaultElements,
   collectToggleableDefaultExcludedElements,
   canApplyExplicitInclude,
   getMutationRenderMode,
@@ -108,8 +109,10 @@ function withVisibilityDom(callback, options = {}) {
   const originalWindow = globalThis.window;
   const originalNode = globalThis.Node;
   const originalLocation = globalThis.location;
+  const originalXPathResult = globalThis.XPathResult;
   const viewportWidth = options.viewportWidth || 1200;
   const viewportHeight = options.viewportHeight || 800;
+  const xpathMap = new Map();
   const documentElement = createElement();
   const body = createElement({ parentElement: documentElement });
   documentElement.children.push(body);
@@ -130,6 +133,9 @@ function withVisibilityDom(callback, options = {}) {
     },
     elementsFromPoint() {
       return [];
+    },
+    evaluate(xpath) {
+      return { singleNodeValue: xpathMap.get(xpath) || null };
     }
   };
   globalThis.window = {
@@ -142,14 +148,16 @@ function withVisibilityDom(callback, options = {}) {
     scrollY: options.scrollY || 0
   };
   globalThis.Node = { TEXT_NODE: 3 };
+  globalThis.XPathResult = { FIRST_ORDERED_NODE_TYPE: 9 };
   globalThis.location = { href: "https://example.test/" };
   state.visibilityCache = null;
   try {
-    callback({ documentElement, body });
+    callback({ documentElement, body, xpathMap });
   } finally {
     globalThis.document = originalDocument;
     globalThis.window = originalWindow;
     globalThis.Node = originalNode;
+    globalThis.XPathResult = originalXPathResult;
     globalThis.location = originalLocation;
     state.visibilityCache = null;
   }
@@ -462,6 +470,39 @@ test("explicitly included outer default boundaries still allow nested default bo
     assert.deepEqual(
       collectToggleableDefaultExcludedElements(new Set([footer]), {
         boundarySelfSkip: new Set([footer]),
+        boundarySubtreeSkip: new Set()
+      }),
+      [nestedAside]
+    );
+  });
+});
+
+test("stored unexcluded default boundaries are not redrawn as default exclusions", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const nestedAside = createElement({
+      tagName: "aside",
+      text: "Nested default exclusion",
+      rect: { top: 40, right: 320, bottom: 90, left: 20, width: 300, height: 50 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [nestedAside],
+      rect: { top: 10, right: 420, bottom: 140, left: 10, width: 410, height: 130 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+    xpathMap.set("/html[1]/body[1]/footer[1]", footer);
+
+    const unexcludedDefaults = collectStoredUnexcludedToggleableDefaultElements({
+      xpaths: [{ xpath: "/html[1]/body[1]/footer[1]", excluded: false }]
+    });
+    const selfSkip = new Set(unexcludedDefaults);
+
+    assert.deepEqual(unexcludedDefaults, [footer]);
+    assert.deepEqual(
+      collectToggleableDefaultExcludedElements(selfSkip, {
+        boundarySelfSkip: selfSkip,
         boundarySubtreeSkip: new Set()
       }),
       [nestedAside]
