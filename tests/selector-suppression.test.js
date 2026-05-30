@@ -86,7 +86,7 @@ test("marking mode keeps immutable hard elements eligible without requiring rend
   );
 });
 
-test("marking mode skips stored unexcluded defaults on the hard-toggle layer", () => {
+test("marking mode skips stored unexcluded defaults in generated default collection", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
   assert.match(
@@ -103,29 +103,21 @@ test("marking mode skips stored unexcluded defaults on the hard-toggle layer", (
   );
 });
 
-test("marking mode renders toggleable defaults below immutable hard markings", () => {
+test("marking mode keeps generated toggleable defaults off visible marking layers", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const defaultToggleLayerIndex = coreSource.indexOf(
-    '#unfluffify-overlay .uf-layer[data-layer="default-toggle"] { z-index: 1; }'
-  );
-  const hardLayerIndex = coreSource.indexOf(
-    '#unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }'
-  );
 
-  assert.notEqual(defaultToggleLayerIndex, -1);
-  assert.notEqual(hardLayerIndex, -1);
-  assert.equal(defaultToggleLayerIndex < hardLayerIndex, true);
   assert.match(
     coreSource,
     /const layerDefaultToggleState = beginLayerRender\(state\.layers\["default-toggle"\]\);/
   );
+  assert.match(coreSource, /finalizeLayerRender\(layerDefaultToggleState\);/);
   assert.match(
     coreSource,
-    /layerDefaultToggleState,\s*rects,\s*"uf-hard-toggle",\s*el,\s*"default-toggle-exclude"/
+    /Generated toggleable defaults are logical exclusion boundaries/
   );
   assert.doesNotMatch(
     coreSource,
-    /layerHardState,\s*rects,\s*"uf-hard-toggle",\s*el,\s*"default-toggle-exclude"/
+    /drawMultiRectReuse\(\s*layerDefaultToggleState[\s\S]*?"default-toggle-exclude"/
   );
 });
 
@@ -238,7 +230,11 @@ test("marking logic docs describe selector exclusions as element-only default su
   );
   assert.match(
     docSource,
-    /toggleable default exclusions render on the lower\s+`default-toggle` overlay layer/i
+    /generated toggleable default exclusions are logical exclusion\s+boundaries, not visible exclusion markings/i
+  );
+  assert.match(
+    docSource,
+    /compatibility `default-toggle` layer is kept only so stale post-b9 boxes can\s+be cleared/i
   );
   assert.match(
     docSource,

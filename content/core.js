@@ -2613,10 +2613,6 @@ function createOverlay() {
         opacity: 1;
         animation: blink 1s linear infinite !important;
       }
-      #unfluffify-overlay .uf-hard-toggle {
-        border: 2px solid #b71c1c;
-        background: rgba(183, 28, 28, 0.12);
-      }
       #unfluffify-overlay .uf-hard-locked {
         background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.1), rgba(225, 70, 70, 0.1) 20px, rgba(225, 150, 70, 0.1) 20px, rgb(225, 150, 70, 0.1) 40px);
         border: 2px dashed rgba(225, 70, 70, 0.25);
@@ -4904,14 +4900,11 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  for (const el of collections.defaultExcludedToggleElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerDefaultToggleState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
-      );
-    }
-  }
+  // Generated toggleable defaults are logical exclusion boundaries. They are
+  // still collected above to suppress default descendants, but b9 did not draw
+  // every generated footer/header/form/etc. as a visible marking. Keeping this
+  // layer in the render cycle clears stale post-b9 boxes without creating new
+  // cross-ancestor ghost markings.
 
   for (const el of collections.explicitExcludeElements) {
     const rects = getRects(el);
