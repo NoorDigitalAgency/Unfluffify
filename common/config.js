@@ -31,6 +31,7 @@ const SELECTOR_SET_FIELD = "selectors";
 const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
+const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
 
 export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
@@ -121,6 +122,72 @@ export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
   }
   delete reconciliations[key];
   await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
+}
+
+export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
+  const normalized = normalizePageMarkings(pageMarkings).normalized;
+  const snapshot = {};
+  Object.entries(normalized).forEach(([url, entry]) => {
+    snapshot[url] = {
+      timestamp: normalizeEntryTimestamp(entry.timestamp),
+      xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
+      consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
+      includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
+      selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
+        ? entry.selectorSuppressedXpaths
+        : [],
+      submissionXpaths: Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [],
+      renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+      rawHtml: typeof entry.rawHtml === "string" ? entry.rawHtml : ""
+    };
+    if (entry.title) {
+      snapshot[url].title = entry.title;
+    }
+    if (entry.pageType) {
+      snapshot[url].pageType = entry.pageType;
+    }
+  });
+  return snapshot;
+}
+
+async function getBackendSavedPageMarkingsStore() {
+  const result = await idbGet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: {} });
+  const store = result[BACKEND_SAVED_PAGE_MARKINGS_KEY];
+  return store && typeof store === "object" ? store : {};
+}
+
+export async function getBackendSavedPageMarkings(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  if (!normalizedBaseUrl) {
+    return {};
+  }
+  const store = await getBackendSavedPageMarkingsStore();
+  return createBackendSavedPageMarkingsSnapshot(store[normalizedBaseUrl]);
+}
+
+export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  if (!normalizedBaseUrl) {
+    return {};
+  }
+  const store = await getBackendSavedPageMarkingsStore();
+  const snapshot = createBackendSavedPageMarkingsSnapshot(pageMarkings);
+  store[normalizedBaseUrl] = snapshot;
+  await idbSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
+  return snapshot;
+}
+
+export async function clearBackendSavedPageMarkings(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  if (!normalizedBaseUrl) {
+    return;
+  }
+  const store = await getBackendSavedPageMarkingsStore();
+  if (!Object.prototype.hasOwnProperty.call(store, normalizedBaseUrl)) {
+    return;
+  }
+  delete store[normalizedBaseUrl];
+  await idbSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
 }
 
 /**

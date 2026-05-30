@@ -2521,6 +2521,7 @@ async function saveCurrentPageDraft(options) {
     return { ok: false };
   }
   const pageUrl = location.href;
+  await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, pageUrl);
   const savedEntry = core.getSavedPageEntry(pageUrl);
   const draftEntry = core.getDraftPageEntry(pageUrl);
   const draftEntryChanged = !core.areEntriesEquivalent(draftEntry, savedEntry);
@@ -6357,18 +6358,20 @@ export function main() {
         const draftEntry = core.getDraftPageEntry(pageUrl);
         const savedEntry = core.getSavedPageEntry(pageUrl);
         const forceReloadPageEntry = Boolean(message.forceReloadPageEntry);
-        core.loadConfig(state.baseUrl).then((config) => {
+        core.loadConfig(state.baseUrl).then(async (loadedConfig) => {
+          const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(state.baseUrl);
+          const backendEntry = core.findPageMarkingEntry(
+            { pageMarkings: backendSavedPageMarkings },
+            pageUrl,
+            state.baseUrl
+          );
           if (!forceReloadPageEntry) {
-            core.mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
+            core.mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
           } else {
-            const storedEntry =
-              config.pageMarkings && config.pageMarkings[pageUrl]
-                ? config.pageMarkings[pageUrl]
-                : null;
-            core.setSavedPageEntry(pageUrl, storedEntry);
-            if (storedEntry) {
+            core.setSavedPageEntry(pageUrl, backendEntry || null);
+            if (backendEntry) {
               const immutableExcluded = core.collectImmutableElements();
-              const syncResult = core.syncPageMarkings(config, pageUrl, immutableExcluded, {
+              const syncResult = core.syncPageMarkings(loadedConfig, pageUrl, immutableExcluded, {
                 allowCreate: true,
                 persist: true
               });
@@ -6377,7 +6380,10 @@ export function main() {
               }
             }
           }
-          state.config = config;
+          if (!forceReloadPageEntry) {
+            core.setSavedPageEntry(pageUrl, backendEntry || null);
+          }
+          state.config = loadedConfig;
           refreshEnabledAiHighlights();
           if (forceReloadPageEntry) {
             core.scheduleRender();
@@ -6563,7 +6569,7 @@ export function main() {
         if (matchesActiveBaseUrl(targetBaseUrl)) {
           state.config = config;
           if (shouldPersist) {
-            core.setSavedPageEntry(location.href, entry);
+            await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, location.href);
           }
         }
         if (shouldPersist) {
@@ -6581,40 +6587,45 @@ export function main() {
         sendResponse({ ok: false });
         return;
       }
-      const pageUrl = location.href;
-      const hasEntry = core.hasPageMarkingEntry(state.config, pageUrl);
-      const savedEntryBeforeSync = core.getSavedPageEntry(pageUrl);
-      const draftEntryBeforeSync = core.getDraftPageEntry(pageUrl);
-      const wasClean =
-        hasEntry && core.areEntriesEquivalent(draftEntryBeforeSync, savedEntryBeforeSync);
-      const immutableExcluded = core.collectImmutableElements();
-      const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-        allowCreate: hasEntry,
-        persist: hasEntry
+      (async () => {
+        const pageUrl = location.href;
+        await core.refreshSavedPageEntryFromBackendCache(targetBaseUrl, pageUrl);
+        const hasEntry = core.hasPageMarkingEntry(state.config, pageUrl);
+        const savedEntryBeforeSync = core.getSavedPageEntry(pageUrl);
+        const draftEntryBeforeSync = core.getDraftPageEntry(pageUrl);
+        const wasClean =
+          hasEntry && core.areEntriesEquivalent(draftEntryBeforeSync, savedEntryBeforeSync);
+        const immutableExcluded = core.collectImmutableElements();
+        const syncResult = core.syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+          allowCreate: hasEntry,
+          persist: hasEntry
+        });
+        const entry = hasEntry ? syncResult.entry : null;
+        if (hasEntry && wasClean && syncResult.changed && entry) {
+          core.setSavedPageEntry(pageUrl, entry);
+        }
+        const savedEntry = core.getSavedPageEntry(pageUrl);
+        const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+        const submissionXpathsStale = Boolean(
+          hasEntry &&
+          entry &&
+          !submissionXpathsEqual(
+            entry.submissionXpaths,
+            collectAiSubmissionXpathsForCurrentPage()
+          )
+        );
+        sendResponse({
+          ok: true,
+          entry: entry ? core.clonePageEntry(entry) : null,
+          savedEntry,
+          dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
+          reconciliation,
+          reconciliationPending: Boolean(reconciliation)
+        });
+      })().catch(() => {
+        sendResponse({ ok: false });
       });
-      const entry = hasEntry ? syncResult.entry : null;
-      if (hasEntry && wasClean && syncResult.changed && entry) {
-        core.setSavedPageEntry(pageUrl, entry);
-      }
-      const savedEntry = core.getSavedPageEntry(pageUrl);
-      const reconciliation = core.getPageSaveReconciliationState(pageUrl);
-      const submissionXpathsStale = Boolean(
-        hasEntry &&
-        entry &&
-        !submissionXpathsEqual(
-          entry.submissionXpaths,
-          collectAiSubmissionXpathsForCurrentPage()
-        )
-      );
-      sendResponse({
-        ok: true,
-        entry: entry ? core.clonePageEntry(entry) : null,
-        savedEntry,
-        dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
-        reconciliation,
-        reconciliationPending: Boolean(reconciliation)
-      });
-      return;
+      return true;
     }
 
     if (message.type === "setPageSaveReconciliationPending") {
@@ -6647,28 +6658,17 @@ export function main() {
       }
       (async () => {
         const currentPageUrl = location.href;
-        const previousSavedEntry = core.getSavedPageEntry(currentPageUrl);
-        const previousDraftEntry = core.getDraftPageEntry(currentPageUrl);
         await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
         await core.refreshPageSaveReconciliation(targetBaseUrl, currentPageUrl);
         const refreshedConfig = await core.loadConfig(targetBaseUrl);
-        let storedEntry =
-          refreshedConfig.pageMarkings && refreshedConfig.pageMarkings[currentPageUrl]
-            ? refreshedConfig.pageMarkings[currentPageUrl]
-            : null;
-        if (!storedEntry && (previousSavedEntry || previousDraftEntry)) {
-          // Keep the confirmed local snapshot as the current saved baseline when
-          // the immediate post-save remote reload omits this page entry.
-          const fallbackEntry = previousSavedEntry || previousDraftEntry;
-          if (!refreshedConfig.pageMarkings || typeof refreshedConfig.pageMarkings !== "object") {
-            refreshedConfig.pageMarkings = {};
-          }
-          refreshedConfig.pageMarkings[currentPageUrl] = core.clonePageEntry(fallbackEntry);
-          storedEntry = refreshedConfig.pageMarkings[currentPageUrl];
-          await core.saveConfig(targetBaseUrl, refreshedConfig);
-        }
+        const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(targetBaseUrl);
+        const storedEntry = core.findPageMarkingEntry(
+          { pageMarkings: backendSavedPageMarkings },
+          currentPageUrl,
+          targetBaseUrl
+        );
         state.config = refreshedConfig;
-        core.setSavedPageEntry(currentPageUrl, storedEntry || previousSavedEntry || previousDraftEntry || null);
+        core.setSavedPageEntry(currentPageUrl, storedEntry || null);
         core.scheduleRender();
         core.notifyDraftStatus(currentPageUrl);
         sendResponse({ ok: true, entry: storedEntry ? core.clonePageEntry(storedEntry) : null });

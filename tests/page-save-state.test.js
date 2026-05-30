@@ -62,6 +62,23 @@ test("requires mobile simulation for initial save when no reconciliation is pend
   assert.equal(state.pageDraftStatusTone, "muted");
 });
 
+test("allows initial save even when defaults produce no manual draft changes", () => {
+  const state = buildPageSaveUiState({
+    pageControlsVisible: true,
+    currentDraftAvailable: true,
+    hasSavedPageData: false,
+    currentDraftDirty: false,
+    needsAiSnapshotBackfill: false,
+    mobileSimulationBlocked: false,
+    reconciliation: null
+  });
+
+  assert.equal(state.pageSaveDisabled, false);
+  assert.equal(state.pageRevertDisabled, true);
+  assert.equal(state.pageDataNewNoticeHidden, false);
+  assert.equal(state.pageDraftStatusText, PopupText.page.statusNoSavedData);
+});
+
 test("reports unsaved changes while allowing save when mobile simulation is available", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: true,

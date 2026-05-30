@@ -37,7 +37,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
 - **Device Simulation**: Emulate mobile and desktop viewports to test content extraction
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
-- **Data Persistence**: Save and sync markings across page navigation
+- **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings
 - **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
@@ -110,6 +110,8 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
+- **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
+- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 - **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
 - **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap, tab-scoped session isolation, DevTools routing, and transport-event handling
@@ -180,6 +182,7 @@ This extension uses Chrome's Manifest V3 (the current standard):
 - **Tab State** (session storage): `tabState:{tabId}`
 - **Device Emulation** (session storage): `deviceEmulation:{tabId}`
 - **IndexedDB**: Stores detailed page markings, configurations, drafts
+- **Backend-saved marking cache**: Tracks the last confirmed backend page-marking payload separately from local drafts so candidate completion cannot be inferred from unsynced local data
 - **Popup UI State**: In-memory state synchronized with persistent storage
 
 ### Message Passing

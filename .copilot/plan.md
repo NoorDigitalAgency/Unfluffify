@@ -30,6 +30,14 @@ Explicit taxonomy change completed:
 2. `LINK` is now an immutable default exclusion.
 3. Keep this explicit contract change reflected in constants, docs, memory, and regression tests.
 
+Backend-saved candidate completion completed:
+
+1. Keep local draft page markings separate from backend-confirmed page markings.
+2. Build Todo List completion, candidate `Marked` badges, marked-page lists, and Lynx checklist coverage from backend-confirmed page markings only.
+3. Do not upload unsaved local page drafts during unrelated config syncs; include the current page only during an explicit page save or revert.
+4. Clear page-save reconciliation only after the forced backend reload confirms the current page exists in the backend-saved cache.
+5. Preserve the initial-save path so a user can save a newly opened page with default markings accepted as-is.
+
 Future marking work:
 
 1. Start by reading `MARKING_AND_HIGHLIGHTING_LOGIC.md`.

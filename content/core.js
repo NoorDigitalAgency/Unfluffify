@@ -5307,6 +5307,21 @@ export function setSavedPageEntry(pageUrl, entry) {
   }
 }
 
+export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.baseUrl, pageUrl = location.href) {
+  if (!baseUrl || !pageUrl) {
+    setSavedPageEntry(pageUrl, null);
+    return null;
+  }
+  const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
+  const savedEntry = findPageMarkingEntry(
+    { pageMarkings: backendSavedPageMarkings },
+    pageUrl,
+    baseUrl
+  );
+  setSavedPageEntry(pageUrl, savedEntry || null);
+  return getSavedPageEntry(pageUrl);
+}
+
 export function notifyDraftStatus(pageUrl) {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -5860,14 +5875,16 @@ export async function enableForBaseUrl(baseUrl) {
   state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
-  const savedEntry =
+  const storedEntry =
       state.config &&
       state.config.pageMarkings &&
       state.config.pageMarkings[pageUrl];
+  const savedEntry = await refreshSavedPageEntryFromBackendCache(normalizedBaseUrl, pageUrl);
   if (!state.currentPageType) {
-    state.currentPageType = normalizePageEntryPageType(savedEntry && savedEntry.pageType);
+    state.currentPageType = normalizePageEntryPageType(
+      (savedEntry && savedEntry.pageType) || (storedEntry && storedEntry.pageType)
+    );
   }
-  setSavedPageEntry(pageUrl, savedEntry || null);
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
   const cachedDraft = state.disabledUnsavedDraft;
   if (
@@ -5885,7 +5902,7 @@ export async function enableForBaseUrl(baseUrl) {
   }
   state.disabledUnsavedDraft = null;
 
-  const hasSavedEntry = Boolean(savedEntry);
+  const hasSavedEntry = Boolean(storedEntry || savedEntry);
   syncConsentOnEnable(pageUrl, hasSavedEntry);
   // Hide any detected consent elements on the current page (not just previously stored ones)
   const hiddenCount = hideConsentElements();
@@ -6157,27 +6174,36 @@ export async function refreshFromTabState() {
     if (utils.isPageWithinBaseUrl(location.href, response.baseUrl)) {
       const pageUrl = location.href;
       const draftEntry = getDraftPageEntry(pageUrl);
-      const savedEntry = getSavedPageEntry(pageUrl);
-      const wasClean = areEntriesEquivalent(draftEntry, savedEntry);
-      const config = await loadConfig(response.baseUrl);
+      const loadedConfig = await loadConfig(response.baseUrl);
       const storedEntry =
-          config.pageMarkings && config.pageMarkings[pageUrl]
-              ? config.pageMarkings[pageUrl]
+          loadedConfig.pageMarkings && loadedConfig.pageMarkings[pageUrl]
+              ? loadedConfig.pageMarkings[pageUrl]
               : null;
+      const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(response.baseUrl);
+      const storedBackendEntry = findPageMarkingEntry(
+        { pageMarkings: backendSavedPageMarkings },
+        pageUrl,
+        response.baseUrl
+      );
+      const savedEntry = clonePageEntry(storedBackendEntry);
+      const wasClean = areEntriesEquivalent(draftEntry, savedEntry);
       state.currentPageType = normalizePageEntryPageType(
-        (response && response.pageType) || (storedEntry && storedEntry.pageType) || ""
+        (response && response.pageType) ||
+          (storedBackendEntry && storedBackendEntry.pageType) ||
+          (storedEntry && storedEntry.pageType) ||
+          ""
       );
       if (draftEntry && !normalizePageEntryPageType(draftEntry.pageType) && state.currentPageType) {
         draftEntry.pageType = state.currentPageType;
       }
-      mergeDraftEntry(config, pageUrl, draftEntry, savedEntry);
+      mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
       state.baseUrl = response.baseUrl;
-      state.config = config;
-      setSavedPageEntry(pageUrl, storedEntry);
+      state.config = loadedConfig;
+      setSavedPageEntry(pageUrl, storedBackendEntry || null);
       await refreshPageSaveReconciliation(response.baseUrl, pageUrl);
       if (storedEntry) {
         const immutableExcluded = collectImmutableElements();
-        const syncResult = syncPageMarkings(config, pageUrl, immutableExcluded, {
+        const syncResult = syncPageMarkings(loadedConfig, pageUrl, immutableExcluded, {
           allowCreate: true,
           persist: true
         });

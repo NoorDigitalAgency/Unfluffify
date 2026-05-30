@@ -1037,6 +1037,14 @@ function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
   return items;
 }
 
+function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
+    return false;
+  }
+  return Object.keys(pageMarkings).some((url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl);
+}
+
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
@@ -2139,6 +2147,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     };
   }
   const baseUrl = normalizedPayload.baseUrl;
+  await config.setBackendSavedPageMarkings(baseUrl, normalizedPayload.pageMarkings);
   const allConfigs = await config.getConfigs();
   const existingRaw = allConfigs[baseUrl];
   const normalizedLocal = config.normalizeConfig(baseUrl, existingRaw);
@@ -2192,6 +2201,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
   const {
     tabId = null,
     pageUrl = "",
+    baseUrl = "",
     siteId = null,
     endpointValue = "",
     tokenValue = "",
@@ -2238,6 +2248,7 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       return result;
     }
     if (response.status === 404) {
+      await config.clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
@@ -2290,6 +2301,7 @@ async function syncBaseConfigToServer(options = {}) {
     tokenValue = "",
     stageBase = "",
     alertOnCurrentReplacement = true,
+    includeCurrentPageMarking = false,
     maxAttempts = 5
   } = options;
   if (!baseUrl || !pageUrl || !endpointValue) {
@@ -2341,21 +2353,38 @@ async function syncBaseConfigToServer(options = {}) {
       force: false,
       notifyOnChange: false
     });
-    let filterPageMarking = null;
+    const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(resolvedBaseUrl);
+    const backendSavedPageMarkingItems = collectStoredPageMarkingItems(
+      backendSavedPageMarkings,
+      resolvedBaseUrl
+    );
+    const backendSavedPageUrls = new Set(
+      Object.keys(backendSavedPageMarkings || {}).filter(Boolean)
+    );
+    const currentPageEntry =
+      pageUrl &&
+      sourceConfig.pageMarkings &&
+      typeof sourceConfig.pageMarkings === "object"
+        ? sourceConfig.pageMarkings[pageUrl]
+        : null;
+    let filterPageMarking = (url) =>
+      backendSavedPageUrls.has(url) || (includeCurrentPageMarking && url === pageUrl);
     if (propertyPageTypesResult && propertyPageTypesResult.ok) {
       const coverageModel = buildLynxChecklistViewModel({
         aiAnswer: "yes",
         pageTypes: propertyPageTypesResult.pageTypes,
-        markedPages: collectStoredPageMarkingItems(sourceConfig.pageMarkings, resolvedBaseUrl)
+        markedPages: backendSavedPageMarkingItems
       });
       const activePageMarkingKeys = new Set(
         coverageModel.activeMarkedPages
           .map((item) => buildPageMarkingKey(item.url, item.pageType))
           .filter(Boolean)
       );
-      filterPageMarking = (url, entry) => activePageMarkingKeys.has(
-        buildPageMarkingKey(url, entry && entry.pageType)
-      );
+      if (includeCurrentPageMarking && currentPageEntry) {
+        activePageMarkingKeys.add(buildPageMarkingKey(pageUrl, currentPageEntry.pageType));
+      }
+      filterPageMarking = (url, entry) =>
+        activePageMarkingKeys.has(buildPageMarkingKey(url, entry && entry.pageType));
     }
     const payload = config.createConfigSyncPayload(resolvedBaseUrl, sourceConfig, {
       filterPageMarking
@@ -2837,6 +2866,7 @@ async function refreshUiInner(options = {}) {
         remoteLoadResult = await loadRemoteConfigForCurrentPage({
           tabId: currentTabId,
           pageUrl,
+          baseUrl: discoveredBaseUrl,
           siteId: discoveryResult.siteId,
           endpointValue: configEndpointValue,
           tokenValue,
@@ -2899,6 +2929,7 @@ async function refreshUiInner(options = {}) {
       remoteLoadResult = await loadRemoteConfigForCurrentPage({
         tabId: currentTabId,
         pageUrl,
+        baseUrl: state.currentBaseUrl,
         siteId: currentSiteId,
         endpointValue: configEndpointValue,
         tokenValue,
@@ -3233,20 +3264,23 @@ async function refreshUiInner(options = {}) {
     }
   }
   let pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
+  const backendSavedPageMarkings = state.currentBaseUrl
+    ? await config.getBackendSavedPageMarkings(state.currentBaseUrl)
+    : {};
   const normalizedCurrentPageUrl = normalizeCandidatePageUrl(pageUrl);
   let invalidStoredPageUrlsForRemote = [];
   let currentPageEntryMarkedInvalid = false;
   let repairedStoredPageUrls = [];
   let didReconcileStoredPageMarkings = false;
+  let backendSavedPageMarkingItems = collectStoredPageMarkingItems(
+    backendSavedPageMarkings,
+    state.currentBaseUrl
+  );
   if (propertyPageTypes.length && state.currentBaseUrl) {
-    const initialStoredPageMarkingItems = collectStoredPageMarkingItems(
-      pageMarkings,
-      state.currentBaseUrl
-    );
     let coverageModel = buildLynxChecklistViewModel({
       aiAnswer: state.lynxChecklistAiAnswer,
       pageTypes: propertyPageTypes,
-      markedPages: initialStoredPageMarkingItems
+      markedPages: backendSavedPageMarkingItems
     });
     if (coverageModel.repairedMarkedPages.length) {
       repairedStoredPageUrls = await repairLocalPageMarkingPageTypes({
@@ -3264,7 +3298,7 @@ async function refreshUiInner(options = {}) {
         coverageModel = buildLynxChecklistViewModel({
           aiAnswer: state.lynxChecklistAiAnswer,
           pageTypes: propertyPageTypes,
-          markedPages: collectStoredPageMarkingItems(pageMarkings, state.currentBaseUrl)
+          markedPages: backendSavedPageMarkingItems
         });
       }
     }
@@ -3304,14 +3338,18 @@ async function refreshUiInner(options = {}) {
       }, 2);
     }
   }
-  const storedPageMarkingItems = collectStoredPageMarkingItems(
+  const localStoredPageMarkingItems = collectStoredPageMarkingItems(
     pageMarkings,
+    state.currentBaseUrl
+  );
+  backendSavedPageMarkingItems = collectStoredPageMarkingItems(
+    backendSavedPageMarkings,
     state.currentBaseUrl
   );
   const pageTypeCoverageModel = buildLynxChecklistViewModel({
     aiAnswer: state.lynxChecklistAiAnswer,
     pageTypes: propertyPageTypes,
-    markedPages: storedPageMarkingItems
+    markedPages: backendSavedPageMarkingItems
   });
   const activeMarkedPageKeys = new Set(
     pageTypeCoverageModel.activeMarkedPages
@@ -3319,9 +3357,9 @@ async function refreshUiInner(options = {}) {
       .filter(Boolean)
   );
   const pageMarkingItemByKey = new Map(
-    storedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
+    backendSavedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
   );
-  const hasStoredCurrentPageEntry = storedPageMarkingItems.some(
+  const hasStoredCurrentPageEntry = localStoredPageMarkingItems.some(
     (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
   );
   const currentPageCandidateState = getCurrentPageCandidateState(
@@ -5806,7 +5844,8 @@ async function handlePageSave() {
         endpointValue: configEndpointValue,
         tokenValue,
         stageBase: stageBaseValue,
-        alertOnCurrentReplacement: true
+        alertOnCurrentReplacement: true,
+        includeCurrentPageMarking: true
       });
       const syncSkipped = Boolean(syncResult && syncResult.skipped);
       const syncCompleted = isCompletedPageConfigSyncResult(syncResult);
@@ -5834,13 +5873,21 @@ async function handlePageSave() {
           ? await loadRemoteConfigForCurrentPage({
             tabId: state.currentTab && state.currentTab.id,
             pageUrl,
+            baseUrl: effectiveBaseUrl,
             siteId: refreshedSiteId,
             endpointValue: configEndpointValue,
             tokenValue,
             force: true
           })
           : { status: "error", baseUrl: "" };
-        if (!loadResult || loadResult.status !== "ok") {
+        const backendSavedAfterLoad = loadResult && loadResult.status === "ok"
+          ? await config.getBackendSavedPageMarkings(effectiveBaseUrl)
+          : {};
+        if (
+          !loadResult ||
+          loadResult.status !== "ok" ||
+          !hasBackendSavedPageMarking(backendSavedAfterLoad, pageUrl)
+        ) {
           await setCurrentPageSaveReconciliationReason("load_failed");
           updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
           uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
@@ -5893,7 +5940,8 @@ async function handlePageRevert() {
       endpointValue: configEndpointValue,
       tokenValue,
       stageBase: stageBaseValue,
-      alertOnCurrentReplacement: true
+      alertOnCurrentReplacement: true,
+      includeCurrentPageMarking: true
     });
     const syncSkipped = Boolean(syncResult && syncResult.skipped);
     const syncCompleted = isCompletedPageConfigSyncResult(syncResult);
@@ -5921,13 +5969,21 @@ async function handlePageRevert() {
         ? await loadRemoteConfigForCurrentPage({
           tabId: state.currentTab && state.currentTab.id,
           pageUrl,
+          baseUrl: effectiveBaseUrl,
           siteId: refreshedSiteId,
           endpointValue: configEndpointValue,
           tokenValue,
           force: true
         })
         : { status: "error", baseUrl: "" };
-      if (!loadResult || loadResult.status !== "ok") {
+      const backendSavedAfterLoad = loadResult && loadResult.status === "ok"
+        ? await config.getBackendSavedPageMarkings(effectiveBaseUrl)
+        : {};
+      if (
+        !loadResult ||
+        loadResult.status !== "ok" ||
+        !hasBackendSavedPageMarking(backendSavedAfterLoad, pageUrl)
+      ) {
         await setCurrentPageSaveReconciliationReason("load_failed");
         updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
         uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);

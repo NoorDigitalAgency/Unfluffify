@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   collectInvalidPageMarkingUrls,
   buildPageSaveReconciliationKey,
+  createBackendSavedPageMarkingsSnapshot,
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
   normalizePageSaveReconciliation,
@@ -160,6 +161,39 @@ test("page marking selector suppression xpaths are normalized and included in sy
     roundTripped.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
     ["/html/body/main/section"]
   );
+});
+
+test("backend-saved page marking snapshots keep only confirmed page entries outside config sync", () => {
+  const snapshot = createBackendSavedPageMarkingsSnapshot({
+    "https://example.com/current": {
+      timestamp: "2026-01-01T00:00:00Z",
+      title: "Current",
+      pageType: "article",
+      xpaths: [{ xpath: "/html/body/header", excluded: true }],
+      includeXpaths: ["/html/body/main"],
+      consentXpaths: ["/html/body/dialog"],
+      selectorSuppressedXpaths: ["/html/body/header/nav"],
+      submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
+      renderedHtml: "<main>Saved</main>",
+      rawHtml: "<html><body><main>Saved</main></body></html>",
+      transientLocalOnly: true
+    }
+  });
+
+  assert.deepEqual(snapshot, {
+    "https://example.com/current": {
+      timestamp: "2026-01-01T00:00:00Z",
+      title: "Current",
+      pageType: "article",
+      xpaths: [{ xpath: "/html/body/header", excluded: true }],
+      includeXpaths: ["/html/body/main"],
+      consentXpaths: ["/html/body/dialog"],
+      selectorSuppressedXpaths: ["/html/body/header/nav"],
+      submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
+      renderedHtml: "<main>Saved</main>",
+      rawHtml: "<html><body><main>Saved</main></body></html>"
+    }
+  });
 });
 
 test("page save reconciliation normalizes pending local save locks", () => {
