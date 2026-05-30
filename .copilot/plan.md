@@ -2,19 +2,24 @@
 
 ## Marking Logic Rewrite
 
-First pass:
+First pass completed:
 
 1. Restore b9 marking semantics for target selection and pure rules.
 2. Remove stale default-boundary promotion behavior that turned plain exclude clicks into explicit includes.
 3. Refresh marking docs, tests, and knowledge notes to match the restored rule set.
 4. Run focused marking/submission/silent-highlight tests, then commit and push.
 
-Post-run pass:
+Post-run pass completed:
 
 1. Re-run the broader suite after the first pass lands.
-2. Fix only indirect regressions that are adjacent to marking/highlighting, such as stale silent-highlight presentation or documentation assertions.
-3. Leave unrelated remote-support, telemetry, and theme-color failures for a separate follow-up unless they block the marking/highlighting checks.
-4. Commit and push the final cleanup separately.
+2. Verify adjacent marking/highlighting coverage still passes after the first-pass commit.
+3. Leave unrelated telemetry, property-lock, and theme-color failures for a separate follow-up because they do not block the marking/highlighting checks.
+
+## Post-Run Follow-up
+
+1. Fix `tests/page-telemetry.test.js` payload-control failure.
+2. Update `tests/property-lock.test.js` or `content-main.js` for the live-page site-id resolver expectation drift.
+3. Fix `tests/theme-colors.test.js` popup `color-mix(..., var(--card))` violations.
 
 ## Remote Support Follow-up
 
