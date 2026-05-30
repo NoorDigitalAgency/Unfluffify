@@ -663,6 +663,37 @@ test("stored unexcluded default boundaries are not redrawn as default exclusions
   });
 });
 
+test("stored unexcluded default boundaries do not draw a default-layer ghost", () => {
+  withVisibilityDom(({ body }) => {
+    const excludedChild = createElement({
+      tagName: "p",
+      text: "Excluded footer child",
+      rect: { top: 60, right: 320, bottom: 100, left: 20, width: 300, height: 40 }
+    });
+    const defaultChild = createElement({
+      tagName: "p",
+      text: "Still markable footer child",
+      rect: { top: 110, right: 320, bottom: 150, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      text: "Footer own label",
+      children: [excludedChild, defaultChild],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      explicitExclude: new Set([excludedChild]),
+      unexcludedToggleableDefault: new Set([footer])
+    });
+
+    assert.deepEqual(defaultElements, [defaultChild]);
+  });
+});
+
 test("sync records an unexcluded default boundary around explicit descendant exclusions", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const child = createElement({

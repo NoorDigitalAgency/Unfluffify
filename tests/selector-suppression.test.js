@@ -175,6 +175,27 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
   );
 });
 
+test("marking mode keeps unexcluded default ancestors off the default layer", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(
+    coreSource,
+    /const unexcludedToggleableDefault = new Set\(options\.unexcludedToggleableDefault \|\| \[\]\);/
+  );
+  assert.match(
+    coreSource,
+    /const precedenceSet = new Set\(\[[\s\S]*?\.\.\.unexcludedToggleableDefault[\s\S]*?\]\);/
+  );
+  assert.doesNotMatch(
+    coreSource,
+    /excludedAncestorSet: new Set\(\[[\s\S]*?\.\.\.unexcludedToggleableDefault[\s\S]*?\]\)/
+  );
+  assert.match(
+    coreSource,
+    /unexcludedToggleableDefault: new Set\(storedUnexcludedToggleableDefaultElements\)/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
@@ -201,6 +222,10 @@ test("marking logic docs describe selector exclusions as element-only default su
   assert.match(
     docSource,
     /broader generated default-excluded ancestors are converted to `excluded:\s+false`/
+  );
+  assert.match(
+    docSource,
+    /It also suppresses that\s+boundary's own default-layer marking/
   );
 });
 

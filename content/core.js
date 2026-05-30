@@ -1285,6 +1285,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
   const toggleableDefaultExcluded = new Set(options.toggleableDefaultExcluded || []);
+  const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
   const precedenceSet = new Set([
     ...immutableExcluded,
     ...consentExcluded,
@@ -1292,7 +1293,8 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...explicitInclude,
     ...aiContent,
     ...selectorExcluded,
-    ...toggleableDefaultExcluded
+    ...toggleableDefaultExcluded,
+    ...unexcludedToggleableDefault
   ]);
   const hardExcludedSet = new Set([
     ...immutableExcluded,
@@ -1305,6 +1307,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     hasHigherPrecedence: (el) => precedenceSet.has(el),
     // Selector-excluded elements do not render their own marking-mode layer, so
     // only the matched element should suppress the default layer, not its whole subtree.
+    // Stored unexcluded default boundaries follow the same self-only rule.
     excludedAncestorSet: new Set([
       ...hardExcludedSet,
       ...consentExcluded,
@@ -4523,7 +4526,8 @@ function refreshExplicitMarkingOverlay(entry) {
       aiContent: aiContentSet,
       selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
       hiddenStoredExplicitExclude,
-      toggleableDefaultExcluded: toggleableDefaultExcludedSet
+      toggleableDefaultExcluded: toggleableDefaultExcludedSet,
+      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
     });
   }
   if (cachedCollections) {
@@ -4805,7 +4809,8 @@ function renderHighlightsInner() {
     aiContent,
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
-    toggleableDefaultExcluded: toggleableDefaultExcludedSet
+    toggleableDefaultExcluded: toggleableDefaultExcludedSet,
+    unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
   });
 
   const collections = {

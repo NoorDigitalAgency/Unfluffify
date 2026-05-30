@@ -82,7 +82,10 @@ rows when a broader boundary takes over a subtree.
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
 boundary's default-excluded hard-toggle layer while still allowing nested
-toggleable defaults to keep their own default behavior.
+toggleable defaults to keep their own default behavior. It also suppresses that
+boundary's own default-layer marking without suppressing unmarked descendants,
+so the unmarked boundary does not render as a visual-only ghost around an
+explicit descendant marking.
 
 ## Target Resolution
 
