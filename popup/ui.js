@@ -1241,7 +1241,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         "button",
         {
           type: "button",
-          class: "todo-header mdi mdi-triangle mdi-rotate-90",
+          class: "todo-header",
           "aria-expanded": sectionExpanded ? "true" : "false",
           onClick: handlers.onTodoSectionToggle
         },
@@ -2243,7 +2243,7 @@ function renderConfigurationExtrasSection(view, handlers) {
       "button",
       {
         type: "button",
-        class: "config-extras-header mdi mdi-triangle mdi-rotate-90",
+        class: "config-extras-header",
         "aria-expanded": expanded ? "true" : "false",
         onClick: handlers.onConfigurationExtrasToggle
       },

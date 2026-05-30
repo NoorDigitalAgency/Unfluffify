@@ -33,7 +33,7 @@ body.is-busy {
 
 .preview-sidebar__item--excluded .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
-  background: color-mix(in srgb, var(--danger) 12%, var(--card));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .preview-sidebar__item--excluded .preview-sidebar__item-index {
@@ -42,7 +42,7 @@ body.is-busy {
 
 .preview-sidebar__item--explicit_included .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-  background: color-mix(in srgb, var(--accent-light) 82%, var(--card));
+  background: color-mix(in srgb, var(--accent-light) 82%, transparent);
 }
 
 .preview-sidebar__item--explicit_included .preview-sidebar__item-index {
@@ -51,7 +51,7 @@ body.is-busy {
 
 .preview-sidebar__item--implicit_included .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--success) 34%, var(--line));
-  background: color-mix(in srgb, var(--success) 10%, var(--card));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 
 .preview-sidebar__item--implicit_included .preview-sidebar__item-index {
@@ -60,7 +60,7 @@ body.is-busy {
 
 .preview-sidebar__item--undetected .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--warn) 58%, var(--line));
-  background: color-mix(in srgb, var(--warn) 20%, var(--card));
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
 }
 
 .preview-sidebar__item--undetected .preview-sidebar__item-index {
