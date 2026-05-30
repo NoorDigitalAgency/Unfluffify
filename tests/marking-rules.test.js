@@ -7,6 +7,10 @@ import {
   shouldPromoteDefaultBoundaryToInclude,
   shouldSelfMarkToggleableDefaultBoundary
 } from "../content/marking-rules.js";
+import {
+  DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
+} from "../common/constants.js";
 
 test("toggleable boundary self-markability remains a target-shape rule, not boundary identity", () => {
   assert.equal(
@@ -105,5 +109,33 @@ test("plain exclude clicks promote only eligible default boundaries to explicit 
       shouldPromoteDefaultBoundaryToInclude({ ...base, ...blocked }),
       false
     );
+  }
+});
+
+test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded", () => {
+  const toggleable = new Set(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS);
+  const immutable = new Set(DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS);
+  for (const tag of ["FOOTER", "FORM", "LABEL", "NAV", "HEADER", "DIALOG", "ASIDE"]) {
+    assert.equal(toggleable.has(tag), true, `${tag} should be toggleable`);
+    assert.equal(immutable.has(tag), false, `${tag} should not be immutable`);
+  }
+  assert.equal(toggleable.has("BUTTON"), false);
+  assert.equal(immutable.has("BUTTON"), true);
+  assert.equal(toggleable.has("LINK"), false);
+  assert.equal(immutable.has("LINK"), false);
+  for (const tag of [
+    "IMG",
+    "INPUT",
+    "NOSCRIPT",
+    "SELECT",
+    "TITLE",
+    "STYLE",
+    "SCRIPT",
+    "TEMPLATE",
+    "IFRAME",
+    "VIDEO"
+  ]) {
+    assert.equal(immutable.has(tag), true, `${tag} should be immutable`);
+    assert.equal(toggleable.has(tag), false, `${tag} should not be toggleable`);
   }
 });

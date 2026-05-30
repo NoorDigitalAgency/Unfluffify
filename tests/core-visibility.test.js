@@ -423,6 +423,26 @@ test("toggleable boundary collection skips hidden duplicate boundaries", () => {
   });
 });
 
+test("toggleable boundary collection skips toggleable tags inside immutable subtrees", () => {
+  withVisibilityDom(({ body }) => {
+    const nestedLabel = createElement({
+      tagName: "label",
+      text: "Nested label inside immutable button",
+      rect: { top: 30, right: 260, bottom: 60, left: 20, width: 240, height: 30 }
+    });
+    const immutableButton = createElement({
+      tagName: "button",
+      parentElement: body,
+      children: [nestedLabel],
+      rect: { top: 10, right: 280, bottom: 80, left: 10, width: 270, height: 70 }
+    });
+    body.children.push(immutableButton);
+    body.childNodes.push(immutableButton);
+
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
+  });
+});
+
 test("explicitly included outer default boundaries still allow nested default boundaries", () => {
   withVisibilityDom(({ body }) => {
     const nestedAside = createElement({

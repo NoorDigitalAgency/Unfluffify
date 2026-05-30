@@ -1873,6 +1873,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
     const isToggleableDefaultExcluded = matchesToggleableDefaultExcluded(el);
     const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
     const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
+    const isWithinImmutableBoundary = isWithinImmutableExcluded(el);
     if (shouldCollectToggleableDefaultBoundary({
       isToggleableDefaultExcluded,
       isHiddenSubtree: isToggleableDefaultExcluded &&
@@ -1883,7 +1884,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
       isWithinExplicitIncluded: isBoundarySelfSkipped,
       isWithinConsent: isWithinConsentElement(el),
       isWithinExtensionUi: isWithinExtensionUi(el),
-      isImmutableExcluded: matchesImmutableExcluded(el)
+      isImmutableExcluded: isWithinImmutableBoundary
     })) {
       results.push(el);
       continue;
@@ -1894,7 +1895,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
       isWithinConsentElement(el) ||
       isWithinExtensionUi(el) ||
       isWithinBoundarySubtreeSkip ||
-      matchesImmutableExcluded(el)
+      isWithinImmutableBoundary
     ) {
       continue;
     }
@@ -4507,6 +4508,10 @@ function collectExplicitMarkingElements(entry) {
     }
     explicitExcludeElements.push(el);
   }
+  const localExplicitExcludeSet = new Set([
+    ...explicitExcludeElements,
+    ...hiddenExplicitExcludeElements
+  ]);
   const explicitIncludeElements = [];
   const hiddenExplicitIncludeElements = [];
   for (const el of explicitInclude) {
@@ -4514,7 +4519,7 @@ function collectExplicitMarkingElements(entry) {
       isWithinImmutableExcluded(el) ||
       consentExcluded.has(el) ||
       isWithinElementSet(el, consentExcluded) ||
-      explicitExclude.has(el)
+      localExplicitExcludeSet.has(el)
     ) {
       continue;
     }
@@ -4875,6 +4880,8 @@ function renderHighlightsInner() {
   const filteredExplicitExcludeSet = new Set(filteredExplicitExclude);
   const defaultExcludedToggleElements = toggleableDefaultExcludedAll.filter((el) =>
     !isWithinElementSet(el, consentExcluded) &&
+    !isWithinElementSet(el, immutableExcluded) &&
+    !isWithinImmutableExcluded(el) &&
     !filteredExplicitExcludeSet.has(el) &&
     !isWithinElementSet(el, filteredExplicitExcludeSet)
   );

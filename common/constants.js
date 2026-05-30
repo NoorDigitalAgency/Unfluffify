@@ -44,8 +44,7 @@ const DEFAULT_EXCLUDED_TAG_SELECTORS = [
   "SCRIPT",
   "TEMPLATE",
   "IFRAME",
-  "VIDEO",
-  "LINK"
+  "VIDEO"
 ];
 
 /**
@@ -56,7 +55,6 @@ export const DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS = [
   "FOOTER",
   "FORM",
   "LABEL",
-  "BUTTON",
   "NAV",
   "HEADER",
   "DIALOG",
