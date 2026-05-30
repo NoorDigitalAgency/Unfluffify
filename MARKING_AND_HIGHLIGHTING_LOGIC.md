@@ -92,8 +92,11 @@ UI, consent UI, document roots, and immutable subtrees.
 ### Exclude Mode
 
 Plain exclude clicks choose the nearest self-markable target. Already excluded
-ancestors are not forced back into the selection path, so users can refine a
-broad exclusion by clicking deeper descendants.
+non-default ancestors are not forced back into the selection path, so users can
+refine a broad exclusion by clicking deeper descendants. Active toggleable
+default boundaries are the exception: they are preferred over descendants in
+exclude mode so a visible footer, header, form, label, nav, dialog, or aside
+default exclusion can be unmarked with one click.
 
 `Shift+Click` enables parent selection. Under the restored b9 behavior, a parent
 boundary is eligible when it has direct text or at least one self-markable

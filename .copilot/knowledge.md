@@ -32,6 +32,7 @@
 - Marking rules are anchored to commit `b9c86238b08dd0b0ee0231fcab7b214625e29670`: plain exclude clicks do not promote default-excluded boundaries to explicit includes.
 - Expanded exclusion targets are eligible when they own direct text or contain at least one self-markable descendant, matching the b9 parent-selection behavior.
 - Toggleable default exclusions are `FOOTER`, `FORM`, `LABEL`, `NAV`, `HEADER`, `DIALOG`, and `ASIDE`; `BUTTON` is immutable and `LINK` is not default-excluded.
+- Exclude clicks prefer an active toggleable default boundary over its descendants so the visible default boundary can be unmarked in one click; non-default explicit ancestors still drill into children.
 - A stored toggleable default row with `excluded: false` unmarks only that boundary and must skip the hard-toggle layer without becoming a full explicit include subtree.
 - Toggleable default markings render on the lower `default-toggle` layer; immutable hard markings render above them so ancestor default boxes cannot cover locked descendants.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.

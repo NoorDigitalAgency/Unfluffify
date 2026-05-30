@@ -18,7 +18,6 @@ import {
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
-  filterDefaultElementsForExplicitMarks,
   isStoredExcludeStateUserModified,
   shouldAllowParentMarkingBoundary,
   shouldAutoSeedMarkingsFromAiSelectors,
@@ -3498,10 +3497,11 @@ function resolveMarkableElement(el, config, options) {
   return el;
 }
 
-function getMarkableTarget(x, y, options) {
+export function getMarkableTarget(x, y, options) {
   const allowParent = options && options.allowParent;
   const allowExplicitTarget = options && options.allowExplicitTarget;
   const preferExplicitTarget = !options || options.preferExplicitTarget !== false;
+  const preferToggleableDefaultTarget = Boolean(options && options.preferToggleableDefaultTarget);
   const excludedSet = options && options.excludedSet;
   const includeSet = options && options.includeSet;
   const explicitParentSet = options && options.explicitParentSet;
@@ -3514,7 +3514,7 @@ function getMarkableTarget(x, y, options) {
   const elements = document.elementsFromPoint(x, y);
   if (
     allowExplicitTarget &&
-    preferExplicitTarget &&
+    (preferExplicitTarget || preferToggleableDefaultTarget) &&
     ((excludedSet && excludedSet.size > 0) || (includeSet && includeSet.size > 0))
   ) {
     for (const el of elements) {
@@ -3545,6 +3545,16 @@ function getMarkableTarget(x, y, options) {
         explicitParentSet.size > 0 &&
         isWithinExplicitExcludedXpath(xpath, explicitParentSet);
       if (withinExplicitExcludedParent && !explicitlyIncluded) {
+        continue;
+      }
+      if (
+        !preferExplicitTarget &&
+        !(
+          preferToggleableDefaultTarget &&
+          explicitlyExcluded &&
+          matchesToggleableDefaultExcluded(el)
+        )
+      ) {
         continue;
       }
       if (
@@ -4031,6 +4041,7 @@ function handleToggleEvent(event) {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
+    preferToggleableDefaultTarget: mode === "exclude",
     excludedSet,
     includeSet,
     explicitParentSet,
@@ -4460,24 +4471,65 @@ function refreshExplicitMarkingOverlay(entry) {
   const refreshStartedAt = nowMs();
   const {
     explicitExcludeElements,
+    hiddenExplicitExcludeElements,
     explicitIncludeElements,
     hiddenExplicitIncludeElements
   } = collectExplicitMarkingElements(entry);
   const cachedCollections = state.cachedCollections;
   if (cachedCollections) {
+    const explicitExclude = collectXPathElements(
+      collectExcludedXPaths(entry && entry.xpaths)
+    );
+    const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
+    const consentExcluded = collectConsentExcludedElements();
+    const immutableExcluded = collectImmutableElements();
     const explicitSet = new Set(
       explicitExcludeElements.concat(explicitIncludeElements, hiddenExplicitIncludeElements)
     );
     const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+    const storedUnexcludedToggleableDefaultElements =
+      collectStoredUnexcludedToggleableDefaultElements(entry);
+    const defaultBoundarySelfSkip = new Set([
+      ...explicitInclude,
+      ...storedUnexcludedToggleableDefaultElements
+    ]);
+    const defaultExcludedToggleElements = collectToggleableDefaultExcludedElements(
+      defaultBoundarySelfSkip,
+      {
+        boundarySelfSkip: defaultBoundarySelfSkip,
+        boundarySubtreeSkip: aiContentSet
+      }
+    ).filter((el) =>
+      !isWithinElementSet(el, consentExcluded) &&
+      !isWithinElementSet(el, immutableExcluded) &&
+      !isWithinImmutableExcluded(el) &&
+      !explicitSet.has(el) &&
+      !isWithinElementSet(el, explicitSet)
+    );
+    const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
+    const toggleableDefaultExcludedSet = new Set(defaultExcludedToggleElements);
     cachedCollections.explicitExcludeElements = explicitExcludeElements;
     cachedCollections.explicitIncludeElements = explicitIncludeElements;
     cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+    cachedCollections.defaultExcludedToggleElements = defaultExcludedToggleElements;
+    cachedCollections.hardElements = Array.from(new Set([
+      ...immutableExcluded,
+      ...hiddenStoredExplicitExclude
+    ])).filter((el) =>
+      !isWithinElementSet(el, consentExcluded)
+    );
     cachedCollections.aiAnimatedExplicitIncludeElements =
       explicitIncludeElements.filter((el) => aiContentSet.has(el));
-    cachedCollections.defaultElements = filterDefaultElementsForExplicitMarks(
-      cachedCollections.defaultElements || [],
-      Array.from(explicitSet)
-    );
+    cachedCollections.defaultElements = collectDefaultLayerElements(document.body, {
+      immutableExcluded,
+      consentExcluded,
+      explicitExclude,
+      explicitInclude,
+      aiContent: aiContentSet,
+      selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
+      hiddenStoredExplicitExclude,
+      toggleableDefaultExcluded: toggleableDefaultExcludedSet
+    });
   }
   if (cachedCollections) {
     drawCollections(cachedCollections, getVisibleRects);

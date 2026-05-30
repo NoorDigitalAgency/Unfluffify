@@ -6,6 +6,8 @@ import {
   collectStoredUnexcludedToggleableDefaultElements,
   collectToggleableDefaultExcludedElements,
   canApplyExplicitInclude,
+  getMarkableTarget,
+  getXPath,
   getMutationRenderMode,
   isMarkableElement,
   isVisible,
@@ -347,6 +349,108 @@ test("parent marking still allows expanded boundaries over markable content", ()
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
       true
     );
+  });
+});
+
+test("exclude clicks prefer an active toggleable default boundary over its child", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const originalConfig = state.config;
+    const originalBaseUrl = state.baseUrl;
+    const text = createElement({
+      tagName: "p",
+      text: "Footer text",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [text],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+    const footerXpath = getXPath(footer);
+    state.baseUrl = "https://example.test/";
+    state.config = {
+      pageMarkings: {
+        "https://example.test/": {
+          xpaths: [{ xpath: footerXpath, excluded: true }],
+          includeXpaths: []
+        }
+      }
+    };
+    globalThis.document.elementsFromPoint = () => [text, footer, body, documentElement];
+    try {
+      assert.equal(
+        getMarkableTarget(30, 90, {
+          allowParent: false,
+          allowExplicitTarget: true,
+          preferExplicitTarget: false,
+          preferToggleableDefaultTarget: true,
+          excludedSet: new Set([footerXpath]),
+          includeSet: new Set(),
+          explicitParentSet: new Set([footerXpath]),
+          allowExcludedParentChildren: false,
+          allowImmutableChildren: false,
+          requireExcludedAncestor: false
+        }),
+        footer
+      );
+    } finally {
+      state.config = originalConfig;
+      state.baseUrl = originalBaseUrl;
+    }
+  });
+});
+
+test("exclude clicks still drill into children of non-toggleable excluded parents", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const originalConfig = state.config;
+    const originalBaseUrl = state.baseUrl;
+    const text = createElement({
+      tagName: "p",
+      text: "Section text",
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    const section = createElement({
+      tagName: "section",
+      parentElement: body,
+      children: [text],
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(section);
+    body.childNodes.push(section);
+    const sectionXpath = getXPath(section);
+    state.baseUrl = "https://example.test/";
+    state.config = {
+      pageMarkings: {
+        "https://example.test/": {
+          xpaths: [{ xpath: sectionXpath, excluded: true }],
+          includeXpaths: []
+        }
+      }
+    };
+    globalThis.document.elementsFromPoint = () => [text, section, body, documentElement];
+    try {
+      assert.equal(
+        getMarkableTarget(30, 90, {
+          allowParent: false,
+          allowExplicitTarget: true,
+          preferExplicitTarget: false,
+          preferToggleableDefaultTarget: true,
+          excludedSet: new Set([sectionXpath]),
+          includeSet: new Set(),
+          explicitParentSet: new Set([sectionXpath]),
+          allowExcludedParentChildren: false,
+          allowImmutableChildren: false,
+          requireExcludedAncestor: false
+        }),
+        text
+      );
+    } finally {
+      state.config = originalConfig;
+      state.baseUrl = originalBaseUrl;
+    }
   });
 });
 

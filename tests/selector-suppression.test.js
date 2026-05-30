@@ -129,6 +129,26 @@ test("marking mode renders toggleable defaults below immutable hard markings", (
   );
 });
 
+test("marking mode refresh reconciles default-toggle cache after boundary unmarks", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const refreshStart = coreSource.indexOf("function refreshExplicitMarkingOverlay");
+  const refreshEnd = coreSource.indexOf("function scheduleExplicitToggleFullRender", refreshStart);
+  const refreshSource = coreSource.slice(refreshStart, refreshEnd);
+
+  assert.match(
+    refreshSource,
+    /collectStoredUnexcludedToggleableDefaultElements\(entry\)/
+  );
+  assert.match(
+    refreshSource,
+    /cachedCollections\.defaultExcludedToggleElements = defaultExcludedToggleElements;/
+  );
+  assert.match(
+    refreshSource,
+    /collectDefaultLayerElements\(document\.body, \{[\s\S]*?toggleableDefaultExcluded: toggleableDefaultExcludedSet/
+  );
+});
+
 test("marking logic docs describe selector exclusions as element-only default suppression", () => {
   const docSource = readFileSync(
     new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url),
@@ -147,6 +167,10 @@ test("marking logic docs describe selector exclusions as element-only default su
   assert.match(
     docSource,
     /toggleable default exclusions render on the lower\s+`default-toggle` overlay layer/i
+  );
+  assert.match(
+    docSource,
+    /default exclusion can be unmarked with one click/
   );
 });
 
