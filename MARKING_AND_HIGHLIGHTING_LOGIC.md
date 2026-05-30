@@ -90,6 +90,12 @@ visible explicit markings are filtered out, which prevents intermediate
 wrappers from drawing descendant-counted ghost boxes while preserving unmarked
 sibling descendants.
 
+Both full renders and fast explicit-toggle overlay refreshes must run page
+marking synchronization before collecting overlays. The fast refresh is only an
+adaptation layer over the b9 rules; it cannot draw from a just-mutated entry
+until generated default posture rows, including default ancestors converted to
+`excluded: false`, have been reconciled.
+
 ## Target Resolution
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension

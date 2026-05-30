@@ -793,6 +793,67 @@ test("sync records an unexcluded default boundary around explicit descendant exc
   });
 });
 
+test("sync records each default ancestor before fast overlay refreshes draw", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const headerChild = createElement({
+      tagName: "p",
+      text: "Header child to exclude",
+      rect: { top: 60, right: 320, bottom: 95, left: 20, width: 300, height: 35 }
+    });
+    const footerChild = createElement({
+      tagName: "p",
+      text: "Footer child to exclude",
+      rect: { top: 210, right: 320, bottom: 245, left: 20, width: 300, height: 35 }
+    });
+    const header = createElement({
+      tagName: "header",
+      parentElement: body,
+      children: [headerChild],
+      rect: { top: 40, right: 420, bottom: 130, left: 10, width: 410, height: 90 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [footerChild],
+      rect: { top: 190, right: 420, bottom: 280, left: 10, width: 410, height: 90 }
+    });
+    body.children.push(header, footer);
+    body.childNodes.push(header, footer);
+    const pageUrl = "https://example.test/default-fast-refresh";
+    const headerXpath = getXPath(header);
+    const footerXpath = getXPath(footer);
+    const headerChildXpath = getXPath(headerChild);
+    const footerChildXpath = getXPath(footerChild);
+    xpathMap.set(headerXpath, header);
+    xpathMap.set(footerXpath, footer);
+    xpathMap.set(headerChildXpath, headerChild);
+    xpathMap.set(footerChildXpath, footerChild);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [
+            { xpath: headerChildXpath, excluded: true },
+            { xpath: footerChildXpath, excluded: true }
+          ],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+    const lookup = new Map(result.entry.xpaths.map((item) => [item.xpath, item.excluded]));
+
+    assert.equal(lookup.get(headerXpath), false);
+    assert.equal(lookup.get(footerXpath), false);
+    assert.equal(lookup.get(headerChildXpath), true);
+    assert.equal(lookup.get(footerChildXpath), true);
+    assert.deepEqual(
+      collectStoredUnexcludedToggleableDefaultElements(result.entry),
+      [header, footer]
+    );
+  });
+});
+
 test("sync keeps a default boundary unexcluded after a descendant exclusion is removed", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const child = createElement({

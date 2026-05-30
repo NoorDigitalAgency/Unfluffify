@@ -4478,26 +4478,36 @@ function refreshExplicitMarkingOverlay(entry) {
     return;
   }
   const refreshStartedAt = nowMs();
+  const pageUrl = location.href;
+  const immutableExcluded = collectImmutableElements();
+  let syncedEntry = entry;
+  if (state.config && pageUrl && hasPageMarkingEntry(state.config, pageUrl)) {
+    const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+      allowCreate: true,
+      persist: true
+    });
+    syncedEntry = syncResult.entry || syncedEntry;
+    state.currentPageEntry = syncedEntry || null;
+  }
   const {
     explicitExcludeElements,
     hiddenExplicitExcludeElements,
     explicitIncludeElements,
     hiddenExplicitIncludeElements
-  } = collectExplicitMarkingElements(entry);
+  } = collectExplicitMarkingElements(syncedEntry);
   const cachedCollections = state.cachedCollections;
   if (cachedCollections) {
     const explicitExclude = collectXPathElements(
-      collectExcludedXPaths(entry && entry.xpaths)
+      collectExcludedXPaths(syncedEntry && syncedEntry.xpaths)
     );
-    const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
+    const explicitInclude = collectXPathElements(syncedEntry && syncedEntry.includeXpaths);
     const consentExcluded = collectConsentExcludedElements();
-    const immutableExcluded = collectImmutableElements();
     const explicitSet = new Set(
       explicitExcludeElements.concat(explicitIncludeElements, hiddenExplicitIncludeElements)
     );
     const aiContentSet = new Set(cachedCollections.aiContentElements || []);
     const storedUnexcludedToggleableDefaultElements =
-      collectStoredUnexcludedToggleableDefaultElements(entry);
+      collectStoredUnexcludedToggleableDefaultElements(syncedEntry);
     const defaultBoundarySelfSkip = new Set([
       ...explicitInclude,
       ...storedUnexcludedToggleableDefaultElements

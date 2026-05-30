@@ -36,6 +36,7 @@
 - A stored toggleable default row with `excluded: false` unmarks only that boundary and must skip the hard-toggle layer without becoming a full explicit include subtree.
 - Stored unexcluded default boundaries also suppress their own default-layer marking, but not their descendants, to avoid visual-only ancestor ghosts around explicit descendant marks.
 - Default-layer targets are filtered against visible explicit markings so intermediate wrappers cannot draw descendant-counted ghost boxes around explicit marks.
+- Fast explicit-toggle overlay refreshes must run `syncPageMarkings` before collecting overlays; otherwise generated default ancestors can be drawn from stale pre-sync state.
 - Toggleable default markings render on the lower `default-toggle` layer; immutable hard markings render above them so ancestor default boxes cannot cover locked descendants.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.

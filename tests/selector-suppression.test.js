@@ -137,7 +137,19 @@ test("marking mode refresh reconciles default-toggle cache after boundary unmark
 
   assert.match(
     refreshSource,
-    /collectStoredUnexcludedToggleableDefaultElements\(entry\)/
+    /const syncResult = syncPageMarkings\(state\.config, pageUrl, immutableExcluded, \{[\s\S]*?allowCreate: true,[\s\S]*?persist: true[\s\S]*?\}\);/
+  );
+  assert.match(
+    refreshSource,
+    /syncedEntry = syncResult\.entry \|\| syncedEntry;/
+  );
+  assert.match(
+    refreshSource,
+    /collectExplicitMarkingElements\(syncedEntry\)/
+  );
+  assert.match(
+    refreshSource,
+    /collectStoredUnexcludedToggleableDefaultElements\(syncedEntry\)/
   );
   assert.match(
     refreshSource,
@@ -243,6 +255,10 @@ test("marking logic docs describe selector exclusions as element-only default su
   assert.match(
     docSource,
     /Default-layer candidates that wrap or sit inside\s+visible explicit markings are filtered out/
+  );
+  assert.match(
+    docSource,
+    /fast explicit-toggle overlay refreshes must run page\s+marking synchronization before collecting overlays/i
   );
 });
 
