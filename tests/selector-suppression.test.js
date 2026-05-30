@@ -86,47 +86,34 @@ test("marking mode keeps immutable hard elements eligible without requiring rend
   );
 });
 
-test("marking mode skips stored unexcluded defaults in generated default collection", () => {
+test("marking mode keeps default exclusions out of a generated render collection", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
   assert.match(
     coreSource,
     /const storedUnexcludedToggleableDefaultElements =\s*collectStoredUnexcludedToggleableDefaultElements\(entry\);/
   );
-  assert.match(
-    coreSource,
-    /const defaultBoundarySelfSkip = new Set\(\[[\s\S]*?\.\.\.explicitInclude,[\s\S]*?\.\.\.storedUnexcludedToggleableDefaultElements[\s\S]*?\]\);/
-  );
-  assert.match(
-    coreSource,
-    /collectToggleableDefaultExcludedElements\(\s*defaultBoundarySelfSkip,[\s\S]*?boundarySelfSkip: defaultBoundarySelfSkip/
-  );
+  assert.doesNotMatch(coreSource, /defaultExcludedToggleElements/);
+  assert.doesNotMatch(coreSource, /defaultBoundarySelfSkip/);
 });
 
-test("marking mode renders generated toggleable defaults on the default-toggle layer", () => {
+test("marking mode renders synced default exclusions as ordinary exclude markings", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const defaultToggleLayerIndex = coreSource.indexOf(
-    '#unfluffify-overlay .uf-layer[data-layer="default-toggle"] { z-index: 1; }'
-  );
-  const hardLayerIndex = coreSource.indexOf(
-    '#unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }'
-  );
+  const collectorStart = coreSource.indexOf("function collectExplicitMarkingElements");
+  const collectorEnd = coreSource.indexOf("export function collectStoredUnexcludedToggleableDefaultElements", collectorStart);
+  const collectorSource = coreSource.slice(collectorStart, collectorEnd);
 
-  assert.notEqual(defaultToggleLayerIndex, -1);
-  assert.notEqual(hardLayerIndex, -1);
-  assert.equal(defaultToggleLayerIndex < hardLayerIndex, true);
-  assert.match(coreSource, /#unfluffify-overlay \.uf-hard-toggle \{/);
+  assert.doesNotMatch(coreSource, /default-toggle/);
+  assert.doesNotMatch(coreSource, /uf-hard-toggle/);
+  assert.doesNotMatch(coreSource, /default-toggle-exclude/);
+  assert.doesNotMatch(collectorSource, /isStoredExcludeStateUserModified/);
   assert.match(
     coreSource,
-    /const layerDefaultToggleState = beginLayerRender\(state\.layers\["default-toggle"\]\);/
-  );
-  assert.match(
-    coreSource,
-    /layerDefaultToggleState,\s*rects,\s*"uf-hard-toggle",\s*el,\s*"default-toggle-exclude"/
+    /drawMultiRectReuse\([\s\S]*?layerExplicitExcludeState,[\s\S]*?presentation\.className,[\s\S]*?"explicit-exclude"/
   );
 });
 
-test("marking mode refresh reconciles default-toggle cache after boundary unmarks", () => {
+test("marking mode refresh reconciles default rows before drawing ordinary overlays", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshStart = coreSource.indexOf("function refreshExplicitMarkingOverlay");
   const refreshEnd = coreSource.indexOf("function scheduleExplicitToggleFullRender", refreshStart);
@@ -148,14 +135,9 @@ test("marking mode refresh reconciles default-toggle cache after boundary unmark
     refreshSource,
     /collectStoredUnexcludedToggleableDefaultElements\(syncedEntry\)/
   );
-  assert.match(
-    refreshSource,
-    /cachedCollections\.defaultExcludedToggleElements = defaultExcludedToggleElements;/
-  );
-  assert.match(
-    refreshSource,
-    /collectDefaultLayerElements\(document\.body, \{[\s\S]*?toggleableDefaultExcluded: toggleableDefaultExcludedSet/
-  );
+  assert.doesNotMatch(refreshSource, /defaultExcludedToggleElements/);
+  assert.doesNotMatch(refreshSource, /toggleableDefaultExcluded/);
+  assert.match(refreshSource, /collectDefaultLayerElements\(document\.body, \{/);
 });
 
 test("marking mode stores default ancestors as unexcluded when descendants are marked", () => {
@@ -223,7 +205,7 @@ test("marking logic docs describe selector exclusions as element-only default su
   );
   assert.match(
     docSource,
-    /toggleable default exclusions render on the lower\s+`default-toggle` overlay layer/i
+    /Toggleable default exclusions have no separate visual layer/i
   );
   assert.match(
     docSource,
@@ -235,7 +217,7 @@ test("marking logic docs describe selector exclusions as element-only default su
   );
   assert.match(
     docSource,
-    /It also suppresses that\s+boundary's own default-layer marking/
+    /It must suppress the\s+boundary's own default-layer marking/
   );
   assert.match(
     docSource,

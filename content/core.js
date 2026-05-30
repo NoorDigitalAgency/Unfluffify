@@ -1284,7 +1284,6 @@ export function collectDefaultLayerElements(root, options = {}) {
   const aiContent = new Set(options.aiContent || []);
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
-  const toggleableDefaultExcluded = new Set(options.toggleableDefaultExcluded || []);
   const unexcludedToggleableDefault = new Set(options.unexcludedToggleableDefault || []);
   const precedenceSet = new Set([
     ...immutableExcluded,
@@ -1293,7 +1292,6 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...explicitInclude,
     ...aiContent,
     ...selectorExcluded,
-    ...toggleableDefaultExcluded,
     ...unexcludedToggleableDefault
   ]);
   const hardExcludedSet = new Set([
@@ -1313,8 +1311,7 @@ export function collectDefaultLayerElements(root, options = {}) {
       ...consentExcluded,
       ...explicitExclude,
       ...explicitInclude,
-      ...aiContent,
-      ...toggleableDefaultExcluded
+      ...aiContent
     ])
   });
 }
@@ -2569,7 +2566,6 @@ function createOverlay() {
         pointer-events: none;
         transition: opacity 0.15s ease;
       }
-      #unfluffify-overlay .uf-layer[data-layer="default-toggle"] { z-index: 1; }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
       #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
@@ -2601,10 +2597,6 @@ function createOverlay() {
         box-shadow: 0px 0px 5px 5px #00acc178;
         opacity: 1;
         animation: blink 1s linear infinite !important;
-      }
-      #unfluffify-overlay .uf-hard-toggle {
-        border: 2px solid #b71c1c;
-        background: rgba(183, 28, 28, 0.12);
       }
       #unfluffify-overlay .uf-hard-locked {
         background: repeating-linear-gradient(45deg, rgba(225, 70, 70, 0.1), rgba(225, 70, 70, 0.1) 20px, rgba(225, 150, 70, 0.1) 20px, rgb(225, 150, 70, 0.1) 40px);
@@ -2696,7 +2688,6 @@ function createOverlay() {
   overlay.id = "unfluffify-overlay";
 
   const layerKeys = [
-    "default-toggle",
     "hard",
     "explicit-exclude",
     "explicit-include",
@@ -4330,12 +4321,6 @@ function collectExplicitMarkingElements(entry) {
     if (!el) {
       continue;
     }
-    if (!isStoredExcludeStateUserModified({
-      isExcluded: item.excluded,
-      isDefaultExcluded: matchesToggleableDefaultExcluded(el)
-    })) {
-      continue;
-    }
     if (
       consentExcluded.has(el) ||
       isWithinElementSet(el, consentExcluded) ||
@@ -4491,35 +4476,13 @@ function refreshExplicitMarkingOverlay(entry) {
     );
     const explicitInclude = collectXPathElements(syncedEntry && syncedEntry.includeXpaths);
     const consentExcluded = collectConsentExcludedElements();
-    const explicitSet = new Set(
-      explicitExcludeElements.concat(explicitIncludeElements, hiddenExplicitIncludeElements)
-    );
     const aiContentSet = new Set(cachedCollections.aiContentElements || []);
     const storedUnexcludedToggleableDefaultElements =
       collectStoredUnexcludedToggleableDefaultElements(syncedEntry);
-    const defaultBoundarySelfSkip = new Set([
-      ...explicitInclude,
-      ...storedUnexcludedToggleableDefaultElements
-    ]);
-    const defaultExcludedToggleElements = collectToggleableDefaultExcludedElements(
-      defaultBoundarySelfSkip,
-      {
-        boundarySelfSkip: defaultBoundarySelfSkip,
-        boundarySubtreeSkip: aiContentSet
-      }
-    ).filter((el) =>
-      !isWithinElementSet(el, consentExcluded) &&
-      !isWithinElementSet(el, immutableExcluded) &&
-      !isWithinImmutableExcluded(el) &&
-      !explicitSet.has(el) &&
-      !isWithinElementSet(el, explicitSet)
-    );
     const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-    const toggleableDefaultExcludedSet = new Set(defaultExcludedToggleElements);
     cachedCollections.explicitExcludeElements = explicitExcludeElements;
     cachedCollections.explicitIncludeElements = explicitIncludeElements;
     cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-    cachedCollections.defaultExcludedToggleElements = defaultExcludedToggleElements;
     cachedCollections.hardElements = Array.from(new Set([
       ...immutableExcluded,
       ...hiddenStoredExplicitExclude
@@ -4536,7 +4499,6 @@ function refreshExplicitMarkingOverlay(entry) {
       aiContent: aiContentSet,
       selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
       hiddenStoredExplicitExclude,
-      toggleableDefaultExcluded: toggleableDefaultExcludedSet,
       unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
     });
   }
@@ -4784,32 +4746,11 @@ function renderHighlightsInner() {
     : [];
   const storedUnexcludedToggleableDefaultElements =
     collectStoredUnexcludedToggleableDefaultElements(entry);
-  const defaultBoundarySelfSkip = new Set([
-    ...explicitInclude,
-    ...storedUnexcludedToggleableDefaultElements
-  ]);
 
   const hardExcludedSet = new Set([
     ...immutableExcluded,
     ...hiddenStoredExplicitExclude
   ]);
-
-  const toggleableDefaultExcludedAll = collectToggleableDefaultExcludedElements(
-    defaultBoundarySelfSkip,
-    {
-      boundarySelfSkip: defaultBoundarySelfSkip,
-      boundarySubtreeSkip: aiContent
-    }
-  );
-  const filteredExplicitExcludeSet = new Set(filteredExplicitExclude);
-  const defaultExcludedToggleElements = toggleableDefaultExcludedAll.filter((el) =>
-    !isWithinElementSet(el, consentExcluded) &&
-    !isWithinElementSet(el, immutableExcluded) &&
-    !isWithinImmutableExcluded(el) &&
-    !filteredExplicitExcludeSet.has(el) &&
-    !isWithinElementSet(el, filteredExplicitExcludeSet)
-  );
-  const toggleableDefaultExcludedSet = new Set(defaultExcludedToggleElements);
 
   const defaultTargets = collectDefaultLayerElements(document.body, {
     immutableExcluded,
@@ -4819,7 +4760,6 @@ function renderHighlightsInner() {
     aiContent,
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,
-    toggleableDefaultExcluded: toggleableDefaultExcludedSet,
     unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
   });
 
@@ -4827,7 +4767,6 @@ function renderHighlightsInner() {
     hardElements: Array.from(hardExcludedSet).filter((el) =>
       !isWithinElementSet(el, consentExcluded)
     ),
-    defaultExcludedToggleElements,
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     hiddenExplicitIncludeElements,
@@ -4874,7 +4813,6 @@ function repositionHighlights(collections) {
 }
 
 function drawCollections(collections, getRects) {
-  const layerDefaultToggleState = beginLayerRender(state.layers["default-toggle"]);
   const layerHardState = beginLayerRender(state.layers["hard"]);
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
@@ -4887,15 +4825,6 @@ function drawCollections(collections, getRects) {
     if (rects.length > 0) {
       drawMultiRectReuse(
         layerHardState, rects, "uf-hard-locked", el, "immutable", markedElements
-      );
-    }
-  }
-
-  for (const el of collections.defaultExcludedToggleElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerDefaultToggleState, rects, "uf-hard-toggle", el, "default-toggle-exclude", markedElements
       );
     }
   }
@@ -4977,7 +4906,6 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  finalizeLayerRender(layerDefaultToggleState);
   finalizeLayerRender(layerHardState);
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);

@@ -797,6 +797,54 @@ test("sync records an unexcluded default boundary around explicit descendant exc
   });
 });
 
+test("sync represents default exclusions as ordinary excluded rows", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const headerText = createElement({
+      tagName: "p",
+      text: "Header text",
+      rect: { top: 50, right: 320, bottom: 85, left: 20, width: 300, height: 35 }
+    });
+    const footerText = createElement({
+      tagName: "p",
+      text: "Footer text",
+      rect: { top: 210, right: 320, bottom: 245, left: 20, width: 300, height: 35 }
+    });
+    const header = createElement({
+      tagName: "header",
+      parentElement: body,
+      children: [headerText],
+      rect: { top: 30, right: 420, bottom: 120, left: 10, width: 410, height: 90 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [footerText],
+      rect: { top: 190, right: 420, bottom: 280, left: 10, width: 410, height: 90 }
+    });
+    body.children.push(header, footer);
+    body.childNodes.push(header, footer);
+    const pageUrl = "https://example.test/default-sync";
+    const headerXpath = getXPath(header);
+    const footerXpath = getXPath(footer);
+    xpathMap.set(headerXpath, header);
+    xpathMap.set(footerXpath, footer);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+    const lookup = new Map(result.entry.xpaths.map((item) => [item.xpath, item.excluded]));
+
+    assert.equal(lookup.get(headerXpath), true);
+    assert.equal(lookup.get(footerXpath), true);
+  });
+});
+
 test("sync records each default ancestor before fast overlay refreshes draw", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const headerChild = createElement({
@@ -966,7 +1014,7 @@ test("default layer still suppresses descendants inside explicit exclusions", ()
   });
 });
 
-test("default layer suppresses the toggleable-default boundary itself and all its descendants", () => {
+test("default layer suppresses descendants inside synced default exclusion rows", () => {
   withVisibilityDom(({ body }) => {
     const child = createElement({
       parentElement: body,
@@ -990,7 +1038,7 @@ test("default layer suppresses the toggleable-default boundary itself and all it
     body.childNodes.push(sibling);
 
     const defaultElements = collectDefaultLayerElements(body, {
-      toggleableDefaultExcluded: new Set([defaultBoundary])
+      explicitExclude: new Set([defaultBoundary])
     });
 
     assert.deepEqual(defaultElements, [sibling]);
