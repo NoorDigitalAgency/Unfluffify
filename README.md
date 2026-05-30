@@ -2,7 +2,7 @@
 
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
-The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked b9-compatible contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
+The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
 ## Packaging Workflow
@@ -104,7 +104,7 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for b9 default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
+- **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
 - **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: exclusion roots (explicit, immutable, consent, hidden toggleable) plus included textual boundaries and explicit includes
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors

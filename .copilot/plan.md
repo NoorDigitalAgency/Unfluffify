@@ -20,9 +20,15 @@ Post-run pass completed:
 Completed:
 
 1. Restore default exclusions to synced marking rows instead of generated visual overlays.
-2. Document that the marking rules are locked to the b9-compatible contract unless the user explicitly requests a marking-rules contract change.
+2. Document that the marking rules are locked to the restored contract unless the user explicitly requests a marking-rules contract change.
 3. Harden focused tests so they fail if default exclusions regain a dedicated layer, class, render collection, or post-hoc overlay rule.
 4. Keep `.copilot/knowledge.md`, `.copilot/plan.md`, `README.md`, and `MARKING_AND_HIGHLIGHTING_LOGIC.md` aligned with the same contract.
+
+Explicit taxonomy change completed:
+
+1. `BUTTON` is now a toggleable default exclusion.
+2. `LINK` is now an immutable default exclusion.
+3. Keep this explicit contract change reflected in constants, docs, memory, and regression tests.
 
 Future marking work:
 
@@ -48,6 +54,6 @@ Future marking work:
 
 ## Constraints
 
-- The marking-rules contract is locked to the current b9-compatible behavior and must not drift through unrelated refactors.
+- The marking-rules contract is locked to the current restored behavior plus explicit taxonomy changes and must not drift through unrelated refactors.
 - Do not reintroduce supporter remote-control or control handoff/takeover paths.
 - Fail remote-support bootstrap when valid ICE config is missing; do not silently fall back away from the Cloudflare-only contract.

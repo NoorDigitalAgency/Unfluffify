@@ -273,12 +273,15 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
     assert.match(source, /ordinary exclude marking path|ordinary exclude overlay/i);
   }
   assert.match(docSource, /Toggleable defaults differ from user\/CSS-selected exclusions only while the\s+excluded\/included state is being decided/i);
+  assert.match(docSource, /`BUTTON` is intentionally toggleable\. `LINK` is intentionally immutable\./);
   assert.match(docSource, /Any legitimate contract change must update this document, `\.copilot\/knowledge\.md`,\s+`\.copilot\/plan\.md`, `README\.md`, and the focused regression tests/i);
   assert.match(planSource, /Marking Contract Lock/);
   assert.match(planSource, /Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks/i);
-  assert.match(readmeSource, /locked b9-compatible contract/i);
+  assert.match(planSource, /`BUTTON` is now a toggleable default exclusion/);
+  assert.match(planSource, /`LINK` is now an immutable default exclusion/);
+  assert.match(readmeSource, /locked restored contract/i);
   assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/marking-rules\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
-  assert.match(constantsSource, /locked b9-compatible marking contract/);
+  assert.match(constantsSource, /locked marking contract/);
 });
 
 test("page-scoped selector suppression lookup normalizes equivalent page URLs", () => {

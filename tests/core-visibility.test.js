@@ -568,6 +568,21 @@ test("toggleable boundary collection includes visible footers with immutable and
   });
 });
 
+test("toggleable boundary collection includes visible buttons", () => {
+  withVisibilityDom(({ body }) => {
+    const button = createElement({
+      tagName: "button",
+      parentElement: body,
+      text: "Submit",
+      rect: { top: 10, right: 140, bottom: 50, left: 10, width: 130, height: 40 }
+    });
+    body.children.push(button);
+    body.childNodes.push(button);
+
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), [button]);
+  });
+});
+
 test("toggleable boundary collection skips hidden duplicate boundaries", () => {
   withVisibilityDom(({ body }) => {
     const footer = createElement({
@@ -584,21 +599,21 @@ test("toggleable boundary collection skips hidden duplicate boundaries", () => {
   });
 });
 
-test("toggleable boundary collection skips toggleable tags inside immutable subtrees", () => {
+test("toggleable boundary collection skips toggleable tags inside immutable link subtrees", () => {
   withVisibilityDom(({ body }) => {
     const nestedLabel = createElement({
       tagName: "label",
-      text: "Nested label inside immutable button",
+      text: "Nested label inside immutable link",
       rect: { top: 30, right: 260, bottom: 60, left: 20, width: 240, height: 30 }
     });
-    const immutableButton = createElement({
-      tagName: "button",
+    const immutableLink = createElement({
+      tagName: "link",
       parentElement: body,
       children: [nestedLabel],
       rect: { top: 10, right: 280, bottom: 80, left: 10, width: 270, height: 70 }
     });
-    body.children.push(immutableButton);
-    body.childNodes.push(immutableButton);
+    body.children.push(immutableLink);
+    body.childNodes.push(immutableLink);
 
     assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
   });

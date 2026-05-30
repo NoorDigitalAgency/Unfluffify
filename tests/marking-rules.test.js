@@ -112,7 +112,7 @@ test("b9 parent marking accepts a wrapper with one markable descendant", () => {
   );
 });
 
-test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded", () => {
+test("locked default-exclusion taxonomy keeps buttons toggleable and links immutable", () => {
   assert.deepEqual(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS, [
     "FOOTER",
     "FORM",
@@ -120,11 +120,11 @@ test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded
     "NAV",
     "HEADER",
     "DIALOG",
-    "ASIDE"
+    "ASIDE",
+    "BUTTON"
   ]);
   assert.deepEqual(DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS, [
     "IMG",
-    "BUTTON",
     "INPUT",
     "NOSCRIPT",
     "SELECT",
@@ -133,19 +133,18 @@ test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO"
+    "VIDEO",
+    "LINK"
   ]);
 
   const toggleable = new Set(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS);
   const immutable = new Set(DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS);
-  for (const tag of ["FOOTER", "FORM", "LABEL", "NAV", "HEADER", "DIALOG", "ASIDE"]) {
+  for (const tag of ["FOOTER", "FORM", "LABEL", "NAV", "HEADER", "DIALOG", "ASIDE", "BUTTON"]) {
     assert.equal(toggleable.has(tag), true, `${tag} should be toggleable`);
     assert.equal(immutable.has(tag), false, `${tag} should not be immutable`);
   }
-  assert.equal(toggleable.has("BUTTON"), false);
-  assert.equal(immutable.has("BUTTON"), true);
   assert.equal(toggleable.has("LINK"), false);
-  assert.equal(immutable.has("LINK"), false);
+  assert.equal(immutable.has("LINK"), true);
   for (const tag of [
     "IMG",
     "INPUT",
@@ -156,7 +155,8 @@ test("b9 default-exclusion taxonomy keeps buttons immutable and links unexcluded
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO"
+    "VIDEO",
+    "LINK"
   ]) {
     assert.equal(immutable.has(tag), true, `${tag} should be immutable`);
     assert.equal(toggleable.has(tag), false, `${tag} should not be toggleable`);

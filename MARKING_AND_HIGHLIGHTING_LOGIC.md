@@ -1,7 +1,8 @@
 # Marking And Highlighting Logic
 
 This document is the source of truth for the marking rules restored from
-`b9c86238b08dd0b0ee0231fcab7b214625e29670`.
+`b9c86238b08dd0b0ee0231fcab7b214625e29670`, with the explicit contract change
+that `BUTTON` is now toggleable and `LINK` is now immutable.
 
 ## Locked Contract
 
@@ -55,8 +56,8 @@ stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
 ### Immutable Defaults
 
 Immutable defaults are always excluded and cannot be overridden from marking
-mode. They include `IMG`, `BUTTON`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`,
-`STYLE`, `SCRIPT`, `TEMPLATE`, `IFRAME`, and `VIDEO`.
+mode. They include `IMG`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`, `STYLE`,
+`SCRIPT`, `TEMPLATE`, `IFRAME`, `VIDEO`, and `LINK`.
 
 An element inside an immutable default subtree is not markable. Immutable nodes
 render as hard exclusions in marking mode and on the dedicated immutable layer
@@ -64,7 +65,7 @@ in silent highlighting.
 
 ### Toggleable Defaults
 
-Toggleable defaults start excluded but can be toggled by the user. The b9
+Toggleable defaults start excluded but can be toggled by the user. The locked
 taxonomy is:
 
 - `FOOTER`
@@ -74,9 +75,9 @@ taxonomy is:
 - `HEADER`
 - `DIALOG`
 - `ASIDE`
+- `BUTTON`
 
-`BUTTON` is intentionally immutable, not toggleable. `LINK` is not a default
-exclusion.
+`BUTTON` is intentionally toggleable. `LINK` is intentionally immutable.
 
 Toggleable defaults are not promoted to explicit includes by a plain exclude
 click. Exclude mode keeps drilling to the nearest markable content target unless
