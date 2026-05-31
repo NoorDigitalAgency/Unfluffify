@@ -477,6 +477,74 @@ test("page motion pause freezes broad motion sources and shows an indicator", ()
   }
 });
 
+test("page motion pause skips extension-owned marking UI", () => {
+  const dom = installMotionDom();
+  const previousOverlay = state.overlay;
+  const pageMovingElement = new FakeElement("div", { class: "motion-strip" });
+  pageMovingElement.computedStyle = createComputedStyle({ transform: "matrix(1, 0, 0, 1, 9, 0)" });
+  const overlay = new FakeElement("div", {
+    id: "unfluffify-overlay",
+    "data-uf-extension-ui": "true"
+  });
+  const overlayMovingElement = new FakeElement("div", { class: "uf-marking-layer" });
+  overlayMovingElement.computedStyle = createComputedStyle({ transform: "matrix(1, 0, 0, 1, 4, 0)" });
+  const pageSvg = new FakeElement("svg");
+  pageSvg.pauseCount = 0;
+  pageSvg.pauseAnimations = () => {
+    pageSvg.pauseCount += 1;
+  };
+  pageSvg.animationsPaused = () => false;
+  const overlaySvg = new FakeElement("svg");
+  overlaySvg.pauseCount = 0;
+  overlaySvg.pauseAnimations = () => {
+    overlaySvg.pauseCount += 1;
+  };
+  overlaySvg.animationsPaused = () => false;
+  const pageVideo = new FakeElement("video", { autoplay: "" });
+  pageVideo.paused = false;
+  pageVideo.pauseCount = 0;
+  pageVideo.pause = () => {
+    pageVideo.pauseCount += 1;
+    pageVideo.paused = true;
+  };
+  const overlayVideo = new FakeElement("video", { autoplay: "" });
+  overlayVideo.paused = false;
+  overlayVideo.pauseCount = 0;
+  overlayVideo.pause = () => {
+    overlayVideo.pauseCount += 1;
+    overlayVideo.paused = true;
+  };
+  dom.body.appendChild(pageMovingElement);
+  dom.body.appendChild(pageSvg);
+  dom.body.appendChild(pageVideo);
+  overlay.appendChild(overlayMovingElement);
+  overlay.appendChild(overlaySvg);
+  overlay.appendChild(overlayVideo);
+  dom.body.appendChild(overlay);
+  state.overlay = overlay;
+
+  const pageAnimation = createAnimation(pageMovingElement);
+  const overlayAnimation = createAnimation(overlayMovingElement);
+  dom.animations.push(pageAnimation, overlayAnimation);
+
+  try {
+    pausePageMotion("marking");
+
+    assert.equal(pageAnimation.pauseCount, 1);
+    assert.equal(overlayAnimation.pauseCount, 0);
+    assert.equal(pageMovingElement.hasAttribute(PAGE_MOTION_LOCK_ATTR), true);
+    assert.equal(overlayMovingElement.hasAttribute(PAGE_MOTION_LOCK_ATTR), false);
+    assert.equal(pageSvg.pauseCount, 1);
+    assert.equal(overlaySvg.pauseCount, 0);
+    assert.equal(pageVideo.pauseCount, 1);
+    assert.equal(overlayVideo.pauseCount, 0);
+  } finally {
+    state.overlay = overlay;
+    dom.restore();
+    state.overlay = previousOverlay;
+  }
+});
+
 test("page motion pause is held until every lifecycle reason is released", () => {
   const dom = installMotionDom();
   const movingElement = new FakeElement("div", { class: "motion-strip" });
@@ -583,4 +651,15 @@ test("page motion pause no longer depends on specific carousel class selectors",
   assert.doesNotMatch(source, /PAGE_MOTION_PAUSE_TARGET_SELECTORS/);
   assert.doesNotMatch(source, /\.w-slider|\.swiper|\.slick-slider|\.splide/);
   assert.match(source, /PAGE_MOTION_PAUSE_DESCRIPTOR_RE/);
+});
+
+test("page motion pause stylesheet excludes extension-owned UI", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /PAGE_MOTION_PAUSE_CONTENT_SELECTOR/);
+  assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\]\)/);
+  assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\] \*\)/);
+  assert.match(source, /:not\(\[id\^=\"unfluffify-\"\]\)/);
+  assert.match(source, /:not\(\[id\^=\"unfluffify-\"\] \*\)/);
+  assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
 });

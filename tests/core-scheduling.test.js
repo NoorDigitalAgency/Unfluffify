@@ -210,6 +210,23 @@ test("explicit toggle full rebuild timing stays short to avoid ancestor lag", ()
   assert.ok(Number(renderOptionsMatch[2]) <= 200);
 });
 
+test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const scheduleRenderBody = coreSource.match(
+    /export function scheduleRender\(options\) \{([\s\S]*?)\n\}\n\nexport function mergeDraftEntry/
+  )[1];
+
+  assert.match(coreSource, /capturedExtensionTimers/);
+  assert.match(coreSource, /isPageMotionFreezeTimerFunction/);
+  assert.match(coreSource, /unfluffifySet/);
+  assert.match(scheduleRenderBody, /state\.renderTimer = extensionSetTimeout/);
+  assert.match(scheduleRenderBody, /state\.renderRaf = extensionRequestAnimationFrame/);
+  assert.doesNotMatch(scheduleRenderBody, /window\.setTimeout|window\.requestAnimationFrame/);
+  assert.match(coreSource, /state\.hoverRaf = extensionRequestAnimationFrame/);
+  assert.match(coreSource, /state\.snapshotTimer = extensionSetTimeout/);
+  assert.match(coreSource, /state\.draftPersistTimer = extensionSetTimeout/);
+});
+
 test("marking passes share broad per-pass element caches", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 

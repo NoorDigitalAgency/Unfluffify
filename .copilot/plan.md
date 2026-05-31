@@ -68,7 +68,8 @@ Motion stability pass completed:
 1. Page motion pause is source-owned by marking and silent highlighting, so one lifecycle cannot accidentally resume the other.
 2. Matching base-URL pages hold the pause even when no selector highlights or visible overlays exist yet.
 3. The freeze covers CSS animations/transitions, Web Animations, SVG clocks, autoplay-like media, generic hover-pause candidates, computed inline locks for common motion properties, and a page-world timer/rAF gate for JavaScript-driven carousel loops.
-4. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, and inline locks before serializing `renderedHtml`.
+4. The freeze excludes extension-owned UI and routes marking overlay scheduling through extension-owned timers/rAF, so Unfluffify controls keep rendering while page motion is held.
+5. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, and inline locks before serializing `renderedHtml`.
 
 Page interaction pass-through completed:
 

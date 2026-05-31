@@ -131,6 +131,9 @@ const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
 const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
 const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
+const PAGE_MOTION_PAUSE_CONTENT_SELECTOR = `html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body ` +
+  `:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *)` +
+  `:not([id^="unfluffify-"]):not([id^="unfluffify-"] *)`;
 const PAGE_MOTION_PAUSE_DESCRIPTOR_RE = /auto[-_\s]?play|carousel|slider|slideshow|marquee|ticker|animation|animated|animate|motion|parallax|scroll[-_\s]?snap/i;
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
@@ -176,6 +179,98 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
+
+const capturedExtensionTimers = (() => {
+  const root = typeof window !== "undefined" ? window : globalThis;
+  const bindTimer = (name) => {
+    const value = root && typeof root[name] === "function" ? root[name] : null;
+    return value ? value.bind(root) : null;
+  };
+  return {
+    setTimeout: bindTimer("setTimeout"),
+    clearTimeout: bindTimer("clearTimeout"),
+    setInterval: bindTimer("setInterval"),
+    clearInterval: bindTimer("clearInterval"),
+    requestAnimationFrame: bindTimer("requestAnimationFrame"),
+    cancelAnimationFrame: bindTimer("cancelAnimationFrame"),
+    requestIdleCallback: bindTimer("requestIdleCallback"),
+    cancelIdleCallback: bindTimer("cancelIdleCallback")
+  };
+})();
+
+function isPageMotionFreezeTimerFunction(value) {
+  const name = value && typeof value === "function" ? value.name || "" : "";
+  return name.startsWith("unfluffifySet") ||
+    name.startsWith("unfluffifyClear") ||
+    name.startsWith("unfluffifyRequest") ||
+    name.startsWith("unfluffifyCancel");
+}
+
+function getExtensionTimer(name) {
+  const current = typeof window !== "undefined" && typeof window[name] === "function"
+    ? window[name]
+    : null;
+  if (current && !isPageMotionFreezeTimerFunction(current)) {
+    return current.bind(window);
+  }
+  return capturedExtensionTimers[name] || (current ? current.bind(window) : null);
+}
+
+function getExtensionNow() {
+  if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function extensionSetTimeout(callback, delay, ...args) {
+  const timer = getExtensionTimer("setTimeout") || setTimeout;
+  return timer(callback, delay, ...args);
+}
+
+function extensionClearTimeout(handle) {
+  const timer = getExtensionTimer("clearTimeout") || clearTimeout;
+  timer(handle);
+}
+
+function extensionSetInterval(callback, delay, ...args) {
+  const timer = getExtensionTimer("setInterval") || setInterval;
+  return timer(callback, delay, ...args);
+}
+
+function extensionClearInterval(handle) {
+  const timer = getExtensionTimer("clearInterval") || clearInterval;
+  timer(handle);
+}
+
+function getExtensionRequestAnimationFrame() {
+  return getExtensionTimer("requestAnimationFrame");
+}
+
+function extensionRequestAnimationFrame(callback) {
+  const requestFrame = getExtensionRequestAnimationFrame();
+  if (requestFrame) {
+    return requestFrame(callback);
+  }
+  return extensionSetTimeout(() => callback(getExtensionNow()), 16);
+}
+
+function extensionCancelAnimationFrame(handle) {
+  const cancelFrame = getExtensionTimer("cancelAnimationFrame");
+  if (cancelFrame) {
+    cancelFrame(handle);
+    return;
+  }
+  extensionClearTimeout(handle);
+}
+
+function extensionRequestIdleCallback(callback, options) {
+  const requestIdle = getExtensionTimer("requestIdleCallback");
+  if (requestIdle) {
+    return requestIdle(callback, options);
+  }
+  return extensionSetTimeout(callback, 0);
+}
 
 let aiPreviewFocusElement = null;
 
@@ -305,13 +400,7 @@ function withElementComputationCache(callback) {
 }
 
 function runWhenIdle(callback, timeout = SNAPSHOT_IDLE_TIMEOUT_MS) {
-  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-    return window.requestIdleCallback(callback, { timeout });
-  }
-  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-    return window.setTimeout(callback, 0);
-  }
-  return setTimeout(callback, 0);
+  return extensionRequestIdleCallback(callback, { timeout });
 }
 
 function isTagSelector (selector){
@@ -2835,9 +2924,12 @@ function ensurePageMotionPauseStyle() {
     html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body {
       scroll-behavior: auto !important;
     }
-    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *,
-    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *::before,
-    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *::after {
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body,
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body::before,
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body::after,
+    ${PAGE_MOTION_PAUSE_CONTENT_SELECTOR},
+    ${PAGE_MOTION_PAUSE_CONTENT_SELECTOR}::before,
+    ${PAGE_MOTION_PAUSE_CONTENT_SELECTOR}::after {
       animation-play-state: paused !important;
       transition-property: none !important;
       transition-duration: 0s !important;
@@ -3010,6 +3102,10 @@ function getDocumentAnimations() {
 function pauseDocumentAnimations(pauseState) {
   for (const animation of getDocumentAnimations()) {
     if (!animation || typeof animation.pause !== "function") {
+      continue;
+    }
+    const target = getAnimationEffectTarget(animation);
+    if (target && isIgnoredPageMotionElement(target)) {
       continue;
     }
     if (
@@ -3560,7 +3656,7 @@ function queryPageMotionElements(selector) {
 
 function pauseSvgAnimations(pauseState) {
   for (const svgElement of queryPageMotionElements("svg")) {
-    if (!svgElement || typeof svgElement.pauseAnimations !== "function") {
+    if (!svgElement || isIgnoredPageMotionElement(svgElement) || typeof svgElement.pauseAnimations !== "function") {
       continue;
     }
     if (!pauseState.svgElements.has(svgElement)) {
@@ -3612,7 +3708,7 @@ function shouldPauseMediaElement(element) {
 
 function pauseMediaElements(pauseState) {
   for (const mediaElement of queryPageMotionElements("video, audio")) {
-    if (!shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
+    if (isIgnoredPageMotionElement(mediaElement) || !shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
       continue;
     }
     if (!pauseState.mediaElements.has(mediaElement)) {
@@ -3655,26 +3751,19 @@ function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
     refreshPageMotionPause();
   };
   pauseState.refreshScheduled = true;
-  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-    try {
-      window.requestAnimationFrame(run);
-      return;
-    } catch (error) {
-      // Fall through to setTimeout.
-    }
-  }
-  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-    window.setTimeout(run, 0);
+  try {
+    extensionRequestAnimationFrame(run);
     return;
+  } catch (error) {
+    extensionSetTimeout(run, 0);
   }
-  run();
 }
 
 function startPageMotionPauseRefreshTimer(pauseState) {
-  if (pauseState.refreshTimer || typeof window === "undefined" || typeof window.setInterval !== "function") {
+  if (pauseState.refreshTimer) {
     return;
   }
-  pauseState.refreshTimer = window.setInterval(() => {
+  pauseState.refreshTimer = extensionSetInterval(() => {
     if (state.pageMotionPause === pauseState) {
       refreshPageMotionPause();
     }
@@ -3682,11 +3771,11 @@ function startPageMotionPauseRefreshTimer(pauseState) {
 }
 
 function stopPageMotionPauseRefreshTimer(pauseState) {
-  if (!pauseState.refreshTimer || typeof window === "undefined" || typeof window.clearInterval !== "function") {
+  if (!pauseState.refreshTimer) {
     pauseState.refreshTimer = 0;
     return;
   }
-  window.clearInterval(pauseState.refreshTimer);
+  extensionClearInterval(pauseState.refreshTimer);
   pauseState.refreshTimer = 0;
 }
 
@@ -4134,6 +4223,7 @@ function createOverlay() {
 
   const overlay = document.createElement("div");
   overlay.id = "unfluffify-overlay";
+  overlay.setAttribute("data-uf-extension-ui", "true");
 
   const layerKeys = [
     "hard",
@@ -4206,7 +4296,7 @@ function removeOverlay() {
   }
   state.lastPointer = null;
   if (state.toggleAckTimer) {
-    window.clearTimeout(state.toggleAckTimer);
+    extensionClearTimeout(state.toggleAckTimer);
     state.toggleAckTimer = 0;
   }
   window.removeEventListener("keydown", handleKeydown, true);
@@ -4244,8 +4334,8 @@ function showToast(message) {
   }
   state.toast.textContent = message;
   state.toast.classList.add("uf-toast-show");
-  clearTimeout(state.toastHideTimer);
-  state.toastHideTimer = setTimeout(() => {
+  extensionClearTimeout(state.toastHideTimer);
+  state.toastHideTimer = extensionSetTimeout(() => {
     if (state.toast) {
       state.toast.classList.remove("uf-toast-show");
     }
@@ -4501,9 +4591,9 @@ function showImmediateToggleAcknowledgement(target, mode) {
   }
   finalizeLayerRender(layerState);
   if (state.toggleAckTimer) {
-    window.clearTimeout(state.toggleAckTimer);
+    extensionClearTimeout(state.toggleAckTimer);
   }
-  state.toggleAckTimer = window.setTimeout(() => {
+  state.toggleAckTimer = extensionSetTimeout(() => {
     state.toggleAckTimer = 0;
     clearLayer(state.layers["interaction"]);
   }, TOGGLE_ACK_CLEAR_MS);
@@ -5252,7 +5342,7 @@ function handleMouseMove(event) {
   if (state.hoverRaf) {
     return;
   }
-  state.hoverRaf = window.requestAnimationFrame(() => {
+  state.hoverRaf = extensionRequestAnimationFrame(() => {
     state.hoverRaf = 0;
     if (!state.enabled || !state.lastPointer) {
       return;
@@ -6114,9 +6204,9 @@ function scheduleExplicitToggleFullRender() {
   state.explicitFullRenderToken += 1;
   const renderToken = state.explicitFullRenderToken;
   if (state.explicitFullRenderTimer) {
-    window.clearTimeout(state.explicitFullRenderTimer);
+    extensionClearTimeout(state.explicitFullRenderTimer);
   }
-  state.explicitFullRenderTimer = window.setTimeout(() => {
+  state.explicitFullRenderTimer = extensionSetTimeout(() => {
     state.explicitFullRenderTimer = 0;
     runWhenIdle(() => {
       if (renderToken !== state.explicitFullRenderToken) {
@@ -6146,11 +6236,11 @@ export function scheduleExplicitOverlayRefresh(entry) {
     refreshExplicitMarkingOverlay(pendingEntry);
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
   };
-  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-    state.explicitOverlayRefreshHandle = window.requestAnimationFrame(runRefresh);
+  if (getExtensionRequestAnimationFrame()) {
+    state.explicitOverlayRefreshHandle = extensionRequestAnimationFrame(runRefresh);
     state.explicitOverlayRefreshHandleType = "raf";
-  } else if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-    state.explicitOverlayRefreshHandle = window.setTimeout(runRefresh, 0);
+  } else if (getExtensionTimer("setTimeout")) {
+    state.explicitOverlayRefreshHandle = extensionSetTimeout(runRefresh, 0);
     state.explicitOverlayRefreshHandleType = "timeout";
   } else {
     runRefresh();
@@ -6163,11 +6253,11 @@ function cancelExplicitOverlayRefresh() {
   }
   const handle = state.explicitOverlayRefreshHandle;
   const type = state.explicitOverlayRefreshHandleType;
-  if (handle && typeof window !== "undefined") {
-    if (type === "raf" && typeof window.cancelAnimationFrame === "function") {
-      window.cancelAnimationFrame(handle);
-    } else if (type === "timeout" && typeof window.clearTimeout === "function") {
-      window.clearTimeout(handle);
+  if (handle) {
+    if (type === "raf") {
+      extensionCancelAnimationFrame(handle);
+    } else if (type === "timeout") {
+      extensionClearTimeout(handle);
     }
   }
   state.explicitOverlayRefreshScheduled = false;
@@ -6568,7 +6658,7 @@ function startUrlWatcher() {
     return;
   }
   let lastUrl = location.href;
-  state.urlCheckTimer = window.setInterval(() => {
+  state.urlCheckTimer = extensionSetInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       // Page-scoped behavior: disable extension on any URL change
@@ -6580,7 +6670,7 @@ function startUrlWatcher() {
 
 function stopUrlWatcher() {
   if (state.urlCheckTimer) {
-    window.clearInterval(state.urlCheckTimer);
+    extensionClearInterval(state.urlCheckTimer);
     state.urlCheckTimer = 0;
   }
 }
@@ -6817,9 +6907,9 @@ export function scheduleSnapshotSave(delayMs = DEFAULT_SNAPSHOT_SAVE_DELAY_MS) {
     return;
   }
   if (state.snapshotTimer) {
-    window.clearTimeout(state.snapshotTimer);
+    extensionClearTimeout(state.snapshotTimer);
   }
-  state.snapshotTimer = window.setTimeout(() => {
+  state.snapshotTimer = extensionSetTimeout(() => {
     state.snapshotTimer = 0;
     runWhenIdle(() => {
       if (!state.baseUrl || !state.config) {
@@ -6838,9 +6928,9 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
     return;
   }
   if (state.draftPersistTimer) {
-    window.clearTimeout(state.draftPersistTimer);
+    extensionClearTimeout(state.draftPersistTimer);
   }
-  state.draftPersistTimer = window.setTimeout(() => {
+  state.draftPersistTimer = extensionSetTimeout(() => {
     state.draftPersistTimer = 0;
     if (!targetBaseUrl || !state.config) {
       return;
@@ -7168,7 +7258,7 @@ export function scheduleRender(options) {
     waitForInterval,
     effectiveDelay
   });
-  state.renderTimer = window.setTimeout(() => {
+  state.renderTimer = extensionSetTimeout(() => {
     state.renderTimer = 0;
     if (state.pendingRenderInvalidate) {
       invalidateCachedCollections();
@@ -7176,7 +7266,7 @@ export function scheduleRender(options) {
     if (state.renderRaf) {
       return;
     }
-    state.renderRaf = window.requestAnimationFrame(() => {
+    state.renderRaf = extensionRequestAnimationFrame(() => {
       state.renderRaf = 0;
       state.lastRenderAt = Date.now();
       renderHighlights();
@@ -7297,29 +7387,29 @@ export function disable() {
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   if (state.renderTimer) {
-    window.clearTimeout(state.renderTimer);
+    extensionClearTimeout(state.renderTimer);
     state.renderTimer = 0;
   }
   if (state.explicitFullRenderTimer) {
-    window.clearTimeout(state.explicitFullRenderTimer);
+    extensionClearTimeout(state.explicitFullRenderTimer);
     state.explicitFullRenderTimer = 0;
   }
   cancelExplicitOverlayRefresh();
   if (state.renderRaf) {
-    window.cancelAnimationFrame(state.renderRaf);
+    extensionCancelAnimationFrame(state.renderRaf);
     state.renderRaf = 0;
   }
   state.pendingRenderInvalidate = false;
   if (state.scrollHideTimer) {
-    window.clearTimeout(state.scrollHideTimer);
+    extensionClearTimeout(state.scrollHideTimer);
     state.scrollHideTimer = 0;
   }
   if (state.snapshotTimer) {
-    window.clearTimeout(state.snapshotTimer);
+    extensionClearTimeout(state.snapshotTimer);
     state.snapshotTimer = 0;
   }
   if (state.draftPersistTimer) {
-    window.clearTimeout(state.draftPersistTimer);
+    extensionClearTimeout(state.draftPersistTimer);
     state.draftPersistTimer = 0;
     if (state.baseUrl && state.config) {
       saveConfig(state.baseUrl, state.config).catch(() => {
@@ -7328,11 +7418,11 @@ export function disable() {
     }
   }
   if (state.hoverRaf) {
-    window.cancelAnimationFrame(state.hoverRaf);
+    extensionCancelAnimationFrame(state.hoverRaf);
     state.hoverRaf = 0;
   }
   if (state.toggleAckTimer) {
-    window.clearTimeout(state.toggleAckTimer);
+    extensionClearTimeout(state.toggleAckTimer);
     state.toggleAckTimer = 0;
   }
   state.isScrolling = false;
@@ -7448,18 +7538,18 @@ export function handleScroll(event, options = {}) {
     state.overlay.classList.remove("uf-scrolling");
   }
   if (state.scrollHideTimer) {
-    window.clearTimeout(state.scrollHideTimer);
+    extensionClearTimeout(state.scrollHideTimer);
   }
-  state.scrollHideTimer = window.setTimeout(() => {
+  state.scrollHideTimer = extensionSetTimeout(() => {
     state.scrollHideTimer = 0;
     if (!state.overlay) {
       state.isScrolling = false;
       return;
     }
-    window.requestAnimationFrame(() => {
+    extensionRequestAnimationFrame(() => {
       renderHighlights();
       refreshHoverHighlight();
-      window.requestAnimationFrame(() => {
+      extensionRequestAnimationFrame(() => {
         if (state.isScrolling) {
           state.isScrolling = false;
         }

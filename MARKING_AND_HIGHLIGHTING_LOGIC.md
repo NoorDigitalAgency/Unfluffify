@@ -200,13 +200,19 @@ CSS animations and transitions with an extension stylesheet, pauses Web
 Animations and SVG animation clocks, pauses autoplay-like media, refreshes for
 new animations while active, and sends synthetic hover-pause events to generic
 motion candidates and their nearby ancestors instead of relying on a fixed
-class list for one slider library.
+class list for one slider library. The freeze boundary is page content only:
+extension-owned UI such as `#unfluffify-overlay`, pause/status indicators, AI
+popovers, injected bridge scripts, `[id^="unfluffify-"]` roots, and any
+`[data-uf-extension-ui="true"]` root must keep its own animations, timers, and
+overlay render scheduling alive while the underlying page is held still.
 
 JavaScript-driven motion is stabilized in two layers. A page-world timer bridge
 holds `setTimeout`, `setInterval`, and `requestAnimationFrame` callbacks while
 the pause is active, which stops recursive carousel loops that change slide
 text or visibility even after CSS motion is frozen. The content script also
-locks the current computed values of common moving properties such as
+uses extension-owned timer and animation-frame helpers for marking overlay
+rendering, hover refreshes, snapshots, and pause maintenance so page-world timer
+gating cannot starve Unfluffify's own UI. It locks the current computed values of common moving properties such as
 transforms, offsets, opacity, filters, and position edges on detected motion
 candidates. Those extension-owned timer controls, inline locks, the root pause
 class, the pause stylesheet, and the pause indicator are removed from sanitized
