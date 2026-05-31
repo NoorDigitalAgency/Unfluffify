@@ -79,6 +79,23 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
   );
 });
 
+test("silent highlighting owns page motion pause for matching pages even without overlay targets", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";/);
+  assert.match(
+    source,
+    /function setSilentHighlightingPageMotionPaused\(paused\) \{[\s\S]*?core\.pausePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?core\.resumePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(false\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setSilentHighlightingPageMotionPaused\(true\);[\s\S]*?const normalized = config\.normalizeConfig/
+  );
+  const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
+  assert.ok(noTargetsBlock);
+  assert.doesNotMatch(noTargetsBlock[0], /setSilentHighlightingPageMotionPaused\(false\)/);
+});
+
 test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

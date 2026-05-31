@@ -183,18 +183,34 @@ Marking mode must avoid duplicate full-page passes:
 
 ## Motion Stability Contract
 
-Marking mode pauses page motion while it is active. The pause is part of the
-save contract, not just a visual convenience: animated carousels can move text
-outside the viewport, update inline transforms, flip `aria-hidden` state, and
-change which textual nodes are submitted as visible AI evidence. Save snapshots
-and `submissionXpaths` must therefore be collected from a frozen page posture.
+Any page that Unfluffify owns for marking or silent highlighting holds a page
+motion pause. This includes active marking mode, passive silent highlighting,
+and matching base-URL pages that have no selector highlights yet. The pause is
+part of the save and highlighting contract, not just a visual convenience:
+animated carousels can move text outside the viewport, update inline transforms,
+flip visibility state, and change which textual nodes are submitted as visible
+AI evidence.
 
-The motion pause freezes CSS animations, CSS transitions, and Web Animations,
-and sends hover-pause events to autoplay carousel roots such as Webflow
-`w-slider` components. Save-time snapshot and submission collection refresh the
-pause immediately before reading DOM geometry. Disabling marking restores the
-synthetic hover state and resumes Web Animations that were paused by marking
-mode.
+The pause is source-owned, so marking mode and silent highlighting can both hold
+it without accidentally resuming the page for the other lifecycle. It freezes
+CSS animations and transitions with an extension stylesheet, pauses Web
+Animations and SVG animation clocks, pauses autoplay-like media, refreshes for
+new animations while active, and sends synthetic hover-pause events to generic
+motion candidates and their nearby ancestors instead of relying on a fixed
+class list for one slider library.
+
+JavaScript-driven motion is stabilized by locking the current computed values of
+common moving properties such as transforms, offsets, opacity, filters, and
+position edges on detected motion candidates. Those extension-owned inline
+locks, the root pause class, the pause stylesheet, and the pause indicator are
+removed from sanitized save snapshots so saved `renderedHtml` records the page
+posture without recording Unfluffify UI or freeze mechanics.
+
+While motion is paused, a small fixed pause glyph is shown as extension UI so
+the user can see that page animations and transitions are intentionally held.
+When the last lifecycle source releases the pause, Unfluffify restores the
+synthetic hover state, inline locks, media playback that it paused, SVG clocks,
+and Web Animations that it paused.
 
 ## Target Resolution
 

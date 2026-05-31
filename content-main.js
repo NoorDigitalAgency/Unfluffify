@@ -99,6 +99,7 @@ const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";
 const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
+const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
@@ -2774,6 +2775,14 @@ function setSilentHighlightingsActive(active) {
   }
 }
 
+function setSilentHighlightingPageMotionPaused(paused) {
+  if (paused) {
+    core.pausePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
+  } else {
+    core.resumePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
+  }
+}
+
 function ensureSilentHighlightOverlay() {
   ensureSilentHighlightingStyles();
   let overlay = document.getElementById(SILENT_HIGHLIGHT_OVERLAY_ID);
@@ -5388,6 +5397,7 @@ function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
+  setSilentHighlightingPageMotionPaused(false);
   stopSilentHighlightingObserver();
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
@@ -5410,6 +5420,7 @@ async function refreshSilentHighlightings() {
   silentHighlightingRefreshDueAt = 0;
   lastSilentHighlightingRefreshAt = Date.now();
   if (state.enabled) {
+    setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
@@ -5420,11 +5431,13 @@ async function refreshSilentHighlightings() {
   const configs = await config.getConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
+    setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
+  setSilentHighlightingPageMotionPaused(true);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {

@@ -116,18 +116,38 @@ const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
+const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
-const PAGE_MOTION_PAUSE_TARGET_SELECTORS = [
-  "[data-autoplay=\"true\"]",
-  "[data-auto-play=\"true\"]",
-  "[data-ride=\"carousel\"]",
-  "[data-bs-ride=\"carousel\"]",
-  ".w-slider[data-autoplay=\"true\"]",
-  ".swiper",
-  ".slick-slider",
-  ".splide",
-  "[aria-roledescription=\"carousel\"]",
-  "[role=\"region\"][aria-label*=\"carousel\" i]"
+const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
+const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
+const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
+const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
+const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
+const PAGE_MOTION_PAUSE_DESCRIPTOR_RE = /auto[-_\s]?play|carousel|slider|slideshow|marquee|ticker|animation|animated|animate|motion|parallax|scroll[-_\s]?snap/i;
+const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
+const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
+  "transform",
+  "translate",
+  "rotate",
+  "scale",
+  "offset-path",
+  "offset-distance",
+  "offset-rotate",
+  "perspective",
+  "opacity",
+  "filter",
+  "backdrop-filter",
+  "clip-path"
+];
+const PAGE_MOTION_PAUSE_POSITION_LOCK_PROPERTIES = [
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline-start",
+  "inset-inline-end"
 ];
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
@@ -2728,6 +2748,8 @@ export function createSanitizedPageSnapshot(options = {}) {
     clone.classList.remove(...rootClasses);
   }
 
+  restorePageMotionLocksInSnapshotClone(clone);
+
   const titlePrefix = typeof options.titlePrefix === "string" ? options.titlePrefix : "";
   const elements = [clone, ...clone.querySelectorAll("*")];
   for (const element of elements) {
@@ -2764,9 +2786,24 @@ export function createSanitizedPageSnapshot(options = {}) {
 
 function createPageMotionPauseState() {
   return {
+    reasons: new Set(),
     animations: new Set(),
-    hoverTargets: new Set()
+    hoverTargets: new Set(),
+    mediaElements: new Map(),
+    svgElements: new Map(),
+    lockedElements: new Map(),
+    lockedElementsById: new Map(),
+    lockIdCounter: 1,
+    refreshTimer: 0,
+    refreshScheduled: false,
+    observer: null
   };
+}
+
+function normalizePageMotionPauseReason(reason) {
+  return typeof reason === "string" && reason.trim()
+    ? reason.trim()
+    : PAGE_MOTION_PAUSE_DEFAULT_REASON;
 }
 
 function ensurePageMotionPauseStyle() {
@@ -2798,12 +2835,67 @@ function ensurePageMotionPauseStyle() {
       transition-delay: 0s !important;
       scroll-behavior: auto !important;
     }
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID} {
+      position: fixed !important;
+      top: max(10px, env(safe-area-inset-top, 0px) + 10px) !important;
+      right: max(10px, env(safe-area-inset-right, 0px) + 10px) !important;
+      width: 34px !important;
+      height: 28px !important;
+      z-index: 2147483647 !important;
+      pointer-events: none !important;
+      box-sizing: border-box !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      border: 1px solid rgba(255, 255, 255, 0.32) !important;
+      border-radius: 7px !important;
+      background: rgba(17, 24, 39, 0.78) !important;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22) !important;
+      backdrop-filter: blur(6px) !important;
+      -webkit-backdrop-filter: blur(6px) !important;
+    }
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}::before {
+      content: "" !important;
+      width: 4px !important;
+      height: 14px !important;
+      border-radius: 3px !important;
+      background: rgba(255, 255, 255, 0.96) !important;
+      box-shadow: 8px 0 0 rgba(255, 255, 255, 0.96) !important;
+    }
   `;
   const parent = document.head || document.documentElement || document.body;
   if (parent && typeof parent.appendChild === "function") {
     parent.appendChild(style);
   }
   return style;
+}
+
+function ensurePageMotionPauseIndicator() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const existing = typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID)
+    : null;
+  if (existing) {
+    return existing;
+  }
+  if (typeof document.createElement !== "function") {
+    return null;
+  }
+  const indicator = document.createElement("div");
+  indicator.id = PAGE_MOTION_PAUSE_INDICATOR_ID;
+  if (typeof indicator.setAttribute === "function") {
+    indicator.setAttribute("data-uf-extension-ui", "true");
+    indicator.setAttribute("role", "img");
+    indicator.setAttribute("aria-label", "Page motion paused");
+    indicator.setAttribute("title", "Page motion paused");
+  }
+  const parent = document.body || document.documentElement;
+  if (parent && typeof parent.appendChild === "function") {
+    parent.appendChild(indicator);
+  }
+  return indicator;
 }
 
 function setPageMotionPauseClass(paused) {
@@ -2827,6 +2919,15 @@ function removePageMotionPauseStyle() {
   }
 }
 
+function removePageMotionPauseIndicator() {
+  const indicator = typeof document !== "undefined" && typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID)
+    : null;
+  if (indicator && typeof indicator.remove === "function") {
+    indicator.remove();
+  }
+}
+
 function getDocumentAnimations() {
   if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
     return [];
@@ -2847,7 +2948,10 @@ function pauseDocumentAnimations(pauseState) {
     if (!animation || typeof animation.pause !== "function") {
       continue;
     }
-    if (!pauseState.animations.has(animation) && animation.playState === "paused") {
+    if (
+      !pauseState.animations.has(animation) &&
+      (animation.playState === "paused" || animation.playState === "finished" || animation.playState === "idle")
+    ) {
       continue;
     }
     pauseState.animations.add(animation);
@@ -2870,25 +2974,6 @@ function resumeDocumentAnimations(pauseState) {
       // Ignore animations that were removed while marking mode was active.
     }
   }
-}
-
-function collectPageMotionPauseTargets() {
-  const targets = new Set();
-  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
-    return targets;
-  }
-  for (const selector of PAGE_MOTION_PAUSE_TARGET_SELECTORS) {
-    try {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (node && node.nodeType === 1 && typeof node.dispatchEvent === "function") {
-          targets.add(node);
-        }
-      });
-    } catch (error) {
-      // Ignore selector support differences on older pages.
-    }
-  }
-  return targets;
 }
 
 function createSyntheticPageMotionEvent(type, bubbles) {
@@ -2936,8 +3021,448 @@ function dispatchPageMotionEvents(target, events) {
   }
 }
 
-function pauseAutoplayMotionTargets(pauseState) {
-  for (const target of collectPageMotionPauseTargets()) {
+function isIgnoredPageMotionElement(element) {
+  if (!element || element.nodeType !== 1) {
+    return true;
+  }
+  if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
+    return true;
+  }
+  if (element.id && typeof element.id === "string" && element.id.startsWith("unfluffify-")) {
+    return true;
+  }
+  if (typeof element.getAttribute === "function" && element.getAttribute("data-uf-extension-ui") === "true") {
+    return true;
+  }
+  if (typeof element.closest === "function") {
+    try {
+      return Boolean(element.closest("[data-uf-extension-ui=\"true\"]"));
+    } catch (error) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function getComputedCssStyle(element) {
+  if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
+    return null;
+  }
+  try {
+    return window.getComputedStyle(element);
+  } catch (error) {
+    return null;
+  }
+}
+
+function toStylePropertyName(property) {
+  return String(property || "").replace(/-([a-z])/g, (match, letter) => letter.toUpperCase());
+}
+
+function getComputedCssValue(computedStyle, property) {
+  if (!computedStyle || !property) {
+    return "";
+  }
+  if (typeof computedStyle.getPropertyValue === "function") {
+    return computedStyle.getPropertyValue(property) || "";
+  }
+  return computedStyle[toStylePropertyName(property)] || "";
+}
+
+function parseCssTimeMs(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return 0;
+  }
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 0;
+  }
+  return normalized.endsWith("ms") ? amount : amount * 1000;
+}
+
+function cssTimeListHasPositiveValue(value) {
+  return String(value || "")
+    .split(",")
+    .some((part) => parseCssTimeMs(part) > 0);
+}
+
+function cssNameListHasValue(value) {
+  return String(value || "")
+    .split(",")
+    .some((part) => {
+      const normalized = part.trim().toLowerCase();
+      return normalized && normalized !== "none";
+    });
+}
+
+function isNonDefaultMotionCssValue(property, value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "none" || normalized === "normal" || normalized === "auto") {
+    return false;
+  }
+  if (normalized === "initial" || normalized === "inherit" || normalized === "unset" || normalized === "revert") {
+    return false;
+  }
+  if (property === "opacity") {
+    return normalized !== "1";
+  }
+  if (property === "filter" || property === "backdrop-filter" || property === "clip-path") {
+    return normalized !== "none";
+  }
+  return !/^0(?:px|%|deg|rad|turn|s|ms)?$/.test(normalized);
+}
+
+function hasMotionWillChange(computedStyle) {
+  const willChange = getComputedCssValue(computedStyle, "will-change");
+  return /transform|translate|rotate|scale|top|right|bottom|left|opacity|filter|clip-path|offset/i.test(willChange);
+}
+
+function hasTimedMotionStyle(computedStyle) {
+  if (!computedStyle) {
+    return false;
+  }
+  const animationName = getComputedCssValue(computedStyle, "animation-name");
+  const transitionDuration = getComputedCssValue(computedStyle, "transition-duration");
+  const transitionDelay = getComputedCssValue(computedStyle, "transition-delay");
+  return (
+    cssNameListHasValue(animationName) ||
+    cssTimeListHasPositiveValue(transitionDuration) ||
+    cssTimeListHasPositiveValue(transitionDelay) ||
+    hasMotionWillChange(computedStyle)
+  );
+}
+
+function getElementAttributePairs(element) {
+  if (!element || !element.attributes) {
+    return [];
+  }
+  try {
+    return Array.from(element.attributes)
+      .map((attribute) => ({
+        name: attribute && typeof attribute.name === "string" ? attribute.name : "",
+        value: attribute && typeof attribute.value === "string" ? attribute.value : ""
+      }))
+      .filter((attribute) => attribute.name);
+  } catch (error) {
+    return [];
+  }
+}
+
+function elementMatchesMotionDescriptor(element) {
+  const descriptorParts = [];
+  for (const attribute of getElementAttributePairs(element)) {
+    const name = attribute.name.toLowerCase();
+    if (
+      name === "id" ||
+      name === "class" ||
+      name === "role" ||
+      name.startsWith("aria-") ||
+      name.startsWith("data-") ||
+      name === "autoplay" ||
+      name === "loop"
+    ) {
+      descriptorParts.push(name, attribute.value);
+    }
+  }
+  return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(descriptorParts.join(" "));
+}
+
+function elementHasInlineMotionStyle(element) {
+  const styleText = element && typeof element.getAttribute === "function"
+    ? element.getAttribute("style") || ""
+    : "";
+  return PAGE_MOTION_PAUSE_INLINE_STYLE_RE.test(styleText);
+}
+
+function computedStyleIndicatesMotion(computedStyle) {
+  if (!computedStyle) {
+    return false;
+  }
+  if (hasTimedMotionStyle(computedStyle)) {
+    return true;
+  }
+  return [
+    "transform",
+    "translate",
+    "rotate",
+    "scale",
+    "offset-path",
+    "offset-distance",
+    "offset-rotate",
+    "perspective"
+  ].some((property) =>
+    isNonDefaultMotionCssValue(property, getComputedCssValue(computedStyle, property))
+  );
+}
+
+function mergePageMotionCandidate(candidates, element, options = {}) {
+  if (isIgnoredPageMotionElement(element)) {
+    return;
+  }
+  const existing = candidates.get(element) || {
+    descriptorMatched: false,
+    inlineMotion: false,
+    computedStyle: null
+  };
+  candidates.set(element, {
+    descriptorMatched: existing.descriptorMatched || Boolean(options.descriptorMatched),
+    inlineMotion: existing.inlineMotion || Boolean(options.inlineMotion),
+    computedStyle: existing.computedStyle || options.computedStyle || null
+  });
+}
+
+function getAnimationEffectTarget(animation) {
+  if (!animation || !animation.effect) {
+    return null;
+  }
+  try {
+    const target = animation.effect.target;
+    return target && target.nodeType === 1 ? target : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function collectPageMotionCandidates() {
+  const candidates = new Map();
+  for (const animation of getDocumentAnimations()) {
+    const target = getAnimationEffectTarget(animation);
+    if (target) {
+      mergePageMotionCandidate(candidates, target, { descriptorMatched: true });
+    }
+  }
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return candidates;
+  }
+  let elements = [];
+  try {
+    elements = Array.from(document.querySelectorAll("*") || []);
+  } catch (error) {
+    elements = [];
+  }
+  const inspectComputedStyle = elements.length <= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS * 3;
+  for (const element of elements) {
+    if (isIgnoredPageMotionElement(element)) {
+      continue;
+    }
+    const descriptorMatched = elementMatchesMotionDescriptor(element);
+    const inlineMotion = elementHasInlineMotionStyle(element);
+    if (descriptorMatched || inlineMotion) {
+      mergePageMotionCandidate(candidates, element, { descriptorMatched, inlineMotion });
+      continue;
+    }
+    if (!inspectComputedStyle) {
+      continue;
+    }
+    const computedStyle = getComputedCssStyle(element);
+    if (computedStyleIndicatesMotion(computedStyle)) {
+      mergePageMotionCandidate(candidates, element, { computedStyle });
+    }
+  }
+  return candidates;
+}
+
+function getDefaultLockValue(property, computedValue) {
+  const normalized = String(computedValue || "").trim();
+  if (normalized) {
+    return normalized;
+  }
+  if (property === "opacity") {
+    return "1";
+  }
+  if (PAGE_MOTION_PAUSE_POSITION_LOCK_PROPERTIES.includes(property)) {
+    return "auto";
+  }
+  return "none";
+}
+
+function shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched) {
+  const value = getComputedCssValue(computedStyle, property);
+  if (isNonDefaultMotionCssValue(property, value)) {
+    return true;
+  }
+  return descriptorMatched && (
+    property === "transform" ||
+    property === "translate" ||
+    property === "rotate" ||
+    property === "scale" ||
+    property === "offset-distance"
+  );
+}
+
+function getPageMotionLockProperties(computedStyle, descriptorMatched) {
+  if (!computedStyle) {
+    return [];
+  }
+  const properties = [];
+  const timedMotionStyle = hasTimedMotionStyle(computedStyle);
+  for (const property of PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES) {
+    if (shouldLockBaseMotionProperty(property, computedStyle, descriptorMatched || timedMotionStyle)) {
+      properties.push(property);
+    }
+  }
+  const position = getComputedCssValue(computedStyle, "position").trim().toLowerCase();
+  if (position && position !== "static") {
+    for (const property of PAGE_MOTION_PAUSE_POSITION_LOCK_PROPERTIES) {
+      const value = getComputedCssValue(computedStyle, property);
+      if (value && value.trim().toLowerCase() !== "auto") {
+        properties.push(property);
+      }
+    }
+  }
+  return properties;
+}
+
+function createPageMotionLockRecord(pauseState, element) {
+  const id = `ufm-${pauseState.lockIdCounter}`;
+  pauseState.lockIdCounter += 1;
+  const record = {
+    id,
+    element,
+    hadStyleAttribute: typeof element.hasAttribute === "function" ? element.hasAttribute("style") : false,
+    properties: new Map()
+  };
+  pauseState.lockedElements.set(element, record);
+  pauseState.lockedElementsById.set(id, record);
+  if (typeof element.setAttribute === "function") {
+    element.setAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR, id);
+  }
+  return record;
+}
+
+function lockPageMotionElement(pauseState, element, candidate) {
+  if (!element || !element.style) {
+    return;
+  }
+  if (!pauseState.lockedElements.has(element) && pauseState.lockedElements.size >= PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS) {
+    return;
+  }
+  const computedStyle = candidate.computedStyle || getComputedCssStyle(element);
+  const properties = getPageMotionLockProperties(computedStyle, candidate.descriptorMatched || candidate.inlineMotion);
+  if (!properties.length) {
+    return;
+  }
+  const record = pauseState.lockedElements.get(element) || createPageMotionLockRecord(pauseState, element);
+  for (const property of properties) {
+    let lock = record.properties.get(property);
+    if (!lock) {
+      const previousValue = typeof element.style.getPropertyValue === "function"
+        ? element.style.getPropertyValue(property)
+        : "";
+      const previousPriority = typeof element.style.getPropertyPriority === "function"
+        ? element.style.getPropertyPriority(property)
+        : "";
+      lock = {
+        hadInlineValue: Boolean(previousValue || previousPriority),
+        previousValue,
+        previousPriority,
+        lockValue: getDefaultLockValue(property, getComputedCssValue(computedStyle, property))
+      };
+      record.properties.set(property, lock);
+    }
+    const currentValue = typeof element.style.getPropertyValue === "function"
+      ? element.style.getPropertyValue(property)
+      : "";
+    const currentPriority = typeof element.style.getPropertyPriority === "function"
+      ? element.style.getPropertyPriority(property)
+      : "";
+    if (currentValue !== lock.lockValue || currentPriority !== "important") {
+      try {
+        element.style.setProperty(property, lock.lockValue, "important");
+      } catch (error) {
+        // Ignore immutable inline style declarations.
+      }
+    }
+  }
+}
+
+function restorePageMotionLockRecordOnElement(element, record) {
+  if (!element || !element.style || !record) {
+    return;
+  }
+  for (const [property, lock] of record.properties) {
+    try {
+      if (lock.hadInlineValue) {
+        element.style.setProperty(property, lock.previousValue, lock.previousPriority || "");
+      } else if (typeof element.style.removeProperty === "function") {
+        element.style.removeProperty(property);
+      }
+    } catch (error) {
+      // Ignore detached elements and immutable inline style declarations.
+    }
+  }
+  if (typeof element.removeAttribute === "function") {
+    element.removeAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR);
+    if (!record.hadStyleAttribute && element.style.length === 0) {
+      element.removeAttribute("style");
+    }
+  }
+}
+
+function restorePageMotionLocks(pauseState) {
+  for (const record of pauseState.lockedElements.values()) {
+    restorePageMotionLockRecordOnElement(record.element, record);
+  }
+  pauseState.lockedElements.clear();
+  pauseState.lockedElementsById.clear();
+}
+
+function restorePageMotionLocksInSnapshotClone(clone) {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState || !pauseState.lockedElementsById || !clone) {
+    return;
+  }
+  const lockedCloneElements = [];
+  if (typeof clone.getAttribute === "function" && clone.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)) {
+    lockedCloneElements.push(clone);
+  }
+  if (typeof clone.querySelectorAll === "function") {
+    try {
+      lockedCloneElements.push(...clone.querySelectorAll(`[${PAGE_MOTION_PAUSE_LOCK_ATTR}]`));
+    } catch (error) {
+      // Ignore selector support differences on cloned documents.
+    }
+  }
+  for (const cloneElement of lockedCloneElements) {
+    const id = typeof cloneElement.getAttribute === "function"
+      ? cloneElement.getAttribute(PAGE_MOTION_PAUSE_LOCK_ATTR)
+      : "";
+    const record = id ? pauseState.lockedElementsById.get(id) : null;
+    if (record) {
+      restorePageMotionLockRecordOnElement(cloneElement, record);
+    }
+  }
+}
+
+function lockPageMotionCandidates(pauseState, candidates) {
+  for (const [element, candidate] of candidates) {
+    lockPageMotionElement(pauseState, element, candidate);
+  }
+}
+
+function collectPageMotionHoverTargets(candidates) {
+  const targets = new Set();
+  for (const element of candidates.keys()) {
+    let current = element;
+    let depth = 0;
+    while (current && current.nodeType === 1 && depth < 8 && targets.size < PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS) {
+      const tagName = current.tagName ? String(current.tagName).toLowerCase() : "";
+      if (tagName !== "html" && tagName !== "body" && !isIgnoredPageMotionElement(current)) {
+        targets.add(current);
+      }
+      current = current.parentElement || null;
+      depth += 1;
+    }
+    if (targets.size >= PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS) {
+      break;
+    }
+  }
+  return targets;
+}
+
+function pauseInteractiveMotionTargets(pauseState, candidates) {
+  for (const target of collectPageMotionHoverTargets(candidates)) {
     pauseState.hoverTargets.add(target);
     dispatchPageMotionEvents(target, [
       ["pointerenter", false],
@@ -2947,7 +3472,7 @@ function pauseAutoplayMotionTargets(pauseState) {
   }
 }
 
-function resumeAutoplayMotionTargets(pauseState) {
+function resumeInteractiveMotionTargets(pauseState) {
   for (const target of pauseState.hoverTargets) {
     dispatchPageMotionEvents(target, [
       ["pointerleave", false],
@@ -2955,38 +3480,261 @@ function resumeAutoplayMotionTargets(pauseState) {
       ["mouseout", true]
     ]);
   }
+  pauseState.hoverTargets.clear();
 }
 
-export function pausePageMotion() {
+function queryPageMotionElements(selector) {
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return [];
+  }
+  try {
+    return Array.from(document.querySelectorAll(selector) || []);
+  } catch (error) {
+    return [];
+  }
+}
+
+function pauseSvgAnimations(pauseState) {
+  for (const svgElement of queryPageMotionElements("svg")) {
+    if (!svgElement || typeof svgElement.pauseAnimations !== "function") {
+      continue;
+    }
+    if (!pauseState.svgElements.has(svgElement)) {
+      let wasPaused = false;
+      if (typeof svgElement.animationsPaused === "function") {
+        try {
+          wasPaused = Boolean(svgElement.animationsPaused());
+        } catch (error) {
+          wasPaused = false;
+        }
+      }
+      pauseState.svgElements.set(svgElement, { wasPaused });
+    }
+    try {
+      svgElement.pauseAnimations();
+    } catch (error) {
+      // Ignore SVG roots whose animation clock is unavailable.
+    }
+  }
+}
+
+function resumeSvgAnimations(pauseState) {
+  for (const [svgElement, svgState] of pauseState.svgElements) {
+    if (!svgElement || svgState.wasPaused || typeof svgElement.unpauseAnimations !== "function") {
+      continue;
+    }
+    try {
+      svgElement.unpauseAnimations();
+    } catch (error) {
+      // Ignore SVG roots removed while page motion was paused.
+    }
+  }
+  pauseState.svgElements.clear();
+}
+
+function shouldPauseMediaElement(element) {
+  const tagName = element && element.tagName ? String(element.tagName).toUpperCase() : "";
+  if (!element || (tagName !== "VIDEO" && tagName !== "AUDIO")) {
+    return false;
+  }
+  if (element.paused) {
+    return false;
+  }
+  if (typeof element.hasAttribute === "function") {
+    return element.hasAttribute("autoplay") || element.hasAttribute("loop") || element.hasAttribute("muted");
+  }
+  return Boolean(element.autoplay || element.loop || element.muted);
+}
+
+function pauseMediaElements(pauseState) {
+  for (const mediaElement of queryPageMotionElements("video, audio")) {
+    if (!shouldPauseMediaElement(mediaElement) || typeof mediaElement.pause !== "function") {
+      continue;
+    }
+    if (!pauseState.mediaElements.has(mediaElement)) {
+      pauseState.mediaElements.set(mediaElement, { wasPaused: Boolean(mediaElement.paused) });
+    }
+    try {
+      mediaElement.pause();
+    } catch (error) {
+      // Ignore media controlled by page policies.
+    }
+  }
+}
+
+function resumeMediaElements(pauseState) {
+  for (const [mediaElement, mediaState] of pauseState.mediaElements) {
+    if (!mediaElement || mediaState.wasPaused || typeof mediaElement.play !== "function") {
+      continue;
+    }
+    try {
+      const result = mediaElement.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => {});
+      }
+    } catch (error) {
+      // Ignore media that cannot resume due to browser autoplay policy.
+    }
+  }
+  pauseState.mediaElements.clear();
+}
+
+function schedulePageMotionPauseRefresh(pauseState = state.pageMotionPause) {
+  if (!pauseState || pauseState.refreshScheduled) {
+    return;
+  }
+  const run = () => {
+    if (state.pageMotionPause !== pauseState) {
+      return;
+    }
+    pauseState.refreshScheduled = false;
+    refreshPageMotionPause();
+  };
+  pauseState.refreshScheduled = true;
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    try {
+      window.requestAnimationFrame(run);
+      return;
+    } catch (error) {
+      // Fall through to setTimeout.
+    }
+  }
+  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+    window.setTimeout(run, 0);
+    return;
+  }
+  run();
+}
+
+function startPageMotionPauseRefreshTimer(pauseState) {
+  if (pauseState.refreshTimer || typeof window === "undefined" || typeof window.setInterval !== "function") {
+    return;
+  }
+  pauseState.refreshTimer = window.setInterval(() => {
+    if (state.pageMotionPause === pauseState) {
+      refreshPageMotionPause();
+    }
+  }, PAGE_MOTION_PAUSE_REFRESH_MS);
+}
+
+function stopPageMotionPauseRefreshTimer(pauseState) {
+  if (!pauseState.refreshTimer || typeof window === "undefined" || typeof window.clearInterval !== "function") {
+    pauseState.refreshTimer = 0;
+    return;
+  }
+  window.clearInterval(pauseState.refreshTimer);
+  pauseState.refreshTimer = 0;
+}
+
+function startPageMotionPauseObserver(pauseState) {
+  if (pauseState.observer || typeof document === "undefined") {
+    return;
+  }
+  const Observer = typeof MutationObserver === "function"
+    ? MutationObserver
+    : typeof window !== "undefined" && typeof window.MutationObserver === "function"
+      ? window.MutationObserver
+      : null;
+  const root = document.documentElement || document.body;
+  if (!Observer || !root) {
+    return;
+  }
+  try {
+    pauseState.observer = new Observer((mutations) => {
+      if (state.pageMotionPause !== pauseState) {
+        return;
+      }
+      const relevant = Array.from(mutations || []).some((mutation) => {
+        const target = mutation && mutation.target && mutation.target.nodeType === 1
+          ? mutation.target
+          : null;
+        return target && !isIgnoredPageMotionElement(target) && mutation.attributeName !== PAGE_MOTION_PAUSE_LOCK_ATTR;
+      });
+      if (relevant) {
+        schedulePageMotionPauseRefresh(pauseState);
+      }
+    });
+    pauseState.observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        "class",
+        "style",
+        "hidden",
+        "aria-hidden",
+        "aria-label",
+        "aria-roledescription",
+        "role"
+      ]
+    });
+  } catch (error) {
+    pauseState.observer = null;
+  }
+}
+
+function stopPageMotionPauseObserver(pauseState) {
+  if (!pauseState.observer) {
+    return;
+  }
+  try {
+    pauseState.observer.disconnect();
+  } catch (error) {
+    // Ignore observers already detached by the browser.
+  }
+  pauseState.observer = null;
+}
+
+export function pausePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause || createPageMotionPauseState();
+  pauseState.reasons.add(normalizePageMotionPauseReason(reason));
   state.pageMotionPause = pauseState;
-  ensurePageMotionPauseStyle();
-  setPageMotionPauseClass(true);
-  pauseDocumentAnimations(pauseState);
-  pauseAutoplayMotionTargets(pauseState);
+  refreshPageMotionPause();
 }
 
 export function refreshPageMotionPause() {
-  if (!state.pageMotionPause) {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
     return;
   }
   ensurePageMotionPauseStyle();
+  ensurePageMotionPauseIndicator();
   setPageMotionPauseClass(true);
-  pauseDocumentAnimations(state.pageMotionPause);
-  pauseAutoplayMotionTargets(state.pageMotionPause);
+  pauseDocumentAnimations(pauseState);
+  pauseSvgAnimations(pauseState);
+  pauseMediaElements(pauseState);
+  const candidates = collectPageMotionCandidates();
+  lockPageMotionCandidates(pauseState, candidates);
+  pauseInteractiveMotionTargets(pauseState, candidates);
+  startPageMotionPauseRefreshTimer(pauseState);
+  startPageMotionPauseObserver(pauseState);
 }
 
-export function resumePageMotion() {
+export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
     removePageMotionPauseStyle();
+    removePageMotionPauseIndicator();
     setPageMotionPauseClass(false);
     return;
   }
+  if (pauseState.reasons) {
+    pauseState.reasons.delete(normalizePageMotionPauseReason(reason));
+    if (pauseState.reasons.size > 0) {
+      refreshPageMotionPause();
+      return;
+    }
+  }
   state.pageMotionPause = null;
+  stopPageMotionPauseRefreshTimer(pauseState);
+  stopPageMotionPauseObserver(pauseState);
+  resumeInteractiveMotionTargets(pauseState);
+  restorePageMotionLocks(pauseState);
   removePageMotionPauseStyle();
+  removePageMotionPauseIndicator();
   setPageMotionPauseClass(false);
-  resumeAutoplayMotionTargets(pauseState);
+  resumeSvgAnimations(pauseState);
+  resumeMediaElements(pauseState);
   resumeDocumentAnimations(pauseState);
 }
 

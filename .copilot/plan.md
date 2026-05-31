@@ -63,6 +63,13 @@ Marking performance pass completed:
 2. Explicit refinements redraw only explicit layers immediately and rely on the delayed invalidating full render for default/AI-layer correctness.
 3. Full marking passes share per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant computations.
 
+Motion stability pass completed:
+
+1. Page motion pause is source-owned by marking and silent highlighting, so one lifecycle cannot accidentally resume the other.
+2. Matching base-URL pages hold the pause even when no selector highlights or visible overlays exist yet.
+3. The freeze covers CSS animations/transitions, Web Animations, SVG clocks, autoplay-like media, generic hover-pause candidates, and computed inline locks for common motion properties.
+4. Save snapshots restore and strip extension-owned pause classes, UI, and inline locks before serializing `renderedHtml`.
+
 ## Post-Run Follow-up
 
 1. Fix `tests/page-telemetry.test.js` payload-control failure.

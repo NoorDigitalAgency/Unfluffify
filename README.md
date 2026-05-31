@@ -161,6 +161,10 @@ Visual overlay showing page content classification:
 - **Included** (optional highlight) - Marked as meaningful content
 - **Consent handling** - Cookie/consent elements are hidden before save and submitted only when they qualify as invisible textual content
 
+### Motion Stability
+
+When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, common JavaScript-driven motion effects, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. A small pause glyph appears on the page while this freeze is active.
+
 ### AI Selectors
 
 The extension can compute AI-suggested selectors to automatically identify similar fluff content. Users can then verify and apply these suggestions.

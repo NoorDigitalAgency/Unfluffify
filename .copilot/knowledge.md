@@ -58,3 +58,4 @@
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
+- Page motion pause is a shared marking/silent-highlighting lifecycle source. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage and must be stripped from snapshots.
