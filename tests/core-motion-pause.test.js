@@ -597,10 +597,40 @@ test("page motion pause normalizes scroll reveal candidates to their visible pos
   }
 });
 
+test("page motion pause normalizes attribute-driven viewport reveals", () => {
+  const dom = installMotionDom();
+  const reveal = new FakeElement("div", {
+    "data-w-id": "666fe81b-7aa0-aef4-83e4-2ebfc20870cb",
+    class: "cta_wrapper is-blue padding-section-medium"
+  });
+  reveal.style.setProperty("opacity", "0");
+  reveal.computedStyle = createComputedStyle({
+    "transition-duration": "600ms",
+    opacity: "0",
+    transform: "matrix(1, 0, 0, 1, 0, 24)"
+  });
+  dom.body.appendChild(reveal);
+
+  try {
+    pausePageMotion("marking");
+
+    assert.equal(reveal.getAttribute(PAGE_MOTION_LOCK_ATTR).startsWith("ufm-"), true);
+    assert.equal(reveal.style.getPropertyValue("opacity"), "1");
+    assert.equal(reveal.style.getPropertyPriority("opacity"), "important");
+    assert.equal(reveal.style.getPropertyValue("transform"), "none");
+    assert.equal(reveal.style.getPropertyPriority("transform"), "important");
+  } finally {
+    dom.restore();
+  }
+});
+
 test("page motion pause keeps hidden carousel and semantic UI states hidden", () => {
   const dom = installMotionDom();
   const carousel = new FakeElement("div", { class: "carousel" });
-  const hiddenSlide = new FakeElement("div", { class: "slide fade" });
+  const hiddenSlide = new FakeElement("div", {
+    class: "slide fade",
+    "data-w-id": "carousel-hidden-slide"
+  });
   hiddenSlide.computedStyle = createComputedStyle({
     "transition-duration": "300ms",
     opacity: "0",

@@ -231,7 +231,8 @@ of common moving properties such as transforms, offsets, opacity, filters, and
 position edges on detected motion candidates.
 
 Viewport and scroll-triggered reveal effects are handled as a distinct case.
-If a layout-present page element has generic entrance/reveal descriptors and is
+If a layout-present page element has generic entrance/reveal descriptors or an
+attribute-driven interaction hook such as Webflow's `data-w-id`/`data-ix`, and is
 currently hidden only by motion styling such as low opacity, clipped paint,
 visibility, transform, or blur, the pause normalizes it to its final visible
 posture instead of locking the pre-reveal state. Semantic hidden UI such as
