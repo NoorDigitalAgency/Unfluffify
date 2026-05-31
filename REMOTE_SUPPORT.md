@@ -37,6 +37,7 @@ This document defines the extension-side remote support implementation and the e
 ### 2) Camera and microphone guidance
 
 - Both peers request local camera and microphone tracks when available.
+- Camera and microphone tracks are requested with `navigator.mediaDevices.getUserMedia()` from extension pages, not through the packaged-app-only `audioCapture` or `videoCapture` manifest permissions.
 - The supporter viewer shows compact local and remote camera views out of the way of the main shared-screen stream.
 - Audio tracks are attached to the same peer connection for bidirectional spoken guidance.
 - If camera or microphone capture is denied, the session continues with display sharing and telemetry.

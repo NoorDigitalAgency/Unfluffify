@@ -120,6 +120,7 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   });
 
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
+  assert.equal(payload.version, 4);
   assert.deepEqual(payload.pageMarkings["https://example.com/current"].xpaths, [
     { xpath: "/html/body/main", excluded: true, explicit: true }
   ]);

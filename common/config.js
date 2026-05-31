@@ -9,7 +9,7 @@ import { normalizeSiteIdValue } from "./lynx-live-pages.js";
 
 /** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
-const SERVER_SYNC_VERSION = 3;
+const SERVER_SYNC_VERSION = 4;
 /** Render mode for static HTML content */
 export const RENDER_MODE_STATIC = "static";
 /** Render mode for rendered/JavaScript content */

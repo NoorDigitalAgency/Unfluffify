@@ -41,7 +41,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
-- **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance, and stream labeled console/network telemetry
+- **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
 
 ## Installation (Developer Mode)
