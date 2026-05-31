@@ -62,6 +62,7 @@ Marking performance pass completed:
 1. Enabling marking uses `setEnabled` as the single activation path and no longer sends a redundant immediate `forceRefresh`.
 2. Explicit refinements redraw only explicit layers immediately and rely on the delayed invalidating full render for default/AI-layer correctness.
 3. Full marking passes share per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant computations.
+4. Shift parent expansion rejects shallow generic page shells while preserving cohesive sections, lists, tables, card groups, and toggleable default boundaries.
 
 Motion stability pass completed:
 

@@ -474,7 +474,7 @@ test("snapshot xpaths ignore browser automation roots stripped from saved HTML",
   });
 });
 
-test("parent marking still allows expanded boundaries over markable content", () => {
+test("parent marking rejects broad shallow page wrappers", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const firstText = createElement({
       tagName: "p",
@@ -502,7 +502,45 @@ test("parent marking still allows expanded boundaries over markable content", ()
 
     assert.equal(
       isMarkableElement(shell, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
-      true
+      false
+    );
+  });
+});
+
+test("parent marking rejects shallow generic page shells with site landmarks", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const headerText = createElement({
+      tagName: "p",
+      text: "Header copy",
+      rect: { top: 20, right: 320, bottom: 60, left: 20, width: 300, height: 40 }
+    });
+    const header = createElement({
+      tagName: "header",
+      children: [headerText],
+      rect: { top: 0, right: 800, bottom: 80, left: 0, width: 800, height: 80 }
+    });
+    const mainText = createElement({
+      tagName: "p",
+      text: "Main content",
+      rect: { top: 120, right: 360, bottom: 180, left: 20, width: 340, height: 60 }
+    });
+    const main = createElement({
+      tagName: "main",
+      children: [mainText],
+      rect: { top: 100, right: 800, bottom: 220, left: 0, width: 800, height: 120 }
+    });
+    const pageShell = createElement({
+      parentElement: body,
+      children: [header, main],
+      rect: { top: 0, right: 800, bottom: 240, left: 0, width: 800, height: 240 }
+    });
+    body.children.push(pageShell);
+    body.childNodes.push(pageShell);
+    globalThis.document.elementsFromPoint = () => [mainText, main, pageShell, body, documentElement];
+
+    assert.equal(
+      isMarkableElement(pageShell, {}, { allowParent: true, hitPoint: { x: 40, y: 140 } }),
+      false
     );
   });
 });

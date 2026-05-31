@@ -107,6 +107,12 @@ click. Exclude mode keeps drilling to the nearest markable content target unless
 the user holds `Shift` to select a broader boundary. Include mode is explicit:
 the user holds `Alt` and the selected target is written to the local
 `includeXpaths` list, then synced as an explicit include row in `xpaths`.
+Shift-parent expansion is bounded to content-shaped regions. It may climb
+through wrapper chains to a cohesive section, article, card group, list, table,
+or toggleable default boundary, but it must not select shallow generic page
+shells such as body-level site/app wrappers. Generic ancestors within the first
+two levels under `body` are rejected when they have a broad viewport footprint
+or contain multiple page landmarks such as header, main, footer, or navigation.
 
 Toggleable default exclusions have no separate visual layer or class. Once the
 decision step marks a default boundary as excluded, it is represented by the

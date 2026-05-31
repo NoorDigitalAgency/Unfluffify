@@ -118,6 +118,40 @@ const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
+const PARENT_MARKING_CONTENT_BOUNDARY_TAGS = new Set([
+  "ARTICLE",
+  "ASIDE",
+  "DETAILS",
+  "DIALOG",
+  "FIELDSET",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "HEADER",
+  "LI",
+  "NAV",
+  "OL",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL"
+]);
+const PARENT_MARKING_PAGE_SHELL_LANDMARK_TAGS = new Set([
+  "FOOTER",
+  "HEADER",
+  "MAIN",
+  "NAV"
+]);
+const PARENT_MARKING_PAGE_SHELL_ROLES = new Set([
+  "banner",
+  "contentinfo",
+  "main",
+  "navigation"
+]);
 const MARKING_DISABLED_OVERLAY_CLASS = "uf-marking-temporarily-disabled";
 const MARKING_DISABLED_CURSOR_CLASS = "uf-cursor-disabled";
 const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
@@ -5213,6 +5247,94 @@ function hasMultipleMarkableDescendants(el, options = {}) {
   return false;
 }
 
+function getDepthBelowBody(el) {
+  if (!el || el.nodeType !== 1 || typeof document === "undefined" || !document.body) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let depth = 0;
+  let node = el;
+  while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+    depth += 1;
+    node = node.parentElement;
+  }
+  return node === document.body ? depth : Number.POSITIVE_INFINITY;
+}
+
+function isParentMarkingContentBoundary(el) {
+  const tagName = el && el.tagName ? String(el.tagName).toUpperCase() : "";
+  return PARENT_MARKING_CONTENT_BOUNDARY_TAGS.has(tagName) || matchesToggleableDefaultExcluded(el);
+}
+
+function getElementRole(el) {
+  return el && typeof el.getAttribute === "function"
+    ? String(el.getAttribute("role") || "").trim().toLowerCase()
+    : "";
+}
+
+function containsPageShellLandmark(el) {
+  const landmarkKinds = new Set();
+  const stack = Array.from(el && el.children ? el.children : []);
+  while (stack.length && landmarkKinds.size < 2) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    const tagName = node.tagName ? String(node.tagName).toUpperCase() : "";
+    if (PARENT_MARKING_PAGE_SHELL_LANDMARK_TAGS.has(tagName)) {
+      landmarkKinds.add(tagName);
+    }
+    const role = getElementRole(node);
+    if (PARENT_MARKING_PAGE_SHELL_ROLES.has(role)) {
+      landmarkKinds.add(role);
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return landmarkKinds.size >= 2;
+}
+
+function hasBroadParentMarkingFootprint(el) {
+  if (!el || typeof el.getBoundingClientRect !== "function") {
+    return false;
+  }
+  let rect;
+  try {
+    rect = el.getBoundingClientRect();
+  } catch (error) {
+    return false;
+  }
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+  const viewport = getViewportBounds();
+  const viewportWidth = viewport.width || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
+  const viewportHeight = viewport.height || (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
+  if (viewportWidth <= 0 || viewportHeight <= 0) {
+    return false;
+  }
+  const widthRatio = rect.width / viewportWidth;
+  const heightRatio = rect.height / viewportHeight;
+  return widthRatio >= 0.85 && heightRatio >= 0.65;
+}
+
+function isUnsafeShallowParentMarkingTarget(el, options = {}) {
+  if (!options || !options.allowParent || !el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isParentMarkingContentBoundary(el)) {
+    return false;
+  }
+  if (hasDirectText(el)) {
+    return false;
+  }
+  const depth = getDepthBelowBody(el);
+  if (depth > 2) {
+    return false;
+  }
+  return containsPageShellLandmark(el) || hasBroadParentMarkingFootprint(el);
+}
+
 function createExcludedAncestorChecker(options = {}) {
   const configValue = options.config || state.config;
   const pageUrl = options.pageUrl || location.href;
@@ -7129,6 +7251,9 @@ export function isMarkableElement(el, config, options) {
     return true;
   }
   if (!options || !options.allowParent) {
+    return false;
+  }
+  if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
     return false;
   }
   return hasMultipleMarkableDescendants(el, options || {});

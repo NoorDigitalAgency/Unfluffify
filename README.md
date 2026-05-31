@@ -146,7 +146,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 ## How to Use
 
 1. **Enable on a Page**: Click the Unfluffify icon → Set a **Base URL** → Click **Enable on this tab**
-2. **Mark Content**: Hover over page elements to see highlights, click to toggle exclusion
+2. **Mark Content**: Hover over page elements to see highlights, click to toggle exclusion. Hold **Shift** to target a broader content boundary; shallow generic page wrappers are intentionally skipped.
 3. **Interact With Page UI**: Hold **Space** to let clicks reach accordions, tabs, menus, and other page controls, then release to keep marking
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup
