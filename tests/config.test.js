@@ -7,6 +7,7 @@ import {
   createBackendSavedPageMarkingsSnapshot,
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
+  mergePageMarkingsByTimestamp,
   normalizePageSaveReconciliation,
   normalizeConfig,
   normalizeConfigSyncPayload
@@ -233,6 +234,45 @@ test("backend-saved page marking snapshots keep only confirmed page entries outs
       rawHtml: "<html><body><main>Saved</main></body></html>"
     }
   });
+});
+
+test("confirmed page marking merges can replace stale entries with matching timestamps", () => {
+  const existing = {
+    "https://example.com/current": {
+      timestamp: "2026-01-01T00:00:00Z",
+      pageType: "article",
+      xpaths: [{ xpath: "/html/body/header", excluded: true }],
+      includeXpaths: [],
+      selectorSuppressedXpaths: [],
+      submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
+      renderedHtml: "<header>Old</header>",
+      rawHtml: "<html><body><header>Old</header></body></html>"
+    }
+  };
+  const confirmed = {
+    "https://example.com/current": {
+      timestamp: "2026-01-01T00:00:00Z",
+      pageType: "article",
+      xpaths: [{ xpath: "/html/body/footer", excluded: true }],
+      includeXpaths: [],
+      selectorSuppressedXpaths: [],
+      submissionXpaths: [{ xpath: "/html/body/footer", excluded: true }],
+      renderedHtml: "<footer>New</footer>",
+      rawHtml: "<html><body><footer>New</footer></body></html>"
+    }
+  };
+
+  assert.deepEqual(
+    mergePageMarkingsByTimestamp(existing, confirmed).pageMarkings,
+    existing
+  );
+
+  const merged = mergePageMarkingsByTimestamp(existing, confirmed, {
+    preferIncomingOnTimestampTie: true
+  });
+
+  assert.deepEqual(merged.pageMarkings, confirmed);
+  assert.deepEqual(merged.replacedExistingUrls, ["https://example.com/current"]);
 });
 
 test("page save reconciliation normalizes pending local save locks", () => {

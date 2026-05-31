@@ -3828,6 +3828,9 @@ export function getMarkableTarget(x, y, options) {
         explicitlyExcluded ||
         explicitlyIncluded
       ) {
+        if (!hasRenderableMarkingTargetGeometry(el, { allowGhost: explicitlyIncluded })) {
+          continue;
+        }
         return el;
       }
     }
@@ -3866,6 +3869,9 @@ export function getMarkableTarget(x, y, options) {
       hitPoint: { x, y }
     });
     if (resolved) {
+      if (!hasRenderableMarkingTargetGeometry(resolved)) {
+        continue;
+      }
       return resolved;
     }
   }
@@ -4574,8 +4580,8 @@ function getCollapsedTextualFallbackRects(el) {
 
 function getVisibleRects(el) {
   const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
-  if (!isVisible(el) && !allowCollapsedTextFallback) {
-    return [];
+  if (!isVisible(el)) {
+    return allowCollapsedTextFallback ? getCollapsedTextualFallbackRects(el) : [];
   }
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
@@ -4585,6 +4591,16 @@ function getVisibleRects(el) {
     return getCollapsedTextualFallbackRects(el);
   }
   return [];
+}
+
+function hasRenderableMarkingTargetGeometry(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (getVisibleRects(el).length > 0) {
+    return true;
+  }
+  return Boolean(options.allowGhost && getGhostRects(el).length > 0);
 }
 
 function collectExplicitMarkingElements(entry) {

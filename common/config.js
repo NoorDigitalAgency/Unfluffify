@@ -1062,12 +1062,17 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
   };
 }
 
-export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMarkings) {
+export function mergePageMarkingsByTimestamp(
+  localPageMarkings,
+  incomingPageMarkings,
+  options = {}
+) {
   const localNormalized = normalizePageMarkings(localPageMarkings).normalized;
   const incomingNormalized = normalizePageMarkings(incomingPageMarkings).normalized;
   const merged = { ...localNormalized };
   const replacedUrls = [];
   const replacedExistingUrls = [];
+  const preferIncomingOnTimestampTie = Boolean(options.preferIncomingOnTimestampTie);
 
   const hasSnapshotData = (entry) =>
     Boolean(
@@ -1090,9 +1095,15 @@ export function mergePageMarkingsByTimestamp(localPageMarkings, incomingPageMark
       normalizeEntryTimestamp(incomingEntry.timestamp) === normalizeEntryTimestamp(localEntry.timestamp);
     const incomingHasRicherSnapshot =
       timestampsMatch && hasSnapshotData(incomingEntry) && !hasSnapshotData(localEntry);
+    const incomingWinsTimestampTie =
+      preferIncomingOnTimestampTie &&
+      timestampsMatch &&
+      JSON.stringify(cloneNormalizedPageEntry(incomingEntry, url)) !==
+        JSON.stringify(cloneNormalizedPageEntry(localEntry, url));
     if (
       !isIncomingTimestampNewer(incomingEntry.timestamp, localEntry.timestamp) &&
-      !incomingHasRicherSnapshot
+      !incomingHasRicherSnapshot &&
+      !incomingWinsTimestampTie
     ) {
       return;
     }

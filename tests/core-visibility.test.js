@@ -552,6 +552,52 @@ test("exclude clicks can still target active toggleable defaults when no descend
   });
 });
 
+test("explicit targets without visible marking geometry are ignored", () => {
+  withVisibilityDom(({ body }) => {
+    const originalConfig = state.config;
+    const originalBaseUrl = state.baseUrl;
+    const hiddenText = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Invisible saved marking",
+      style: { opacity: "0" },
+      rect: { top: 80, right: 320, bottom: 120, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(hiddenText);
+    body.childNodes.push(hiddenText);
+    const hiddenXpath = getXPath(hiddenText);
+    state.baseUrl = "https://example.test/";
+    state.config = {
+      pageMarkings: {
+        "https://example.test/": {
+          xpaths: [{ xpath: hiddenXpath, excluded: true, explicit: true }],
+          includeXpaths: []
+        }
+      }
+    };
+    globalThis.document.elementsFromPoint = () => [hiddenText];
+    try {
+      assert.equal(
+        getMarkableTarget(30, 90, {
+          allowParent: false,
+          allowExplicitTarget: true,
+          preferExplicitTarget: false,
+          excludedSet: new Set([hiddenXpath]),
+          includeSet: new Set(),
+          explicitParentSet: new Set([hiddenXpath]),
+          allowExcludedParentChildren: false,
+          allowImmutableChildren: false,
+          requireExcludedAncestor: false
+        }),
+        null
+      );
+    } finally {
+      state.config = originalConfig;
+      state.baseUrl = originalBaseUrl;
+    }
+  });
+});
+
 test("exclude clicks still drill into children of non-toggleable excluded parents", () => {
   withVisibilityDom(({ documentElement, body }) => {
     const originalConfig = state.config;

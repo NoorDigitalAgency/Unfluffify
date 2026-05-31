@@ -2228,7 +2228,8 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
   ).pageMarkings;
   mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
     mergedBackendSavedPageMarkings,
-    confirmedPageMarkings
+    confirmedPageMarkings,
+    { preferIncomingOnTimestampTie: true }
   ).pageMarkings;
   if (
     Object.keys(incomingPageMarkings).length > 0 ||
@@ -2245,7 +2246,8 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
   );
   const confirmedPageMarkingsMergeResult = config.mergePageMarkingsByTimestamp(
     incomingPageMarkingsMergeResult.pageMarkings,
-    confirmedPageMarkings
+    confirmedPageMarkings,
+    { preferIncomingOnTimestampTie: true }
   );
   const mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
   const mergedPageMarkingsSignature = JSON.stringify(mergedPageMarkings);

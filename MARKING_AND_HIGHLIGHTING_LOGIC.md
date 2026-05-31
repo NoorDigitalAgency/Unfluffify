@@ -60,8 +60,11 @@ Unrelated config syncs must not upload local draft page markings; only
 backend-saved pages and the current page during an explicit save/revert belong
 in a sync payload. Page-save reconciliation can be cleared only after the
 forced backend reload confirms that current page exists in the backend-saved
-cache. A new page with no saved local or remote data remains saveable with the
-default markings accepted as-is.
+cache. Confirmed current-page saves must refresh that cache even when their
+second-granularity timestamp matches the previous saved entry, otherwise the
+saved baseline can stay one save behind and keep the page falsely dirty. A new
+page with no saved local or remote data remains saveable with the default
+markings accepted as-is.
 
 Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
 mode must respect that contract: only the current property editor can mutate
@@ -182,6 +185,13 @@ Marking mode must avoid duplicate full-page passes:
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension
 UI, consent UI, document roots, and immutable subtrees.
+
+Hit targets must have renderable marking geometry. A live element whose own box
+is hidden, transparent, or otherwise not visible cannot be selected just
+because `elementsFromPoint` returned it. Collapsed textual wrappers may fall
+back to visible descendant geometry, and hidden explicit includes may remain as
+ghost include markings when measurable, but completely invisible explicit
+targets are ignored.
 
 ### Exclude Mode
 
@@ -320,6 +330,7 @@ force a repaint on full active refreshes even when the render key is unchanged.
 
 Focused rule coverage lives in:
 
+- `tests/config.test.js`
 - `tests/marking-rules.test.js`
 - `tests/core-visibility.test.js`
 - `tests/submission-rules.test.js`
