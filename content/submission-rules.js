@@ -12,6 +12,10 @@ export function isAiSubmissionDocumentRootXpath(xpath) {
 export function resolveAiSubmissionRowState(options = {}) {
   const explicitlyIncluded = Boolean(options.explicitlyIncluded);
 
+  if (options.immutableExcludedRoot) {
+    return { shouldSubmit: false, excluded: false };
+  }
+
   if (explicitlyIncluded) {
     return { shouldSubmit: true, excluded: false };
   }
@@ -22,16 +26,6 @@ export function resolveAiSubmissionRowState(options = {}) {
 
   if (options.explicitlyExcluded) {
     return { shouldSubmit: true, excluded: true };
-  }
-
-  if (
-    options.consentExcludedRoot
-  ) {
-    return { shouldSubmit: true, excluded: true };
-  }
-
-  if (options.immutableExcludedRoot) {
-    return { shouldSubmit: false, excluded: false };
   }
 
   if (!options.markableTextual) {

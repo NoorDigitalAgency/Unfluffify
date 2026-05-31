@@ -2179,10 +2179,13 @@ function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   return didChange;
 }
 
-async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
+async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {}) {
   const invalidLoadedUrls = config.collectInvalidPageMarkingUrls(
     payload && typeof payload === "object" ? payload.pageMarkings : null
   );
+  const confirmedPageMarkings = config.normalizePageMarkings(
+    options && options.confirmedPageMarkings
+  ).normalized;
   const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
     return {
@@ -2194,7 +2197,6 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     };
   }
   const baseUrl = normalizedPayload.baseUrl;
-  await config.setBackendSavedPageMarkings(baseUrl, normalizedPayload.pageMarkings);
   const allConfigs = await config.getConfigs();
   const existingRaw = allConfigs[baseUrl];
   const normalizedLocal = config.normalizeConfig(baseUrl, existingRaw);
@@ -2218,16 +2220,44 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl) {
     localConfig.renderMode = mergedRenderMode.renderMode;
     localConfig.renderModeUpdatedAt = mergedRenderMode.updatedAt;
   }
-  const previousPageMarkingsSignature = JSON.stringify(config.normalizePageMarkings(localConfig.pageMarkings).normalized);
   const incomingPageMarkings = config.normalizePageMarkings(normalizedPayload.pageMarkings).normalized;
-  const incomingPageMarkingsSignature = JSON.stringify(incomingPageMarkings);
-  const pageMarkingsChanged = previousPageMarkingsSignature !== incomingPageMarkingsSignature;
+  const existingBackendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
+  let mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
+    existingBackendSavedPageMarkings,
+    incomingPageMarkings
+  ).pageMarkings;
+  mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
+    mergedBackendSavedPageMarkings,
+    confirmedPageMarkings
+  ).pageMarkings;
+  if (
+    Object.keys(incomingPageMarkings).length > 0 ||
+    Object.keys(confirmedPageMarkings).length > 0
+  ) {
+    await config.setBackendSavedPageMarkings(baseUrl, mergedBackendSavedPageMarkings);
+  }
+  const previousPageMarkingsSignature = JSON.stringify(
+    config.normalizePageMarkings(localConfig.pageMarkings).normalized
+  );
+  const incomingPageMarkingsMergeResult = config.mergePageMarkingsByTimestamp(
+    localConfig.pageMarkings,
+    incomingPageMarkings
+  );
+  const confirmedPageMarkingsMergeResult = config.mergePageMarkingsByTimestamp(
+    incomingPageMarkingsMergeResult.pageMarkings,
+    confirmedPageMarkings
+  );
+  const mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
+  const mergedPageMarkingsSignature = JSON.stringify(mergedPageMarkings);
+  const pageMarkingsChanged = previousPageMarkingsSignature !== mergedPageMarkingsSignature;
   const replacedCurrentPage = Boolean(
     currentPageUrl &&
-      pageMarkingsChanged &&
-      Object.prototype.hasOwnProperty.call(incomingPageMarkings, currentPageUrl)
+      (
+        incomingPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl) ||
+        confirmedPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl)
+      )
   );
-  localConfig.pageMarkings = incomingPageMarkings;
+  localConfig.pageMarkings = mergedPageMarkings;
   const selectorStateChanged = mergeSelectorsIntoConfig(localConfig, normalizedPayload);
   const shouldSave =
     !existingRaw ||
@@ -2478,10 +2508,20 @@ async function syncBaseConfigToServer(options = {}) {
         responseData = null;
       }
       if (!responseData || typeof responseData !== "object") {
-        return { ok: true, replacedCurrentPage: false };
+        const mergeResult = await mergeServerConfigIntoLocal(
+          {
+            ...payload,
+            pageMarkings: {}
+          },
+          pageUrl,
+          { confirmedPageMarkings: payload.pageMarkings }
+        );
+        return { ok: mergeResult.ok, replacedCurrentPage: false };
       }
 
-      const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl);
+      const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl, {
+        confirmedPageMarkings: payload.pageMarkings
+      });
       if (!mergeResult.ok) {
         return { ok: false };
       }
@@ -3611,8 +3651,6 @@ async function refreshUiInner(options = {}) {
       ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
         (Array.isArray(savedEntry.includeXpaths) &&
           savedEntry.includeXpaths.length > 0) ||
-        (Array.isArray(savedEntry.consentXpaths) &&
-          savedEntry.consentXpaths.length > 0) ||
         (typeof savedEntry.renderedHtml === "string" &&
           savedEntry.renderedHtml.length > 0))
   );
@@ -7306,25 +7344,6 @@ async function init() {
       return;
     }
     if (!message || message.type !== "pageDraftChanged") {
-      if (message && message.type === "consentXpathsChanged") {
-        if (state.currentBaseUrl && utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)) {
-          const hasSavedData = Boolean(
-            state.currentSavedEntry &&
-              ((Array.isArray(state.currentSavedEntry.xpaths) &&
-                state.currentSavedEntry.xpaths.length > 0) ||
-                (Array.isArray(state.currentSavedEntry.includeXpaths) &&
-                  state.currentSavedEntry.includeXpaths.length > 0) ||
-                (Array.isArray(state.currentSavedEntry.consentXpaths) &&
-                  state.currentSavedEntry.consentXpaths.length > 0) ||
-                (typeof state.currentSavedEntry.renderedHtml === "string" &&
-                  state.currentSavedEntry.renderedHtml.length > 0))
-          );
-          if (hasSavedData) {
-            window.alert(PopupText.consent.changedAlert);
-          }
-          scheduleRefresh();
-        }
-      }
       return;
     }
     if (state.currentBaseUrl && utils.sameBaseUrl(message.baseUrl, state.currentBaseUrl)) {

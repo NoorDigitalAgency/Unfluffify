@@ -41,9 +41,13 @@ Backend-saved candidate completion completed:
 AI submission alignment completed:
 
 1. Compute AI submission XPath rows against the same sanitized DOM view as the saved `renderedHtml`, so extension UI cannot shift body-child indexes in the payload.
-2. Treat generated toggleable-default rows as marking posture only; they are not explicit AI exclusions.
+2. Treat only `explicit: true` exclude rows as user exclusions; generated toggleable-default rows and stale untagged rows are marking posture only and are not explicit AI exclusions.
 3. Submit hidden textual content as excluded at mobile-save time, while visible textual content remains included unless it is under an explicit excluded ancestor.
 4. Keep immutable defaults out of per-page XPath rows and rely on the immutable tag list in the AI payload.
+5. Run marking sync before taking the saved snapshot, suppress stale immutable rows, and strip browser automation roots from saved snapshots.
+6. Hide consent UI before saving and handle it through normal hidden-textual detection; do not store, sync, or submit dedicated `consentXpaths`.
+7. Preserve local saved page snapshots across empty or partial backend responses by timestamp-merging confirmed saves and incoming remote markings.
+8. Surface IndexedDB read/write failures instead of allowing failed page saves to appear successful.
 
 Future marking work:
 

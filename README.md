@@ -40,7 +40,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
-- **Cookie/Consent Management**: Special handling for cookie banners and consent interfaces
+- **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
 
@@ -109,7 +109,7 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 ### Regression Tests (`/tests`)
 
 - **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
-- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: explicit/consent exclusions, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
+- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: explicit exclusions, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
@@ -157,7 +157,7 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 Visual overlay showing page content classification:
 - **Excluded** (highlighted in one color) - Marked as fluff
 - **Included** (optional highlight) - Marked as meaningful content
-- **Visible Consent** - Cookie/consent elements detected
+- **Consent handling** - Cookie/consent elements are hidden before save and submitted only when they qualify as invisible textual content
 
 ### AI Selectors
 
@@ -188,7 +188,7 @@ This extension uses Chrome's Manifest V3 (the current standard):
 - **Tab State** (session storage): `tabState:{tabId}`
 - **Device Emulation** (session storage): `deviceEmulation:{tabId}`
 - **IndexedDB**: Stores detailed page markings, configurations, drafts
-- **Backend-saved marking cache**: Tracks the last confirmed backend page-marking payload separately from local drafts so candidate completion cannot be inferred from unsynced local data
+- **Backend-saved marking cache**: Tracks the last confirmed backend page-marking payload separately from local drafts so candidate completion cannot be inferred from unsynced local data; empty or partial backend responses are timestamp-merged instead of wiping local saved pages
 - **Property lock session ID**: The edit lock uses a stable page-session client ID, not the Chrome tab ID, so same-user duplicate tabs can be locked and transferred predictably
 - **Popup UI State**: In-memory state synchronized with persistent storage
 

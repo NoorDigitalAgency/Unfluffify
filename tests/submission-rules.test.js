@@ -64,14 +64,12 @@ test("explicit includes win when a node is also explicitly excluded", () => {
   );
 });
 
-test("explicit includes win over exclusion-root classification", () => {
+test("explicit includes win over hidden-root classification", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: true,
       insideExcludedAncestor: false,
-      consentExcludedRoot: true,
-      immutableExcludedRoot: true,
       hiddenToggleableRoot: true,
       visibleToUser: false,
       markableTextual: false
@@ -99,6 +97,34 @@ test("explicitly-excluded descendants inside excluded ancestors are suppressed",
       explicitlyExcluded: true,
       explicitlyIncluded: false,
       insideExcludedAncestor: true,
+      visibleToUser: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: false, excluded: false }
+  );
+});
+
+test("immutable roots are omitted even when stale explicit rows exist", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: true,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      immutableExcludedRoot: true,
+      visibleToUser: true,
+      markableTextual: true
+    }),
+    { shouldSubmit: false, excluded: false }
+  );
+});
+
+test("immutable roots are omitted even when stale includes exist", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      explicitlyExcluded: false,
+      explicitlyIncluded: true,
+      insideExcludedAncestor: false,
+      immutableExcludedRoot: true,
       visibleToUser: true,
       markableTextual: true
     }),
@@ -145,13 +171,12 @@ test("non-textual implicit nodes are omitted", () => {
   );
 });
 
-test("consent roots always submit as excluded", () => {
+test("hidden textual roots submit as excluded without consent-specific rules", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({
       explicitlyExcluded: false,
       explicitlyIncluded: false,
       insideExcludedAncestor: false,
-      consentExcludedRoot: true,
       visibleToUser: false,
       markableTextual: true
     }),

@@ -49,6 +49,12 @@ function createElement(options = {}) {
       if (selector === "[data-uf-extension-ui=\"true\"]") {
         return attrs.get("data-uf-extension-ui") === "true";
       }
+      if (selector === "[data-wxt-shadow-root]") {
+        return attrs.has("data-wxt-shadow-root");
+      }
+      if (selector === "browser-mcp-container") {
+        return this.tagName === "BROWSER-MCP-CONTAINER";
+      }
       if (selector === "[id^=\"unfluffify-\"]") {
         return typeof attrs.get("id") === "string" && attrs.get("id").startsWith("unfluffify-");
       }
@@ -297,6 +303,20 @@ test("submission visibility rejects off-canvas render boxes", () => {
   }, { scrollHeight: 1600 });
 });
 
+test("submission visibility rejects boxes outside the mobile viewport width", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      tagName: "p",
+      text: "Horizontally outside mobile viewport",
+      rect: { top: 120, right: 1500, bottom: 170, left: 1300, width: 200, height: 50 }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { viewportWidth: 390, scrollWidth: 1600, scrollHeight: 1600 });
+});
+
 test("submission visibility rejects opacity-hidden positioned links", () => {
   withVisibilityDom(({ body }) => {
     const element = createElement({
@@ -377,6 +397,25 @@ test("snapshot xpaths honor the same extra stripped nodes as saved HTML", () => 
       getSnapshotXPath(contentRoot, { extraStripSelectors: ["#temporary-save-overlay"] }),
       "/html[1]/body[1]/div[1]"
     );
+  });
+});
+
+test("snapshot xpaths ignore browser automation roots stripped from saved HTML", () => {
+  withVisibilityDom(({ body }) => {
+    const browserMcpRoot = createElement({
+      tagName: "browser-mcp-container",
+      parentElement: body,
+      attrs: { "data-wxt-shadow-root": "" }
+    });
+    const contentRoot = createElement({
+      parentElement: body,
+      text: "Saved page content"
+    });
+    body.children.push(browserMcpRoot, contentRoot);
+    body.childNodes.push(browserMcpRoot, contentRoot);
+
+    assert.equal(getSnapshotXPath(contentRoot), "/html[1]/body[1]/div[1]");
+    assert.equal(getSnapshotXPath(browserMcpRoot), "");
   });
 });
 
@@ -856,7 +895,7 @@ test("sync records an unexcluded default boundary around explicit descendant exc
         [pageUrl]: {
           xpaths: [
             { xpath: footerXpath, excluded: true },
-            { xpath: childXpath, excluded: true }
+            { xpath: childXpath, excluded: true, explicit: true }
           ],
           includeXpaths: []
         }
@@ -868,7 +907,7 @@ test("sync records an unexcluded default boundary around explicit descendant exc
     const childItem = result.entry.xpaths.find((item) => item.xpath === childXpath);
 
     assert.deepEqual(footerItem, { xpath: footerXpath, excluded: false });
-    assert.deepEqual(childItem, { xpath: childXpath, excluded: true });
+    assert.deepEqual(childItem, { xpath: childXpath, excluded: true, explicit: true });
   });
 });
 
@@ -920,6 +959,73 @@ test("sync represents default exclusions as ordinary excluded rows", () => {
   });
 });
 
+test("sync drops stale untagged non-default exclusions", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const child = createElement({
+      tagName: "p",
+      text: "Visible content inside stale wrapper",
+      rect: { top: 60, right: 320, bottom: 95, left: 20, width: 300, height: 35 }
+    });
+    const wrapper = createElement({
+      parentElement: body,
+      children: [child],
+      rect: { top: 20, right: 420, bottom: 160, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(wrapper);
+    body.childNodes.push(wrapper);
+    const pageUrl = "https://example.test/stale-wrapper";
+    const wrapperXpath = getXPath(wrapper);
+    xpathMap.set(wrapperXpath, wrapper);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [{ xpath: wrapperXpath, excluded: true }],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+
+    assert.equal(result.entry.xpaths.some((item) => item.xpath === wrapperXpath), false);
+  });
+});
+
+test("sync preserves explicit non-default exclusions", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const child = createElement({
+      tagName: "p",
+      text: "Visible content inside explicit wrapper",
+      rect: { top: 60, right: 320, bottom: 95, left: 20, width: 300, height: 35 }
+    });
+    const wrapper = createElement({
+      parentElement: body,
+      children: [child],
+      rect: { top: 20, right: 420, bottom: 160, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(wrapper);
+    body.childNodes.push(wrapper);
+    const pageUrl = "https://example.test/explicit-wrapper";
+    const wrapperXpath = getXPath(wrapper);
+    xpathMap.set(wrapperXpath, wrapper);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [{ xpath: wrapperXpath, excluded: true, explicit: true }],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+
+    assert.deepEqual(
+      result.entry.xpaths.find((item) => item.xpath === wrapperXpath),
+      { xpath: wrapperXpath, excluded: true, explicit: true }
+    );
+  });
+});
+
 test("sync records each default ancestor before fast overlay refreshes draw", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const headerChild = createElement({
@@ -959,8 +1065,8 @@ test("sync records each default ancestor before fast overlay refreshes draw", ()
       pageMarkings: {
         [pageUrl]: {
           xpaths: [
-            { xpath: headerChildXpath, excluded: true },
-            { xpath: footerChildXpath, excluded: true }
+            { xpath: headerChildXpath, excluded: true, explicit: true },
+            { xpath: footerChildXpath, excluded: true, explicit: true }
           ],
           includeXpaths: []
         }

@@ -414,7 +414,10 @@ async function idbGetAll() {
 export async function idbGet(keys) {
   if (!isExtensionContext()) {
     const response = await sendRuntimeMessage({ type: "idbGet", keys });
-    return response && response.ok ? response.result || {} : {};
+    if (response && response.ok) {
+      return response.result || {};
+    }
+    throw new Error(response && response.error ? response.error : "IndexedDB get failed");
   }
   const normalized = normalizeIdbKeys(keys);
   if (!normalized.keys) {
@@ -455,19 +458,22 @@ export async function idbSet(items) {
     return;
   }
   if (!isExtensionContext()) {
-    await sendRuntimeMessage({ type: "idbSet", items });
+    const response = await sendRuntimeMessage({ type: "idbSet", items });
+    if (!response || !response.ok) {
+      throw new Error(response && response.error ? response.error : "IndexedDB set failed");
+    }
     return;
   }
   const db = await openIdb();
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     Object.entries(items).forEach(([key, value]) => {
       store.put(value, key);
     });
     tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-    tx.onabort = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB set failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB set aborted"));
   });
 }
 
@@ -476,7 +482,10 @@ export async function idbRemove(keys) {
     return;
   }
   if (!isExtensionContext()) {
-    await sendRuntimeMessage({ type: "idbRemove", keys });
+    const response = await sendRuntimeMessage({ type: "idbRemove", keys });
+    if (!response || !response.ok) {
+      throw new Error(response && response.error ? response.error : "IndexedDB remove failed");
+    }
     return;
   }
   const normalized = normalizeIdbKeys(keys);
@@ -484,15 +493,15 @@ export async function idbRemove(keys) {
     return;
   }
   const db = await openIdb();
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
     normalized.keys.forEach((key) => {
       store.delete(key);
     });
     tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-    tx.onabort = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB remove failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB remove aborted"));
   });
 }
 

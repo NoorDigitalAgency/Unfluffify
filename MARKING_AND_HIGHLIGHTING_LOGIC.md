@@ -20,8 +20,9 @@ Non-negotiable invariants:
 
 - Toggleable defaults differ from user/CSS-selected exclusions only while the
   excluded/included state is being decided.
-- After that decision, default exclusions are ordinary `{ xpath, excluded: true }`
-  rows and render through the ordinary exclude overlay.
+- After that decision, default exclusions are ordinary generated `{ xpath,
+  excluded: true }` rows and render through the ordinary exclude overlay.
+  User-created exclude rows carry `explicit: true`.
 - Toggleable default exclusions must not have a dedicated visual layer, CSS
   class, render collection, or post-hoc overlay rule.
 - A stored `{ xpath, excluded: false }` row for a toggleable default unmarks only
@@ -112,17 +113,20 @@ Each page entry may contain:
 
 - `title`
 - `timestamp`
-- `xpaths`: ordered `{ xpath, excluded }` rows
+- `xpaths`: ordered `{ xpath, excluded }` rows; user-created exclude rows
+  carry `explicit: true`
 - `includeXpaths`: explicit include XPath rows
-- `consentXpaths`
 - `selectorSuppressedXpaths`
 - `submissionXpaths`
 - `renderedHtml`
 - `rawHtml`
 
-`xpaths` stores excluded rows and generated/default posture rows. `includeXpaths`
-is the canonical explicit-include list. Normalization removes redundant nested
-rows when a broader boundary takes over a subtree.
+`xpaths` stores explicit user exclusions plus generated/default posture rows.
+Only rows with `explicit: true` are treated as user exclusions for AI
+submission and explicit-overlay rendering; untagged generated or legacy rows are
+sync posture and may be dropped if they do not still match a generated default.
+`includeXpaths` is the canonical explicit-include list. Normalization removes
+redundant nested rows when a broader boundary takes over a subtree.
 
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
@@ -173,7 +177,10 @@ include are not targetable until the include itself is removed.
 ## Self-Markability
 
 An element is self-markable when it is a textual container and is not blocked by
-consent UI, extension UI, or immutable defaults.
+consent UI, extension UI, or immutable defaults. AI submission may opt into
+consent elements after they have been hidden so they are handled by the same
+hidden-textual rule as any other invisible text instead of by a stored consent
+XPath list.
 
 Direct text means text-node content owned by the element itself. Containers with
 only descendant text normally yield to the descendant. Toggleable default
@@ -228,27 +235,32 @@ a page draft by itself.
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector
-calculation. Submission XPath rows are calculated in the same sanitized DOM view
-as `renderedHtml`: extension UI and other save-time strip selectors do not count
-when sibling indexes are assigned. This keeps saved HTML and saved XPath evidence
-aligned even when the extension has injected overlay or toast nodes into the live
-page.
+calculation. Page marking sync runs before saving, and submission XPath rows are
+calculated in the same sanitized DOM view as `renderedHtml`: extension UI,
+browser-automation roots, and other save-time strip selectors do not count when
+sibling indexes are assigned. This keeps saved HTML and saved XPath evidence
+aligned even when overlays, toasts, or automation containers are present in the
+live page.
 
 Rules:
 
 - explicit includes always submit as included rows,
-- explicit excludes submit as excluded rows unless explicitly included; generated
-  toggleable-default rows are not treated as explicit exclusions,
+- only `explicit: true` excludes submit as excluded rows unless explicitly
+  included; generated toggleable-default rows and untagged stale rows are not
+  treated as explicit exclusions,
 - descendants under an already submitted excluded ancestor are omitted unless
   they are explicit includes,
-- consent roots submit as excluded rows,
+- consent UI is not stored or submitted through dedicated consent XPath rows; it
+  is hidden before saving and any textual consent content is handled by the
+  visually invisible textual-content rule,
 - immutable defaults and their descendants are excluded by the immutable tag list
-  sent with the payload, not by per-page XPath rows,
+  sent with the payload, not by per-page XPath rows; stale immutable rows are
+  suppressed before submission,
 - visible textual markable content submits as included rows,
 - visually invisible textual markable content submits as excluded rows using the
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
-  content outside the viewport/document bounds is invisible,
+  content outside the mobile viewport width or document height is invisible,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 

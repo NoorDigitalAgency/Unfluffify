@@ -24,15 +24,17 @@
 ## AI Submission Rules
 
 - Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
-- Submission XPath indexes must be computed against the same sanitized DOM view as saved `renderedHtml`; extension UI and save-time stripped nodes do not count as siblings.
-- Exclusion rows include explicit excludes, consent roots, and implicit hidden textual content detected in mobile save mode. Generated toggleable-default rows are not explicit excludes.
-- Immutable defaults and descendants are excluded by the payload's immutable tag list only, not by per-page XPath rows.
+- Submission XPath indexes must be computed after marking sync against the same sanitized DOM view as saved `renderedHtml`; extension UI, browser-automation roots, and save-time stripped nodes do not count as siblings.
+- Exclusion rows include only `explicit: true` excludes and implicit hidden textual content detected in mobile save mode. Generated toggleable-default rows, stale untagged rows, and consent-specific XPath rows are not explicit excludes.
+- Immutable defaults and descendants are excluded by the payload's immutable tag list only, not by per-page XPath rows; stale immutable rows must be suppressed.
 - Explicit includes always submit as included rows, even when hidden or nested inside excluded ancestors.
+- Consent UI is hidden before saving and then handled by normal invisibility detection; do not persist or sync `consentXpaths`.
 
 ## Page Save and Candidate Completion
 
 - Local page-marking drafts are not candidate-completion evidence. The Todo List, candidate `Marked` badges, marked-pages list, and Lynx checklist coverage must use the backend-saved page-marking cache populated from confirmed `/load` or valid `/save` backend payloads.
 - Config sync must not upload unsaved local page drafts by default. It may include backend-saved page markings and the current page only when the user is explicitly saving or reverting that page.
+- Empty or partial `/load`/`/save` responses must not replace local saved page snapshots or clear the backend-saved cache; merge confirmed save payloads and incoming remote entries by timestamp.
 - Page-save reconciliation must not be cleared merely because `/save` returned OK; the forced backend reload must confirm the current page is present in the backend-saved cache.
 - A page with no local or remote saved data must remain saveable even when the user accepts the default markings as-is and has made no manual toggle changes.
 

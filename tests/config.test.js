@@ -17,9 +17,9 @@ test("normalizeConfig preserves legacy page markings without pageType for later 
     pageMarkings: {
       "https://example.com/legacy": {
         timestamp: "2026-01-01T00:00:00Z",
-        xpaths: [{ xpath: "/html/body/main", excluded: true }],
+        xpaths: [{ xpath: "/html/body/main", excluded: true, explicit: true }],
+        consentXpaths: ["/html/body/dialog"],
         includeXpaths: [],
-        consentXpaths: [],
         submissionXpaths: [],
         renderedHtml: "<main></main>",
         rawHtml: "<main></main>"
@@ -29,7 +29,6 @@ test("normalizeConfig preserves legacy page markings without pageType for later 
         pageType: "article",
         xpaths: [{ xpath: "/html/body/article", excluded: true }],
         includeXpaths: [],
-        consentXpaths: [],
         submissionXpaths: [],
         renderedHtml: "<article></article>",
         rawHtml: "<article></article>"
@@ -54,9 +53,9 @@ test("normalizeConfig preserves unsupported page types for later candidate recon
       "https://example.com/legacy": {
         timestamp: "2026-01-01T00:00:00Z",
         pageType: "custom_page_type",
-        xpaths: [{ xpath: "/html/body/main", excluded: true }],
+        xpaths: [{ xpath: "/html/body/main", excluded: true, explicit: true }],
+        consentXpaths: ["/html/body/dialog"],
         includeXpaths: [],
-        consentXpaths: [],
         submissionXpaths: [],
         renderedHtml: "<main></main>",
         rawHtml: "<main></main>"
@@ -66,7 +65,6 @@ test("normalizeConfig preserves unsupported page types for later candidate recon
         pageType: "article",
         xpaths: [{ xpath: "/html/body/article", excluded: true }],
         includeXpaths: [],
-        consentXpaths: [],
         submissionXpaths: [],
         renderedHtml: "<article></article>",
         rawHtml: "<article></article>"
@@ -111,9 +109,9 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
       "https://example.com/current": {
         timestamp: "2026-01-01T00:00:00Z",
         pageType: "listing",
-        xpaths: [{ xpath: "/html/body/main", excluded: true }],
+        xpaths: [{ xpath: "/html/body/main", excluded: true, explicit: true }],
+        consentXpaths: ["/html/body/dialog"],
         includeXpaths: [],
-        consentXpaths: [],
         submissionXpaths: [],
         renderedHtml: "<main></main>",
         rawHtml: "<main></main>"
@@ -122,6 +120,13 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   });
 
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
+  assert.deepEqual(payload.pageMarkings["https://example.com/current"].xpaths, [
+    { xpath: "/html/body/main", excluded: true, explicit: true }
+  ]);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "consentXpaths"),
+    false
+  );
 });
 
 test("page marking selector suppression xpaths are normalized and included in sync payloads", () => {
@@ -132,7 +137,6 @@ test("page marking selector suppression xpaths are normalized and included in sy
         pageType: "listing",
         xpaths: [{ xpath: "/html/body/main", excluded: true }],
         includeXpaths: [],
-        consentXpaths: [],
         selectorSuppressedXpaths: [
           "/html/body/main/section",
           "/html/body/main/section",
@@ -169,7 +173,7 @@ test("backend-saved page marking snapshots keep only confirmed page entries outs
       timestamp: "2026-01-01T00:00:00Z",
       title: "Current",
       pageType: "article",
-      xpaths: [{ xpath: "/html/body/header", excluded: true }],
+      xpaths: [{ xpath: "/html/body/header", excluded: true, explicit: true }],
       includeXpaths: ["/html/body/main"],
       consentXpaths: ["/html/body/dialog"],
       selectorSuppressedXpaths: ["/html/body/header/nav"],
@@ -185,9 +189,8 @@ test("backend-saved page marking snapshots keep only confirmed page entries outs
       timestamp: "2026-01-01T00:00:00Z",
       title: "Current",
       pageType: "article",
-      xpaths: [{ xpath: "/html/body/header", excluded: true }],
+      xpaths: [{ xpath: "/html/body/header", excluded: true, explicit: true }],
       includeXpaths: ["/html/body/main"],
-      consentXpaths: ["/html/body/dialog"],
       selectorSuppressedXpaths: ["/html/body/header/nav"],
       submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
       renderedHtml: "<main>Saved</main>",

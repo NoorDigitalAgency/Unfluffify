@@ -106,6 +106,8 @@ const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
+  "[data-wxt-shadow-root]",
+  "browser-mcp-container",
   "[id^=\"unfluffify-\"]",
   "#unfluffify-overlay",
   "#unfluffify-freeze-style",
@@ -204,18 +206,12 @@ function getEntryFingerprint(entry) {
   }
   const xpathFingerprint = entry.xpaths
       .filter((item) => item && typeof item.xpath === "string")
-      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}`)
+      .map((item) => `${item.xpath}|${item.excluded ? "1" : "0"}|${item.explicit === true ? "1" : "0"}`)
       .sort();
   const includeFingerprint = Array.isArray(entry.includeXpaths)
       ? entry.includeXpaths
           .filter((xpath) => typeof xpath === "string" && xpath)
           .map((xpath) => `include:${xpath}`)
-          .sort()
-      : [];
-  const consentFingerprint = Array.isArray(entry.consentXpaths)
-      ? entry.consentXpaths
-          .filter((xpath) => typeof xpath === "string" && xpath)
-          .map((xpath) => `consent:${xpath}`)
           .sort()
       : [];
   const selectorSuppressedFingerprint = Array.isArray(entry.selectorSuppressedXpaths)
@@ -227,7 +223,6 @@ function getEntryFingerprint(entry) {
   const pageTypeFingerprint = `pageType:${normalizePageEntryPageType(entry.pageType)}`;
   return xpathFingerprint.concat(
     includeFingerprint,
-    consentFingerprint,
     selectorSuppressedFingerprint,
     pageTypeFingerprint
   );
@@ -328,6 +323,20 @@ function getDocumentVisualBounds() {
   };
 }
 
+function getSubmissionVisualBounds() {
+  const documentBounds = getDocumentVisualBounds();
+  const viewportBounds = getViewportBounds();
+  const width = viewportBounds.width || documentBounds.width;
+  return {
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: documentBounds.bottom,
+    width,
+    height: documentBounds.height
+  };
+}
+
 function getWindowScrollOffset() {
   return {
     x: Number(window.scrollX ?? window.pageXOffset) || 0,
@@ -359,10 +368,9 @@ function hasFixedPositionAncestor(el) {
   return false;
 }
 
-function isReachableInDocumentVisualArea(rect) {
+function isReachableInDocumentVisualArea(rect, bounds = getDocumentVisualBounds()) {
   const documentRect = toDocumentCoordinateRect(rect);
-  const documentBounds = getDocumentVisualBounds();
-  return Boolean(intersectRects(documentRect, documentBounds));
+  return Boolean(intersectRects(documentRect, bounds));
 }
 
 function intersectRects(rectA, rectB) {
@@ -534,7 +542,7 @@ function isActuallyVisibleInDocument(el) {
   if (hasFixedPositionAncestor(el)) {
     return Boolean(intersectRects(visibleRect, getViewportBounds()));
   }
-  return isReachableInDocumentVisualArea(visibleRect);
+  return isReachableInDocumentVisualArea(visibleRect, getSubmissionVisualBounds());
 }
 
 function getTheoreticalVisibilityState(node, style) {
@@ -1199,7 +1207,7 @@ function collectExcludedParentElements(items) {
     return parents;
   }
   for (const item of items) {
-    if (!item || !item.xpath || !item.excluded) {
+    if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
@@ -2343,7 +2351,12 @@ function normalizeXPathItems(items) {
       continue;
     }
     seen.add(xpath);
-    normalized.unshift({ xpath, excluded: Boolean(item.excluded) });
+    const excluded = Boolean(item.excluded);
+    normalized.unshift(
+      item.explicit === true
+        ? { xpath, excluded, explicit: true }
+        : { xpath, excluded }
+    );
   }
   return normalized;
 }
@@ -2376,7 +2389,7 @@ export function normalizePageEntryXpaths(entry) {
   entry.pageType = normalizePageEntryPageType(entry.pageType);
   entry.xpaths = normalizeXPathItems(entry.xpaths);
   entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
-  entry.consentXpaths = normalizeXPathList(entry.consentXpaths);
+  delete entry.consentXpaths;
   entry.selectorSuppressedXpaths = normalizeXPathList(entry.selectorSuppressedXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
@@ -3884,6 +3897,7 @@ function toggleExplicitExclude(target) {
         cleanupDescendantIncludeOverrides(item.xpath, existingEl);
         if (existingEl && matchesToggleableDefaultExcluded(existingEl)) {
           item.excluded = false;
+          delete item.explicit;
         } else {
           items.splice(i, 1);
         }
@@ -3930,12 +3944,17 @@ function toggleExplicitExclude(target) {
   let addedExclude;
   let targetItem = items.find((item) => item && item.xpath === xpath);
   if (!targetItem) {
-    targetItem = { xpath, excluded: true };
+    targetItem = { xpath, excluded: true, explicit: true };
     items.push(targetItem);
     addedExclude = true;
   } else {
     targetItem.excluded = !targetItem.excluded;
     addedExclude = targetItem.excluded;
+    if (addedExclude) {
+      targetItem.explicit = true;
+    } else {
+      delete targetItem.explicit;
+    }
   }
   if (addedExclude) {
     cleanupHierarchy(xpath);
@@ -3998,6 +4017,7 @@ function toggleExplicitInclude(target) {
     if (!canApplyExplicitInclude(target, state.config, location.href, entry)) {
       // If the target is no longer include-eligible, Alt acts as an unmark for the exclusion.
       targetItem.excluded = false;
+      delete targetItem.explicit;
       for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
         if (includeXpaths[i] === xpath) {
           includeXpaths.splice(i, 1);
@@ -4014,6 +4034,7 @@ function toggleExplicitInclude(target) {
     }
     if (matchesToggleableDefaultExcluded(target)) {
       targetItem.excluded = false;
+      delete targetItem.explicit;
     } else {
       items.splice(targetItemIndex, 1);
     }
@@ -4377,7 +4398,7 @@ function collectExplicitMarkingElements(entry) {
   const explicitExcludeElements = [];
   const hiddenExplicitExcludeElements = [];
   for (const item of items) {
-    if (!item || !item.xpath || !item.excluded) {
+    if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
@@ -5055,14 +5076,7 @@ function stopUrlWatcher() {
   }
 }
 
-export function hideConsentElements(storedXpaths = null) {
-  if (Array.isArray(storedXpaths) && storedXpaths.length) {
-    const removedXpaths = removeConsentElements(storedXpaths);
-    if (removedXpaths.length > 0) {
-      restorePageScrolling();
-    }
-    return removedXpaths.length;
-  }
+export function hideConsentElements() {
   const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR))
       .filter((element) => typeof element.parentElement !== "undefined");
 
@@ -5078,52 +5092,6 @@ export function hideConsentElements(storedXpaths = null) {
     injectConsentBypassStyle();
   }
   return hiddenCount;
-}
-
-function removeConsentElements(storedXpaths) {
-  const removedSet = new Set();
-  const removedXpaths = [];
-  const recordRemoved = (xpath) => {
-    if (typeof xpath !== "string" || !xpath || removedSet.has(xpath)) {
-      return;
-    }
-    removedSet.add(xpath);
-    removedXpaths.push(xpath);
-  };
-  try {
-    if (Array.isArray(storedXpaths)) {
-      storedXpaths.forEach((xpath) => {
-        if (typeof xpath !== "string" || !xpath) {
-          return;
-        }
-        const element = getElementFromXPath(xpath);
-        if (element) {
-          if (hideConsentElement(element)) {
-            recordRemoved(xpath);
-          }
-        }
-      });
-    }
-
-    const elements = Array.from(document.querySelectorAll(CONSENT_SELECTOR));
-    elements
-      .filter((element) => typeof element.parentElement !== "undefined")
-      .map((element) => ({ element, xpath: getXPath(element) }))
-      .filter(({ element, xpath }) => element && xpath)
-      .forEach(({ element, xpath }) => {
-        if (hideConsentElement(element)) {
-          recordRemoved(xpath);
-        }
-      });
-
-    if (removedXpaths.length > 0) {
-      console.log(`Hidden ${removedXpaths.length} consent UI elements from DOM`);
-    }
-  } catch (error) {
-    console.log("Error removing elements:", error);
-  }
-
-  return removedXpaths;
 }
 
 
@@ -5169,80 +5137,16 @@ function restorePageScrolling() {
   });
 }
 
-function normalizeConsentXpaths(list) {
-  if (!Array.isArray(list)) {
-    return [];
-  }
-  const seen = new Set();
-  const result = [];
-  for (const xpath of list) {
-    if (typeof xpath !== "string" || !xpath) {
-      continue;
-    }
-    if (seen.has(xpath)) {
-      continue;
-    }
-    seen.add(xpath);
-    result.push(xpath);
-  }
-  return result;
-}
-
-function syncConsentOnEnable(pageUrl, hasSavedEntry) {
+function hideConsentOnEnable(pageUrl) {
   if (!pageUrl || state.consentSyncedPageUrl === pageUrl) {
-    return;
+    return 0;
   }
   state.consentSyncedPageUrl = pageUrl;
-  const storedEntry =
-    state.config &&
-    state.config.pageMarkings &&
-    state.config.pageMarkings[pageUrl];
-  const storedConsentXpaths =
-    storedEntry && Array.isArray(storedEntry.consentXpaths)
-      ? storedEntry.consentXpaths
-      : [];
-  const removedConsentXpaths = removeConsentElements(storedConsentXpaths);
-  if (removedConsentXpaths.length > 0) {
-    restorePageScrolling();
+  const hiddenCount = hideConsentElements();
+  if (hiddenCount === 0) {
+    injectConsentBypassStyle();
   }
-  syncConsentXpaths(pageUrl, removedConsentXpaths, {
-    notifyOnChange: hasSavedEntry
-  });
-}
-
-function syncConsentXpaths(pageUrl, consentXpaths, options) {
-  if (!state.enabled || !state.config || !pageUrl) {
-    return false;
-  }
-  const { notifyOnChange = true } = options || {};
-  const normalized = normalizeConsentXpaths(consentXpaths);
-  const hadEntry = hasPageMarkingEntry(state.config, pageUrl);
-  if (!hadEntry && normalized.length === 0) {
-    return false;
-  }
-  const entry = getPageMarkingEntry(state.config, pageUrl, {
-    create: hadEntry || normalized.length > 0,
-    persist: hadEntry || normalized.length > 0
-  });
-  const previous = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
-  const changed =
-    previous.length !== normalized.length ||
-    previous.some((xpath, index) => xpath !== normalized[index]);
-  if (!changed) {
-    return false;
-  }
-  entry.consentXpaths = normalized;
-  touchPageEntryTimestamp(entry);
-  setPageMarkingEntry(state.config.pageMarkings, pageUrl, entry);
-  if (notifyOnChange) {
-    notifyDraftStatus(pageUrl);
-    chrome.runtime.sendMessage({
-      type: "consentXpathsChanged",
-      baseUrl: state.baseUrl,
-      pageUrl
-    }).then();
-  }
-  return true;
+  return hiddenCount;
 }
 
 // ====================================================================
@@ -5350,7 +5254,6 @@ export function clonePageEntry(entry) {
     timestamp: normalizeEntryTimestampValue(entry.timestamp),
     pageType: normalizePageEntryPageType(entry.pageType),
     xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
-    consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
     includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
     selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
       ? entry.selectorSuppressedXpaths
@@ -5461,7 +5364,7 @@ export function isMarkableElement(el, config, options) {
   if (isWithinAiPopover(el)) {
     return false;
   }
-  if (isWithinConsentElement(el)) {
+  if (!(options && options.allowConsentElements) && isWithinConsentElement(el)) {
     return false;
   }
   if (options && options.allowImmutableChildren) {
@@ -5779,7 +5682,6 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
       timestamp: createCurrentTimestamp(),
       pageType: currentPageType,
       xpaths: [],
-      consentXpaths: [],
       includeXpaths: [],
       submissionXpaths: [],
       renderedHtml: "",
@@ -5801,7 +5703,6 @@ export function getPageMarkingEntry(configValue, pageUrl, options) {
     timestamp: createCurrentTimestamp(),
     pageType: currentPageType,
     xpaths: [],
-    consentXpaths: [],
     includeXpaths: [],
     submissionXpaths: [],
     renderedHtml: "",
@@ -5965,14 +5866,7 @@ export async function enableForBaseUrl(baseUrl) {
   }
   state.disabledUnsavedDraft = null;
 
-  const hasSavedEntry = Boolean(storedEntry || savedEntry);
-  syncConsentOnEnable(pageUrl, hasSavedEntry);
-  // Hide any detected consent elements on the current page (not just previously stored ones)
-  const hiddenCount = hideConsentElements();
-  // Always inject bypass style in case consent elements exist but weren't hidden yet
-  if (hiddenCount === 0) {
-    injectConsentBypassStyle();
-  }
+  hideConsentOnEnable(pageUrl);
   createOverlay();
   scheduleRender();
   startObservers();
@@ -6275,17 +6169,7 @@ export async function refreshFromTabState() {
         }
       }
       scheduleRender();
-      const hasSavedData = Boolean(
-        storedEntry &&
-          ((Array.isArray(storedEntry.xpaths) && storedEntry.xpaths.length > 0) ||
-            (Array.isArray(storedEntry.includeXpaths) &&
-              storedEntry.includeXpaths.length > 0) ||
-            (Array.isArray(storedEntry.consentXpaths) &&
-              storedEntry.consentXpaths.length > 0) ||
-            (typeof storedEntry.renderedHtml === "string" &&
-              storedEntry.renderedHtml.length > 0))
-      );
-      syncConsentOnEnable(pageUrl, hasSavedData);
+      hideConsentOnEnable(pageUrl);
       return;
     }
   }
@@ -6324,9 +6208,13 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     return resolved;
   };
   const excludedLookup = new Map();
+  const explicitXpathSet = new Set();
   for (const item of entry.xpaths || []) {
     if (item && item.xpath) {
       excludedLookup.set(item.xpath, Boolean(item.excluded));
+      if (item.explicit === true) {
+        explicitXpathSet.add(item.xpath);
+      }
     }
   }
   const generatedDefaultExcludeSet = new Set();
@@ -6336,19 +6224,21 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       continue;
     }
     const el = getCachedElementFromXPath(item.xpath);
-    if (item.excluded && el && matchesToggleableDefaultExcluded(el)) {
+    if (item.excluded && item.explicit !== true && el && matchesToggleableDefaultExcluded(el)) {
       generatedDefaultExcludeSet.add(item.xpath);
-    } else {
+    } else if (item.explicit === true) {
       storedExplicitContextSet.add(item.xpath);
     }
   }
   const explicitExcludeSet = new Set();
-  for (const [xpath, excluded] of excludedLookup) {
+  for (const item of entry.xpaths || []) {
+    const xpath = item && item.xpath;
     if (
-      excluded &&
+      item &&
+      item.excluded &&
+      item.explicit === true &&
       typeof xpath === "string" &&
-      xpath &&
-      !generatedDefaultExcludeSet.has(xpath)
+      xpath
     ) {
       explicitExcludeSet.add(xpath);
     }
@@ -6494,13 +6384,17 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
       : excludedLookup.has(xpath)
         ? excludedLookup.get(xpath) === true
         : defaultExcluded;
-    items.push({ xpath, excluded });
+    items.push(
+      explicitXpathSet.has(xpath)
+        ? { xpath, excluded, explicit: true }
+        : { xpath, excluded }
+    );
     if (excluded) {
       generatedExcludedSet.add(xpath);
     }
   }
   for (const item of previousItems) {
-    if (!item || !item.xpath || !item.excluded) {
+    if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
       continue;
     }
     if (explicitIncludeSet.has(item.xpath)) {
@@ -6525,7 +6419,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
     if (isWithinExplicitInclude(explicitEl)) {
       continue;
     }
-    items.push({ xpath: item.xpath, excluded: true });
+    items.push({ xpath: item.xpath, excluded: true, explicit: true });
     seen.add(item.xpath);
   }
   for (const item of previousItems) {
@@ -6562,7 +6456,8 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
         return (
             !previous ||
             previous.xpath !== item.xpath ||
-            Boolean(previous.excluded) !== item.excluded
+            Boolean(previous.excluded) !== item.excluded ||
+            (previous.explicit === true) !== (item.explicit === true)
         );
       });
   entry.xpaths = items;

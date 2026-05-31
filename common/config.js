@@ -131,7 +131,6 @@ export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
     snapshot[url] = {
       timestamp: normalizeEntryTimestamp(entry.timestamp),
       xpaths: Array.isArray(entry.xpaths) ? entry.xpaths : [],
-      consentXpaths: Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [],
       includeXpaths: Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [],
       selectorSuppressedXpaths: Array.isArray(entry.selectorSuppressedXpaths)
         ? entry.selectorSuppressedXpaths
@@ -398,10 +397,16 @@ function normalizeXpathItems(rawXpaths) {
         continue;
       }
       const excluded = Boolean(item.excluded);
-      if (xpath !== item.xpath || item.excluded !== excluded) {
+      const explicit = item.explicit === true;
+      const hasExplicit = Object.prototype.hasOwnProperty.call(item, "explicit");
+      if (
+        xpath !== item.xpath ||
+        item.excluded !== excluded ||
+        (hasExplicit && item.explicit !== true)
+      ) {
         changed = true;
       }
-      parsed.push({ xpath, excluded });
+      parsed.push(explicit ? { xpath, excluded, explicit: true } : { xpath, excluded });
       continue;
     }
     changed = true;
@@ -704,13 +709,7 @@ export function normalizePageMarkings(pageMarkings) {
     if (entry.rawHtml !== undefined && typeof entry.rawHtml !== "string") {
       changed = true;
     }
-    if (!Array.isArray(entry.consentXpaths) && entry.consentXpaths !== undefined) {
-      changed = true;
-    }
-    const rawConsent = Array.isArray(entry.consentXpaths) ? entry.consentXpaths : [];
-    const consentResult = normalizeUniqueXpathList(rawConsent);
-    const consentXpaths = consentResult.values;
-    if (consentResult.changed) {
+    if (entry.consentXpaths !== undefined) {
       changed = true;
     }
     if (!Array.isArray(entry.includeXpaths) && entry.includeXpaths !== undefined) {
@@ -764,7 +763,6 @@ export function normalizePageMarkings(pageMarkings) {
     const normalizedEntry = {
       timestamp,
       xpaths,
-      consentXpaths,
       includeXpaths,
       selectorSuppressedXpaths,
       submissionXpaths,
@@ -898,7 +896,6 @@ function cloneNormalizedPageEntry(entry, fallbackUrl = "") {
     timestamp: PAGE_TIMESTAMP_FALLBACK,
     pageType: "",
     xpaths: [],
-    consentXpaths: [],
     includeXpaths: [],
     selectorSuppressedXpaths: [],
     submissionXpaths: [],
@@ -976,11 +973,9 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
       xpaths: Array.isArray(safeEntry.xpaths)
         ? safeEntry.xpaths.map((item) => ({
           xpath: item && typeof item.xpath === "string" ? item.xpath : "",
-          excluded: Boolean(item && item.excluded)
+          excluded: Boolean(item && item.excluded),
+          ...(item && item.explicit === true ? { explicit: true } : {})
         })).filter((item) => item.xpath)
-        : [],
-      consentXpaths: Array.isArray(safeEntry.consentXpaths)
-        ? safeEntry.consentXpaths.filter((xpath) => typeof xpath === "string" && xpath)
         : [],
       includeXpaths: Array.isArray(safeEntry.includeXpaths)
         ? safeEntry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
