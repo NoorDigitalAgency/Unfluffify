@@ -99,6 +99,7 @@ export const state = {
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null,
   explicitFullRenderToken: 0,
+  pageMotionPause: null,
   perfEnabled: null
 };
 
@@ -114,6 +115,20 @@ const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
+const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
+const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
+const PAGE_MOTION_PAUSE_TARGET_SELECTORS = [
+  "[data-autoplay=\"true\"]",
+  "[data-auto-play=\"true\"]",
+  "[data-ride=\"carousel\"]",
+  "[data-bs-ride=\"carousel\"]",
+  ".w-slider[data-autoplay=\"true\"]",
+  ".swiper",
+  ".slick-slider",
+  ".splide",
+  "[aria-roledescription=\"carousel\"]",
+  "[role=\"region\"][aria-label*=\"carousel\" i]"
+];
 const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
   "[data-uf-extension-ui=\"true\"]",
   "[data-wxt-shadow-root]",
@@ -127,7 +142,8 @@ const EXTENSION_SNAPSHOT_STRIP_SELECTORS = [
 const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-exclude",
   "uf-cursor-include",
-  "uf-cursor-passthrough"
+  "uf-cursor-passthrough",
+  PAGE_MOTION_PAUSE_ROOT_CLASS
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
@@ -2677,6 +2693,234 @@ export function createSanitizedPageSnapshot(options = {}) {
     renderedHtml: clone.outerHTML,
     renderMode: normalizedRenderMode
   };
+}
+
+function createPageMotionPauseState() {
+  return {
+    animations: new Set(),
+    hoverTargets: new Set()
+  };
+}
+
+function ensurePageMotionPauseStyle() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const existing = typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID)
+    : null;
+  if (existing) {
+    return existing;
+  }
+  if (typeof document.createElement !== "function") {
+    return null;
+  }
+  const style = document.createElement("style");
+  style.id = PAGE_MOTION_PAUSE_STYLE_ID;
+  style.textContent = `
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS},
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body {
+      scroll-behavior: auto !important;
+    }
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *,
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *::before,
+    html.${PAGE_MOTION_PAUSE_ROOT_CLASS} *::after {
+      animation-play-state: paused !important;
+      transition-property: none !important;
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  `;
+  const parent = document.head || document.documentElement || document.body;
+  if (parent && typeof parent.appendChild === "function") {
+    parent.appendChild(style);
+  }
+  return style;
+}
+
+function setPageMotionPauseClass(paused) {
+  const root = typeof document !== "undefined" ? document.documentElement : null;
+  if (!root || !root.classList) {
+    return;
+  }
+  if (paused && typeof root.classList.add === "function") {
+    root.classList.add(PAGE_MOTION_PAUSE_ROOT_CLASS);
+  } else if (!paused && typeof root.classList.remove === "function") {
+    root.classList.remove(PAGE_MOTION_PAUSE_ROOT_CLASS);
+  }
+}
+
+function removePageMotionPauseStyle() {
+  const style = typeof document !== "undefined" && typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID)
+    : null;
+  if (style && typeof style.remove === "function") {
+    style.remove();
+  }
+}
+
+function getDocumentAnimations() {
+  if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
+    return [];
+  }
+  try {
+    return Array.from(document.getAnimations({ subtree: true }) || []);
+  } catch (error) {
+    try {
+      return Array.from(document.getAnimations() || []);
+    } catch (fallbackError) {
+      return [];
+    }
+  }
+}
+
+function pauseDocumentAnimations(pauseState) {
+  for (const animation of getDocumentAnimations()) {
+    if (!animation || typeof animation.pause !== "function") {
+      continue;
+    }
+    if (!pauseState.animations.has(animation) && animation.playState === "paused") {
+      continue;
+    }
+    pauseState.animations.add(animation);
+    try {
+      animation.pause();
+    } catch (error) {
+      // Ignore animations that cannot be controlled by content scripts.
+    }
+  }
+}
+
+function resumeDocumentAnimations(pauseState) {
+  for (const animation of pauseState.animations) {
+    if (!animation || typeof animation.play !== "function") {
+      continue;
+    }
+    try {
+      animation.play();
+    } catch (error) {
+      // Ignore animations that were removed while marking mode was active.
+    }
+  }
+}
+
+function collectPageMotionPauseTargets() {
+  const targets = new Set();
+  if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+    return targets;
+  }
+  for (const selector of PAGE_MOTION_PAUSE_TARGET_SELECTORS) {
+    try {
+      document.querySelectorAll(selector).forEach((node) => {
+        if (node && node.nodeType === 1 && typeof node.dispatchEvent === "function") {
+          targets.add(node);
+        }
+      });
+    } catch (error) {
+      // Ignore selector support differences on older pages.
+    }
+  }
+  return targets;
+}
+
+function createSyntheticPageMotionEvent(type, bubbles) {
+  const eventOptions = {
+    bubbles: Boolean(bubbles),
+    cancelable: true,
+    composed: true,
+    view: typeof window !== "undefined" ? window : null
+  };
+  const EventConstructor = type.startsWith("pointer") && typeof PointerEvent === "function"
+    ? PointerEvent
+    : typeof MouseEvent === "function"
+      ? MouseEvent
+      : typeof Event === "function"
+        ? Event
+        : null;
+  if (!EventConstructor) {
+    return null;
+  }
+  try {
+    return new EventConstructor(type, eventOptions);
+  } catch (error) {
+    try {
+      return new Event(type, eventOptions);
+    } catch (fallbackError) {
+      return null;
+    }
+  }
+}
+
+function dispatchPageMotionEvents(target, events) {
+  if (!target || typeof target.dispatchEvent !== "function") {
+    return;
+  }
+  for (const [type, bubbles] of events) {
+    const event = createSyntheticPageMotionEvent(type, bubbles);
+    if (!event) {
+      continue;
+    }
+    try {
+      target.dispatchEvent(event);
+    } catch (error) {
+      // Ignore third-party widgets that reject synthetic events.
+    }
+  }
+}
+
+function pauseAutoplayMotionTargets(pauseState) {
+  for (const target of collectPageMotionPauseTargets()) {
+    pauseState.hoverTargets.add(target);
+    dispatchPageMotionEvents(target, [
+      ["pointerenter", false],
+      ["mouseenter", false],
+      ["mouseover", true]
+    ]);
+  }
+}
+
+function resumeAutoplayMotionTargets(pauseState) {
+  for (const target of pauseState.hoverTargets) {
+    dispatchPageMotionEvents(target, [
+      ["pointerleave", false],
+      ["mouseleave", false],
+      ["mouseout", true]
+    ]);
+  }
+}
+
+export function pausePageMotion() {
+  const pauseState = state.pageMotionPause || createPageMotionPauseState();
+  state.pageMotionPause = pauseState;
+  ensurePageMotionPauseStyle();
+  setPageMotionPauseClass(true);
+  pauseDocumentAnimations(pauseState);
+  pauseAutoplayMotionTargets(pauseState);
+}
+
+export function refreshPageMotionPause() {
+  if (!state.pageMotionPause) {
+    return;
+  }
+  ensurePageMotionPauseStyle();
+  setPageMotionPauseClass(true);
+  pauseDocumentAnimations(state.pageMotionPause);
+  pauseAutoplayMotionTargets(state.pageMotionPause);
+}
+
+export function resumePageMotion() {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState) {
+    removePageMotionPauseStyle();
+    setPageMotionPauseClass(false);
+    return;
+  }
+  state.pageMotionPause = null;
+  removePageMotionPauseStyle();
+  setPageMotionPauseClass(false);
+  resumeAutoplayMotionTargets(pauseState);
+  resumeDocumentAnimations(pauseState);
 }
 
 export function touchPageEntryTimestamp(entry, timestamp = null) {
@@ -6033,6 +6277,7 @@ export function disable() {
   if (state.consentRootElements) {
     state.consentRootElements.clear();
   }
+  resumePageMotion();
   stopObservers();
   stopUrlWatcher();
 }
@@ -6076,6 +6321,7 @@ export async function enableForBaseUrl(baseUrl) {
   state.disabledUnsavedDraft = null;
 
   hideConsentOnEnable(pageUrl);
+  pausePageMotion();
   createOverlay();
   scheduleRender();
   startObservers();

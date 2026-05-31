@@ -2376,6 +2376,7 @@ function getCurrentPageSnapshotOptions() {
 }
 
 function createCurrentPageSnapshot() {
+  core.refreshPageMotionPause();
   return core.createSanitizedPageSnapshot(getCurrentPageSnapshotOptions());
 }
 
@@ -5208,6 +5209,7 @@ function toRenderableNodeList(nodes) {
 }
 
 function collectAiSubmissionXpathsForCurrentPage() {
+  core.refreshPageMotionPause();
   if (!state.config) {
     return [];
   }

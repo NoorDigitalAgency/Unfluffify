@@ -181,6 +181,21 @@ Marking mode must avoid duplicate full-page passes:
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
 
+## Motion Stability Contract
+
+Marking mode pauses page motion while it is active. The pause is part of the
+save contract, not just a visual convenience: animated carousels can move text
+outside the viewport, update inline transforms, flip `aria-hidden` state, and
+change which textual nodes are submitted as visible AI evidence. Save snapshots
+and `submissionXpaths` must therefore be collected from a frozen page posture.
+
+The motion pause freezes CSS animations, CSS transitions, and Web Animations,
+and sends hover-pause events to autoplay carousel roots such as Webflow
+`w-slider` components. Save-time snapshot and submission collection refresh the
+pause immediately before reading DOM geometry. Disabling marking restores the
+synthetic hover state and resumes Web Animations that were paused by marking
+mode.
+
 ## Target Resolution
 
 Targets are resolved from `document.elementsFromPoint(...)`, skipping extension
@@ -331,6 +346,7 @@ force a repaint on full active refreshes even when the render key is unchanged.
 Focused rule coverage lives in:
 
 - `tests/config.test.js`
+- `tests/core-motion-pause.test.js`
 - `tests/marking-rules.test.js`
 - `tests/core-visibility.test.js`
 - `tests/submission-rules.test.js`
