@@ -7,7 +7,8 @@ import {
   pausePageMotion,
   refreshPageMotionPause,
   resumePageMotion,
-  state
+  state,
+  warmPageRevealTriggersBeforeMotionPause
 } from "../content/core.js";
 
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
@@ -15,6 +16,7 @@ const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_LOCK_ATTR = "data-uf-motion-lock-id";
+const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
 
 function createClassList(owner, initialValue = "") {
   const values = new Set(String(initialValue || "").split(/\s+/).filter(Boolean));
@@ -313,10 +315,15 @@ function createMotionDom() {
   const html = new FakeElement("html");
   const head = new FakeElement("head");
   const body = new FakeElement("body");
+  html.clientHeight = 120;
+  html.scrollHeight = 120;
+  body.clientHeight = 120;
+  body.scrollHeight = 120;
   html.appendChild(head);
   html.appendChild(body);
   const animations = [];
   const intervals = new Set();
+  const scrollCalls = [];
   const document = {
     documentElement: html,
     head,
@@ -336,9 +343,28 @@ function createMotionDom() {
     }
   };
   const window = {
+    innerHeight: 120,
+    scrollX: 0,
+    scrollY: 0,
+    pageXOffset: 0,
+    pageYOffset: 0,
+    scrollTo(x, y) {
+      const nextX = Number(x) || 0;
+      const nextY = Number(y) || 0;
+      this.scrollX = nextX;
+      this.scrollY = nextY;
+      this.pageXOffset = nextX;
+      this.pageYOffset = nextY;
+      scrollCalls.push({ x: nextX, y: nextY });
+    },
     getComputedStyle(element) {
       return element.computedStyle || createComputedStyle();
     },
+    requestAnimationFrame(callback) {
+      callback(0);
+      return { callback };
+    },
+    cancelAnimationFrame() {},
     setInterval(callback) {
       const handle = { callback };
       intervals.add(handle);
@@ -348,7 +374,7 @@ function createMotionDom() {
       intervals.delete(handle);
     }
   };
-  return { document, window, animations, intervals, html, head, body };
+  return { document, window, animations, intervals, scrollCalls, html, head, body };
 }
 
 function installMotionDom() {
@@ -552,6 +578,53 @@ test("page motion pause skips extension-owned marking UI", () => {
     state.overlay = overlay;
     dom.restore();
     state.overlay = previousOverlay;
+  }
+});
+
+test("page reveal warmup sweeps scroll positions and restores the original viewport", async () => {
+  const dom = installMotionDom();
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 3000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 3000;
+  dom.window.innerHeight = 500;
+  dom.window.scrollX = 12;
+  dom.window.scrollY = 375;
+  dom.window.pageXOffset = 12;
+  dom.window.pageYOffset = 375;
+
+  try {
+    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+
+    assert.equal(warmed, true);
+    assert.equal(dom.scrollCalls[0].x, 12);
+    assert.equal(dom.scrollCalls[0].y, 0);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.deepEqual(dom.scrollCalls.at(-1), { x: 12, y: 375 });
+    assert.equal(dom.window.scrollX, 12);
+    assert.equal(dom.window.scrollY, 375);
+    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("page reveal warmup skips pages without vertical scroll room", async () => {
+  const dom = installMotionDom();
+  dom.html.clientHeight = 700;
+  dom.html.scrollHeight = 700;
+  dom.body.clientHeight = 700;
+  dom.body.scrollHeight = 700;
+  dom.window.innerHeight = 700;
+
+  try {
+    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+
+    assert.equal(warmed, false);
+    assert.deepEqual(dom.scrollCalls, []);
+    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+  } finally {
+    dom.restore();
   }
 });
 
@@ -780,4 +853,18 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
   assert.match(source, /:not\(\[id\^=\"unfluffify-\"\]\)/);
   assert.match(source, /:not\(\[id\^=\"unfluffify-\"\] \*\)/);
   assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
+});
+
+test("marking enable warms page reveals before freezing and rendering overlays", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl)");
+
+  assert.ok(enableIndex > -1);
+  const warmIndex = source.indexOf("await warmPageRevealTriggersBeforeMotionPause", enableIndex);
+  const pauseIndex = source.indexOf("pausePageMotion();", enableIndex);
+  const overlayIndex = source.indexOf("createOverlay();", enableIndex);
+
+  assert.ok(warmIndex > -1);
+  assert.ok(pauseIndex > warmIndex);
+  assert.ok(overlayIndex > pauseIndex);
 });

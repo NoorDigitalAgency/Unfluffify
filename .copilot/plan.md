@@ -76,8 +76,9 @@ Motion stability pass completed:
 2. Matching base-URL pages hold the pause even when no selector highlights or visible overlays exist yet.
 3. The freeze covers CSS animations/transitions, Web Animations, SVG clocks, autoplay-like media, generic hover-pause candidates, computed inline locks for common motion properties, and a page-world timer/rAF gate for JavaScript-driven carousel loops.
 4. The freeze excludes extension-owned UI and routes marking overlay scheduling through extension-owned timers/rAF, so Unfluffify controls keep rendering while page motion is held.
-5. Layout-present scroll/viewport/attribute-driven reveal candidates, including Webflow interaction hooks, are normalized to visible posture while semantic hidden UI and carousel states remain hidden.
-6. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, reveal normalizations, and inline locks before serializing `renderedHtml`.
+5. Marking enable runs a bounded instant top-to-bottom reveal warm-up, restores the user's scroll position, then freezes page motion and renders overlays.
+6. Layout-present scroll/viewport/attribute-driven reveal candidates, including Webflow interaction hooks, are normalized to visible posture while semantic hidden UI and carousel states remain hidden.
+7. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, reveal normalizations, and inline locks before serializing `renderedHtml`.
 
 Page interaction pass-through completed:
 

@@ -166,7 +166,7 @@ Visual overlay showing page content classification:
 
 ### Motion Stability
 
-When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, timer-driven JavaScript carousels and sliders, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small pause glyph appears on the page while this freeze is active.
+When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, timer-driven JavaScript carousels and sliders, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. Marking enable first runs a bounded instant scroll sweep to trigger viewport and lazy reveal handlers, restores the user's original scroll position, and then freezes page motion before overlays render. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small pause glyph appears on the page while this freeze is active.
 
 ### AI Selectors
 

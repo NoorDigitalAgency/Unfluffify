@@ -183,7 +183,9 @@ Marking mode must avoid duplicate full-page passes:
 
 - Enabling marking performs one activation path. The popup sends `setEnabled`;
   content activation/sync/render is handled from there, without a second
-  immediate `forceRefresh`.
+  immediate `forceRefresh`. Before page motion is frozen and overlays are
+  rendered, activation may run a bounded reveal warm-up that restores the
+  user's original scroll position.
 - A manual refinement performs a cheap immediate explicit-layer refresh, then a
   delayed invalidating full rebuild for correctness. The immediate refresh may
   update explicit include/exclude layers and cached explicit collections, but it
@@ -230,7 +232,14 @@ gating cannot starve Unfluffify's own UI. It locks the current computed values
 of common moving properties such as transforms, offsets, opacity, filters, and
 position edges on detected motion candidates.
 
-Viewport and scroll-triggered reveal effects are handled as a distinct case.
+Viewport and scroll-triggered reveal effects are handled as a distinct case. On
+marking enable, before the motion pause starts, the content script stores the
+current scroll offset, temporarily forces instant scroll behavior, samples a
+bounded set of top-to-bottom viewport positions to trigger scroll/intersection
+handlers, restores the original scroll offset, and only then freezes page motion
+and renders marking overlays. The sweep is skipped when the page has no vertical
+scroll room or activation becomes stale.
+
 If a layout-present page element has generic entrance/reveal descriptors or an
 attribute-driven interaction hook such as Webflow's `data-w-id`/`data-ix`, and is
 currently hidden only by motion styling such as low opacity, clipped paint,
