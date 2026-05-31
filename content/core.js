@@ -158,10 +158,15 @@ const MARKING_DISABLED_CURSOR_CLASS = "uf-cursor-disabled";
 const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
+const PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
+const PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons";
+const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff2";
+const MATERIAL_DESIGN_ICON_CODE_TAGS = "\\F0174";
+const MATERIAL_DESIGN_ICON_SNOWFLAKE = "\\F0717";
 const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
 const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
 const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
@@ -2946,6 +2951,38 @@ function normalizePageMotionPauseReason(reason) {
     : PAGE_MOTION_PAUSE_DEFAULT_REASON;
 }
 
+function getExtensionResourceUrl(path) {
+  if (
+    !path ||
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getURL !== "function"
+  ) {
+    return "";
+  }
+  try {
+    return chrome.runtime.getURL(path) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function getMaterialDesignIconFontFaceCss() {
+  const fontUrl = getExtensionResourceUrl(MATERIAL_DESIGN_ICONS_FONT_PATH);
+  if (!fontUrl) {
+    return "";
+  }
+  return `
+    @font-face {
+      font-family: "${PAGE_MOTION_ICON_FONT_FAMILY}";
+      src: url(${JSON.stringify(fontUrl)}) format("woff2");
+      font-weight: normal;
+      font-style: normal;
+      font-display: block;
+    }
+  `;
+}
+
 function getViewportHeightForRevealWarmup() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
@@ -3128,7 +3165,11 @@ function ensurePageMotionPauseStyle() {
   }
   const style = document.createElement("style");
   style.id = PAGE_MOTION_PAUSE_STYLE_ID;
+  if (typeof style.setAttribute === "function") {
+    style.setAttribute("data-uf-extension-ui", "true");
+  }
   style.textContent = `
+    ${getMaterialDesignIconFontFaceCss()}
     html.${PAGE_MOTION_PAUSE_ROOT_CLASS},
     html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body {
       scroll-behavior: auto !important;
@@ -3145,18 +3186,19 @@ function ensurePageMotionPauseStyle() {
       transition-delay: 0s !important;
       scroll-behavior: auto !important;
     }
-    #${PAGE_MOTION_PAUSE_INDICATOR_ID} {
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}.${PAGE_MOTION_PAUSE_INDICATOR_CLASS} {
       position: fixed !important;
       top: max(10px, env(safe-area-inset-top, 0px) + 10px) !important;
       right: max(10px, env(safe-area-inset-right, 0px) + 10px) !important;
-      width: 34px !important;
-      height: 28px !important;
+      width: 48px !important;
+      height: 30px !important;
       z-index: 2147483647 !important;
       pointer-events: none !important;
       box-sizing: border-box !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
+      gap: 4px !important;
       border: 1px solid rgba(255, 255, 255, 0.32) !important;
       border-radius: 7px !important;
       background: rgba(17, 24, 39, 0.78) !important;
@@ -3164,13 +3206,26 @@ function ensurePageMotionPauseStyle() {
       backdrop-filter: blur(6px) !important;
       -webkit-backdrop-filter: blur(6px) !important;
     }
-    #${PAGE_MOTION_PAUSE_INDICATOR_ID}::before {
-      content: "" !important;
-      width: 4px !important;
-      height: 14px !important;
-      border-radius: 3px !important;
-      background: rgba(255, 255, 255, 0.96) !important;
-      box-shadow: 8px 0 0 rgba(255, 255, 255, 0.96) !important;
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}.${PAGE_MOTION_PAUSE_INDICATOR_CLASS}::before,
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}.${PAGE_MOTION_PAUSE_INDICATOR_CLASS}::after {
+      display: block !important;
+      width: 18px !important;
+      height: 18px !important;
+      font-family: "${PAGE_MOTION_ICON_FONT_FAMILY}" !important;
+      font-size: 18px !important;
+      font-style: normal !important;
+      font-weight: normal !important;
+      line-height: 18px !important;
+      color: rgba(255, 255, 255, 0.96) !important;
+      text-rendering: auto !important;
+      -webkit-font-smoothing: antialiased !important;
+      -moz-osx-font-smoothing: grayscale !important;
+    }
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}.${PAGE_MOTION_PAUSE_INDICATOR_CLASS}::before {
+      content: "${MATERIAL_DESIGN_ICON_SNOWFLAKE}" !important;
+    }
+    #${PAGE_MOTION_PAUSE_INDICATOR_ID}.${PAGE_MOTION_PAUSE_INDICATOR_CLASS}::after {
+      content: "${MATERIAL_DESIGN_ICON_CODE_TAGS}" !important;
     }
   `;
   const parent = document.head || document.documentElement || document.body;
@@ -3196,6 +3251,7 @@ function ensurePageMotionPauseIndicator() {
   const indicator = document.createElement("div");
   indicator.id = PAGE_MOTION_PAUSE_INDICATOR_ID;
   if (typeof indicator.setAttribute === "function") {
+    indicator.setAttribute("class", PAGE_MOTION_PAUSE_INDICATOR_CLASS);
     indicator.setAttribute("data-uf-extension-ui", "true");
     indicator.setAttribute("role", "img");
     indicator.setAttribute("aria-label", "Page motion paused");

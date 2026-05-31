@@ -10,3 +10,11 @@ test("manifest uses extension-compatible media permissions", async () => {
   assert.ok(!manifest.permissions.includes("audioCapture"));
   assert.ok(!manifest.permissions.includes("videoCapture"));
 });
+
+test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
+  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
+
+  assert.ok(resources.includes("assets/materialdesignicons-webfont.woff2"));
+  assert.equal(resources.includes("assets/materialdesignicons.min.css"), false);
+});

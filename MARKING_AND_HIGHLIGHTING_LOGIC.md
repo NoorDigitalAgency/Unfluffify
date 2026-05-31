@@ -251,8 +251,11 @@ inline locks, the root pause class, the pause stylesheet, and the pause
 indicator are removed from sanitized save snapshots so saved `renderedHtml`
 records the page posture without recording Unfluffify UI or freeze mechanics.
 
-While motion is paused, a small fixed pause glyph is shown as extension UI so
-the user can see that page animations and transitions are intentionally held.
+While motion is paused, a small fixed snowflake/code glyph pair is shown as
+extension UI so the user can see that page animations and transitions are
+intentionally held. The indicator uses a content-script-injected Material Design
+Icons font face with Unfluffify-specific selectors and direct glyph `content`,
+without injecting the global `.mdi` stylesheet into the target page.
 When the last lifecycle source releases the pause, Unfluffify restores the
 synthetic hover state, inline locks, media playback that it paused, SVG clocks,
 and Web Animations that it paused.

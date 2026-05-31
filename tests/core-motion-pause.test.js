@@ -786,7 +786,18 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
   try {
     pausePageMotion("marking");
 
+    const pauseStyle = dom.document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID);
+    const pauseIndicator = dom.document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID);
     const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
+    assert.ok(pauseStyle);
+    assert.match(pauseStyle.textContent, /@font-face/);
+    assert.match(pauseStyle.textContent, /Unfluffify Material Design Icons/);
+    assert.match(pauseStyle.textContent, /materialdesignicons-webfont\.woff2/);
+    assert.match(pauseStyle.textContent, /content: "\\F0717" !important/);
+    assert.match(pauseStyle.textContent, /content: "\\F0174" !important/);
+    assert.doesNotMatch(pauseStyle.textContent, /\.mdi(?:\W|$)/);
+    assert.ok(pauseIndicator);
+    assert.equal(pauseIndicator.getAttribute("class"), "uf-page-motion-pause-indicator");
     assert.ok(script);
     assert.equal(script.src, "chrome-extension://unfluffify/common/page-motion-freeze.js");
     assert.equal(script.getAttribute("data-uf-extension-ui"), "true");
@@ -847,6 +858,11 @@ test("page motion pause no longer depends on specific carousel class selectors",
 test("page motion pause stylesheet excludes extension-owned UI", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
+  assert.match(source, /PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator"/);
+  assert.match(source, /PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons"/);
+  assert.match(source, /MATERIAL_DESIGN_ICONS_FONT_PATH = "assets\/materialdesignicons-webfont\.woff2"/);
+  assert.match(source, /MATERIAL_DESIGN_ICON_SNOWFLAKE = "\\\\F0717"/);
+  assert.match(source, /MATERIAL_DESIGN_ICON_CODE_TAGS = "\\\\F0174"/);
   assert.match(source, /PAGE_MOTION_PAUSE_CONTENT_SELECTOR/);
   assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\]\)/);
   assert.match(source, /:not\(\[data-uf-extension-ui=\"true\"\] \*\)/);
