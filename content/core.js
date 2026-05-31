@@ -590,6 +590,78 @@ function isElementInHitPath(target, element) {
   return false;
 }
 
+function isIgnoredHitTestElement(element) {
+  if (!element || element.nodeType !== 1) {
+    return true;
+  }
+  if (state.overlay && (element === state.overlay || state.overlay.contains(element))) {
+    return true;
+  }
+  return isWithinExtensionUi(element) || isWithinAiPopover(element);
+}
+
+function getPageHitElementsAtPoint(x, y) {
+  const rawHits = typeof document.elementsFromPoint === "function"
+    ? document.elementsFromPoint(x, y)
+    : typeof document.elementFromPoint === "function"
+      ? [document.elementFromPoint(x, y)].filter(Boolean)
+      : [];
+  return rawHits.filter((hit) => hit && hit.nodeType === 1 && !isIgnoredHitTestElement(hit));
+}
+
+function getPaintReachabilityForRect(el, rect) {
+  if (!el || el.nodeType !== 1 || !rect) {
+    return null;
+  }
+  if (typeof document.elementFromPoint !== "function" && typeof document.elementsFromPoint !== "function") {
+    return null;
+  }
+  let sawPageHit = false;
+  const points = getRealityCheckPoints(rect);
+  for (const [x, y] of points) {
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+      continue;
+    }
+    const elementsAtPoint = getPageHitElementsAtPoint(x, y);
+    if (elementsAtPoint.length === 0) {
+      continue;
+    }
+    sawPageHit = true;
+    if (isElementInHitPath(elementsAtPoint[0], el)) {
+      return true;
+    }
+  }
+  return sawPageHit ? false : null;
+}
+
+function filterPaintReachableRects(el, rects) {
+  if (!Array.isArray(rects) || rects.length === 0) {
+    return [];
+  }
+  return rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
+}
+
+function isPaintReachableInCurrentViewport(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const rects = collectRectsFromClientRects(el.getClientRects());
+  if (rects.length === 0) {
+    return true;
+  }
+  let sawUnknown = false;
+  for (const rect of rects) {
+    const reachability = getPaintReachabilityForRect(el, rect);
+    if (reachability === true) {
+      return true;
+    }
+    if (reachability === null) {
+      sawUnknown = true;
+    }
+  }
+  return sawUnknown;
+}
+
 function getRealityCheckPoints(rect) {
   const inset = 1;
   const left = rect.left + inset;
@@ -620,17 +692,9 @@ function isActuallyVisibleToUser(el) {
     if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
       continue;
     }
-    const elementsAtPoint =
-      typeof document.elementsFromPoint === "function"
-        ? document.elementsFromPoint(x, y)
-        : [document.elementFromPoint(x, y)].filter(Boolean);
-    for (const hit of elementsAtPoint) {
-      if (!hit || hit.nodeType !== 1 || isWithinExtensionUi(hit)) {
-        continue;
-      }
-      if (isElementInHitPath(hit, el)) {
-        return true;
-      }
+    const elementsAtPoint = getPageHitElementsAtPoint(x, y);
+    if (elementsAtPoint.length > 0 && isElementInHitPath(elementsAtPoint[0], el)) {
+      return true;
     }
   }
   return false;
@@ -875,6 +939,9 @@ function hasTextualImmutableDescendant(el, options = {}) {
 
 function isSelfMarkableWithoutParentMode(el, options = {}) {
   if (!isTextualContainer(el, options)) {
+    return false;
+  }
+  if (!isPaintReachableInCurrentViewport(el)) {
     return false;
   }
   // Preserve the previous shallowest-ancestor behavior: hidden responsive
@@ -4825,14 +4892,16 @@ function getCollapsedTextualFallbackRects(el) {
 function getVisibleRects(el) {
   const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
   if (!isVisible(el)) {
-    return allowCollapsedTextFallback ? getCollapsedTextualFallbackRects(el) : [];
+    return allowCollapsedTextFallback
+      ? filterPaintReachableRects(el, getCollapsedTextualFallbackRects(el))
+      : [];
   }
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
-    return visibleRects;
+    return filterPaintReachableRects(el, visibleRects);
   }
   if (allowCollapsedTextFallback) {
-    return getCollapsedTextualFallbackRects(el);
+    return filterPaintReachableRects(el, getCollapsedTextualFallbackRects(el));
   }
   return [];
 }
@@ -5321,10 +5390,10 @@ function renderHighlightsInner() {
 function getRectsInViewport(el) {
   const visibleRects = collectRectsFromClientRects(el.getClientRects());
   if (visibleRects.length > 0) {
-    return visibleRects;
+    return filterPaintReachableRects(el, visibleRects);
   }
   if (getCachedNormalizedElementText(el)) {
-    return getCollapsedTextualFallbackRects(el);
+    return filterPaintReachableRects(el, getCollapsedTextualFallbackRects(el));
   }
   return [];
 }

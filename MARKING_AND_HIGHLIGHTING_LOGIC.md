@@ -208,6 +208,13 @@ back to visible descendant geometry, and hidden explicit includes may remain as
 ghost include markings when measurable, but completely invisible explicit
 targets are ignored.
 
+Renderable marking geometry also has to be paint-reachable in the current
+viewport. Responsive alternates that keep measurable boxes but are fully covered
+by another card face, slide face, or click layer must not render as separate
+default targets. If hit testing is unavailable or the element is off-screen, the
+cached collection keeps the element and the viewport redraw performs the same
+paint-reachability check when it scrolls into view.
+
 ### Exclude Mode
 
 Plain exclude clicks choose the nearest self-markable target. Already excluded

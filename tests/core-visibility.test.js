@@ -198,6 +198,61 @@ test("visible elements pass the visibility guard", () => {
   });
 });
 
+test("default layer skips covered responsive alternate content", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const topHeading = createElement({
+      tagName: "h3",
+      parentElement: body,
+      text: "Medicinsk behandling",
+      rect: { top: 464, right: 269, bottom: 485, left: 121, width: 148, height: 21 }
+    });
+    const topContent = createElement({
+      parentElement: body,
+      children: [topHeading],
+      rect: { top: 348, right: 269, bottom: 495, left: 121, width: 148, height: 147 }
+    });
+    const visibleStrong = createElement({
+      tagName: "strong",
+      parentElement: body,
+      text: "Medicinsk behandling",
+      rect: { top: 407, right: 271, bottom: 426, left: 118, width: 153, height: 19 }
+    });
+    const visibleHeading = createElement({
+      tagName: "h3",
+      parentElement: body,
+      children: [visibleStrong],
+      rect: { top: 406, right: 271, bottom: 427, left: 118, width: 153, height: 21 }
+    });
+    const onClickContent = createElement({
+      parentElement: body,
+      children: [visibleHeading],
+      style: { position: "absolute" },
+      rect: { top: 324, right: 370, bottom: 519, left: 20, width: 350, height: 195 }
+    });
+    const card = createElement({
+      parentElement: body,
+      children: [topContent, onClickContent],
+      rect: { top: 324, right: 370, bottom: 519, left: 20, width: 350, height: 195 }
+    });
+    body.children.push(card);
+    body.childNodes.push(card);
+    globalThis.document.elementsFromPoint = () => [
+      visibleStrong,
+      visibleHeading,
+      onClickContent,
+      card,
+      body,
+      documentElement
+    ];
+    globalThis.document.elementFromPoint = () => visibleStrong;
+
+    const targets = collectDefaultLayerElements(body);
+
+    assert.equal(targets.includes(topHeading), false);
+    assert.equal(targets.includes(visibleStrong), true);
+  });
+});
+
 
 test("aria-hidden elements fail the visibility guard", () => {
   withVisibilityDom(({ body }) => {
