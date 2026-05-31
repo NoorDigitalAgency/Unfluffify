@@ -22,7 +22,8 @@ Completed:
 1. Restore default exclusions to synced marking rows instead of generated visual overlays.
 2. Document that the marking rules are locked to the restored contract unless the user explicitly requests a marking-rules contract change.
 3. Harden focused tests so they fail if default exclusions regain a dedicated layer, class, render collection, or post-hoc overlay rule.
-4. Keep `.copilot/knowledge.md`, `.copilot/plan.md`, `README.md`, and `MARKING_AND_HIGHLIGHTING_LOGIC.md` aligned with the same contract.
+4. Keep generated default-exclude rows in the ordinary exclude overlay even though they are not `explicit: true`, keep them out of the implicit/default content layer, and keep stale untagged non-default excludes hidden.
+5. Keep `.copilot/knowledge.md`, `.copilot/plan.md`, `README.md`, and `MARKING_AND_HIGHLIGHTING_LOGIC.md` aligned with the same contract.
 
 Explicit taxonomy change completed:
 

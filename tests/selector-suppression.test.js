@@ -108,6 +108,10 @@ test("marking mode renders synced default exclusions as ordinary exclude marking
   assert.doesNotMatch(coreSource, /default-toggle-exclude/);
   assert.doesNotMatch(collectorSource, /isStoredExcludeStateUserModified/);
   assert.match(
+    collectorSource,
+    /item\.explicit === true \|\| matchesToggleableDefaultExcluded\(el\)/
+  );
+  assert.match(
     coreSource,
     /drawMultiRectReuse\([\s\S]*?layerExplicitExcludeState,[\s\S]*?presentation\.className,[\s\S]*?"explicit-exclude"/
   );

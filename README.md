@@ -32,7 +32,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 
 ## Features
 
-- **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, etc.)
+- **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
 - **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff

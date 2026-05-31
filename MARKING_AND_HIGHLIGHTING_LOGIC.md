@@ -23,6 +23,10 @@ Non-negotiable invariants:
 - After that decision, default exclusions are ordinary generated `{ xpath,
   excluded: true }` rows and render through the ordinary exclude overlay.
   User-created exclude rows carry `explicit: true`.
+- The ordinary exclude overlay collector must include both user-created exclude
+  rows and live generated rows whose element still matches a toggleable default.
+  It must also keep excluded-by-state defaults out of the implicit/default
+  content layer and must not draw stale untagged non-default excluded rows.
 - Toggleable default exclusions must not have a dedicated visual layer, CSS
   class, render collection, or post-hoc overlay rule.
 - A stored `{ xpath, excluded: false }` row for a toggleable default unmarks only
@@ -117,8 +121,12 @@ or contain multiple page landmarks such as header, main, footer, or navigation.
 Toggleable default exclusions have no separate visual layer or class. Once the
 decision step marks a default boundary as excluded, it is represented by the
 same `{ xpath, excluded: true }` row and the same exclude overlay as any other
-excluded element. This keeps the visual layer a projection of the current
-marking state instead of an independent source of default-exclusion behavior.
+excluded element. The renderer must not require `explicit: true` for those
+generated rows; otherwise broad defaults such as forms and footers suppress
+descendants without showing an exclusion marking, or can appear as implicit
+content underneath the exclusion. This keeps the visual layer a projection of
+the current marking state instead of an independent source of default-exclusion
+behavior.
 
 ## Stored Page Entries
 

@@ -1768,6 +1768,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     ...consentExcluded,
     ...explicitExclude,
     ...explicitInclude,
+    ...excludedByStateAncestors,
     ...aiContent,
     ...selectorExcluded,
     ...unexcludedToggleableDefault
@@ -6265,7 +6266,7 @@ function hasRenderableMarkingTargetGeometry(el, options = {}) {
   return Boolean(options.allowGhost && getGhostRects(el).length > 0);
 }
 
-function collectExplicitMarkingElements(entry) {
+export function collectExplicitMarkingElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const explicitInclude = collectXPathElements(entry && entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
@@ -6281,11 +6282,16 @@ function collectExplicitMarkingElements(entry) {
   const explicitExcludeElements = [];
   const hiddenExplicitExcludeElements = [];
   for (const item of items) {
-    if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
+    if (!item || !item.xpath || !item.excluded) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
     if (!el) {
+      continue;
+    }
+    const isOrdinaryExcludeRow =
+      item.explicit === true || matchesToggleableDefaultExcluded(el);
+    if (!isOrdinaryExcludeRow) {
       continue;
     }
     if (

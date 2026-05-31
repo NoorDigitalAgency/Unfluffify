@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   collectDefaultLayerElements,
+  collectExplicitMarkingElements,
   collectStoredUnexcludedToggleableDefaultElements,
   collectToggleableDefaultExcludedElements,
   canApplyExplicitInclude,
@@ -160,6 +161,9 @@ function withVisibilityDom(callback, options = {}) {
       return null;
     },
     elementsFromPoint() {
+      return [];
+    },
+    querySelectorAll() {
       return [];
     },
     evaluate(xpath) {
@@ -947,23 +951,109 @@ test("stored unexcluded default boundaries do not draw a default-layer ghost", (
   });
 });
 
-test("default boundaries still render while excluded-by-state ancestors suppress descendants", () => {
-  withVisibilityDom(({ body }) => {
+test("generated default exclusions draw through the ordinary exclude overlay", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const formText = createElement({
+      tagName: "p",
+      text: "Contact form prompt",
+      rect: { top: 30, right: 330, bottom: 60, left: 30, width: 300, height: 30 }
+    });
+    const form = createElement({
+      tagName: "form",
+      parentElement: body,
+      children: [formText],
+      rect: { top: 10, right: 380, bottom: 120, left: 10, width: 370, height: 110 }
+    });
+    const footerText = createElement({
+      tagName: "p",
+      text: "Footer navigation text",
+      rect: { top: 180, right: 340, bottom: 210, left: 40, width: 300, height: 30 }
+    });
     const footer = createElement({
       tagName: "footer",
       parentElement: body,
-      text: "Footer boundary",
+      children: [footerText],
+      rect: { top: 150, right: 420, bottom: 260, left: 10, width: 410, height: 110 }
+    });
+    body.children.push(form, footer);
+    body.childNodes.push(form, footer);
+    const formXpath = getXPath(form);
+    const footerXpath = getXPath(footer);
+    xpathMap.set(formXpath, form);
+    xpathMap.set(footerXpath, footer);
+
+    const configValue = { pageMarkings: {} };
+    const { entry } = syncPageMarkings(configValue, location.href, new Set(), {
+      allowCreate: true,
+      persist: false
+    });
+    const { explicitExcludeElements } = collectExplicitMarkingElements(entry);
+
+    assert.deepEqual(
+      entry.xpaths.filter((item) => item.excluded).map((item) => item.xpath),
+      [formXpath, footerXpath]
+    );
+    assert.deepEqual(explicitExcludeElements, [form, footer]);
+    assert.deepEqual(
+      collectDefaultLayerElements(body, {
+        excludedByStateAncestors: new Set([form, footer])
+      }),
+      []
+    );
+  });
+});
+
+test("stale untagged non-default exclusions stay out of the ordinary exclude overlay", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const wrapper = createElement({
+      tagName: "div",
+      parentElement: body,
+      text: "Legacy stale exclusion",
+      rect: { top: 10, right: 380, bottom: 80, left: 10, width: 370, height: 70 }
+    });
+    body.children.push(wrapper);
+    body.childNodes.push(wrapper);
+    const wrapperXpath = getXPath(wrapper);
+    xpathMap.set(wrapperXpath, wrapper);
+
+    const { explicitExcludeElements } = collectExplicitMarkingElements({
+      xpaths: [{ xpath: wrapperXpath, excluded: true }]
+    });
+
+    assert.deepEqual(explicitExcludeElements, []);
+  });
+});
+
+test("default layer skips excluded-by-state default boundaries and descendants", () => {
+  withVisibilityDom(({ body }) => {
+    const child = createElement({
+      tagName: "p",
+      text: "Footer child",
+      rect: { top: 70, right: 320, bottom: 100, left: 30, width: 290, height: 30 }
+    });
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      children: [child],
       rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    const sibling = createElement({
+      tagName: "p",
+      parentElement: body,
+      text: "Sibling outside the excluded boundary",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
     });
     body.children.push(footer);
     body.childNodes.push(footer);
+    body.children.push(sibling);
+    body.childNodes.push(sibling);
 
     const defaultElements = collectDefaultLayerElements(body, {
       explicitExclude: new Set(),
       excludedByStateAncestors: new Set([footer])
     });
 
-    assert.deepEqual(defaultElements, [footer]);
+    assert.deepEqual(defaultElements, [sibling]);
   });
 });
 
