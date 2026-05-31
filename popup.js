@@ -2404,7 +2404,7 @@ async function syncBaseConfigToServer(options = {}) {
     return { ok: false, skipped: true };
   }
   const attempts = Math.max(1, Number(maxAttempts) || 1);
-  let retryDelayMs = 1500;
+  let retryDelayMs = 5000;
   let lastStatus = 0;
   let currentTokenValue = tokenValue || "";
   let currentBaseUrl = baseUrl;
