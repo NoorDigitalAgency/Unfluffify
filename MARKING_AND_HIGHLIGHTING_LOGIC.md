@@ -212,12 +212,20 @@ the pause is active, which stops recursive carousel loops that change slide
 text or visibility even after CSS motion is frozen. The content script also
 uses extension-owned timer and animation-frame helpers for marking overlay
 rendering, hover refreshes, snapshots, and pause maintenance so page-world timer
-gating cannot starve Unfluffify's own UI. It locks the current computed values of common moving properties such as
-transforms, offsets, opacity, filters, and position edges on detected motion
-candidates. Those extension-owned timer controls, inline locks, the root pause
-class, the pause stylesheet, and the pause indicator are removed from sanitized
-save snapshots so saved `renderedHtml` records the page posture without
-recording Unfluffify UI or freeze mechanics.
+gating cannot starve Unfluffify's own UI. It locks the current computed values
+of common moving properties such as transforms, offsets, opacity, filters, and
+position edges on detected motion candidates.
+
+Viewport and scroll-triggered reveal effects are handled as a distinct case.
+If a layout-present page element has generic entrance/reveal descriptors and is
+currently hidden only by motion styling such as low opacity, clipped paint,
+visibility, transform, or blur, the pause normalizes it to its final visible
+posture instead of locking the pre-reveal state. Semantic hidden UI such as
+modals, dialogs, menus, tabs, carousels, accordions, and `aria-hidden` content
+must remain hidden. Those extension-owned timer controls, reveal normalizations,
+inline locks, the root pause class, the pause stylesheet, and the pause
+indicator are removed from sanitized save snapshots so saved `renderedHtml`
+records the page posture without recording Unfluffify UI or freeze mechanics.
 
 While motion is paused, a small fixed pause glyph is shown as extension UI so
 the user can see that page animations and transitions are intentionally held.

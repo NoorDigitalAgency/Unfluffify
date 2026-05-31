@@ -135,6 +135,8 @@ const PAGE_MOTION_PAUSE_CONTENT_SELECTOR = `html.${PAGE_MOTION_PAUSE_ROOT_CLASS}
   `:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *)` +
   `:not([id^="unfluffify-"]):not([id^="unfluffify-"] *)`;
 const PAGE_MOTION_PAUSE_DESCRIPTOR_RE = /auto[-_\s]?play|carousel|slider|slideshow|marquee|ticker|animation|animated|animate|motion|parallax|scroll[-_\s]?snap/i;
+const PAGE_MOTION_REVEAL_DESCRIPTOR_RE = /(^|[-_\s:])(aos|appear|appearance|animate|animated|entrance|enter|fade|intersect|intersection|inview|in-view|on[-_\s]?scroll|reveal|scroll[-_\s]?(animate|animation|fade|reveal|trigger)?|slide[-_\s]?(in|up|down|left|right)|viewport|wow|zoom)([-_\s:]|$)/i;
+const PAGE_MOTION_REVEAL_EXCLUDED_DESCRIPTOR_RE = /accordion|backdrop|carousel|collapse|dialog|drawer|dropdown|lightbox|marquee|menu|modal|offcanvas|overlay|popover|slider|slideshow|tab|tabpanel|ticker|toast|tooltip/i;
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
@@ -3309,7 +3311,7 @@ function getElementAttributePairs(element) {
   }
 }
 
-function elementMatchesMotionDescriptor(element) {
+function getElementMotionDescriptorText(element) {
   const descriptorParts = [];
   for (const attribute of getElementAttributePairs(element)) {
     const name = attribute.name.toLowerCase();
@@ -3325,7 +3327,30 @@ function elementMatchesMotionDescriptor(element) {
       descriptorParts.push(name, attribute.value);
     }
   }
-  return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(descriptorParts.join(" "));
+  return descriptorParts.join(" ");
+}
+
+function elementMatchesMotionDescriptor(element) {
+  return PAGE_MOTION_PAUSE_DESCRIPTOR_RE.test(getElementMotionDescriptorText(element));
+}
+
+function elementOrAncestorMatchesRevealExcludedDescriptor(element) {
+  let current = element;
+  let depth = 0;
+  while (current && current.nodeType === 1 && depth < 6) {
+    if (PAGE_MOTION_REVEAL_EXCLUDED_DESCRIPTOR_RE.test(getElementMotionDescriptorText(current))) {
+      return true;
+    }
+    current = current.parentElement || null;
+    depth += 1;
+  }
+  return false;
+}
+
+function elementMatchesRevealDescriptor(element) {
+  const descriptorText = getElementMotionDescriptorText(element);
+  return PAGE_MOTION_REVEAL_DESCRIPTOR_RE.test(descriptorText) &&
+    !elementOrAncestorMatchesRevealExcludedDescriptor(element);
 }
 
 function elementHasInlineMotionStyle(element) {
@@ -3491,6 +3516,142 @@ function createPageMotionLockRecord(pauseState, element) {
   return record;
 }
 
+function applyPageMotionLockProperty(record, element, property, lockValue) {
+  let lock = record.properties.get(property);
+  if (!lock) {
+    const previousValue = typeof element.style.getPropertyValue === "function"
+      ? element.style.getPropertyValue(property)
+      : "";
+    const previousPriority = typeof element.style.getPropertyPriority === "function"
+      ? element.style.getPropertyPriority(property)
+      : "";
+    lock = {
+      hadInlineValue: Boolean(previousValue || previousPriority),
+      previousValue,
+      previousPriority,
+      lockValue
+    };
+    record.properties.set(property, lock);
+  } else {
+    lock.lockValue = lockValue;
+  }
+  const currentValue = typeof element.style.getPropertyValue === "function"
+    ? element.style.getPropertyValue(property)
+    : "";
+  const currentPriority = typeof element.style.getPropertyPriority === "function"
+    ? element.style.getPropertyPriority(property)
+    : "";
+  if (currentValue !== lock.lockValue || currentPriority !== "important") {
+    try {
+      element.style.setProperty(property, lock.lockValue, "important");
+    } catch (error) {
+      // Ignore immutable inline style declarations.
+    }
+  }
+}
+
+function parseCssNumber(value) {
+  const parsed = Number.parseFloat(String(value || "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function elementHasMotionLayoutBox(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+  try {
+    if (typeof element.getClientRects === "function") {
+      const rects = Array.from(element.getClientRects() || []);
+      if (rects.length > 0) {
+        return rects.some((rect) => Number(rect.width) > 1 && Number(rect.height) > 1);
+      }
+    }
+    if (typeof element.getBoundingClientRect === "function") {
+      const rect = element.getBoundingClientRect();
+      return Boolean(rect && Number(rect.width) > 1 && Number(rect.height) > 1);
+    }
+  } catch (error) {
+    return true;
+  }
+  return true;
+}
+
+function isSemanticallyHiddenForReveal(element, computedStyle) {
+  if (!element || element.nodeType !== 1) {
+    return true;
+  }
+  if (element.hidden || (typeof element.hasAttribute === "function" && element.hasAttribute("hidden"))) {
+    return true;
+  }
+  if (typeof element.getAttribute === "function" && element.getAttribute("aria-hidden") === "true") {
+    return true;
+  }
+  const display = getComputedCssValue(computedStyle, "display").trim().toLowerCase();
+  return display === "none";
+}
+
+function getPageMotionRevealNormalizationProperties(computedStyle) {
+  if (!computedStyle) {
+    return [];
+  }
+  const properties = [];
+  const opacity = parseCssNumber(getComputedCssValue(computedStyle, "opacity"));
+  const visibility = getComputedCssValue(computedStyle, "visibility").trim().toLowerCase();
+  const clipPath = getComputedCssValue(computedStyle, "clip-path");
+  const hiddenByOpacity = opacity !== null && opacity < 0.5;
+  const hiddenByVisibility = visibility === "hidden" || visibility === "collapse";
+  const hiddenByClip = isNonDefaultMotionCssValue("clip-path", clipPath);
+  if (!hiddenByOpacity && !hiddenByVisibility && !hiddenByClip) {
+    return [];
+  }
+  if (hiddenByVisibility) {
+    properties.push(["visibility", "visible"]);
+  }
+  if (hiddenByOpacity) {
+    properties.push(["opacity", "1"]);
+  }
+  for (const property of ["transform", "translate", "rotate", "perspective"]) {
+    if (isNonDefaultMotionCssValue(property, getComputedCssValue(computedStyle, property))) {
+      properties.push([property, "none"]);
+    }
+  }
+  const scale = getComputedCssValue(computedStyle, "scale").trim().toLowerCase();
+  if (scale && scale !== "none" && scale !== "1") {
+    properties.push(["scale", "none"]);
+  }
+  for (const property of ["filter", "backdrop-filter", "clip-path"]) {
+    if (isNonDefaultMotionCssValue(property, getComputedCssValue(computedStyle, property))) {
+      properties.push([property, "none"]);
+    }
+  }
+  return properties;
+}
+
+function shouldNormalizePageMotionRevealCandidate(element, candidate, computedStyle) {
+  if (!elementMatchesRevealDescriptor(element)) {
+    return false;
+  }
+  if (!candidate || (!candidate.descriptorMatched && !candidate.inlineMotion && !candidate.computedStyle)) {
+    return false;
+  }
+  if (isSemanticallyHiddenForReveal(element, computedStyle) || !elementHasMotionLayoutBox(element)) {
+    return false;
+  }
+  return getPageMotionRevealNormalizationProperties(computedStyle).length > 0;
+}
+
+function normalizePageMotionRevealElement(pauseState, element, computedStyle) {
+  const properties = getPageMotionRevealNormalizationProperties(computedStyle);
+  if (!properties.length) {
+    return false;
+  }
+  const record = pauseState.lockedElements.get(element) || createPageMotionLockRecord(pauseState, element);
+  for (const [property, lockValue] of properties) {
+    applyPageMotionLockProperty(record, element, property, lockValue);
+  }
+  return true;
+}
+
 function lockPageMotionElement(pauseState, element, candidate) {
   if (!element || !element.style) {
     return;
@@ -3499,41 +3660,22 @@ function lockPageMotionElement(pauseState, element, candidate) {
     return;
   }
   const computedStyle = candidate.computedStyle || getComputedCssStyle(element);
+  if (shouldNormalizePageMotionRevealCandidate(element, candidate, computedStyle)) {
+    normalizePageMotionRevealElement(pauseState, element, computedStyle);
+    return;
+  }
   const properties = getPageMotionLockProperties(computedStyle, candidate.descriptorMatched || candidate.inlineMotion);
   if (!properties.length) {
     return;
   }
   const record = pauseState.lockedElements.get(element) || createPageMotionLockRecord(pauseState, element);
   for (const property of properties) {
-    let lock = record.properties.get(property);
-    if (!lock) {
-      const previousValue = typeof element.style.getPropertyValue === "function"
-        ? element.style.getPropertyValue(property)
-        : "";
-      const previousPriority = typeof element.style.getPropertyPriority === "function"
-        ? element.style.getPropertyPriority(property)
-        : "";
-      lock = {
-        hadInlineValue: Boolean(previousValue || previousPriority),
-        previousValue,
-        previousPriority,
-        lockValue: getDefaultLockValue(property, getComputedCssValue(computedStyle, property))
-      };
-      record.properties.set(property, lock);
-    }
-    const currentValue = typeof element.style.getPropertyValue === "function"
-      ? element.style.getPropertyValue(property)
-      : "";
-    const currentPriority = typeof element.style.getPropertyPriority === "function"
-      ? element.style.getPropertyPriority(property)
-      : "";
-    if (currentValue !== lock.lockValue || currentPriority !== "important") {
-      try {
-        element.style.setProperty(property, lock.lockValue, "important");
-      } catch (error) {
-        // Ignore immutable inline style declarations.
-      }
-    }
+    applyPageMotionLockProperty(
+      record,
+      element,
+      property,
+      getDefaultLockValue(property, getComputedCssValue(computedStyle, property))
+    );
   }
 }
 

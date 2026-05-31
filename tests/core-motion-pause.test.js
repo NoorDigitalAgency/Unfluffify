@@ -183,6 +183,7 @@ class FakeElement {
     this.style = createStyleDeclaration(this);
     this.dispatchedEvents = [];
     this.computedStyle = createComputedStyle();
+    this.rect = { left: 0, top: 0, right: 320, bottom: 120, width: 320, height: 120 };
     Object.entries(attributes).forEach(([name, value]) => this.setAttribute(name, value));
   }
 
@@ -276,6 +277,14 @@ class FakeElement {
     return matches;
   }
 
+  getBoundingClientRect() {
+    return { ...this.rect };
+  }
+
+  getClientRects() {
+    return this.rect && this.rect.width > 0 && this.rect.height > 0 ? [{ ...this.rect }] : [];
+  }
+
   cloneNode(deep = false) {
     const clone = new FakeElement(this.tagName.toLowerCase());
     clone.attributeMap = new Map(this.attributeMap);
@@ -283,6 +292,7 @@ class FakeElement {
     clone.style = createStyleDeclaration(clone);
     clone.style.replaceWith(this.style.entries());
     clone.computedStyle = this.computedStyle;
+    clone.rect = { ...this.rect };
     if (deep) {
       this.children.forEach((child) => clone.appendChild(child.cloneNode(true)));
     }
@@ -542,6 +552,84 @@ test("page motion pause skips extension-owned marking UI", () => {
     state.overlay = overlay;
     dom.restore();
     state.overlay = previousOverlay;
+  }
+});
+
+test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
+  const dom = installMotionDom();
+  const reveal = new FakeElement("section", { class: "scroll-reveal fade-up" });
+  reveal.style.setProperty("opacity", "0");
+  reveal.style.setProperty("transform", "translateY(32px)");
+  reveal.computedStyle = createComputedStyle({
+    "animation-name": "fade-up",
+    "transition-duration": "600ms",
+    opacity: "0",
+    transform: "matrix(1, 0, 0, 1, 0, 32)",
+    filter: "blur(4px)"
+  });
+  dom.body.appendChild(reveal);
+  dom.animations.push(createAnimation(reveal));
+
+  try {
+    pausePageMotion("marking");
+
+    assert.equal(reveal.getAttribute(PAGE_MOTION_LOCK_ATTR).startsWith("ufm-"), true);
+    assert.equal(reveal.style.getPropertyValue("opacity"), "1");
+    assert.equal(reveal.style.getPropertyPriority("opacity"), "important");
+    assert.equal(reveal.style.getPropertyValue("transform"), "none");
+    assert.equal(reveal.style.getPropertyPriority("transform"), "important");
+    assert.equal(reveal.style.getPropertyValue("filter"), "none");
+    assert.equal(reveal.style.getPropertyPriority("filter"), "important");
+
+    const snapshot = createSanitizedPageSnapshot();
+    assert.doesNotMatch(snapshot.renderedHtml, /data-uf-motion-lock-id/);
+    assert.doesNotMatch(snapshot.renderedHtml, /opacity: 1 !important/);
+    assert.doesNotMatch(snapshot.renderedHtml, /transform: none !important/);
+
+    resumePageMotion("marking");
+
+    assert.equal(reveal.hasAttribute(PAGE_MOTION_LOCK_ATTR), false);
+    assert.equal(reveal.style.getPropertyValue("opacity"), "0");
+    assert.equal(reveal.style.getPropertyValue("transform"), "translateY(32px)");
+    assert.equal(reveal.style.getPropertyPriority("opacity"), "");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("page motion pause keeps hidden carousel and semantic UI states hidden", () => {
+  const dom = installMotionDom();
+  const carousel = new FakeElement("div", { class: "carousel" });
+  const hiddenSlide = new FakeElement("div", { class: "slide fade" });
+  hiddenSlide.computedStyle = createComputedStyle({
+    "transition-duration": "300ms",
+    opacity: "0",
+    transform: "matrix(1, 0, 0, 1, 100, 0)"
+  });
+  const hiddenDialog = new FakeElement("div", {
+    class: "modal reveal fade",
+    "aria-hidden": "true"
+  });
+  hiddenDialog.computedStyle = createComputedStyle({
+    "transition-duration": "300ms",
+    opacity: "0",
+    transform: "matrix(1, 0, 0, 1, 0, 24)"
+  });
+  carousel.appendChild(hiddenSlide);
+  dom.body.appendChild(carousel);
+  dom.body.appendChild(hiddenDialog);
+
+  try {
+    pausePageMotion("marking");
+
+    assert.equal(hiddenSlide.style.getPropertyValue("opacity"), "0");
+    assert.equal(hiddenSlide.style.getPropertyPriority("opacity"), "important");
+    assert.equal(hiddenSlide.style.getPropertyValue("transform"), "matrix(1, 0, 0, 1, 100, 0)");
+    assert.equal(hiddenDialog.style.getPropertyValue("opacity"), "0");
+    assert.equal(hiddenDialog.style.getPropertyPriority("opacity"), "important");
+    assert.equal(hiddenDialog.style.getPropertyValue("transform"), "matrix(1, 0, 0, 1, 0, 24)");
+  } finally {
+    dom.restore();
   }
 });
 
