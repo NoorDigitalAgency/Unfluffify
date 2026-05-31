@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
+  AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_RESUME_TTL_MS,
   formatAiRunCountdown,
   getAiRunRemainingMs,
@@ -11,6 +13,10 @@ import {
   normalizePersistedAiRunRecord,
   shouldResumePersistedAiRun
 } from "../popup/ai-run.js";
+
+test("AI run polling uses a five second cadence", () => {
+  assert.equal(AI_RUN_POLL_INTERVAL_MS, 5_000);
+});
 
 test("AI run countdown formats remaining time as m:ss", () => {
   assert.equal(formatAiRunCountdown(300_000), "5:00");
@@ -68,4 +74,26 @@ test("persisted AI run records normalize and validate the current site", () => {
   assert.equal(shouldResumePersistedAiRun(record, 8, 19_999), false);
   assert.equal(normalizePersistedAiRunRecord({ sessionId: "s", siteId: "site-9" }), null);
   assert.equal(normalizePersistedAiRunRecord({ sessionId: "", siteId: "x" }), null);
+});
+
+test("AI compute shows busy feedback and locks marking before payload work", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const match = source.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+  );
+  assert.ok(match, "handleComputeSelectors body should be found");
+  const body = match[1];
+  const activeIndex = body.indexOf("setAiRunActiveState({");
+  const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", activeIndex);
+  const lockIndex = body.indexOf("await syncAiComputeLock(true, initialLockExpiresAt);", firstPaintIndex);
+  const secondPaintIndex = body.indexOf("await waitForPopupUiPaint();", lockIndex);
+  const backfillIndex = body.indexOf("const rawHtmlBackfills = await backfillRawHtmlForPages", secondPaintIndex);
+  const refineIndex = body.indexOf("refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)", backfillIndex);
+
+  assert.ok(activeIndex >= 0, "AI run state should be activated");
+  assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
+  assert.ok(lockIndex > firstPaintIndex, "marking should be locked after busy feedback is visible");
+  assert.ok(secondPaintIndex > lockIndex, "popup should yield after marking is locked");
+  assert.ok(backfillIndex > secondPaintIndex, "raw HTML backfill should wait for visible feedback");
+  assert.ok(refineIndex > backfillIndex, "XPath refinement should remain behind the busy feedback");
 });

@@ -170,7 +170,7 @@ When Unfluffify owns a matching page for marking or silent highlighting, it paus
 
 ### AI Selectors
 
-The extension can compute AI-suggested selectors to automatically identify similar fluff content. Users can then verify and apply these suggestions.
+The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions.
 
 ### Base URLs
 

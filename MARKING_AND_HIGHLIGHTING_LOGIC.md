@@ -365,6 +365,13 @@ The matched selector-excluded element itself suppresses the default layer, but u
 The AI preview is read-only. Opening and closing preview must not create or dirty
 a page draft by itself.
 
+Starting an AI content-detection run must first enter the popup compute-busy
+state, render the spinner/countdown, and apply the page-side compute lock that
+pauses marking edits. Raw HTML backfills, XPath refinement, and payload
+construction run only after that visible feedback has had a chance to paint, so
+large saved-page payloads cannot make the click look ignored. Async run status
+polling uses a five-second cadence while the run is active.
+
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector

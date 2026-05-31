@@ -1632,6 +1632,12 @@ function updateAiRunCountdownState() {
   }
   state.aiRunRemainingMs = getAiRunRemainingMs(state.aiRunDeadlineAt);
   uiModule.setViewState({
+    computeButtonText: ViewText.computeButtonBusy,
+    computeButtonLoading: true,
+    computeButtonDisabled: true,
+    saveExcludesButtonDisabled: true,
+    previewLatestButtonDisabled: true,
+    aiControlsBusy: true,
     aiRunSpinnerNote: PopupText.overlay.computingSelectorsNote,
     aiRunCountdownVisible: true,
     aiRunCountdownText: formatAiRunCountdown(state.aiRunRemainingMs)
@@ -2016,6 +2022,26 @@ async function clearCurrentPageSaveReconciliation(baseUrl = state.currentBaseUrl
 function waitForRetryDelay(delayMs) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
+  });
+}
+
+function waitForPopupUiPaint() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    window.setTimeout(finish, 75);
+    if (typeof window.requestAnimationFrame !== "function") {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(finish);
+    });
   });
 }
 
@@ -6488,31 +6514,6 @@ async function handleComputeSelectors() {
     return;
   }
 
-  const rawHtmlBackfills = await backfillRawHtmlForPages(
-    state.currentBaseUrl,
-    storedPageEntries.map(([url]) => url),
-    pageMarkings
-  );
-
-  const storedPages = storedPageEntries.map(([url, entry]) => {
-    const { renderedHtml, rawHtml } = getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills);
-    const isStatic = currentRenderMode === "static";
-    const renderedXPaths = toAiPayloadXpaths(entry);
-    return {
-      url,
-      renderedHtml,
-      rawHtml: isStatic ? rawHtml : undefined,
-      renderedXPaths,
-      rawXPaths: isStatic ? refineXPathEntries(renderedHtml, rawHtml, renderedXPaths) : undefined
-    };
-  });
-
-  const payload = {
-    baseUrl: state.currentBaseUrl,
-    renderMode: currentRenderMode,
-    defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-    pages: storedPages
-  };
   const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
   const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
   setAiRunActiveState({
@@ -6521,8 +6522,42 @@ async function handleComputeSelectors() {
     resumed: false,
     phase: "starting"
   });
-  await refreshUi();
+  await waitForPopupUiPaint();
   try {
+    const initialLockExpiresAt = getAiRunResumeExpiresAt();
+    state.aiRunResumeExpiresAt = initialLockExpiresAt;
+    const initialLockApplied = await syncAiComputeLock(true, initialLockExpiresAt);
+    if (!initialLockApplied) {
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    await waitForPopupUiPaint();
+
+    const rawHtmlBackfills = await backfillRawHtmlForPages(
+      state.currentBaseUrl,
+      storedPageEntries.map(([url]) => url),
+      pageMarkings
+    );
+
+    const storedPages = storedPageEntries.map(([url, entry]) => {
+      const { renderedHtml, rawHtml } = getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills);
+      const isStatic = currentRenderMode === "static";
+      const renderedXPaths = toAiPayloadXpaths(entry);
+      return {
+        url,
+        renderedHtml,
+        rawHtml: isStatic ? rawHtml : undefined,
+        renderedXPaths,
+        rawXPaths: isStatic ? refineXPathEntries(renderedHtml, rawHtml, renderedXPaths) : undefined
+      };
+    });
+
+    const payload = {
+      baseUrl: state.currentBaseUrl,
+      renderMode: currentRenderMode,
+      defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+      pages: storedPages
+    };
     const startResult = await requestAiRunStart({
       endpointValue,
       tokenValue,

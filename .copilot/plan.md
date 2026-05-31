@@ -49,6 +49,11 @@ AI submission alignment completed:
 7. Preserve local saved page snapshots across empty or partial backend responses by timestamp-merging confirmed saves and incoming remote markings.
 8. Surface IndexedDB read/write failures instead of allowing failed page saves to appear successful.
 
+AI compute responsiveness pass completed:
+
+1. Show popup compute-busy feedback and apply the page-side compute lock before raw HTML backfills, XPath refinement, or AI payload construction.
+2. Poll async AI run status every 5 seconds while the run is active.
+
 Future marking work:
 
 1. Start by reading `MARKING_AND_HIGHLIGHTING_LOGIC.md`.

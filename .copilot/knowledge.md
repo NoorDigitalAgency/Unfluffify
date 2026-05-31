@@ -24,6 +24,7 @@
 
 ## AI Submission Rules
 
+- Starting AI content detection must show compute-busy feedback and apply the page-side compute lock before raw HTML backfills, XPath refinement, or payload construction; the async status poll interval is 5 seconds.
 - Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
 - Submission XPath indexes must be computed after marking sync against the same sanitized DOM view as saved `renderedHtml`; extension UI, browser-automation roots, and save-time stripped nodes do not count as siblings.
 - Exclusion rows include only `explicit: true` excludes and implicit hidden textual content detected in mobile save mode. Generated toggleable-default rows, stale untagged rows, and consent-specific XPath rows are not explicit excludes.

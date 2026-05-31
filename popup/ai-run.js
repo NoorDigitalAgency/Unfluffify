@@ -1,4 +1,4 @@
-export const AI_RUN_POLL_INTERVAL_MS = 15_000;
+export const AI_RUN_POLL_INTERVAL_MS = 5_000;
 export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;
 export const AI_RUN_RESUME_TTL_MS = 2 * 60 * 1000;
 export const AI_RUN_PERSIST_KEY = "popupAiRun";
