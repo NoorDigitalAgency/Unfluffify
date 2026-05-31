@@ -68,7 +68,7 @@ The remote-support regressions also cover tab-scoped background state, concurren
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure
@@ -100,7 +100,7 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 
 ### Content Scripts (`/content`)
 
-- **`core.js`** - Main content script logic (3900+ lines): DOM manipulation, element selection, overlay rendering
+- **`core.js`** - Main content script logic: DOM manipulation, element selection, marking synchronization, overlay rendering, and per-pass marking caches
 - **`marking-rules.js`** - Shared pure rules for b9-aligned toggleable markability, parent-boundary eligibility, and explicit toggle pacing
 - **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
 - **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
@@ -115,7 +115,8 @@ node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/sele
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
-- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts
+- **`core-scheduling.test.js`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
+- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts and enabling marking avoids duplicate refresh work
 - **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
 - **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building

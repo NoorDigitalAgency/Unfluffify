@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   scheduleDraftPersist,
@@ -176,4 +177,31 @@ test("pending explicit overlay refresh can be cancelled via rAF cancel", () => {
 
     assert.deepEqual(cancelledRaf, [handle]);
   }, { withRaf: true });
+});
+
+test("explicit overlay refresh updates only explicit layers before the delayed rebuild", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const refreshBody = source.match(
+    /function refreshExplicitMarkingOverlay\(entry\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
+  )[1];
+  const scheduleBody = source.match(
+    /export function scheduleExplicitOverlayRefresh\(entry\) \{([\s\S]*?)\n\}\n\nfunction cancelExplicitOverlayRefresh/
+  )[1];
+
+  assert.match(refreshBody, /drawExplicitMarkingLayers/);
+  assert.doesNotMatch(refreshBody, /collectDefaultLayerElements/);
+  assert.doesNotMatch(refreshBody, /drawCollections/);
+  assert.doesNotMatch(scheduleBody, /scheduleRender\(getExplicitMarkingRenderOptions\(\)\)/);
+});
+
+test("marking passes share broad per-pass element caches", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /function withElementComputationCache\(callback\)/);
+  assert.match(source, /directTextCache:\s*null/);
+  assert.match(source, /normalizedTextCache:\s*null/);
+  assert.match(source, /textualDescendantCache:\s*null/);
+  assert.match(source, /function renderHighlights\(\) \{[\s\S]*?withElementComputationCache\(renderHighlightsInner\)/);
+  assert.match(source, /function refreshExplicitMarkingOverlay\(entry\) \{[\s\S]*?withElementComputationCache/);
+  assert.match(source, /export function syncPageMarkings[\s\S]*?withElementComputationCache/);
 });

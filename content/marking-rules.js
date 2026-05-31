@@ -42,15 +42,6 @@ export function shouldAllowParentMarkingBoundary(options = {}) {
   );
 }
 
-export function getExplicitMarkingRenderOptions() {
-  return {
-    delay: 80,
-    minInterval: 200,
-    invalidate: false,
-    reason: "explicit-toggle-reposition"
-  };
-}
-
 export function getExplicitMarkingFullRenderOptions() {
   return {
     delay: 120,

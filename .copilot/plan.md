@@ -55,7 +55,13 @@ Future marking work:
 2. Treat caching, fast refresh, hover, and rendering changes as adaptation layers only.
 3. Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks for a marking-rules contract change.
 4. Run the focused marking guard suite before committing:
-   `node --test tests/core-visibility.test.js tests/marking-rules.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js`.
+   `node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js`.
+
+Marking performance pass completed:
+
+1. Enabling marking uses `setEnabled` as the single activation path and no longer sends a redundant immediate `forceRefresh`.
+2. Explicit refinements redraw only explicit layers immediately and rely on the delayed invalidating full render for default/AI-layer correctness.
+3. Full marking passes share per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant computations.
 
 ## Post-Run Follow-up
 

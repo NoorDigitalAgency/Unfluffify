@@ -51,7 +51,9 @@
 - A stored toggleable default row with `excluded: false` unmarks only that boundary without becoming a full explicit include subtree.
 - Stored unexcluded default boundaries also suppress their own default-layer marking, but not their descendants, to avoid visual-only ancestor ghosts around explicit descendant marks.
 - Default-layer collection remains b9-like and is not globally filtered by visible explicit marks; broad filtering can make implicit descendants flicker on alternating toggles.
-- Fast explicit-toggle overlay refreshes must run `syncPageMarkings` before collecting overlays; otherwise generated default ancestors can be drawn from stale pre-sync state.
+- Fast explicit-toggle overlay refreshes must run `syncPageMarkings` before drawing explicit layers, but must not recompute the default layer; the delayed invalidating full render is the correctness pass for default/AI layers.
+- Marking enable uses `setEnabled` as the single activation path; do not add a second immediate popup `forceRefresh` after successful enable.
+- Full marking passes may use per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant decisions. These caches are derived from the current DOM/config and must not become persistent marking truth.
 - Explicit include boundaries block descendant hover targeting and marking until the exact include boundary is removed.
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.

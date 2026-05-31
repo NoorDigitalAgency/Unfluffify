@@ -78,6 +78,16 @@ test("config sync does not upload unsaved local page drafts by default", () => {
   );
 });
 
+test("marking enable does not send a redundant force refresh after setEnabled", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const enableBody = source.match(
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+  )[1];
+
+  assert.match(enableBody, /type: "setEnabled"[\s\S]*enabled: true/);
+  assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
+});
+
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");

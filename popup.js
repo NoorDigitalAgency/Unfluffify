@@ -5598,7 +5598,6 @@ async function handleEnableToggle(event) {
           await refreshUi();
           return;
         }
-        await messages.sendTabMessageWithRetry({ type: "forceRefresh" });
       } else {
         await utils.setTabState(tab.id, {
           enabled: false,

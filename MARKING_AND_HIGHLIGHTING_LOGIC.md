@@ -143,10 +143,29 @@ because that can make implicit descendant markings flicker on alternating
 toggles.
 
 Both full renders and fast explicit-toggle overlay refreshes must run page
-marking synchronization before collecting overlays. The fast refresh is only an
-adaptation layer over the b9 rules; it cannot draw from a just-mutated entry
-until generated default posture rows, including default ancestors converted to
+marking synchronization before drawing. The fast refresh is only an adaptation
+layer over the b9 rules; it cannot draw from a just-mutated entry until
+generated default posture rows, including default ancestors converted to
 `excluded: false`, have been reconciled.
+
+## Marking Performance Contract
+
+Marking mode must avoid duplicate full-page passes:
+
+- Enabling marking performs one activation path. The popup sends `setEnabled`;
+  content activation/sync/render is handled from there, without a second
+  immediate `forceRefresh`.
+- A manual refinement performs a cheap immediate explicit-layer refresh, then a
+  delayed invalidating full rebuild for correctness. The immediate refresh may
+  update explicit include/exclude layers and cached explicit collections, but it
+  must not recompute the default layer or redraw every layer.
+- A full marking pass may cache per-element visibility, text, immutable/default
+  selector, ancestor, and textual-descendant decisions for the duration of that
+  pass. These caches are derived from the current DOM/config and are not a
+  persistent source of truth.
+- Scroll and pointer repaint paths reuse the current collections and reposition
+  boxes; they must not trigger a full default-layer collection unless the DOM,
+  config, or explicit marking state changed.
 
 ## Target Resolution
 
@@ -296,3 +315,5 @@ Focused rule coverage lives in:
 - `tests/silent-highlight-rules.test.js`
 - `tests/selector-suppression.test.js`
 - `tests/silent-highlight-annotations.test.js`
+- `tests/core-scheduling.test.js`
+- `tests/popup-marking-refresh.test.js`

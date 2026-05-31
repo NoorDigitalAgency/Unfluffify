@@ -134,7 +134,7 @@ test("marking runtime keeps default exclusions decision-only", () => {
   );
 });
 
-test("marking mode refresh reconciles default rows before drawing ordinary overlays", () => {
+test("marking mode refresh reconciles entries before drawing explicit overlays", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshStart = coreSource.indexOf("function refreshExplicitMarkingOverlay");
   const refreshEnd = coreSource.indexOf("function scheduleExplicitToggleFullRender", refreshStart);
@@ -152,13 +152,10 @@ test("marking mode refresh reconciles default rows before drawing ordinary overl
     refreshSource,
     /collectExplicitMarkingElements\(syncedEntry\)/
   );
-  assert.match(
-    refreshSource,
-    /collectStoredUnexcludedToggleableDefaultElements\(syncedEntry\)/
-  );
   assert.doesNotMatch(refreshSource, /defaultExcludedToggleElements/);
   assert.doesNotMatch(refreshSource, /toggleableDefaultExcluded/);
-  assert.match(refreshSource, /collectDefaultLayerElements\(document\.body, \{/);
+  assert.doesNotMatch(refreshSource, /collectDefaultLayerElements\(document\.body, \{/);
+  assert.match(refreshSource, /drawExplicitMarkingLayers/);
 });
 
 test("marking mode stores default ancestors as unexcluded when descendants are marked", () => {
@@ -242,7 +239,7 @@ test("marking logic docs describe selector exclusions as element-only default su
   );
   assert.match(
     docSource,
-    /fast explicit-toggle overlay refreshes must run page\s+marking synchronization before collecting overlays/i
+    /fast explicit-toggle overlay refreshes must run page\s+marking synchronization before drawing/i
   );
 });
 
@@ -280,7 +277,7 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   assert.match(planSource, /`BUTTON` is now a toggleable default exclusion/);
   assert.match(planSource, /`LINK` is now an immutable default exclusion/);
   assert.match(readmeSource, /locked restored contract/i);
-  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/marking-rules\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
+  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
   assert.match(constantsSource, /locked marking contract/);
 });
 

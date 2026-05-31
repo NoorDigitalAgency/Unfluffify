@@ -16,7 +16,6 @@ import {
 } from "./shared-inclusion.js";
 import {
   getExplicitMarkingFullRenderOptions,
-  getExplicitMarkingRenderOptions,
   getExplicitMarkingPresentation,
   isStoredExcludeStateUserModified,
   shouldAllowParentMarkingBoundary,
@@ -74,9 +73,18 @@ export const state = {
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
+  elementComputationCacheDepth: 0,
   visibilityCache: null,
   ancestorVisStateCache: null,
   ancestorOverflowCache: null,
+  directTextCache: null,
+  normalizedTextCache: null,
+  toggleableDefaultCache: null,
+  immutableMatchCache: null,
+  immutableAncestorCache: null,
+  textualContainerCache: null,
+  textualDescendantCache: null,
+  textualImmutableDescendantCache: null,
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null,
@@ -181,6 +189,73 @@ function logTogglePerf(label, startedAt, details = null) {
     });
   } catch {
     // Ignore diagnostics failures.
+  }
+}
+
+function createTextualOptionCache() {
+  return {
+    visible: new WeakMap(),
+    ignoreVisibility: new WeakMap()
+  };
+}
+
+function getTextualOptionCache(cache, options = {}) {
+  if (!cache) {
+    return null;
+  }
+  return options && options.ignoreVisibilityForInclusionDetection
+    ? cache.ignoreVisibility
+    : cache.visible;
+}
+
+function withElementComputationCache(callback) {
+  const outermost = state.elementComputationCacheDepth === 0;
+  const previous = outermost
+    ? {
+      visibilityCache: state.visibilityCache,
+      ancestorVisStateCache: state.ancestorVisStateCache,
+      ancestorOverflowCache: state.ancestorOverflowCache,
+      directTextCache: state.directTextCache,
+      normalizedTextCache: state.normalizedTextCache,
+      toggleableDefaultCache: state.toggleableDefaultCache,
+      immutableMatchCache: state.immutableMatchCache,
+      immutableAncestorCache: state.immutableAncestorCache,
+      textualContainerCache: state.textualContainerCache,
+      textualDescendantCache: state.textualDescendantCache,
+      textualImmutableDescendantCache: state.textualImmutableDescendantCache
+    }
+    : null;
+  if (outermost) {
+    state.visibilityCache = new Map();
+    state.ancestorVisStateCache = new Map();
+    state.ancestorOverflowCache = new Map();
+    state.directTextCache = new WeakMap();
+    state.normalizedTextCache = new WeakMap();
+    state.toggleableDefaultCache = new WeakMap();
+    state.immutableMatchCache = new WeakMap();
+    state.immutableAncestorCache = new WeakMap();
+    state.textualContainerCache = createTextualOptionCache();
+    state.textualDescendantCache = createTextualOptionCache();
+    state.textualImmutableDescendantCache = createTextualOptionCache();
+  }
+  state.elementComputationCacheDepth += 1;
+  try {
+    return callback();
+  } finally {
+    state.elementComputationCacheDepth -= 1;
+    if (outermost) {
+      state.visibilityCache = previous.visibilityCache;
+      state.ancestorVisStateCache = previous.ancestorVisStateCache;
+      state.ancestorOverflowCache = previous.ancestorOverflowCache;
+      state.directTextCache = previous.directTextCache;
+      state.normalizedTextCache = previous.normalizedTextCache;
+      state.toggleableDefaultCache = previous.toggleableDefaultCache;
+      state.immutableMatchCache = previous.immutableMatchCache;
+      state.immutableAncestorCache = previous.immutableAncestorCache;
+      state.textualContainerCache = previous.textualContainerCache;
+      state.textualDescendantCache = previous.textualDescendantCache;
+      state.textualImmutableDescendantCache = previous.textualImmutableDescendantCache;
+    }
   }
 }
 
@@ -617,58 +692,107 @@ function isVisuallyHiddenByStyle(style) {
 }
 
 function hasDirectText(el) {
+  const cache = state.directTextCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   for (const node of el.childNodes) {
     if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
-      return true;
+      result = true;
+      break;
     }
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
+}
+
+function getCachedNormalizedElementText(el) {
+  const cache = state.normalizedTextCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  const value = getNormalizedElementText(el);
+  if (cache) {
+    cache.set(el, value);
+  }
+  return value;
 }
 
 function matchesToggleableDefaultExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
+  const cache = state.toggleableDefaultCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   for (const selector of DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
         if (el.tagName === selector.toUpperCase()) {
-          return true;
+          result = true;
+          break;
         }
       } else if (el.matches(selector)) {
-        return true;
+        result = true;
+        break;
       }
     } catch {
       // Ignore invalid selectors
     }
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function isTextualContainer(el, options = {}) {
+  const cache = getTextualOptionCache(state.textualContainerCache, options);
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
   const ignoreVisibilityForInclusionDetection = Boolean(
     options && options.ignoreVisibilityForInclusionDetection
   );
   if (!ignoreVisibilityForInclusionDetection && !isVisible(el)) {
+    if (cache) {
+      cache.set(el, false);
+    }
     return false;
   }
+  let result;
   if (hasDirectText(el)) {
-    return true;
-  }
-  if (matchesToggleableDefaultExcluded(el)) {
+    result = true;
+  } else if (matchesToggleableDefaultExcluded(el)) {
     if (el.children.length > 0) {
-      return true;
+      result = true;
+    } else {
+      const nestedText = (el.innerText || "").replace(/\s+/g, " ").trim();
+      result = Boolean(nestedText);
     }
-    const nestedText = (el.innerText || "").replace(/\s+/g, " ").trim();
-    return Boolean(nestedText);
+  } else {
+    result = Boolean(getCachedNormalizedElementText(el));
   }
-  return Boolean(getNormalizedElementText(el));
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function hasTextualDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
+  const cache = getTextualOptionCache(state.textualDescendantCache, options);
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
@@ -685,19 +809,28 @@ function hasTextualDescendant(el, options = {}) {
       continue;
     }
     if (isTextualContainer(node, options)) {
-      return true;
+      result = true;
+      break;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function hasTextualImmutableDescendant(el, options = {}) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
+  const cache = getTextualOptionCache(state.textualImmutableDescendantCache, options);
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   const stack = Array.from(el.children || []);
   while (stack.length) {
     const node = stack.pop();
@@ -711,13 +844,17 @@ function hasTextualImmutableDescendant(el, options = {}) {
       continue;
     }
     if (isWithinImmutableExcluded(node) && isTextualContainer(node, options)) {
-      return true;
+      result = true;
+      break;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
     }
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function isSelfMarkableWithoutParentMode(el, options = {}) {
@@ -756,31 +893,50 @@ function matchesImmutableExcluded(el) {
   if (!el || el.nodeType !== 1) {
     return false;
   }
+  const cache = state.immutableMatchCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   for (const selector of DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS) {
     try {
       if (isTagSelector(selector)) {
         if (el.tagName === selector.toUpperCase()) {
-          return true;
+          result = true;
+          break;
         }
       } else if (el.matches(selector)) {
-        return true;
+        result = true;
+        break;
       }
     } catch {
       // Ignore invalid selectors
     }
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function isWithinImmutableExcluded(el) {
+  const cache = state.immutableAncestorCache;
+  if (cache && cache.has(el)) {
+    return cache.get(el);
+  }
+  let result = false;
   let node = el;
   while (node && node.nodeType === 1) {
     if (matchesImmutableExcluded(node)) {
-      return true;
+      result = true;
+      break;
     }
     node = node.parentElement;
   }
-  return false;
+  if (cache) {
+    cache.set(el, result);
+  }
+  return result;
 }
 
 function isToggleableDefaultExcludedElement(el, includedElements) {
@@ -2025,7 +2181,7 @@ function collectImplicitIncludedElementsOutsideExplicit(
     const isAutoIncludedCollapsedText =
       canUseCollapsedTextFallbackElement(el) &&
       (
-        getNormalizedElementText(el) ||
+        getCachedNormalizedElementText(el) ||
         hasRenderableTextOutsideExcludedNature(
           el,
           excludedElements,
@@ -2600,7 +2756,7 @@ export function getMutationRenderMode(mutations) {
       if (parent && isWithinConsentElement(parent)) {
         continue;
       }
-      if (parent && getNormalizedElementText(parent)) {
+      if (parent && getCachedNormalizedElementText(parent)) {
         return "rebuild";
       }
       continue;
@@ -4376,7 +4532,7 @@ function collectRectsFromClientRects(clientRects) {
 }
 
 function getCollapsedTextualFallbackRects(el) {
-  if (!getNormalizedElementText(el)) {
+  if (!getCachedNormalizedElementText(el)) {
     return [];
   }
   const stack = Array.from(el.children || []);
@@ -4403,7 +4559,7 @@ function getCollapsedTextualFallbackRects(el) {
 }
 
 function getVisibleRects(el) {
-  const allowCollapsedTextFallback = Boolean(getNormalizedElementText(el));
+  const allowCollapsedTextFallback = Boolean(getCachedNormalizedElementText(el));
   if (!isVisible(el) && !allowCollapsedTextFallback) {
     return [];
   }
@@ -4570,68 +4726,50 @@ function refreshExplicitMarkingOverlay(entry) {
   if (!state.enabled || !state.overlay) {
     return;
   }
-  const refreshStartedAt = nowMs();
-  const pageUrl = location.href;
-  const immutableExcluded = collectImmutableElements();
-  let syncedEntry = entry;
-  if (state.config && pageUrl && hasPageMarkingEntry(state.config, pageUrl)) {
-    const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
-      allowCreate: true,
-      persist: true
-    });
-    syncedEntry = syncResult.entry || syncedEntry;
-    state.currentPageEntry = syncedEntry || null;
-  }
-  const {
-    explicitExcludeElements,
-    hiddenExplicitExcludeElements,
-    explicitIncludeElements,
-    hiddenExplicitIncludeElements
-  } = collectExplicitMarkingElements(syncedEntry);
-  const cachedCollections = state.cachedCollections;
-  if (cachedCollections) {
-    const explicitExclude = collectXPathElements(
-      collectExcludedXPaths(syncedEntry && syncedEntry.xpaths)
-    );
-    const explicitInclude = collectXPathElements(syncedEntry && syncedEntry.includeXpaths);
-    const consentExcluded = collectConsentExcludedElements();
-    const aiContentSet = new Set(cachedCollections.aiContentElements || []);
-    const storedUnexcludedToggleableDefaultElements =
-      collectStoredUnexcludedToggleableDefaultElements(syncedEntry);
-    const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
-    cachedCollections.explicitExcludeElements = explicitExcludeElements;
-    cachedCollections.explicitIncludeElements = explicitIncludeElements;
-    cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
-    cachedCollections.hardElements = Array.from(new Set([
-      ...immutableExcluded,
-      ...hiddenStoredExplicitExclude
-    ])).filter((el) =>
-      !isWithinElementSet(el, consentExcluded)
-    );
-    cachedCollections.aiAnimatedExplicitIncludeElements =
-      explicitIncludeElements.filter((el) => aiContentSet.has(el));
-    cachedCollections.defaultElements = collectDefaultLayerElements(document.body, {
-      immutableExcluded,
-      consentExcluded,
-      explicitExclude,
-      explicitInclude,
-      aiContent: aiContentSet,
-      selectorExcluded: new Set(cachedCollections.selectorExcludedElements || []),
-      hiddenStoredExplicitExclude,
-      unexcludedToggleableDefault: new Set(storedUnexcludedToggleableDefaultElements)
-    });
-  }
-  if (cachedCollections) {
-    drawCollections(cachedCollections, getVisibleRects);
-  } else {
+  withElementComputationCache(() => {
+    const refreshStartedAt = nowMs();
+    const pageUrl = location.href;
+    const immutableExcluded = collectImmutableElements();
+    let syncedEntry = entry;
+    if (state.config && pageUrl && hasPageMarkingEntry(state.config, pageUrl)) {
+      const syncResult = syncPageMarkings(state.config, pageUrl, immutableExcluded, {
+        allowCreate: true,
+        persist: true
+      });
+      syncedEntry = syncResult.entry || syncedEntry;
+      state.currentPageEntry = syncedEntry || null;
+    }
+    const {
+      explicitExcludeElements,
+      hiddenExplicitExcludeElements,
+      explicitIncludeElements,
+      hiddenExplicitIncludeElements
+    } = collectExplicitMarkingElements(syncedEntry);
+    const cachedCollections = state.cachedCollections;
+    if (cachedCollections) {
+      const consentExcluded = collectConsentExcludedElements();
+      const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+      const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
+      cachedCollections.explicitExcludeElements = explicitExcludeElements;
+      cachedCollections.explicitIncludeElements = explicitIncludeElements;
+      cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+      cachedCollections.hardElements = Array.from(new Set([
+        ...immutableExcluded,
+        ...hiddenStoredExplicitExclude
+      ])).filter((el) =>
+        !isWithinElementSet(el, consentExcluded)
+      );
+      cachedCollections.aiAnimatedExplicitIncludeElements =
+        explicitIncludeElements.filter((el) => aiContentSet.has(el));
+    }
     drawExplicitMarkingLayers(
       explicitExcludeElements,
       explicitIncludeElements,
       hiddenExplicitIncludeElements,
       getVisibleRects
     );
-  }
-  logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
+    logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
+  });
 }
 
 function scheduleExplicitToggleFullRender() {
@@ -4668,7 +4806,6 @@ export function scheduleExplicitOverlayRefresh(entry) {
     }
     const coalesceStartedAt = nowMs();
     refreshExplicitMarkingOverlay(pendingEntry);
-    scheduleRender(getExplicitMarkingRenderOptions());
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
   };
   if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
@@ -4721,17 +4858,7 @@ function renderHighlights() {
   if (!state.enabled || !state.overlay) {
     return;
   }
-
-  state.visibilityCache = new Map();
-  state.ancestorVisStateCache = new Map();
-  state.ancestorOverflowCache = new Map();
-  try {
-    renderHighlightsInner();
-  } finally {
-    state.visibilityCache = null;
-    state.ancestorVisStateCache = null;
-    state.ancestorOverflowCache = null;
-  }
+  withElementComputationCache(renderHighlightsInner);
 }
 
 function renderHighlightsInner() {
@@ -4918,7 +5045,7 @@ function getRectsInViewport(el) {
   if (visibleRects.length > 0) {
     return visibleRects;
   }
-  if (getNormalizedElementText(el)) {
+  if (getCachedNormalizedElementText(el)) {
     return getCollapsedTextualFallbackRects(el);
   }
   return [];
@@ -6225,6 +6352,12 @@ export async function refreshFromTabState() {
 }
 
 export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
+  return withElementComputationCache(() =>
+    syncPageMarkingsInner(config, pageUrl, immutableExcluded, options)
+  );
+}
+
+function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   if (!config || !pageUrl) {
     return { changed: false, entry: null, persisted: false, hadEntry: false };
