@@ -75,6 +75,8 @@ export const state = {
   layerBoxes: new WeakMap(),
   cachedCollections: null,
   visibilityCache: null,
+  ancestorVisStateCache: null,
+  ancestorOverflowCache: null,
   hoverRaf: 0,
   currentPageUrl: "",
   currentPageEntry: null,
@@ -234,15 +236,24 @@ function isClippedByOverflow(el) {
   }
   const rect = el.getBoundingClientRect();
   let parent = el.parentElement;
+  const ovCache = state.ancestorOverflowCache;
   while (parent && parent.nodeType === 1) {
     // Stop at body or document element
     if (parent === document.body || parent === document.documentElement) {
       break;
     }
-    const parentStyle = window.getComputedStyle(parent);
-    const overflow = parentStyle.overflow;
-    const overflowX = parentStyle.overflowX;
-    const overflowY = parentStyle.overflowY;
+    let overflow, overflowX, overflowY;
+    if (ovCache && ovCache.has(parent)) {
+      ({ overflow, overflowX, overflowY } = ovCache.get(parent));
+    } else {
+      const parentStyle = window.getComputedStyle(parent);
+      overflow = parentStyle.overflow;
+      overflowX = parentStyle.overflowX;
+      overflowY = parentStyle.overflowY;
+      if (ovCache) {
+        ovCache.set(parent, { overflow, overflowX, overflowY });
+      }
+    }
 
     // Check if parent has overflow clipping
     if (
@@ -4712,10 +4723,14 @@ function renderHighlights() {
   }
 
   state.visibilityCache = new Map();
+  state.ancestorVisStateCache = new Map();
+  state.ancestorOverflowCache = new Map();
   try {
     renderHighlightsInner();
   } finally {
     state.visibilityCache = null;
+    state.ancestorVisStateCache = null;
+    state.ancestorOverflowCache = null;
   }
 }
 
@@ -5489,13 +5504,22 @@ function isVisibleUncached(el) {
   }
   let ambiguousHidden = false;
   let node = el;
+  const visCache = state.ancestorVisStateCache;
   while (node && node.nodeType === 1) {
-    const style = window.getComputedStyle(node);
-    const state = getTheoreticalVisibilityState(node, style);
-    if (state.definitiveHidden) {
+    let visState;
+    if (visCache && visCache.has(node)) {
+      visState = visCache.get(node);
+    } else {
+      const style = window.getComputedStyle(node);
+      visState = getTheoreticalVisibilityState(node, style);
+      if (visCache) {
+        visCache.set(node, visState);
+      }
+    }
+    if (visState.definitiveHidden) {
       return false;
     }
-    if (state.ambiguousHidden) {
+    if (visState.ambiguousHidden) {
       ambiguousHidden = true;
     }
     node = node.parentElement;
