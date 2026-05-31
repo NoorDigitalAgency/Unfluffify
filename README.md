@@ -173,6 +173,7 @@ A base URL defines the scope for pattern inference. For example:
 ### Device Simulation
 
 Simulate mobile (412x960) or desktop (1920x1080) viewports to test how content extraction works on different devices.
+The extension preserves the chosen simulation mode across marking-mode navigation and unregister/reload cleanup; switching back to desktop is always a user-controlled action.
 
 ## Architecture Notes
 

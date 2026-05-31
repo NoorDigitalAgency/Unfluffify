@@ -355,14 +355,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
       const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
-      const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
       const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
 
-      try {
-        await updateDeviceEmulation(tabId, { enabled: false });
-      } catch (error) {
-        // Ignore teardown failures caused by transient tab state changes.
-      }
       try {
         await utils.disableExtensionForTab(tabId);
       } catch (error) {
@@ -371,7 +365,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await utils.storageRemove(chrome.storage.session, [
         tabKey,
         initialKey,
-        deviceKey,
         scriptKey
       ]);
       await utils.updateActionForTab(tabId);
@@ -561,7 +554,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   handleRemoteSupportTabRemoved(tabId).then();
 });
 
-async function disableExtensionAndDeviceEmulationOnTopLevelNavigation(details) {
+async function disableExtensionOnTopLevelNavigation(details) {
   if (details.frameId !== 0) {
     return;
   }
@@ -573,18 +566,10 @@ async function disableExtensionAndDeviceEmulationOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  // Navigation auto-disables the extension for the tab. Clear any active device
-  // emulation first so the debugger metrics override does not persist into the
-  // next page after the in-page cancel bar/UI disappears.
-  try {
-    await updateDeviceEmulation(tabId, { enabled: false });
-  } catch (error) {
-    // The tab may already be navigating away/closed; continue disabling the tab state.
-  }
   await utils.disableExtensionForTab(tabId);
 }
 
-chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
+chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionOnTopLevelNavigation);
 
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) {
@@ -600,8 +585,8 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
     // Ignore — the tab may have already navigated away or been closed.
   }
 });
-chrome.webNavigation.onHistoryStateUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
-chrome.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionAndDeviceEmulationOnTopLevelNavigation);
+chrome.webNavigation.onHistoryStateUpdated.addListener(disableExtensionOnTopLevelNavigation);
+chrome.webNavigation.onReferenceFragmentUpdated.addListener(disableExtensionOnTopLevelNavigation);
 
 chrome.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
