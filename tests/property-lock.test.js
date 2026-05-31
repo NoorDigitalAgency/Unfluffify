@@ -133,6 +133,25 @@ test("content-main consumes property lock port disconnect lastError without life
   assert.doesNotMatch(source, /window\.addEventListener\("pageshow", handlePropertyLockPageShow\);/);
 });
 
+test("content-main stops property lock reconnects when extension context is invalidated", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /let extensionContextInvalidated = false;/);
+  assert.match(
+    source,
+    /function markExtensionContextInvalidated\(error\) \{[\s\S]*?utils\.isExtensionContextInvalidatedError\(error\)[\s\S]*?extensionContextInvalidated = true;[\s\S]*?disconnectPropertyLockPort\(\{ notifyBackground: false \}\);[\s\S]*?return true;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /function schedulePropertyLockReconnect\(options = \{\}\) \{[\s\S]*?if \(extensionContextInvalidated \|\| propertyLockReconnectTimer\)/
+  );
+  assert.match(
+    source,
+    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?const disconnectReason = consumeRuntimeLastErrorMessage\(\);[\s\S]*?if \(markExtensionContextInvalidated\(disconnectReason\)\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?schedulePropertyLockReconnect\(\);/
+  );
+  assert.doesNotMatch(source, /syncPropertyLockConnection\(\{[^}]*\}\)\.then\(\);/);
+});
+
 test("content-main requests a reconnect when property lock activity or page commands have no active port", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
@@ -200,7 +219,7 @@ test("content-main treats property lock site-id fetch failures as a null lookup"
 test("content-main starts property lock sync immediately during content-script initialization", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
-  const immediateSyncIndex = source.indexOf("syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();", mainStart);
+  const immediateSyncIndex = source.indexOf("runPropertyLockSync({ forceSiteIdRefresh: true });", mainStart);
   const refreshIndex = source.indexOf("core.refreshFromTabState().then(async () => {", mainStart);
 
   assert.ok(mainStart >= 0);

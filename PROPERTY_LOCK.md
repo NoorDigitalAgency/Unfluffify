@@ -78,13 +78,28 @@ stored data.
 Locked passive observers keep periodic remote loads enabled so extension status,
 silent highlighting status, and saved property data can update while they wait.
 
+## Extension Lifecycle
+
+If Chrome invalidates an old content-script context because the extension was
+reloaded, updated, disabled, or otherwise replaced, the old page script must stop
+property-lock reconnect work. `Extension context invalidated` is a terminal
+extension lifecycle signal for that script instance: clear reconnect timers,
+disconnect any local port without notifying the background, reset the local lock
+UI, and wait for a fresh content-script instance rather than retrying Chrome
+extension APIs from the invalidated context.
+
+Ordinary unexpected port disconnects are different. They should still reset the
+local UI and schedule a reconnect so transient service-worker or WebSocket
+interruptions recover automatically.
+
 ## Regression Tests
 
 The focused guard tests are:
 
 - `tests/property-lock.test.js`
 - `tests/property-lock-background.test.js`
+- `tests/utilities-runtime.test.js`
 
 They cover stable client IDs, same-user passive locks, heartbeat/release timing,
-navigation grace, command routing, and source-level guards that prevent lock
-acquisition before marking mode is entered.
+navigation grace, command routing, extension-context invalidation handling, and
+source-level guards that prevent lock acquisition before marking mode is entered.

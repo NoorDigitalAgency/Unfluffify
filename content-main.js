@@ -148,6 +148,7 @@ let propertyLockConnectedSiteId = null;
 let propertyLockSyncToken = 0;
 let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
+let extensionContextInvalidated = false;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -3770,10 +3771,10 @@ function startSilentHighlightingUrlWatcher() {
     }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      syncPropertyLockConnection({
+      runPropertyLockSync({
         pageUrl: lastUrl,
         forceSiteIdRefresh: true
-      }).then();
+      });
       refreshSilentHighlightings().then();
     }
   }, 800);
@@ -5657,21 +5658,28 @@ function clearPropertyLockReconnectTimer() {
 
 function schedulePropertyLockReconnect(options = {}) {
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
-  if (propertyLockReconnectTimer) {
+  if (extensionContextInvalidated || propertyLockReconnectTimer) {
     return;
   }
   propertyLockReconnectTimer = window.setTimeout(() => {
     propertyLockReconnectTimer = 0;
-    syncPropertyLockConnection({ forceSiteIdRefresh }).then();
+    runPropertyLockSync({ forceSiteIdRefresh });
   }, PROPERTY_LOCK_RECONNECT_DELAY_MS);
 }
 
 function consumeRuntimeLastErrorMessage() {
-  if (!globalThis.chrome || !chrome.runtime) {
-    return "";
+  try {
+    if (!globalThis.chrome || !chrome.runtime) {
+      return "";
+    }
+    const lastError = chrome.runtime.lastError;
+    return lastError && typeof lastError.message === "string" ? lastError.message : "";
+  } catch (error) {
+    if (utils.isExtensionContextInvalidatedError(error)) {
+      return error && error.message ? error.message : "Extension context invalidated.";
+    }
+    throw error;
   }
-  const lastError = chrome.runtime.lastError;
-  return lastError && typeof lastError.message === "string" ? lastError.message : "";
 }
 
 function disconnectPropertyLockPort(options = {}) {
@@ -5704,19 +5712,62 @@ function disconnectPropertyLockPort(options = {}) {
   resetPropertyLockUiState();
 }
 
+function markExtensionContextInvalidated(error) {
+  if (!utils.isExtensionContextInvalidatedError(error)) {
+    return false;
+  }
+  extensionContextInvalidated = true;
+  propertyLockSyncToken += 1;
+  disconnectPropertyLockPort({ notifyBackground: false });
+  return true;
+}
+
+function handlePropertyLockSyncError(error, options = {}) {
+  if (markExtensionContextInvalidated(error)) {
+    return;
+  }
+  try {
+    console.warn("[Unfluffify] Property lock sync failed; retrying.", error);
+  } catch {
+    // Ignore logging failures.
+  }
+  disconnectPropertyLockPort({ notifyBackground: false });
+  schedulePropertyLockReconnect(options);
+}
+
+function runPropertyLockSync(options = {}) {
+  if (extensionContextInvalidated) {
+    return;
+  }
+  syncPropertyLockConnection(options).catch((error) => {
+    handlePropertyLockSyncError(error, options);
+  });
+}
+
 async function syncPropertyLockConnection(options = {}) {
+  if (extensionContextInvalidated) {
+    return;
+  }
   const syncToken = ++propertyLockSyncToken;
   clearPropertyLockReconnectTimer();
   const pageUrl = typeof options.pageUrl === "string" && options.pageUrl
     ? options.pageUrl
     : location.href;
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
-  const target = await resolveCurrentPropertyLockConnectionTarget({
-    pageUrl,
-    forceSiteIdRefresh
-  });
+  let target = null;
+  try {
+    target = await resolveCurrentPropertyLockConnectionTarget({
+      pageUrl,
+      forceSiteIdRefresh
+    });
+  } catch (error) {
+    if (markExtensionContextInvalidated(error)) {
+      return;
+    }
+    throw error;
+  }
 
-  if (syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
+  if (extensionContextInvalidated || syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
     return;
   }
 
@@ -5738,13 +5789,16 @@ async function syncPropertyLockConnection(options = {}) {
       propertyLockPort = nextPort;
       nextPort.onMessage.addListener(handlePropertyLockPortMessage);
       nextPort.onDisconnect.addListener(() => {
-        consumeRuntimeLastErrorMessage();
+        const disconnectReason = consumeRuntimeLastErrorMessage();
         if (propertyLockPort !== nextPort) {
           return;
         }
         propertyLockPort = null;
         propertyLockConnectedSiteId = null;
         resetPropertyLockUiState();
+        if (markExtensionContextInvalidated(disconnectReason)) {
+          return;
+        }
         schedulePropertyLockReconnect();
       });
       nextPort.postMessage({
@@ -5753,6 +5807,9 @@ async function syncPropertyLockConnection(options = {}) {
         ...getPropertyLockDraftStatusPayload()
       });
     } catch (error) {
+      if (markExtensionContextInvalidated(error)) {
+        return;
+      }
       propertyLockPort = null;
       propertyLockConnectedSiteId = null;
       resetPropertyLockUiState();
@@ -5776,6 +5833,9 @@ function handlePropertyLockPortMessage(message) {
 }
 
 function sendPropertyLockActivity() {
+  if (extensionContextInvalidated) {
+    return;
+  }
   if (!propertyLockPort) {
     schedulePropertyLockReconnect();
     return;
@@ -5786,6 +5846,9 @@ function sendPropertyLockActivity() {
       ...getPropertyLockDraftStatusPayload()
     });
   } catch (error) {
+    if (markExtensionContextInvalidated(error)) {
+      return;
+    }
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
     resetPropertyLockUiState();
@@ -5794,6 +5857,9 @@ function sendPropertyLockActivity() {
 }
 
 function sendPropertyLockMessage(type, payload = {}) {
+  if (extensionContextInvalidated) {
+    return;
+  }
   if (!propertyLockPort) {
     schedulePropertyLockReconnect();
     return;
@@ -5805,6 +5871,9 @@ function sendPropertyLockMessage(type, payload = {}) {
       ...payload
     });
   } catch (error) {
+    if (markExtensionContextInvalidated(error)) {
+      return;
+    }
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
     resetPropertyLockUiState();
@@ -6282,7 +6351,7 @@ export function main() {
 
   initializeRemoteSupportSupportPage();
   syncRemoteSupportSessionStateFromBackground().then();
-  syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
+  runPropertyLockSync({ forceSiteIdRefresh: true });
 
   core.refreshFromTabState().then(async () => {
     // Check if URL path changed (e.g., language change on same domain)
@@ -6310,9 +6379,9 @@ export function main() {
       lastTrackedUrlHostname = urlInfo.hostname;
     }
     
-    syncPropertyLockConnection({
+    runPropertyLockSync({
       forceSiteIdRefresh: !state.enabled || !state.baseUrl
-    }).then();
+    });
     refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
   });
@@ -6613,7 +6682,7 @@ export function main() {
         core.disable();
         refreshSilentHighlightings().then();
       }
-      syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
+      runPropertyLockSync({ forceSiteIdRefresh: true });
       sendResponse({ ok: true });
       return;
     }
@@ -6621,7 +6690,7 @@ export function main() {
     if (message.type === "forceRefresh") {
       core.refreshFromTabState().then(() => {
         refreshEnabledAiHighlights();
-        syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
+        runPropertyLockSync({ forceSiteIdRefresh: true });
         refreshSilentHighlightings().then(() => {
           sendResponse({ ok: true });
         });
@@ -7207,7 +7276,7 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
-    syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
+    runPropertyLockSync({ forceSiteIdRefresh: true });
     refreshSilentHighlightings().then();
   });
 

@@ -119,6 +119,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 - **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts and enabling marking avoids duplicate refresh work
 - **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
 - **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
+- **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling
 - **`lynx-checklist.test.js`** - Coverage for Lynx checklist assignment and view-model building
 - **`remote-support.test.js`** - Coverage for remote support utilities: constants, support-page URL matching, inactive-state factory, AJAX type detection, support-code normalization, endpoint URL resolution, message serialization/parsing, and UTF-8-aware payload clamping
 - **`remote-support-background.test.js`** - Coverage for background-side remote-support bootstrap, tab-scoped session isolation, DevTools routing, and transport-event handling

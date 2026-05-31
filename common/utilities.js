@@ -67,15 +67,79 @@ export async function disableExtensionForTab(tabId) {
 export const tabsQuery = (query) =>
     new Promise((resolve) => chrome.tabs.query(query, resolve));
 
+const EXTENSION_CONTEXT_INVALIDATED_PATTERN = /extension context invalidated|context invalidated/i;
+
+function getErrorMessage(value) {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value.message === "string") {
+    return value.message;
+  }
+  return "";
+}
+
+export function isExtensionContextInvalidatedError(error) {
+  return EXTENSION_CONTEXT_INVALIDATED_PATTERN.test(getErrorMessage(error));
+}
+
+function getChromeRuntimeLastError() {
+  try {
+    if (!globalThis.chrome || !chrome.runtime) {
+      return null;
+    }
+    return chrome.runtime.lastError || null;
+  } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) {
+      return { message: getErrorMessage(error) || "Extension context invalidated." };
+    }
+    throw error;
+  }
+}
+
+function makeChromeRuntimeError(error) {
+  return new Error(getErrorMessage(error) || "Chrome runtime operation failed");
+}
+
+function makeInvalidatedRuntimeResponse(error) {
+  return {
+    ok: false,
+    error: getErrorMessage(error) || "Extension context invalidated.",
+    contextInvalidated: true
+  };
+}
+
 export function sendRuntimeMessage(message) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        let lastError = null;
+        try {
+          lastError = getChromeRuntimeLastError();
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        if (lastError) {
+          resolve({
+            ok: false,
+            error: getErrorMessage(lastError),
+            contextInvalidated: isExtensionContextInvalidatedError(lastError)
+          });
+          return;
+        }
+        resolve(response);
+      });
+    } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        resolve(makeInvalidatedRuntimeResponse(error));
         return;
       }
-      resolve(response);
-    });
+      reject(error);
+    }
   });
 }
 
@@ -323,11 +387,68 @@ export function findMatchingBaseUrl(pageUrl, configs) {
 
 // Storage utilities
 export const storageGet = (area, keys) =>
-    new Promise((resolve) => area.get(keys, resolve));
+    new Promise((resolve, reject) => {
+      try {
+        area.get(keys, (result) => {
+          let lastError = null;
+          try {
+            lastError = getChromeRuntimeLastError();
+          } catch (error) {
+            reject(error);
+            return;
+          }
+          if (lastError) {
+            reject(makeChromeRuntimeError(lastError));
+            return;
+          }
+          resolve(result);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
 export const storageSet = (area, items) =>
-    new Promise((resolve) => area.set(items, resolve));
+    new Promise((resolve, reject) => {
+      try {
+        area.set(items, () => {
+          let lastError = null;
+          try {
+            lastError = getChromeRuntimeLastError();
+          } catch (error) {
+            reject(error);
+            return;
+          }
+          if (lastError) {
+            reject(makeChromeRuntimeError(lastError));
+            return;
+          }
+          resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
 export const storageRemove = (area, keys) =>
-    new Promise((resolve) => area.remove(keys, resolve));
+    new Promise((resolve, reject) => {
+      try {
+        area.remove(keys, () => {
+          let lastError = null;
+          try {
+            lastError = getChromeRuntimeLastError();
+          } catch (error) {
+            reject(error);
+            return;
+          }
+          if (lastError) {
+            reject(makeChromeRuntimeError(lastError));
+            return;
+          }
+          resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
 
 const IDB_NAME = "unfluffify";
 const IDB_VERSION = 1;
