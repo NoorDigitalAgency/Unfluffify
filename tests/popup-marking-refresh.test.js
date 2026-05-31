@@ -52,6 +52,28 @@ test("Todo List completion uses backend-saved markings instead of local drafts",
   );
 });
 
+test("Todo List marks the current candidate's parent subsection", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+
+  assert.match(
+    popupSource,
+    /const groupCurrent =\s*currentPageMarkingAllowed &&\s*currentPageCandidateState\.pageTypeKey === pageType\.key;/
+  );
+  assert.match(
+    popupSource,
+    /current: groupCurrent,[\s\S]*?const isCurrent = groupCurrent && currentPageCandidateState\.url === candidate\.url;/
+  );
+  assert.match(
+    uiSource,
+    /group\.current && "todo-subsection--current"/
+  );
+  assert.match(
+    uiSource,
+    /group\.current[\s\S]*?todo-subsection-current-badge[\s\S]*?PopupText\.pageTypes\.currentBadge/
+  );
+});
+
 test("config sync does not upload unsaved local page drafts by default", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 

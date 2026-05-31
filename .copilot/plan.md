@@ -82,6 +82,11 @@ Temporary disabled marking state completed:
 2. The page overlay dims existing markings, clears hover feedback, switches to a progress cursor, and shows a persistent paused status notice while reconciliation is pending.
 3. The disabled-state UI remains extension-owned and is stripped from saved snapshots.
 
+Todo current subsection indicator completed:
+
+1. The Todo List derives the current page-type subsection from the same current candidate state used by the candidate row.
+2. The parent subsection shows the `Current` badge and accent state so the active page remains findable when candidates are collapsed.
+
 ## Post-Run Follow-up
 
 1. Fix `tests/page-telemetry.test.js` payload-control failure.

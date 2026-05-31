@@ -1748,6 +1748,11 @@ button.property-lock__button {
   border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
 }
 
+.todo-subsection--current {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--card) 46%, var(--accent-light));
+}
+
 .todo-subsection-header {
   display: flex;
   align-items: center;
@@ -1821,6 +1826,10 @@ button.property-lock__button {
 .todo-subsection-count .todo-indicator--done,
 .todo-subsection-count .todo-indicator--pending {
   color: inherit;
+}
+
+.todo-subsection-current-badge {
+  flex: 0 0 auto;
 }
 
 .todo-subsection-body {

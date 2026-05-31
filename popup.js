@@ -3942,32 +3942,35 @@ async function refreshUiInner(options = {}) {
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
   nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
-  nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => ({
-    key: pageType.key,
-    title: pageType.title,
-    markedCount: pageType.markedCount,
-    missing: pageType.missing,
-    candidates: pageType.candidates.map((candidate) => {
-      const candidateKey = buildPageMarkingKey(candidate.url, pageType.key);
-      const isCurrent =
-        currentPageMarkingAllowed &&
-        currentPageCandidateState.pageTypeKey === pageType.key &&
-        currentPageCandidateState.url === candidate.url;
-      return {
-        url: candidate.url,
-        label: formatPageTypeCandidateLabel(candidate.url),
-        wordsCount: candidate.wordsCount,
-        marked: activeMarkedPageKeys.has(candidateKey),
-        current: isCurrent,
-        duplicate: Boolean(candidate.duplicate),
-        navigationDisabled: Boolean(candidate.duplicate) || isCurrent,
-        duplicateNotice:
-          candidate.duplicate && Array.isArray(candidate.duplicatePageTypes) && candidate.duplicatePageTypes.length
-            ? `Also listed under ${candidate.duplicatePageTypes.join(", ")}.`
-            : ""
-      };
-    })
-  }));
+  nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
+    const groupCurrent =
+      currentPageMarkingAllowed &&
+      currentPageCandidateState.pageTypeKey === pageType.key;
+    return {
+      key: pageType.key,
+      title: pageType.title,
+      markedCount: pageType.markedCount,
+      missing: pageType.missing,
+      current: groupCurrent,
+      candidates: pageType.candidates.map((candidate) => {
+        const candidateKey = buildPageMarkingKey(candidate.url, pageType.key);
+        const isCurrent = groupCurrent && currentPageCandidateState.url === candidate.url;
+        return {
+          url: candidate.url,
+          label: formatPageTypeCandidateLabel(candidate.url),
+          wordsCount: candidate.wordsCount,
+          marked: activeMarkedPageKeys.has(candidateKey),
+          current: isCurrent,
+          duplicate: Boolean(candidate.duplicate),
+          navigationDisabled: Boolean(candidate.duplicate) || isCurrent,
+          duplicateNotice:
+            candidate.duplicate && Array.isArray(candidate.duplicatePageTypes) && candidate.duplicatePageTypes.length
+              ? `Also listed under ${candidate.duplicatePageTypes.join(", ")}.`
+              : ""
+        };
+      })
+    };
+  });
   nextViewState.pageTypeGroupsEmptyText = propertyPageTypesFetchError && !pageTypeCoverageModel.pageTypes.length
     ? propertyPageTypesFetchError
     : baseUrlReady

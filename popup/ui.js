@@ -1333,7 +1333,8 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                       key: group.key,
                       class: classNames(
                         "todo-subsection",
-                        group.missing && "todo-subsection--missing"
+                        group.missing && "todo-subsection--missing",
+                        group.current && "todo-subsection--current"
                       )
                     },
                     h(
@@ -1345,6 +1346,13 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                         onClick: () => handlers.onTodoSubsectionToggle(group.key)
                       },
                       h("span", { class: "todo-subsection-title" }, group.title),
+                      group.current
+                        ? h(
+                            "span",
+                            { class: "todo-candidate-badge todo-candidate-badge--current todo-subsection-current-badge" },
+                            PopupText.pageTypes.currentBadge
+                          )
+                        : null,
                       h(
                         "span",
                         {

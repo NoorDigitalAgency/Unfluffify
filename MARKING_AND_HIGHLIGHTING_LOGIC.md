@@ -56,6 +56,9 @@ stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
 backend-save fact, not a local-draft fact: the Todo List, candidate `Marked`
 badges, marked-pages list, and Lynx checklist coverage must read the separate
 backend-saved page-marking cache populated from confirmed backend payloads.
+When the current tab is a valid Live Page candidate, the Todo List must label
+both the candidate row and its parent page-type subsection as `Current` so the
+active page remains findable when subsections are collapsed.
 Unrelated config syncs must not upload local draft page markings; only
 backend-saved pages and the current page during an explicit save/revert belong
 in a sync payload. Page-save reconciliation can be cleared only after the
