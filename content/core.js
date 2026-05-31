@@ -120,6 +120,8 @@ const PAGE_INTERACTION_KEY_CODE = "Space";
 const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
+const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
+const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
 const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
@@ -2931,6 +2933,61 @@ function removePageMotionPauseIndicator() {
   }
 }
 
+function postPageMotionFreezeControl(paused) {
+  if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+    return;
+  }
+  try {
+    window.postMessage({
+      __unfluffifyPageMotionFreeze: PAGE_MOTION_PAUSE_CONTROL_MARKER,
+      paused: Boolean(paused)
+    }, "*");
+  } catch (error) {
+    // Ignore pages that reject cross-world control messages.
+  }
+}
+
+function ensurePageMotionFreezeScript() {
+  if (
+    typeof document === "undefined" ||
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getURL !== "function"
+  ) {
+    return false;
+  }
+  if (typeof document.getElementById === "function" && document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)) {
+    return true;
+  }
+  const parent = document.head || document.documentElement;
+  if (!parent || typeof document.createElement !== "function" || typeof parent.appendChild !== "function") {
+    return false;
+  }
+  const script = document.createElement("script");
+  script.id = PAGE_MOTION_PAUSE_SCRIPT_ID;
+  script.type = "text/javascript";
+  script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
+  if (typeof script.setAttribute === "function") {
+    script.setAttribute("data-uf-extension-ui", "true");
+  }
+  if (typeof script.addEventListener === "function") {
+    script.addEventListener("load", () => postPageMotionFreezeControl(true), { once: true });
+  }
+  try {
+    parent.appendChild(script);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function setPageMotionFreezeTimersPaused(paused) {
+  if (paused) {
+    ensurePageMotionFreezeScript();
+  }
+  postPageMotionFreezeControl(paused);
+}
+
 function getDocumentAnimations() {
   if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
     return [];
@@ -3703,6 +3760,7 @@ export function refreshPageMotionPause() {
   ensurePageMotionPauseStyle();
   ensurePageMotionPauseIndicator();
   setPageMotionPauseClass(true);
+  setPageMotionFreezeTimersPaused(true);
   pauseDocumentAnimations(pauseState);
   pauseSvgAnimations(pauseState);
   pauseMediaElements(pauseState);
@@ -3716,6 +3774,7 @@ export function refreshPageMotionPause() {
 export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   const pauseState = state.pageMotionPause;
   if (!pauseState) {
+    setPageMotionFreezeTimersPaused(false);
     removePageMotionPauseStyle();
     removePageMotionPauseIndicator();
     setPageMotionPauseClass(false);
@@ -3736,6 +3795,7 @@ export function resumePageMotion(reason = PAGE_MOTION_PAUSE_DEFAULT_REASON) {
   removePageMotionPauseStyle();
   removePageMotionPauseIndicator();
   setPageMotionPauseClass(false);
+  setPageMotionFreezeTimersPaused(false);
   resumeSvgAnimations(pauseState);
   resumeMediaElements(pauseState);
   resumeDocumentAnimations(pauseState);

@@ -13,6 +13,7 @@ import {
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
+const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_LOCK_ATTR = "data-uf-motion-lock-id";
 
 function createClassList(owner, initialValue = "") {
@@ -501,6 +502,53 @@ test("page motion pause is held until every lifecycle reason is released", () =>
     assert.equal(animation.playCount, 1);
     assert.equal(state.pageMotionPause, null);
   } finally {
+    dom.restore();
+  }
+});
+
+test("page motion pause controls the page-world timer freeze bridge", () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const postedMessages = [];
+  const movingElement = new FakeElement("div", { class: "motion-strip" });
+  movingElement.computedStyle = createComputedStyle({ transform: "matrix(1, 0, 0, 1, 3, 0)" });
+  dom.body.appendChild(movingElement);
+  dom.window.postMessage = (message) => {
+    postedMessages.push(message);
+  };
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      }
+    }
+  };
+
+  try {
+    pausePageMotion("marking");
+
+    const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
+    assert.ok(script);
+    assert.equal(script.src, "chrome-extension://unfluffify/common/page-motion-freeze.js");
+    assert.equal(script.getAttribute("data-uf-extension-ui"), "true");
+    assert.equal(postedMessages.at(-1).paused, true);
+    assert.equal(
+      postedMessages.at(-1).__unfluffifyPageMotionFreeze,
+      "unfluffify:page-motion-freeze-control:v1"
+    );
+    const snapshot = createSanitizedPageSnapshot();
+    assert.doesNotMatch(snapshot.renderedHtml, /unfluffify-page-motion-freeze-script/);
+
+    resumePageMotion("marking");
+
+    assert.equal(postedMessages.at(-1).paused, false);
+    assert.ok(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID));
+  } finally {
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
     dom.restore();
   }
 });

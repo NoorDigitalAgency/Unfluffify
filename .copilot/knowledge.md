@@ -59,4 +59,4 @@
 - Hidden explicit include/exclude markings persist while their DOM element exists and render as non-toggleable ghost markings when measurable.
 - Marking mode uses `Alt` for explicit include, `Shift` for parent selection, and hold-`Space` for temporary page UI interaction/pass-through.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
-- Page motion pause is a shared marking/silent-highlighting lifecycle source. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage and must be stripped from snapshots.
+- Page motion pause is a shared marking/silent-highlighting lifecycle source. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, and all freeze mechanics must be stripped from snapshots.

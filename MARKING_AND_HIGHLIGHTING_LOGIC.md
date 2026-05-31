@@ -199,12 +199,16 @@ new animations while active, and sends synthetic hover-pause events to generic
 motion candidates and their nearby ancestors instead of relying on a fixed
 class list for one slider library.
 
-JavaScript-driven motion is stabilized by locking the current computed values of
-common moving properties such as transforms, offsets, opacity, filters, and
-position edges on detected motion candidates. Those extension-owned inline
-locks, the root pause class, the pause stylesheet, and the pause indicator are
-removed from sanitized save snapshots so saved `renderedHtml` records the page
-posture without recording Unfluffify UI or freeze mechanics.
+JavaScript-driven motion is stabilized in two layers. A page-world timer bridge
+holds `setTimeout`, `setInterval`, and `requestAnimationFrame` callbacks while
+the pause is active, which stops recursive carousel loops that change slide
+text or visibility even after CSS motion is frozen. The content script also
+locks the current computed values of common moving properties such as
+transforms, offsets, opacity, filters, and position edges on detected motion
+candidates. Those extension-owned timer controls, inline locks, the root pause
+class, the pause stylesheet, and the pause indicator are removed from sanitized
+save snapshots so saved `renderedHtml` records the page posture without
+recording Unfluffify UI or freeze mechanics.
 
 While motion is paused, a small fixed pause glyph is shown as extension UI so
 the user can see that page animations and transitions are intentionally held.

@@ -164,7 +164,7 @@ Visual overlay showing page content classification:
 
 ### Motion Stability
 
-When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, common JavaScript-driven motion effects, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. A small pause glyph appears on the page while this freeze is active.
+When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, timer-driven JavaScript carousels and sliders, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. A small pause glyph appears on the page while this freeze is active.
 
 ### AI Selectors
 
