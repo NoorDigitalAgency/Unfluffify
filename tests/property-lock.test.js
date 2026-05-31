@@ -121,6 +121,21 @@ test("content-main reconnects property lock after an unexpected active port disc
   );
 });
 
+test("content-main treats BFCache property lock port closure as a lifecycle pause", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /const PROPERTY_LOCK_BFCACHE_PORT_DISCONNECT_FRAGMENT = "moved into back\/forward cache";/);
+  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /function handlePropertyLockPageHide\(event\) \{[\s\S]*?disconnectPropertyLockPort\(\{ resetUi: false \}\);[\s\S]*?\}/);
+  assert.match(source, /function handlePropertyLockPageShow\(event\) \{[\s\S]*?syncPropertyLockConnection\(\{ forceSiteIdRefresh: true \}\)\.then\(\);[\s\S]*?\}/);
+  assert.match(
+    source,
+    /nextPort\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?const lastErrorMessage = consumeRuntimeLastErrorMessage\(\);[\s\S]*?isPropertyLockBackForwardCacheDisconnect\(lastErrorMessage\)[\s\S]*?return;[\s\S]*?schedulePropertyLockReconnect\(\);[\s\S]*?\}\);/
+  );
+  assert.match(source, /window\.addEventListener\("pagehide", handlePropertyLockPageHide\);/);
+  assert.match(source, /window\.addEventListener\("pageshow", handlePropertyLockPageShow\);/);
+});
+
 test("content-main requests a reconnect when property lock activity or page commands have no active port", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

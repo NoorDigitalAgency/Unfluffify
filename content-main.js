@@ -133,6 +133,7 @@ let silentHighlightingUrlTimer = 0;
 const PROPERTY_LOCK_BANNER_ID = "unfluffify-lock-banner";
 const PROPERTY_LOCK_BANNER_STYLE_ID = "unfluffify-lock-banner-style";
 const PROPERTY_LOCK_RECONNECT_DELAY_MS = 150;
+const PROPERTY_LOCK_BFCACHE_PORT_DISCONNECT_FRAGMENT = "moved into back/forward cache";
 
 let propertyLockPort = null;
 let propertyLockState = null;
@@ -148,6 +149,7 @@ let propertyLockConnectedSiteId = null;
 let propertyLockSyncToken = 0;
 let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
+let propertyLockPageHiddenForBackForwardCache = false;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -5657,6 +5659,9 @@ function clearPropertyLockReconnectTimer() {
 
 function schedulePropertyLockReconnect(options = {}) {
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
+  if (propertyLockPageHiddenForBackForwardCache) {
+    return;
+  }
   if (propertyLockReconnectTimer) {
     return;
   }
@@ -5666,8 +5671,21 @@ function schedulePropertyLockReconnect(options = {}) {
   }, PROPERTY_LOCK_RECONNECT_DELAY_MS);
 }
 
+function consumeRuntimeLastErrorMessage() {
+  if (!globalThis.chrome || !chrome.runtime) {
+    return "";
+  }
+  const lastError = chrome.runtime.lastError;
+  return lastError && typeof lastError.message === "string" ? lastError.message : "";
+}
+
+function isPropertyLockBackForwardCacheDisconnect(message) {
+  return typeof message === "string" &&
+    message.includes(PROPERTY_LOCK_BFCACHE_PORT_DISCONNECT_FRAGMENT);
+}
+
 function disconnectPropertyLockPort(options = {}) {
-  const { notifyBackground = true } = options || {};
+  const { notifyBackground = true, resetUi = true } = options || {};
   clearPropertyLockReconnectTimer();
   const currentPort = propertyLockPort;
   const currentSiteId = propertyLockConnectedSiteId;
@@ -5693,7 +5711,25 @@ function disconnectPropertyLockPort(options = {}) {
     }
   }
 
-  resetPropertyLockUiState();
+  if (resetUi) {
+    resetPropertyLockUiState();
+  }
+}
+
+function handlePropertyLockPageHide(event) {
+  propertyLockPageHiddenForBackForwardCache = Boolean(event && event.persisted);
+  if (propertyLockPageHiddenForBackForwardCache) {
+    disconnectPropertyLockPort({ resetUi: false });
+  }
+}
+
+function handlePropertyLockPageShow(event) {
+  if (!(event && event.persisted)) {
+    propertyLockPageHiddenForBackForwardCache = false;
+    return;
+  }
+  propertyLockPageHiddenForBackForwardCache = false;
+  syncPropertyLockConnection({ forceSiteIdRefresh: true }).then();
 }
 
 async function syncPropertyLockConnection(options = {}) {
@@ -5730,11 +5766,18 @@ async function syncPropertyLockConnection(options = {}) {
       propertyLockPort = nextPort;
       nextPort.onMessage.addListener(handlePropertyLockPortMessage);
       nextPort.onDisconnect.addListener(() => {
+        const lastErrorMessage = consumeRuntimeLastErrorMessage();
         if (propertyLockPort !== nextPort) {
           return;
         }
         propertyLockPort = null;
         propertyLockConnectedSiteId = null;
+        if (
+          propertyLockPageHiddenForBackForwardCache ||
+          isPropertyLockBackForwardCacheDisconnect(lastErrorMessage)
+        ) {
+          return;
+        }
         resetPropertyLockUiState();
         schedulePropertyLockReconnect();
       });
@@ -7226,5 +7269,7 @@ export function main() {
     passive: true,
     capture: true
   });
+  window.addEventListener("pagehide", handlePropertyLockPageHide);
+  window.addEventListener("pageshow", handlePropertyLockPageShow);
   window.addEventListener("beforeunload", core.handleBeforeUnload);
 }

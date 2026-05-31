@@ -43,6 +43,14 @@ const portBindings = new WeakMap();
 const globalConsoleEntryHistory = [];
 const consoleEntryHistoryByTabId = new Map();
 
+function consumeRuntimeLastErrorMessage() {
+  if (!globalThis.chrome || !chrome.runtime) {
+    return "";
+  }
+  const lastError = chrome.runtime.lastError;
+  return lastError && typeof lastError.message === "string" ? lastError.message : "";
+}
+
 function normalizeTabId(tabId) {
   if (typeof tabId !== "number" || !Number.isFinite(tabId)) {
     return null;
@@ -949,6 +957,7 @@ async function connectRemoteSupportKeepAlivePort() {
   offscreenKeepAlivePort = port;
 
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastErrorMessage();
     if (offscreenKeepAlivePort === port) {
       offscreenKeepAlivePort = null;
     }
@@ -1891,6 +1900,7 @@ export function handlePortConnection(port) {
     }
 
     port.onDisconnect.addListener(() => {
+      consumeRuntimeLastErrorMessage();
       if (offscreenKeepAlivePort === port) {
         offscreenKeepAlivePort = null;
       }
@@ -1941,6 +1951,7 @@ export function handlePortConnection(port) {
   });
 
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastErrorMessage();
     const boundTabId = getPortBoundTabId(port);
     consolePorts.delete(port);
     networkPorts.delete(port);

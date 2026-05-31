@@ -142,6 +142,14 @@ function hasContentPortsForConnection(connectionKey) {
   );
 }
 
+function consumeRuntimeLastErrorMessage() {
+  if (!globalThis.chrome || !chrome.runtime) {
+    return "";
+  }
+  const lastError = chrome.runtime.lastError;
+  return lastError && typeof lastError.message === "string" ? lastError.message : "";
+}
+
 function detachPortFromConnection(portId, portEntry) {
   const currentConnectionKey = typeof (portEntry && portEntry.connectionKey) === "string"
     ? portEntry.connectionKey
@@ -318,6 +326,7 @@ function handlePropertyLockPortConnect(port) {
   }
 
   function onPortDisconnect() {
+    consumeRuntimeLastErrorMessage();
     const disconnectedConnectionKey = detachPortFromConnection(portId, portEntry) || connectionKey;
     siteId = null;
     clientId = "";

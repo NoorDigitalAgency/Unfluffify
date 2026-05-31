@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -8,6 +9,14 @@ import {
   handleRemoteSupportBackgroundMessage,
   terminateRemoteSupportSession
 } from "../common/remote-support-background.js";
+
+test("remote support background consumes port disconnect lastError", () => {
+  const source = readFileSync(new URL("../common/remote-support-background.js", import.meta.url), "utf8");
+
+  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /port\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?offscreenKeepAlivePort/);
+  assert.match(source, /port\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?const boundTabId = getPortBoundTabId\(port\);/);
+});
 
 function createChromeMock(options = {}) {
   const { autoConnectOffscreenKeepAlive = true, offscreenResponse = null } = options;

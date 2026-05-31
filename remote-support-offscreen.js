@@ -23,6 +23,14 @@ let keepAliveReconnectTimer = 0;
 let nextChunkTransferId = 0;
 let popupPreviewBroadcastChannel = null;
 
+function consumeRuntimeLastErrorMessage() {
+  if (!globalThis.chrome || !chrome.runtime) {
+    return "";
+  }
+  const lastError = chrome.runtime.lastError;
+  return lastError && typeof lastError.message === "string" ? lastError.message : "";
+}
+
 function normalizeTabId(value) {
   const normalizedValue = Number(value);
   return Number.isFinite(normalizedValue) ? Math.trunc(normalizedValue) : null;
@@ -871,6 +879,7 @@ function connectKeepAlivePort() {
   keepAlivePort = port;
 
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastErrorMessage();
     if (keepAlivePort === port) {
       keepAlivePort = null;
     }

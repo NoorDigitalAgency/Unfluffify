@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_PORT_TRANSPORT
 } from "../common/remote-support.js";
+
+test("remote support offscreen consumes keep-alive port disconnect lastError", () => {
+  const source = readFileSync(new URL("../remote-support-offscreen.js", import.meta.url), "utf8");
+
+  assert.match(source, /function consumeRuntimeLastErrorMessage\(\) \{[\s\S]*?const lastError = chrome\.runtime\.lastError;[\s\S]*?\}/);
+  assert.match(source, /port\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?scheduleKeepAliveReconnect\(\);[\s\S]*?\}\);/);
+});
 
 test("remote support offscreen transport keeps concurrent sessions isolated", async () => {
   const originalChrome = globalThis.chrome;
