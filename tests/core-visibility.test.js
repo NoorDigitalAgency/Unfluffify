@@ -808,6 +808,26 @@ test("stored unexcluded default boundaries do not draw a default-layer ghost", (
   });
 });
 
+test("default boundaries still render while excluded-by-state ancestors suppress descendants", () => {
+  withVisibilityDom(({ body }) => {
+    const footer = createElement({
+      tagName: "footer",
+      parentElement: body,
+      text: "Footer boundary",
+      rect: { top: 40, right: 420, bottom: 180, left: 10, width: 410, height: 140 }
+    });
+    body.children.push(footer);
+    body.childNodes.push(footer);
+
+    const defaultElements = collectDefaultLayerElements(body, {
+      explicitExclude: new Set(),
+      excludedByStateAncestors: new Set([footer])
+    });
+
+    assert.deepEqual(defaultElements, [footer]);
+  });
+});
+
 test("explicit descendants under unexcluded defaults keep implicit descendants visible", () => {
   withVisibilityDom(({ body }) => {
     const excludedA = createElement({

@@ -109,7 +109,7 @@ const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
-const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 650;
+const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 120;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
@@ -1486,8 +1486,7 @@ function collectDefaultHighlightTargets(root, options) {
           hardExcludedSet.has(child);
       const childExcluded =
           frame.ancestorExcluded ||
-          excludedAncestorSet.has(frame.node) ||
-          excludedAncestorSet.has(child);
+          excludedAncestorSet.has(frame.node);
       stack.push({
         node: child,
         index: 0,
@@ -1522,6 +1521,7 @@ export function collectDefaultLayerElements(root, options = {}) {
   const consentExcluded = new Set(options.consentExcluded || []);
   const explicitExclude = new Set(options.explicitExclude || []);
   const explicitInclude = new Set(options.explicitInclude || []);
+  const excludedByStateAncestors = new Set(options.excludedByStateAncestors || []);
   const aiContent = new Set(options.aiContent || []);
   const selectorExcluded = new Set(options.selectorExcluded || options.selectorExcludedSet || []);
   const hiddenStoredExplicitExclude = new Set(options.hiddenStoredExplicitExclude || []);
@@ -1550,6 +1550,7 @@ export function collectDefaultLayerElements(root, options = {}) {
     excludedAncestorSet: new Set([
       ...hardExcludedSet,
       ...consentExcluded,
+      ...excludedByStateAncestors,
       ...explicitExclude,
       ...explicitInclude,
       ...aiContent
@@ -2496,6 +2497,19 @@ function collectExcludedXPaths(items) {
   const results = [];
   for (const item of items) {
     if (item && item.xpath && item.excluded) {
+      results.push(item.xpath);
+    }
+  }
+  return results;
+}
+
+function collectExplicitExcludedXPaths(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const results = [];
+  for (const item of items) {
+    if (item && item.xpath && item.excluded && item.explicit === true) {
       results.push(item.xpath);
     }
   }
@@ -4912,8 +4926,11 @@ function renderHighlightsInner() {
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
   state.currentPageEntry = entry || null;
+  const excludedByState = collectXPathElements(
+    collectExcludedXPaths(entry.xpaths)
+  );
   const explicitExclude = collectXPathElements(
-      collectExcludedXPaths(entry.xpaths)
+    collectExplicitExcludedXPaths(entry.xpaths)
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
@@ -4939,7 +4956,7 @@ function renderHighlightsInner() {
       return true;
     }
     if (skipExplicitExcludedUnlessIncluded
-        && isWithinElementSet(el, explicitExclude)
+        && isWithinElementSet(el, excludedByState)
         && !isWithinExplicitInclude(el)) {
       return true;
     }
@@ -5007,6 +5024,7 @@ function renderHighlightsInner() {
     consentExcluded,
     explicitExclude,
     explicitInclude,
+    excludedByStateAncestors: excludedByState,
     aiContent,
     selectorExcluded: selectorExcludedSet,
     hiddenStoredExplicitExclude,

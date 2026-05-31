@@ -194,6 +194,22 @@ test("explicit overlay refresh updates only explicit layers before the delayed r
   assert.doesNotMatch(scheduleBody, /scheduleRender\(getExplicitMarkingRenderOptions\(\)\)/);
 });
 
+test("explicit toggle full rebuild timing stays short to avoid ancestor lag", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const rulesSource = readFileSync(new URL("../content/marking-rules.js", import.meta.url), "utf8");
+
+  const fullRenderDelayMatch = coreSource.match(/const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = (\d+);/);
+  assert.ok(fullRenderDelayMatch);
+  assert.ok(Number(fullRenderDelayMatch[1]) <= 150);
+
+  const renderOptionsMatch = rulesSource.match(
+    /getExplicitMarkingFullRenderOptions\(\) \{[\s\S]*?delay:\s*(\d+),[\s\S]*?minInterval:\s*(\d+),/
+  );
+  assert.ok(renderOptionsMatch);
+  assert.ok(Number(renderOptionsMatch[1]) <= 80);
+  assert.ok(Number(renderOptionsMatch[2]) <= 200);
+});
+
 test("marking passes share broad per-pass element caches", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 

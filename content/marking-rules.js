@@ -44,8 +44,8 @@ export function shouldAllowParentMarkingBoundary(options = {}) {
 
 export function getExplicitMarkingFullRenderOptions() {
   return {
-    delay: 120,
-    minInterval: 500,
+    delay: 40,
+    minInterval: 120,
     invalidate: true,
     reason: "explicit-toggle-full-rebuild"
   };

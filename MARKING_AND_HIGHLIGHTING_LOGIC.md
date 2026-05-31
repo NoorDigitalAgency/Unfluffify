@@ -142,6 +142,15 @@ explicit marks should not globally filter unrelated implicit default targets,
 because that can make implicit descendant markings flicker on alternating
 toggles.
 
+Default-layer projection uses two related but distinct sets:
+
+- explicit excludes suppress only the explicit boundary itself at default-layer
+  precedence,
+- all synced excluded boundaries suppress descendant default-layer projection.
+
+That split keeps generated default boundaries visible on initial render while
+still preventing duplicate descendant default markings under excluded ancestors.
+
 Both full renders and fast explicit-toggle overlay refreshes must run page
 marking synchronization before drawing. The fast refresh is only an adaptation
 layer over the b9 rules; it cannot draw from a just-mutated entry until
@@ -158,7 +167,9 @@ Marking mode must avoid duplicate full-page passes:
 - A manual refinement performs a cheap immediate explicit-layer refresh, then a
   delayed invalidating full rebuild for correctness. The immediate refresh may
   update explicit include/exclude layers and cached explicit collections, but it
-  must not recompute the default layer or redraw every layer.
+  must not recompute the default layer or redraw every layer. The delayed full
+  rebuild should run on a short cadence so ancestor unmarks do not visibly lag
+  before descendants receive refreshed default markings.
 - A full marking pass may cache per-element visibility, text, immutable/default
   selector, ancestor, and textual-descendant decisions for the duration of that
   pass. These caches are derived from the current DOM/config and are not a
