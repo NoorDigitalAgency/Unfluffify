@@ -257,6 +257,20 @@ single `xpaths` field as an explicit include row.
 Explicit include boundaries are closed boundaries: descendants under an active
 include are not targetable until the include itself is removed.
 
+### Page Interaction Mode
+
+Holding `Space` while marking mode is enabled temporarily lets clicks pass
+through to the underlying page UI. This is for opening accordions, tabs,
+menus, and similar controls before returning to marking or explicit include
+work. `Alt` remains include mode and `Shift` remains parent selection, so page
+interaction is intentionally a separate hold state. Releasing `Space`, window
+blur, visibility changes, or disabling marking restores the overlay and redraws
+markings over the page's new posture.
+
+Silent highlighting overlays never capture page clicks, so users can interact
+with accordions directly in passive highlighting mode. The same page-motion
+pause remains active in both modes to keep markings and highlights comparable.
+
 ## Self-Markability
 
 An element is self-markable when it is a textual container and is not blocked by

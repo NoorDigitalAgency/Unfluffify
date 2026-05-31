@@ -147,6 +147,7 @@ export const ContentText = Object.freeze({
     immutableOverrideBlocked: "Default exclusions cannot be overridden", // Toast shown when a user tries to toggle an immutable default exclusion.
     altIncludeParentHint: "Use ALT-click to inclusion to override decendents of an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
     explicitIncludeBlocked: "Element cannot be explicitly included", // Toast shown when an element fails the explicit-include eligibility rules.
+    pageInteractionMode: "Page interaction mode", // Toast shown while Space is held to let clicks reach page UI.
     saveReconciliationBlocked: "Finish server sync before editing" // Toast shown when page editing is locked after a local save.
   }),
 

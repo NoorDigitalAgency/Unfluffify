@@ -70,6 +70,12 @@ Motion stability pass completed:
 3. The freeze covers CSS animations/transitions, Web Animations, SVG clocks, autoplay-like media, generic hover-pause candidates, and computed inline locks for common motion properties.
 4. Save snapshots restore and strip extension-owned pause classes, UI, and inline locks before serializing `renderedHtml`.
 
+Page interaction pass-through completed:
+
+1. Hold `Space` in marking mode to temporarily let clicks reach page UI such as accordions, tabs, and menus.
+2. `Alt` stays explicit include and `Shift` stays parent selection.
+3. Releasing `Space`, blur, visibility changes, or marking disable restores the overlay and redraws markings over the updated page posture.
+
 ## Post-Run Follow-up
 
 1. Fix `tests/page-telemetry.test.js` payload-control failure.

@@ -221,3 +221,33 @@ test("marking passes share broad per-pass element caches", () => {
   assert.match(source, /function refreshExplicitMarkingOverlay\(entry\) \{[\s\S]*?withElementComputationCache/);
   assert.match(source, /export function syncPageMarkings[\s\S]*?withElementComputationCache/);
 });
+
+test("marking mode uses Space-held page interaction without changing Alt include or Shift parent selection", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /const PAGE_INTERACTION_KEY_CODE = "Space";/);
+  assert.match(
+    source,
+    /function handleKeydown\(event\) \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?isEditableKeyEventTarget\(event\.target\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?setAltPassThrough\(true\);[\s\S]*?ContentText\.marking\.pageInteractionMode[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
+  );
+  assert.match(
+    source,
+    /function handleKeyup\(event\) \{[\s\S]*?isPageInteractionKeyEvent\(event\)[\s\S]*?setAltPassThrough\(false\);[\s\S]*?refreshHoverHighlight\(\);[\s\S]*?if \(event\.key !== "Alt" && event\.key !== "Shift"\)/
+  );
+  assert.match(
+    source,
+    /function handleToggleEvent\(event\) \{[\s\S]*?if \(!state\.enabled \|\| state\.altPassThrough\) \{[\s\S]*?return;/
+  );
+  assert.match(
+    source,
+    /function updateCursorMode\(\) \{[\s\S]*?mode === "passthrough"[\s\S]*?root\.classList\.add\("uf-cursor-passthrough"\);[\s\S]*?mode === "exclude"[\s\S]*?mode === "include"/
+  );
+  assert.match(
+    source,
+    /function getMarkModeFromEvent\(event\) \{[\s\S]*?if \(event\.altKey\) \{[\s\S]*?return "include";[\s\S]*?return "exclude";/
+  );
+  assert.match(
+    source,
+    /function shouldAllowParentMarking\(mode, shiftHeld\) \{\s*return mode !== "include" && Boolean\(shiftHeld\);\s*\}/
+  );
+});

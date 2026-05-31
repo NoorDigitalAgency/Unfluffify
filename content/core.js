@@ -115,6 +115,9 @@ const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
+const PAGE_INTERACTION_KEY = " ";
+const PAGE_INTERACTION_KEY_CODE = "Space";
+const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
@@ -4137,6 +4140,9 @@ function getMarkMode() {
   if (!state.enabled || !state.overlay) {
     return "disabled";
   }
+  if (state.altPassThrough) {
+    return "passthrough";
+  }
   if (state.altHeld) {
     return "include";
   }
@@ -4176,7 +4182,9 @@ function updateCursorMode() {
     return;
   }
   const mode = getMarkMode();
-  if (mode === "exclude") {
+  if (mode === "passthrough") {
+    root.classList.add("uf-cursor-passthrough");
+  } else if (mode === "exclude") {
     root.classList.add("uf-cursor-exclude");
   } else if (mode === "include") {
     root.classList.add("uf-cursor-include");
@@ -4184,9 +4192,46 @@ function updateCursorMode() {
 }
 
 function updateAltPassThroughFromModifiers() {
-  if (state.altPassThrough) {
-    setAltPassThrough(false);
+  updateCursorMode();
+}
+
+function isPageInteractionKeyEvent(event) {
+  if (!event || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+    return false;
   }
+  return event.code === PAGE_INTERACTION_KEY_CODE ||
+    event.key === PAGE_INTERACTION_KEY ||
+    event.key === PAGE_INTERACTION_LEGACY_KEY;
+}
+
+function isEditableKeyEventTarget(target) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tagName = target.tagName ? String(target.tagName).toUpperCase() : "";
+  if (tagName === "TEXTAREA" || tagName === "SELECT") {
+    return true;
+  }
+  if (tagName !== "INPUT") {
+    return false;
+  }
+  const inputType = typeof target.getAttribute === "function"
+    ? String(target.getAttribute("type") || "text").toLowerCase()
+    : "text";
+  return ![
+    "button",
+    "checkbox",
+    "color",
+    "file",
+    "image",
+    "radio",
+    "range",
+    "reset",
+    "submit"
+  ].includes(inputType);
 }
 
 function syncModifierState(event) {
@@ -5354,7 +5399,7 @@ function toggleExplicitInclude(target) {
 }
 
 function handleToggleEvent(event) {
-  if (!state.enabled) {
+  if (!state.enabled || state.altPassThrough) {
     return;
   }
   const toggleStartedAt = nowMs();
@@ -5448,6 +5493,18 @@ function handleKeydown(event) {
   if (!state.enabled) {
     return;
   }
+  if (isPageInteractionKeyEvent(event)) {
+    if (isEditableKeyEventTarget(event.target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (!state.altPassThrough) {
+      setAltPassThrough(true);
+      showToast(ContentText.marking.pageInteractionMode);
+    }
+    return;
+  }
   if (event.key !== "Alt" && event.key !== "Shift") {
     return;
   }
@@ -5456,6 +5513,17 @@ function handleKeydown(event) {
 
 function handleKeyup(event) {
   if (!state.enabled) {
+    return;
+  }
+  if (isPageInteractionKeyEvent(event) || state.altPassThrough && event.code === PAGE_INTERACTION_KEY_CODE) {
+    if (!isEditableKeyEventTarget(event.target)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (state.altPassThrough) {
+      setAltPassThrough(false);
+      refreshHoverHighlight();
+    }
     return;
   }
   if (event.key !== "Alt" && event.key !== "Shift") {
@@ -6604,6 +6672,7 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
 }
 
 function setAltPassThrough(enabled) {
+  const changed = state.altPassThrough !== enabled;
   state.altPassThrough = enabled;
   if (!state.overlay) {
     return;
@@ -6615,6 +6684,9 @@ function setAltPassThrough(enabled) {
   }
   if (!enabled) {
     scheduleRender();
+  }
+  if (changed) {
+    updateCursorMode();
   }
 }
 
