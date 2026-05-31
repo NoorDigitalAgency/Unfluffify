@@ -99,7 +99,8 @@ taxonomy is:
 Toggleable defaults are not promoted to explicit includes by a plain exclude
 click. Exclude mode keeps drilling to the nearest markable content target unless
 the user holds `Shift` to select a broader boundary. Include mode is explicit:
-the user holds `Alt` and the selected target is written to `includeXpaths`.
+the user holds `Alt` and the selected target is written to the local
+`includeXpaths` list, then synced as an explicit include row in `xpaths`.
 
 Toggleable default exclusions have no separate visual layer or class. Once the
 decision step marks a default boundary as excluded, it is represented by the
@@ -115,8 +116,8 @@ Each page entry may contain:
 - `timestamp`
 - `xpaths`: ordered `{ xpath, excluded }` rows; user-created exclude rows
   carry `explicit: true`
-- `includeXpaths`: explicit include XPath rows
-- `selectorSuppressedXpaths`
+- `includeXpaths`: local explicit include XPath rows
+- `selectorSuppressedXpaths`: local selector-default suppression overrides
 - `submissionXpaths`
 - `renderedHtml`
 - `rawHtml`
@@ -125,8 +126,11 @@ Each page entry may contain:
 Only rows with `explicit: true` are treated as user exclusions for AI
 submission and explicit-overlay rendering; untagged generated or legacy rows are
 sync posture and may be dropped if they do not still match a generated default.
-`includeXpaths` is the canonical explicit-include list. Normalization removes
-redundant nested rows when a broader boundary takes over a subtree.
+`includeXpaths` is the local explicit-include list. Normalization removes
+redundant nested rows when a broader boundary takes over a subtree. Config sync
+does not send `includeXpaths` or `selectorSuppressedXpaths` as separate fields:
+both are merged into `xpaths` as `{ xpath, excluded: false, explicit: true }`
+rows and reconstructed into the local lists when loaded.
 
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. It must suppress the
@@ -169,7 +173,8 @@ selected as broader boundaries.
 
 `Alt` switches to include mode. Include mode can inspect descendants inside
 excluded parents and prefers explicit targets first. The selected element is
-stored in `includeXpaths` when it is eligible.
+stored locally in `includeXpaths` when it is eligible and synced through the
+single `xpaths` field as an explicit include row.
 
 Explicit include boundaries are closed boundaries: descendants under an active
 include are not targetable until the include itself is removed.

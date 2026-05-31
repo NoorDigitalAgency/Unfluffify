@@ -2385,12 +2385,36 @@ export function normalizePageEntryXpaths(entry) {
   if (!entry || typeof entry !== "object") {
     return entry;
   }
+  const normalizedXpaths = normalizeXPathItems(entry.xpaths);
+  const explicitIncludeXpaths = normalizedXpaths
+    .filter((item) =>
+      item &&
+      item.explicit === true &&
+      item.excluded === false &&
+      typeof item.xpath === "string" &&
+      item.xpath
+    )
+    .map((item) => item.xpath);
+  const appendUnique = (values, xpath) => {
+    if (!xpath) {
+      return;
+    }
+    const existingIndex = values.indexOf(xpath);
+    if (existingIndex >= 0) {
+      values.splice(existingIndex, 1);
+    }
+    values.push(xpath);
+  };
   entry.title = normalizePageEntryTitle(entry.title);
   entry.pageType = normalizePageEntryPageType(entry.pageType);
-  entry.xpaths = normalizeXPathItems(entry.xpaths);
-  entry.includeXpaths = normalizeXPathList(entry.includeXpaths);
+  entry.xpaths = normalizedXpaths.filter((item) => !(item.explicit === true && item.excluded === false));
+  const includeXpaths = normalizeXPathList(entry.includeXpaths);
+  explicitIncludeXpaths.forEach((xpath) => appendUnique(includeXpaths, xpath));
+  entry.includeXpaths = includeXpaths;
   delete entry.consentXpaths;
-  entry.selectorSuppressedXpaths = normalizeXPathList(entry.selectorSuppressedXpaths);
+  const selectorSuppressedXpaths = normalizeXPathList(entry.selectorSuppressedXpaths);
+  explicitIncludeXpaths.forEach((xpath) => appendUnique(selectorSuppressedXpaths, xpath));
+  entry.selectorSuppressedXpaths = selectorSuppressedXpaths;
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
   entry.rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";

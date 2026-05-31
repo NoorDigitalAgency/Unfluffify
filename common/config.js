@@ -9,7 +9,7 @@ import { normalizeSiteIdValue } from "./lynx-live-pages.js";
 
 /** Fallback timestamp for pages with no recorded data */
 export const PAGE_TIMESTAMP_FALLBACK = "1970-01-01T00:00:00Z";
-const SERVER_SYNC_VERSION = 4;
+const SERVER_SYNC_VERSION = 5;
 /** Render mode for static HTML content */
 export const RENDER_MODE_STATIC = "static";
 /** Render mode for rendered/JavaScript content */
@@ -425,6 +425,66 @@ function normalizeXpathItems(rawXpaths) {
   return { values, changed };
 }
 
+function extractExplicitIncludeXpaths(xpathItems) {
+  return (Array.isArray(xpathItems) ? xpathItems : [])
+    .filter((item) =>
+      item &&
+      item.explicit === true &&
+      item.excluded === false &&
+      typeof item.xpath === "string" &&
+      item.xpath
+    )
+    .map((item) => item.xpath);
+}
+
+function removeExplicitIncludeXpathItems(xpathItems) {
+  return (Array.isArray(xpathItems) ? xpathItems : [])
+    .filter((item) => !(item && item.explicit === true && item.excluded === false));
+}
+
+function appendUniqueXpath(values, xpath) {
+  if (typeof xpath !== "string" || !xpath) {
+    return;
+  }
+  const existingIndex = values.indexOf(xpath);
+  if (existingIndex >= 0) {
+    values.splice(existingIndex, 1);
+  }
+  values.push(xpath);
+}
+
+function buildConfigSyncXpathItems(entry) {
+  const items = [];
+  const upsertItem = (item) => {
+    if (!item || typeof item.xpath !== "string" || !item.xpath) {
+      return;
+    }
+    const normalizedItem = {
+      xpath: item.xpath,
+      excluded: Boolean(item.excluded),
+      ...(item.explicit === true ? { explicit: true } : {})
+    };
+    const existingIndex = items.findIndex((existing) => existing.xpath === normalizedItem.xpath);
+    if (existingIndex >= 0) {
+      items.splice(existingIndex, 1);
+    }
+    items.push(normalizedItem);
+  };
+
+  for (const item of Array.isArray(entry && entry.xpaths) ? entry.xpaths : []) {
+    upsertItem(item);
+  }
+  for (const xpath of Array.isArray(entry && entry.includeXpaths) ? entry.includeXpaths : []) {
+    upsertItem({ xpath, excluded: false, explicit: true });
+  }
+  for (const xpath of Array.isArray(entry && entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths
+    : []) {
+    upsertItem({ xpath, excluded: false, explicit: true });
+  }
+  return items;
+}
+
 function normalizeSelectorList(list) {
   const values = [];
   const seen = new Set();
@@ -693,8 +753,12 @@ export function normalizePageMarkings(pageMarkings) {
     }
     const rawXpaths = Array.isArray(entry.xpaths) ? entry.xpaths : [];
     const normalizedXpaths = normalizeXpathItems(rawXpaths);
-    const xpaths = normalizedXpaths.values;
+    const explicitIncludeXpaths = extractExplicitIncludeXpaths(normalizedXpaths.values);
+    const xpaths = removeExplicitIncludeXpathItems(normalizedXpaths.values);
     if (normalizedXpaths.changed) {
+      changed = true;
+    }
+    if (explicitIncludeXpaths.length > 0) {
       changed = true;
     }
     const timestamp = normalizeEntryTimestamp(entry.timestamp);
@@ -715,7 +779,8 @@ export function normalizePageMarkings(pageMarkings) {
     if (!Array.isArray(entry.includeXpaths) && entry.includeXpaths !== undefined) {
       changed = true;
     }
-    const rawInclude = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
+    const rawInclude = Array.isArray(entry.includeXpaths) ? [...entry.includeXpaths] : [];
+    explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawInclude, xpath));
     const includeResult = normalizeUniqueXpathList(rawInclude);
     const includeXpaths = includeResult.values;
     if (includeResult.changed) {
@@ -725,8 +790,9 @@ export function normalizePageMarkings(pageMarkings) {
       changed = true;
     }
     const rawSelectorSuppressed = Array.isArray(entry.selectorSuppressedXpaths)
-      ? entry.selectorSuppressedXpaths
+      ? [...entry.selectorSuppressedXpaths]
       : [];
+    explicitIncludeXpaths.forEach((xpath) => appendUniqueXpath(rawSelectorSuppressed, xpath));
     const selectorSuppressedResult = normalizeUniqueXpathList(rawSelectorSuppressed);
     const selectorSuppressedXpaths = selectorSuppressedResult.values;
     if (selectorSuppressedResult.changed) {
@@ -970,19 +1036,7 @@ export function createConfigSyncPayload(baseUrl, sourceConfig, options = {}) {
       renderedHtml:
         typeof safeEntry.renderedHtml === "string" ? safeEntry.renderedHtml : "",
       rawHtml: typeof safeEntry.rawHtml === "string" ? safeEntry.rawHtml : "",
-      xpaths: Array.isArray(safeEntry.xpaths)
-        ? safeEntry.xpaths.map((item) => ({
-          xpath: item && typeof item.xpath === "string" ? item.xpath : "",
-          excluded: Boolean(item && item.excluded),
-          ...(item && item.explicit === true ? { explicit: true } : {})
-        })).filter((item) => item.xpath)
-        : [],
-      includeXpaths: Array.isArray(safeEntry.includeXpaths)
-        ? safeEntry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-        : [],
-      selectorSuppressedXpaths: Array.isArray(safeEntry.selectorSuppressedXpaths)
-        ? safeEntry.selectorSuppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
-        : [],
+      xpaths: buildConfigSyncXpathItems(safeEntry),
       submissionXpaths: Array.isArray(safeEntry.submissionXpaths)
         ? safeEntry.submissionXpaths
           .map((item) => ({

@@ -120,7 +120,7 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
   });
 
   assert.equal(payload.pageMarkings["https://example.com/current"].pageType, "listing");
-  assert.equal(payload.version, 4);
+  assert.equal(payload.version, 5);
   assert.deepEqual(payload.pageMarkings["https://example.com/current"].xpaths, [
     { xpath: "/html/body/main", excluded: true, explicit: true }
   ]);
@@ -128,16 +128,28 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
     Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "consentXpaths"),
     false
   );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "includeXpaths"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "selectorSuppressedXpaths"),
+    false
+  );
 });
 
-test("page marking selector suppression xpaths are normalized and included in sync payloads", () => {
+test("page marking explicit inclusions are normalized into sync xpath rows", () => {
   const normalized = normalizeConfig("https://example.com", {
     pageMarkings: {
       "https://example.com/current": {
         timestamp: "2026-01-01T00:00:00Z",
         pageType: "listing",
         xpaths: [{ xpath: "/html/body/main", excluded: true }],
-        includeXpaths: [],
+        includeXpaths: [
+          "/html/body/main/article",
+          "/html/body/main/article",
+          ""
+        ],
         selectorSuppressedXpaths: [
           "/html/body/main/section",
           "/html/body/main/section",
@@ -151,21 +163,44 @@ test("page marking selector suppression xpaths are normalized and included in sy
   }).config;
 
   assert.deepEqual(
+    normalized.pageMarkings["https://example.com/current"].includeXpaths,
+    ["/html/body/main/article"]
+  );
+  assert.deepEqual(
     normalized.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
     ["/html/body/main/section"]
   );
 
   const payload = createConfigSyncPayload("https://example.com", normalized);
   assert.deepEqual(
-    payload.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
-    ["/html/body/main/section"]
+    payload.pageMarkings["https://example.com/current"].xpaths,
+    [
+      { xpath: "/html/body/main", excluded: true },
+      { xpath: "/html/body/main/article", excluded: false, explicit: true },
+      { xpath: "/html/body/main/section", excluded: false, explicit: true }
+    ]
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "includeXpaths"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "selectorSuppressedXpaths"),
+    false
   );
 
   const roundTripped = normalizeConfigSyncPayload(payload, "https://example.com");
   assert.deepEqual(
-    roundTripped.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
-    ["/html/body/main/section"]
+    roundTripped.pageMarkings["https://example.com/current"].includeXpaths,
+    ["/html/body/main/article", "/html/body/main/section"]
   );
+  assert.deepEqual(
+    roundTripped.pageMarkings["https://example.com/current"].selectorSuppressedXpaths,
+    ["/html/body/main/article", "/html/body/main/section"]
+  );
+  assert.deepEqual(roundTripped.pageMarkings["https://example.com/current"].xpaths, [
+    { xpath: "/html/body/main", excluded: true }
+  ]);
 });
 
 test("backend-saved page marking snapshots keep only confirmed page entries outside config sync", () => {
