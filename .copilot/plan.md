@@ -76,6 +76,12 @@ Page interaction pass-through completed:
 2. `Alt` stays explicit include and `Shift` stays parent selection.
 3. Releasing `Space`, blur, visibility changes, or marking disable restores the overlay and redraws markings over the updated page posture.
 
+Temporary disabled marking state completed:
+
+1. Save reconciliation is the source of truth for marking-active-but-editing-blocked pages.
+2. The page overlay dims existing markings, clears hover feedback, switches to a progress cursor, and shows a persistent paused status notice while reconciliation is pending.
+3. The disabled-state UI remains extension-owned and is stripped from saved snapshots.
+
 ## Post-Run Follow-up
 
 1. Fix `tests/page-telemetry.test.js` payload-control failure.

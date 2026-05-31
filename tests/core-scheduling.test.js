@@ -251,3 +251,22 @@ test("marking mode uses Space-held page interaction without changing Alt include
     /function shouldAllowParentMarking\(mode, shiftHeld\) \{\s*return mode !== "include" && Boolean\(shiftHeld\);\s*\}/
   );
 });
+
+test("marking mode surfaces temporary disabled state while save sync blocks editing", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+
+  assert.match(source, /const MARKING_DISABLED_OVERLAY_CLASS = "uf-marking-temporarily-disabled";/);
+  assert.match(source, /const MARKING_DISABLED_CURSOR_CLASS = "uf-cursor-disabled";/);
+  assert.match(source, /disabledNotice\.className = "uf-marking-disabled-notice";/);
+  assert.match(source, /disabledNotice\.setAttribute\("data-uf-extension-ui", "true"\);/);
+  assert.match(source, /disabledNotice\.setAttribute\("role", "status"\);/);
+  assert.match(source, /disabledNotice\.setAttribute\("aria-live", "polite"\);/);
+  assert.match(source, /function getMarkingTemporarilyDisabledReason\(\) \{[\s\S]*?const pageUrl = typeof location !== "undefined" \? location\.href : "";[\s\S]*?getPageSaveReconciliationState\(pageUrl\)[\s\S]*?config\.isPageSaveReconciliationPending\(reconciliation\)[\s\S]*?return reconciliation\.reason \|\| "pending";/);
+  assert.match(source, /function updateMarkingTemporarilyDisabledUi\(\) \{[\s\S]*?classList\.toggle\(MARKING_DISABLED_OVERLAY_CLASS, disabled\)[\s\S]*?setAttribute\("aria-disabled", "true"\)[\s\S]*?clearLayer\(state\.layers\["hover"\]\)[\s\S]*?getMarkingTemporarilyDisabledMessage\(reason\)/);
+  assert.match(source, /function getMarkMode\(\) \{[\s\S]*?isMarkingTemporarilyDisabled\(\)[\s\S]*?return "disabled";[\s\S]*?state\.altPassThrough/);
+  assert.match(source, /export async function setPageSaveReconciliationPending[\s\S]*?state\.pageSaveReconciliation = reconciliation;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
+  assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
+  assert.match(textSource, /temporarilyDisabledSaving: "Saving page\.\.\. marking paused"/);
+  assert.match(textSource, /temporarilyDisabledSyncing: "Save sync pending\.\.\. marking paused"/);
+});

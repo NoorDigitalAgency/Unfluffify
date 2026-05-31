@@ -275,6 +275,15 @@ Silent highlighting overlays never capture page clicks, so users can interact
 with accordions directly in passive highlighting mode. The same page-motion
 pause remains active in both modes to keep markings and highlights comparable.
 
+### Temporary Disabled State
+
+Marking can remain active while editing is temporarily blocked, such as during a
+page save or while saved page data is waiting for backend sync confirmation. In
+that state the page overlay stays mounted, dims existing markings, clears hover
+feedback, switches to a progress cursor, and shows a persistent `aria-live`
+status notice that marking is paused. The notice is extension UI and is stripped
+from saved snapshots with the rest of the overlay.
+
 ## Self-Markability
 
 An element is self-markable when it is a textual container and is not blocked by

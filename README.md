@@ -153,6 +153,8 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 6. **Navigate**: Go to other pages under the base URL to see inferred patterns
 7. **Save Markings**: Click save to persist your changes
 
+When a save or sync step temporarily blocks editing, the page overlay dims and shows a marking-paused notice until marking is available again.
+
 ## Key Concepts
 
 ### Silent Highlighting

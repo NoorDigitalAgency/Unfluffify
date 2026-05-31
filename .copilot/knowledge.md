@@ -60,3 +60,4 @@
 - Marking mode uses `Alt` for explicit include, `Shift` for parent selection, and hold-`Space` for temporary page UI interaction/pass-through.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, and all freeze mechanics must be stripped from snapshots.
+- If marking remains enabled while page editing is blocked by save reconciliation, the page overlay must visibly enter the temporary disabled state: dim markings, clear hover, show the paused status notice, and strip that UI from snapshots.

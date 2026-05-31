@@ -46,6 +46,7 @@ export const state = {
   aiPopoverOnCollapsedChange: null,
   toast: null,
   toastHideTimer: 0,
+  markingDisabledNotice: null,
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
@@ -117,6 +118,8 @@ const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
+const MARKING_DISABLED_OVERLAY_CLASS = "uf-marking-temporarily-disabled";
+const MARKING_DISABLED_CURSOR_CLASS = "uf-cursor-disabled";
 const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
@@ -168,6 +171,7 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-exclude",
   "uf-cursor-include",
   "uf-cursor-passthrough",
+  MARKING_DISABLED_CURSOR_CLASS,
   PAGE_MOTION_PAUSE_ROOT_CLASS
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
@@ -3954,6 +3958,10 @@ function createOverlay() {
       html.uf-cursor-passthrough * {
         cursor: unset !important;
       }
+      html.${MARKING_DISABLED_CURSOR_CLASS},
+      html.${MARKING_DISABLED_CURSOR_CLASS} * {
+        cursor: progress !important;
+      }
       #unfluffify-overlay {
         position: fixed;
         top: 0;
@@ -3978,6 +3986,14 @@ function createOverlay() {
       #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
       #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 10; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
+        opacity: 0;
+      }
+      #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-layer {
+        opacity: 0.28;
+        filter: grayscale(0.75) saturate(0.55);
+      }
+      #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-layer[data-layer="hover"],
+      #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-layer[data-layer="interaction"] {
         opacity: 0;
       }
       #unfluffify-overlay .uf-rect {
@@ -4084,6 +4100,35 @@ function createOverlay() {
         opacity: 1;
         transform: translateY(0);
       }
+      #unfluffify-overlay .uf-marking-disabled-notice {
+        position: fixed;
+        top: max(14px, env(safe-area-inset-top));
+        left: 50%;
+        max-width: min(420px, calc(100vw - 28px));
+        box-sizing: border-box;
+        padding: 9px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(35, 39, 47, 0.94);
+        color: #ffffff;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 13px;
+        font-weight: 650;
+        line-height: 1.25;
+        text-align: center;
+        pointer-events: none;
+        transform: translate(-50%, -6px);
+        opacity: 0;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+      #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-marking-disabled-notice {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      #unfluffify-overlay .uf-marking-disabled-notice[hidden] {
+        display: none;
+      }
     `;
   (document.body || document.documentElement).appendChild(style);
 
@@ -4118,11 +4163,21 @@ function createOverlay() {
   overlay.appendChild(toast);
   state.toast = toast;
 
+  const disabledNotice = document.createElement("div");
+  disabledNotice.className = "uf-marking-disabled-notice";
+  disabledNotice.hidden = true;
+  disabledNotice.setAttribute("data-uf-extension-ui", "true");
+  disabledNotice.setAttribute("role", "status");
+  disabledNotice.setAttribute("aria-live", "polite");
+  overlay.appendChild(disabledNotice);
+  state.markingDisabledNotice = disabledNotice;
+
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
   (document.body || document.documentElement).appendChild(overlay);
   state.overlay = overlay;
+  updateMarkingTemporarilyDisabledUi();
   updateAltPassThroughFromModifiers();
   updateCursorMode();
 
@@ -4147,6 +4202,7 @@ function removeOverlay() {
     state.focusBox = null;
     state.focusElement = null;
     state.toast = null;
+    state.markingDisabledNotice = null;
   }
   state.lastPointer = null;
   if (state.toggleAckTimer) {
@@ -4196,8 +4252,59 @@ function showToast(message) {
   }, 1800);
 }
 
+function getMarkingTemporarilyDisabledReason() {
+  const pageUrl = typeof location !== "undefined" ? location.href : "";
+  const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
+  if (config.isPageSaveReconciliationPending(reconciliation)) {
+    return reconciliation.reason || "pending";
+  }
+  return "";
+}
+
+function getMarkingTemporarilyDisabledMessage(reason) {
+  if (reason === "saving") {
+    return ContentText.marking.temporarilyDisabledSaving;
+  }
+  if (reason) {
+    return ContentText.marking.temporarilyDisabledSyncing;
+  }
+  return ContentText.marking.temporarilyDisabled;
+}
+
+function isMarkingTemporarilyDisabled() {
+  return Boolean(getMarkingTemporarilyDisabledReason());
+}
+
+function updateMarkingTemporarilyDisabledUi() {
+  if (!state.overlay) {
+    clearCursorMode();
+    return;
+  }
+  const reason = getMarkingTemporarilyDisabledReason();
+  const disabled = Boolean(reason);
+  if (disabled && state.altPassThrough) {
+    setAltPassThrough(false);
+  }
+  state.overlay.classList.toggle(MARKING_DISABLED_OVERLAY_CLASS, disabled);
+  if (disabled) {
+    state.overlay.setAttribute("aria-disabled", "true");
+    clearLayer(state.layers["hover"]);
+  } else {
+    state.overlay.removeAttribute("aria-disabled");
+  }
+  const notice = state.markingDisabledNotice || state.overlay.querySelector(".uf-marking-disabled-notice");
+  if (notice) {
+    notice.hidden = !disabled;
+    notice.textContent = disabled ? getMarkingTemporarilyDisabledMessage(reason) : "";
+  }
+  updateCursorMode();
+}
+
 function getMarkMode() {
   if (!state.enabled || !state.overlay) {
+    return "disabled";
+  }
+  if (isMarkingTemporarilyDisabled()) {
     return "disabled";
   }
   if (state.altPassThrough) {
@@ -4224,14 +4331,15 @@ function shouldAllowParentMarking(mode, shiftHeld) {
 }
 
 function clearCursorMode() {
-  const root = document.documentElement;
+  const root = typeof document !== "undefined" ? document.documentElement : null;
   if (!root) {
     return;
   }
   root.classList.remove(
     "uf-cursor-exclude",
     "uf-cursor-include",
-    "uf-cursor-passthrough"
+    "uf-cursor-passthrough",
+    MARKING_DISABLED_CURSOR_CLASS
   );
 }
 
@@ -4244,6 +4352,8 @@ function updateCursorMode() {
   const mode = getMarkMode();
   if (mode === "passthrough") {
     root.classList.add("uf-cursor-passthrough");
+  } else if (mode === "disabled") {
+    root.classList.add(MARKING_DISABLED_CURSOR_CLASS);
   } else if (mode === "exclude") {
     root.classList.add("uf-cursor-exclude");
   } else if (mode === "include") {
@@ -5097,6 +5207,7 @@ function refreshHoverHighlight() {
   if (!state.enabled || state.altPassThrough) {
     return;
   }
+  updateMarkingTemporarilyDisabledUi();
   const layerHover = state.layers["hover"];
   if (!layerHover) {
     return;
@@ -5127,6 +5238,7 @@ function handleMouseMove(event) {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
+    updateMarkingTemporarilyDisabledUi();
     clearLayer(state.layers["hover"]);
     return;
   }
@@ -5164,6 +5276,7 @@ function toggleExplicitExclude(target) {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
+    updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
     return;
   }
@@ -5355,6 +5468,7 @@ function toggleExplicitInclude(target) {
     return;
   }
   if (isPageSaveReconciliationPending(location.href)) {
+    updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
     return;
   }
@@ -5468,6 +5582,7 @@ function handleToggleEvent(event) {
   event.preventDefault();
   event.stopPropagation();
   if (isPageSaveReconciliationPending(location.href)) {
+    updateMarkingTemporarilyDisabledUi();
     showToast(ContentText.marking.saveReconciliationBlocked);
     clearLayer(state.layers["hover"]);
     return;
@@ -5551,6 +5666,10 @@ function handleContextMenu(event) {
 
 function handleKeydown(event) {
   if (!state.enabled) {
+    return;
+  }
+  if (isMarkingTemporarilyDisabled()) {
+    updateMarkingTemporarilyDisabledUi();
     return;
   }
   if (isPageInteractionKeyEvent(event)) {
@@ -6078,6 +6197,7 @@ function renderHighlights() {
     return;
   }
   withElementComputationCache(renderHighlightsInner);
+  updateMarkingTemporarilyDisabledUi();
 }
 
 function renderHighlightsInner() {
@@ -6594,6 +6714,7 @@ export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pag
   }
   const reconciliation = await config.getPageSaveReconciliation(baseUrl, pageUrl);
   state.pageSaveReconciliation = reconciliation;
+  updateMarkingTemporarilyDisabledUi();
   return reconciliation;
 }
 
@@ -6605,6 +6726,7 @@ export async function setPageSaveReconciliationPending(baseUrl = state.baseUrl, 
     reason: typeof options.reason === "string" ? options.reason : "pending"
   });
   state.pageSaveReconciliation = reconciliation;
+  updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
   return reconciliation;
 }
@@ -6617,6 +6739,7 @@ export async function clearPageSaveReconciliation(baseUrl = state.baseUrl, pageU
   if (!current || !pageUrl || current.pageUrl === pageUrl) {
     state.pageSaveReconciliation = null;
   }
+  updateMarkingTemporarilyDisabledUi();
   notifyDraftStatus(pageUrl);
 }
 
