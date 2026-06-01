@@ -2274,7 +2274,7 @@ function renderConfigurationExtrasSection(view, handlers) {
       "button",
       {
         type: "button",
-        class: "config-extras-header",
+        class: extendIconClass("play", "config-extras-header"),
         "aria-expanded": expanded ? "true" : "false",
         onClick: handlers.onConfigurationExtrasToggle
       },

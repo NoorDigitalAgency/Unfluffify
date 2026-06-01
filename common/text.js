@@ -298,6 +298,8 @@ export const PopupText = Object.freeze({
     markRequirement: "Mark at least one page for every listed page type before sending.", // Hint shown with the page-type section to explain the final requirement.
     updatedToast: "Live Page candidates updated", // Toast shown when the background refresh detects a change in GraphQL candidates.
     refreshFailed: "Unable to refresh Live Page candidates", // Toast shown when the candidate refresh fails.
+    changedNotice: "Live Page candidates changed in Lynx. Review the updated Todo List before continuing.", // Notice shown after a quiet periodic candidate refresh detects a changed candidate set.
+    currentPageInvalidAfterRefreshAlert: "Live Page candidates changed in Lynx, and this page is no longer a valid candidate. Marking has been stopped until you choose a current candidate from the Todo List.", // Blocking alert shown when a periodic candidate refresh invalidates the active page.
     invalidStoredNotice: "Stored pages that are no longer valid candidates are ignored and removed from remote sync.", // Notice shown when saved local pages no longer match the current candidate set.
     wordsSuffix: "words", // Suffix shown after candidate word counts.
     controlsMenu: "Todo controls", // Tooltip and aria label for the todo controls dropdown trigger.

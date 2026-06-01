@@ -2313,8 +2313,8 @@ button.close-bar__stop-sharing:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   border: 1px solid light-dark(#e0443e, #d6403a);
   border-radius: 50%;

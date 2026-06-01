@@ -63,6 +63,12 @@ backend-saved page-marking cache populated from confirmed backend payloads.
 When the current tab is a valid Live Page candidate, the Todo List must label
 both the candidate row and its parent page-type subsection as `Current` so the
 active page remains findable when subsections are collapsed.
+Initial Live Page candidate loading may use the normal popup loading state, but
+periodic non-initial candidate refreshes must run quietly. A periodic refresh
+only interrupts the user after the fetched candidate signature changes: if the
+active page is no longer valid, marking is stopped and a blocking alert explains
+why; in all changed cases the Todo List root is expanded and a warning notice
+asks the user to review the updated candidates.
 Unrelated config syncs must not upload local draft page markings; only
 backend-saved pages and the current page during an explicit save/revert belong
 in a sync payload. Page-save reconciliation can be cleared only after the

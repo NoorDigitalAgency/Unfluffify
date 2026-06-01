@@ -850,6 +850,9 @@ function resetPropertyPageTypesState() {
   state.propertyPageTypesSignature = "";
   state.propertyPageTypesFetchedAt = 0;
   state.propertyPageTypesLastError = "";
+  state.propertyPageTypesChangeNoticeVisible = false;
+  state.propertyPageTypesInvalidAlertPending = false;
+  state.propertyPageTypesChangeForceTodoOpen = false;
 }
 
 function clearPropertyPageTypesRefreshTimer() {
@@ -1042,13 +1045,21 @@ function schedulePropertyPageTypesRefresh(options = {}) {
         stageBase: stageBaseValue || normalizedStageBase,
         tokenValue: nextTokenValue || "",
         force: true,
-        notifyOnChange: true
+        notifyOnChange: false
       });
-    }).then(() => {
-      refreshUi().then();
-    }).catch(() => {
-      uiModule.showToast(PopupText.pageTypes.refreshFailed);
-    });
+    }).then((result) => {
+      if (!result || !result.changed) {
+        return;
+      }
+      state.propertyPageTypesChangeNoticeVisible = true;
+      state.propertyPageTypesInvalidAlertPending = true;
+      state.propertyPageTypesChangeForceTodoOpen = true;
+      refreshUi({
+        useBusyOverlay: false,
+        skipPropertyLockFetch: true,
+        propertyPageTypesRefreshChanged: true
+      }).then();
+    }).catch(() => {});
   }, PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS);
 }
 
@@ -2888,6 +2899,7 @@ function collapseTodoListForAutoCollapse() {
 
 async function refreshUiInner(options = {}) {
   const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
+  const propertyPageTypesRefreshChanged = Boolean(options.propertyPageTypesRefreshChanged);
   if (!state.currentTab) {
     return;
   }
@@ -3639,6 +3651,12 @@ async function refreshUiInner(options = {}) {
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
+  if (state.propertyPageTypesInvalidAlertPending) {
+    state.propertyPageTypesInvalidAlertPending = false;
+    if (pageTypeUiBlocked) {
+      window.alert(PopupText.pageTypes.currentPageInvalidAfterRefreshAlert);
+    }
+  }
   const currentSelectors = getCurrentSelectorsFromConfig();
   const latestAvailableSelectors = getLatestAvailableSelectorsFromConfig();
   const lastSaved = getLastSubmittedSelectorsFromConfig();
@@ -4007,7 +4025,7 @@ async function refreshUiInner(options = {}) {
     : baseUrlReady
       ? PopupText.pageTypes.emptyState
       : effectiveSiteIdBlockedReason || ViewText.noMappedBaseUrlOrSiteId;
-  nextViewState.pageTypeNoticeText = currentPageCandidateState.status === "duplicate"
+  const pageTypeCandidateNoticeText = currentPageCandidateState.status === "duplicate"
     ? PopupText.pageTypes.duplicateCurrentPage
     : currentPageCandidateState.status === "missing"
       ? (hasStoredCurrentPageEntry || currentPageEntryMarkedInvalid)
@@ -4018,6 +4036,9 @@ async function refreshUiInner(options = {}) {
         : pageTypeCoverageModel.invalidMarkedPages.length
           ? PopupText.pageTypes.invalidStoredNotice
           : "";
+  nextViewState.pageTypeNoticeText = state.propertyPageTypesChangeNoticeVisible
+    ? PopupText.pageTypes.changedNotice
+    : pageTypeCandidateNoticeText;
   nextViewState.pageTypeNoticeVisible = Boolean(nextViewState.pageTypeNoticeText);
   nextViewState.lynxChecklistPageTypes = propertyPageTypes;
   nextViewState.markedPages = pageTypeCoverageModel.activeMarkedPages
@@ -4104,6 +4125,15 @@ async function refreshUiInner(options = {}) {
       nextViewState,
       getSavedTodoExpansionState(nextTodoExpansionKey) || getCollapsedTodoExpansionState()
     );
+  }
+  if (
+    propertyPageTypesRefreshChanged &&
+    state.propertyPageTypesChangeForceTodoOpen &&
+    nextViewState.todoListVisible
+  ) {
+    nextViewState.todoControlsMenuOpen = false;
+    nextViewState.todoSectionExpanded = true;
+    state.propertyPageTypesChangeForceTodoOpen = false;
   }
   state.currentTodoExpansionKey = nextTodoExpansionKey;
 
@@ -4229,7 +4259,10 @@ async function maybeResumePersistedAiRun() {
 
 async function refreshUi(options = {}) {
   const useBusyOverlay = options.useBusyOverlay !== false;
-  const refreshOptions = { skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch) };
+  const refreshOptions = {
+    skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch),
+    propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged)
+  };
   const response = useBusyOverlay
     ? await runWithPopupBusyOverlay(
       PopupText.overlay.loadingPopupAndPreparing,

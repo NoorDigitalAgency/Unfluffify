@@ -38,7 +38,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
 - **Device Simulation**: Emulate mobile and desktop viewports to test content extraction
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
-- **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings, and marks both the current candidate and its page-type subsection
+- **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
@@ -116,7 +116,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
 - **`page-save-state.test.js`** - Coverage for page-save button state, including initial saves when default markings are accepted as-is
 - **`core-scheduling.test.js`** - Coverage for debounced marking work, cheap explicit-overlay refreshes, and per-pass marking cache guards
-- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts and enabling marking avoids duplicate refresh work
+- **`popup-marking-refresh.test.js`** - Source-level coverage that Todo List completion reads backend-saved page markings instead of local drafts, enabling marking avoids duplicate refresh work, and periodic Live Page candidate refreshes stay quiet unless the candidate set changes
 - **`property-lock.test.js`** - Coverage for lock URL construction, state normalization, timing windows, stable client identity, and content-source lock guards
 - **`property-lock-background.test.js`** - Coverage for background-side client-session lock routing, navigation grace windows, and lock protocol metadata
 - **`utilities-runtime.test.js`** - Coverage for Chrome runtime/storage wrappers, including extension-context invalidation handling

@@ -42,9 +42,20 @@ function parseRootVariables(css) {
   assert.ok(match, "Expected theme-color.css to define :root variables");
   const variables = {};
   for (const line of match[1].split("\n")) {
-    const variableMatch = line.match(/--([\w-]+):\s*(#[0-9a-fA-F]{6})/);
-    if (variableMatch) {
-      variables[variableMatch[1]] = variableMatch[2];
+    const lightDarkMatch = line.match(/--([\w-]+):\s*light-dark\((#[0-9a-fA-F]{6}),\s*(#[0-9a-fA-F]{6})\)/);
+    if (lightDarkMatch) {
+      variables[lightDarkMatch[1]] = {
+        light: lightDarkMatch[2],
+        dark: lightDarkMatch[3]
+      };
+      continue;
+    }
+    const hexMatch = line.match(/--([\w-]+):\s*(#[0-9a-fA-F]{6})/);
+    if (hexMatch) {
+      variables[hexMatch[1]] = {
+        light: hexMatch[2],
+        dark: hexMatch[2]
+      };
     }
   }
   return variables;
@@ -91,17 +102,22 @@ function collectSemanticContrastFailures(name, mode, card, tokenValues) {
 
 test("theme semantic colors meet AA contrast in text, notice, and badge surfaces", () => {
   const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
+  const rootVariables = parseRootVariables(themeColorCss);
   const themes = parseThemeVariables(themeColorCss);
   assert.ok(themes.length > 0, "Expected at least one theme");
 
   const failures = [];
   for (const theme of themes) {
+    const variables = {
+      ...rootVariables,
+      ...theme.variables
+    };
     for (const mode of ["light", "dark"]) {
       failures.push(...collectSemanticContrastFailures(
         theme.name,
         mode,
-        theme.variables.card[mode],
-        Object.fromEntries(SEMANTIC_TOKENS.map((token) => [token, theme.variables[token][mode]]))
+        variables.card[mode],
+        Object.fromEntries(SEMANTIC_TOKENS.map((token) => [token, variables[token][mode]]))
       ));
     }
   }
@@ -112,7 +128,12 @@ test("theme semantic colors meet AA contrast in text, notice, and badge surfaces
 test("fallback semantic colors meet AA contrast in text, notice, and badge surfaces", () => {
   const themeColorCss = readFileSync(new URL("../theme-color.css", import.meta.url), "utf8");
   const rootVariables = parseRootVariables(themeColorCss);
-  const failures = collectSemanticContrastFailures("fallback", "light", rootVariables.card, rootVariables);
+  const failures = collectSemanticContrastFailures(
+    "fallback",
+    "light",
+    rootVariables.card.light,
+    Object.fromEntries(SEMANTIC_TOKENS.map((token) => [token, rootVariables[token].light]))
+  );
 
   assert.deepEqual(failures, []);
 });
@@ -161,4 +182,3 @@ test("theme layers define shared tokens, components, and utilities", () => {
   assert.doesNotMatch(themeUtilitiesCss, /\.full-width\s*\{/);
   assert.doesNotMatch(themeUtilitiesCss, /\.margin-above\s*\{/);
 });
-
