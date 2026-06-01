@@ -2856,6 +2856,38 @@ function isSilentWhitespaceExplicitExclusion(entry, item, el = null) {
   return isSilentWhitespaceExclusionCandidate(resolved);
 }
 
+function setEntrySilentWhitespaceExcludedXpaths(entry, xpaths) {
+  if (!entry || typeof entry !== "object" || entry === Object.prototype) {
+    return;
+  }
+  Object.defineProperty(entry, "silentWhitespaceExcludedXpaths", {
+    value: normalizeXPathList(xpaths),
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+}
+
+function isXpathCoveredByAncestor(xpath, ancestorXpaths) {
+  if (!xpath || !ancestorXpaths) {
+    return false;
+  }
+  for (const ancestorXpath of ancestorXpaths) {
+    if (ancestorXpath && ancestorXpath !== xpath && isXPathDescendant(ancestorXpath, xpath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExcludedSet) {
+  return Boolean(
+    previousSilentWhitespaceExcludedSet &&
+    previousSilentWhitespaceExcludedSet.has(xpath) &&
+    !isSilentWhitespaceExclusionCandidate(el)
+  );
+}
+
 function collectSilentWhitespaceExclusionCandidates(options = {}) {
   if (!document.body) {
     return [];
@@ -2877,17 +2909,10 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       continue;
     }
     const xpath = getXPath(node);
-    const coveredByExistingExclude =
-      xpath &&
-      Array.from(excludedXpaths).some((excludedXpath) =>
-        excludedXpath && excludedXpath !== xpath && isXPathDescendant(excludedXpath, xpath)
-      );
-    const coveredByCandidate =
-      xpath &&
-      Array.from(resultXpaths).some((candidateXpath) =>
-        candidateXpath && candidateXpath !== xpath && isXPathDescendant(candidateXpath, xpath)
-      );
-    if (coveredByExistingExclude || coveredByCandidate) {
+    if (
+      isXpathCoveredByAncestor(xpath, excludedXpaths) ||
+      isXpathCoveredByAncestor(xpath, resultXpaths)
+    ) {
       continue;
     }
     if (
@@ -2988,7 +3013,7 @@ export function normalizePageEntryXpaths(entry) {
   const selectorSuppressedXpaths = normalizeXPathList(entry.selectorSuppressedXpaths);
   explicitIncludeXpaths.forEach((xpath) => appendUnique(selectorSuppressedXpaths, xpath));
   entry.selectorSuppressedXpaths = selectorSuppressedXpaths;
-  entry.silentWhitespaceExcludedXpaths = normalizeXPathList(entry.silentWhitespaceExcludedXpaths);
+  setEntrySilentWhitespaceExcludedXpaths(entry, entry.silentWhitespaceExcludedXpaths);
   entry.submissionXpaths = normalizeXPathItems(entry.submissionXpaths);
   entry.renderedHtml = typeof entry.renderedHtml === "string" ? entry.renderedHtml : "";
   entry.rawHtml = typeof entry.rawHtml === "string" ? entry.rawHtml : "";
@@ -8675,10 +8700,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     if (!xpath || seen.has(xpath)) {
       continue;
     }
-    if (
-      previousSilentWhitespaceExcludedSet.has(xpath) &&
-      !isSilentWhitespaceExclusionCandidate(el)
-    ) {
+    if (isStaleSilentWhitespaceExclusion(xpath, el, previousSilentWhitespaceExcludedSet)) {
       continue;
     }
     const toggleableDefault = matchesToggleableDefaultExcluded(el);
@@ -8829,7 +8851,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
         );
       });
   entry.xpaths = items;
-  entry.silentWhitespaceExcludedXpaths = silentWhitespaceExcludedXpaths;
+  setEntrySilentWhitespaceExcludedXpaths(entry, silentWhitespaceExcludedXpaths);
   entry.title = normalizePageEntryTitle(document.title, pageUrl);
   if (!entry.renderedHtml) {
     entry.renderedHtml = "";
