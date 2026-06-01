@@ -8675,6 +8675,12 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     if (!xpath || seen.has(xpath)) {
       continue;
     }
+    if (
+      previousSilentWhitespaceExcludedSet.has(xpath) &&
+      !isSilentWhitespaceExclusionCandidate(el)
+    ) {
+      continue;
+    }
     const toggleableDefault = matchesToggleableDefaultExcluded(el);
     if (
       toggleableDefault &&
