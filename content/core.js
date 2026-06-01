@@ -113,6 +113,7 @@ const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 120;
+const EXPLICIT_TOGGLE_FULL_RENDER_IDLE_TIMEOUT_MS = 200;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
@@ -6979,47 +6980,47 @@ function drawExplicitMarkingLayers(
   const drawStartedAt = nowMs();
   const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
   const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
+  // Resolve all geometry before mutating the overlay so layout reads are not
+  // interleaved with writes (avoids per-element forced reflow / thrashing).
+  const drawOps = [];
   for (const el of explicitExcludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
-      drawMultiRectReuse(
-        layerExplicitExcludeState,
+      drawOps.push({
+        layerState: layerExplicitExcludeState,
         rects,
-        presentation.className,
+        className: getExplicitMarkingPresentation({ type: "exclude" }).className,
         el,
-        "explicit-exclude",
-        null
-      );
+        kind: "explicit-exclude"
+      });
     }
   }
   for (const el of explicitIncludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include" });
-      drawMultiRectReuse(
-        layerExplicitIncludeState,
+      drawOps.push({
+        layerState: layerExplicitIncludeState,
         rects,
-        presentation.className,
+        className: getExplicitMarkingPresentation({ type: "include" }).className,
         el,
-        "explicit-include",
-        null
-      );
+        kind: "explicit-include"
+      });
     }
   }
   for (const el of hiddenExplicitIncludeElements || []) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
-      drawMultiRectReuse(
-        layerExplicitIncludeState,
+      drawOps.push({
+        layerState: layerExplicitIncludeState,
         rects,
-        presentation.className,
+        className: getExplicitMarkingPresentation({ type: "include", ghost: true }).className,
         el,
-        "explicit-include-ghost",
-        null
-      );
+        kind: "explicit-include-ghost"
+      });
     }
+  }
+  for (const op of drawOps) {
+    drawMultiRectReuse(op.layerState, op.rects, op.className, op.el, op.kind, null);
   }
   finalizeLayerRender(layerExplicitExcludeState);
   finalizeLayerRender(layerExplicitIncludeState);
@@ -7090,12 +7091,15 @@ function scheduleExplicitToggleFullRender() {
   }
   state.explicitFullRenderTimer = extensionSetTimeout(() => {
     state.explicitFullRenderTimer = 0;
+    // Use a short idle timeout so the default-layer rebuild still lands promptly
+    // when the main thread is briefly busy. A long timeout lets the toggle's own
+    // work delay the descendant defaults by up to several seconds.
     runWhenIdle(() => {
       if (renderToken !== state.explicitFullRenderToken) {
         return;
       }
       scheduleRender(getExplicitMarkingFullRenderOptions());
-    });
+    }, EXPLICIT_TOGGLE_FULL_RENDER_IDLE_TIMEOUT_MS);
   }, EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS);
 }
 
@@ -7347,118 +7351,94 @@ function drawCollections(collections, getRects) {
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
-  for (const el of collections.hardElements) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerHardState, rects, "uf-hard-locked", el, "immutable", markedElements
-      );
+  // Geometry is resolved for every element first (read phase) and only then are
+  // the overlay rectangles mutated (write phase). Reading layout (getClientRects,
+  // getBoundingClientRect, getComputedStyle, elementsFromPoint) and writing to the
+  // overlay in the same loop forces a synchronous reflow per element; on a large
+  // page that layout thrashing is what freezes the UI after a marking toggle.
+  const drawOps = [];
+  const queueDraw = (layerState, el, className, kind, rects) => {
+    if (rects && rects.length > 0) {
+      drawOps.push({ layerState, el, className, kind, rects });
     }
+  };
+
+  for (const el of collections.hardElements) {
+    queueDraw(layerHardState, el, "uf-hard-locked", "immutable", getRects(el));
   }
 
   for (const el of collections.explicitExcludeElements) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
-      drawMultiRectReuse(
-        layerExplicitExcludeState,
-        rects,
-        presentation.className,
-        el,
-        "explicit-exclude",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerExplicitExcludeState,
+      el,
+      getExplicitMarkingPresentation({ type: "exclude" }).className,
+      "explicit-exclude",
+      getRects(el)
+    );
   }
 
   for (const el of collections.explicitIncludeElements) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include" });
-      drawMultiRectReuse(
-        layerExplicitIncludeState,
-        rects,
-        presentation.className,
-        el,
-        "explicit-include",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerExplicitIncludeState,
+      el,
+      getExplicitMarkingPresentation({ type: "include" }).className,
+      "explicit-include",
+      getRects(el)
+    );
   }
 
   for (const el of collections.hiddenExplicitIncludeElements || []) {
-    const rects = getGhostRects(el);
-    if (rects.length > 0) {
-      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
-      drawMultiRectReuse(
-        layerExplicitIncludeState,
-        rects,
-        presentation.className,
-        el,
-        "explicit-include-ghost",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerExplicitIncludeState,
+      el,
+      getExplicitMarkingPresentation({ type: "include", ghost: true }).className,
+      "explicit-include-ghost",
+      getGhostRects(el)
+    );
   }
 
   for (const el of collections.aiContentElements) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentState, rects, "uf-ai-content", el, "ai-content", markedElements
-      );
-    }
+    queueDraw(layerAiContentState, el, "uf-ai-content", "ai-content", getRects(el));
   }
 
   for (const el of collections.hiddenAiContentElements || []) {
-    const rects = getGhostRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentState,
-        rects,
-        "uf-ai-content uf-ai-content-ghost",
-        el,
-        "ai-content-ghost",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerAiContentState,
+      el,
+      "uf-ai-content uf-ai-content-ghost",
+      "ai-content-ghost",
+      getGhostRects(el)
+    );
   }
 
   for (const el of collections.aiAnimatedExplicitIncludeElements || []) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentState,
-        rects,
-        "uf-ai-content uf-ai-content-overlay",
-        el,
-        "ai-content-explicit-include",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerAiContentState,
+      el,
+      "uf-ai-content uf-ai-content-overlay",
+      "ai-content-explicit-include",
+      getRects(el)
+    );
   }
 
   for (const el of collections.hiddenAiAnimatedExplicitIncludeElements || []) {
-    const rects = getGhostRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerAiContentState,
-        rects,
-        "uf-ai-content uf-ai-content-overlay uf-ai-content-ghost",
-        el,
-        "ai-content-explicit-include-ghost",
-        markedElements
-      );
-    }
+    queueDraw(
+      layerAiContentState,
+      el,
+      "uf-ai-content uf-ai-content-overlay uf-ai-content-ghost",
+      "ai-content-explicit-include-ghost",
+      getGhostRects(el)
+    );
   }
 
   for (const el of collections.defaultElements) {
-    const rects = getRects(el);
-    if (rects.length > 0) {
-      drawMultiRectReuse(
-        layerDefaultState, rects, "uf-default", el, "default", markedElements
-      );
-    }
+    queueDraw(layerDefaultState, el, "uf-default", "default", getRects(el));
+  }
+
+  for (const op of drawOps) {
+    drawMultiRectReuse(
+      op.layerState, op.rects, op.className, op.el, op.kind, markedElements
+    );
   }
 
   finalizeLayerRender(layerHardState);

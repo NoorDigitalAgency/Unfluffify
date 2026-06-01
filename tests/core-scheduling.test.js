@@ -210,6 +210,52 @@ test("explicit toggle full rebuild timing stays short to avoid ancestor lag", ()
   assert.ok(Number(renderOptionsMatch[2]) <= 200);
 });
 
+test("explicit toggle full rebuild lands under a short idle timeout, not the snapshot timeout", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  const idleTimeoutMatch = coreSource.match(
+    /const EXPLICIT_TOGGLE_FULL_RENDER_IDLE_TIMEOUT_MS = (\d+);/
+  );
+  assert.ok(idleTimeoutMatch);
+  assert.ok(Number(idleTimeoutMatch[1]) <= 250);
+
+  const scheduleBody = coreSource.match(
+    /function scheduleExplicitToggleFullRender\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  // The toggle-driven rebuild must use the short idle budget so descendant
+  // defaults are not deferred for seconds when the main thread is busy.
+  assert.match(scheduleBody, /runWhenIdle\([\s\S]*?EXPLICIT_TOGGLE_FULL_RENDER_IDLE_TIMEOUT_MS\)/);
+});
+
+test("overlay rendering batches layout reads before overlay writes to avoid thrashing", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  const drawCollectionsBody = coreSource.match(
+    /function drawCollections\(collections, getRects\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Reads are gathered into a deferred op list, then replayed as a single
+  // write pass. No drawMultiRectReuse (overlay write) may run inside the
+  // per-collection read loops.
+  assert.match(drawCollectionsBody, /const drawOps = \[\];/);
+  assert.match(drawCollectionsBody, /for \(const op of drawOps\) \{[\s\S]*?drawMultiRectReuse\(/);
+  const writeBeforeReplay = drawCollectionsBody.slice(
+    0,
+    drawCollectionsBody.indexOf("for (const op of drawOps)")
+  );
+  assert.doesNotMatch(writeBeforeReplay, /drawMultiRectReuse\(/);
+
+  const explicitLayersBody = coreSource.match(
+    /function drawExplicitMarkingLayers\([\s\S]*?\n\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(explicitLayersBody, /const drawOps = \[\];/);
+  assert.match(explicitLayersBody, /for \(const op of drawOps\) \{[\s\S]*?drawMultiRectReuse\(/);
+  const explicitWriteBeforeReplay = explicitLayersBody.slice(
+    0,
+    explicitLayersBody.indexOf("for (const op of drawOps)")
+  );
+  assert.doesNotMatch(explicitWriteBeforeReplay, /drawMultiRectReuse\(/);
+});
+
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const scheduleRenderBody = coreSource.match(

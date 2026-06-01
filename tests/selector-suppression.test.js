@@ -116,7 +116,7 @@ test("marking mode renders synced default exclusions as ordinary exclude marking
   );
   assert.match(
     coreSource,
-    /drawMultiRectReuse\([\s\S]*?layerExplicitExcludeState,[\s\S]*?presentation\.className,[\s\S]*?"explicit-exclude"/
+    /layerState: layerExplicitExcludeState,[\s\S]*?className: getExplicitMarkingPresentation\(\{ type: "exclude" \}\)\.className,[\s\S]*?kind: "explicit-exclude"/
   );
 });
 

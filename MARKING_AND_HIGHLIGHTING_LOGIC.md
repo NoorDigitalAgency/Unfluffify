@@ -227,6 +227,17 @@ Marking mode must avoid duplicate full-page passes:
 - Scroll and pointer repaint paths reuse the current collections and reposition
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
+- Overlay drawing must not interleave layout reads with overlay writes. Every
+  draw pass (full rebuild, explicit-layer refresh, and scroll/pointer
+  reposition) resolves all element geometry first, then applies every overlay
+  mutation in a single write batch. Reading layout
+  (`getClientRects`/`getBoundingClientRect`/`getComputedStyle`/`elementsFromPoint`)
+  between overlay writes forces one synchronous reflow per marked element, which
+  is what freezes the page after a toggle on large pages.
+- The delayed full rebuild that paints descendant default markings runs under a
+  short idle budget, not the snapshot idle timeout. A long idle budget lets the
+  toggle's own work defer the descendant defaults for seconds when the main
+  thread is briefly busy.
 
 ## Motion Stability Contract
 
