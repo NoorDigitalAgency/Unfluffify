@@ -1985,13 +1985,6 @@ span.todo-candidate-link {
   color: var(--success);
 }
 
-.todo-candidate .todo-indicator--done,
-.lynx-checklist-popover__page-type-title-row .todo-indicator--done {
-  border-radius: 50%;
-  background: var(--success);
-  color: var(--card);
-}
-
 .todo-indicator--pending {
   color: var(--muted);
 }
