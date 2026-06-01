@@ -69,9 +69,11 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
     source,
     /function buildSilentHighlightRenderableCollections\(collections\) \{[\s\S]*?const sourceImmutableNodes = cloneSilentHighlightNodes\([\s\S]*?const immutableNodes = toRenderableNodeList\(sourceImmutableNodes\);[\s\S]*?return \{[\s\S]*?immutableNodes,[\s\S]*?sourceImmutableNodes,[\s\S]*?contentNodes,[\s\S]*?excludedNodes/
   );
+  // Immutable nodes use the read-then-write batch path: geometry is collected in
+  // the read phase then applied in the write phase to avoid per-element forced reflow.
   assert.match(
     source,
-    /function renderSilentHighlightOverlay\(collections\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
+    /function renderSilentHighlightOverlay\(collections\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableOps = collectSilentNodeDrawOps\([\s\S]*?immutableNodes,[\s\S]*?"uf-silent-immutable"[\s\S]*?\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?applySilentDrawOps\(immutableLayerState, immutableOps\);/
   );
   assert.match(
     source,
@@ -79,29 +81,51 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
   );
 });
 
-test("silent highlighting owns page motion pause for matching pages even without overlay targets", () => {
+test("silent highlighting uses a config cache to avoid repeated storage round-trips and does not pause page motion", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
+  // The page-motion pause helper is retained as a utility but must not be called
+  // from the silent-highlighting refresh path; batched read-then-write rendering
+  // eliminates the layout-thrashing that the pause was a workaround for.
   assert.match(source, /const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";/);
   assert.match(
     source,
     /function setSilentHighlightingPageMotionPaused\(paused\) \{[\s\S]*?core\.pausePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?core\.resumePageMotion\(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON\);[\s\S]*?\}/
   );
+  // refreshSilentHighlightings must use the cache, not raw config.getConfigs().
   assert.match(
     source,
-    /const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(false\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setSilentHighlightingPageMotionPaused\(true\);[\s\S]*?const normalized = config\.normalizeConfig/
+    /async function refreshSilentHighlightings\(\) \{[\s\S]*?const configs = await getCachedSilentHighlightingConfigs\(\);[\s\S]*?const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);/
   );
-  const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
-  assert.ok(noTargetsBlock);
-  assert.doesNotMatch(noTargetsBlock[0], /setSilentHighlightingPageMotionPaused\(false\)/);
+  // The cache must be invalidated when config changes are signalled externally.
+  assert.match(
+    source,
+    /message\.type === "configUpdated"[\s\S]*?invalidateSilentHighlightingConfigCache\(\);/
+  );
+  assert.match(
+    source,
+    /message\.type === "forceRefresh"[\s\S]*?invalidateSilentHighlightingConfigCache\(\);/
+  );
+  // Leaving marking mode must also invalidate so the overlay reflects saved markings.
+  assert.match(
+    source,
+    /message\.type === "setEnabled"[\s\S]*?invalidateSilentHighlightingConfigCache\(\);[\s\S]*?refreshSilentHighlightings\(\)/
+  );
 });
 
-test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {
+test("silent highlight reposition renders directly from stored collections and mutation tracking covers source collections", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
+  // Reposition re-renders directly from the already-built collections: positions
+  // are re-read during the batched render, so no rebuild of the collection
+  // structure is needed (matching the simpler approach from the 1.0.0 baseline).
   assert.match(
     source,
-    /function repositionSilentHighlightOverlay\(\) \{[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections\);[\s\S]*?\}/
+    /function repositionSilentHighlightOverlay\(\) \{[\s\S]*?renderSilentHighlightOverlay\(silentHighlightCollections\);[\s\S]*?\}/
+  );
+  assert.doesNotMatch(
+    source.match(/function repositionSilentHighlightOverlay\(\) \{[\s\S]*?\}/)[0],
+    /buildSilentHighlightRenderableCollections/
   );
   assert.match(
     source,

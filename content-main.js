@@ -112,6 +112,10 @@ const SILENT_SETTLE_REPOSITION_MAX_MS =
   DEFAULT_SILENT_HIGHLIGHT_SETTLE_MAX_WAIT_MS;
 const SILENT_HIGHLIGHTING_MUTATION_DEBOUNCE_MS = 300;
 const SILENT_HIGHLIGHTING_MUTATION_MIN_INTERVAL_MS = 1200;
+// Config cache TTL: longer than the mutation min-interval so repeated
+// mutation-triggered refreshes always hit the in-memory cache rather than
+// issuing a new IDB round-trip through the background runtime bridge.
+const SILENT_HIGHLIGHTING_CONFIG_CACHE_TTL_MS = 1800;
 const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
   "class",
   "id",
@@ -152,6 +156,7 @@ let propertyLockSyncToken = 0;
 let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
+let silentHighlightingConfigCache = null;
 let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
@@ -3099,6 +3104,59 @@ function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   }
 }
 
+// Collect all draw operations for a list of nodes (read phase only – no DOM writes).
+// classNameFn(node, index) must return a non-empty CSS class string for nodes to draw.
+// keySaltFn(node, index) optionally returns a per-occurrence key salt.
+// Returns an array of { key, rect, className } objects for later application.
+function collectSilentNodeDrawOps(nodes, classNameFn, keySaltFn) {
+  const ops = [];
+  for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    const node = nodes[nodeIndex];
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    const className = classNameFn(node, nodeIndex);
+    if (!className) {
+      continue;
+    }
+    const keySalt = keySaltFn ? keySaltFn(node, nodeIndex) : "";
+    const rects = collectSilentHighlightRects(node);
+    const markId = getSilentRenderNodeId(node);
+    for (let i = 0; i < rects.length; i += 1) {
+      ops.push({
+        key: `${markId}|${className}|${keySalt}|${i}`,
+        rect: rects[i],
+        className
+      });
+    }
+  }
+  return ops;
+}
+
+// Apply a batch of pre-collected draw operations to a layer (write phase only – no layout reads).
+function applySilentDrawOps(layerState, ops) {
+  if (!layerState) {
+    return;
+  }
+  for (const op of ops) {
+    const { key, rect, className } = op;
+    let box = layerState.map.get(key);
+    if (!box) {
+      box = document.createElement("div");
+      box.className = `uf-silent-rect ${className}`;
+      layerState.layer.appendChild(box);
+      layerState.map.set(key, box);
+    } else if (box.className !== `uf-silent-rect ${className}`) {
+      box.className = `uf-silent-rect ${className}`;
+    }
+    box.style.top = `${rect.top}px`;
+    box.style.left = `${rect.left}px`;
+    box.style.width = `${rect.width}px`;
+    box.style.height = `${rect.height}px`;
+    layerState.used.add(key);
+  }
+}
+
 function renderSilentHighlightOverlay(collections) {
   const overlay = ensureSilentHighlightOverlay();
   if (!overlay) {
@@ -3109,32 +3167,36 @@ function renderSilentHighlightOverlay(collections) {
   const contentNodes = Array.from(collections.contentNodes || []);
   const ghostContentNodeSet = new Set(collections.ghostContentNodes || []);
   const excludedNodes = Array.from(collections.excludedNodes || []);
+
+  // Phase 1: read all geometry for every node before touching the overlay DOM.
+  // Interleaving layout reads with overlay writes causes a forced synchronous
+  // reflow per element; separating the phases eliminates that thrashing.
+  const immutableOps = collectSilentNodeDrawOps(
+    immutableNodes,
+    () => "uf-silent-immutable"
+  );
+  const contentOps = collectSilentNodeDrawOps(
+    contentNodes,
+    (node) => ghostContentNodeSet.has(node)
+      ? "uf-silent-content uf-silent-content-ghost"
+      : "uf-silent-content"
+  );
+  // Preserve duplicate excluded render targets (e.g. nested selector matches that
+  // resolve to the same visible node) by using per-occurrence keys.
+  const excludedOps = collectSilentNodeDrawOps(
+    excludedNodes,
+    () => "uf-silent-excluded",
+    (_node, index) => `excluded-occurrence-${index}`
+  );
+
+  // Phase 2: apply all overlay box updates (write phase – no layout reads).
   const immutableLayerState = beginSilentLayerRender("immutable");
   const contentLayerState = beginSilentLayerRender("content");
   const excludedLayerState = beginSilentLayerRender("excluded");
 
-  immutableNodes.forEach((node) => {
-    drawSilentRectsForNode(immutableLayerState, node, "uf-silent-immutable");
-  });
-  contentNodes.forEach((node) => {
-    drawSilentRectsForNode(
-      contentLayerState,
-      node,
-      ghostContentNodeSet.has(node)
-        ? "uf-silent-content uf-silent-content-ghost"
-        : "uf-silent-content"
-    );
-  });
-  // Preserve duplicate excluded render targets (e.g. nested selector matches that
-  // resolve to the same visible node) by using per-occurrence keys.
-  excludedNodes.forEach((node, index) => {
-    drawSilentRectsForNode(
-      excludedLayerState,
-      node,
-      "uf-silent-excluded",
-      `excluded-occurrence-${index}`
-    );
-  });
+  applySilentDrawOps(immutableLayerState, immutableOps);
+  applySilentDrawOps(contentLayerState, contentOps);
+  applySilentDrawOps(excludedLayerState, excludedOps);
 
   finalizeSilentLayerRender(immutableLayerState);
   finalizeSilentLayerRender(contentLayerState);
@@ -3188,8 +3250,9 @@ function repositionSilentHighlightOverlay() {
     return;
   }
   setSilentHighlightOverlayHidden(true);
-  const nextCollections = buildSilentHighlightRenderableCollections(silentHighlightCollections);
-  renderSilentHighlightOverlay(nextCollections);
+  // Re-render directly from the stored collections: positions are re-read
+  // during the render, so no rebuild of the collection structure is needed.
+  renderSilentHighlightOverlay(silentHighlightCollections);
 }
 
 function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
@@ -3558,6 +3621,23 @@ function clearSilentHighlightingMarks() {
   lastSilentHighlightingRenderKey = "";
   lastSilentHighlightingsActive = false;
   silentHighlightingPositionRefreshPending = false;
+}
+
+function invalidateSilentHighlightingConfigCache() {
+  silentHighlightingConfigCache = null;
+}
+
+async function getCachedSilentHighlightingConfigs() {
+  const now = Date.now();
+  if (
+    silentHighlightingConfigCache &&
+    now - silentHighlightingConfigCache.timestamp < SILENT_HIGHLIGHTING_CONFIG_CACHE_TTL_MS
+  ) {
+    return silentHighlightingConfigCache.configs;
+  }
+  const configs = await config.getConfigs();
+  silentHighlightingConfigCache = { configs, timestamp: Date.now() };
+  return configs;
 }
 
 function stopSilentHighlightingObserver() {
@@ -5399,7 +5479,6 @@ function refreshEnabledAiHighlights() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
-  setSilentHighlightingPageMotionPaused(false);
   stopSilentHighlightingObserver();
   clearSilentHighlightingMarks();
   setSilentHighlightingsActive(false);
@@ -5422,7 +5501,6 @@ async function refreshSilentHighlightings() {
   silentHighlightingRefreshDueAt = 0;
   lastSilentHighlightingRefreshAt = Date.now();
   if (state.enabled) {
-    setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
@@ -5430,20 +5508,22 @@ async function refreshSilentHighlightings() {
     return;
   }
   const pageUrl = location.href;
-  const configs = await config.getConfigs();
+  // Use the in-memory config cache to avoid repeated IDB round-trips through
+  // the background runtime bridge on every mutation-triggered refresh.
+  const configs = await getCachedSilentHighlightingConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
-    setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
-  setSilentHighlightingPageMotionPaused(true);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
     configs[baseUrl] = baseConfig;
+    // A normalization-only save doesn't need to invalidate the cache – the
+    // in-memory copy is already updated via the object reference above.
     await config.saveConfigs(configs);
   }
   const pageMarkings = baseConfig.pageMarkings || {};
@@ -6593,6 +6673,9 @@ export function main() {
       state.currentPageType = "";
       clearAiPreviewState();
       core.disable();
+      // Marking was just saved/discarded – invalidate config cache so the
+      // silent overlay picks up the latest stored markings immediately.
+      invalidateSilentHighlightingConfigCache();
       refreshSilentHighlightings().then(() => {
         sendResponse({ ok: true });
       });
@@ -6695,6 +6778,9 @@ export function main() {
     }
 
     if (message.type === "configUpdated") {
+      // Config changed externally – drop the cached copy so the next silent
+      // highlighting refresh reads the fresh data from storage.
+      invalidateSilentHighlightingConfigCache();
       if (state.enabled && utils.sameBaseUrl(message.baseUrl, state.baseUrl)) {
         const pageUrl = location.href;
         const draftEntry = core.getDraftPageEntry(pageUrl);
@@ -6743,6 +6829,8 @@ export function main() {
     }
 
     if (message.type === "forceRefresh") {
+      // A forced refresh means external state changed – clear the config cache.
+      invalidateSilentHighlightingConfigCache();
       core.refreshFromTabState().then(() => {
         refreshEnabledAiHighlights();
         runPropertyLockSync({ forceSiteIdRefresh: true });

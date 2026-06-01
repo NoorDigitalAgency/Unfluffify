@@ -233,7 +233,11 @@ Marking mode must avoid duplicate full-page passes:
   mutation in a single write batch. Reading layout
   (`getClientRects`/`getBoundingClientRect`/`getComputedStyle`/`elementsFromPoint`)
   between overlay writes forces one synchronous reflow per marked element, which
-  is what freezes the page after a toggle on large pages.
+  is what freezes the page after a toggle on large pages. This read-then-write
+  batching applies to both the enabled-mode marking overlay in `content/core.js`
+  and the silent highlighting overlay in `content-main.js` (`renderSilentHighlightOverlay`
+  uses `collectSilentNodeDrawOps` for the read phase and `applySilentDrawOps`
+  for the write phase).
 - The delayed full rebuild that paints descendant default markings runs under a
   short idle budget, not the snapshot idle timeout. A long idle budget lets the
   toggle's own work defer the descendant defaults for seconds when the main
@@ -241,16 +245,19 @@ Marking mode must avoid duplicate full-page passes:
 
 ## Motion Stability Contract
 
-Any page that Unfluffify owns for marking or silent highlighting holds a page
-motion pause. This includes active marking mode, passive silent highlighting,
-and matching base-URL pages that have no selector highlights yet. The pause is
-part of the save and highlighting contract, not just a visual convenience:
-animated carousels can move text outside the viewport, update inline transforms,
-flip visibility state, and change which textual nodes are submitted as visible
-AI evidence.
+Active marking mode holds a page motion pause. The pause is part of the save
+and marking contract, not just a visual convenience: animated carousels can
+move text outside the viewport, update inline transforms, flip visibility
+state, and change which textual nodes are submitted as visible AI evidence.
 
-The pause is source-owned, so marking mode and silent highlighting can both hold
-it without accidentally resuming the page for the other lifecycle. It freezes
+Silent highlighting does **not** hold a page motion pause. Its overlay uses
+a read-then-write batched render (see Marking Performance Contract above) so
+layout thrashing is avoided without freezing the page, and the overlay is
+hidden until the next animation frame so position reads remain coherent. This
+keeps the passive highlighting path completely non-intrusive to the user.
+
+The pause is source-owned, so multiple marking lifecycle reasons can be held
+without accidentally resuming the page prematurely. It freezes
 CSS animations and transitions with an extension stylesheet, pauses Web
 Animations and SVG animation clocks, pauses autoplay-like media, refreshes for
 new animations while active, and sends synthetic hover-pause events to generic
@@ -355,8 +362,7 @@ blur, visibility changes, or disabling marking restores the overlay and redraws
 markings over the page's new posture.
 
 Silent highlighting overlays never capture page clicks, so users can interact
-with accordions directly in passive highlighting mode. The same page-motion
-pause remains active in both modes to keep markings and highlights comparable.
+with accordions directly in passive highlighting mode.
 
 ### Temporary Disabled State
 
@@ -482,6 +488,33 @@ at that moment.
 
 Silent highlight redraws wait for tracked positions to settle after movement and
 force a repaint on full active refreshes even when the render key is unchanged.
+
+### Silent Highlighting Performance
+
+`renderSilentHighlightOverlay` uses a strict two-phase approach:
+
+1. **Read phase** — `collectSilentNodeDrawOps` traverses every node and reads
+   geometry (`getClientRects`, `getBoundingClientRect`, `getComputedStyle` via
+   `isVisible`) with zero overlay mutations. All rects are gathered into a flat
+   array of draw operations.
+2. **Write phase** — `applySilentDrawOps` applies all box positions against each
+   layer without touching page elements again.
+
+This eliminates the per-element forced reflow that occurs when DOM writes
+interleave with layout reads.
+
+`refreshSilentHighlightings` uses `getCachedSilentHighlightingConfigs()` instead
+of calling `config.getConfigs()` directly. The cache has a TTL longer than the
+mutation debounce + min-interval window, so rapid DOM-change–triggered refreshes
+never issue a new IDB round-trip through the background runtime bridge. The
+cache is invalidated explicitly on `configUpdated`, `forceRefresh`, and the
+disabling leg of `setEnabled` so that externally stored config changes are always
+visible on the next full refresh.
+
+`repositionSilentHighlightOverlay` calls `renderSilentHighlightOverlay` directly
+on the current `silentHighlightCollections` without rebuilding the collection
+structure; the render pass itself re-reads element positions, making a separate
+rebuild unnecessary.
 
 ## Regression Coverage
 
