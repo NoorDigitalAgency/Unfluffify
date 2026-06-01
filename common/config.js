@@ -809,6 +809,17 @@ export function normalizePageMarkings(pageMarkings) {
     if (normalizedSubmission.changed) {
       changed = true;
     }
+    if (!Array.isArray(entry.silentWhitespaceExcludedXpaths) && entry.silentWhitespaceExcludedXpaths !== undefined) {
+      changed = true;
+    }
+    const rawSilentWhitespaceExcluded = Array.isArray(entry.silentWhitespaceExcludedXpaths)
+      ? [...entry.silentWhitespaceExcludedXpaths]
+      : [];
+    const silentWhitespaceExcludedResult = normalizeUniqueXpathList(rawSilentWhitespaceExcluded);
+    const silentWhitespaceExcludedXpaths = silentWhitespaceExcludedResult.values;
+    if (silentWhitespaceExcludedResult.changed) {
+      changed = true;
+    }
     const title = normalizeStoredPageTitle(entry.title, url);
     const pageType = normalizePageTypeValue(entry.pageType);
     if (Object.prototype.hasOwnProperty.call(entry, "url")) {
@@ -832,6 +843,7 @@ export function normalizePageMarkings(pageMarkings) {
       includeXpaths,
       selectorSuppressedXpaths,
       submissionXpaths,
+      silentWhitespaceExcludedXpaths,
       renderedHtml,
       rawHtml
     };

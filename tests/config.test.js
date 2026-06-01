@@ -8,6 +8,7 @@ import {
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
   mergePageMarkingsByTimestamp,
+  normalizePageMarkings,
   normalizePageSaveReconciliation,
   normalizeConfig,
   normalizeConfigSyncPayload
@@ -137,6 +138,54 @@ test("createConfigSyncPayload keeps pageType on synced page markings", () => {
     Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "selectorSuppressedXpaths"),
     false
   );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(payload.pageMarkings["https://example.com/current"], "silentWhitespaceExcludedXpaths"),
+    false
+  );
+});
+
+test("normalizePageMarkings preserves silentWhitespaceExcludedXpaths through local normalization roundtrip", () => {
+  const silentXpaths = ["/html/body/aside", "/html/body/section/div"];
+  const result = normalizePageMarkings({
+    "https://example.com/page": {
+      timestamp: "2026-01-01T00:00:00Z",
+      xpaths: [
+        { xpath: "/html/body/aside", excluded: true, explicit: true },
+        { xpath: "/html/body/section/div", excluded: true, explicit: true }
+      ],
+      silentWhitespaceExcludedXpaths: silentXpaths,
+      includeXpaths: [],
+      submissionXpaths: [],
+      renderedHtml: "<aside></aside>",
+      rawHtml: "<aside></aside>"
+    }
+  });
+
+  assert.deepEqual(
+    result.normalized["https://example.com/page"].silentWhitespaceExcludedXpaths,
+    silentXpaths
+  );
+  assert.equal(result.changed, false);
+});
+
+test("normalizePageMarkings drops non-string and duplicate entries from silentWhitespaceExcludedXpaths", () => {
+  const result = normalizePageMarkings({
+    "https://example.com/page": {
+      timestamp: "2026-01-01T00:00:00Z",
+      xpaths: [],
+      silentWhitespaceExcludedXpaths: ["/html/body/aside", "/html/body/aside", null, ""],
+      includeXpaths: [],
+      submissionXpaths: [],
+      renderedHtml: "",
+      rawHtml: ""
+    }
+  });
+
+  assert.deepEqual(
+    result.normalized["https://example.com/page"].silentWhitespaceExcludedXpaths,
+    ["/html/body/aside"]
+  );
+  assert.equal(result.changed, true);
 });
 
 test("page marking explicit inclusions are normalized into sync xpath rows", () => {
@@ -245,6 +294,7 @@ test("confirmed page marking merges can replace stale entries with matching time
       includeXpaths: [],
       selectorSuppressedXpaths: [],
       submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
+      silentWhitespaceExcludedXpaths: [],
       renderedHtml: "<header>Old</header>",
       rawHtml: "<html><body><header>Old</header></body></html>"
     }
@@ -257,6 +307,7 @@ test("confirmed page marking merges can replace stale entries with matching time
       includeXpaths: [],
       selectorSuppressedXpaths: [],
       submissionXpaths: [{ xpath: "/html/body/footer", excluded: true }],
+      silentWhitespaceExcludedXpaths: [],
       renderedHtml: "<footer>New</footer>",
       rawHtml: "<html><body><footer>New</footer></body></html>"
     }

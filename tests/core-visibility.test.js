@@ -1275,6 +1275,109 @@ test("sync preserves explicit non-default exclusions", () => {
   });
 });
 
+test("sync creates silent explicit exclusions for visible whitespace-only blocks", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const spacer = createElement({
+      parentElement: body,
+      text: " \n\t ",
+      rect: { top: 20, right: 420, bottom: 80, left: 10, width: 410, height: 60 }
+    });
+    body.children.push(spacer);
+    body.childNodes.push(spacer);
+    const pageUrl = "https://example.test/whitespace-spacer";
+    const spacerXpath = getXPath(spacer);
+    xpathMap.set(spacerXpath, spacer);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+    const { explicitExcludeElements } = collectExplicitMarkingElements(result.entry);
+
+    assert.deepEqual(
+      result.entry.xpaths.find((item) => item.xpath === spacerXpath),
+      { xpath: spacerXpath, excluded: true, explicit: true }
+    );
+    assert.deepEqual(result.entry.silentWhitespaceExcludedXpaths, [spacerXpath]);
+    assert.deepEqual(explicitExcludeElements, []);
+  });
+});
+
+test("silent whitespace exclusions cannot be targeted or explicitly included", () => {
+  withVisibilityDom(({ documentElement, body, xpathMap }) => {
+    const spacer = createElement({
+      parentElement: body,
+      text: " \n\t ",
+      rect: { top: 20, right: 420, bottom: 80, left: 10, width: 410, height: 60 }
+    });
+    body.children.push(spacer);
+    body.childNodes.push(spacer);
+    const pageUrl = "https://example.test/whitespace-target";
+    const spacerXpath = getXPath(spacer);
+    xpathMap.set(spacerXpath, spacer);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [{ xpath: spacerXpath, excluded: true, explicit: true }],
+          silentWhitespaceExcludedXpaths: [spacerXpath],
+          includeXpaths: []
+        }
+      }
+    };
+    state.config = config;
+    globalThis.document.elementsFromPoint = () => [spacer, body, documentElement];
+    globalThis.document.elementFromPoint = () => spacer;
+
+    assert.equal(
+      getMarkableTarget(30, 40, {
+        allowParent: false,
+        allowExplicitTarget: true,
+        excludedSet: new Set([spacerXpath]),
+        silentWhitespaceExcludedSet: new Set([spacerXpath]),
+        includeSet: new Set(),
+        explicitParentSet: new Set([spacerXpath])
+      }),
+      null
+    );
+    assert.equal(canApplyExplicitInclude(spacer, config, pageUrl, config.pageMarkings[pageUrl]), false);
+    state.config = null;
+  });
+});
+
+test("sync drops stale silent whitespace exclusions when text appears", () => {
+  withVisibilityDom(({ body, xpathMap }) => {
+    const spacer = createElement({
+      parentElement: body,
+      text: "Now meaningful",
+      rect: { top: 20, right: 420, bottom: 80, left: 10, width: 410, height: 60 }
+    });
+    body.children.push(spacer);
+    body.childNodes.push(spacer);
+    const pageUrl = "https://example.test/whitespace-stale";
+    const spacerXpath = getXPath(spacer);
+    xpathMap.set(spacerXpath, spacer);
+    const config = {
+      pageMarkings: {
+        [pageUrl]: {
+          xpaths: [{ xpath: spacerXpath, excluded: true, explicit: true }],
+          silentWhitespaceExcludedXpaths: [spacerXpath],
+          includeXpaths: []
+        }
+      }
+    };
+
+    const result = syncPageMarkings(config, pageUrl, new Set());
+
+    assert.equal(result.entry.xpaths.some((item) => item.xpath === spacerXpath), false);
+    assert.deepEqual(result.entry.silentWhitespaceExcludedXpaths, []);
+  });
+});
+
 test("sync records each default ancestor before fast overlay refreshes draw", () => {
   withVisibilityDom(({ body, xpathMap }) => {
     const headerChild = createElement({
