@@ -76,7 +76,9 @@ import {
   PROPERTY_LOCK_WS_SUGGESTION_RESPONSE,
   PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED,
   PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN,
-  PROPERTY_LOCK_WS_ERROR
+  PROPERTY_LOCK_WS_ERROR,
+  normalizePropertyLockClientId,
+  createPropertyLockClientId
 } from "./common/property-lock.js";
 import { propertyLockText } from "./common/text.js";
 
@@ -5597,18 +5599,26 @@ function getPropertyLockClientId() {
   try {
     const existing = window.sessionStorage.getItem(PROPERTY_LOCK_CLIENT_SESSION_KEY);
     if (existing && typeof existing === "string") {
-      propertyLockClientId = existing;
-      return propertyLockClientId;
+      const normalizedExisting = normalizePropertyLockClientId(existing);
+      if (normalizedExisting) {
+        propertyLockClientId = normalizedExisting;
+        return propertyLockClientId;
+      }
     }
   } catch (error) {
     // sessionStorage can be unavailable on some pages; fall back to memory.
   }
-  const generated = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `uf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  propertyLockClientId = generated;
+  return setPropertyLockClientId(createPropertyLockClientId());
+}
+
+function setPropertyLockClientId(nextClientId) {
+  const normalizedClientId = normalizePropertyLockClientId(nextClientId);
+  if (!normalizedClientId) {
+    return propertyLockClientId || "";
+  }
+  propertyLockClientId = normalizedClientId;
   try {
-    window.sessionStorage.setItem(PROPERTY_LOCK_CLIENT_SESSION_KEY, generated);
+    window.sessionStorage.setItem(PROPERTY_LOCK_CLIENT_SESSION_KEY, normalizedClientId);
   } catch (error) {
     // In-memory fallback remains valid for the current content-script lifetime.
   }
@@ -5837,6 +5847,10 @@ async function syncPropertyLockConnection(options = {}) {
 function handlePropertyLockPortMessage(message) {
   if (!message || typeof message !== "object") {
     return;
+  }
+
+  if (typeof message.clientId === "string" && message.clientId) {
+    setPropertyLockClientId(message.clientId);
   }
 
   const { type, message: serverMessage } = message;

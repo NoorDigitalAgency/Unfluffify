@@ -457,11 +457,15 @@ async function fetchPropertyLockState(siteId) {
   if (!normalizedSiteId) {
     return null;
   }
+  const clientIdHint = state.propertyLockSiteId === normalizedSiteId
+    ? state.propertyLockClientId
+    : "";
 
   try {
     return await chrome.runtime.sendMessage({
       type: PROPERTY_LOCK_BACKGROUND_GET_STATE,
       siteId: normalizedSiteId,
+      clientId: clientIdHint || "",
       tabId: state.currentTab && Number.isFinite(state.currentTab.id)
         ? Math.trunc(state.currentTab.id)
         : null
@@ -485,6 +489,7 @@ async function sendPropertyLockCommand(type, payload = {}) {
     return await chrome.runtime.sendMessage({
       type,
       siteId,
+      clientId: state.propertyLockClientId || "",
       tabId: state.currentTab && Number.isFinite(state.currentTab.id)
         ? Math.trunc(state.currentTab.id)
         : null,

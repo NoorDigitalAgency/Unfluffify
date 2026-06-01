@@ -55,6 +55,7 @@ import {
   PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
   normalizePropertyLockSiteId,
   normalizePropertyLockClientId,
+  createPropertyLockClientId,
   buildPropertyLockWssUrl,
   normalizeLockStateMessage,
   createInactiveLockState
@@ -136,6 +137,47 @@ function buildConnectionKey(siteId, clientId) {
   return normalizedSiteId && normalizedClientId ? `${normalizedSiteId}:${normalizedClientId}` : "";
 }
 
+function createUniqueClientIdForSite(siteId) {
+  const normalizedSiteId = normalizePropertyLockSiteId(siteId);
+  if (!normalizedSiteId) {
+    return "";
+  }
+  let nextClientId = "";
+  do {
+    nextClientId = createPropertyLockClientId();
+  } while (buildConnectionKey(normalizedSiteId, nextClientId) && lockConnections.has(buildConnectionKey(normalizedSiteId, nextClientId)));
+  return nextClientId;
+}
+
+function resolveConnectionIdentityForPort(portId, portEntry, siteId, requestedClientId) {
+  const normalizedSiteId = normalizePropertyLockSiteId(siteId);
+  const normalizedClientId = normalizePropertyLockClientId(requestedClientId);
+  const requestedConnectionKey = buildConnectionKey(normalizedSiteId, normalizedClientId);
+  if (!requestedConnectionKey) {
+    return { clientId: "", connectionKey: "" };
+  }
+
+  const conflictingPortEntry = Array.from(contentScriptPorts.entries()).find((entry) => {
+    const [existingPortId, existingPortEntry] = entry;
+    return existingPortId !== portId &&
+      existingPortEntry &&
+      existingPortEntry.connectionKey === requestedConnectionKey;
+  });
+
+  if (!conflictingPortEntry) {
+    return {
+      clientId: normalizedClientId,
+      connectionKey: requestedConnectionKey
+    };
+  }
+
+  const assignedClientId = createUniqueClientIdForSite(normalizedSiteId);
+  return {
+    clientId: assignedClientId,
+    connectionKey: buildConnectionKey(normalizedSiteId, assignedClientId)
+  };
+}
+
 function hasContentPortsForConnection(connectionKey) {
   return Array.from(contentScriptPorts.values()).some(
     (entry) => entry.connectionKey === connectionKey
@@ -208,7 +250,7 @@ function handlePropertyLockPortConnect(port) {
     // First message should be connect
     if (type === PROPERTY_LOCK_CONTENT_CONNECT) {
       const nextSiteId = normalizePropertyLockSiteId(msgSiteId);
-      const nextClientId = normalizePropertyLockClientId(rest.clientId);
+      const requestedClientId = normalizePropertyLockClientId(rest.clientId);
       if (!nextSiteId) {
         port.postMessage({
           type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
@@ -217,7 +259,7 @@ function handlePropertyLockPortConnect(port) {
         });
         return;
       }
-      if (!nextClientId) {
+      if (!requestedClientId) {
         port.postMessage({
           type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
           connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
@@ -225,7 +267,14 @@ function handlePropertyLockPortConnect(port) {
         });
         return;
       }
-      const nextConnectionKey = buildConnectionKey(nextSiteId, nextClientId);
+      const resolvedIdentity = resolveConnectionIdentityForPort(
+        portId,
+        portEntry,
+        nextSiteId,
+        requestedClientId
+      );
+      const nextClientId = resolvedIdentity.clientId;
+      const nextConnectionKey = resolvedIdentity.connectionKey;
       if (connectionKey && nextConnectionKey && connectionKey !== nextConnectionKey) {
         const previousConnectionKey = detachPortFromConnection(portId, portEntry);
         if (previousConnectionKey) {
@@ -870,6 +919,9 @@ export async function handleGetPropertyLockState(message, sender) {
   if (!runtime || !runtime.isConnected) {
     return {
       state: runtime ? runtime.state : createInactiveLockState(),
+      clientId: runtime ? runtime.clientId : "",
+      identity: runtime ? runtime.myIdentity : "",
+      name: runtime ? runtime.myName : "",
       connectionStatus: runtime ? runtime.connectionStatus : PROPERTY_LOCK_CONNECTION_INACTIVE,
       error: runtime ? runtime.connectionError : ""
     };
@@ -890,10 +942,6 @@ function findRuntimeForRequest(message, sender) {
   if (!siteId) {
     return null;
   }
-  const clientId = normalizePropertyLockClientId(message.clientId);
-  if (clientId) {
-    return lockConnections.get(buildConnectionKey(siteId, clientId)) || null;
-  }
   const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
     ? Math.trunc(sender.tab.id)
     : null;
@@ -907,6 +955,10 @@ function findRuntimeForRequest(message, sender) {
     if (portEntry) {
       return lockConnections.get(portEntry.connectionKey) || null;
     }
+  }
+  const clientId = normalizePropertyLockClientId(message.clientId);
+  if (clientId) {
+    return lockConnections.get(buildConnectionKey(siteId, clientId)) || null;
   }
   const runtimes = Array.from(lockConnections.values()).filter(
     (runtime) => runtime.siteId === siteId

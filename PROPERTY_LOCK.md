@@ -14,6 +14,9 @@ property-lock tests in the same commit.
 - The lock identity is a stable page-session client ID stored in
   `sessionStorage`, not the Chrome tab ID. Chrome tab IDs can be used only as a
   local routing hint for popup commands.
+- A duplicated or cloned tab copies that `sessionStorage` value, so the
+  extension must rotate the new tab onto a fresh client ID before lock state,
+  popup routing, or observer/editor decisions are derived from it.
 - The first page-session client that enters marking mode requests the lock and
   becomes the editor when the server grants it.
 - Every other page-session client for the same property is passive and must
@@ -101,5 +104,6 @@ The focused guard tests are:
 - `tests/utilities-runtime.test.js`
 
 They cover stable client IDs, same-user passive locks, heartbeat/release timing,
-navigation grace, command routing, extension-context invalidation handling, and
-source-level guards that prevent lock acquisition before marking mode is entered.
+navigation grace, cloned-tab client rotation, command routing,
+extension-context invalidation handling, and source-level guards that prevent
+lock acquisition before marking mode is entered.

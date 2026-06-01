@@ -187,7 +187,9 @@ test("content-main connects property lock with a stable client identity and does
 
   assert.match(source, /const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";/);
   assert.match(source, /function getPropertyLockClientId\(\)/);
+  assert.match(source, /function setPropertyLockClientId\(nextClientId\)/);
   assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
+  assert.match(source, /if \(typeof message\.clientId === "string" && message\.clientId\) \{\s*setPropertyLockClientId\(message\.clientId\);\s*\}/);
   assert.doesNotMatch(applySource, /PROPERTY_LOCK_CONTENT_TAKE_LOCK/);
 });
 
@@ -233,6 +235,8 @@ test("property lock contract is documented with stable client and editor source-
 
   assert.match(readme, /PROPERTY_LOCK\.md/);
   assert.match(propertyLockDoc, /stable page-session client ID/);
+  assert.match(propertyLockDoc, /duplicated or cloned tab copies that [`']?sessionStorage[`']? value/i);
+  assert.match(propertyLockDoc, /must rotate the new tab onto a fresh client ID/);
   assert.match(propertyLockDoc, /not the Chrome tab ID/);
   assert.match(propertyLockDoc, /single source of truth/);
   assert.match(propertyLockDoc, /periodic remote loads must not replace the editor's local draft/);
@@ -249,4 +253,18 @@ test("popup remote loads merge page markings by timestamp without wiping local s
   assert.match(mergeSource, /const confirmedPageMarkings = config\.normalizePageMarkings/);
   assert.match(mergeSource, /config\.mergePageMarkingsByTimestamp/);
   assert.match(mergeSource, /localConfig\.pageMarkings = mergedPageMarkings;/);
+});
+
+test("popup only skips periodic remote loads for the active editor tab and includes the routed client hint", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const fetchStart = source.indexOf("async function fetchPropertyLockState");
+  const fetchEnd = source.indexOf("async function sendPropertyLockCommand", fetchStart);
+  const fetchSource = source.slice(fetchStart, fetchEnd);
+  const skipStart = source.indexOf("function shouldSkipRemoteConfigLoadForPropertyEditor");
+  const skipEnd = source.indexOf("async function syncBaseConfigToServer", skipStart);
+  const skipSource = source.slice(skipStart, skipEnd);
+
+  assert.match(fetchSource, /clientId: clientIdHint \|\| ""/);
+  assert.match(skipSource, /state\.propertyLockState &&[\s\S]*state\.propertyLockState\.isEditor/);
+  assert.doesNotMatch(skipSource, /isSameUserEditor/);
 });

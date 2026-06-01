@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
+  PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
   PROPERTY_LOCK_CONTENT_CONTINUE,
   PROPERTY_LOCK_CONTENT_CONNECT,
   PROPERTY_LOCK_CONTENT_DISCONNECT,
@@ -12,6 +14,7 @@ import {
   PROPERTY_LOCK_WS_CLIENT_STATUS,
   PROPERTY_LOCK_WS_CONTINUE_EDITING,
   PROPERTY_LOCK_WS_SUBSCRIBE,
+  PROPERTY_LOCK_WS_SUBSCRIBED,
   PROPERTY_LOCK_WS_LOCK_STATE,
   PROPERTY_LOCK_CONNECTION_INACTIVE,
   PROPERTY_LOCK_CONNECTION_CONNECTING,
@@ -144,11 +147,13 @@ function createFakeWebSocketClass() {
   };
 }
 
-function createPort(name) {
+function createPort(name, options = {}) {
   const messageListeners = [];
   const disconnectListeners = [];
+  const tabId = Number.isFinite(options.tabId) ? Math.trunc(options.tabId) : null;
   return {
     name,
+    sender: tabId === null ? undefined : { tab: { id: tabId } },
     postedMessages: [],
     onMessage: {
       addListener(listener) {
@@ -203,8 +208,10 @@ function createChromeMock(storageItems = {}) {
         }
       }
     },
-    connectPort(name = PROPERTY_LOCK_PORT_NAME) {
-      const port = createPort(name);
+    connectPort(nameOrOptions = PROPERTY_LOCK_PORT_NAME, maybeOptions = {}) {
+      const name = typeof nameOrOptions === "string" ? nameOrOptions : PROPERTY_LOCK_PORT_NAME;
+      const options = typeof nameOrOptions === "string" ? maybeOptions : nameOrOptions;
+      const port = createPort(name, options);
       runtimeConnectListeners.forEach((listener) => listener(port));
       return port;
     },
@@ -489,6 +496,106 @@ test("property lock sends stable client session metadata to the server", async (
     assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).clientId, "client-a");
     assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).force, true);
     assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).discardPrevious, true);
+  } finally {
+    timerController.restore();
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("property lock rotates duplicated tab client IDs and routes popup state by tab", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const timerController = createFakeTimerController();
+  const FakeWebSocket = createFakeWebSocketClass();
+  const { chromeMock, connectPort } = createChromeMock({
+    globalStageBase: "stage.example.test",
+    globalToken: "secret-token"
+  });
+
+  globalThis.chrome = chromeMock;
+  globalThis.WebSocket = FakeWebSocket;
+
+  try {
+    const {
+      initPropertyLockBackground,
+      handleGetPropertyLockState
+    } = await loadPropertyLockBackgroundModule();
+    initPropertyLockBackground();
+
+    const firstPort = connectPort({ tabId: 11 });
+    firstPort.emitMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId: 505,
+      clientId: "client-a"
+    });
+    await flushAsyncWork();
+    FakeWebSocket.instances[0].onopen();
+    FakeWebSocket.instances[0].emitMessage({
+      type: PROPERTY_LOCK_WS_SUBSCRIBED,
+      identity: "editor@example.test",
+      name: "Editor"
+    });
+    FakeWebSocket.instances[0].emitMessage({
+      type: PROPERTY_LOCK_WS_LOCK_STATE,
+      state: PROPERTY_LOCK_STATE_LOCKED,
+      editorIdentity: "editor@example.test",
+      editorClientId: "client-a",
+      editorName: "Editor",
+      isEditor: true,
+      isRecentEditor: false,
+      expiresAtUtc: "",
+      secondsRemaining: null
+    });
+
+    const secondPort = connectPort({ tabId: 22 });
+    secondPort.emitMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId: 505,
+      clientId: "client-a"
+    });
+    await flushAsyncWork();
+
+    assert.equal(FakeWebSocket.instances.length, 2);
+
+    const secondConnectUpdate = secondPort.postedMessages.find((message) =>
+      message &&
+      message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE &&
+      message.message &&
+      message.message.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS
+    );
+    const rotatedClientId = secondConnectUpdate && typeof secondConnectUpdate.clientId === "string"
+      ? secondConnectUpdate.clientId
+      : "";
+    assert.ok(rotatedClientId);
+    assert.notEqual(rotatedClientId, "client-a");
+
+    FakeWebSocket.instances[1].onopen();
+    FakeWebSocket.instances[1].emitMessage({
+      type: PROPERTY_LOCK_WS_SUBSCRIBED,
+      identity: "editor@example.test",
+      name: "Editor"
+    });
+    FakeWebSocket.instances[1].emitMessage({
+      type: PROPERTY_LOCK_WS_LOCK_STATE,
+      state: PROPERTY_LOCK_STATE_LOCKED,
+      editorIdentity: "editor@example.test",
+      editorClientId: "client-a",
+      editorName: "Editor",
+      isEditor: true,
+      isRecentEditor: false,
+      expiresAtUtc: "",
+      secondsRemaining: null
+    });
+
+    const firstState = await handleGetPropertyLockState({ siteId: 505, tabId: 11 }, {});
+    const secondState = await handleGetPropertyLockState({ siteId: 505, tabId: 22, clientId: "client-a" }, {});
+
+    assert.equal(firstState.clientId, "client-a");
+    assert.equal(firstState.state.isEditor, true);
+    assert.equal(secondState.clientId, rotatedClientId);
+    assert.equal(secondState.state.isEditor, false);
+    assert.equal(secondState.state.isSameUserEditor, true);
   } finally {
     timerController.restore();
     globalThis.chrome = originalChrome;

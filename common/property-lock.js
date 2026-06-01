@@ -97,6 +97,13 @@ export function normalizePropertyLockClientId(value) {
   return value.trim().slice(0, 128);
 }
 
+export function createPropertyLockClientId() {
+  const generated = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `uf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return normalizePropertyLockClientId(generated);
+}
+
 /**
  * Build WebSocket URL for property lock service.
  * 
