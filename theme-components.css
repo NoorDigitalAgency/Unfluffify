@@ -954,15 +954,13 @@ button.property-lock__button {
 }
 
 .lynx-checklist-popover__page-type-status--ready {
-  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
-  background: color-mix(in srgb, var(--success) 84%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .lynx-checklist-popover__page-type-status--missing {
-  border-color: color-mix(in srgb, var(--accent-dark) 68%, var(--line));
-  background: color-mix(in srgb, var(--accent-dark) 76%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--warn) 17%, transparent);
+  color: var(--warn);
 }
 
 .lynx-checklist-popover__candidate-hints {
@@ -1664,15 +1662,13 @@ button.property-lock__button {
 }
 
 .todo-status-line--done {
-  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
-  background: color-mix(in srgb, var(--success) 84%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .todo-status-line--pending {
-  border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--muted);
 }
 
 .todo-status-line .todo-indicator--done,
@@ -1812,15 +1808,13 @@ button.property-lock__button {
 }
 
 .todo-subsection-count--done {
-  border-color: color-mix(in srgb, var(--success) 75%, var(--line));
-  background: color-mix(in srgb, var(--success) 84%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .todo-subsection-count--pending {
-  border-color: color-mix(in srgb, var(--muted) 52%, var(--line));
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
-  color: var(--card);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--muted);
 }
 
 .todo-subsection-count .todo-indicator--done,
@@ -2335,7 +2329,7 @@ button.close-bar__stop-sharing:focus-visible {
   width: 13px;
   height: 13px;
   padding: 0;
-  border: 1px solid #e0443e;
+  border: 1px solid light-dark(#e0443e, #d6403a);
   border-radius: 50%;
   background: #ff5f57;
   box-shadow: none;
@@ -2345,8 +2339,8 @@ button.close-bar__stop-sharing:focus-visible {
 }
 
 .close-button:hover {
-  border: 1px solid #e0443e;
-  background: #fc665e;
+  border: 1px solid light-dark(#e0443e, #d6403a);
+  background: light-dark(#fc665e, #ff6b63);
   box-shadow: none;
   filter: brightness(1.1);
 }
@@ -2358,7 +2352,7 @@ button.close-bar__stop-sharing:focus-visible {
   width: 8px;
   height: 1.5px;
   border-radius: 1px;
-  background: rgba(100, 20, 20, 0.7);
+  background: light-dark(rgba(100, 20, 20, 0.7), rgba(60, 8, 8, 0.85));
   opacity: 0;
   transition: opacity 0.1s ease;
 }
@@ -2377,8 +2371,8 @@ button.close-bar__stop-sharing:focus-visible {
 }
 
 .close-button:disabled {
-  border-color: #a8a8a895;
-  background: #c0bfbd95;
+  border-color: light-dark(#a8a8a895, #48484c);
+  background: light-dark(#c0bfbd95, #5a5a5e);
   cursor: not-allowed;
   opacity: 1;
 }
@@ -2397,5 +2391,15 @@ button.close-bar__stop-sharing:focus-visible {
   .config-appearance-control {
     display: grid;
     gap: 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

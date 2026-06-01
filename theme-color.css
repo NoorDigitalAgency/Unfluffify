@@ -14,8 +14,6 @@
   --success: #366342;
   --danger: #a33d3d;
   --warn: #78551c;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
   --radius: 8px;
   --radius-lg: 12px;
 }
@@ -301,6 +299,12 @@
     color-mix(in srgb, var(--accent) 18%, transparent),
     color-mix(in srgb, var(--accent) 32%, transparent)
   );
+  /* Scheme-aware elevation: shadows are barely visible on dark surfaces when
+     tinted with a fixed light-mode alpha, so deepen them in dark mode. */
+  --shadow-1: light-dark(rgba(2, 6, 23, 0.08), rgba(0, 0, 0, 0.5));
+  --shadow-2: light-dark(rgba(2, 6, 23, 0.05), rgba(0, 0, 0, 0.36));
+  --shadow: 0 1px 3px var(--shadow-1), 0 1px 2px var(--shadow-2);
+  --shadow-md: 0 4px 12px var(--shadow-1), 0 2px 4px var(--shadow-2);
   --control-border: light-dark(
     color-mix(in srgb, var(--ink-base) 70%, var(--line-base) 30%),
     color-mix(in srgb, var(--ink-base) 35%, var(--line-base) 65%)
