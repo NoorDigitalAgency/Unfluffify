@@ -1763,11 +1763,8 @@ button.property-lock__button {
 }
 
 .todo-subsection-header::before {
-  content: "▸";
   margin-right: 3px;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.18s ease;
 }
@@ -1932,10 +1929,7 @@ span.todo-candidate-link {
 }
 
 .config-extras-header::before {
-  content: "▸";
   color: var(--accent);
-  font-size: 12px;
-  line-height: 1;
   transform: rotate(0deg);
   transition: transform 0.18s ease;
 }

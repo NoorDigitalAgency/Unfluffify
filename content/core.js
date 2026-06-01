@@ -3387,6 +3387,7 @@ function ensurePageMotionPauseStyle() {
       right: max(10px, env(safe-area-inset-right, 0px) + 10px) !important;
       width: 48px !important;
       height: 30px !important;
+      padding-top: 1px !important;
       z-index: 2147483647 !important;
       pointer-events: none !important;
       box-sizing: border-box !important;

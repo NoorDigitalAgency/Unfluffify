@@ -260,11 +260,15 @@ function renderListItems(items, emptyText, renderItem) {
   return items.map(renderItem);
 }
 
-function icon(name, extraClass = "", btn = false) {
+function icon(name, extraClass = "", btn = false, extending = false) {
   return h("span", {
-    class: classNames("mdi", `mdi-${name}`, "mdi-18px", btn && "btn-icon", extraClass),
+    class: classNames("mdi", `mdi-${name}`, !extending && "mdi-18px", btn && "btn-icon", extraClass),
     "aria-hidden": "true"
   });
+}
+
+function extendIconClass(name, extraClass = "") {
+  return classNames("mdi", `mdi-${name}`, extraClass);
 }
 
 function editToggleIcon(label) {
@@ -1260,7 +1264,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
         "button",
         {
           type: "button",
-          class: "todo-header",
+          class: extendIconClass("play", "todo-header"),
           "aria-expanded": sectionExpanded ? "true" : "false",
           onClick: handlers.onTodoSectionToggle
         },
@@ -1341,7 +1345,7 @@ function renderMarkedPagesSection(view, handlers, extraClassName = "") {
                       "button",
                       {
                         type: "button",
-                        class: "todo-subsection-header",
+                        class: extendIconClass("play", "todo-subsection-header"),
                         "aria-expanded": subsectionExpanded ? "true" : "false",
                         onClick: () => handlers.onTodoSubsectionToggle(group.key)
                       },
