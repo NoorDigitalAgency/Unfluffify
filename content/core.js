@@ -2835,7 +2835,8 @@ function isSilentWhitespaceExclusionCandidate(el) {
   }
   const style = window.getComputedStyle(el);
   const display = style && typeof style.display === "string" ? style.display : "";
-  if (!display || display === "none" || display === "contents" || display.startsWith("inline")) {
+  const inlineDisplays = new Set(["inline", "inline-block", "inline-flex", "inline-grid", "inline-table"]);
+  if (!display || display === "none" || display === "contents" || inlineDisplays.has(display)) {
     return false;
   }
   if (getCachedNormalizedElementText(el)) {
@@ -8767,7 +8768,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   });
   for (const el of silentWhitespaceCandidates) {
     const xpath = getXPath(el);
-    if (!xpath || seen.has(xpath) || explicitIncludeSet.has(xpath)) {
+    if (!xpath || seen.has(xpath)) {
       continue;
     }
     if (isWithinExplicitExcludedXpath(xpath, currentExcludedXpaths)) {
