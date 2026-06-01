@@ -97,7 +97,7 @@ button.u-full-width {
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--alert-tone, var(--warn)) 50%, transparent);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--alert-tone, var(--warn)) 25%, transparent);
+  background: color-mix(in srgb, var(--alert-tone, var(--warn)) 15%, transparent);
   color: var(--alert-ink, var(--warn));
   font-size: 12px;
   line-height: 1.5;
