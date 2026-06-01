@@ -3636,7 +3636,7 @@ async function getCachedSilentHighlightingConfigs() {
     return silentHighlightingConfigCache.configs;
   }
   const configs = await config.getConfigs();
-  silentHighlightingConfigCache = { configs, timestamp: Date.now() };
+  silentHighlightingConfigCache = { configs, timestamp: now };
   return configs;
 }
 

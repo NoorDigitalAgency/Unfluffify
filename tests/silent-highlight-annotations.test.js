@@ -123,10 +123,9 @@ test("silent highlight reposition renders directly from stored collections and m
     source,
     /function repositionSilentHighlightOverlay\(\) \{[\s\S]*?renderSilentHighlightOverlay\(silentHighlightCollections\);[\s\S]*?\}/
   );
-  assert.doesNotMatch(
-    source.match(/function repositionSilentHighlightOverlay\(\) \{[\s\S]*?\}/)[0],
-    /buildSilentHighlightRenderableCollections/
-  );
+  const repositionFnSource = source.match(/function repositionSilentHighlightOverlay\(\) \{[\s\S]*?\}/)?.[0];
+  assert.ok(repositionFnSource, "repositionSilentHighlightOverlay function must exist in source");
+  assert.doesNotMatch(repositionFnSource, /buildSilentHighlightRenderableCollections/);
   assert.match(
     source,
     /function mutationTargetTouchesSilentCollections\(target\) \{[\s\S]*?silentHighlightCollections\.sourceContentNodes[\s\S]*?silentHighlightCollections\.sourceExcludedNodes[\s\S]*?silentHighlightCollections\.sourceExplicitIncludeNodes[\s\S]*?silentHighlightCollections\.contentNodes[\s\S]*?silentHighlightCollections\.excludedNodes[\s\S]*?\];/
