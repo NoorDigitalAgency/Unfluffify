@@ -4,15 +4,22 @@
     <meta charset="utf-8" />
     <title>Unfluffify Network</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 0; }
-      .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 10px; }
+      body { font-family: system-ui, sans-serif; margin: 0; color-scheme: light dark; }
+      .toolbar { padding: 8px; border-bottom: 1px solid var(--toolbar-border, #ddd); display: flex; align-items: center; gap: 10px; }
       .toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
       .toolbar select { font: inherit; }
       table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
+      th, td { border-bottom: 1px solid var(--row-border, #eee); padding: 6px 8px; text-align: left; vertical-align: top; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .payload { width: 28px; text-align: center; }
-      button.icon-btn { border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+      button.icon-btn { border: 1px solid var(--icon-btn-border, #ccc); border-radius: 4px; background: var(--icon-btn-background, #fff); color: inherit; cursor: pointer; }
+
+      @media (prefers-color-scheme: dark) {
+        body { background: #1b1b1f; color: #e6e6ea; }
+        .toolbar { --toolbar-border: #33343a; }
+        th, td { --row-border: #2c2d33; }
+        button.icon-btn { --icon-btn-border: #45464d; --icon-btn-background: #25262b; }
+      }
     </style>
   </head>
   <body>
