@@ -245,6 +245,7 @@ test("confirmed page marking merges can replace stale entries with matching time
       includeXpaths: [],
       selectorSuppressedXpaths: [],
       submissionXpaths: [{ xpath: "/html/body/header", excluded: true }],
+      silentWhitespaceExcludedXpaths: [],
       renderedHtml: "<header>Old</header>",
       rawHtml: "<html><body><header>Old</header></body></html>"
     }
@@ -257,6 +258,7 @@ test("confirmed page marking merges can replace stale entries with matching time
       includeXpaths: [],
       selectorSuppressedXpaths: [],
       submissionXpaths: [{ xpath: "/html/body/footer", excluded: true }],
+      silentWhitespaceExcludedXpaths: [],
       renderedHtml: "<footer>New</footer>",
       rawHtml: "<html><body><footer>New</footer></body></html>"
     }

@@ -2788,25 +2788,23 @@ function hasVisibleNonTextualContent(el) {
     if (!node || node.nodeType !== 1) {
       continue;
     }
-    if (node !== el) {
-      const tag = node.tagName;
-      if (
-        tag === "IMG" ||
-        tag === "SVG" ||
-        tag === "CANVAS" ||
-        tag === "VIDEO" ||
-        tag === "AUDIO" ||
-        tag === "IFRAME" ||
-        tag === "PICTURE" ||
-        tag === "OBJECT" ||
-        tag === "EMBED" ||
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        tag === "BUTTON"
-      ) {
-        return true;
-      }
+    const tag = node.tagName;
+    if (
+      tag === "IMG" ||
+      tag === "SVG" ||
+      tag === "CANVAS" ||
+      tag === "VIDEO" ||
+      tag === "AUDIO" ||
+      tag === "IFRAME" ||
+      tag === "PICTURE" ||
+      tag === "OBJECT" ||
+      tag === "EMBED" ||
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      tag === "BUTTON"
+    ) {
+      return true;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push(node.children[i]);
@@ -2896,7 +2894,14 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   const excludedXpaths = options.excludedXpaths || new Set();
   const includeXpaths = options.includeXpaths || new Set();
   const results = [];
-  const resultXpaths = new Set();
+  const excludedElements = new Set();
+  for (const xpath of excludedXpaths) {
+    const el = getElementFromXPath(xpath);
+    if (el) {
+      excludedElements.add(el);
+    }
+  }
+  const resultElements = new Set();
   const stack = [document.body];
   while (stack.length) {
     const node = stack.pop();
@@ -2909,21 +2914,40 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
-    const xpath = getXPath(node);
-    if (
-      isXpathCoveredByAncestor(xpath, excludedXpaths) ||
-      isXpathCoveredByAncestor(xpath, resultXpaths)
-    ) {
+    let coveredByExcluded = false;
+    for (const excludedEl of excludedElements) {
+      if (excludedEl.contains(node)) {
+        coveredByExcluded = true;
+        break;
+      }
+    }
+    if (coveredByExcluded) {
       continue;
     }
+    let coveredByResult = false;
+    for (const resultEl of resultElements) {
+      if (resultEl !== node && resultEl.contains(node)) {
+        coveredByResult = true;
+        break;
+      }
+    }
+    if (coveredByResult) {
+      continue;
+    }
+    if (!isSilentWhitespaceExclusionCandidate(node)) {
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        stack.push(node.children[i]);
+      }
+      continue;
+    }
+    const xpath = getXPath(node);
     if (
       xpath &&
       !includeXpaths.has(xpath) &&
-      !excludedXpaths.has(xpath) &&
-      isSilentWhitespaceExclusionCandidate(node)
+      !excludedXpaths.has(xpath)
     ) {
       results.push(node);
-      resultXpaths.add(xpath);
+      resultElements.add(node);
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
