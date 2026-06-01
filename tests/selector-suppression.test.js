@@ -171,11 +171,19 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
 
   assert.match(
     coreSource,
-    /if \(matchesToggleableDefaultExcluded\(el\)\) \{\s*continue;\s*\}/
+    /function collectExcludedParentElements\(items\) \{[\s\S]*?if \(!item \|\| !item\.xpath \|\| !item\.excluded\) \{[\s\S]*?parents\.add\(el\);/
+  );
+  assert.doesNotMatch(
+    coreSource,
+    /storedExplicitContextSet/
   );
   assert.match(
     coreSource,
-    /const generatedDefaultExcludeSet = new Set\(\);[\s\S]*?const storedExplicitContextSet = new Set\(\);/
+    /const explicitMarkedXpaths = new Set\(\[[\s\S]*?\.\.\.Array\.from\(excludedLookup\.keys\(\)\),[\s\S]*?\.\.\.filteredIncludeXpaths/
+  );
+  assert.match(
+    coreSource,
+    /return explicitXpathSet\.has\(xpath\);/
   );
   assert.match(
     coreSource,
@@ -305,18 +313,22 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   for (const source of [docSource, knowledgeSource]) {
     assert.match(source, /locked (?:compatibility )?contract/i);
     assert.match(source, /explicit(?:ly)? (?:asks|requests|requested|instructed)/i);
-    assert.match(source, /b9c86238b08dd0b0ee0231fcab7b214625e29670/);
+    assert.match(source, /052c164b077d459fa7a6e79b306f01144336719c/);
     assert.match(source, /no separate visual layer|must not have a dedicated visual layer/i);
     assert.match(source, /ordinary exclude marking path|ordinary exclude overlay/i);
+    assert.match(source, /silent highlighting (?:keeps|stays|uses)[\s\S]*immutable[\s\S]*content[\s\S]*excluded/i);
   }
-  assert.match(docSource, /Toggleable defaults differ from user\/CSS-selected exclusions only while the\s+excluded\/included state is being decided/i);
-  assert.match(docSource, /`BUTTON` is intentionally toggleable\. `LINK` is intentionally immutable\./);
+  assert.match(docSource, /direct own text makes the\s+boundary self-markable/i);
+  assert.match(docSource, /every stored excluded XPath row submits as an excluded row/i);
+  assert.match(docSource, /full invalidating rebuild runs\s+immediately after the fast explicit refresh/i);
+  assert.match(docSource, /052c `links` silent layer[\s\S]*not part\s+of the current locked contract/i);
+  assert.match(docSource, /`BUTTON` is intentionally toggleable\. `LINK` is intentionally omitted from the\s+taxonomy/);
   assert.match(docSource, /Any legitimate contract change must update this document, `\.copilot\/knowledge\.md`,\s+`\.copilot\/plan\.md`, `README\.md`, and the focused regression tests/i);
   assert.match(planSource, /Marking Contract Lock/);
   assert.match(planSource, /Do not change default-exclusion taxonomy, target resolution, sync semantics, or overlay projection unless the user explicitly asks/i);
-  assert.match(planSource, /`BUTTON` is now a toggleable default exclusion/);
-  assert.match(planSource, /`LINK` is now an immutable default exclusion/);
-  assert.match(readmeSource, /locked restored contract/i);
+  assert.match(planSource, /052c-derived marking restoration completed/);
+  assert.match(planSource, /submit every stored excluded XPath row as excluded/i);
+  assert.match(readmeSource, /locked 052c-derived restored contract/i);
   assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
   assert.match(constantsSource, /locked marking contract/);
 });

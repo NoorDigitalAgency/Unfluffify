@@ -13,7 +13,7 @@
   --accent-light: #eef2ff;
   --success: light-dark(#366342, #80d090);
   --danger: light-dark(#a33d3d, #ff8080);
-  --warn: light-dark(#78551c, #ffc66e);
+  --warn: light-dark(#936d0b, #ffc66e);
   --radius: 8px;
   --radius-lg: 12px;
 }

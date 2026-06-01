@@ -179,7 +179,7 @@ test("pending explicit overlay refresh can be cancelled via rAF cancel", () => {
   }, { withRaf: true });
 });
 
-test("explicit overlay refresh updates only explicit layers before the delayed rebuild", () => {
+test("explicit overlay refresh updates explicit layers before forcing an immediate full rebuild", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshBody = source.match(
     /function refreshExplicitMarkingOverlay\(entry\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
@@ -192,15 +192,22 @@ test("explicit overlay refresh updates only explicit layers before the delayed r
   assert.doesNotMatch(refreshBody, /collectDefaultLayerElements/);
   assert.doesNotMatch(refreshBody, /drawCollections/);
   assert.doesNotMatch(scheduleBody, /scheduleRender\(getExplicitMarkingRenderOptions\(\)\)/);
+  assert.match(
+    scheduleBody,
+    /refreshExplicitMarkingOverlay\(pendingEntry\);[\s\S]*?scheduleExplicitToggleFullRender\(\);/
+  );
 });
 
-test("explicit toggle full rebuild timing stays short to avoid ancestor lag", () => {
+test("explicit toggle full rebuild is immediate to avoid ancestor lag", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const rulesSource = readFileSync(new URL("../content/marking-rules.js", import.meta.url), "utf8");
 
-  const fullRenderDelayMatch = coreSource.match(/const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = (\d+);/);
-  assert.ok(fullRenderDelayMatch);
-  assert.ok(Number(fullRenderDelayMatch[1]) <= 150);
+  const fullRenderBody = coreSource.match(
+    /function scheduleExplicitToggleFullRender\(\) \{([\s\S]*?)\n\}\n\nexport function scheduleExplicitOverlayRefresh/
+  )[1];
+  assert.match(fullRenderBody, /scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
+  assert.doesNotMatch(fullRenderBody, /extensionSetTimeout|runWhenIdle|EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
+  assert.doesNotMatch(coreSource, /const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
 
   const renderOptionsMatch = rulesSource.match(
     /getExplicitMarkingFullRenderOptions\(\) \{[\s\S]*?delay:\s*(\d+),[\s\S]*?minInterval:\s*(\d+),/

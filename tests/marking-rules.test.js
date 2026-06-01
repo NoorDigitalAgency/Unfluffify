@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  chooseExcludeParentBoundaryTarget,
   isStoredExcludeStateUserModified,
   shouldAllowParentMarkingBoundary,
   shouldCollectToggleableDefaultBoundary,
@@ -12,9 +13,10 @@ import {
   DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
 } from "../common/constants.js";
 
-test("toggleable boundary self-markability remains a target-shape rule, not boundary identity", () => {
+test("toggleable boundary self-markability restores 052c direct-text and descendant rules", () => {
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
+      hasDirectOwnText: false,
       hasVisibleTextualDescendant: false,
       hasExplicitlyMarkedDescendant: false
     }),
@@ -22,6 +24,7 @@ test("toggleable boundary self-markability remains a target-shape rule, not boun
   );
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
+      hasDirectOwnText: false,
       hasVisibleTextualDescendant: true,
       hasExplicitlyMarkedDescendant: false
     }),
@@ -29,14 +32,23 @@ test("toggleable boundary self-markability remains a target-shape rule, not boun
   );
   assert.equal(
     shouldSelfMarkToggleableDefaultBoundary({
+      hasDirectOwnText: false,
       hasVisibleTextualDescendant: false,
+      hasExplicitlyMarkedDescendant: true
+    }),
+    false
+  );
+  assert.equal(
+    shouldSelfMarkToggleableDefaultBoundary({
+      hasDirectOwnText: true,
+      hasVisibleTextualDescendant: true,
       hasExplicitlyMarkedDescendant: true
     }),
     true
   );
 });
 
-test("visible toggleable default boundaries are collected regardless of visible immutable descendants", () => {
+test("toggleable default boundary collection trusts structural auto-default eligibility", () => {
   assert.equal(
     shouldCollectToggleableDefaultBoundary({
       isToggleableDefaultExcluded: true,
@@ -44,6 +56,57 @@ test("visible toggleable default boundaries are collected regardless of visible 
       hasVisibleImmutableDescendant: true
     }),
     true
+  );
+  assert.equal(
+    shouldCollectToggleableDefaultBoundary({
+      isToggleableDefaultExcluded: false,
+      isHiddenSubtree: false,
+      hasVisibleImmutableDescendant: true
+    }),
+    false
+  );
+});
+
+test("Shift parent chooser prefers 052c structured, toggleable, then broadest markable ancestors", () => {
+  assert.equal(
+    chooseExcludeParentBoundaryTarget({
+      selfValue: "self",
+      selfStructuredGroup: true,
+      ancestors: [{ value: "ancestor", isStructuredGroup: true }]
+    }),
+    "self"
+  );
+  assert.equal(
+    chooseExcludeParentBoundaryTarget({
+      selfValue: "self",
+      ancestors: [
+        { value: "nearest", isMarkable: true },
+        { value: "structured", isStructuredGroup: true },
+        { value: "broad", isMarkable: true }
+      ]
+    }),
+    "structured"
+  );
+  assert.equal(
+    chooseExcludeParentBoundaryTarget({
+      selfValue: "self",
+      ancestors: [
+        { value: "nearest", isMarkable: true },
+        { value: "toggleable", isToggleableBoundary: true },
+        { value: "broad", isMarkable: true }
+      ]
+    }),
+    "toggleable"
+  );
+  assert.equal(
+    chooseExcludeParentBoundaryTarget({
+      selfValue: "self",
+      ancestors: [
+        { value: "nearest", isMarkable: true },
+        { value: "broad", isMarkable: true }
+      ]
+    }),
+    "broad"
   );
 });
 
@@ -88,7 +151,7 @@ test("stored default-exclude state is user-modified only when it differs from th
   );
 });
 
-test("b9 parent marking accepts a wrapper with one markable descendant", () => {
+test("parent marking accepts a wrapper with one markable descendant", () => {
   assert.equal(
     shouldAllowParentMarkingBoundary({
       hasDirectText: false,
@@ -133,8 +196,7 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links immut
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO",
-    "LINK"
+    "VIDEO"
   ]);
 
   const toggleable = new Set(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS);
@@ -143,8 +205,8 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links immut
     assert.equal(toggleable.has(tag), true, `${tag} should be toggleable`);
     assert.equal(immutable.has(tag), false, `${tag} should not be immutable`);
   }
-  assert.equal(toggleable.has("LINK"), false);
-  assert.equal(immutable.has("LINK"), true);
+  assert.equal(toggleable.has("LINK"), false, "LINK is omitted from the toggleable taxonomy");
+  assert.equal(immutable.has("LINK"), false, "LINK is omitted from the immutable taxonomy");
   for (const tag of [
     "IMG",
     "INPUT",
@@ -155,8 +217,7 @@ test("locked default-exclusion taxonomy keeps buttons toggleable and links immut
     "SCRIPT",
     "TEMPLATE",
     "IFRAME",
-    "VIDEO",
-    "LINK"
+    "VIDEO"
   ]) {
     assert.equal(immutable.has(tag), true, `${tag} should be immutable`);
     assert.equal(toggleable.has(tag), false, `${tag} should not be toggleable`);

@@ -1,8 +1,12 @@
 # Marking And Highlighting Logic
 
 This document is the source of truth for the marking rules restored from
-`b9c86238b08dd0b0ee0231fcab7b214625e29670`, with the explicit contract change
-that `BUTTON` is now toggleable and `LINK` is now immutable.
+`052c164b077d459fa7a6e79b306f01144336719c`, with deliberate current safeguards
+kept in place: `BUTTON` remains toggleable, the redundant void `LINK` tag is
+omitted from the taxonomy, stricter
+geometry/paint guards remain active, selector-excluded content does not get a
+dedicated marking overlay, and silent highlighting keeps the
+`immutable`/`content`/`excluded` layers.
 
 ## Locked Contract
 
@@ -33,8 +37,9 @@ Non-negotiable invariants:
   that exact boundary. It suppresses that boundary's own implicit/default
   marking, but it does not suppress descendants or become a subtree include.
 - Fast refresh, caching, or performance work may only be an adaptation layer over
-  the b9 rules. It must sync page markings before drawing and must not create a
-  second source of marking truth.
+  the 052c-derived rules. It must sync page markings before drawing and must not
+  create a second source of marking truth. Explicit-toggle refreshes must be
+  followed immediately by an invalidating full rebuild.
 
 The implementation is split across:
 
@@ -90,7 +95,7 @@ silent-highlighting status without becoming a second source of truth.
 
 Immutable defaults are always excluded and cannot be overridden from marking
 mode. They include `IMG`, `INPUT`, `NOSCRIPT`, `SELECT`, `TITLE`, `STYLE`,
-`SCRIPT`, `TEMPLATE`, `IFRAME`, `VIDEO`, and `LINK`.
+`SCRIPT`, `TEMPLATE`, `IFRAME`, and `VIDEO`.
 
 An element inside an immutable default subtree is not markable. Immutable nodes
 render as hard exclusions in marking mode and on the dedicated immutable layer
@@ -110,7 +115,10 @@ taxonomy is:
 - `ASIDE`
 - `BUTTON`
 
-`BUTTON` is intentionally toggleable. `LINK` is intentionally immutable.
+`BUTTON` is intentionally toggleable. `LINK` is intentionally omitted from the
+taxonomy: a `<link>` is a void metadata element that never carries text or
+descendants, so it can never be a marking target and listing it as immutable was
+redundant.
 
 Toggleable defaults are not promoted to explicit includes by a plain exclude
 click. Exclude mode keeps drilling to the nearest markable content target unless
@@ -151,9 +159,12 @@ Each page entry may contain:
 - `rawHtml`
 
 `xpaths` stores explicit user exclusions plus generated/default posture rows.
-Only rows with `explicit: true` are treated as user exclusions for AI
-submission and explicit-overlay rendering; untagged generated or legacy rows are
-sync posture and may be dropped if they do not still match a generated default.
+Rows with `explicit: true` are user-created exclude rows for local editing and
+explicit-tag preservation. AI submission intentionally uses the 052c-compatible
+rule that every stored excluded XPath row submits as excluded unless it is
+explicitly included or suppressed by an excluded ancestor. Untagged generated or
+legacy rows are still sync posture and may be dropped if they do not still match
+a generated default.
 `includeXpaths` is the local explicit-include list. Normalization removes
 redundant nested rows when a broader boundary takes over a subtree. Config sync
 does not send `includeXpaths` or `selectorSuppressedXpaths` as separate fields:
@@ -176,7 +187,7 @@ user's explicit unmark for that exact default boundary. It must suppress the
 boundary's own default-layer marking without suppressing unmarked descendants,
 so the unmarked boundary does not render as a visual-only ghost around an
 explicit descendant marking. Nested toggleable defaults keep their own default
-behavior. Default-layer collection intentionally remains otherwise b9-like:
+behavior. Default-layer collection intentionally remains otherwise 052c-like:
 explicit marks should not globally filter unrelated implicit default targets,
 because that can make implicit descendant markings flicker on alternating
 toggles.
@@ -192,9 +203,11 @@ still preventing duplicate descendant default markings under excluded ancestors.
 
 Both full renders and fast explicit-toggle overlay refreshes must run page
 marking synchronization before drawing. The fast refresh is only an adaptation
-layer over the b9 rules; it cannot draw from a just-mutated entry until
-generated default posture rows, including default ancestors converted to
-`excluded: false`, have been reconciled.
+layer over the 052c-derived rules; it cannot draw from a just-mutated entry
+until generated default posture rows, including default ancestors converted to
+`excluded: false`, have been reconciled. The full invalidating rebuild runs
+immediately after the fast explicit refresh so default, selector, AI, and
+ancestor layers cannot visibly lag behind the acknowledgement.
 
 ## Marking Performance Contract
 
@@ -205,12 +218,11 @@ Marking mode must avoid duplicate full-page passes:
   immediate `forceRefresh`. Before page motion is frozen and overlays are
   rendered, activation may run a bounded reveal warm-up that restores the
   user's original scroll position.
-- A manual refinement performs a cheap immediate explicit-layer refresh, then a
-  delayed invalidating full rebuild for correctness. The immediate refresh may
+- A manual refinement performs a cheap immediate explicit-layer refresh, then an
+  immediate invalidating full rebuild for correctness. The immediate refresh may
   update explicit include/exclude layers and cached explicit collections, but it
-  must not recompute the default layer or redraw every layer. The delayed full
-  rebuild should run on a short cadence so ancestor unmarks do not visibly lag
-  before descendants receive refreshed default markings.
+  must not recompute the default layer or redraw every layer; the following full
+  rebuild owns default, selector, AI, and ancestor correctness.
 - A full marking pass may cache per-element visibility, text, immutable/default
   selector, ancestor, and textual-descendant decisions for the duration of that
   pass. These caches are derived from the current DOM/config and are not a
@@ -318,17 +330,21 @@ or aside records that boundary as `excluded: false` and records the descendant
 as the explicit exclusion. Clicking the default boundary itself, where no
 descendant wins target resolution, still unmarks that default boundary directly.
 
-`Shift+Click` enables parent selection. Under the restored b9 behavior, a parent
-boundary is eligible when it has direct text or at least one self-markable
-descendant. This intentionally allows single-content-branch wrappers to be
-selected as broader boundaries.
+`Shift+Click` enables parent selection. Under the restored 052c behavior, target
+resolution first prefers the clicked element when it is a structured group or
+toggleable boundary, then the nearest structured group ancestor, then the nearest
+toggleable ancestor, then the broadest markable ancestor. The current shallow
+page-shell guard still rejects generic body-level wrappers with broad viewport
+footprints or multiple page landmarks.
 
 ### Include Mode
 
 `Alt` switches to include mode. Include mode can inspect descendants inside
-excluded parents and prefers explicit targets first. The selected element is
-stored locally in `includeXpaths` when it is eligible and synced through the
-single `xpaths` field as an explicit include row.
+excluded parents, prefers explicit targets first, and restores 052c mixed
+direct-text ancestor promotion so an eligible textual ancestor can be included
+instead of only the deepest child. The selected element is stored locally in
+`includeXpaths` when it is eligible and synced through the single `xpaths` field
+as an explicit include row.
 
 Explicit include boundaries are closed boundaries: descendants under an active
 include are not targetable until the include itself is removed.
@@ -366,9 +382,13 @@ XPath list.
 
 Direct text means text-node content owned by the element itself. Containers with
 only descendant text normally yield to the descendant. Toggleable default
-boundaries follow the b9 shape rule: they are self-markable only when they do
-not have a visible textual descendant. Existing explicit descendant markings do
-not by themselves suppress the boundary.
+boundaries follow the restored 052c shape rule: direct own text makes the
+boundary self-markable, otherwise the boundary is self-markable only when it has
+no visible textual descendant and no explicitly marked descendant. Automatic
+toggleable-default collection also follows 052c structure: boundaries with no
+textual descendant qualify, boundaries with nested toggleable defaults qualify,
+and boundaries with visible immutable descendants are suppressed unless the
+other structural cases apply.
 
 ## Explicit Exclude Rules
 
@@ -434,9 +454,10 @@ live page.
 Rules:
 
 - explicit includes always submit as included rows,
-- only `explicit: true` excludes submit as excluded rows unless explicitly
-  included; generated toggleable-default rows and untagged stale rows are not
-  treated as explicit exclusions,
+- every stored excluded XPath row submits as an excluded row unless explicitly
+  included or suppressed by an already submitted excluded ancestor; this includes
+  generated/default excluded rows and preserves 052c submission semantics while
+  still keeping `explicit: true` as local user-edit metadata,
 - silent whitespace explicit-exclude rows submit as excluded rows but are hidden
   from the marking UI and include targeting,
 - descendants under an already submitted excluded ancestor are omitted unless
@@ -459,9 +480,12 @@ Rules:
 
 Silent highlighting uses three overlay layers:
 
-1. immutable exclusions,
-2. included content,
-3. excluded content.
+1. `immutable` exclusions,
+2. `content`,
+3. `excluded` content.
+
+The older 052c `links` silent layer for already-marked page anchors is not part
+of the current locked contract.
 
 Immutable silent highlights use a subtle dashed border and transparent
 background. Hidden implicit includes are dropped, while hidden explicit includes
