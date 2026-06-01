@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  collectAiContentElementsForRender,
   collectDefaultLayerElements,
   collectExplicitMarkingElements,
   collectStoredUnexcludedToggleableDefaultElements,
@@ -257,6 +258,48 @@ test("default layer skips covered responsive alternate content", () => {
   });
 });
 
+test("AI render collection keeps definitively hidden included elements in a ghost bucket", () => {
+  withVisibilityDom(({ body }) => {
+    const visibleAi = createElement({
+      parentElement: body,
+      text: "Visible AI",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const hiddenAi = createElement({
+      parentElement: body,
+      text: "Hidden AI",
+      style: { opacity: "0" },
+      rect: { top: 100, right: 320, bottom: 140, left: 20, width: 300, height: 40 }
+    });
+    const hiddenExplicitAi = createElement({
+      parentElement: body,
+      text: "Hidden explicit AI",
+      style: { opacity: "0" },
+      rect: { top: 160, right: 320, bottom: 200, left: 20, width: 300, height: 40 }
+    });
+    const selectorExcluded = createElement({
+      parentElement: body,
+      text: "Selector excluded",
+      rect: { top: 220, right: 320, bottom: 260, left: 20, width: 300, height: 40 }
+    });
+    body.children.push(visibleAi, hiddenAi, hiddenExplicitAi, selectorExcluded);
+    body.childNodes.push(visibleAi, hiddenAi, hiddenExplicitAi, selectorExcluded);
+
+    const result = collectAiContentElementsForRender(
+      {
+        included: [visibleAi, hiddenAi],
+        excluded: [selectorExcluded]
+      },
+      {
+        explicitInclude: new Set([hiddenExplicitAi])
+      }
+    );
+
+    assert.deepEqual(result.aiContentElements, [visibleAi]);
+    assert.deepEqual(result.hiddenAiContentElements, [hiddenAi, hiddenExplicitAi]);
+    assert.deepEqual(result.selectorExcludedElements, [selectorExcluded]);
+  });
+});
 
 test("aria-hidden elements fail the visibility guard", () => {
   withVisibilityDom(({ body }) => {

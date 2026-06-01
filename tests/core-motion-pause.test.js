@@ -628,6 +628,44 @@ test("page reveal warmup skips pages without vertical scroll room", async () => 
   }
 });
 
+test("page reveal warmup extends its sweep when delayed layout growth increases scroll range", async () => {
+  const dom = installMotionDom();
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 1000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 1000;
+  dom.window.innerHeight = 500;
+  let pendingExpansionFrames = -1;
+  const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  dom.window.scrollTo = (x, y) => {
+    originalScrollTo(x, y);
+    if (y >= 500 && pendingExpansionFrames < 0) {
+      pendingExpansionFrames = 3;
+    }
+  };
+  dom.window.requestAnimationFrame = (callback) => {
+    if (pendingExpansionFrames > 0) {
+      pendingExpansionFrames -= 1;
+      if (pendingExpansionFrames === 0) {
+        dom.html.scrollHeight = 3000;
+        dom.body.scrollHeight = 3000;
+      }
+    }
+    callback(0);
+    return { callback };
+  };
+
+  try {
+    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+
+    assert.equal(warmed, true);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.deepEqual(dom.scrollCalls.at(-1), { x: 0, y: 0 });
+  } finally {
+    dom.restore();
+  }
+});
+
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
   const dom = installMotionDom();
   const reveal = new FakeElement("section", { class: "scroll-reveal fade-up" });

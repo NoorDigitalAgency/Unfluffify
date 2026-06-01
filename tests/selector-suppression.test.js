@@ -54,7 +54,10 @@ test("background owns the live-page GraphQL transport handlers", () => {
 test("marking mode keeps selector-matched elements off the default layer without suppressing their whole subtree", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
-  assert.match(coreSource, /for \(const el of aiCollections\.excluded \|\| \[\]\) \{/);
+  assert.match(
+    coreSource,
+    /export function collectAiContentElementsForRender\(aiCollections, options = \{\}\) \{[\s\S]*?for \(const el of aiCollections\?\.excluded \|\| \[\]\) \{/
+  );
   assert.match(
     coreSource,
     /if \(explicitInclude\.has\(el\) \|\| isWithinElementSet\(el, explicitInclude\)\) \{\s*continue;\s*\}/
@@ -186,6 +189,39 @@ test("marking mode stores default ancestors as unexcluded when descendants are m
     contentSource,
     /if \(existingEl && core\.isDefaultToggleableExcludedElement\(existingEl\)\) \{\s*item\.excluded = false;/
   );
+});
+
+test("explicit marking toggles cache XPath element resolution per operation", () => {
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const excludeStart = contentSource.indexOf("if (message.type === \"setExplicitExclude\")");
+  const includeStart = contentSource.indexOf("if (message.type === \"setExplicitInclude\")");
+  const afterInclude = contentSource.indexOf("if (message.type === \"savePageDraft\")", includeStart);
+  const excludeSource = contentSource.slice(excludeStart, includeStart);
+  const includeSource = contentSource.slice(includeStart, afterInclude);
+
+  assert.match(contentSource, /function createXPathElementCache\(\)/);
+  assert.match(contentSource, /function isSameOrDescendantByElementOrXPath\(/);
+  assert.match(excludeSource, /const getElement = createXPathElementCache\(\);/);
+  assert.match(includeSource, /const getElement = createXPathElementCache\(\);/);
+  assert.doesNotMatch(excludeSource, /core\.getElementFromXPath/);
+  assert.doesNotMatch(includeSource, /core\.getElementFromXPath/);
+});
+
+test("render collection hot paths avoid nested contains scans", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const collapseStart = coreSource.indexOf("export function collapseElementsByNesting");
+  const collapseEnd = coreSource.indexOf("function collapseElementsByNestingPreservingExplicit", collapseStart);
+  const collapseSource = coreSource.slice(collapseStart, collapseEnd);
+  const selectorStart = coreSource.indexOf("function collectIncludedElementsFromSelectorSet");
+  const selectorEnd = coreSource.indexOf("function getElementDepth", selectorStart);
+  const selectorSource = coreSource.slice(selectorStart, selectorEnd);
+
+  assert.match(collapseSource, /const keptSet = new Set\(\);/);
+  assert.match(collapseSource, /addElementAndAncestorsToSet\(keptDeepAncestorSet, candidate\);/);
+  assert.doesNotMatch(collapseSource, /\.some\([\s\S]*?\.contains\(/);
+  assert.match(selectorSource, /const suppressedElementSet = new Set\(suppressedElementsByXpath\.values\(\)\);/);
+  assert.match(selectorSource, /isWithinElementSet\(element, suppressedElementSet\)/);
+  assert.doesNotMatch(selectorSource, /for \(const suppressedElement of suppressedElements\)/);
 });
 
 test("marking mode keeps unexcluded default ancestors off the default layer", () => {

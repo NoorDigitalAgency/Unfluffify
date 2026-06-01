@@ -5918,6 +5918,32 @@ function addSelectorSuppressedXpath(entry, xpath) {
     .concat(xpath);
 }
 
+function createXPathElementCache() {
+  const cache = new Map();
+  return (xpath) => {
+    if (!xpath) {
+      return null;
+    }
+    if (!cache.has(xpath)) {
+      cache.set(xpath, core.getElementFromXPath(xpath));
+    }
+    return cache.get(xpath);
+  };
+}
+
+function isSameOrDescendantByElementOrXPath(parentXpath, parentElement, childXpath, childElement) {
+  if (!parentXpath || !childXpath) {
+    return false;
+  }
+  if (parentXpath === childXpath) {
+    return true;
+  }
+  if (parentElement && childElement) {
+    return parentElement.contains(childElement);
+  }
+  return core.isXPathDescendant(parentXpath, childXpath);
+}
+
 function clearSelectorSuppressedXpathsWithin(entry, xpath) {
   if (!entry || typeof entry !== "object") {
     return;
@@ -7017,21 +7043,19 @@ export function main() {
           delete targetItem.explicit;
         }
       }
-      const target = core.getElementFromXPath(xpath);
+      const getElement = createXPathElementCache();
+      const target = getElement(xpath);
       const cleanupDescendantIncludeOverrides = (currentXPath, currentTarget = null) => {
         const boundaryTarget = currentTarget && currentTarget.nodeType === 1
           ? currentTarget
-          : core.getElementFromXPath(currentXPath);
+          : getElement(currentXPath);
         for (let i = includeXpaths.length - 1; i >= 0; i -= 1) {
           const includeXPath = includeXpaths[i];
           if (!includeXPath || includeXPath === currentXPath) {
             continue;
           }
-          const includeEl = core.getElementFromXPath(includeXPath);
-          if (
-            (boundaryTarget && includeEl && boundaryTarget.contains(includeEl)) ||
-            (!includeEl && core.isXPathDescendant(currentXPath, includeXPath))
-          ) {
+          const includeEl = getElement(includeXPath);
+          if (isSameOrDescendantByElementOrXPath(currentXPath, boundaryTarget, includeXPath, includeEl)) {
             includeXpaths.splice(i, 1);
           }
         }
@@ -7040,11 +7064,8 @@ export function main() {
           if (!item || !item.xpath || item.excluded || item.xpath === currentXPath) {
             continue;
           }
-          const itemEl = core.getElementFromXPath(item.xpath);
-          if (
-            (boundaryTarget && itemEl && boundaryTarget.contains(itemEl)) ||
-            (!itemEl && core.isXPathDescendant(currentXPath, item.xpath))
-          ) {
+          const itemEl = getElement(item.xpath);
+          if (isSameOrDescendantByElementOrXPath(currentXPath, boundaryTarget, item.xpath, itemEl)) {
             items.splice(i, 1);
           }
         }
@@ -7055,22 +7076,15 @@ export function main() {
           if (!item || !item.xpath || item.xpath === xpath) {
             continue;
           }
-          const existingEl = core.getElementFromXPath(item.xpath);
-          const withinTarget =
-            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, item.xpath);
-          if (withinTarget) {
+          const existingEl = getElement(item.xpath);
+          if (isSameOrDescendantByElementOrXPath(xpath, target, item.xpath, existingEl)) {
             items.splice(i, 1);
-          }
-        }
-        for (let i = items.length - 1; i >= 0; i -= 1) {
-          const item = items[i];
-          if (!item || !item.xpath || item.xpath === xpath || !item.excluded) {
             continue;
           }
-          const existingEl = core.getElementFromXPath(item.xpath);
-          const containsTarget =
-            existingEl && target ? existingEl.contains(target) : core.isXPathDescendant(item.xpath, xpath);
-          if (containsTarget) {
+          if (
+            item.excluded &&
+            isSameOrDescendantByElementOrXPath(item.xpath, existingEl, xpath, target)
+          ) {
             cleanupDescendantIncludeOverrides(item.xpath, existingEl);
             if (existingEl && core.isDefaultToggleableExcludedElement(existingEl)) {
               item.excluded = false;
@@ -7085,14 +7099,11 @@ export function main() {
           if (!includeXPath) {
             continue;
           }
-          const includeEl = core.getElementFromXPath(includeXPath);
+          const includeEl = getElement(includeXPath);
           if (
             includeXPath === xpath ||
-            (includeEl && target && (includeEl.contains(target) || target.contains(includeEl))) ||
-            (!includeEl && (
-              core.isXPathDescendant(includeXPath, xpath) ||
-              core.isXPathDescendant(xpath, includeXPath)
-            ))
+            isSameOrDescendantByElementOrXPath(includeXPath, includeEl, xpath, target) ||
+            isSameOrDescendantByElementOrXPath(xpath, target, includeXPath, includeEl)
           ) {
             includeXpaths.splice(i, 1);
           }
@@ -7100,11 +7111,11 @@ export function main() {
       } else if (targetItem && !targetItem.excluded) {
         cleanupDescendantIncludeOverrides(xpath, target);
       }
-        if (excluded) {
-          clearSelectorSuppressedXpathsWithin(entry, xpath);
-        } else {
-          addSelectorSuppressedXpath(entry, xpath);
-        }
+      if (excluded) {
+        clearSelectorSuppressedXpathsWithin(entry, xpath);
+      } else {
+        addSelectorSuppressedXpath(entry, xpath);
+      }
       entry.includeXpaths = includeXpaths;
       entry.xpaths = items;
       core.touchPageEntryTimestamp(entry);
@@ -7142,8 +7153,9 @@ export function main() {
       const entry = core.getPageMarkingEntry(state.config, location.href);
       const includeXpaths = Array.isArray(entry.includeXpaths) ? entry.includeXpaths : [];
       const existingIndex = includeXpaths.indexOf(xpath);
+      const getElement = createXPathElementCache();
       if (included) {
-        const target = core.getElementFromXPath(xpath);
+        const target = getElement(xpath);
         if (!target) {
           sendResponse({ ok: false });
           return;
@@ -7164,10 +7176,8 @@ export function main() {
           if (!item || !item.xpath || item.xpath === xpath) {
             continue;
           }
-          const existingEl = core.getElementFromXPath(item.xpath);
-          const withinTarget =
-            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, item.xpath);
-          if (withinTarget) {
+          const existingEl = getElement(item.xpath);
+          if (isSameOrDescendantByElementOrXPath(xpath, target, item.xpath, existingEl)) {
             items.splice(i, 1);
           }
         }
@@ -7177,10 +7187,8 @@ export function main() {
           if (!childXpath || childXpath === xpath) {
             continue;
           }
-          const existingEl = core.getElementFromXPath(childXpath);
-          const withinTarget =
-            target && existingEl ? target.contains(existingEl) : core.isXPathDescendant(xpath, childXpath);
-          if (withinTarget) {
+          const existingEl = getElement(childXpath);
+          if (isSameOrDescendantByElementOrXPath(xpath, target, childXpath, existingEl)) {
             includeXpaths.splice(i, 1);
           }
         }

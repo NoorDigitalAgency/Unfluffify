@@ -173,6 +173,8 @@ const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
 const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
 const PAGE_REVEAL_WARMUP_MAX_INTERVALS = 12;
+const PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES = 5;
+const PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES = 2;
 const PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA = 2;
 const PAGE_MOTION_PAUSE_CONTENT_SELECTOR = `html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body ` +
   `:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *)` +
@@ -2478,23 +2480,32 @@ function collectIncludedElementsFromSelectorSet(selectorSet, options = {}) {
   const suppressedXpaths = Array.isArray(options && options.suppressedXpaths)
     ? options.suppressedXpaths.filter((xpath) => typeof xpath === "string" && xpath)
     : [];
-  const suppressedElements = suppressedXpaths
-    .map((xpath) => getElementFromXPath(xpath))
-    .filter((element) => element && element.nodeType === 1);
+  const suppressedElementsByXpath = new Map();
+  suppressedXpaths.forEach((xpath) => {
+    const element = getElementFromXPath(xpath);
+    if (element && element.nodeType === 1) {
+      suppressedElementsByXpath.set(xpath, element);
+    }
+  });
+  const suppressedElementSet = new Set(suppressedElementsByXpath.values());
+  const unresolvedSuppressedXpaths = suppressedXpaths.filter((xpath) =>
+    !suppressedElementsByXpath.has(xpath)
+  );
   const isSuppressedSelectorElement = (element) => {
     if (!element || !suppressedXpaths.length) {
       return false;
     }
-    for (const suppressedElement of suppressedElements) {
-      if (suppressedElement === element || suppressedElement.contains(element)) {
-        return true;
-      }
+    if (isWithinElementSet(element, suppressedElementSet)) {
+      return true;
+    }
+    if (!unresolvedSuppressedXpaths.length) {
+      return false;
     }
     const xpath = getXPath(element);
     if (!xpath) {
       return false;
     }
-    return suppressedXpaths.some((suppressedXpath) =>
+    return unresolvedSuppressedXpaths.some((suppressedXpath) =>
       suppressedXpath === xpath || isXPathDescendant(suppressedXpath, xpath)
     );
   };
@@ -2619,6 +2630,14 @@ function compareDocumentOrder(left, right) {
   return 0;
 }
 
+function addElementAndAncestorsToSet(targetSet, element) {
+  let current = element;
+  while (current && current.nodeType === 1) {
+    targetSet.add(current);
+    current = current.parentElement;
+  }
+}
+
 /**
  * Collapses a collection of elements, removing nested or descendant elements.
  * Useful for deduplicating element selections based on DOM hierarchy.
@@ -2630,7 +2649,7 @@ function compareDocumentOrder(left, right) {
  */
 export function collapseElementsByNesting(elements, options = {}) {
   const { onlyVisible = false, prefer = "shallowest" } = options;
-  const list = Array.from(elements || []).filter((el) => {
+  const list = Array.from(new Set(elements || [])).filter((el) => {
     if (!el || el.nodeType !== 1) {
       return false;
     }
@@ -2655,20 +2674,31 @@ export function collapseElementsByNesting(elements, options = {}) {
       return compareDocumentOrder(left, right);
     });
     const keptDeep = [];
+    const keptDeepAncestorSet = new Set();
     for (const candidate of reverseSorted) {
-      const isAncestorOfKept = keptDeep.some((el) => candidate.contains(el));
-      if (!isAncestorOfKept) {
+      if (!keptDeepAncestorSet.has(candidate)) {
         keptDeep.push(candidate);
+        addElementAndAncestorsToSet(keptDeepAncestorSet, candidate);
       }
     }
     keptDeep.sort(compareDocumentOrder);
     return keptDeep;
   }
   const kept = [];
+  const keptSet = new Set();
   for (const candidate of list) {
-    const hasAncestor = kept.some((ancestor) => ancestor.contains(candidate));
+    let current = candidate.parentElement;
+    let hasAncestor = false;
+    while (current && current.nodeType === 1) {
+      if (keptSet.has(current)) {
+        hasAncestor = true;
+        break;
+      }
+      current = current.parentElement;
+    }
     if (!hasAncestor) {
       kept.push(candidate);
+      keptSet.add(candidate);
     }
   }
   kept.sort(compareDocumentOrder);
@@ -3184,6 +3214,7 @@ function getViewportHeightForRevealWarmup() {
   }
   return getPositiveFiniteMax([
     window.innerHeight,
+    window.visualViewport?.height,
     document.documentElement?.clientHeight,
     document.body?.clientHeight
   ]);
@@ -3228,6 +3259,21 @@ function createPageRevealWarmupScrollPositions() {
   }
   if (Math.abs(positions[positions.length - 1] - maxScrollY) > PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
     positions.push(maxScrollY);
+  }
+  return positions;
+}
+
+function extendPageRevealWarmupScrollPositions(existingPositions) {
+  const nextPositions = createPageRevealWarmupScrollPositions();
+  if (!nextPositions.length) {
+    return existingPositions || [];
+  }
+  const positions = Array.isArray(existingPositions) ? existingPositions : [];
+  const previousMaxPosition = getPositiveFiniteMax(positions);
+  for (const position of nextPositions) {
+    if (position > previousMaxPosition + PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
+      positions.push(position);
+    }
   }
   return positions;
 }
@@ -3303,12 +3349,37 @@ function waitForPageRevealWarmupFrame() {
   });
 }
 
+function getPageRevealWarmupSettleSignature() {
+  return [
+    Math.round(getWindowScrollOffset().y),
+    Math.round(getViewportHeightForRevealWarmup()),
+    Math.round(getMaxScrollYForRevealWarmup()),
+    Math.round(getPositiveFiniteMax([
+      document.documentElement?.scrollHeight,
+      document.body?.scrollHeight
+    ]))
+  ].join(":");
+}
+
 async function waitForPageRevealWarmupSettle(isStillCurrent) {
-  await waitForPageRevealWarmupFrame();
-  if (!isStillCurrent()) {
-    return;
+  let stableFrames = 0;
+  let previousSignature = "";
+  for (let frame = 0; frame < PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES; frame += 1) {
+    await waitForPageRevealWarmupFrame();
+    if (!isStillCurrent()) {
+      return;
+    }
+    const signature = getPageRevealWarmupSettleSignature();
+    if (signature === previousSignature) {
+      stableFrames += 1;
+      if (stableFrames >= PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES) {
+        return;
+      }
+    } else {
+      previousSignature = signature;
+      stableFrames = 0;
+    }
   }
-  await waitForPageRevealWarmupFrame();
 }
 
 export async function warmPageRevealTriggersBeforeMotionPause(isStillCurrent = () => true) {
@@ -3326,7 +3397,8 @@ export async function warmPageRevealTriggersBeforeMotionPause(isStillCurrent = (
   let visited = false;
   ensurePageRevealWarmupStyle();
   try {
-    for (const position of positions) {
+    for (let index = 0; index < positions.length; index += 1) {
+      const position = positions[index];
       if (!isStillCurrent()) {
         break;
       }
@@ -3334,6 +3406,7 @@ export async function warmPageRevealTriggersBeforeMotionPause(isStillCurrent = (
         visited = true;
       }
       await waitForPageRevealWarmupSettle(isStillCurrent);
+      extendPageRevealWarmupScrollPositions(positions);
     }
   } finally {
     scrollWindowInstantlyTo(originalScroll.x, originalScroll.y);
@@ -4759,6 +4832,13 @@ function createOverlay() {
       }
       #unfluffify-overlay .uf-ai-content.uf-ai-content-overlay {
         background-color: transparent;
+      }
+      #unfluffify-overlay .uf-ai-content.uf-ai-content-ghost {
+        background-color: transparent;
+        background-image: none;
+        border-style: dotted;
+        border-color: rgba(53, 148, 58, 0.45);
+        animation: none !important;
       }
       #unfluffify-overlay .uf-explicit-include {
         border: 3px solid #1b5e20;
@@ -6794,6 +6874,78 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
+export function collectAiContentElementsForRender(aiCollections, options = {}) {
+  const immutableExcluded = options.immutableExcluded || new Set();
+  const consentExcluded = options.consentExcluded || new Set();
+  const excludedByState = options.excludedByState || new Set();
+  const explicitInclude = options.explicitInclude || new Set();
+  const aiContent = new Set();
+  const hiddenAiContent = new Set();
+  const selectorExcludedSet = new Set();
+  const isWithinExplicitInclude = (el) => {
+    if (!el || explicitInclude.size === 0) {
+      return false;
+    }
+    for (const includeEl of explicitInclude) {
+      if (includeEl && includeEl !== el && includeEl.contains(el)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const shouldSkipAiCollectionElement = (
+    el,
+    { skipExplicitExcludedUnlessIncluded = false } = {}
+  ) => {
+    if (!el || el.nodeType !== 1) {
+      return true;
+    }
+    if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
+      return true;
+    }
+    if (
+      skipExplicitExcludedUnlessIncluded &&
+      isWithinElementSet(el, excludedByState) &&
+      !isWithinExplicitInclude(el)
+    ) {
+      return true;
+    }
+    return false;
+  };
+  const addAiContentElement = (el) => {
+    if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
+      return;
+    }
+    if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
+      hiddenAiContent.add(el);
+      return;
+    }
+    aiContent.add(el);
+  };
+
+  for (const el of aiCollections?.included || []) {
+    addAiContentElement(el);
+  }
+  for (const el of aiCollections?.excluded || []) {
+    if (shouldSkipAiCollectionElement(el)) {
+      continue;
+    }
+    if (explicitInclude.has(el) || isWithinElementSet(el, explicitInclude)) {
+      continue;
+    }
+    selectorExcludedSet.add(el);
+  }
+  for (const el of explicitInclude) {
+    addAiContentElement(el);
+  }
+
+  return {
+    aiContentElements: Array.from(aiContent),
+    hiddenAiContentElements: Array.from(hiddenAiContent),
+    selectorExcludedElements: Array.from(selectorExcludedSet)
+  };
+}
+
 export function collectStoredUnexcludedToggleableDefaultElements(entry) {
   const items = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   const elements = [];
@@ -6904,6 +7056,7 @@ function refreshExplicitMarkingOverlay(entry) {
     if (cachedCollections) {
       const consentExcluded = collectConsentExcludedElements();
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
+      const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
       const hiddenStoredExplicitExclude = new Set(hiddenExplicitExcludeElements || []);
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
@@ -6916,6 +7069,8 @@ function refreshExplicitMarkingOverlay(entry) {
       );
       cachedCollections.aiAnimatedExplicitIncludeElements =
         explicitIncludeElements.filter((el) => aiContentSet.has(el));
+      cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
+        hiddenExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
     }
     drawExplicitMarkingLayers(
       explicitExcludeElements,
@@ -7076,35 +7231,8 @@ function renderHighlightsInner() {
   );
   const explicitInclude = collectXPathElements(entry.includeXpaths);
   const consentExcluded = collectConsentExcludedElements();
-  const isWithinExplicitInclude = (el) => {
-    if (!el || explicitInclude.size === 0) {
-      return false;
-    }
-    for (const includeEl of explicitInclude) {
-      if (includeEl && includeEl !== el && includeEl.contains(el)) {
-        return true;
-      }
-    }
-    return false;
-  };
-  const shouldSkipAiCollectionElement = (
-      el,
-      { skipExplicitExcludedUnlessIncluded = false } = {}
-  ) => {
-    if (!el || el.nodeType !== 1) {
-      return true;
-    }
-    if (isWithinElementSet(el, immutableExcluded) || isWithinElementSet(el, consentExcluded)) {
-      return true;
-    }
-    if (skipExplicitExcludedUnlessIncluded
-        && isWithinElementSet(el, excludedByState)
-        && !isWithinExplicitInclude(el)) {
-      return true;
-    }
-    return false;
-  };
   let aiContent = new Set();
+  let hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
   const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
     ? entry.selectorSuppressedXpaths
@@ -7116,32 +7244,16 @@ function renderHighlightsInner() {
       includeAllExplicitMatches: true,
       suppressedXpaths: selectorSuppressedXpaths
     });
-    for (const el of aiCollections.included || []) {
-      if (shouldSkipAiCollectionElement(el, { skipExplicitExcludedUnlessIncluded: true })) {
-        continue;
-      }
-      if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
-        continue;
-      }
-      aiContent.add(el);
-    }
-    for (const el of aiCollections.excluded || []) {
-      if (shouldSkipAiCollectionElement(el)) {
-        continue;
-      }
-      if (explicitInclude.has(el) || isWithinElementSet(el, explicitInclude)) {
-        continue;
-      }
+    const aiRenderCollections = collectAiContentElementsForRender(aiCollections, {
+      immutableExcluded,
+      consentExcluded,
+      excludedByState,
+      explicitInclude
+    });
+    aiContent = new Set(aiRenderCollections.aiContentElements);
+    hiddenAiContent = new Set(aiRenderCollections.hiddenAiContentElements);
+    for (const el of aiRenderCollections.selectorExcludedElements) {
       selectorExcludedSet.add(el);
-    }
-    for (const el of explicitInclude) {
-      if (shouldSkipAiCollectionElement(el)) {
-        continue;
-      }
-      if (!isVisible(el) && isDefinitelyHiddenSubtreeElement(el)) {
-        continue;
-      }
-      aiContent.add(el);
     }
   }
   const {
@@ -7152,6 +7264,9 @@ function renderHighlightsInner() {
   } = collectExplicitMarkingElements(entry);
   const aiAnimatedExplicitIncludeElements = hasAiSelectors
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
+    : [];
+  const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectors
+    ? hiddenExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
     : [];
   const storedUnexcludedToggleableDefaultElements =
     collectStoredUnexcludedToggleableDefaultElements(entry);
@@ -7181,7 +7296,9 @@ function renderHighlightsInner() {
     explicitIncludeElements: filteredExplicitInclude,
     hiddenExplicitIncludeElements,
     aiAnimatedExplicitIncludeElements,
+    hiddenAiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
+    hiddenAiContentElements: Array.from(hiddenAiContent),
     selectorExcludedElements: Array.from(selectorExcludedSet),
     defaultElements: defaultTargets
   };
@@ -7293,6 +7410,20 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  for (const el of collections.hiddenAiContentElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerAiContentState,
+        rects,
+        "uf-ai-content uf-ai-content-ghost",
+        el,
+        "ai-content-ghost",
+        markedElements
+      );
+    }
+  }
+
   for (const el of collections.aiAnimatedExplicitIncludeElements || []) {
     const rects = getRects(el);
     if (rects.length > 0) {
@@ -7302,6 +7433,20 @@ function drawCollections(collections, getRects) {
         "uf-ai-content uf-ai-content-overlay",
         el,
         "ai-content-explicit-include",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.hiddenAiAnimatedExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      drawMultiRectReuse(
+        layerAiContentState,
+        rects,
+        "uf-ai-content uf-ai-content-overlay uf-ai-content-ghost",
+        el,
+        "ai-content-explicit-include-ghost",
         markedElements
       );
     }

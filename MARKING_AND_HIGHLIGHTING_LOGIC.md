@@ -209,6 +209,15 @@ Marking mode must avoid duplicate full-page passes:
   selector, ancestor, and textual-descendant decisions for the duration of that
   pass. These caches are derived from the current DOM/config and are not a
   persistent source of truth.
+- A manual explicit include/exclude operation may cache XPath-to-element
+  resolution only for that operation. Expanded exclusions must prune descendant
+  rows, ancestor rows, and include overrides from the same row set without
+  repeatedly resolving the same XPath or scanning every kept element with nested
+  `contains()` checks.
+- Collection helpers that collapse or suppress nested elements should prefer
+  ancestry sets or parent walks over pairwise descendant scans. This keeps the
+  performance model proportional to selected rows and DOM depth rather than to
+  every possible candidate pair.
 - Scroll and pointer repaint paths reuse the current collections and reposition
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
