@@ -64,7 +64,7 @@ body.is-busy {
 }
 
 .preview-sidebar__item--undetected .preview-sidebar__item-index {
-  color: color-mix(in srgb, var(--warn) 88%, var(--muted) 12%);
+  color: var(--warn-ink);
 }
 
 .preview-sidebar__item--active.preview-sidebar__item--excluded .preview-sidebar__item-button,

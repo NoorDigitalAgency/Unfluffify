@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const AA_CONTRAST_RATIO = 4.5;
-const SEMANTIC_TOKENS = ["success", "danger", "warn"];
+const SEMANTIC_TOKENS = ["success", "danger"];
+const SEMANTIC_COLOR_TOKENS = ["success", "danger", "warn", "warn-ink"];
 
 function hexToRgb(hex) {
   const value = hex.replace("#", "");
@@ -81,6 +82,10 @@ function parseThemeVariables(css) {
   return themes;
 }
 
+function getSemanticColorEntries(variables, mode) {
+  return Object.fromEntries(SEMANTIC_COLOR_TOKENS.map((token) => [token, variables[token][mode]]));
+}
+
 function collectSemanticContrastFailures(name, mode, card, tokenValues) {
   const failures = [];
   for (const token of SEMANTIC_TOKENS) {
@@ -95,6 +100,24 @@ function collectSemanticContrastFailures(name, mode, card, tokenValues) {
       if (ratio < AA_CONTRAST_RATIO) {
         failures.push(`${name} ${mode} ${label}: ${ratio.toFixed(2)}`);
       }
+    }
+  }
+  const warn = tokenValues.warn;
+  const warnInk = tokenValues["warn-ink"];
+  const warnChecks = [
+    ["warn text on card", warnInk, card],
+    ["warn notice text", warnInk, mixHexColors(warn, card, 0.15)],
+    ["warn badge text", warnInk, mixHexColors(warn, card, 0.17)],
+    [
+      "warn button",
+      mode === "light" ? "#ffffff" : "#000000",
+      mode === "light" ? warn : mixHexColors(warn, card, 0.82)
+    ]
+  ];
+  for (const [label, foreground, background] of warnChecks) {
+    const ratio = getContrastRatio(foreground, background);
+    if (ratio < AA_CONTRAST_RATIO) {
+      failures.push(`${name} ${mode} ${label}: ${ratio.toFixed(2)}`);
     }
   }
   return failures;
@@ -117,7 +140,7 @@ test("theme semantic colors meet AA contrast in text, notice, and badge surfaces
         theme.name,
         mode,
         variables.card[mode],
-        Object.fromEntries(SEMANTIC_TOKENS.map((token) => [token, variables[token][mode]]))
+        getSemanticColorEntries(variables, mode)
       ));
     }
   }
@@ -132,7 +155,7 @@ test("fallback semantic colors meet AA contrast in text, notice, and badge surfa
     "fallback",
     "light",
     rootVariables.card.light,
-    Object.fromEntries(SEMANTIC_TOKENS.map((token) => [token, rootVariables[token].light]))
+    getSemanticColorEntries(rootVariables, "light")
   );
 
   assert.deepEqual(failures, []);
