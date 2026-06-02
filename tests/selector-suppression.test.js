@@ -320,7 +320,8 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   }
   assert.match(docSource, /direct own text makes the\s+boundary self-markable/i);
   assert.match(docSource, /every stored excluded XPath row submits as an excluded row/i);
-  assert.match(docSource, /full invalidating rebuild runs\s+immediately after the fast explicit refresh/i);
+  assert.match(docSource, /Structural toggles still schedule the\s+full invalidating rebuild immediately after the fast explicit refresh/i);
+  assert.match(docSource, /Leaf explicit-exclude toggles may patch cached lower-priority\s+collections and debounce that full rebuild/i);
   assert.match(docSource, /052c `links` silent layer[\s\S]*not part\s+of the current locked contract/i);
   assert.match(docSource, /`BUTTON` is intentionally toggleable\. `LINK` is intentionally omitted from the\s+taxonomy/);
   assert.match(docSource, /Any legitimate contract change must update this document, `\.copilot\/knowledge\.md`,\s+`\.copilot\/plan\.md`, `README\.md`, and the focused regression tests/i);

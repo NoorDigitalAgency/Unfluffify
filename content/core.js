@@ -100,7 +100,7 @@ export const state = {
   explicitOverlayRefreshHandle: 0,
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null,
-  explicitFullRenderToken: 0,
+  explicitOverlayRefreshContext: null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
   perfEnabled: null
@@ -116,6 +116,7 @@ const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
+const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 450;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
@@ -6446,7 +6447,38 @@ function toggleExplicitExclude(target) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
+  const hasRelatedStoredMarking = (currentXPath) => {
+    const isRelatedXPath = (candidateXPath, candidateEl) => {
+      if (!candidateXPath || candidateXPath === currentXPath) {
+        return false;
+      }
+      if (candidateEl) {
+        return candidateEl.contains(target) || target.contains(candidateEl);
+      }
+      return isXPathDescendant(candidateXPath, currentXPath) ||
+        isXPathDescendant(currentXPath, candidateXPath);
+    };
+    for (const item of items) {
+      if (!item || !item.xpath) {
+        continue;
+      }
+      if (isRelatedXPath(item.xpath, getCachedElementFromXPath(item.xpath))) {
+        return true;
+      }
+    }
+    for (const includeXPath of includeXpaths) {
+      if (!includeXPath) {
+        continue;
+      }
+      if (isRelatedXPath(includeXPath, getCachedElementFromXPath(includeXPath))) {
+        return true;
+      }
+    }
+    return false;
+  };
   const includeIndex = includeXpaths.indexOf(xpath);
+  const immediateFullRender = !isLeafExplicitExcludeFastPathTarget(target) ||
+    hasRelatedStoredMarking(xpath);
   if (includeIndex >= 0) {
     includeXpaths.splice(includeIndex, 1);
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6461,7 +6493,9 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
-    completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
+    completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
+      immediateFullRender
+    });
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -6599,7 +6633,9 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
+  completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
+    immediateFullRender
+  });
 }
 
 function toggleExplicitInclude(target) {
@@ -7282,7 +7318,50 @@ function drawExplicitMarkingLayers(
   });
 }
 
-function refreshExplicitMarkingOverlay(entry) {
+function isLeafExplicitExcludeFastPathTarget(target) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+  if (matchesToggleableDefaultExcluded(target)) {
+    return false;
+  }
+  return !target.children || target.children.length === 0;
+}
+
+function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
+  if (options.type !== "exclude") {
+    return true;
+  }
+  return !isLeafExplicitExcludeFastPathTarget(options.target);
+}
+
+function applyExplicitStateToCachedCollections(
+  cachedCollections,
+  explicitExcludeElements,
+  explicitIncludeElements
+) {
+  if (!cachedCollections) {
+    return;
+  }
+  const explicitExcludeSet = new Set(explicitExcludeElements || []);
+  if (explicitExcludeSet.size === 0) {
+    return;
+  }
+  const explicitIncludeSet = new Set(explicitIncludeElements || []);
+  const isProtectedByExplicitInclude = (el) =>
+    explicitIncludeSet.size > 0 && isWithinElementSet(el, explicitIncludeSet);
+  const isSuppressedByExplicitExclude = (el) =>
+    isWithinElementSet(el, explicitExcludeSet) && !isProtectedByExplicitInclude(el);
+  const filterSuppressed = (items) =>
+    Array.isArray(items) ? items.filter((el) => !isSuppressedByExplicitExclude(el)) : [];
+
+  cachedCollections.defaultElements = filterSuppressed(cachedCollections.defaultElements);
+  cachedCollections.aiContentElements = filterSuppressed(cachedCollections.aiContentElements);
+  cachedCollections.hiddenAiContentElements = filterSuppressed(cachedCollections.hiddenAiContentElements);
+  cachedCollections.selectorExcludedElements = filterSuppressed(cachedCollections.selectorExcludedElements);
+}
+
+function refreshExplicitMarkingOverlay(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return;
   }
@@ -7314,6 +7393,13 @@ function refreshExplicitMarkingOverlay(entry) {
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+      if (context && context.immediateFullRender === false) {
+        applyExplicitStateToCachedCollections(
+          cachedCollections,
+          explicitExcludeElements,
+          explicitIncludeElements
+        );
+      }
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
@@ -7335,33 +7421,49 @@ function refreshExplicitMarkingOverlay(entry) {
   });
 }
 
-function scheduleExplicitToggleFullRender() {
-  state.explicitFullRenderToken += 1;
+function scheduleExplicitToggleFullRender(options = {}) {
+  const immediate = options.immediate !== false;
+  if (immediate && state.explicitFullRenderTimer) {
+    extensionClearTimeout(state.explicitFullRenderTimer);
+    state.explicitFullRenderTimer = 0;
+  }
+  if (immediate) {
+    scheduleRender(getExplicitMarkingFullRenderOptions());
+    return;
+  }
   if (state.explicitFullRenderTimer) {
     extensionClearTimeout(state.explicitFullRenderTimer);
     state.explicitFullRenderTimer = 0;
   }
-  scheduleRender(getExplicitMarkingFullRenderOptions());
+  state.explicitFullRenderTimer = extensionSetTimeout(() => {
+    state.explicitFullRenderTimer = 0;
+    scheduleRender(getExplicitMarkingFullRenderOptions());
+  }, EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS);
 }
 
-export function scheduleExplicitOverlayRefresh(entry) {
+export function scheduleExplicitOverlayRefresh(entry, context = null) {
   state.explicitOverlayRefreshEntry = entry;
+  state.explicitOverlayRefreshContext = context;
   if (state.explicitOverlayRefreshScheduled) {
     return;
   }
   state.explicitOverlayRefreshScheduled = true;
   const runRefresh = () => {
     const pendingEntry = state.explicitOverlayRefreshEntry;
+    const pendingContext = state.explicitOverlayRefreshContext;
     state.explicitOverlayRefreshScheduled = false;
     state.explicitOverlayRefreshHandle = 0;
     state.explicitOverlayRefreshHandleType = "";
     state.explicitOverlayRefreshEntry = null;
+    state.explicitOverlayRefreshContext = null;
     if (!pendingEntry) {
       return;
     }
     const coalesceStartedAt = nowMs();
-    refreshExplicitMarkingOverlay(pendingEntry);
-    scheduleExplicitToggleFullRender();
+    refreshExplicitMarkingOverlay(pendingEntry, pendingContext);
+    scheduleExplicitToggleFullRender({
+      immediate: !pendingContext || pendingContext.immediateFullRender !== false
+    });
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
   };
   if (getExtensionRequestAnimationFrame()) {
@@ -7392,14 +7494,22 @@ function cancelExplicitOverlayRefresh() {
   state.explicitOverlayRefreshHandle = 0;
   state.explicitOverlayRefreshHandleType = "";
   state.explicitOverlayRefreshEntry = null;
+  state.explicitOverlayRefreshContext = null;
 }
 
-function completeExplicitToggle(entry, target, type, mutationStartedAt) {
+function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
-  scheduleExplicitOverlayRefresh(entry);
+  const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
+    ? Boolean(options.immediateFullRender)
+    : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+  scheduleExplicitOverlayRefresh(entry, {
+    target,
+    type,
+    immediateFullRender
+  });
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);

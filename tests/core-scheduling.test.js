@@ -23,6 +23,8 @@ function withFakeTimers(callback, options = {}) {
     explicitOverlayRefreshHandle: state.explicitOverlayRefreshHandle,
     explicitOverlayRefreshHandleType: state.explicitOverlayRefreshHandleType,
     explicitOverlayRefreshEntry: state.explicitOverlayRefreshEntry,
+    explicitOverlayRefreshContext: state.explicitOverlayRefreshContext,
+    explicitFullRenderTimer: state.explicitFullRenderTimer,
     enabled: state.enabled,
     overlay: state.overlay
   };
@@ -73,6 +75,8 @@ function withFakeTimers(callback, options = {}) {
   state.explicitOverlayRefreshHandle = 0;
   state.explicitOverlayRefreshHandleType = "";
   state.explicitOverlayRefreshEntry = null;
+  state.explicitOverlayRefreshContext = null;
+  state.explicitFullRenderTimer = 0;
   try {
     callback({ scheduled, cleared, idleCallbacks, rafCallbacks, cancelledRaf });
   } finally {
@@ -88,6 +92,8 @@ function withFakeTimers(callback, options = {}) {
     state.explicitOverlayRefreshHandle = originalState.explicitOverlayRefreshHandle;
     state.explicitOverlayRefreshHandleType = originalState.explicitOverlayRefreshHandleType;
     state.explicitOverlayRefreshEntry = originalState.explicitOverlayRefreshEntry;
+    state.explicitOverlayRefreshContext = originalState.explicitOverlayRefreshContext;
+    state.explicitFullRenderTimer = originalState.explicitFullRenderTimer;
     state.enabled = originalState.enabled;
     state.overlay = originalState.overlay;
   }
@@ -179,13 +185,13 @@ test("pending explicit overlay refresh can be cancelled via rAF cancel", () => {
   }, { withRaf: true });
 });
 
-test("explicit overlay refresh updates explicit layers before forcing an immediate full rebuild", () => {
+test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshBody = source.match(
-    /function refreshExplicitMarkingOverlay\(entry\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
+    /function refreshExplicitMarkingOverlay\(entry, context = null\) \{([\s\S]*?)\n\}\n\nfunction scheduleExplicitToggleFullRender/
   )[1];
   const scheduleBody = source.match(
-    /export function scheduleExplicitOverlayRefresh\(entry\) \{([\s\S]*?)\n\}\n\nfunction cancelExplicitOverlayRefresh/
+    /export function scheduleExplicitOverlayRefresh\(entry, context = null\) \{([\s\S]*?)\n\}\n\nfunction cancelExplicitOverlayRefresh/
   )[1];
 
   assert.match(refreshBody, /drawExplicitMarkingLayers/);
@@ -194,19 +200,19 @@ test("explicit overlay refresh updates explicit layers before forcing an immedia
   assert.doesNotMatch(scheduleBody, /scheduleRender\(getExplicitMarkingRenderOptions\(\)\)/);
   assert.match(
     scheduleBody,
-    /refreshExplicitMarkingOverlay\(pendingEntry\);[\s\S]*?scheduleExplicitToggleFullRender\(\);/
+    /refreshExplicitMarkingOverlay\(pendingEntry, pendingContext\);[\s\S]*?scheduleExplicitToggleFullRender\(\{/
   );
 });
 
-test("explicit toggle full rebuild is immediate to avoid ancestor lag", () => {
+test("structural explicit toggle full rebuild is immediate to avoid ancestor lag", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const rulesSource = readFileSync(new URL("../content/marking-rules.js", import.meta.url), "utf8");
 
   const fullRenderBody = coreSource.match(
-    /function scheduleExplicitToggleFullRender\(\) \{([\s\S]*?)\n\}\n\nexport function scheduleExplicitOverlayRefresh/
+    /function scheduleExplicitToggleFullRender\(options = \{\}\) \{([\s\S]*?)\n\}\n\nexport function scheduleExplicitOverlayRefresh/
   )[1];
   assert.match(fullRenderBody, /scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
-  assert.doesNotMatch(fullRenderBody, /extensionSetTimeout|runWhenIdle|EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
+  assert.match(fullRenderBody, /if \(immediate\) \{[\s\S]*?scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
   assert.doesNotMatch(coreSource, /const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
 
   const renderOptionsMatch = rulesSource.match(
@@ -215,6 +221,43 @@ test("explicit toggle full rebuild is immediate to avoid ancestor lag", () => {
   assert.ok(renderOptionsMatch);
   assert.ok(Number(renderOptionsMatch[1]) <= 80);
   assert.ok(Number(renderOptionsMatch[2]) <= 200);
+});
+
+test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
+  withFakeTimers(({ rafCallbacks, scheduled }) => {
+    const entry = { xpaths: [], includeXpaths: [] };
+    scheduleExplicitOverlayRefresh(entry, { immediateFullRender: false });
+
+    assert.equal(rafCallbacks.length, 1);
+    rafCallbacks[0].fn();
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].delay, 450);
+    assert.equal(state.explicitFullRenderTimer, scheduled[0].id);
+
+    scheduled[0].fn();
+
+    assert.equal(state.explicitFullRenderTimer, 0);
+    assert.equal(scheduled.length, 2);
+    assert.equal(scheduled[1].delay, 40);
+  }, { withRaf: true });
+});
+
+test("leaf explicit exclude fast path stays immediate when stored marks are related", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target)");
+  const includeStart = coreSource.indexOf("function toggleExplicitInclude(target)", excludeStart);
+  const excludeSource = coreSource.slice(excludeStart, includeStart);
+
+  assert.match(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
+  assert.match(
+    excludeSource,
+    /const immediateFullRender = !isLeafExplicitExcludeFastPathTarget\(target\) \|\|\s*hasRelatedStoredMarking\(xpath\);/
+  );
+  assert.match(
+    excludeSource,
+    /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt, \{\s*immediateFullRender\s*\}\);/
+  );
 });
 
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
@@ -242,7 +285,7 @@ test("marking passes share broad per-pass element caches", () => {
   assert.match(source, /normalizedTextCache:\s*null/);
   assert.match(source, /textualDescendantCache:\s*null/);
   assert.match(source, /function renderHighlights\(\) \{[\s\S]*?withElementComputationCache\(renderHighlightsInner\)/);
-  assert.match(source, /function refreshExplicitMarkingOverlay\(entry\) \{[\s\S]*?withElementComputationCache/);
+  assert.match(source, /function refreshExplicitMarkingOverlay\(entry, context = null\) \{[\s\S]*?withElementComputationCache/);
   assert.match(source, /export function syncPageMarkings[\s\S]*?withElementComputationCache/);
 });
 

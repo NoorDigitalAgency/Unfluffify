@@ -205,9 +205,12 @@ Both full renders and fast explicit-toggle overlay refreshes must run page
 marking synchronization before drawing. The fast refresh is only an adaptation
 layer over the 052c-derived rules; it cannot draw from a just-mutated entry
 until generated default posture rows, including default ancestors converted to
-`excluded: false`, have been reconciled. The full invalidating rebuild runs
-immediately after the fast explicit refresh so default, selector, AI, and
-ancestor layers cannot visibly lag behind the acknowledgement.
+`excluded: false`, have been reconciled. Structural toggles still schedule the
+full invalidating rebuild immediately after the fast explicit refresh so
+default, selector, AI, and ancestor layers cannot visibly lag behind the
+acknowledgement. Leaf explicit-exclude toggles may patch cached lower-priority
+collections and debounce that full rebuild so the user-visible mark/unmark
+acknowledgement is not blocked by a full-page collection pass.
 
 ## Marking Performance Contract
 
@@ -218,11 +221,14 @@ Marking mode must avoid duplicate full-page passes:
   immediate `forceRefresh`. Before page motion is frozen and overlays are
   rendered, activation may run a bounded reveal warm-up that restores the
   user's original scroll position.
-- A manual refinement performs a cheap immediate explicit-layer refresh, then an
-  immediate invalidating full rebuild for correctness. The immediate refresh may
-  update explicit include/exclude layers and cached explicit collections, but it
-  must not recompute the default layer or redraw every layer; the following full
-  rebuild owns default, selector, AI, and ancestor correctness.
+- A manual refinement performs a cheap immediate explicit-layer refresh.
+  Structural refinements then run an immediate invalidating full rebuild for
+  correctness. Leaf explicit-exclude refinements may debounce the invalidating
+  rebuild after patching cached lower-priority collections. The immediate
+  refresh may update explicit include/exclude layers and cached explicit
+  collections, but it must not recompute the default layer or redraw every
+  layer; the following full rebuild owns default, selector, AI, and ancestor
+  correctness.
 - A full marking pass may cache per-element visibility, text, immutable/default
   selector, ancestor, and textual-descendant decisions for the duration of that
   pass. These caches are derived from the current DOM/config and are not a
