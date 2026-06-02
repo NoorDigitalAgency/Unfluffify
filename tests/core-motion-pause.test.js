@@ -594,17 +594,18 @@ test("page motion pause skips extension-owned marking UI", () => {
   }
 });
 
-test("page inspection reveal scrolls to the bottom and then to the top using smooth scroll", async () => {
+test("page inspection reveal scrolls to top, bottom, and then the reserved point", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 3000;
   dom.window.innerHeight = 500;
+  const reservedScrollY = 375;
   dom.window.scrollX = 12;
-  dom.window.scrollY = 375;
+  dom.window.scrollY = reservedScrollY;
   dom.window.pageXOffset = 12;
-  dom.window.pageYOffset = 375;
+  dom.window.pageYOffset = reservedScrollY;
 
   try {
     const inspected = await revealPageContentBeforeMotionPause(
@@ -616,10 +617,11 @@ test("page inspection reveal scrolls to the bottom and then to the top using smo
     );
 
     assert.equal(inspected, true);
-    assert.equal(dom.scrollCalls[0].y, 3000);
+    assert.equal(dom.scrollCalls[0].y, 0);
+    assert.ok(dom.scrollCalls.findIndex((call) => call.y === 3000) > 0);
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
-    assert.equal(dom.scrollCalls.some((call) => call.y === 0), true);
-    assert.equal(dom.scrollCalls.at(-1).y, 0);
+    assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
+    assert.equal(dom.window.scrollY, reservedScrollY);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
