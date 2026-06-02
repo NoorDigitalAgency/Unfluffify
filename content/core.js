@@ -3611,6 +3611,13 @@ async function scrollPageInspectionSmoothTo(y, isStillCurrent, options = {}) {
   return true;
 }
 
+function getPageInspectionBodyScrollHeight() {
+  if (typeof document === "undefined") {
+    return 0;
+  }
+  return Math.max(0, Math.round(Number(document.body?.scrollHeight) || 0));
+}
+
 async function scrollPageInspectionBodyToTop(isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof document === "undefined" || typeof window === "undefined") {
     return false;
@@ -3619,7 +3626,7 @@ async function scrollPageInspectionBodyToTop(isStillCurrent, options = {}) {
     ? document.querySelector("body")
     : document.body;
   if (body && typeof body.scrollIntoView === "function") {
-    body.scrollIntoView({ block: "start", inline: "nearest" });
+    body.scrollIntoView({ block: "start", inline: "nearest", behavior: "smooth" });
   } else if (typeof window.scrollTo === "function") {
     window.scrollTo({ top: 0, behavior: "smooth" });
   } else {
@@ -3645,25 +3652,32 @@ export async function revealPageContentBeforeMotionPause(
   const direction = normalizePageInspectionScrollDirection(scrollDirection);
   const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
+  const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   let visited = false;
   ensurePageInspectionStyle();
   try {
     if (direction === "top") {
-      visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
-      await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      if (reservedScrollY > 0) {
+        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      }
     }
     if (direction === "bottom" || direction === "both") {
+      if (reservedScrollY > 0) {
+        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      }
       let lastHeight = 0;
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
         const scrolled = await scrollPageInspectionSmoothTo(
-          typeof document.body !== "undefined" ? document.body.scrollHeight : 0,
+          getPageInspectionBodyScrollHeight(),
           isStillCurrent,
           options
         );
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-        const newHeight = typeof document.body !== "undefined" ? document.body.scrollHeight : 0;
+        const newHeight = getPageInspectionBodyScrollHeight();
         if (newHeight === lastHeight) {
           break;
         }
@@ -3671,8 +3685,8 @@ export async function revealPageContentBeforeMotionPause(
         scrollCount++;
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-      if (direction === "both" && isStillCurrent()) {
-        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+      if (isStillCurrent()) {
+        visited = await scrollPageInspectionSmoothTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
