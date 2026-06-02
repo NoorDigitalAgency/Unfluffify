@@ -6707,20 +6707,13 @@ export function main() {
             pageUrl,
             state.baseUrl
           );
+          const loadedEntry = core.findPageMarkingEntry(loadedConfig, pageUrl, state.baseUrl);
           if (!forceReloadPageEntry) {
             core.mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
           } else {
-            core.setSavedPageEntry(pageUrl, backendEntry || null);
-            if (backendEntry) {
-              const immutableExcluded = core.collectImmutableElements();
-              const syncResult = core.syncPageMarkings(loadedConfig, pageUrl, immutableExcluded, {
-                allowCreate: true,
-                persist: true
-              });
-              if (syncResult && syncResult.entry) {
-                core.setSavedPageEntry(pageUrl, syncResult.entry);
-              }
-            }
+            const reloadedEntry = backendEntry || loadedEntry || null;
+            core.setSavedPageEntry(pageUrl, reloadedEntry);
+            state.currentPageType = (reloadedEntry && reloadedEntry.pageType) || state.currentPageType || "";
           }
           if (!forceReloadPageEntry) {
             core.setSavedPageEntry(pageUrl, backendEntry || null);

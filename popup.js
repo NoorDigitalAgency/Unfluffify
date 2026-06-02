@@ -179,6 +179,17 @@ function applyPropertyLockState(lockStateLike) {
   clearPropertyLockTransientState();
 }
 
+function queueEditorBootstrapOnLockTransition(previousLockState, nextLockState) {
+  if (
+    previousLockState &&
+    !previousLockState.isEditor &&
+    nextLockState &&
+    nextLockState.isEditor
+  ) {
+    state.propertyLockEditorBootstrapPending = true;
+  }
+}
+
 function applyPropertyLockConnectionStatus(status, error = "") {
   state.propertyLockConnectionStatus = typeof status === "string" && status
     ? status
@@ -207,7 +218,9 @@ function applyPropertyLockServerMessage(serverMessage, siteId = null) {
   }
 
   if (type === PROPERTY_LOCK_WS_LOCK_STATE || !serverMessage.type) {
+    const previousLockState = state.propertyLockState;
     applyPropertyLockState(serverMessage);
+    queueEditorBootstrapOnLockTransition(previousLockState, state.propertyLockState);
     return true;
   }
 
@@ -479,6 +492,54 @@ async function fetchPropertyLockState(siteId) {
   }
 }
 
+async function refreshPropertyLockSnapshot(siteId, options = {}) {
+  const { skipFetch = false } = options;
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  if (!normalizedSiteId) {
+    resetPropertyLockState();
+    return createInactiveLockState();
+  }
+
+  if (state.propertyLockSiteId !== normalizedSiteId) {
+    resetPropertyLockState();
+    state.propertyLockSiteId = normalizedSiteId;
+  }
+
+  if (skipFetch && state.propertyLockState) {
+    return state.propertyLockState;
+  }
+
+  const previousLockState = state.propertyLockState;
+  const lockResponse = await fetchPropertyLockState(normalizedSiteId);
+  state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
+  state.propertyLockName = (lockResponse && lockResponse.name) || "";
+  state.propertyLockClientId = (lockResponse && lockResponse.clientId) || "";
+  const nextLockState = normalizeLockStateMessage(
+    lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState(),
+    {
+      ownIdentity: state.propertyLockIdentity,
+      clientId: state.propertyLockClientId
+    }
+  );
+  queueEditorBootstrapOnLockTransition(previousLockState, nextLockState);
+  if (
+    !previousLockState ||
+    previousLockState.state !== nextLockState.state ||
+    previousLockState.isEditor !== nextLockState.isEditor ||
+    previousLockState.editorIdentity !== nextLockState.editorIdentity
+  ) {
+    clearPropertyLockTransientState();
+  }
+  state.propertyLockState = nextLockState;
+  applyPropertyLockConnectionStatus(
+    lockResponse && lockResponse.connectionStatus
+      ? lockResponse.connectionStatus
+      : PROPERTY_LOCK_CONNECTION_CONNECTED,
+    lockResponse && lockResponse.error ? lockResponse.error : ""
+  );
+  return nextLockState;
+}
+
 async function sendPropertyLockCommand(type, payload = {}) {
   const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
   if (!siteId) {
@@ -511,6 +572,7 @@ const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
+const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 * 1000;
 const LYNX_CHECKLIST_AI_AUTO_CONFIRM_WINDOW_MS = 15 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
@@ -1931,6 +1993,8 @@ function getConfigLoadStatusTone(status) {
     case "error":
       return "danger";
     case "skipped":
+    case "skipped_editor":
+    case "skipped_missing_config":
     default:
       return "muted";
   }
@@ -2221,6 +2285,80 @@ function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   return didChange;
 }
 
+function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl) {
+    return "";
+  }
+  const normalizedConfig = config.normalizeConfig(
+    normalizedBaseUrl,
+    sourceConfig || config.createDefaultConfig(normalizedBaseUrl)
+  ).config;
+  return JSON.stringify(config.createConfigSyncPayload(normalizedBaseUrl, normalizedConfig));
+}
+
+function getNormalizedPageEntrySignature(pageUrl, entry) {
+  if (!pageUrl) {
+    return "null";
+  }
+  const normalizedEntry = config.normalizePageMarkings({ [pageUrl]: entry }).normalized[pageUrl] || null;
+  return JSON.stringify(normalizedEntry);
+}
+
+async function replaceServerConfigIntoLocal(payload, currentPageUrl, options = {}) {
+  const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
+  if (!normalizedPayload.baseUrl) {
+    return {
+      ok: false,
+      changed: false,
+      replacedCurrentPage: false,
+      baseUrl: ""
+    };
+  }
+
+  const baseUrl = normalizedPayload.baseUrl;
+  const allConfigs = await config.getConfigs();
+  const existingRaw = allConfigs[baseUrl];
+  const existingConfig = config.normalizeConfig(baseUrl, existingRaw).config;
+  const normalizedIncomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
+  const fallbackSiteId = normalizeSiteIdValue(options.siteId);
+  const nextConfig = config.normalizeConfig(baseUrl, {
+    ...existingConfig,
+    ...normalizedPayload,
+    baseUrl,
+    siteId: normalizedIncomingSiteId || normalizeSiteIdValue(existingConfig.siteId) || fallbackSiteId || null,
+    pageMarkings: config.normalizePageMarkings(normalizedPayload.pageMarkings).normalized,
+    selectors: normalizeAiSelectorSet(normalizedPayload.selectors),
+    selectorsUpdatedAt: config.normalizeEntryTimestamp(normalizedPayload.selectorsUpdatedAt),
+    submittedSelectorsFingerprint:
+      typeof normalizedPayload.submittedSelectorsFingerprint === "string"
+        ? normalizedPayload.submittedSelectorsFingerprint
+        : ""
+  }).config;
+
+  const previousSignature = getRemoteManagedConfigSignature(baseUrl, existingConfig);
+  const nextSignature = getRemoteManagedConfigSignature(baseUrl, nextConfig);
+  const changed = previousSignature !== nextSignature;
+  const replacedCurrentPage = Boolean(
+    currentPageUrl &&
+      getNormalizedPageEntrySignature(currentPageUrl, existingConfig.pageMarkings?.[currentPageUrl]) !==
+        getNormalizedPageEntrySignature(currentPageUrl, nextConfig.pageMarkings?.[currentPageUrl])
+  );
+
+  if (!existingRaw || changed) {
+    allConfigs[baseUrl] = nextConfig;
+    await config.saveConfigs(allConfigs);
+  }
+  await config.setBackendSavedPageMarkings(baseUrl, nextConfig.pageMarkings);
+
+  return {
+    ok: true,
+    changed: Boolean(!existingRaw || changed),
+    replacedCurrentPage,
+    baseUrl
+  };
+}
+
 async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {}) {
   const invalidLoadedUrls = config.collectInvalidPageMarkingUrls(
     payload && typeof payload === "object" ? payload.pageMarkings : null
@@ -2228,6 +2366,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
   const confirmedPageMarkings = config.normalizePageMarkings(
     options && options.confirmedPageMarkings
   ).normalized;
+  const preferConfirmedPageMarkings = Boolean(options && options.preferConfirmedPageMarkings);
   const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
     return {
@@ -2273,6 +2412,12 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
     confirmedPageMarkings,
     { preferIncomingOnTimestampTie: true }
   ).pageMarkings;
+  if (preferConfirmedPageMarkings) {
+    Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
+      mergedBackendSavedPageMarkings[url] =
+        config.normalizePageMarkings({ [url]: entry }).normalized[url];
+    });
+  }
   if (
     Object.keys(incomingPageMarkings).length > 0 ||
     Object.keys(confirmedPageMarkings).length > 0
@@ -2291,12 +2436,27 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
     confirmedPageMarkings,
     { preferIncomingOnTimestampTie: true }
   );
-  const mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
+  let mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
+  if (preferConfirmedPageMarkings) {
+    mergedPageMarkings = { ...mergedPageMarkings };
+    Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
+      mergedPageMarkings[url] = config.normalizePageMarkings({ [url]: entry }).normalized[url];
+    });
+  }
   const mergedPageMarkingsSignature = JSON.stringify(mergedPageMarkings);
   const pageMarkingsChanged = previousPageMarkingsSignature !== mergedPageMarkingsSignature;
+  const confirmedCurrentPageSignature = currentPageUrl && Object.prototype.hasOwnProperty.call(confirmedPageMarkings, currentPageUrl)
+    ? getNormalizedPageEntrySignature(currentPageUrl, confirmedPageMarkings[currentPageUrl])
+    : "";
+  const finalCurrentPageSignature = currentPageUrl
+    ? getNormalizedPageEntrySignature(currentPageUrl, mergedPageMarkings[currentPageUrl])
+    : "";
   const replacedCurrentPage = Boolean(
     currentPageUrl &&
       (
+        confirmedCurrentPageSignature
+          ? finalCurrentPageSignature !== confirmedCurrentPageSignature
+          :
         incomingPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl) ||
         confirmedPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl)
       )
@@ -2331,7 +2491,8 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     siteId = null,
     endpointValue = "",
     tokenValue = "",
-    force = false
+    force = false,
+    notifyOnChange = false
   } = options;
   if (!tabId || !siteId || !endpointValue || !tokenValue) {
     const result = { status: "skipped", baseUrl: "" };
@@ -2387,26 +2548,26 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       return result;
     }
     const payload = await response.json();
-    const mergeResult = await mergeServerConfigIntoLocal(payload, pageUrl);
-    if (!mergeResult.ok) {
+    const replaceResult = await replaceServerConfigIntoLocal(payload, pageUrl, { siteId });
+    if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
       return result;
     }
-    if (mergeResult.changed && mergeResult.baseUrl) {
+    if (replaceResult.changed && replaceResult.baseUrl) {
       await messages.sendTabMessageWithRetry({
         type: "configUpdated",
-        baseUrl: mergeResult.baseUrl,
-        forceReloadPageEntry: mergeResult.replacedCurrentPage
+        baseUrl: replaceResult.baseUrl,
+        forceReloadPageEntry: replaceResult.replacedCurrentPage
       }, 2);
     }
-    if (mergeResult.replacedCurrentPage) {
-      window.alert(PopupText.alerts.newerRemoteDataReplacedLocal);
+    if (replaceResult.changed && notifyOnChange) {
+      uiModule.showToast(PopupText.page.remoteDataUpdated);
     }
     const result = {
       status: "ok",
-      baseUrl: mergeResult.baseUrl
+      baseUrl: replaceResult.baseUrl
     };
     state.remoteConfigLoadResult = result;
     updateLastConfigLoadStatus(result);
@@ -2417,6 +2578,32 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     updateLastConfigLoadStatus(result);
     return result;
   }
+}
+
+function clearObserverRemoteConfigRefreshTimer() {
+  if (!state.observerRemoteConfigRefreshTimer) {
+    return;
+  }
+  window.clearInterval(state.observerRemoteConfigRefreshTimer);
+  state.observerRemoteConfigRefreshTimer = 0;
+}
+
+function syncObserverRemoteConfigRefreshTimer(active) {
+  if (!active) {
+    clearObserverRemoteConfigRefreshTimer();
+    return;
+  }
+  if (state.observerRemoteConfigRefreshTimer) {
+    return;
+  }
+  state.observerRemoteConfigRefreshTimer = window.setInterval(() => {
+    helpers.ensureActiveTab().then(() =>
+      refreshUi({
+        useBusyOverlay: false,
+        remoteConfigLoadMode: "observer_poll"
+      })
+    ).catch(() => {});
+  }, OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS);
 }
 
 function shouldSkipRemoteConfigLoadForPropertyEditor(siteId) {
@@ -2558,13 +2745,17 @@ async function syncBaseConfigToServer(options = {}) {
             pageMarkings: {}
           },
           pageUrl,
-          { confirmedPageMarkings: payload.pageMarkings }
+          {
+            confirmedPageMarkings: payload.pageMarkings,
+            preferConfirmedPageMarkings: includeCurrentPageMarking
+          }
         );
         return { ok: mergeResult.ok, replacedCurrentPage: false };
       }
 
       const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl, {
-        confirmedPageMarkings: payload.pageMarkings
+        confirmedPageMarkings: payload.pageMarkings,
+        preferConfirmedPageMarkings: includeCurrentPageMarking
       });
       if (!mergeResult.ok) {
         return { ok: false };
@@ -2900,6 +3091,9 @@ function collapseTodoListForAutoCollapse() {
 async function refreshUiInner(options = {}) {
   const skipPropertyLockFetch = Boolean(options.skipPropertyLockFetch);
   const propertyPageTypesRefreshChanged = Boolean(options.propertyPageTypesRefreshChanged);
+  const remoteConfigLoadMode = typeof options.remoteConfigLoadMode === "string"
+    ? options.remoteConfigLoadMode
+    : "";
   if (!state.currentTab) {
     return;
   }
@@ -2973,6 +3167,9 @@ async function refreshUiInner(options = {}) {
   let unsupportedByGraphql = false;
   let remoteLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
+  let propertyPageTypes = [];
+  let propertyPageTypesFetchError = "";
+  let propertyPageTypesLoaded = false;
   if (
     tabInScope &&
     tabState.baseUrl &&
@@ -3008,27 +3205,6 @@ async function refreshUiInner(options = {}) {
         discoveredBaseUrlFromGraphql = discoveredBaseUrl;
         localMatchingBaseUrl = discoveredBaseUrl;
         hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
-      }
-      if (configEndpointValue && !shouldSkipRemoteConfigLoadForPropertyEditor(discoveryResult.siteId)) {
-        remoteLoadResult = await loadRemoteConfigForCurrentPage({
-          tabId: currentTabId,
-          pageUrl,
-          baseUrl: discoveredBaseUrl,
-          siteId: discoveryResult.siteId,
-          endpointValue: configEndpointValue,
-          tokenValue,
-          force: false
-        });
-        if (
-          remoteLoadResult &&
-          (remoteLoadResult.status === "ok" || remoteLoadResult.status === "not_found")
-        ) {
-          configs = await config.getConfigs();
-          const persistedMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
-          localMatchingBaseUrl =
-            persistedMatchingBaseUrl || discoveredBaseUrlFromGraphql || localMatchingBaseUrl;
-          hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
-        }
       }
     } else if (discoveryResult && discoveryResult.ok && discoveryResult.notFound) {
       unsupportedByGraphql = true;
@@ -3073,7 +3249,48 @@ async function refreshUiInner(options = {}) {
       }
       currentSiteId = siteIdResult.siteId;
       state.currentConfig = siteIdResult.config || state.currentConfig;
-      if (!shouldSkipRemoteConfigLoadForPropertyEditor(currentSiteId)) {
+      if (
+        tabInScope &&
+        state.currentBaseUrl &&
+        currentSiteId &&
+        normalizedStageBaseValue &&
+        tokenValue
+      ) {
+        const propertyPageTypesResult = await ensurePropertyPageTypes({
+          siteId: currentSiteId,
+          stageBase: normalizedStageBaseValue,
+          tokenValue,
+          force: false,
+          notifyOnChange: false
+        });
+        propertyPageTypesLoaded = true;
+        if (propertyPageTypesResult && propertyPageTypesResult.ok) {
+          propertyPageTypes = propertyPageTypesResult.pageTypes || [];
+          propertyPageTypesFetchError = propertyPageTypesResult.error || "";
+        } else if (propertyPageTypesResult) {
+          propertyPageTypesFetchError = propertyPageTypesResult.error || "";
+        }
+      }
+      const bootstrapCandidateSiteId = propertyPageTypesLoaded &&
+        getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
+        ? currentSiteId
+        : null;
+      if (bootstrapCandidateSiteId) {
+        await refreshPropertyLockSnapshot(bootstrapCandidateSiteId, {
+          skipFetch: skipPropertyLockFetch
+        });
+      } else {
+        resetPropertyLockState();
+      }
+      const editorOwnsCurrentProperty = Boolean(
+        bootstrapCandidateSiteId &&
+          shouldSkipRemoteConfigLoadForPropertyEditor(bootstrapCandidateSiteId)
+      );
+      const shouldBootstrapEditorConfig = Boolean(
+        editorOwnsCurrentProperty &&
+          state.propertyLockEditorBootstrapPending
+      );
+      if (configEndpointValue && tokenValue && (!editorOwnsCurrentProperty || shouldBootstrapEditorConfig)) {
         remoteLoadResult = await loadRemoteConfigForCurrentPage({
           tabId: currentTabId,
           pageUrl,
@@ -3081,10 +3298,17 @@ async function refreshUiInner(options = {}) {
           siteId: currentSiteId,
           endpointValue: configEndpointValue,
           tokenValue,
-          force: false
+          force: shouldBootstrapEditorConfig || remoteConfigLoadMode === "observer_poll",
+          notifyOnChange: remoteConfigLoadMode === "observer_poll"
         });
-      } else {
+        if (shouldBootstrapEditorConfig) {
+          state.propertyLockEditorBootstrapPending = false;
+        }
+      } else if (editorOwnsCurrentProperty) {
         remoteLoadResult = { status: "skipped_editor", baseUrl: state.currentBaseUrl };
+        state.propertyLockEditorBootstrapPending = false;
+      } else {
+        remoteLoadResult = { status: "skipped_missing_config", baseUrl: state.currentBaseUrl };
       }
       if (remoteLoadResult && remoteLoadResult.status === "ok") {
         configs = await config.getConfigs();
@@ -3382,9 +3606,8 @@ async function refreshUiInner(options = {}) {
       (state.currentBaseUrl ? state.siteIdLookupByBaseUrl.get(state.currentBaseUrl) : null)
   );
   state.currentSiteId = liveSiteId;
-  let propertyPageTypes = [];
-  let propertyPageTypesFetchError = "";
   if (
+    !propertyPageTypesLoaded &&
     tabInScope &&
     state.currentBaseUrl &&
     liveSiteId &&
@@ -3398,12 +3621,21 @@ async function refreshUiInner(options = {}) {
       force: false,
       notifyOnChange: false
     });
+    propertyPageTypesLoaded = true;
     if (propertyPageTypesResult && propertyPageTypesResult.ok) {
       propertyPageTypes = propertyPageTypesResult.pageTypes || [];
       propertyPageTypesFetchError = propertyPageTypesResult.error || "";
     } else if (propertyPageTypesResult) {
       propertyPageTypesFetchError = propertyPageTypesResult.error || "";
     }
+  }
+  if (
+    tabInScope &&
+    state.currentBaseUrl &&
+    liveSiteId &&
+    normalizedStageBaseValue &&
+    tokenValue
+  ) {
     schedulePropertyPageTypesRefresh({
       siteId: liveSiteId,
       stageBase: normalizedStageBaseValue
@@ -3521,42 +3753,23 @@ async function refreshUiInner(options = {}) {
     ? liveSiteId
     : null;
   if (propertyLockCandidateSiteId && state.currentBaseUrl && tokenValue) {
-    if (state.propertyLockSiteId !== propertyLockCandidateSiteId) {
-      resetPropertyLockState();
-      state.propertyLockSiteId = propertyLockCandidateSiteId;
-    }
-    if (!skipPropertyLockFetch || !state.propertyLockState) {
-      const lockResponse = await fetchPropertyLockState(propertyLockCandidateSiteId);
-      state.propertyLockIdentity = (lockResponse && lockResponse.identity) || "";
-      state.propertyLockName = (lockResponse && lockResponse.name) || "";
-      state.propertyLockClientId = (lockResponse && lockResponse.clientId) || "";
-      const nextLockState = normalizeLockStateMessage(
-        lockResponse && lockResponse.state ? lockResponse.state : createInactiveLockState(),
-        {
-          ownIdentity: state.propertyLockIdentity,
-          clientId: state.propertyLockClientId
-        }
-      );
-      const previousLockState = state.propertyLockState;
-      if (
-        !previousLockState ||
-        previousLockState.state !== nextLockState.state ||
-        previousLockState.isEditor !== nextLockState.isEditor ||
-        previousLockState.editorIdentity !== nextLockState.editorIdentity
-      ) {
-        clearPropertyLockTransientState();
-      }
-      state.propertyLockState = nextLockState;
-      applyPropertyLockConnectionStatus(
-        lockResponse && lockResponse.connectionStatus
-          ? lockResponse.connectionStatus
-          : PROPERTY_LOCK_CONNECTION_CONNECTED,
-        lockResponse && lockResponse.error ? lockResponse.error : ""
-      );
-    }
+    await refreshPropertyLockSnapshot(propertyLockCandidateSiteId, {
+      skipFetch: skipPropertyLockFetch
+    });
   } else {
     resetPropertyLockState();
   }
+  syncObserverRemoteConfigRefreshTimer(
+    Boolean(
+      propertyLockCandidateSiteId &&
+        state.currentBaseUrl &&
+        configEndpointValue &&
+        tokenValue &&
+        state.propertyLockSiteId === propertyLockCandidateSiteId &&
+        state.propertyLockState &&
+        !state.propertyLockState.isEditor
+    )
+  );
   Object.assign(nextViewState, buildPropertyLockViewState());
   const currentPageMarkingAllowed = currentPageCandidateState.status === "candidate";
   const pageTypeUiBlocked = Boolean(
@@ -4261,7 +4474,10 @@ async function refreshUi(options = {}) {
   const useBusyOverlay = options.useBusyOverlay !== false;
   const refreshOptions = {
     skipPropertyLockFetch: Boolean(options.skipPropertyLockFetch),
-    propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged)
+    propertyPageTypesRefreshChanged: Boolean(options.propertyPageTypesRefreshChanged),
+    remoteConfigLoadMode: typeof options.remoteConfigLoadMode === "string"
+      ? options.remoteConfigLoadMode
+      : ""
   };
   const response = useBusyOverlay
     ? await runWithPopupBusyOverlay(
@@ -6065,7 +6281,7 @@ async function handlePageSave() {
         endpointValue: configEndpointValue,
         tokenValue,
         stageBase: stageBaseValue,
-        alertOnCurrentReplacement: true,
+        alertOnCurrentReplacement: false,
         includeCurrentPageMarking: true
       });
       const syncSkipped = Boolean(syncResult && syncResult.skipped);
@@ -6084,31 +6300,8 @@ async function handlePageSave() {
         );
       } else {
         const effectiveBaseUrl = (syncResult && syncResult.baseUrl) || state.currentBaseUrl;
-        const configs = await config.getConfigs();
-        const refreshedConfig = config.normalizeConfig(
-          effectiveBaseUrl,
-          configs[effectiveBaseUrl]
-        ).config;
-        const refreshedSiteId = normalizeSiteIdValue(refreshedConfig.siteId);
-        const loadResult = refreshedSiteId
-          ? await loadRemoteConfigForCurrentPage({
-            tabId: state.currentTab && state.currentTab.id,
-            pageUrl,
-            baseUrl: effectiveBaseUrl,
-            siteId: refreshedSiteId,
-            endpointValue: configEndpointValue,
-            tokenValue,
-            force: true
-          })
-          : { status: "error", baseUrl: "" };
-        const backendSavedAfterLoad = loadResult && loadResult.status === "ok"
-          ? await config.getBackendSavedPageMarkings(effectiveBaseUrl)
-          : {};
-        if (
-          !loadResult ||
-          loadResult.status !== "ok" ||
-          !hasBackendSavedPageMarking(backendSavedAfterLoad, pageUrl)
-        ) {
+        const backendSavedAfterSync = await config.getBackendSavedPageMarkings(effectiveBaseUrl);
+        if (!hasBackendSavedPageMarking(backendSavedAfterSync, pageUrl)) {
           await setCurrentPageSaveReconciliationReason("load_failed");
           updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
           uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
@@ -6161,7 +6354,7 @@ async function handlePageRevert() {
       endpointValue: configEndpointValue,
       tokenValue,
       stageBase: stageBaseValue,
-      alertOnCurrentReplacement: true,
+      alertOnCurrentReplacement: false,
       includeCurrentPageMarking: true
     });
     const syncSkipped = Boolean(syncResult && syncResult.skipped);
@@ -6180,31 +6373,8 @@ async function handlePageRevert() {
       );
     } else {
       const effectiveBaseUrl = (syncResult && syncResult.baseUrl) || state.currentBaseUrl;
-      const configs = await config.getConfigs();
-      const refreshedConfig = config.normalizeConfig(
-        effectiveBaseUrl,
-        configs[effectiveBaseUrl]
-      ).config;
-      const refreshedSiteId = normalizeSiteIdValue(refreshedConfig.siteId);
-      const loadResult = refreshedSiteId
-        ? await loadRemoteConfigForCurrentPage({
-          tabId: state.currentTab && state.currentTab.id,
-          pageUrl,
-          baseUrl: effectiveBaseUrl,
-          siteId: refreshedSiteId,
-          endpointValue: configEndpointValue,
-          tokenValue,
-          force: true
-        })
-        : { status: "error", baseUrl: "" };
-      const backendSavedAfterLoad = loadResult && loadResult.status === "ok"
-        ? await config.getBackendSavedPageMarkings(effectiveBaseUrl)
-        : {};
-      if (
-        !loadResult ||
-        loadResult.status !== "ok" ||
-        !hasBackendSavedPageMarking(backendSavedAfterLoad, pageUrl)
-      ) {
+      const backendSavedAfterSync = await config.getBackendSavedPageMarkings(effectiveBaseUrl);
+      if (!hasBackendSavedPageMarking(backendSavedAfterSync, pageUrl)) {
         await setCurrentPageSaveReconciliationReason("load_failed");
         updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
         uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
@@ -7288,6 +7458,7 @@ async function init() {
     }
   });
   window.addEventListener("beforeunload", () => {
+    clearObserverRemoteConfigRefreshTimer();
     if (remoteSupportDockPiPWindow && !remoteSupportDockPiPWindow.closed) {
       remoteSupportDockPiPClosingProgrammatically = true;
       try {

@@ -75,7 +75,11 @@ export function formatConfigLoadStatusLabel(status, baseUrl = "") {
   if (status === "auth_error") {
     return syncText.loginRequired;
   }
-  if (status === "skipped") {
+  if (
+    status === "skipped" ||
+    status === "skipped_editor" ||
+    status === "skipped_missing_config"
+  ) {
     return syncText.skipped;
   }
   if (status === "error") {
@@ -398,6 +402,7 @@ export const PopupText = Object.freeze({
     pageSavedLocallySyncFailed: "Page saved locally (server sync failed)", // Toast shown when a page save succeeded locally but server sync failed.
     pageSavedAndSyncedRefreshFailed: "Page saved and synced, but refresh failed", // Toast shown when server save succeeds but reload reconciliation fails.
     pageSaved: "Page saved", // Toast shown when a page save fully succeeds.
+    remoteDataUpdated: "Property data updated from server", // Toast shown after a passive observer refresh replaces the local property state.
     noLocalChangesToSave: "No local changes to save", // Save-status label when a save was requested but nothing changed.
     noChangesToSave: "No changes to save", // Toast shown when a save was requested but nothing changed.
     revertConfirm: "Revert to the last saved version? Unsaved changes will be lost.", // Confirmation dialog before reverting page changes.

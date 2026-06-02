@@ -13,9 +13,13 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 
 test("quiet popup refresh skips redundant property lock fetches", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const refreshSource = source.match(
+    /async function refreshPropertyLockSnapshot\(siteId, options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function sendPropertyLockCommand/
+  )[1];
 
-  assert.match(source, /const skipPropertyLockFetch = Boolean\(options\.skipPropertyLockFetch\);/);
-  assert.match(source, /if \(!skipPropertyLockFetch \|\| !state\.propertyLockState\) \{[\s\S]*?fetchPropertyLockState/);
+  assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
+  assert.match(refreshSource, /if \(skipFetch && state\.propertyLockState\) \{\s*return state\.propertyLockState;\s*\}/);
+  assert.match(refreshSource, /const lockResponse = await fetchPropertyLockState\(normalizedSiteId\);/);
 });
 
 test("explicit include and exclude removals use the quiet refresh path", () => {
@@ -150,7 +154,22 @@ test("config sync does not upload unsaved local page drafts by default", () => {
   );
   assert.match(
     source,
-    /loadResult\.status !== "ok" \|\|[\s\S]*?!hasBackendSavedPageMarking\(backendSavedAfterLoad, pageUrl\)/
+    /const backendSavedAfterSync = await config\.getBackendSavedPageMarkings\(effectiveBaseUrl\);[\s\S]*?!hasBackendSavedPageMarking\(backendSavedAfterSync, pageUrl\)/
+  );
+  assert.doesNotMatch(source, /type: "savePageDraft"[\s\S]*?loadRemoteConfigForCurrentPage/);
+});
+
+test("observer remote config polling stays passive-only and runs once a minute", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(source, /const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 \* 1000;/);
+  assert.match(
+    source,
+    /function syncObserverRemoteConfigRefreshTimer\(active\) \{[\s\S]*?window\.setInterval\(\(\) => \{[\s\S]*?refreshUi\(\{[\s\S]*?useBusyOverlay: false,[\s\S]*?remoteConfigLoadMode: "observer_poll"[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /syncObserverRemoteConfigRefreshTimer\([\s\S]*?!state\.propertyLockState\.isEditor/
   );
 });
 
@@ -181,4 +200,24 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
     /if \(message\.type === "clearPageSaveReconciliation"\) \{[\s\S]*?config\.getBackendSavedPageMarkings\(targetBaseUrl\)/
   );
   assert.doesNotMatch(contentSource, /confirmed local snapshot|immediate post-save remote reload omits/);
+});
+
+test("forced config reload replaces the current page entry without re-syncing live DOM", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const configUpdatedSource = source.match(
+    /if \(message\.type === "configUpdated"\) \{([\s\S]*?)\n\s*\}\n\n\s*if \(message\.type === "forceRefresh"\)/
+  )[1];
+
+  assert.match(
+    configUpdatedSource,
+    /if \(!forceReloadPageEntry\) \{[\s\S]*?core\.mergeDraftEntry\(loadedConfig, pageUrl, draftEntry, savedEntry\);/
+  );
+  assert.match(
+    configUpdatedSource,
+    /const reloadedEntry = backendEntry \|\| loadedEntry \|\| null;[\s\S]*?core\.setSavedPageEntry\(pageUrl, reloadedEntry\);/
+  );
+  assert.doesNotMatch(
+    configUpdatedSource,
+    /forceReloadPageEntry[\s\S]*?syncPageMarkings\(loadedConfig, pageUrl/
+  );
 });

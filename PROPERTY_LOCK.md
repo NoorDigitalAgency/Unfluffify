@@ -73,13 +73,17 @@ new editor on the lock banner.
 ## Data Freshness
 
 The current editor's page session is the single source of truth. Ordinary
-periodic remote loads must not replace the editor's local draft. Local saves are
-temporary until the explicit backend save completes; the backend payload loaded
-after a successful save, or the payload loaded on page entry, replaces local
-stored data.
+periodic remote loads must not replace the editor's local draft. When a passive
+tab becomes the editor, the popup fetches the latest upstream property payload
+once and fully replaces that tab's local property data before editing continues.
+After that bootstrap load, the editor stops calling `/load` and local saves stay
+authoritative until the explicit backend save completes.
 
 Locked passive observers keep periodic remote loads enabled so extension status,
 silent highlighting status, and saved property data can update while they wait.
+That observer refresh runs at most once per minute. If a passive observer's
+local property data is replaced by `/load`, the replacement is silent apart from
+a short-lived toast saying the property data was updated from the server.
 
 ## Extension Lifecycle
 
