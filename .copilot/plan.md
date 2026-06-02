@@ -91,6 +91,12 @@ Motion stability pass completed:
 7. The pause indicator uses an Unfluffify-scoped Material Design Icons snowflake/code glyph pair without injecting global `.mdi` styles into target pages.
 8. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, reveal normalizations, and inline locks before serializing `renderedHtml`.
 
+Mobile simulation default completed:
+
+1. Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session.
+2. Disabling mobile simulation from the popup is preserved as a per-session tab choice, including across navigation/reload cleanup, and must not be silently auto-enabled again.
+3. AI-submission visibility continues to use mobile simulation geometry when classifying visible versus invisible textual content.
+
 Page interaction pass-through completed:
 
 1. Hold `Space` in marking mode to temporarily let clicks reach page UI such as accordions, tabs, and menus.

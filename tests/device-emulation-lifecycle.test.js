@@ -3,17 +3,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
 
-function extractSourceBlock(startNeedle, endNeedle) {
-  const start = backgroundSource.indexOf(startNeedle);
+function extractSourceBlock(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
   assert.ok(start >= 0, `Missing source block start: ${startNeedle}`);
-  const end = backgroundSource.indexOf(endNeedle, start);
+  const end = source.indexOf(endNeedle, start);
   assert.ok(end > start, `Missing source block end: ${endNeedle}`);
-  return backgroundSource.slice(start, end);
+  return source.slice(start, end);
 }
 
 test("top-level navigation preserves user-controlled device emulation", () => {
   const block = extractSourceBlock(
+    backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
     "chrome.webNavigation.onBeforeNavigate"
   );
@@ -24,6 +26,7 @@ test("top-level navigation preserves user-controlled device emulation", () => {
 
 test("unregister-and-reload preserves user-controlled device emulation state", () => {
   const block = extractSourceBlock(
+    backgroundSource,
     'if (message.type === "unregisterTabAndReload")',
     'if (message.type === "injectContentScript")'
   );
@@ -31,4 +34,53 @@ test("unregister-and-reload preserves user-controlled device emulation state", (
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);
   assert.doesNotMatch(block, /DEVICE_EMULATION_PREFIX/);
+});
+
+test("extension activation enables default mobile emulation for fresh tab sessions", () => {
+  const actionBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.action.onClicked.addListener",
+    "chrome.runtime.onMessage.addListener((message, sender, sendResponse) =>"
+  );
+  const activateBlock = extractSourceBlock(
+    backgroundSource,
+    'if (!message || message.type !== "activateContentForTab")',
+    "return true;"
+  );
+  const helperBlock = extractSourceBlock(
+    backgroundSource,
+    "async function ensureDefaultMobileEmulationForTab",
+    "chrome.tabs.onUpdated.addListener"
+  );
+
+  assert.match(actionBlock, /ensureDefaultMobileEmulationForTab\(tab\.id,\s*tab\.url\)/);
+  assert.match(activateBlock, /await ensureDefaultMobileEmulationForTab\(/);
+  assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
+  assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+});
+
+test("default mobile helper preserves stored per-session choices", () => {
+  const helperBlock = extractSourceBlock(
+    emulationSource,
+    "export async function ensureDefaultMobileDeviceEmulation",
+    "export function normalizeDeviceEmulationStateForUi"
+  );
+
+  assert.match(helperBlock, /hasStoredDeviceEmulationState\(tabId\)/);
+  assert.match(helperBlock, /reconcileDeviceEmulationState\(tabId\)/);
+  assert.match(helperBlock, /enabled:\s*true/);
+  assert.match(helperBlock, /mode:\s*"mobile"/);
+  assert.match(helperBlock, /recalculateScale:\s*true/);
+});
+
+test("disabled mobile emulation remains a per-session choice after navigation cleanup", () => {
+  const cleanupBlock = extractSourceBlock(
+    emulationSource,
+    "export async function clearDeviceEmulationAfterNavigation",
+    "\n  await detachDebugger(tabId);\n}"
+  );
+
+  assert.match(cleanupBlock, /Emulation\.clearDeviceMetricsOverride/);
+  assert.doesNotMatch(cleanupBlock, /storageRemove/);
+  assert.doesNotMatch(cleanupBlock, /DEVICE_EMULATION_PREFIX/);
 });

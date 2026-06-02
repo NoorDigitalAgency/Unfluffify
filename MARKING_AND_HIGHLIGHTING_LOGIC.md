@@ -48,6 +48,8 @@ The implementation is split across:
 - `content/submission-rules.js` for AI submission row decisions.
 - `content/silent-highlight-rules.js` for silent-highlight redraw/source rules.
 - `common/constants.js` for default exclusion categories.
+- `common/emulation.js` for the mobile simulation state that submission
+  visibility uses.
 
 ## Core Model
 
@@ -480,6 +482,9 @@ Rules:
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
   content outside the mobile viewport width or document height is invisible,
+- opening Unfluffify enables mobile simulation by default for a fresh tab session,
+  but a user-disabled simulation state is preserved for that session and must not
+  be auto-enabled again,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 

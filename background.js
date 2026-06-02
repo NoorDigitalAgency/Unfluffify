@@ -26,6 +26,7 @@
 import * as utils from "./common/utilities.js";
 import {
   clearDeviceEmulationAfterNavigation,
+  ensureDefaultMobileDeviceEmulation,
   getDeviceEmulationState,
   reconcileDeviceEmulationState,
   updateDeviceEmulation
@@ -639,6 +640,40 @@ function requestContentActivation(tabId, attempt = 0) {
   });
 }
 
+async function getTabUrl(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return (tab && typeof tab.url === "string") ? tab.url : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
+  if (!tabId) {
+    return null;
+  }
+  const resolvedUrl = typeof tabUrl === "string" && tabUrl
+    ? tabUrl
+    : await getTabUrl(tabId);
+  if (!utils.getOriginFromUrl(resolvedUrl)) {
+    return null;
+  }
+  try {
+    const result = await ensureDefaultMobileDeviceEmulation(tabId);
+    if (!result || !result.ok) {
+      if (result && result.error) {
+        console.warn("Default mobile emulation failed:", result.error);
+      }
+      return null;
+    }
+    return result.state;
+  } catch (error) {
+    console.warn("Default mobile emulation failed:", error);
+    return null;
+  }
+}
+
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tabId || !tab) {
     return;
@@ -676,6 +711,7 @@ chrome.action.onClicked.addListener((tab) => {
       enabled: true
     }).then();
     chrome.sidePanel.open({tabId: tab.id}).then();
+    ensureDefaultMobileEmulationForTab(tab.id, tab.url).then();
     requestContentActivation(tab.id);
     utils.setTabState(tab.id, { active: true }, 'initial').then(() => {
       utils.updateActionForTab(tab.id).then();
@@ -695,6 +731,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     await utils.setTabState(tabId, { active: true }, "initial");
     await utils.updateActionForTab(tabId);
+    await ensureDefaultMobileEmulationForTab(
+      tabId,
+      (sender.tab && sender.tab.url) || message.url || ""
+    );
     requestContentActivation(tabId);
     sendResponse({ ok: true });
   })().catch(() => {

@@ -36,7 +36,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
 - **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
-- **Device Simulation**: Emulate mobile and desktop viewports to test content extraction
+- **Device Simulation**: Opens tabs in mobile simulation by default, with a per-session toggle for disabling or adjusting the simulated viewport
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
@@ -182,8 +182,7 @@ A base URL defines the scope for pattern inference. For example:
 
 ### Device Simulation
 
-Simulate mobile (412x960) or desktop (1920x1080) viewports to test how content extraction works on different devices.
-The extension preserves the chosen simulation mode across marking-mode navigation and unregister/reload cleanup; switching back to desktop is always a user-controlled action.
+Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. The simulation choice is stored per tab session: users can disable it from the popup for that session, and the extension will not re-enable it until the tab session state is cleared. Navigation, reload, and unregister/reload cleanup preserve the user's current simulation choice.
 
 ## Architecture Notes
 
