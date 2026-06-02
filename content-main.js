@@ -410,12 +410,10 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
   }
 
   if (message.type === "transport-event") {
-    chrome.runtime.sendMessage({
+    sendRuntimeMessageSafely({
       type: "remoteSupportTransportEvent",
       source: "remoteSupportViewer",
       event: message.event && typeof message.event === "object" ? message.event : {}
-    }).then().catch(() => {
-      // Ignore transport event delivery failures while the background reloads.
     });
     return;
   }
@@ -426,7 +424,7 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
       width: message.width,
       height: message.height
     });
-    chrome.runtime.sendMessage({
+    sendRuntimeMessageSafely({
       type: "remoteSupportTransportEvent",
       source: "remoteSupportViewer",
       event: {
@@ -434,8 +432,6 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
         sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
         active: Boolean(message.active)
       }
-    }).then().catch(() => {
-      // Ignore transport event delivery failures while the background reloads.
     });
     return;
   }
@@ -700,22 +696,47 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
   syncRemoteSupportTerminateButton();
 }
 
-function forwardPageTelemetryMessage(message) {
+function sendRuntimeMessageSafely(message) {
   if (
+    extensionContextInvalidated ||
     !message ||
     typeof message !== "object" ||
     !globalThis.chrome ||
     !chrome.runtime ||
     typeof chrome.runtime.sendMessage !== "function"
   ) {
+    return Promise.resolve(null);
+  }
+
+  return Promise.resolve()
+    .then(() => utils.sendRuntimeMessage(message))
+    .then((response) => {
+      if (response && response.contextInvalidated) {
+        markExtensionContextInvalidated(
+          response.error || "Extension context invalidated."
+        );
+        return null;
+      }
+      return response;
+    })
+    .catch((error) => {
+      if (markExtensionContextInvalidated(error)) {
+        return null;
+      }
+      return null;
+    });
+}
+
+function forwardPageTelemetryMessage(message) {
+  if (!message || typeof message !== "object") {
     return;
   }
 
-  Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => {});
+  void sendRuntimeMessageSafely(message);
 }
 
 function handlePageTelemetryWindowMessage(event) {
-  if (!event || event.source !== window) {
+  if (extensionContextInvalidated || !event || event.source !== window) {
     return;
   }
 
@@ -733,7 +754,11 @@ function handlePageTelemetryWindowMessage(event) {
 }
 
 function syncPageTelemetryControl() {
-  if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+  if (
+    extensionContextInvalidated ||
+    typeof window === "undefined" ||
+    typeof window.postMessage !== "function"
+  ) {
     return;
   }
 
@@ -745,6 +770,7 @@ function syncPageTelemetryControl() {
 
 function ensurePageTelemetryBridge() {
   if (
+    extensionContextInvalidated ||
     typeof window === "undefined" ||
     typeof document !== "object" ||
     !globalThis.chrome ||
@@ -851,10 +877,8 @@ function ensureRemoteSupportTerminateButton() {
 
       remoteSupportTerminatePending = true;
       syncRemoteSupportTerminateButton();
-      chrome.runtime.sendMessage({
+      sendRuntimeMessageSafely({
         type: "remoteSupportEnd"
-      }).catch(() => {
-        // Ignore transport teardown races.
       }).finally(() => {
         remoteSupportTerminatePending = false;
         syncRemoteSupportTerminateButton();
@@ -1377,12 +1401,12 @@ async function syncRemoteSupportSupportPageDockState(dockState) {
     dockState: normalizedDockState
   });
   renderRemoteSupportSupportPage();
-  await chrome.runtime.sendMessage({
+  await sendRuntimeMessageSafely({
     type: "remoteSupportSetDockState",
     tabId: Number.isFinite(remoteSupportSupportPageTabId) ? remoteSupportSupportPageTabId : undefined,
     sessionId: remoteSupportSupportPageState.sessionId || "",
     dockState: normalizedDockState
-  }).catch(() => {});
+  });
   sendRemoteSupportSupportPageViewerRequest("remoteSupportUpdateDockState", {
     dockState: normalizedDockState
   }).then();
@@ -2045,13 +2069,11 @@ function syncAiPreviewClickableTargets(items) {
 }
 
 function notifyAiPreviewFocusChanged(xpath) {
-  chrome.runtime.sendMessage({
+  void sendRuntimeMessageSafely({
     type: "aiPreviewFocusChanged",
     baseUrl: state.baseUrl || "",
     pageUrl: location.href,
     xpath: typeof xpath === "string" ? xpath : ""
-  }).then().catch(() => {
-    // Ignore popup-sync failures while preview focus changes.
   });
 }
 
@@ -5742,6 +5764,14 @@ function markExtensionContextInvalidated(error) {
     return false;
   }
   extensionContextInvalidated = true;
+  if (
+    pageTelemetryBridgeListenerBound &&
+    typeof window !== "undefined" &&
+    typeof window.removeEventListener === "function"
+  ) {
+    window.removeEventListener("message", handlePageTelemetryWindowMessage);
+    pageTelemetryBridgeListenerBound = false;
+  }
   propertyLockSyncToken += 1;
   disconnectPropertyLockPort({ notifyBackground: false });
   return true;

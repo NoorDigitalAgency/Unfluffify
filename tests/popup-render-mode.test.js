@@ -6,6 +6,7 @@ import { PopupText } from "../common/text.js";
 import { resolveRenderModeInspectionReloadOutcome } from "../popup/render-mode.js";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -14,6 +15,31 @@ function extractSourceBlock(source, startNeedle, endNeedle) {
   assert.ok(end > start, `Missing source block end: ${endNeedle}`);
   return source.slice(start, end);
 }
+
+test("render mode text copy uses the updated manual comparison wording", () => {
+  assert.equal(
+    PopupText.renderMode.copyLookAlmostSame,
+    "Meaningful content the same in both"
+  );
+  assert.equal(
+    PopupText.renderMode.copyLookVeryDifferent,
+    "Meaningful content only with JavaScript"
+  );
+});
+
+test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {
+  const editorBlock = extractSourceBlock(
+    uiSource,
+    "function getRenderModeOptionLabel",
+    "function getTodoProgress"
+  );
+
+  assert.match(editorBlock, /function getRenderModeOptionLabel\(renderModeValue\)/);
+  assert.match(editorBlock, /class:\s*"render-mode-selected-value"/);
+  assert.match(editorBlock, /const selectedRenderModeLabel = getRenderModeOptionLabel\(view\.renderModeValue\);/);
+  assert.match(editorBlock, /selectedRenderModeLabel/);
+  assert.match(editorBlock, /id:\s*"render-mode",[\s\S]*class:\s*"u-d-none"/);
+});
 
 test("render mode inspection reload outcome uses the explicit reload error when reload setup fails", () => {
   assert.deepEqual(

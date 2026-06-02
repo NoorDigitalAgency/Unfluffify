@@ -1070,19 +1070,35 @@ function renderRemoteSupportedView(view, handlers) {
   );
 }
 
+function getRenderModeOptionLabel(renderModeValue) {
+  if (renderModeValue === "static") {
+    return PopupText.renderMode.optionStatic;
+  }
+  if (renderModeValue === "rendered") {
+    return PopupText.renderMode.optionRendered;
+  }
+  return PopupText.renderMode.optionUndetermined;
+}
+
 function renderRenderModeEditor(view, handlers) {
   const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
+  const selectedRenderModeLabel = getRenderModeOptionLabel(view.renderModeValue);
 
   return h(
     Fragment,
     null,
     h(
       "div",
-      { class: "render-mode-inspect-group" },
+      { class: "render-mode-step" },
       h(
         "div",
-        { class: "render-mode-inspect-row" },
-        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepOneLabel),
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "1"),
+        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepOneLabel)
+      ),
+      h(
+        "div",
+        { class: "render-mode-inspect-actions" },
         h(
           "button",
           {
@@ -1093,12 +1109,7 @@ function renderRenderModeEditor(view, handlers) {
             onClick: handlers.onRenderModeInspectWithJavaScript
           },
           PopupText.renderMode.inspectWithJavaScriptButton
-        )
-      ),
-      h(
-        "div",
-        { class: "render-mode-inspect-row" },
-        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepTwoLabel),
+        ),
         h(
           "button",
           {
@@ -1114,8 +1125,13 @@ function renderRenderModeEditor(view, handlers) {
     ),
     h(
       "div",
-      { class: "render-mode-interpretation" },
-      h("span", { class: "control-label" }, PopupText.renderMode.stepThreeLabel),
+      { class: "render-mode-step" },
+      h(
+        "div",
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "2"),
+        h("span", { class: "control-label" }, PopupText.renderMode.stepThreeLabel)
+      ),
       h(
         "div",
         { class: "render-mode-radio-group" },
@@ -1161,20 +1177,36 @@ function renderRenderModeEditor(view, handlers) {
       )
     ),
     h(
-      "label",
-      {class: "field"},
-      h("span", { class: "control-label" }, PopupText.renderMode.stepFourLabel),
-      h("span", { class: "control-label" }, PopupText.renderMode.renderModeLabel),
+      "div",
+      { class: "render-mode-step" },
       h(
         "div",
-        {class: "input-row"},
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "3"),
+        h("span", { class: "control-label" }, PopupText.renderMode.stepFourLabel)
+      ),
+      h(
+        "div",
+        { class: "input-row" },
+        h(
+          "span",
+          {
+            class: "render-mode-selected-value",
+            role: "status",
+            "aria-live": "polite"
+          },
+          selectedRenderModeLabel
+        ),
         h(
           "select",
           {
             id: "render-mode",
+            class: "u-d-none",
             value: view.renderModeValue,
             disabled: renderModeInputDisabled,
             onChange: handlers.onRenderModeInput,
+            "aria-hidden": "true",
+            tabIndex: -1,
             ref: (el) => {
               refs.renderModeSelect = el;
             }

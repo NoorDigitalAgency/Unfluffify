@@ -226,20 +226,16 @@ export const PopupText = Object.freeze({
   renderMode: Object.freeze({
     title: "Render Mode", // Field label and default collapsible title for render-mode controls.
     menuAction: "View or change render mode", // Configuration-menu action that opens the render-mode editor.
-    summaryTitleRendered: "Render Mode: JavaScript", // Collapsible title when the resolved render mode is rendered HTML.
-    summaryTitleStatic: "Render Mode: Static", // Collapsible title when the resolved render mode is static HTML.
     optionStatic: "Static", // Select-option label for static HTML mode.
     optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
-    inspectStepOneLabel: "Step 1 - Inspect the page:", // Label shown above the first inspection action.
-    inspectStepTwoLabel: "Step 2 - Inspect the page:", // Label shown above the second inspection action.
+    inspectStepOneLabel: "Inspect the page", // Label for the inspection step that reloads with and without JavaScript.
     inspectWithJavaScriptButton: "With JavaScript", // Button text for reloading with JavaScript enabled.
     inspectWithoutJavaScriptButton: "Without JavaScript", // Button text for reloading with JavaScript disabled.
-    stepThreeLabel: "Step 3 - Does the copy look:", // Label shown above the render-mode radio choices.
-    stepFourLabel: "Step 4", // Label shown above the render-mode dropdown step.
-    renderModeLabel: "Render mode", // Label shown for the render-mode dropdown.
-    copyLookAlmostSame: "Almost the same", // Radio label for choosing static mode.
-    copyLookVeryDifferent: "Very different", // Radio label for choosing JavaScript mode.
+    stepThreeLabel: "What did you observe?", // Label shown above the render-mode radio choices.
+    stepFourLabel: "Render mode", // Label shown above the render-mode confirmation step.
+    copyLookAlmostSame: "Meaningful content the same in both", // Radio label for choosing static mode.
+    copyLookVeryDifferent: "Meaningful content only with JavaScript", // Radio label for choosing JavaScript mode.
     warningTitle: "How to Verify the Render Mode Manually", // Title for the manual render-mode instructions popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
     warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.

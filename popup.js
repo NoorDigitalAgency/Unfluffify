@@ -4139,12 +4139,7 @@ async function refreshUiInner(options = {}) {
     pageScopedUiDisabled ||
     !renderModeRequired ||
     !Boolean(state.currentConfig);
-  nextViewState.renderModeSummaryTitle =
-    renderModeSet
-      ? currentRenderMode === config.RENDER_MODE_RENDERED
-        ? PopupText.renderMode.summaryTitleRendered
-        : PopupText.renderMode.summaryTitleStatic
-      : PopupText.renderMode.title;
+  nextViewState.renderModeSummaryTitle = PopupText.renderMode.title;
   nextViewState.renderModeSummaryOpen =
     !renderModeSet || state.renderModeEditMode || state.renderModeSummaryOpen;
   nextViewState.renderModeSectionVisible = renderModeRequired && (!renderModeSet || state.renderModeEditMode);
