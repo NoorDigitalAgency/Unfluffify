@@ -674,6 +674,17 @@ async function ensureDefaultMobileEmulationForTab(tabId, tabUrl = "") {
   }
 }
 
+async function activateExtensionForTab(tabId, tabUrl = "") {
+  if (!tabId) {
+    return { ok: false };
+  }
+  await utils.setTabState(tabId, { active: true }, "initial");
+  await utils.updateActionForTab(tabId);
+  await ensureDefaultMobileEmulationForTab(tabId, tabUrl);
+  requestContentActivation(tabId);
+  return { ok: true };
+}
+
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tabId || !tab) {
     return;
@@ -710,12 +721,7 @@ chrome.action.onClicked.addListener((tab) => {
       path: "popup.html",
       enabled: true
     }).then();
-    chrome.sidePanel.open({tabId: tab.id}).then();
-    ensureDefaultMobileEmulationForTab(tab.id, tab.url).then();
-    requestContentActivation(tab.id);
-    utils.setTabState(tab.id, { active: true }, 'initial').then(() => {
-      utils.updateActionForTab(tab.id).then();
-    });
+    chrome.sidePanel.open({ tabId: tab.id }).then();
   }
 });
 
@@ -729,13 +735,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   (async () => {
-    await utils.setTabState(tabId, { active: true }, "initial");
-    await utils.updateActionForTab(tabId);
-    await ensureDefaultMobileEmulationForTab(
+    await activateExtensionForTab(
       tabId,
       (sender.tab && sender.tab.url) || message.url || ""
     );
-    requestContentActivation(tabId);
     sendResponse({ ok: true });
   })().catch(() => {
     requestContentActivation(tabId);

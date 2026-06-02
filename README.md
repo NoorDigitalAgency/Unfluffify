@@ -182,7 +182,7 @@ A base URL defines the scope for pattern inference. For example:
 
 ### Device Simulation
 
-Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. The simulation choice is stored per tab session: users can disable it from the popup for that session, and the extension will not re-enable it until the tab session state is cleared. Navigation, reload, and unregister/reload cleanup preserve the user's current simulation choice.
+Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. Every fresh tab session opened through the extension starts in that mobile simulation mode, including when the side panel is already open and you switch to a new tab. The simulation choice is stored per tab session: users can disable it from the popup for that session, and the extension will not re-enable it until the tab session state is cleared. Navigation, reload, and unregister/reload cleanup preserve the user's current simulation choice.
 
 ## Architecture Notes
 

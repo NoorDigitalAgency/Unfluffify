@@ -482,9 +482,10 @@ Rules:
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
   content outside the mobile viewport width or document height is invisible,
-- opening Unfluffify enables mobile simulation by default for a fresh tab session,
-  but a user-disabled simulation state is preserved for that session and must not
-  be auto-enabled again,
+- opening Unfluffify enables mobile simulation by default for each fresh tab
+  session, including when an already-open side panel moves to a new tab, but a
+  user-disabled simulation state is preserved for that session and must not be
+  auto-enabled again,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 

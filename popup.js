@@ -3143,7 +3143,14 @@ async function refreshUiInner(options = {}) {
     !(initialTabState && initialTabState.active) &&
     utils.getOriginFromUrl(pageUrl)
   ) {
-    await utils.setTabState(currentTabId, { active: true }, "initial");
+    const activationResponse = await messages.sendRuntimeMessage({
+      type: "activateContentForTab",
+      tabId: currentTabId,
+      url: pageUrl
+    });
+    if (!activationResponse || activationResponse.ok === false) {
+      await utils.setTabState(currentTabId, { active: true }, "initial");
+    }
     initialTabState = { active: true };
   }
   const tabInScope = Boolean(

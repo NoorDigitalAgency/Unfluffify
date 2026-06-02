@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
+const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -42,6 +43,11 @@ test("extension activation enables default mobile emulation for fresh tab sessio
     "chrome.action.onClicked.addListener",
     "chrome.runtime.onMessage.addListener((message, sender, sendResponse) =>"
   );
+  const activateHelperBlock = extractSourceBlock(
+    backgroundSource,
+    "async function activateExtensionForTab",
+    "chrome.tabs.onUpdated.addListener"
+  );
   const activateBlock = extractSourceBlock(
     backgroundSource,
     'if (!message || message.type !== "activateContentForTab")',
@@ -53,10 +59,30 @@ test("extension activation enables default mobile emulation for fresh tab sessio
     "chrome.tabs.onUpdated.addListener"
   );
 
-  assert.match(actionBlock, /ensureDefaultMobileEmulationForTab\(tab\.id,\s*tab\.url\)/);
-  assert.match(activateBlock, /await ensureDefaultMobileEmulationForTab\(/);
+  assert.match(actionBlock, /chrome\.sidePanel\.open\(\{\s*tabId:\s*tab\.id\s*\}\)\.then\(\)/);
+  assert.match(activateHelperBlock, /await utils\.setTabState\(tabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\)/);
+  assert.match(activateHelperBlock, /await ensureDefaultMobileEmulationForTab\(tabId,\s*tabUrl\)/);
+  assert.match(activateHelperBlock, /requestContentActivation\(tabId\)/);
+  assert.match(activateBlock, /await activateExtensionForTab\(/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+});
+
+test("popup refresh routes fresh active tabs through background activation before reading device state", () => {
+  const refreshBlock = extractSourceBlock(
+    popupSource,
+    "let initialTabState = currentTabId",
+    "const tabInScope = Boolean("
+  );
+
+  assert.match(
+    refreshBlock,
+    /messages\.sendRuntimeMessage\(\{\s*type:\s*"activateContentForTab",\s*tabId:\s*currentTabId,\s*url:\s*pageUrl\s*\}\)/
+  );
+  assert.match(
+    refreshBlock,
+    /if \(!activationResponse \|\| activationResponse\.ok === false\) \{\s*await utils\.setTabState\(currentTabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\);\s*\}/
+  );
 });
 
 test("default mobile helper preserves stored per-session choices", () => {
