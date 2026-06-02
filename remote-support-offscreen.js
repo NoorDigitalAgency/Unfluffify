@@ -1,4 +1,5 @@
 import {
+  hasEstablishedRemoteSupportPeerTransport,
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
@@ -231,6 +232,10 @@ function haveMatchingTransportConfig(runtime, session, iceServers, dataChannelDe
     return false;
   }
 
+  if (runtime.allowDisplayMediaFallback !== normalizeBooleanFlag(session.allowDisplayMediaFallback)) {
+    return false;
+  }
+
   if (runtime.captureSource !== normalizeCaptureSource(session.captureSource)) {
     return false;
   }
@@ -308,6 +313,7 @@ function createTransportRuntime(session) {
     tabId: normalizeTabId(session.tabId),
     wsUrl: session.wsUrl.trim(),
     mediaStreamId: normalizeMediaStreamId(session.mediaStreamId || session.fallbackMediaStreamId),
+    allowDisplayMediaFallback: normalizeBooleanFlag(session.allowDisplayMediaFallback),
     captureSource: normalizeCaptureSource(session.captureSource),
     canRequestAudioTrack: normalizeBooleanFlag(session.canRequestAudioTrack),
     iceServers: normalizeIceServers(session.iceServers),
@@ -1105,7 +1111,15 @@ async function ensureRequesterDisplayTrack(runtime, peerConnection) {
         }
       }
     });
-  } else if (typeof navigator.mediaDevices.getDisplayMedia === "function") {
+  } else if (!runtime.mediaStreamId) {
+    if (!runtime.allowDisplayMediaFallback) {
+      throw new Error("Remote support screen sharing was cancelled or unavailable");
+    }
+
+    if (typeof navigator.mediaDevices.getDisplayMedia !== "function") {
+      throw new Error("Remote support screen sharing is unavailable");
+    }
+
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: {
         displaySurface: "monitor",
@@ -1611,7 +1625,18 @@ async function connectSignalingSocket(runtime) {
         return;
       }
 
-      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, "Signaling channel closed"));
+      const closeError = formatTransportError(runtime, "Signaling channel closed");
+      runtime.signalingSocket = null;
+      if (hasEstablishedRemoteSupportPeerTransport(runtime)) {
+        postTransportEvent({
+          type: "transport-error",
+          sessionId: runtime.sessionId,
+          error: closeError
+        });
+        return;
+      }
+
+      handleFatalTransportError(runtime.sessionId, closeError);
     };
   });
 
@@ -1744,6 +1769,10 @@ async function startTransport(session) {
   }
 
   const dataChannelDescriptors = normalizeDataChannelDescriptors(session.dataChannels);
+
+  if (session.role === "requester" && !normalizeMediaStreamId(session.mediaStreamId || session.fallbackMediaStreamId) && !normalizeBooleanFlag(session.allowDisplayMediaFallback)) {
+    throw new Error("Remote support screen sharing was cancelled or unavailable");
+  }
 
   connectKeepAlivePort();
 

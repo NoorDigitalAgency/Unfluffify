@@ -82,6 +82,19 @@ export function formatRemoteSupportCountdown(value) {
   return `${minutes}:${seconds}`;
 }
 
+export function hasEstablishedRemoteSupportPeerTransport(runtime) {
+  if (!runtime || typeof runtime !== "object") {
+    return false;
+  }
+
+  return (
+    runtime.lastDataChannelState === "open" ||
+    runtime.lastPeerConnectionState === "connected" ||
+    runtime.lastIceConnectionState === "connected" ||
+    runtime.lastIceConnectionState === "completed"
+  );
+}
+
 export function isAjaxResourceType(value) {
   const normalized = String(value || "").toLowerCase();
   return normalized === "xmlhttprequest" || normalized === "fetch" || normalized === "xhr";

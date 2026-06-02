@@ -727,6 +727,51 @@ function getRemoteSupportErrorMessage(error, fallback) {
   return fallback;
 }
 
+function stripRemoteSupportDiagnostics(error) {
+  if (typeof error !== "string") {
+    return "";
+  }
+
+  return error.replace(/\s+\([^()]*\)\s*$/, "").trim();
+}
+
+function simplifyRequesterRemoteSupportError(error, { active = false } = {}) {
+  const simplifiedMessage = stripRemoteSupportDiagnostics(error);
+  if (!simplifiedMessage) {
+    return active ? "Connection issue detected" : "Connection ended";
+  }
+
+  if (/screen sharing|camera|microphone|audio|support code|endpoint|ICE configuration|support response|missing tab/i.test(simplifiedMessage)) {
+    return simplifiedMessage;
+  }
+
+  if (/signaling|peer connection|data channel|transport failed|failed to connect signaling channel|connection ended|session ended/i.test(simplifiedMessage)) {
+    return active ? "Connection issue detected" : "Connection ended";
+  }
+
+  return simplifiedMessage;
+}
+
+function getVisibleRemoteSupportError(runtime, error, options = {}) {
+  const fallback = typeof options.fallback === "string" && options.fallback.trim()
+    ? options.fallback.trim()
+    : "Remote support transport failed";
+  const rawMessage = typeof error === "string" && error.trim()
+    ? error.trim()
+    : fallback;
+
+  if (
+    runtime &&
+    runtime.state &&
+    runtime.state.mode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
+    runtime.state.role === "requester"
+  ) {
+    return simplifyRequesterRemoteSupportError(rawMessage, options);
+  }
+
+  return rawMessage;
+}
+
 function normalizeEndpointBaseUrl(value) {
   if (typeof value !== "string" || !value.trim()) {
     return "";
@@ -1205,7 +1250,8 @@ async function requestTabCaptureStreamId(tabId) {
   if (!chrome.desktopCapture || typeof chrome.desktopCapture.chooseDesktopMedia !== "function") {
     return {
       streamId: "",
-      canRequestAudioTrack: false
+      canRequestAudioTrack: false,
+      allowDisplayMediaFallback: true
     };
   }
 
@@ -1218,7 +1264,19 @@ async function requestTabCaptureStreamId(tabId) {
       settled = true;
       resolve({
         streamId: typeof streamId === "string" ? streamId.trim() : "",
-        canRequestAudioTrack: Boolean(options && options.canRequestAudioTrack)
+        canRequestAudioTrack: Boolean(options && options.canRequestAudioTrack),
+        allowDisplayMediaFallback: false
+      });
+    };
+    const finishWithFallback = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve({
+        streamId: "",
+        canRequestAudioTrack: false,
+        allowDisplayMediaFallback: true
       });
     };
 
@@ -1231,7 +1289,7 @@ async function requestTabCaptureStreamId(tabId) {
         }
       );
     } catch (error) {
-      finish("", { canRequestAudioTrack: false });
+      finishWithFallback();
     }
   });
 }
@@ -1483,7 +1541,10 @@ async function deactivateRuntime(runtime, reason) {
   runtime.state.connected = false;
   runtime.state.partnerConnected = false;
   runtime.state.streaming = false;
-  runtime.state.error = reason || "";
+  runtime.state.error = getVisibleRemoteSupportError(runtime, reason, {
+    active: false,
+    fallback: "Session ended"
+  });
 
   sessionRuntimes.delete(sessionId);
   if (tabId !== null && activeSessionIdsByTabId.get(tabId) === sessionId) {
@@ -1495,7 +1556,7 @@ async function deactivateRuntime(runtime, reason) {
 
   if (tabId !== null) {
     rememberTabSnapshot(tabId, {
-      ...createTabInactiveState(tabId, reason),
+      ...createTabInactiveState(tabId, runtime.state.error),
       dockState: normalizeRemoteSupportDockState(runtime.state.dockState)
     });
     broadcastTabState(tabId);
@@ -1635,7 +1696,7 @@ export async function handleRequestSupportCode(message) {
   if (!reused) {
     try {
       const displayCapture = await requestTabCaptureStreamId(tabId);
-      if (!displayCapture.streamId) {
+      if (!displayCapture.streamId && !displayCapture.allowDisplayMediaFallback) {
         throw new Error("Screen sharing was cancelled or unavailable");
       }
       runtime.usesVideoStream = true;
@@ -1647,6 +1708,7 @@ export async function handleRequestSupportCode(message) {
         iceServers,
         captureSource: "screen",
         mediaStreamId: displayCapture.streamId,
+        allowDisplayMediaFallback: displayCapture.allowDisplayMediaFallback,
         canRequestAudioTrack: displayCapture.canRequestAudioTrack,
         dataChannels: [
           { key: REMOTE_SUPPORT_DATA_CHANNEL_KEY_PAGE }
@@ -1657,7 +1719,10 @@ export async function handleRequestSupportCode(message) {
       await terminateRemoteSupportSession({ sessionId }, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"));
       return {
         ok: false,
-        error: getRemoteSupportErrorMessage(error, "Failed to start remote support transport")
+        error: getVisibleRemoteSupportError(runtime, getRemoteSupportErrorMessage(error, "Failed to start remote support transport"), {
+          active: true,
+          fallback: "Failed to start remote support transport"
+        })
       };
     }
   }
@@ -1869,7 +1934,10 @@ export async function handleTransportEvent(message) {
   }
 
   if (event.type === "transport-error" || event.type === "remoteSupportTransportError") {
-    runtime.state.error = typeof event.error === "string" ? event.error : "Remote support transport failed";
+    runtime.state.error = getVisibleRemoteSupportError(runtime, typeof event.error === "string" ? event.error : "", {
+      active: true,
+      fallback: "Remote support transport failed"
+    });
     broadcastRuntimeState(runtime);
     return { ok: true };
   }

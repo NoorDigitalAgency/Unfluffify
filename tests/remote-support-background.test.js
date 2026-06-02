@@ -309,6 +309,55 @@ test("remoteSupportRequestCode fails when whole-screen sharing is cancelled", as
   }
 });
 
+test("remoteSupportRequestCode falls back to offscreen display capture when desktop capture is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock, transportMessages } = createChromeMock();
+  delete chromeMock.desktopCapture;
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_missing_tab_capture",
+        supportCode: "123456",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 7,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 7 } }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(transportMessages.length, 1);
+    assert.equal(transportMessages[0].type, "remoteSupportTransportStart");
+    assert.equal(transportMessages[0].session.captureSource, "screen");
+    assert.equal(transportMessages[0].session.mediaStreamId, "");
+    assert.equal(transportMessages[0].session.allowDisplayMediaFallback, true);
+    assert.equal(transportMessages[0].session.canRequestAudioTrack, false);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("remoteSupportRequestCode reuses the offscreen keep-alive port created during document bootstrap", async () => {
   const originalFetch = globalThis.fetch;
   const originalChrome = globalThis.chrome;
@@ -743,7 +792,7 @@ test("remote support dismisses active transport errors and broadcasts the cleare
 
     assert.equal(warningState.ok, true);
     assert.equal(warningState.state.active, true);
-    assert.match(warningState.state.error, /Signaling connection interrupted/i);
+    assert.equal(warningState.state.error, "Connection issue detected");
 
     const runtimeEventCount = runtimeEvents.length;
     const tabMessageCount = tabMessages.length;
@@ -787,6 +836,206 @@ test("remote support dismisses active transport errors and broadcasts the cleare
       ),
       true
     );
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("requester sessions show simplified active transport errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_requester_warning",
+        supportCode: "445566",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 31,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 31 } }
+    );
+
+    assert.equal(response.ok, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "transport-error",
+          sessionId: "sess_requester_warning",
+          error: "Signaling channel closed (connection=connected, ice=connected, gathering=complete, iceError=code=701)"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const warningState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 31 },
+      {}
+    );
+
+    assert.equal(warningState.ok, true);
+    assert.equal(warningState.state.active, true);
+    assert.equal(warningState.state.error, "Connection issue detected");
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("supporter sessions retain full active transport diagnostics", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_supporter_warning",
+        supportCode: "445566",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportJoin",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 32,
+        supportCode: "445566"
+      },
+      { tab: { id: 32 } }
+    );
+
+    assert.equal(response.ok, true);
+
+    const detailedError = "Signaling channel closed (connection=connected, ice=connected, gathering=complete, iceError=code=701)";
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportViewer",
+        event: {
+          type: "transport-error",
+          sessionId: "sess_supporter_warning",
+          error: detailedError
+        }
+      },
+      {
+        tab: { id: 32 },
+        url: "https://example.com/support"
+      }
+    );
+
+    const warningState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 32 },
+      {}
+    );
+
+    assert.equal(warningState.ok, true);
+    assert.equal(warningState.state.active, true);
+    assert.equal(warningState.state.error, detailedError);
+  } finally {
+    await terminateRemoteSupportSession("Test cleanup");
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
+test("requester sessions store simplified ended errors after transport termination", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+
+  const { chromeMock } = createChromeMock();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        sessionId: "sess_requester_end",
+        supportCode: "445566",
+        expiresAt: "2026-05-24T08:10:00.000Z",
+        webrtcWsUrl: "wss://api.example.com/webrtc?token=test",
+        iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+      };
+    }
+  });
+
+  globalThis.chrome = chromeMock;
+  initRemoteSupportBackground();
+
+  try {
+    const response = await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportRequestCode",
+        endpointValue: "https://api.example.com",
+        tokenValue: "token-value",
+        tabId: 33,
+        pageUrl: "https://example.com/page"
+      },
+      { tab: { id: 33 } }
+    );
+
+    assert.equal(response.ok, true);
+
+    await handleRemoteSupportBackgroundMessage(
+      {
+        type: "remoteSupportTransportEvent",
+        source: "remoteSupportOffscreen",
+        event: {
+          type: "session-ended",
+          sessionId: "sess_requester_end",
+          reason: "Signaling channel closed (connection=connected, ice=connected, gathering=complete, iceError=code=701)"
+        }
+      },
+      {
+        url: chromeMock.runtime.getURL("remote-support-offscreen.html")
+      }
+    );
+
+    const endedState = await handleRemoteSupportBackgroundMessage(
+      { type: "getRemoteSupportState", tabId: 33 },
+      {}
+    );
+
+    assert.equal(endedState.ok, true);
+    assert.equal(endedState.state.active, false);
+    assert.equal(endedState.state.error, "Connection ended");
   } finally {
     await terminateRemoteSupportSession("Test cleanup");
     globalThis.fetch = originalFetch;

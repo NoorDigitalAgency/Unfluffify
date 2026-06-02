@@ -103,6 +103,8 @@ test("remote support offscreen transport keeps concurrent sessions isolated", as
   class OpenWebSocket {
     static OPEN = 1;
     static CONNECTING = 0;
+    static CLOSING = 2;
+    static CLOSED = 3;
 
     constructor(url) {
       this.url = url;
@@ -520,7 +522,7 @@ test("requester media control messages toggle camera, microphone, and shared sou
     send() {}
 
     close() {
-      this.readyState = 3;
+      this.readyState = OpenWebSocket.CLOSED;
       if (typeof this.onclose === "function") {
         this.onclose();
       }
@@ -2211,6 +2213,7 @@ test("remote support offscreen reports screen sharing unavailable when no displa
           supportCode: "111111",
           role: "requester",
           wsUrl: "wss://api.example.com/webrtc?token=missing-display-capture",
+          allowDisplayMediaFallback: true,
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
         }
       },
@@ -2246,6 +2249,297 @@ test("remote support offscreen reports screen sharing unavailable when no displa
     } else {
       delete globalThis.navigator;
     }
+  }
+});
+
+test("remote support offscreen keeps an established session alive when signaling closes", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+  const backgroundEvents = [];
+  const dataChannels = [];
+  const sockets = [];
+
+  class FakeDataChannel {
+    constructor(label) {
+      this.label = label;
+      this.readyState = "open";
+      this.binaryType = "arraybuffer";
+      this.onopen = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.onmessage = null;
+      this.sent = [];
+
+      queueMicrotask(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send(rawValue) {
+      this.sent.push(JSON.parse(rawValue));
+    }
+
+    close() {
+      this.readyState = "closed";
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  class FakeRTCPeerConnection {
+    constructor() {
+      this.connectionState = "connected";
+      this.iceConnectionState = "connected";
+      this.iceGatheringState = "complete";
+      this.signalingState = "stable";
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.sctp = { maxMessageSize: 65536 };
+      this.onicecandidate = null;
+      this.onicecandidateerror = null;
+      this.oniceconnectionstatechange = null;
+      this.onicegatheringstatechange = null;
+      this.onsignalingstatechange = null;
+      this.onconnectionstatechange = null;
+      this.ondatachannel = null;
+    }
+
+    createDataChannel(label) {
+      const channel = new FakeDataChannel(label);
+      dataChannels.push(channel);
+      return channel;
+    }
+
+    async createOffer() {
+      return { type: "offer", sdp: "offer-sdp" };
+    }
+
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+
+    async setRemoteDescription(description) {
+      this.remoteDescription = description;
+    }
+
+    async addIceCandidate() {}
+
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+
+  class OpenWebSocket {
+    static OPEN = 1;
+    static CONNECTING = 0;
+
+    constructor() {
+      this.readyState = OpenWebSocket.CONNECTING;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onerror = null;
+      this.onclose = null;
+      sockets.push(this);
+
+      queueMicrotask(() => {
+        this.readyState = OpenWebSocket.OPEN;
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+  }
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage(message) {
+        backgroundEvents.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  globalThis.WebSocket = OpenWebSocket;
+  globalThis.RTCPeerConnection = FakeRTCPeerConnection;
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-signaling-close-established`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_signaling_close_established",
+          supportCode: "111111",
+          role: "supporter",
+          wsUrl: "wss://api.example.com/webrtc?token=one",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+    await delay(0);
+    assert.deepEqual(startResponse, { ok: true });
+    assert.equal(dataChannels.length, 1);
+    assert.equal(sockets.length, 1);
+
+    backgroundEvents.length = 0;
+    sockets[0].close();
+    await delay(0);
+
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "transport-error" &&
+          message.event.sessionId === "sess_signaling_close_established" &&
+          /Signaling channel closed/.test(message.event.error)
+      ),
+      true
+    );
+    assert.equal(
+      backgroundEvents.some(
+        (message) =>
+          message.type === "remoteSupportTransportEvent" &&
+          message.event &&
+          message.event.type === "session-ended" &&
+          message.event.sessionId === "sess_signaling_close_established"
+      ),
+      false
+    );
+
+    let sendResponse;
+    listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportSendData",
+        sessionId: "sess_signaling_close_established",
+        messageType: "frame",
+        payload: { dataUrl: "data:image/png;base64,abc" }
+      },
+      {},
+      (value) => {
+        sendResponse = value;
+      }
+    );
+
+    assert.deepEqual(sendResponse, { ok: true });
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+    globalThis.RTCPeerConnection = originalRTCPeerConnection;
+    globalThis.window = originalWindow;
+  }
+});
+
+test("remote support offscreen rejects requester sessions without a capture stream or fallback permission", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWindow = globalThis.window;
+
+  const runtimeMessageListeners = [];
+
+  globalThis.window = {
+    addEventListener() {}
+  };
+  globalThis.chrome = {
+    runtime: {
+      connect() {
+        return {
+          onDisconnect: {
+            addListener() {}
+          }
+        };
+      },
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListeners.push(listener);
+        }
+      },
+      sendMessage() {
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+
+  try {
+    await import(`../remote-support-offscreen.js?case=${Date.now()}-missing-stream-id`);
+
+    assert.equal(runtimeMessageListeners.length, 1);
+
+    const listener = runtimeMessageListeners[0];
+    let startResponse;
+
+    const handled = listener(
+      {
+        target: "remoteSupportOffscreen",
+        type: "remoteSupportTransportStart",
+        session: {
+          sessionId: "sess_missing_stream_id",
+          supportCode: "111111",
+          role: "requester",
+          wsUrl: "wss://api.example.com/webrtc?token=missing-stream-id",
+          iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }]
+        }
+      },
+      {},
+      (value) => {
+        startResponse = value;
+      }
+    );
+
+    assert.equal(handled, true);
+    await delay(0);
+
+    assert.deepEqual(startResponse, {
+      ok: false,
+      error: "Remote support screen sharing was cancelled or unavailable"
+    });
+  } finally {
+    globalThis.chrome = originalChrome;
+    globalThis.window = originalWindow;
   }
 });
 
@@ -2663,6 +2957,7 @@ test("remote support offscreen ignores close events from superseded data channel
           supportCode: "111111",
           role: "requester",
           wsUrl: "wss://api.example.com/webrtc?token=one",
+          allowDisplayMediaFallback: true,
           iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
           dataChannels: [
             { key: "page", label: "remote-support-page" }
