@@ -3663,7 +3663,7 @@ export async function revealPageContentBeforeMotionPause(
       }
     }
     if (direction === "bottom" || direction === "both") {
-      if (reservedScrollY > 0) {
+      if (direction === "both" && reservedScrollY > 0) {
         visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
@@ -3685,7 +3685,7 @@ export async function revealPageContentBeforeMotionPause(
         scrollCount++;
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-      if (isStillCurrent()) {
+      if (direction === "both" && isStillCurrent()) {
         visited = await scrollPageInspectionSmoothTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }

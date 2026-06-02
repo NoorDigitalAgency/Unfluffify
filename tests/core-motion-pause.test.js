@@ -605,6 +605,7 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   dom.window.scrollY = 375;
   dom.window.pageXOffset = 12;
   dom.window.pageYOffset = 375;
+  const reservedScrollY = dom.window.scrollY;
 
   try {
     const inspected = await revealPageContentBeforeMotionPause(
@@ -618,8 +619,8 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
     assert.equal(inspected, true);
     assert.equal(dom.scrollCalls[0].y, 0);
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
-    assert.equal(dom.scrollCalls.at(-1).y, 375);
-    assert.equal(dom.window.scrollY, 375);
+    assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
+    assert.equal(dom.window.scrollY, reservedScrollY);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
