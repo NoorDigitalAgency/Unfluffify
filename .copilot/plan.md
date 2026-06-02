@@ -4,7 +4,7 @@
 
 First pass completed:
 
-1. Restore b9 marking semantics for target selection and pure rules.
+1. Restore the approved 052c-derived marking semantics for target selection and pure rules.
 2. Remove stale default-boundary promotion behavior that turned plain exclude clicks into explicit includes.
 3. Refresh marking docs, tests, and knowledge notes to match the restored rule set.
 4. Run focused marking/submission/silent-highlight tests, then commit and push.
@@ -28,8 +28,17 @@ Completed:
 Explicit taxonomy change completed:
 
 1. `BUTTON` is now a toggleable default exclusion.
-2. `LINK` is now an immutable default exclusion.
+2. `LINK` is intentionally omitted from the taxonomy: a `<link>` is a void metadata element that never carries text or descendants, so listing it as an immutable default exclusion was redundant.
 3. Keep this explicit contract change reflected in constants, docs, memory, and regression tests.
+
+052c-derived marking restoration completed:
+
+1. Restore direct-text toggleable default self-targeting and generated/default descendant suppression of broader auto-default ancestors.
+2. Restore Shift expanded exclusion chooser order: self structured/toggleable boundary, nearest structured group ancestor, nearest toggleable ancestor, then broadest markable ancestor, while keeping the shallow page-shell guard.
+3. Restore Alt explicit include mixed direct-text ancestor promotion while preserving silent-whitespace and geometry safeguards.
+4. Keep selector/AI exclusions decision-only with no dedicated AI-excluded marking overlay, and keep silent highlighting on `immutable`, `content`, and `excluded` layers only.
+5. Keep `explicit: true` tagging for user-created exclude rows, but submit every stored excluded XPath row as excluded unless it is explicitly included or suppressed by an excluded ancestor.
+6. Keep fast explicit-layer acknowledgement; force structural invalidating full marking rebuilds immediately, while leaf explicit-exclude toggles may debounce the full rebuild after patching cached lower-priority collections.
 
 Backend-saved candidate completion completed:
 
@@ -42,7 +51,7 @@ Backend-saved candidate completion completed:
 AI submission alignment completed:
 
 1. Compute AI submission XPath rows against the same sanitized DOM view as the saved `renderedHtml`, so extension UI cannot shift body-child indexes in the payload.
-2. Treat only `explicit: true` exclude rows as user exclusions; generated toggleable-default rows and stale untagged rows are marking posture only and are not explicit AI exclusions.
+2. Submit every stored excluded XPath row as excluded unless explicitly included or suppressed by an excluded ancestor; keep `explicit: true` as local user-edit metadata rather than the submission gate.
 3. Submit hidden textual content as excluded at mobile-save time, while visible textual content remains included unless it is under an explicit excluded ancestor.
 4. Keep immutable defaults out of per-page XPath rows and rely on the immutable tag list in the AI payload.
 5. Run marking sync before taking the saved snapshot, suppress stale immutable rows, and strip browser automation roots from saved snapshots.
@@ -66,7 +75,7 @@ Future marking work:
 Marking performance pass completed:
 
 1. Enabling marking uses `setEnabled` as the single activation path and no longer sends a redundant immediate `forceRefresh`.
-2. Explicit refinements redraw only explicit layers immediately and rely on the delayed invalidating full render for default/AI-layer correctness.
+2. Explicit refinements redraw only explicit layers immediately and then force an immediate invalidating full render for default/AI/ancestor-layer correctness.
 3. Full marking passes share per-pass caches for visibility, text, immutable/default selector, ancestor, and textual-descendant computations.
 4. Shift parent expansion rejects shallow generic page shells while preserving cohesive sections, lists, tables, card groups, and toggleable default boundaries.
 
@@ -114,6 +123,6 @@ Todo current subsection indicator completed:
 
 ## Constraints
 
-- The marking-rules contract is locked to the current restored behavior plus explicit taxonomy changes and must not drift through unrelated refactors.
+- The marking-rules contract is locked to the approved 052c-derived behavior plus deliberate current safeguards and must not drift through unrelated refactors.
 - Do not reintroduce supporter remote-control or control handoff/takeover paths.
 - Fail remote-support bootstrap when valid ICE config is missing; do not silently fall back away from the Cloudflare-only contract.

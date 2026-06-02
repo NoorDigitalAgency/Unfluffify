@@ -829,7 +829,7 @@ test("default layer still suppresses selector-matched elements themselves", () =
   });
 });
 
-test("toggleable boundary collection includes visible footers with immutable and textual descendants", () => {
+test("toggleable boundary collection restores 052c visible immutable descendant suppression", () => {
   withVisibilityDom(({ body }) => {
     const logo = createElement({
       tagName: "img",
@@ -849,7 +849,7 @@ test("toggleable boundary collection includes visible footers with immutable and
     body.children.push(footer);
     body.childNodes.push(footer);
 
-    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), [footer]);
+    assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
   });
 });
 
@@ -884,21 +884,21 @@ test("toggleable boundary collection skips hidden duplicate boundaries", () => {
   });
 });
 
-test("toggleable boundary collection skips toggleable tags inside immutable link subtrees", () => {
+test("toggleable boundary collection skips toggleable tags inside immutable noscript subtrees", () => {
   withVisibilityDom(({ body }) => {
     const nestedLabel = createElement({
       tagName: "label",
-      text: "Nested label inside immutable link",
+      text: "Nested label inside immutable noscript",
       rect: { top: 30, right: 260, bottom: 60, left: 20, width: 240, height: 30 }
     });
-    const immutableLink = createElement({
-      tagName: "link",
+    const immutableNoscript = createElement({
+      tagName: "noscript",
       parentElement: body,
       children: [nestedLabel],
       rect: { top: 10, right: 280, bottom: 80, left: 10, width: 270, height: 70 }
     });
-    body.children.push(immutableLink);
-    body.childNodes.push(immutableLink);
+    body.children.push(immutableNoscript);
+    body.childNodes.push(immutableNoscript);
 
     assert.deepEqual(collectToggleableDefaultExcludedElements(new Set()), []);
   });
@@ -1783,5 +1783,80 @@ test("parent marking allows inherited wrapper chains with one content branch and
       isMarkableElement(section, {}, { allowParent: true, hitPoint: { x: 40, y: 60 } }),
       true
     );
+  });
+});
+
+test("Shift parent targeting restores 052c structured ancestor chooser", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const first = createElement({
+      tagName: "p",
+      text: "First grouped paragraph",
+      rect: { top: 40, right: 320, bottom: 80, left: 20, width: 300, height: 40 }
+    });
+    const second = createElement({
+      tagName: "p",
+      text: "Second grouped paragraph",
+      rect: { top: 90, right: 320, bottom: 130, left: 20, width: 300, height: 40 }
+    });
+    const structuredGroup = createElement({
+      parentElement: body,
+      children: [first, second],
+      rect: { top: 20, right: 380, bottom: 150, left: 10, width: 370, height: 130 }
+    });
+    body.children.push(structuredGroup);
+    body.childNodes.push(structuredGroup);
+    globalThis.document.elementsFromPoint = (_x, y) =>
+      y >= 90
+        ? [second, structuredGroup, body, documentElement]
+        : [first, structuredGroup, body, documentElement];
+    const originalConfig = state.config;
+    state.config = { pageMarkings: {} };
+    try {
+      assert.equal(
+        getMarkableTarget(30, 50, {
+          allowParent: true,
+          allowExplicitTarget: false,
+          allowImmutableChildren: false
+        }),
+        structuredGroup
+      );
+    } finally {
+      state.config = originalConfig;
+    }
+  });
+});
+
+test("Alt include targeting restores 052c mixed direct-text ancestor promotion", () => {
+  withVisibilityDom(({ documentElement, body }) => {
+    const child = createElement({
+      tagName: "span",
+      text: "inline child",
+      rect: { top: 50, right: 180, bottom: 80, left: 90, width: 90, height: 30 }
+    });
+    const mixedAncestor = createElement({
+      parentElement: body,
+      text: "Lead text",
+      children: [child],
+      rect: { top: 30, right: 260, bottom: 100, left: 20, width: 240, height: 70 }
+    });
+    body.children.push(mixedAncestor);
+    body.childNodes.push(mixedAncestor);
+    globalThis.document.elementsFromPoint = () => [child, mixedAncestor, body, documentElement];
+    const originalConfig = state.config;
+    state.config = { pageMarkings: {} };
+    try {
+      assert.equal(
+        getMarkableTarget(100, 60, {
+          allowParent: false,
+          allowExplicitTarget: false,
+          allowExcludedParentChildren: true,
+          allowImmutableChildren: false,
+          preferMixedTextAncestor: true
+        }),
+        mixedAncestor
+      );
+    } finally {
+      state.config = originalConfig;
+    }
   });
 });

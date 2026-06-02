@@ -2,7 +2,7 @@
 
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
-The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
+The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked 052c-derived restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
 Property edit-lock ownership, takeover, heartbeat, cloned-tab client rotation, and observer-refresh behavior is documented in [PROPERTY_LOCK.md](./PROPERTY_LOCK.md). That lock contract is also locked and should not be changed unless a task explicitly asks for property-lock behavior changes.
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
 
@@ -32,7 +32,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 
 ## Features
 
-- **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay
+- **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
 - **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
@@ -101,16 +101,16 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 ### Content Scripts (`/content`)
 
 - **`core.js`** - Main content script logic: DOM manipulation, element selection, marking synchronization, overlay rendering, and per-pass marking caches
-- **`marking-rules.js`** - Shared pure rules for b9-aligned toggleable markability, parent-boundary eligibility, and explicit toggle pacing
+- **`marking-rules.js`** - Shared pure rules for 052c-derived toggleable markability, Shift parent-boundary choice, and explicit toggle pacing
 - **`shared-inclusion.js`** - Shared logic for element selection and inclusion/exclusion
 - **`silent-highlight-rules.js`** - Shared pure rules for movement-settle sampling in silent highlighting
 - **`constants.js`** - Content script constants (removable element selectors, etc.)
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, toggleable boundary markability, parent-boundary eligibility, and duplicate toggle suppression
-- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: explicit exclusions, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
-- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
+- **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
+- **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
@@ -146,7 +146,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 ## How to Use
 
 1. **Enable on a Page**: Click the Unfluffify icon → Set a **Base URL** → Click **Enable on this tab**
-2. **Mark Content**: Hover over page elements to see highlights, click to toggle exclusion. Hold **Shift** to target a broader content boundary; shallow generic page wrappers are intentionally skipped.
+2. **Mark Content**: Hover over page elements to see highlights, click to toggle exclusion. Hold **Shift** to target a broader 052c-style content boundary; shallow generic page wrappers are intentionally skipped. Hold **Alt** to explicitly include eligible content, including mixed direct-text ancestors.
 3. **Interact With Page UI**: Hold **Space** to let clicks reach accordions, tabs, menus, and other page controls, then release to keep marking
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup

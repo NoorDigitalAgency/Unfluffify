@@ -5291,7 +5291,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
   };
   const explicitRows = Array.isArray(entry && entry.xpaths) ? entry.xpaths : [];
   explicitRows.forEach((item) => {
-    if (!item || typeof item.xpath !== "string" || item.explicit !== true) {
+    if (!item || typeof item.xpath !== "string" || !item.excluded) {
       return;
     }
     const element = core.getElementFromXPath(item.xpath);

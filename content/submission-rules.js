@@ -11,6 +11,7 @@ export function isAiSubmissionDocumentRootXpath(xpath) {
 
 export function resolveAiSubmissionRowState(options = {}) {
   const explicitlyIncluded = Boolean(options.explicitlyIncluded);
+  const excludedRow = Boolean(options.excludedRow || options.explicitlyExcluded);
 
   if (options.immutableExcludedRoot) {
     return { shouldSubmit: false, excluded: false };
@@ -24,7 +25,7 @@ export function resolveAiSubmissionRowState(options = {}) {
     return { shouldSubmit: false, excluded: false };
   }
 
-  if (options.explicitlyExcluded) {
+  if (excludedRow) {
     return { shouldSubmit: true, excluded: true };
   }
 

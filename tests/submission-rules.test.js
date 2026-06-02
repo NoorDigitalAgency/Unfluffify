@@ -25,6 +25,20 @@ test("explicit exclusions submit as excluded when not explicitly included", () =
   );
 });
 
+test("generated default excluded rows submit as excluded when not explicitly included", () => {
+  assert.deepEqual(
+    resolveAiSubmissionRowState({
+      excludedRow: true,
+      explicitlyExcluded: false,
+      explicitlyIncluded: false,
+      insideExcludedAncestor: false,
+      visibleToUser: true,
+      markableTextual: false
+    }),
+    { shouldSubmit: true, excluded: true }
+  );
+});
+
 test("visible explicit includes submit as included content", () => {
   assert.deepEqual(
     resolveAiSubmissionRowState({

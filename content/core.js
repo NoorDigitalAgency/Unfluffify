@@ -15,6 +15,7 @@ import {
   canUseCollapsedTextFallback as canUseCollapsedTextFallbackElement
 } from "./shared-inclusion.js";
 import {
+  chooseExcludeParentBoundaryTarget,
   getExplicitMarkingFullRenderOptions,
   getExplicitMarkingPresentation,
   isStoredExcludeStateUserModified,
@@ -99,7 +100,7 @@ export const state = {
   explicitOverlayRefreshHandle: 0,
   explicitOverlayRefreshHandleType: "",
   explicitOverlayRefreshEntry: null,
-  explicitFullRenderToken: 0,
+  explicitOverlayRefreshContext: null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
   perfEnabled: null
@@ -112,10 +113,10 @@ const pageMarkingEntryLookupCache = new WeakMap();
 const SCROLL_DEBOUNCE_MS = 250;
 const TOGGLE_ACK_ANIMATION_MS = 160;
 const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
-const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS = 120;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
+const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 450;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
@@ -1004,6 +1005,29 @@ function matchesToggleableDefaultExcluded(el) {
   return result;
 }
 
+function hasNestedToggleableDefaultExcludedDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
+      continue;
+    }
+    if (matchesToggleableDefaultExcluded(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function isTextualContainer(el, options = {}) {
   const cache = getTextualOptionCache(state.textualContainerCache, options);
   if (cache && cache.has(el)) {
@@ -1110,6 +1134,83 @@ function hasTextualImmutableDescendant(el, options = {}) {
   return result;
 }
 
+function hasVisibleImmutableDescendant(el) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node) || isWithinConsentElement(node)) {
+      continue;
+    }
+    if (matchesImmutableExcluded(node) && isVisible(node)) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
+function matchesAutoToggleableDefaultExcluded(el) {
+  if (!matchesToggleableDefaultExcluded(el)) {
+    return false;
+  }
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (!hasTextualDescendant(el)) {
+    return true;
+  }
+  if (hasNestedToggleableDefaultExcludedDescendant(el)) {
+    return true;
+  }
+  return !hasVisibleImmutableDescendant(el);
+}
+
+function hasExplicitlyMarkedDescendant(el) {
+  if (!el || el.nodeType !== 1 || !state.config) {
+    return false;
+  }
+  const explicitExcludeSet = getExcludedXPathSet(state.config, location.href);
+  const explicitIncludeSet = getIncludeXPathSet(state.config, location.href);
+  if (explicitExcludeSet.size === 0 && explicitIncludeSet.size === 0) {
+    return false;
+  }
+  const stack = Array.from(el.children || []);
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (isWithinAiPopover(node)) {
+      continue;
+    }
+    if (isWithinConsentElement(node)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(node)) {
+      continue;
+    }
+    const xpath = getXPath(node);
+    if (
+      xpath &&
+      (explicitExcludeSet.has(xpath) || explicitIncludeSet.has(xpath))
+    ) {
+      return true;
+    }
+    for (let i = node.children.length - 1; i >= 0; i -= 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+}
+
 function isSelfMarkableWithoutParentMode(el, options = {}) {
   if (!isTextualContainer(el, options)) {
     return false;
@@ -1141,8 +1242,76 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     return true;
   }
   return shouldSelfMarkToggleableDefaultBoundary({
-    hasVisibleTextualDescendant
+    hasDirectOwnText,
+    hasVisibleTextualDescendant,
+    hasExplicitlyMarkedDescendant: hasExplicitlyMarkedDescendant(el)
   });
+}
+
+function isExplicitIncludeBoundaryCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (!hasRenderableMarkingTargetGeometry(el, { allowGhost: true })) {
+    return false;
+  }
+  if (isSelfMarkableWithoutParentMode(el, options)) {
+    return true;
+  }
+  return matchesToggleableDefaultExcluded(el) && hasDirectText(el) && isTextualContainer(el, options);
+}
+
+function isGroupedBoundaryChildCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (!isTextualContainer(el, options)) {
+    return false;
+  }
+  if (isSelfMarkableWithoutParentMode(el, options)) {
+    return true;
+  }
+  return matchesToggleableDefaultExcluded(el) && hasDirectText(el);
+}
+
+function isStructuredGroupExclusionCandidate(el, options = {}) {
+  if (!el || el.nodeType !== 1) {
+    return false;
+  }
+  if (isWithinAiPopover(el) || isWithinConsentElement(el) || isWithinImmutableExcluded(el)) {
+    return false;
+  }
+  if (matchesToggleableDefaultExcluded(el) || hasDirectText(el)) {
+    return false;
+  }
+  if (!isTextualContainer(el, options)) {
+    return false;
+  }
+  if (isUnsafeShallowParentMarkingTarget(el, options || {})) {
+    return false;
+  }
+  const children = Array.from(el.children || []).filter((child) => {
+    if (!child || child.nodeType !== 1) {
+      return false;
+    }
+    if (isWithinAiPopover(child)) {
+      return false;
+    }
+    if (isWithinConsentElement(child) || isWithinImmutableExcluded(child)) {
+      return false;
+    }
+    return true;
+  });
+  if (children.length < 2) {
+    return false;
+  }
+  return children.every((child) => isGroupedBoundaryChildCandidate(child, options));
 }
 
 function matchesImmutableExcluded(el) {
@@ -1196,7 +1365,7 @@ function isWithinImmutableExcluded(el) {
 }
 
 function isToggleableDefaultExcludedElement(el, includedElements) {
-  return matchesToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
+  return matchesAutoToggleableDefaultExcluded(el) && !isWithinElementSet(el, includedElements);
 }
 
 function isWithinToggleableDefaultExcludedElement(el, includedElements) {
@@ -1633,7 +1802,7 @@ function collectExcludedParentElements(items) {
     return parents;
   }
   for (const item of items) {
-    if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
+    if (!item || !item.xpath || !item.excluded) {
       continue;
     }
     const el = getElementFromXPath(item.xpath);
@@ -1644,9 +1813,6 @@ function collectExcludedParentElements(items) {
       continue;
     }
     if (isWithinImmutableExcluded(el)) {
-      continue;
-    }
-    if (matchesToggleableDefaultExcluded(el)) {
       continue;
     }
     parents.add(el);
@@ -1677,7 +1843,7 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
         !isWithinImmutableExcluded(node) &&
         isTextualContainer(node) &&
         (
-          matchesToggleableDefaultExcluded(node) ||
+          matchesAutoToggleableDefaultExcluded(node) ||
           isSelfMarkableWithoutParentMode(node)
         )
       ) {
@@ -1694,7 +1860,7 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (
       !isWithinImmutableExcluded(node) &&
       (
-        (matchesToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
+        (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
         isSelfMarkableWithoutParentMode(node)
       )
     ) {
@@ -2305,7 +2471,7 @@ export function collectToggleableDefaultExcludedElements(includedElements, optio
     if (!el || el.nodeType !== 1) {
       continue;
     }
-    const isToggleableDefaultExcluded = matchesToggleableDefaultExcluded(el);
+    const isToggleableDefaultExcluded = matchesAutoToggleableDefaultExcluded(el);
     const isBoundarySelfSkipped = boundarySelfSkipSet.has(el);
     const isWithinBoundarySubtreeSkip = isWithinElementSet(el, boundarySubtreeSkipSet);
     const isWithinImmutableBoundary = isWithinImmutableExcluded(el);
@@ -5911,7 +6077,7 @@ function createExcludedAncestorChecker(options = {}) {
         node = node.parentElement;
         continue;
       }
-      if (matchesImmutableExcluded(node) || matchesToggleableDefaultExcluded(node)) {
+      if (matchesImmutableExcluded(node) || matchesAutoToggleableDefaultExcluded(node)) {
         return true;
       }
       node = node.parentElement;
@@ -5921,7 +6087,91 @@ function createExcludedAncestorChecker(options = {}) {
 }
 
 function resolveMarkableElement(el, config, options) {
-  if (!isMarkableElement(el, config, options)) {
+  if (!el || el.nodeType !== 1) {
+    return null;
+  }
+
+  const currentOptions = {
+    ...(options || {})
+  };
+  const ancestorOptions = {
+    ...currentOptions,
+    allowParent: false,
+    explicitlyExcluded: false,
+    explicitlyIncluded: false,
+    preferMixedTextAncestor: false
+  };
+
+  if (currentOptions.allowParent) {
+    const selfStructuredGroup =
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      isStructuredGroupExclusionCandidate(el, ancestorOptions);
+    const selfToggleableBoundary =
+      !isWithinAiPopover(el) &&
+      !isWithinConsentElement(el) &&
+      matchesToggleableDefaultExcluded(el) &&
+      isTextualContainer(el, ancestorOptions);
+    const ancestorCandidates = [];
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (ancestor === document.documentElement || ancestor === document.body) {
+        break;
+      }
+      if (!isWithinAiPopover(ancestor) && !isWithinConsentElement(ancestor)) {
+        const structuredGroupBoundary = isStructuredGroupExclusionCandidate(
+          ancestor,
+          ancestorOptions
+        );
+        const toggleableBoundary =
+          !structuredGroupBoundary &&
+          matchesToggleableDefaultExcluded(ancestor) &&
+          isTextualContainer(ancestor);
+        const markableBoundary =
+          !structuredGroupBoundary &&
+          !toggleableBoundary &&
+          isMarkableElement(ancestor, config, ancestorOptions);
+        ancestorCandidates.push({
+          value: ancestor,
+          isStructuredGroup: structuredGroupBoundary,
+          isToggleableBoundary: toggleableBoundary,
+          isMarkable: markableBoundary
+        });
+      }
+      ancestor = ancestor.parentElement;
+    }
+    const preferredBoundary = chooseExcludeParentBoundaryTarget({
+      selfValue: el,
+      selfStructuredGroup,
+      selfToggleableBoundary,
+      ancestors: ancestorCandidates
+    });
+    if (preferredBoundary) {
+      return preferredBoundary;
+    }
+  }
+
+  if (currentOptions.preferMixedTextAncestor) {
+    let ancestor = el.parentElement;
+    while (ancestor && ancestor.nodeType === 1) {
+      if (ancestor === document.documentElement || ancestor === document.body) {
+        break;
+      }
+      if (
+        !isWithinAiPopover(ancestor) &&
+        !isWithinConsentElement(ancestor) &&
+        isExplicitIncludeBoundaryCandidate(ancestor, ancestorOptions)
+      ) {
+        return ancestor;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (isExplicitIncludeBoundaryCandidate(el, ancestorOptions)) {
+      return el;
+    }
+  }
+
+  if (!isMarkableElement(el, config, currentOptions)) {
     return null;
   }
   return el;
@@ -5937,6 +6187,7 @@ export function getMarkableTarget(x, y, options) {
   const explicitParentSet = options && options.explicitParentSet;
   const allowExcludedParentChildren = options && options.allowExcludedParentChildren;
   const allowImmutableChildren = options && options.allowImmutableChildren;
+  const preferMixedTextAncestor = Boolean(options && options.preferMixedTextAncestor);
   const requireExcludedAncestor = Boolean(options && options.requireExcludedAncestor);
   const hasExcludedAncestor = requireExcludedAncestor
     ? createExcludedAncestorChecker({ config: state.config, pageUrl: location.href })
@@ -6025,6 +6276,7 @@ export function getMarkableTarget(x, y, options) {
       explicitlyExcluded,
       explicitlyIncluded,
       allowImmutableChildren,
+      preferMixedTextAncestor,
       hitPoint: { x, y }
     });
     if (resolved) {
@@ -6066,6 +6318,7 @@ function updateHoverHighlight(
       allowParent,
       allowExplicitTarget: true,
       preferExplicitTarget: allowExcludedParentChildren,
+      preferMixedTextAncestor: allowExcludedParentChildren && !allowParent,
       excludedSet,
       includeSet,
       silentWhitespaceExcludedSet,
@@ -6194,7 +6447,38 @@ function toggleExplicitExclude(target) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
+  const hasRelatedStoredMarking = (currentXPath) => {
+    const isRelatedXPath = (candidateXPath, candidateEl) => {
+      if (!candidateXPath || candidateXPath === currentXPath) {
+        return false;
+      }
+      if (candidateEl) {
+        return candidateEl.contains(target) || target.contains(candidateEl);
+      }
+      return isXPathDescendant(candidateXPath, currentXPath) ||
+        isXPathDescendant(currentXPath, candidateXPath);
+    };
+    for (const item of items) {
+      if (!item || !item.xpath) {
+        continue;
+      }
+      if (isRelatedXPath(item.xpath, getCachedElementFromXPath(item.xpath))) {
+        return true;
+      }
+    }
+    for (const includeXPath of includeXpaths) {
+      if (!includeXPath) {
+        continue;
+      }
+      if (isRelatedXPath(includeXPath, getCachedElementFromXPath(includeXPath))) {
+        return true;
+      }
+    }
+    return false;
+  };
   const includeIndex = includeXpaths.indexOf(xpath);
+  const immediateFullRender = !isLeafExplicitExcludeFastPathTarget(target) ||
+    hasRelatedStoredMarking(xpath);
   if (includeIndex >= 0) {
     includeXpaths.splice(includeIndex, 1);
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6209,7 +6493,9 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
-    completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
+    completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
+      immediateFullRender
+    });
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -6347,7 +6633,9 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
+  completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
+    immediateFullRender
+  });
 }
 
 function toggleExplicitInclude(target) {
@@ -6493,6 +6781,7 @@ function handleToggleEvent(event) {
     allowParent,
     allowExplicitTarget: true,
     preferExplicitTarget: mode === "include",
+    preferMixedTextAncestor: mode === "include" && !allowParent,
     excludedSet,
     includeSet,
     silentWhitespaceExcludedSet,
@@ -7029,7 +7318,50 @@ function drawExplicitMarkingLayers(
   });
 }
 
-function refreshExplicitMarkingOverlay(entry) {
+function isLeafExplicitExcludeFastPathTarget(target) {
+  if (!target || target.nodeType !== 1) {
+    return false;
+  }
+  if (matchesToggleableDefaultExcluded(target)) {
+    return false;
+  }
+  return !target.children || target.children.length === 0;
+}
+
+function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
+  if (options.type !== "exclude") {
+    return true;
+  }
+  return !isLeafExplicitExcludeFastPathTarget(options.target);
+}
+
+function applyExplicitStateToCachedCollections(
+  cachedCollections,
+  explicitExcludeElements,
+  explicitIncludeElements
+) {
+  if (!cachedCollections) {
+    return;
+  }
+  const explicitExcludeSet = new Set(explicitExcludeElements || []);
+  if (explicitExcludeSet.size === 0) {
+    return;
+  }
+  const explicitIncludeSet = new Set(explicitIncludeElements || []);
+  const isProtectedByExplicitInclude = (el) =>
+    explicitIncludeSet.size > 0 && isWithinElementSet(el, explicitIncludeSet);
+  const isSuppressedByExplicitExclude = (el) =>
+    isWithinElementSet(el, explicitExcludeSet) && !isProtectedByExplicitInclude(el);
+  const filterSuppressed = (items) =>
+    Array.isArray(items) ? items.filter((el) => !isSuppressedByExplicitExclude(el)) : [];
+
+  cachedCollections.defaultElements = filterSuppressed(cachedCollections.defaultElements);
+  cachedCollections.aiContentElements = filterSuppressed(cachedCollections.aiContentElements);
+  cachedCollections.hiddenAiContentElements = filterSuppressed(cachedCollections.hiddenAiContentElements);
+  cachedCollections.selectorExcludedElements = filterSuppressed(cachedCollections.selectorExcludedElements);
+}
+
+function refreshExplicitMarkingOverlay(entry, context = null) {
   if (!state.enabled || !state.overlay) {
     return;
   }
@@ -7061,6 +7393,13 @@ function refreshExplicitMarkingOverlay(entry) {
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+      if (context && context.immediateFullRender === false) {
+        applyExplicitStateToCachedCollections(
+          cachedCollections,
+          explicitExcludeElements,
+          explicitIncludeElements
+        );
+      }
       cachedCollections.hardElements = Array.from(new Set([
         ...immutableExcluded,
         ...hiddenStoredExplicitExclude
@@ -7082,40 +7421,49 @@ function refreshExplicitMarkingOverlay(entry) {
   });
 }
 
-function scheduleExplicitToggleFullRender() {
-  state.explicitFullRenderToken += 1;
-  const renderToken = state.explicitFullRenderToken;
+function scheduleExplicitToggleFullRender(options = {}) {
+  const immediate = options.immediate !== false;
+  if (immediate && state.explicitFullRenderTimer) {
+    extensionClearTimeout(state.explicitFullRenderTimer);
+    state.explicitFullRenderTimer = 0;
+  }
+  if (immediate) {
+    scheduleRender(getExplicitMarkingFullRenderOptions());
+    return;
+  }
   if (state.explicitFullRenderTimer) {
     extensionClearTimeout(state.explicitFullRenderTimer);
+    state.explicitFullRenderTimer = 0;
   }
   state.explicitFullRenderTimer = extensionSetTimeout(() => {
     state.explicitFullRenderTimer = 0;
-    runWhenIdle(() => {
-      if (renderToken !== state.explicitFullRenderToken) {
-        return;
-      }
-      scheduleRender(getExplicitMarkingFullRenderOptions());
-    });
-  }, EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS);
+    scheduleRender(getExplicitMarkingFullRenderOptions());
+  }, EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS);
 }
 
-export function scheduleExplicitOverlayRefresh(entry) {
+export function scheduleExplicitOverlayRefresh(entry, context = null) {
   state.explicitOverlayRefreshEntry = entry;
+  state.explicitOverlayRefreshContext = context;
   if (state.explicitOverlayRefreshScheduled) {
     return;
   }
   state.explicitOverlayRefreshScheduled = true;
   const runRefresh = () => {
     const pendingEntry = state.explicitOverlayRefreshEntry;
+    const pendingContext = state.explicitOverlayRefreshContext;
     state.explicitOverlayRefreshScheduled = false;
     state.explicitOverlayRefreshHandle = 0;
     state.explicitOverlayRefreshHandleType = "";
     state.explicitOverlayRefreshEntry = null;
+    state.explicitOverlayRefreshContext = null;
     if (!pendingEntry) {
       return;
     }
     const coalesceStartedAt = nowMs();
-    refreshExplicitMarkingOverlay(pendingEntry);
+    refreshExplicitMarkingOverlay(pendingEntry, pendingContext);
+    scheduleExplicitToggleFullRender({
+      immediate: !pendingContext || pendingContext.immediateFullRender !== false
+    });
     logTogglePerf("toggle.coalesced-refresh", coalesceStartedAt);
   };
   if (getExtensionRequestAnimationFrame()) {
@@ -7146,15 +7494,22 @@ function cancelExplicitOverlayRefresh() {
   state.explicitOverlayRefreshHandle = 0;
   state.explicitOverlayRefreshHandleType = "";
   state.explicitOverlayRefreshEntry = null;
+  state.explicitOverlayRefreshContext = null;
 }
 
-function completeExplicitToggle(entry, target, type, mutationStartedAt) {
+function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {}) {
   logTogglePerf("toggle.mutation", mutationStartedAt, {
     type,
     hasTarget: Boolean(target)
   });
-  scheduleExplicitOverlayRefresh(entry);
-  scheduleExplicitToggleFullRender();
+  const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
+    ? Boolean(options.immediateFullRender)
+    : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
+  scheduleExplicitOverlayRefresh(entry, {
+    target,
+    type,
+    immediateFullRender
+  });
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);
@@ -7879,6 +8234,12 @@ export function canApplyExplicitInclude(
   pageUrl = location.href,
   entryOverride = null
 ) {
+  if (isExplicitIncludeBoundaryCandidate(el, {
+    allowParent: false,
+    allowImmutableChildren: false
+  })) {
+    return true;
+  }
   if (isMarkableElement(el, configValue, {
     allowParent: false,
     allowImmutableChildren: false
@@ -8744,33 +9105,23 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
       }
     }
   }
-  const generatedDefaultExcludeSet = new Set();
-  const storedExplicitContextSet = new Set();
   const previousSilentWhitespaceExcludedSet = new Set(
     collectSilentWhitespaceExcludedXPaths(entry)
   );
-  for (const item of entry.xpaths || []) {
-    if (!item || typeof item.xpath !== "string" || !item.xpath) {
-      continue;
-    }
-    const el = getCachedElementFromXPath(item.xpath);
-    if (item.excluded && item.explicit !== true && el && matchesToggleableDefaultExcluded(el)) {
-      generatedDefaultExcludeSet.add(item.xpath);
-    } else if (item.explicit === true) {
-      storedExplicitContextSet.add(item.xpath);
-    }
-  }
   const explicitExcludeSet = new Set();
+  const explicitUserExcludeSet = new Set();
   for (const item of entry.xpaths || []) {
     const xpath = item && item.xpath;
     if (
       item &&
       item.excluded &&
-      item.explicit === true &&
       typeof xpath === "string" &&
       xpath
     ) {
       explicitExcludeSet.add(xpath);
+      if (item.explicit === true) {
+        explicitUserExcludeSet.add(xpath);
+      }
     }
   }
   const explicitExcludeAncestorSet = new Set();
@@ -8806,7 +9157,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   entry.includeXpaths = filteredIncludeXpaths;
   const explicitMarkedAncestorSet = new Set();
   const explicitMarkedXpaths = new Set([
-    ...storedExplicitContextSet,
+    ...Array.from(excludedLookup.keys()),
     ...filteredIncludeXpaths
   ]);
   for (const xpath of explicitMarkedXpaths) {
@@ -8829,7 +9180,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     if (explicitIncludeSet.has(xpath)) {
       return true;
     }
-    return storedExplicitContextSet.has(xpath);
+    return explicitXpathSet.has(xpath);
   };
   const explicitIncludeElements = [];
   for (const xpath of explicitIncludeSet) {
@@ -8962,7 +9313,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     if (seen.has(item.xpath)) {
       continue;
     }
-    if (isWithinExplicitExcludedXpath(item.xpath, explicitExcludeSet)) {
+    if (isWithinExplicitExcludedXpath(item.xpath, explicitUserExcludeSet)) {
       continue;
     }
     const explicitEl = getCachedElementFromXPath(item.xpath);
