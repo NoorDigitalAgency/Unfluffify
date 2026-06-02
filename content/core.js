@@ -3486,10 +3486,6 @@ function ensurePageInspectionStyle() {
     style.setAttribute("data-uf-extension-ui", "true");
   }
   style.textContent = `
-    html,
-    body {
-      scroll-behavior: auto !important;
-    }
     html.${PAGE_INSPECTION_OVERLAY_CLASS},
     html.${PAGE_INSPECTION_OVERLAY_CLASS} * {
       cursor: progress !important;
@@ -3602,16 +3598,35 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   });
 }
 
-async function scrollPageInspectionTo(y, isStillCurrent, options = {}) {
-  if (!isStillCurrent()) {
+async function scrollPageInspectionSmoothTo(y, isStillCurrent, options = {}) {
+  if (!isStillCurrent() || typeof window === "undefined") {
     return false;
   }
-  const scrollOffset = getWindowScrollOffset();
-  const didScroll = scrollWindowInstantlyTo(scrollOffset.x, Math.max(0, Math.round(Number(y) || 0)));
-  if (didScroll) {
-    await waitForPageInspectionScrollEnd(isStillCurrent, options);
+  if (typeof window.scrollTo === "function") {
+    window.scrollTo({ top: Math.max(0, Math.round(Number(y) || 0)), behavior: "smooth" });
+  } else {
+    return false;
   }
-  return didScroll;
+  await waitForPageInspectionScrollEnd(isStillCurrent, options);
+  return true;
+}
+
+async function scrollPageInspectionBodyToTop(isStillCurrent, options = {}) {
+  if (!isStillCurrent() || typeof document === "undefined" || typeof window === "undefined") {
+    return false;
+  }
+  const body = typeof document.querySelector === "function"
+    ? document.querySelector("body")
+    : document.body;
+  if (body && typeof body.scrollIntoView === "function") {
+    body.scrollIntoView({ block: "start", inline: "nearest" });
+  } else if (typeof window.scrollTo === "function") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    return false;
+  }
+  await waitForPageInspectionScrollEnd(isStillCurrent, options);
+  return true;
 }
 
 export async function revealPageContentBeforeMotionPause(
@@ -3630,45 +3645,39 @@ export async function revealPageContentBeforeMotionPause(
   const direction = normalizePageInspectionScrollDirection(scrollDirection);
   const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
-  const originalScroll = getWindowScrollOffset();
   let visited = false;
   ensurePageInspectionStyle();
   try {
     if (direction === "top") {
-      visited = await scrollPageInspectionTo(0, isStillCurrent, options) || visited;
+      visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
     }
     if (direction === "bottom" || direction === "both") {
       let lastHeight = 0;
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        const maxScrollY = getMaxScrollYForPageInspection();
-        if (maxScrollY <= 0) {
-          break;
-        }
-        visited = await scrollPageInspectionTo(maxScrollY, isStillCurrent, options) || visited;
+        const scrolled = await scrollPageInspectionSmoothTo(
+          typeof document.body !== "undefined" ? document.body.scrollHeight : 0,
+          isStillCurrent,
+          options
+        );
+        visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-        const newHeight = getDocumentScrollHeightForPageInspection();
+        const newHeight = typeof document.body !== "undefined" ? document.body.scrollHeight : 0;
         if (newHeight === lastHeight) {
           break;
         }
         lastHeight = newHeight;
-        scrollCount += 1;
+        scrollCount++;
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-      if (direction === "both" && isStillCurrent() && visited) {
-        visited = await scrollPageInspectionTo(0, isStillCurrent, options) || visited;
+      if (direction === "both" && isStillCurrent()) {
+        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
   } finally {
-    if (visited) {
-      scrollWindowInstantlyTo(originalScroll.x, originalScroll.y);
-    }
     removePageInspectionStyle();
-    if (visited && isStillCurrent()) {
-      await waitForPageInspectionScrollEnd(isStillCurrent, options);
-    }
   }
   return visited;
 }

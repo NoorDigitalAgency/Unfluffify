@@ -334,6 +334,10 @@ function createMotionDom() {
     getElementById(id) {
       return [html, ...html.querySelectorAll("*")].find((element) => element.id === id) || null;
     },
+    querySelector(selector) {
+      if (selector === "body") return body;
+      return [html, ...html.querySelectorAll("*")].find((element) => selectorMatches(element, selector)) || null;
+    },
     querySelectorAll(selector) {
       return [html, ...html.querySelectorAll("*")].filter((element) => selectorMatches(element, selector));
     },
@@ -342,15 +346,24 @@ function createMotionDom() {
       return animations;
     }
   };
+  body.scrollIntoView = function () {
+    window.scrollTo(0, 0);
+  };
   const window = {
     innerHeight: 120,
     scrollX: 0,
     scrollY: 0,
     pageXOffset: 0,
     pageYOffset: 0,
-    scrollTo(x, y) {
-      const nextX = Number(x) || 0;
-      const nextY = Number(y) || 0;
+    scrollTo(xOrOptions, y) {
+      let nextX, nextY;
+      if (typeof xOrOptions === "object" && xOrOptions !== null) {
+        nextX = Number(xOrOptions.left) || 0;
+        nextY = Number(xOrOptions.top) || 0;
+      } else {
+        nextX = Number(xOrOptions) || 0;
+        nextY = Number(y) || 0;
+      }
       this.scrollX = nextX;
       this.scrollY = nextY;
       this.pageXOffset = nextX;
@@ -581,7 +594,7 @@ test("page motion pause skips extension-owned marking UI", () => {
   }
 });
 
-test("page inspection reveal scrolls to the bottom, returns to top, and restores the original viewport", async () => {
+test("page inspection reveal scrolls to the bottom and then to the top using smooth scroll", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
@@ -603,20 +616,17 @@ test("page inspection reveal scrolls to the bottom, returns to top, and restores
     );
 
     assert.equal(inspected, true);
-    assert.equal(dom.scrollCalls[0].x, 12);
-    assert.equal(dom.scrollCalls[0].y, 2500);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.equal(dom.scrollCalls[0].y, 3000);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
     assert.equal(dom.scrollCalls.some((call) => call.y === 0), true);
-    assert.deepEqual(dom.scrollCalls.at(-1), { x: 12, y: 375 });
-    assert.equal(dom.window.scrollX, 12);
-    assert.equal(dom.window.scrollY, 375);
+    assert.equal(dom.scrollCalls.at(-1).y, 0);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
   }
 });
 
-test("page inspection reveal skips pages without vertical scroll room", async () => {
+test("page inspection reveal still scrolls on pages without vertical scroll room", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 700;
   dom.html.scrollHeight = 700;
@@ -633,8 +643,9 @@ test("page inspection reveal skips pages without vertical scroll room", async ()
       { scrollEndTimeoutMs: 0 }
     );
 
-    assert.equal(inspected, false);
-    assert.deepEqual(dom.scrollCalls, []);
+    assert.equal(inspected, true);
+    assert.ok(dom.scrollCalls.length > 0);
+    assert.equal(dom.scrollCalls.at(-1).y, 0);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
@@ -650,9 +661,12 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   dom.window.innerHeight = 500;
   const originalScrollTo = dom.window.scrollTo.bind(dom.window);
   let expanded = false;
-  dom.window.scrollTo = (x, y) => {
-    originalScrollTo(x, y);
-    if (y >= 500 && !expanded) {
+  dom.window.scrollTo = (xOrOptions, y) => {
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    if (actualY >= 500 && !expanded) {
       expanded = true;
       dom.html.scrollHeight = 3000;
       dom.body.scrollHeight = 3000;
@@ -669,8 +683,8 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
     );
 
     assert.equal(inspected, true);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
-    assert.deepEqual(dom.scrollCalls.at(-1), { x: 0, y: 0 });
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
+    assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
     dom.restore();
   }
