@@ -68,7 +68,7 @@ The remote-support regressions also cover tab-scoped background state, concurren
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure
@@ -111,6 +111,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 - **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
 - **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`core-motion-pause.test.js`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction

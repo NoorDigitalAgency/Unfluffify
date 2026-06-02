@@ -218,9 +218,10 @@ Marking mode must avoid duplicate full-page passes:
 
 - Enabling marking performs one activation path. The popup sends `setEnabled`;
   content activation/sync/render is handled from there, without a second
-  immediate `forceRefresh`. Before page motion is frozen and overlays are
-  rendered, activation may run a bounded reveal warm-up that restores the
-  user's original scroll position.
+  immediate `forceRefresh`. Before page motion is frozen and marking overlays
+  are rendered, activation must show the page-inspection spinner, block page and
+  content-overlay input, perform a bottom-and-top reveal scroll for lazy
+  content, then restore the user's original scroll position.
 - A manual refinement performs a cheap immediate explicit-layer refresh.
   Structural refinements then run an immediate invalidating full rebuild for
   correctness. Leaf explicit-exclude refinements may debounce the invalidating

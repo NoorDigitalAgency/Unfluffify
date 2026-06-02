@@ -48,6 +48,8 @@ export const state = {
   toast: null,
   toastHideTimer: 0,
   markingDisabledNotice: null,
+  pageInspectionNotice: null,
+  inspectionBlocker: null,
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
@@ -172,11 +174,38 @@ const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
 const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
 const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
-const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
-const PAGE_REVEAL_WARMUP_MAX_INTERVALS = 12;
-const PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES = 5;
-const PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES = 2;
-const PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA = 2;
+const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
+const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
+const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
+const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
+const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 2000;
+const PAGE_INSPECTION_SCROLL_END_INTERVAL_MS = 100;
+const PAGE_INSPECTION_SCROLL_END_STABLE_TICKS = 10;
+const PAGE_INSPECTION_INPUT_EVENTS = [
+  "auxclick",
+  "beforeinput",
+  "click",
+  "contextmenu",
+  "dblclick",
+  "dragstart",
+  "drop",
+  "input",
+  "keydown",
+  "keypress",
+  "keyup",
+  "mousedown",
+  "mouseup",
+  "pointercancel",
+  "pointerdown",
+  "pointermove",
+  "pointerup",
+  "submit",
+  "touchcancel",
+  "touchend",
+  "touchmove",
+  "touchstart",
+  "wheel"
+];
 const PAGE_MOTION_PAUSE_CONTENT_SELECTOR = `html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body ` +
   `:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *)` +
   `:not([id^="unfluffify-"]):not([id^="unfluffify-"] *)`;
@@ -224,6 +253,7 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-include",
   "uf-cursor-passthrough",
   MARKING_DISABLED_CURSOR_CLASS,
+  PAGE_INSPECTION_OVERLAY_CLASS,
   PAGE_MOTION_PAUSE_ROOT_CLASS
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
@@ -3374,7 +3404,7 @@ function getMaterialDesignIconFontFaceCss() {
   `;
 }
 
-function getViewportHeightForRevealWarmup() {
+function getViewportHeightForPageInspection() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
   }
@@ -3386,15 +3416,11 @@ function getViewportHeightForRevealWarmup() {
   ]);
 }
 
-function getMaxScrollYForRevealWarmup() {
+function getDocumentScrollHeightForPageInspection() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
   }
-  const viewportHeight = getViewportHeightForRevealWarmup();
-  if (!viewportHeight) {
-    return 0;
-  }
-  const documentHeight = getPositiveFiniteMax([
+  return getPositiveFiniteMax([
     document.documentElement?.scrollHeight,
     document.body?.scrollHeight,
     document.documentElement?.offsetHeight,
@@ -3402,46 +3428,18 @@ function getMaxScrollYForRevealWarmup() {
     document.documentElement?.clientHeight,
     document.body?.clientHeight
   ]);
+}
+
+function getMaxScrollYForPageInspection() {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return 0;
+  }
+  const viewportHeight = getViewportHeightForPageInspection();
+  if (!viewportHeight) {
+    return 0;
+  }
+  const documentHeight = getDocumentScrollHeightForPageInspection();
   return Math.max(0, Math.round(documentHeight - viewportHeight));
-}
-
-function createPageRevealWarmupScrollPositions() {
-  const maxScrollY = getMaxScrollYForRevealWarmup();
-  if (maxScrollY <= PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-    return [];
-  }
-  const viewportHeight = getViewportHeightForRevealWarmup();
-  const preferredStep = Math.max(320, Math.round(viewportHeight * 0.85));
-  const intervals = Math.min(
-    PAGE_REVEAL_WARMUP_MAX_INTERVALS,
-    Math.max(1, Math.ceil(maxScrollY / preferredStep))
-  );
-  const positions = [];
-  for (let index = 0; index <= intervals; index += 1) {
-    const position = Math.round((maxScrollY * index) / intervals);
-    if (positions.length === 0 || Math.abs(positions[positions.length - 1] - position) > PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-      positions.push(position);
-    }
-  }
-  if (Math.abs(positions[positions.length - 1] - maxScrollY) > PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-    positions.push(maxScrollY);
-  }
-  return positions;
-}
-
-function extendPageRevealWarmupScrollPositions(existingPositions) {
-  const nextPositions = createPageRevealWarmupScrollPositions();
-  if (!nextPositions.length) {
-    return existingPositions || [];
-  }
-  const positions = Array.isArray(existingPositions) ? existingPositions : [];
-  const previousMaxPosition = getPositiveFiniteMax(positions);
-  for (const position of nextPositions) {
-    if (position > previousMaxPosition + PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-      positions.push(position);
-    }
-  }
-  return positions;
 }
 
 function scrollWindowInstantlyTo(x, y) {
@@ -3469,12 +3467,12 @@ function scrollWindowInstantlyTo(x, y) {
   }
 }
 
-function ensurePageRevealWarmupStyle() {
+function ensurePageInspectionStyle() {
   if (typeof document === "undefined") {
     return null;
   }
   const existing = typeof document.getElementById === "function"
-    ? document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID)
+    ? document.getElementById(PAGE_INSPECTION_STYLE_ID)
     : null;
   if (existing) {
     return existing;
@@ -3483,7 +3481,7 @@ function ensurePageRevealWarmupStyle() {
     return null;
   }
   const style = document.createElement("style");
-  style.id = PAGE_REVEAL_WARMUP_STYLE_ID;
+  style.id = PAGE_INSPECTION_STYLE_ID;
   if (typeof style.setAttribute === "function") {
     style.setAttribute("data-uf-extension-ui", "true");
   }
@@ -3491,6 +3489,10 @@ function ensurePageRevealWarmupStyle() {
     html,
     body {
       scroll-behavior: auto !important;
+    }
+    html.${PAGE_INSPECTION_OVERLAY_CLASS},
+    html.${PAGE_INSPECTION_OVERLAY_CLASS} * {
+      cursor: progress !important;
     }
   `;
   const parent = document.head || document.documentElement || document.body;
@@ -3500,88 +3502,223 @@ function ensurePageRevealWarmupStyle() {
   return style;
 }
 
-function removePageRevealWarmupStyle() {
+function removePageInspectionStyle() {
   const style = typeof document !== "undefined" && typeof document.getElementById === "function"
-    ? document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID)
+    ? document.getElementById(PAGE_INSPECTION_STYLE_ID)
     : null;
   if (style && typeof style.remove === "function") {
     style.remove();
   }
 }
 
-function waitForPageRevealWarmupFrame() {
+function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
+  const delay = Math.max(0, Math.trunc(Number(ms) || 0));
+  if (delay === 0 || !isStillCurrent()) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
-    extensionRequestAnimationFrame(() => resolve());
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!isStillCurrent()) {
+        resolve();
+        return;
+      }
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= delay) {
+        resolve();
+        return;
+      }
+      extensionSetTimeout(tick, Math.min(100, delay - elapsed));
+    };
+    extensionSetTimeout(tick, Math.min(100, delay));
   });
 }
 
-function getPageRevealWarmupSettleSignature() {
-  return [
-    Math.round(getWindowScrollOffset().y),
-    Math.round(getViewportHeightForRevealWarmup()),
-    Math.round(getMaxScrollYForRevealWarmup()),
-    Math.round(getPositiveFiniteMax([
-      document.documentElement?.scrollHeight,
-      document.body?.scrollHeight
-    ]))
-  ].join(":");
+function normalizePageInspectionScrollDirection(value) {
+  const direction = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return direction === "top" || direction === "bottom" || direction === "both"
+    ? direction
+    : "both";
 }
 
-async function waitForPageRevealWarmupSettle(isStillCurrent) {
-  let stableFrames = 0;
-  let previousSignature = "";
-  for (let frame = 0; frame < PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES; frame += 1) {
-    await waitForPageRevealWarmupFrame();
-    if (!isStillCurrent()) {
-      return;
-    }
-    const signature = getPageRevealWarmupSettleSignature();
-    if (signature === previousSignature) {
-      stableFrames += 1;
-      if (stableFrames >= PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES) {
+function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
+  const timeout = Math.max(
+    0,
+    Math.trunc(
+      options.scrollEndTimeoutMs === undefined
+        ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
+        : Number(options.scrollEndTimeoutMs) || 0
+    )
+  );
+  if (timeout === 0 || !isStillCurrent()) {
+    return Promise.resolve();
+  }
+  const intervalMs = Math.max(
+    10,
+    Math.trunc(
+      options.scrollEndIntervalMs === undefined
+        ? PAGE_INSPECTION_SCROLL_END_INTERVAL_MS
+        : Number(options.scrollEndIntervalMs) || 0
+    )
+  );
+  const stableTicks = Math.max(
+    1,
+    Math.trunc(
+      options.scrollEndStableTicks === undefined
+        ? PAGE_INSPECTION_SCROLL_END_STABLE_TICKS
+        : Number(options.scrollEndStableTicks) || 0
+    )
+  );
+  return new Promise((resolve) => {
+    let resolved = false;
+    let lastPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+    let sameCount = 0;
+    const finish = () => {
+      if (resolved) {
         return;
       }
-    } else {
-      previousSignature = signature;
-      stableFrames = 0;
-    }
-  }
+      resolved = true;
+      extensionClearInterval(interval);
+      extensionClearTimeout(timeoutHandle);
+      resolve();
+    };
+    const interval = extensionSetInterval(() => {
+      if (!isStillCurrent()) {
+        finish();
+        return;
+      }
+      const nextPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+      if (nextPosition === lastPosition) {
+        sameCount += 1;
+      } else {
+        sameCount = 0;
+      }
+      lastPosition = nextPosition;
+      if (sameCount > stableTicks) {
+        finish();
+      }
+    }, intervalMs);
+    const timeoutHandle = extensionSetTimeout(finish, timeout);
+  });
 }
 
-export async function warmPageRevealTriggersBeforeMotionPause(isStillCurrent = () => true) {
+async function scrollPageInspectionTo(y, isStillCurrent, options = {}) {
+  if (!isStillCurrent()) {
+    return false;
+  }
+  const scrollOffset = getWindowScrollOffset();
+  const didScroll = scrollWindowInstantlyTo(scrollOffset.x, Math.max(0, Math.round(Number(y) || 0)));
+  if (didScroll) {
+    await waitForPageInspectionScrollEnd(isStillCurrent, options);
+  }
+  return didScroll;
+}
+
+export async function revealPageContentBeforeMotionPause(
+  scrollDirection = "both",
+  maximumScrollCount = PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+  pauseMs = PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+  isStillCurrent = () => true,
+  options = {}
+) {
   if (typeof document === "undefined" || typeof window === "undefined" || !isStillCurrent()) {
     return false;
   }
   if (document.visibilityState === "hidden") {
     return false;
   }
-  const positions = createPageRevealWarmupScrollPositions();
-  if (!positions.length) {
-    return false;
-  }
+  const direction = normalizePageInspectionScrollDirection(scrollDirection);
+  const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
+  const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const originalScroll = getWindowScrollOffset();
   let visited = false;
-  ensurePageRevealWarmupStyle();
+  ensurePageInspectionStyle();
   try {
-    for (let index = 0; index < positions.length; index += 1) {
-      const position = positions[index];
-      if (!isStillCurrent()) {
-        break;
+    if (direction === "top") {
+      visited = await scrollPageInspectionTo(0, isStillCurrent, options) || visited;
+      await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+    }
+    if (direction === "bottom" || direction === "both") {
+      let lastHeight = 0;
+      let scrollCount = 0;
+      while (scrollCount < maxScrolls && isStillCurrent()) {
+        const maxScrollY = getMaxScrollYForPageInspection();
+        if (maxScrollY <= 0) {
+          break;
+        }
+        visited = await scrollPageInspectionTo(maxScrollY, isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+        const newHeight = getDocumentScrollHeightForPageInspection();
+        if (newHeight === lastHeight) {
+          break;
+        }
+        lastHeight = newHeight;
+        scrollCount += 1;
       }
-      if (scrollWindowInstantlyTo(originalScroll.x, position)) {
-        visited = true;
+      await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      if (direction === "both" && isStillCurrent() && visited) {
+        visited = await scrollPageInspectionTo(0, isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
-      await waitForPageRevealWarmupSettle(isStillCurrent);
-      extendPageRevealWarmupScrollPositions(positions);
     }
   } finally {
-    scrollWindowInstantlyTo(originalScroll.x, originalScroll.y);
-    removePageRevealWarmupStyle();
+    if (visited) {
+      scrollWindowInstantlyTo(originalScroll.x, originalScroll.y);
+    }
+    removePageInspectionStyle();
     if (visited && isStillCurrent()) {
-      await waitForPageRevealWarmupSettle(isStillCurrent);
+      await waitForPageInspectionScrollEnd(isStillCurrent, options);
     }
   }
   return visited;
+}
+
+function blockPageInspectionInput(event) {
+  if (!state.inspectionBlocker) {
+    return;
+  }
+  if (event && event.cancelable && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  if (event && typeof event.stopImmediatePropagation === "function") {
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (event && typeof event.stopPropagation === "function") {
+    event.stopPropagation();
+  }
+}
+
+function startPageInspectionInputBlocker() {
+  if (state.inspectionBlocker) {
+    return;
+  }
+  const targets = [window, document].filter((target) =>
+    target && typeof target.addEventListener === "function"
+  );
+  const options = { capture: true, passive: false };
+  for (const target of targets) {
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.addEventListener(eventName, blockPageInspectionInput, options);
+    }
+  }
+  state.inspectionBlocker = { targets, options };
+}
+
+function stopPageInspectionInputBlocker() {
+  const blocker = state.inspectionBlocker;
+  if (!blocker) {
+    return;
+  }
+  for (const target of blocker.targets) {
+    if (!target || typeof target.removeEventListener !== "function") {
+      continue;
+    }
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.removeEventListener(eventName, blockPageInspectionInput, blocker.options);
+    }
+  }
+  state.inspectionBlocker = null;
 }
 
 function ensurePageMotionPauseStyle() {
@@ -3708,6 +3845,21 @@ function setPageMotionPauseClass(paused) {
     root.classList.add(PAGE_MOTION_PAUSE_ROOT_CLASS);
   } else if (!paused && typeof root.classList.remove === "function") {
     root.classList.remove(PAGE_MOTION_PAUSE_ROOT_CLASS);
+  }
+}
+
+function setElementClassPresence(element, className, enabled) {
+  if (!element || !element.classList) {
+    return;
+  }
+  if (typeof element.classList.toggle === "function") {
+    element.classList.toggle(className, Boolean(enabled));
+    return;
+  }
+  if (enabled && typeof element.classList.add === "function") {
+    element.classList.add(className);
+  } else if (!enabled && typeof element.classList.remove === "function") {
+    element.classList.remove(className);
   }
 }
 
@@ -4919,6 +5071,11 @@ function createOverlay() {
         z-index: 2147483646;
         pointer-events: auto;
       }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} {
+        background: rgba(16, 20, 28, 0.2);
+        -webkit-backdrop-filter: blur(1px);
+        backdrop-filter: blur(1px);
+      }
       #unfluffify-overlay .uf-layer {
         position: absolute;
         inset: 0;
@@ -4934,6 +5091,9 @@ function createOverlay() {
       #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
       #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 10; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
+        opacity: 0;
+      }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} .uf-layer {
         opacity: 0;
       }
       #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-layer {
@@ -5084,6 +5244,55 @@ function createOverlay() {
       #unfluffify-overlay .uf-marking-disabled-notice[hidden] {
         display: none;
       }
+      #unfluffify-overlay .uf-page-inspection-notice {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: min(460px, calc(100vw - 32px));
+        box-sizing: border-box;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        background: rgba(22, 26, 34, 0.96);
+        color: #ffffff;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 14px;
+        font-weight: 650;
+        line-height: 1.3;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(0.98);
+        opacity: 0;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} .uf-page-inspection-notice {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      #unfluffify-overlay .uf-page-inspection-notice[hidden] {
+        display: none;
+      }
+      #unfluffify-overlay .uf-page-inspection-spinner {
+        width: 20px;
+        height: 20px;
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 255, 255, 0.28);
+        border-top-color: #ffffff;
+        border-radius: 999px;
+        animation: uf-page-inspection-spin 0.8s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes uf-page-inspection-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #unfluffify-overlay .uf-page-inspection-spinner {
+          animation: none;
+        }
+      }
     `;
   (document.body || document.documentElement).appendChild(style);
 
@@ -5128,6 +5337,23 @@ function createOverlay() {
   overlay.appendChild(disabledNotice);
   state.markingDisabledNotice = disabledNotice;
 
+  const inspectionNotice = document.createElement("div");
+  inspectionNotice.className = "uf-page-inspection-notice";
+  inspectionNotice.hidden = true;
+  inspectionNotice.setAttribute("data-uf-extension-ui", "true");
+  inspectionNotice.setAttribute("role", "status");
+  inspectionNotice.setAttribute("aria-live", "assertive");
+  const inspectionSpinner = document.createElement("span");
+  inspectionSpinner.className = "uf-page-inspection-spinner";
+  inspectionSpinner.setAttribute("aria-hidden", "true");
+  const inspectionMessage = document.createElement("span");
+  inspectionMessage.className = "uf-page-inspection-message";
+  inspectionMessage.textContent = ContentText.marking.pageInspection;
+  inspectionNotice.appendChild(inspectionSpinner);
+  inspectionNotice.appendChild(inspectionMessage);
+  overlay.appendChild(inspectionNotice);
+  state.pageInspectionNotice = inspectionNotice;
+
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
@@ -5145,8 +5371,41 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
+function setPageInspectionUiActive(active) {
+  const enabled = Boolean(active);
+  if (typeof document !== "undefined" && document.documentElement) {
+    setElementClassPresence(document.documentElement, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
+  }
+  if (state.overlay) {
+    setElementClassPresence(state.overlay, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
+    state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
+  }
+  if (state.pageInspectionNotice) {
+    state.pageInspectionNotice.hidden = !enabled;
+  }
+  updateCursorMode();
+}
+
+async function inspectPageBeforeMotionPause(isStillCurrent) {
+  startPageInspectionInputBlocker();
+  try {
+    createOverlay();
+    setPageInspectionUiActive(true);
+    return await revealPageContentBeforeMotionPause(
+      "both",
+      PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+      PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+      isStillCurrent
+    );
+  } finally {
+    setPageInspectionUiActive(false);
+    stopPageInspectionInputBlocker();
+  }
+}
+
 
 function removeOverlay() {
+  setPageInspectionUiActive(false);
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
     state.overlay.removeEventListener("click", handleClick, true);
@@ -5159,6 +5418,7 @@ function removeOverlay() {
     state.focusElement = null;
     state.toast = null;
     state.markingDisabledNotice = null;
+    state.pageInspectionNotice = null;
   }
   state.lastPointer = null;
   if (state.toggleAckTimer) {
@@ -8640,6 +8900,7 @@ export function disable() {
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   state.pageRevealWarmupId += 1;
+  stopPageInspectionInputBlocker();
   if (state.renderTimer) {
     extensionClearTimeout(state.renderTimer);
     state.renderTimer = 0;
@@ -8744,12 +9005,11 @@ export async function enableForBaseUrl(baseUrl) {
     state.enabled &&
     state.baseUrl === normalizedBaseUrl &&
     location.href === pageUrl;
-  await warmPageRevealTriggersBeforeMotionPause(isRevealWarmupCurrent);
+  await inspectPageBeforeMotionPause(isRevealWarmupCurrent);
   if (!isRevealWarmupCurrent()) {
     return;
   }
   pausePageMotion();
-  createOverlay();
   scheduleRender();
   startObservers();
   startUrlWatcher();

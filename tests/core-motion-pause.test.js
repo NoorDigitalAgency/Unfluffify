@@ -6,9 +6,9 @@ import {
   createSanitizedPageSnapshot,
   pausePageMotion,
   refreshPageMotionPause,
+  revealPageContentBeforeMotionPause,
   resumePageMotion,
-  state,
-  warmPageRevealTriggersBeforeMotionPause
+  state
 } from "../content/core.js";
 
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
@@ -16,7 +16,7 @@ const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_LOCK_ATTR = "data-uf-motion-lock-id";
-const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
+const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 
 function createClassList(owner, initialValue = "") {
   const values = new Set(String(initialValue || "").split(/\s+/).filter(Boolean));
@@ -581,7 +581,7 @@ test("page motion pause skips extension-owned marking UI", () => {
   }
 });
 
-test("page reveal warmup sweeps scroll positions and restores the original viewport", async () => {
+test("page inspection reveal scrolls to the bottom, returns to top, and restores the original viewport", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
@@ -594,22 +594,29 @@ test("page reveal warmup sweeps scroll positions and restores the original viewp
   dom.window.pageYOffset = 375;
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
 
-    assert.equal(warmed, true);
+    assert.equal(inspected, true);
     assert.equal(dom.scrollCalls[0].x, 12);
-    assert.equal(dom.scrollCalls[0].y, 0);
+    assert.equal(dom.scrollCalls[0].y, 2500);
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.equal(dom.scrollCalls.some((call) => call.y === 0), true);
     assert.deepEqual(dom.scrollCalls.at(-1), { x: 12, y: 375 });
     assert.equal(dom.window.scrollX, 12);
     assert.equal(dom.window.scrollY, 375);
-    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+    assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
   }
 });
 
-test("page reveal warmup skips pages without vertical scroll room", async () => {
+test("page inspection reveal skips pages without vertical scroll room", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 700;
   dom.html.scrollHeight = 700;
@@ -618,47 +625,50 @@ test("page reveal warmup skips pages without vertical scroll room", async () => 
   dom.window.innerHeight = 700;
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
 
-    assert.equal(warmed, false);
+    assert.equal(inspected, false);
     assert.deepEqual(dom.scrollCalls, []);
-    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+    assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
   }
 });
 
-test("page reveal warmup extends its sweep when delayed layout growth increases scroll range", async () => {
+test("page inspection reveal repeats bottom scrolls while lazy layout growth increases scroll range", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 1000;
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 1000;
   dom.window.innerHeight = 500;
-  let pendingExpansionFrames = -1;
   const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  let expanded = false;
   dom.window.scrollTo = (x, y) => {
     originalScrollTo(x, y);
-    if (y >= 500 && pendingExpansionFrames < 0) {
-      pendingExpansionFrames = 3;
+    if (y >= 500 && !expanded) {
+      expanded = true;
+      dom.html.scrollHeight = 3000;
+      dom.body.scrollHeight = 3000;
     }
-  };
-  dom.window.requestAnimationFrame = (callback) => {
-    if (pendingExpansionFrames > 0) {
-      pendingExpansionFrames -= 1;
-      if (pendingExpansionFrames === 0) {
-        dom.html.scrollHeight = 3000;
-        dom.body.scrollHeight = 3000;
-      }
-    }
-    callback(0);
-    return { callback };
   };
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
 
-    assert.equal(warmed, true);
+    assert.equal(inspected, true);
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
     assert.deepEqual(dom.scrollCalls.at(-1), { x: 0, y: 0 });
   } finally {
@@ -909,16 +919,26 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
   assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
 });
 
-test("marking enable warms page reveals before freezing and rendering overlays", () => {
+test("marking enable inspects and blocks input before freezing and rendering overlays", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl)");
 
   assert.ok(enableIndex > -1);
-  const warmIndex = source.indexOf("await warmPageRevealTriggersBeforeMotionPause", enableIndex);
+  const inspectIndex = source.indexOf("await inspectPageBeforeMotionPause", enableIndex);
   const pauseIndex = source.indexOf("pausePageMotion();", enableIndex);
-  const overlayIndex = source.indexOf("createOverlay();", enableIndex);
+  const inspectSource = source.slice(
+    source.indexOf("async function inspectPageBeforeMotionPause"),
+    source.indexOf("function removeOverlay", source.indexOf("async function inspectPageBeforeMotionPause"))
+  );
 
-  assert.ok(warmIndex > -1);
-  assert.ok(pauseIndex > warmIndex);
-  assert.ok(overlayIndex > pauseIndex);
+  assert.ok(inspectIndex > -1);
+  assert.ok(pauseIndex > inspectIndex);
+  assert.match(inspectSource, /startPageInspectionInputBlocker\(\);[\s\S]*?createOverlay\(\);/);
+  assert.match(inspectSource, /setPageInspectionUiActive\(true\);/);
+  assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
+  assert.match(inspectSource, /setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
+  assert.match(source, /ContentText\.marking\.pageInspection/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"touchmove"/);
 });

@@ -330,7 +330,7 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   assert.match(planSource, /052c-derived marking restoration completed/);
   assert.match(planSource, /submit every stored excluded XPath row as excluded/i);
   assert.match(readmeSource, /locked 052c-derived restored contract/i);
-  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
+  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-motion-pause\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
   assert.match(constantsSource, /locked marking contract/);
 });
 
