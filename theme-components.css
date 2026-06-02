@@ -863,20 +863,29 @@ button.property-lock__button {
 }
 
 .render-mode-selected-value {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  margin-right: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-accent);
-  color: var(--ink);
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
+  font-weight: 600;
+}
+
+.render-mode-selected-value__icon {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.render-mode-selected-value__text {
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 

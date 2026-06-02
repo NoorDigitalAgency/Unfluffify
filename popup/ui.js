@@ -16,6 +16,10 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../common/lynx-checklist.js";
+import {
+  getRenderModeOptionIcon,
+  getRenderModeOptionLabel
+} from "./render-mode.js";
 
 export { ViewText } from "../common/text.js";
 
@@ -1070,19 +1074,10 @@ function renderRemoteSupportedView(view, handlers) {
   );
 }
 
-function getRenderModeOptionLabel(renderModeValue) {
-  if (renderModeValue === "static") {
-    return PopupText.renderMode.optionStatic;
-  }
-  if (renderModeValue === "rendered") {
-    return PopupText.renderMode.optionRendered;
-  }
-  return PopupText.renderMode.optionUndetermined;
-}
-
 function renderRenderModeEditor(view, handlers) {
   const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
   const selectedRenderModeLabel = getRenderModeOptionLabel(view.renderModeValue);
+  const selectedRenderModeIcon = getRenderModeOptionIcon(view.renderModeValue);
 
   return h(
     Fragment,
@@ -1195,7 +1190,8 @@ function renderRenderModeEditor(view, handlers) {
             role: "status",
             "aria-live": "polite"
           },
-          selectedRenderModeLabel
+          icon(selectedRenderModeIcon, "render-mode-selected-value__icon"),
+          h("span", { class: "render-mode-selected-value__text" }, selectedRenderModeLabel)
         ),
         h(
           "select",

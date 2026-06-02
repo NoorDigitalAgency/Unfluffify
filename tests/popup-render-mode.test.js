@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { PopupText } from "../common/text.js";
-import { resolveRenderModeInspectionReloadOutcome } from "../popup/render-mode.js";
+import {
+  getRenderModeOptionIcon,
+  getRenderModeOptionLabel,
+  resolveRenderModeInspectionReloadOutcome
+} from "../popup/render-mode.js";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
@@ -30,15 +34,30 @@ test("render mode text copy uses the updated manual comparison wording", () => {
 test("render mode editor shows a textual selected-mode summary instead of a visible dropdown", () => {
   const editorBlock = extractSourceBlock(
     uiSource,
-    "function getRenderModeOptionLabel",
+    "function renderRenderModeEditor",
     "function getTodoProgress"
   );
 
-  assert.match(editorBlock, /function getRenderModeOptionLabel\(renderModeValue\)/);
-  assert.match(editorBlock, /class:\s*"render-mode-selected-value"/);
   assert.match(editorBlock, /const selectedRenderModeLabel = getRenderModeOptionLabel\(view\.renderModeValue\);/);
+  assert.match(editorBlock, /const selectedRenderModeIcon = getRenderModeOptionIcon\(view\.renderModeValue\);/);
+  assert.match(editorBlock, /class:\s*"render-mode-selected-value"/);
+  assert.match(editorBlock, /icon\(selectedRenderModeIcon, "render-mode-selected-value__icon"\)/);
   assert.match(editorBlock, /selectedRenderModeLabel/);
   assert.match(editorBlock, /id:\s*"render-mode",[\s\S]*class:\s*"u-d-none"/);
+});
+
+test("render mode option label maps known modes and falls back to undetermined", () => {
+  assert.equal(getRenderModeOptionLabel("static"), PopupText.renderMode.optionStatic);
+  assert.equal(getRenderModeOptionLabel("rendered"), PopupText.renderMode.optionRendered);
+  assert.equal(getRenderModeOptionLabel("undetermined"), PopupText.renderMode.optionUndetermined);
+  assert.equal(getRenderModeOptionLabel("unexpected"), PopupText.renderMode.optionUndetermined);
+});
+
+test("render mode option icon maps known modes and falls back to the dashboard glyph", () => {
+  assert.equal(getRenderModeOptionIcon("static"), "language-html5");
+  assert.equal(getRenderModeOptionIcon("rendered"), "language-javascript");
+  assert.equal(getRenderModeOptionIcon("undetermined"), "monitor-dashboard");
+  assert.equal(getRenderModeOptionIcon("unexpected"), "monitor-dashboard");
 });
 
 test("render mode inspection reload outcome uses the explicit reload error when reload setup fails", () => {
