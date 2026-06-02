@@ -1005,7 +1005,6 @@ function ensureRemoteSupportSupportPageStyles() {
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__hero,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__connect-card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__caption {
       display: none;
     }
@@ -1024,8 +1023,7 @@ function ensureRemoteSupportSupportPageStyles() {
       backdrop-filter: none;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage {
       min-width: 0;
     }
 
@@ -1036,28 +1034,12 @@ function ensureRemoteSupportSupportPageStyles() {
       justify-self: center;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
-      width: min(360px, 100%);
-      justify-self: start;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
       border: 1px solid rgba(182, 209, 246, 0.14);
       border-radius: 24px;
       background: rgba(8, 16, 27, 0.84);
       box-shadow: 0 24px 60px rgba(5, 10, 19, 0.35);
       backdrop-filter: blur(18px);
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card {
-      padding: 20px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
-      display: grid;
-      gap: 12px;
-      align-content: start;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-brand {
@@ -1072,22 +1054,6 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta {
       display: grid;
       gap: 14px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-label {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #7ea4d4;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-value {
-      margin-top: 6px;
-      color: #ffffff;
-      font-size: 18px;
-      font-weight: 600;
-      word-break: break-word;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface:focus-visible {
@@ -1482,6 +1448,10 @@ function ensureRemoteSupportSupportPageUi() {
               <div class="uf-support-page__stage-copy" data-uf-extension-ui="true">
                 <h1 class="uf-support-page__sidebar-brand" data-uf-extension-ui="true">Unfluffify Support</h1>
                 <p id="uf-support-page-passive-state" class="uf-support-page__status" data-uf-extension-ui="true">Join a support session from the Unfluffify extension popup while this /support tab stays focused on viewing.</p>
+                <div id="uf-support-page-error" class="uf-support-page__notice" role="alert" aria-live="assertive" aria-atomic="true" hidden data-uf-extension-ui="true">
+                  <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
+                  <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
+                </div>
               </div>
               <button id="uf-support-page-fullscreen" class="uf-support-page__button uf-support-page__button--compact" type="button" data-uf-extension-ui="true">Enter fullscreen</button>
             </div>
@@ -1491,14 +1461,6 @@ function ensureRemoteSupportSupportPageUi() {
               <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
-          </div>
-          <div class="uf-support-page__card uf-support-page__connect-card" data-uf-extension-ui="true">
-            <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support page</div>
-            <p class="uf-support-page__status" data-uf-extension-ui="true">Use the extension popup to join. The page surface stays dedicated to the shared screen.</p>
-            <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
-              <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
-              <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
-            </div>
           </div>
         </section>
       </div>
