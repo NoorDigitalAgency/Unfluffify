@@ -99,6 +99,29 @@ test("default mobile helper preserves stored per-session choices", () => {
   assert.match(helperBlock, /recalculateScale:\s*true/);
 });
 
+test("render mode cleanup preserves an active mobile simulation choice", () => {
+  const cleanupBlock = extractSourceBlock(
+    popupSource,
+    "async function normalizeRenderModeDebuggerPage",
+    "async function syncRenderModeDebuggerLifecycle"
+  );
+
+  assert.match(cleanupBlock, /const deviceState = await emulation\.getDeviceEmulationState\(tabId\);/);
+  assert.match(cleanupBlock, /if \(deviceState && deviceState\.enabled\) \{/);
+  assert.match(cleanupBlock, /await utils\.reloadPageWithJavaScriptControl\(tabId,\s*false\)/);
+  assert.match(cleanupBlock, /const detachResult = await utils\.detachDebugger\(tabId\);/);
+});
+
+test("render mode lifecycle reuses shared page normalization on close and tab switch", () => {
+  const lifecycleBlock = extractSourceBlock(
+    popupSource,
+    "async function syncRenderModeDebuggerLifecycle",
+    "async function handleRenderModeInspectWithJavaScript"
+  );
+
+  assert.match(lifecycleBlock, /await normalizeRenderModeDebuggerPage\(managedTabId\);/);
+});
+
 test("disabled mobile emulation remains a per-session choice after navigation cleanup", () => {
   const cleanupBlock = extractSourceBlock(
     emulationSource,

@@ -485,7 +485,8 @@ Rules:
 - opening Unfluffify enables mobile simulation by default for each fresh tab
   session, including when an already-open side panel moves to a new tab, but a
   user-disabled simulation state is preserved for that session and must not be
-  auto-enabled again,
+  auto-enabled again, and Render Mode inspection must not clear an existing
+  session simulation choice,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 

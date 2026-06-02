@@ -568,6 +568,8 @@ const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
 const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.65;
 const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.95;
+const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 2000;
+const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 8000;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -2939,26 +2941,87 @@ function hasCalculatedSelectorsFromConfig(sourceConfig = state.currentConfig) {
   return combineAiSelectorSet(sourceConfig && sourceConfig.selectors).length > 0;
 }
 
-async function hideConsentForRenderModeInspection() {
-  const tabId = state.currentTab && state.currentTab.id;
+async function hideConsentForRenderModeInspection(targetTabId = state.currentTab && state.currentTab.id) {
+  const tabId = Number.isFinite(targetTabId)
+    ? Math.trunc(targetTabId)
+    : null;
   if (!tabId) {
     return false;
   }
-  let hideResponse = await messages.sendTabMessageWithRetry(
-    { type: "hideConsentForInspection" },
-    2
-  );
+
+  const sendHideMessageWithRetry = async (attempts) => {
+    for (let index = 0; index < attempts; index += 1) {
+      const response = await messages.sendTabMessageToTab(tabId, {
+        type: "hideConsentForInspection"
+      });
+      if (response) {
+        return response;
+      }
+      await messages.delay(250);
+    }
+    return null;
+  };
+
+  let hideResponse = await sendHideMessageWithRetry(2);
   if (!hideResponse || !hideResponse.ok) {
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId });
-    hideResponse = await messages.sendTabMessageWithRetry(
-      { type: "hideConsentForInspection" },
-      3
-    );
+    hideResponse = await sendHideMessageWithRetry(3);
   }
   return Boolean(hideResponse && hideResponse.ok);
 }
 
-async function waitForTabLoadComplete(tabId, timeoutMs = 8000, options = {}) {
+async function waitForTabLoadStart(tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) {
+  if (!tabId) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(value);
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) {
+        return;
+      }
+      if (
+        (changeInfo && changeInfo.status === "loading") ||
+        (changeInfo && typeof changeInfo.url === "string" && changeInfo.url)
+      ) {
+        finish(true);
+      }
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        finish(false);
+        return;
+      }
+      if (tab && tab.status === "loading") {
+        finish(true);
+      }
+    });
+  });
+}
+
+async function waitForTabLoadComplete(
+  tabId,
+  timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+  options = {}
+) {
   if (!tabId) {
     return false;
   }
@@ -3007,6 +3070,18 @@ async function waitForTabLoadComplete(tabId, timeoutMs = 8000, options = {}) {
       }
     });
   });
+}
+
+async function completeRenderModeInspectionReloadFollowUp(tabId) {
+  const loadCompleted = await waitForTabLoadComplete(
+    tabId,
+    RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
+  );
+  if (!loadCompleted) {
+    return false;
+  }
+  await hideConsentForRenderModeInspection(tabId);
+  return true;
 }
 
 function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
@@ -4650,24 +4725,37 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 
   await runWithPopupBusyOverlay(PopupText.overlay.pleaseWait, async () => {
-    const loadCompletePromise = waitForTabLoadComplete(tabId, 8000, {
-      awaitNextLoad: true
-    });
+    const loadStartPromise = waitForTabLoadStart(
+      tabId,
+      RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+    );
     const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
-    const loadCompleted = await loadCompletePromise;
-    const outcome = resolveRenderModeInspectionReloadOutcome(result, loadCompleted, javaScriptDisabled);
+    const loadStarted = await loadStartPromise;
+    const outcome = resolveRenderModeInspectionReloadOutcome(result, loadStarted, javaScriptDisabled);
     if (!outcome.ok) {
       uiModule.showToast(outcome.toast);
       return;
     }
 
-    await hideConsentForRenderModeInspection();
+    void completeRenderModeInspectionReloadFollowUp(tabId).catch(() => {});
     uiModule.showToast(outcome.toast);
   });
 }
 
-async function detachRenderModeDebuggerAndNormalizePage(tabId) {
+async function normalizeRenderModeDebuggerPage(tabId) {
   if (!tabId) {
+    return;
+  }
+
+  const deviceState = await emulation.getDeviceEmulationState(tabId);
+  if (deviceState && deviceState.enabled) {
+    const reloadResult = await utils.reloadPageWithJavaScriptControl(tabId, false);
+    if (!reloadResult.ok) {
+      console.warn(
+        "Unable to reload tab after re-enabling JavaScript:",
+        reloadResult.error || "Unknown error"
+      );
+    }
     return;
   }
 
@@ -4691,7 +4779,7 @@ async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentT
     }
 
     if (managedTabId && managedTabId !== currentTabId) {
-      await detachRenderModeDebuggerAndNormalizePage(managedTabId);
+      await normalizeRenderModeDebuggerPage(managedTabId);
       state.renderModeDebuggerTabId = null;
     }
 
@@ -4712,7 +4800,7 @@ async function syncRenderModeDebuggerLifecycle({ wasVisible, isVisible, currentT
   }
 
   if ((wasVisible || managedTabId) && managedTabId) {
-    await detachRenderModeDebuggerAndNormalizePage(managedTabId);
+    await normalizeRenderModeDebuggerPage(managedTabId);
     state.renderModeDebuggerTabId = null;
   }
 }

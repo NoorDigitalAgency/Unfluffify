@@ -1,6 +1,6 @@
 import { PopupText } from "../common/text.js";
 
-export function resolveRenderModeInspectionReloadOutcome(reloadResult, loadCompleted, javaScriptDisabled) {
+export function resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled) {
   if (!reloadResult || !reloadResult.ok) {
     return {
       ok: false,
@@ -8,7 +8,7 @@ export function resolveRenderModeInspectionReloadOutcome(reloadResult, loadCompl
     };
   }
 
-  if (!loadCompleted) {
+  if (!loadStarted) {
     return {
       ok: false,
       toast: PopupText.renderMode.toastInspectReloadFailed
