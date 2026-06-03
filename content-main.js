@@ -3848,14 +3848,10 @@ function startSilentHighlightingUrlWatcher() {
   }
   let lastUrl = location.href;
   silentHighlightingUrlTimer = window.setInterval(() => {
-    if (state.enabled) {
-      lastUrl = location.href;
-      return;
-    }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       const shouldRunEditorActivation = Boolean(
-        !state.enabled && propertyLockState && propertyLockState.isEditor
+        propertyLockState && propertyLockState.isEditor
       );
       runPropertyLockSync({
         pageUrl: lastUrl,
@@ -6119,6 +6115,10 @@ function applyPropertyLockServerMessage(serverMessage) {
       runEditorSilentHighlightingActivation().catch(() => {
         // Silent activation is best-effort and should not block lock-state updates.
       });
+    } else if (serverMessage.isEditor) {
+      runEditorSilentHighlightingActivation().catch(() => {
+        // Keep editor-role reveal/freeze aligned with navigation and reconnect updates.
+      });
     } else if (
       previousState &&
       previousState.isEditor &&
@@ -7429,7 +7429,7 @@ export function main() {
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
     const shouldRunEditorActivation = Boolean(
-      !state.enabled && propertyLockState && propertyLockState.isEditor
+      propertyLockState && propertyLockState.isEditor
     );
     runPropertyLockSync({ forceSiteIdRefresh: true });
     if (shouldRunEditorActivation) {

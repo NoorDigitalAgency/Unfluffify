@@ -65,6 +65,23 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(lockStateEnd > lockStateStart);
   assert.match(lockStateSource, /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;/);
   assert.match(lockStateSource, /if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.match(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+
+  const urlWatcherStart = source.indexOf("function startSilentHighlightingUrlWatcher() {");
+  const urlWatcherEnd = source.indexOf("function resetAiPreviewState()", urlWatcherStart);
+  const urlWatcherSource = source.slice(urlWatcherStart, urlWatcherEnd);
+  assert.ok(urlWatcherStart > -1);
+  assert.ok(urlWatcherEnd > urlWatcherStart);
+  assert.match(urlWatcherSource, /const shouldRunEditorActivation = Boolean\([\s\S]*?propertyLockState && propertyLockState\.isEditor[\s\S]*?\);/);
+  assert.doesNotMatch(urlWatcherSource, /!state\.enabled && propertyLockState && propertyLockState\.isEditor/);
+
+  const urlEventStart = source.indexOf("window.addEventListener(URL_CHANGED_EVENT, () => {");
+  const urlEventEnd = source.indexOf("refreshSilentHighlightings().then();", urlEventStart);
+  const urlEventSource = source.slice(urlEventStart, urlEventEnd);
+  assert.ok(urlEventStart > -1);
+  assert.ok(urlEventEnd > urlEventStart);
+  assert.match(urlEventSource, /const shouldRunEditorActivation = Boolean\([\s\S]*?propertyLockState && propertyLockState\.isEditor[\s\S]*?\);/);
+  assert.doesNotMatch(urlEventSource, /!state\.enabled && propertyLockState && propertyLockState\.isEditor/);
 });
 
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {
