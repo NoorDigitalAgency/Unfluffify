@@ -348,7 +348,15 @@ function createMotionDom() {
   };
   html.scrollIntoView = function (options = {}) {
     const block = typeof options === "object" && options !== null ? options.block : "start";
-    window.scrollTo(0, block === "end" ? Math.max(0, html.scrollHeight - window.innerHeight) : 0);
+    if (block === "end") {
+      window.scrollTo(0, Math.max(0, html.scrollHeight - window.innerHeight));
+      return;
+    }
+    if (block === "center") {
+      window.scrollTo(0, Math.max(0, Math.round((html.scrollHeight - window.innerHeight) / 2)));
+      return;
+    }
+    window.scrollTo(0, 0);
   };
   body.scrollIntoView = function () {
     window.scrollTo(0, 0);
