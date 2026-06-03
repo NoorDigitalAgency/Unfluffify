@@ -1,0 +1,9 @@
+{
+  "launchOptions": {
+    "headless": false,
+    "args": [
+      "--load-extension=../", 
+      "--disable-extensions-except=../"
+    ]
+  }
+}
