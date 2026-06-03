@@ -189,7 +189,9 @@ const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
 const PAGE_INSPECTION_LAZY_LOAD_PHASES = 1;
 const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
-const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 2000;
+const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;
+const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;
+const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;
 const PAGE_INSPECTION_INPUT_EVENTS = [
   "auxclick",
   "beforeinput",
@@ -3631,15 +3633,30 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   if (timeout === 0 || !isStillCurrent()) {
     return Promise.resolve();
   }
+  const settleMs = Math.max(
+    0,
+    Math.trunc(
+      options.scrollSettleMs === undefined
+        ? PAGE_INSPECTION_SCROLL_SETTLE_MS
+        : Number(options.scrollSettleMs) || 0
+    )
+  );
+  const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
   return new Promise((resolve) => {
     let resolved = false;
     let timeoutHandle = 0;
-    const startScrollY = window.scrollY || 0;
+    let rafHandle = 0;
+    let lastScrollY = Number(window.scrollY) || 0;
+    let lastMovementAt = Date.now();
     const finish = () => {
       if (resolved) {
         return;
       }
       resolved = true;
+      if (rafHandle) {
+        extensionCancelAnimationFrame(rafHandle);
+        rafHandle = 0;
+      }
       window.removeEventListener("scrollend", onScrollEnd);
       window.removeEventListener("scroll", onScroll);
       if (timeoutHandle) {
@@ -3648,22 +3665,49 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
       }
       resolve();
     };
+    const updateMovement = () => {
+      const currentScrollY = Number(window.scrollY) || 0;
+      if (Math.abs(currentScrollY - lastScrollY) > PAGE_INSPECTION_SCROLL_TOLERANCE_PX) {
+        lastScrollY = currentScrollY;
+        lastMovementAt = Date.now();
+      }
+    };
+    const isNearTarget = () => {
+      if (targetY === null) {
+        return true;
+      }
+      const currentScrollY = Number(window.scrollY) || 0;
+      return Math.abs(currentScrollY - targetY) <= PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
+    };
+    const hasSettled = () => Date.now() - lastMovementAt >= settleMs;
+    const pollUntilSettled = () => {
+      if (!isStillCurrent()) {
+        finish();
+        return;
+      }
+      updateMovement();
+      if (hasSettled() && isNearTarget()) {
+        finish();
+        return;
+      }
+      rafHandle = extensionRequestAnimationFrame(pollUntilSettled);
+    };
     const onScrollEnd = () => {
       if (!isStillCurrent()) {
         finish();
         return;
       }
-      finish();
+      updateMovement();
+      if (hasSettled() && isNearTarget()) {
+        finish();
+      }
     };
     const onScroll = () => {
-      const currentScrollY = window.scrollY || 0;
-      if (currentScrollY !== startScrollY) {
-        window.removeEventListener("scroll", onScroll);
-        window.addEventListener("scrollend", onScrollEnd);
-      }
+      updateMovement();
     };
     window.addEventListener("scroll", onScroll);
     window.addEventListener("scrollend", onScrollEnd);
+    rafHandle = extensionRequestAnimationFrame(pollUntilSettled);
     timeoutHandle = extensionSetTimeout(finish, timeout);
   });
 }
@@ -3720,8 +3764,12 @@ async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
-  window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
-  await waitForPageInspectionScrollEnd(isStillCurrent, options);
+  const targetScrollY = getPageInspectionScrollTarget(target);
+  window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+  await waitForPageInspectionScrollEnd(isStillCurrent, {
+    ...options,
+    targetY: targetScrollY
+  });
   return true;
 }
 

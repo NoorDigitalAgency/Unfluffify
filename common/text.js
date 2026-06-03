@@ -219,6 +219,7 @@ export const PopupText = Object.freeze({
     updatingInclusion: "Updating inclusion...", // Busy message while an explicit inclusion is removed.
     enablingMarking: "Enabling marking...", // Busy message while page marking is enabled.
     disablingMarking: "Disabling marking...", // Busy message while page marking is disabled.
+    pageInspection: "Inspecting page...", // Busy message while the page reveal inspection is in progress.
     clearingCacheAndReloading: "Clearing cache and reloading page...", // Busy message while domain cache is cleared and the tab reloads.
     unregisteringTabAndReloading: "Unregistering tab and reloading page...", // Busy message while the current tab is detached from the extension.
     savingPage: "Saving session...", // Busy message while the local marking session is being saved.

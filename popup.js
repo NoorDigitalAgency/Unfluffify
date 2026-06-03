@@ -565,6 +565,7 @@ async function sendPropertyLockCommand(type, payload = {}) {
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
 const REMOTE_CONFIG_RETRY_DELAY_MS = 2500;
+const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 const RENDER_MODE_DETECTION_MAX_ATTEMPTS = 3;
 const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.65;
 const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.95;
@@ -674,11 +675,11 @@ function beginPopupBusyOverlay(message, options = {}) {
   }
   if (popupBusyOverlayVisible) {
     uiModule.setUiBusy(true, popupBusyOverlayMessage);
-    return;
+    return true;
   }
   if (delayMs > 0) {
     if (popupBusyOverlayTimer) {
-      return;
+      return true;
     }
     popupBusyOverlayTimer = window.setTimeout(() => {
       popupBusyOverlayTimer = 0;
@@ -2419,6 +2420,7 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
     options && options.confirmedPageMarkings
   ).normalized;
   const preferConfirmedPageMarkings = Boolean(options && options.preferConfirmedPageMarkings);
+  const applyConfirmedToBackendSaved = Boolean(options && options.applyConfirmedToBackendSaved);
   const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
   if (!normalizedPayload.baseUrl) {
     return {
@@ -2459,20 +2461,22 @@ async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {})
     existingBackendSavedPageMarkings,
     incomingPageMarkings
   ).pageMarkings;
-  mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
-    mergedBackendSavedPageMarkings,
-    confirmedPageMarkings,
-    { preferIncomingOnTimestampTie: true }
-  ).pageMarkings;
-  if (preferConfirmedPageMarkings) {
-    Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
-      mergedBackendSavedPageMarkings[url] =
-        config.normalizePageMarkings({ [url]: entry }).normalized[url];
-    });
+  if (applyConfirmedToBackendSaved) {
+    mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
+      mergedBackendSavedPageMarkings,
+      confirmedPageMarkings,
+      { preferIncomingOnTimestampTie: true }
+    ).pageMarkings;
+    if (preferConfirmedPageMarkings) {
+      Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
+        mergedBackendSavedPageMarkings[url] =
+          config.normalizePageMarkings({ [url]: entry }).normalized[url];
+      });
+    }
   }
   if (
     Object.keys(incomingPageMarkings).length > 0 ||
-    Object.keys(confirmedPageMarkings).length > 0
+    (applyConfirmedToBackendSaved && Object.keys(confirmedPageMarkings).length > 0)
   ) {
     await config.setBackendSavedPageMarkings(baseUrl, mergedBackendSavedPageMarkings);
   }
@@ -4047,6 +4051,12 @@ async function refreshUiInner(options = {}) {
     }
   }
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
+  const pageInspectionBusy =
+    pageSaveReconciliationPending &&
+    Boolean(
+      state.currentPageSaveReconciliation &&
+      state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+    );
   const sessionHasPendingChanges = hasSessionPendingChanges(
     state.currentConfig,
     pageMarkings,
@@ -4316,12 +4326,14 @@ async function refreshUiInner(options = {}) {
   nextViewState.syncSaveStatusText = state.lastConfigSaveStatusText || ViewText.syncSaveIdle;
   nextViewState.syncSaveStatusTone = state.lastConfigSaveStatusTone || "muted";
   const popupBusyActive = popupBusyOverlayVisible;
-  nextViewState.isBusy = popupBusyActive || remoteConfigRetryBlocked;
+  nextViewState.isBusy = popupBusyActive || remoteConfigRetryBlocked || pageInspectionBusy;
   nextViewState.busyMessage = popupBusyActive
     ? popupBusyOverlayMessage
     : remoteConfigRetryBlocked
       ? PopupText.status.remoteServerRetryNotice
-      : "";
+      : pageInspectionBusy
+        ? PopupText.overlay.pageInspection
+        : "";
   nextViewState.pageDataNewNoticeHidden = pageSaveUiState.pageDataNewNoticeHidden;
   nextViewState.deviceEmulationEnabled = normalizedDeviceState.enabled;
   nextViewState.deviceMode = normalizedDeviceState.mode;

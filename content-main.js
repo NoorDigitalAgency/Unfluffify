@@ -65,6 +65,7 @@ import {
   PROPERTY_LOCK_CONTENT_SUGGEST,
   PROPERTY_LOCK_CONTENT_RESPOND,
   PROPERTY_LOCK_CONTENT_CONTINUE,
+  PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
   PROPERTY_LOCK_CONNECTION_CONNECTED,
@@ -182,6 +183,9 @@ let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
 let silentHighlightEditorRevealInFlight = 0;
 let silentHighlightEditorRevealKey = "";
+let silentHighlightEditorActivationPromise = null;
+let silentHighlightEditorActivationQueued = false;
+let silentHighlightEditorActivationIdCounter = 0;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -2801,10 +2805,33 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
 }
 
 async function runEditorSilentHighlightingActivation() {
+  if (silentHighlightEditorActivationPromise) {
+    silentHighlightEditorActivationQueued = true;
+    return silentHighlightEditorActivationPromise;
+  }
+
+  const runActivationLoop = async () => {
+    do {
+      silentHighlightEditorActivationQueued = false;
+      await runEditorSilentHighlightingActivationOnce();
+    } while (
+      silentHighlightEditorActivationQueued &&
+      Boolean(propertyLockState && propertyLockState.isEditor)
+    );
+  };
+
+  silentHighlightEditorActivationPromise = runActivationLoop().finally(() => {
+    silentHighlightEditorActivationPromise = null;
+  });
+
+  return silentHighlightEditorActivationPromise;
+}
+
+async function runEditorSilentHighlightingActivationOnce() {
   if (!propertyLockState || !propertyLockState.isEditor) {
     return;
   }
-  const activationId = Date.now();
+  const activationId = ++silentHighlightEditorActivationIdCounter;
   silentHighlightEditorRevealInFlight = activationId;
   let shouldRefreshAfterActivation = false;
   try {
@@ -6052,7 +6079,27 @@ async function syncPropertyLockConnection(options = {}) {
   // Same-property navigations can keep the existing lock connection alive.
   // Re-run activation/refresh so reveal+freeze still executes per visited page.
   sendPropertyLockActivity();
-  if (propertyLockState && propertyLockState.isEditor) {
+  let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
+  if (!shouldRunEditorActivation) {
+    const snapshot = await fetchPropertyLockStateSnapshot(siteId);
+    if (
+      extensionContextInvalidated ||
+      syncToken !== propertyLockSyncToken ||
+      pageUrl !== location.href
+    ) {
+      return;
+    }
+    const snapshotState = snapshot && snapshot.state && typeof snapshot.state === "object"
+      ? snapshot.state
+      : null;
+    if (snapshotState) {
+      propertyLockState = snapshotState;
+      updatePropertyLockBannerMode();
+      renderPropertyLockBanner();
+      shouldRunEditorActivation = Boolean(snapshotState.isEditor);
+    }
+  }
+  if (shouldRunEditorActivation) {
     runEditorSilentHighlightingActivation().catch(() => {
       // Best-effort activation refresh for same-site navigation sync.
     });
@@ -6135,6 +6182,22 @@ function sendPropertyLockMessage(type, payload = {}) {
     propertyLockConnectedSiteId = null;
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
+  }
+}
+
+async function fetchPropertyLockStateSnapshot(siteId) {
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  if (!normalizedSiteId) {
+    return null;
+  }
+  try {
+    return await utils.sendRuntimeMessage({
+      type: PROPERTY_LOCK_BACKGROUND_GET_STATE,
+      siteId: normalizedSiteId,
+      clientId: getPropertyLockClientId()
+    });
+  } catch {
+    return null;
   }
 }
 

@@ -243,6 +243,53 @@ test("session save uploads all local page markings while default sync stays back
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
 });
 
+test("todo completion backend cache ignores local confirmed page markings unless explicitly enabled", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const mergeBody = source.match(
+    /async function mergeServerConfigIntoLocal\(payload, currentPageUrl, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(mergeBody, /const applyConfirmedToBackendSaved = Boolean\(options && options\.applyConfirmedToBackendSaved\);/);
+  assert.match(mergeBody, /const existingBackendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(baseUrl\);/);
+  assert.match(mergeBody, /let mergedBackendSavedPageMarkings = config\.mergePageMarkingsByTimestamp\([\s\S]*?incomingPageMarkings/);
+  assert.match(mergeBody, /if \(applyConfirmedToBackendSaved\) \{[\s\S]*?confirmedPageMarkings/);
+  assert.match(
+    mergeBody,
+    /if \([\s\S]*?Object\.keys\(incomingPageMarkings\)\.length > 0[\s\S]*?\|\|[\s\S]*?\(applyConfirmedToBackendSaved && Object\.keys\(confirmedPageMarkings\)\.length > 0\)[\s\S]*?\) \{[\s\S]*?config\.setBackendSavedPageMarkings\(baseUrl, mergedBackendSavedPageMarkings\);/
+  );
+});
+
+test("popup blocks the interface with a spinner while page inspection is running", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
+  assert.match(
+    source,
+    /const pageInspectionBusy =[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
+  );
+  assert.match(source, /nextViewState\.isBusy = popupBusyActive \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/);
+  assert.match(
+    source,
+    /nextViewState\.busyMessage = popupBusyActive[\s\S]*?PopupText\.overlay\.pageInspection/
+  );
+});
+
+test("popup busy overlay begin always returns started=true once depth increments", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const beginBody = source.match(
+    /function beginPopupBusyOverlay\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(
+    beginBody,
+    /if \(popupBusyOverlayVisible\) \{[\s\S]*?uiModule\.setUiBusy\(true, popupBusyOverlayMessage\);[\s\S]*?return true;/
+  );
+  assert.match(
+    beginBody,
+    /if \(delayMs > 0\) \{[\s\S]*?if \(popupBusyOverlayTimer\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?return true;/
+  );
+});
+
 test("session pending is no longer tied to Lynx selector submission state", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const pendingBody = source.match(

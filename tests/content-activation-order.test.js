@@ -87,12 +87,25 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.doesNotMatch(urlEventSource, /const shouldRunEditorActivation/);
   assert.doesNotMatch(urlEventSource, /runEditorSilentHighlightingActivation\(/);
 
+    assert.match(source, /let silentHighlightEditorActivationPromise = null;/);
+    assert.match(source, /let silentHighlightEditorActivationQueued = false;/);
+    assert.match(
+      source,
+      /async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?if \(silentHighlightEditorActivationPromise\) \{[\s\S]*?silentHighlightEditorActivationQueued = true;[\s\S]*?return silentHighlightEditorActivationPromise;[\s\S]*?\}/
+    );
+    assert.match(
+      source,
+      /const runActivationLoop = async \(\) => \{[\s\S]*?do \{[\s\S]*?silentHighlightEditorActivationQueued = false;[\s\S]*?await runEditorSilentHighlightingActivationOnce\(\);[\s\S]*?\} while \([\s\S]*?silentHighlightEditorActivationQueued[\s\S]*?\);/
+    );
+
   const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
   assert.ok(syncStart > -1);
   assert.ok(syncEnd > syncStart);
-  assert.match(syncSource, /sendPropertyLockActivity\(\);[\s\S]*?if \(propertyLockState && propertyLockState\.isEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.match(syncSource, /sendPropertyLockActivity\(\);[\s\S]*?let shouldRunEditorActivation = Boolean\(propertyLockState && propertyLockState\.isEditor\);/);
+  assert.match(syncSource, /if \(!shouldRunEditorActivation\) \{[\s\S]*?fetchPropertyLockStateSnapshot\(siteId\);/);
+  assert.match(syncSource, /if \(shouldRunEditorActivation\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
   assert.match(syncSource, /refreshSilentHighlightings\(\)\.then\(\);/);
 });
 

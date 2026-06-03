@@ -1104,4 +1104,10 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"touchmove"/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;/);
+  assert.match(source, /const targetY = Number\.isFinite\(options\.targetY\) \? Number\(options\.targetY\) : null;/);
+  assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasSettled\(\) && isNearTarget\(\)\) \{[\s\S]*?finish\(\);/);
+  assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });
