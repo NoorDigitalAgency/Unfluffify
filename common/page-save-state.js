@@ -5,6 +5,12 @@ function isBlockingPageSaveReconciliation(reconciliation) {
     return false;
   }
   return ![
+    "",
+    "pending",
+    "saving",
+    "preparing",
+    "loading",
+    "calculating",
     "sync_failed",
     "sync_skipped",
     "load_failed"

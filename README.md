@@ -156,7 +156,7 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 6. **Navigate**: Go to other pages under the base URL to see inferred patterns
 7. **Run AI, Then Save or Discard**: After marking changes, run AI content detection, then save the full session or discard it before exiting marking
 
-When a save or sync step temporarily blocks editing, the page overlay dims and shows a marking-paused notice until marking is available again.
+Page-save reconciliation states are generally non-blocking for preparation, loading, calculation, saving, and retry messaging. The editor-role activation preparation (`editor_preparing`) is the explicit exception and is blocking so reveal/freeze setup cannot be interrupted by user input.
 
 ## Key Concepts
 
@@ -169,7 +169,7 @@ Visual overlay showing page content classification:
 
 ### Motion Stability
 
-When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, timer-driven JavaScript carousels and sliders, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. Marking enable first runs a bounded instant scroll sweep to trigger viewport and lazy reveal handlers, restores the user's original scroll position, and then freezes page motion before overlays render. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small Material Design Icons snowflake/code indicator appears on the page while this freeze is active; its content-script font face and selectors are Unfluffify-scoped so the target page does not receive global `.mdi` styles.
+When a tab acquires the editor role, Unfluffify runs one content-reveal sweep for that page and then keeps page motion paused for both silent highlighting and marking mode so markings and saves are compared from one stable posture. If selectors exist, silent highlighting renders immediately; if selectors do not exist yet, the tab still remains in silent-highlighting mode with motion paused until marking mode is enabled. Marking enable runs its own bounded instant scroll sweep, restores the user's original scroll position, and then renders overlays against the already-frozen page. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small Material Design Icons snowflake/code indicator appears on the page while this freeze is active; its content-script font face and selectors are Unfluffify-scoped so the target page does not receive global `.mdi` styles.
 
 ### AI Selectors
 

@@ -3884,15 +3884,8 @@ async function refreshUiInner(options = {}) {
     backendSavedPageMarkings,
     state.currentBaseUrl
   );
-  const useLocalMarkedPagesForCoverage = Boolean(
-    propertyLockCandidateSiteId &&
-      state.propertyLockSiteId === propertyLockCandidateSiteId &&
-      state.propertyLockState &&
-      state.propertyLockState.isEditor
-  );
-  const coverageMarkedPageItems = useLocalMarkedPagesForCoverage
-    ? localStoredPageMarkingItems
-    : backendSavedPageMarkingItems;
+  // Todo completion must reflect persisted save results, not temporary local drafts.
+  const coverageMarkedPageItems = backendSavedPageMarkingItems;
   const pageTypeCoverageModel = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,
     markedPages: coverageMarkedPageItems

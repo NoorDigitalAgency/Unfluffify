@@ -122,7 +122,7 @@ const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
-const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 450;
+const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 180;
 const MARKING_MODE_SETTLE_RENDER_DELAYS_MS = [180, 700, 1800];
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
@@ -185,6 +185,7 @@ const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
 const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
+const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_INTERVAL_MS = 100;
 const PAGE_INSPECTION_SCROLL_END_STABLE_TICKS = 10;
@@ -268,6 +269,7 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
+const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
 const capturedExtensionTimers = (() => {
   const root = typeof window !== "undefined" ? window : globalThis;
@@ -823,9 +825,6 @@ function isElementInHitPath(target, element) {
     return false;
   }
   if (target === element) {
-    return true;
-  }
-  if (typeof target.contains === "function" && target.contains(element)) {
     return true;
   }
   if (typeof element.contains === "function" && element.contains(target)) {
@@ -5605,6 +5604,59 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl) {
   return true;
 }
 
+function hasPageMotionPauseReason(reason) {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
+    return false;
+  }
+  return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
+}
+
+export async function warmupSilentHighlightingBeforeMotionPause(
+  baseUrl,
+  pageUrl,
+  reason = PAGE_MOTION_PAUSE_DEFAULT_REASON
+) {
+  const revealWarmupId = state.pageRevealWarmupId + 1;
+  state.pageRevealWarmupId = revealWarmupId;
+  const isRevealWarmupCurrent = () =>
+    state.pageRevealWarmupId === revealWarmupId &&
+    !state.enabled &&
+    location.href === pageUrl &&
+    (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
+  try {
+    startPageInspectionInputBlocker();
+    createOverlay();
+    setPageInspectionUiActive(true);
+    await revealPageContentBeforeMotionPause(
+      "both",
+      PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+      PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+      isRevealWarmupCurrent
+    );
+    if (!isRevealWarmupCurrent()) {
+      return false;
+    }
+    await waitForPageInspectionDelay(
+      SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS,
+      isRevealWarmupCurrent
+    );
+    if (!isRevealWarmupCurrent()) {
+      return false;
+    }
+    pausePageMotion(reason);
+    return true;
+  } finally {
+    setPageInspectionUiActive(false);
+    stopPageInspectionInputBlocker();
+    // Silent highlighting reveal uses the inspection UI only as a temporary
+    // blocker while preparing the frozen page posture.
+    if (!state.enabled) {
+      removeOverlay();
+    }
+  }
+}
+
 
 function removeOverlay() {
   setPageInspectionUiActive(false);
@@ -5674,6 +5726,9 @@ function getMarkingTemporarilyDisabledReason() {
   const pageUrl = typeof location !== "undefined" ? location.href : "";
   const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
   if (config.isPageSaveReconciliationPending(reconciliation)) {
+    if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+      return "";
+    }
     return reconciliation.reason || "pending";
   }
   return "";
@@ -6909,38 +6964,7 @@ function toggleExplicitExclude(target) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-  const hasRelatedStoredMarking = (currentXPath) => {
-    const isRelatedXPath = (candidateXPath, candidateEl) => {
-      if (!candidateXPath || candidateXPath === currentXPath) {
-        return false;
-      }
-      if (candidateEl) {
-        return candidateEl.contains(target) || target.contains(candidateEl);
-      }
-      return isXPathDescendant(candidateXPath, currentXPath) ||
-        isXPathDescendant(currentXPath, candidateXPath);
-    };
-    for (const item of items) {
-      if (!item || !item.xpath) {
-        continue;
-      }
-      if (isRelatedXPath(item.xpath, getCachedElementFromXPath(item.xpath))) {
-        return true;
-      }
-    }
-    for (const includeXPath of includeXpaths) {
-      if (!includeXPath) {
-        continue;
-      }
-      if (isRelatedXPath(includeXPath, getCachedElementFromXPath(includeXPath))) {
-        return true;
-      }
-    }
-    return false;
-  };
   const includeIndex = includeXpaths.indexOf(xpath);
-  const immediateFullRender = !isLeafExplicitExcludeFastPathTarget(target) ||
-    hasRelatedStoredMarking(xpath);
   if (includeIndex >= 0) {
     includeXpaths.splice(includeIndex, 1);
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6955,9 +6979,7 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
-    completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
-      immediateFullRender
-    });
+    completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -7095,9 +7117,7 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
-    immediateFullRender
-  });
+  completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
 }
 
 function toggleExplicitInclude(target) {
@@ -7892,21 +7912,10 @@ function drawExplicitMarkingLayers(
   });
 }
 
-function isLeafExplicitExcludeFastPathTarget(target) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-  if (matchesToggleableDefaultExcluded(target)) {
-    return false;
-  }
-  return !target.children || target.children.length === 0;
-}
-
 function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
-  if (options.type !== "exclude") {
-    return true;
-  }
-  return !isLeafExplicitExcludeFastPathTarget(options.target);
+  // Keep toggles responsive: explicit layers update immediately, while the
+  // heavier invalidating rebuild is deferred and coalesced.
+  return false;
 }
 
 function applyExplicitStateToCachedCollections(
@@ -8119,7 +8128,13 @@ function invalidateCachedCollections() {
 }
 
 function renderHighlights() {
-  if (!state.enabled || !state.overlay) {
+  if (!state.enabled) {
+    return;
+  }
+  if (!state.overlay) {
+    createOverlay();
+  }
+  if (!state.overlay) {
     return;
   }
   withElementComputationCache(renderHighlightsInner);
@@ -8577,8 +8592,8 @@ function startUrlWatcher() {
   state.urlCheckTimer = extensionSetInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      // Page-scoped behavior: disable extension on any URL change
-      disable();
+      // URL transitions must not carry temporary draft cache to the next page.
+      disable({ preserveUnsavedDraftCache: false });
       window.dispatchEvent(new Event("unfluffify:url-changed"));
     }
   }, 800);
@@ -8710,7 +8725,11 @@ export function getPageSaveReconciliationState(pageUrl = location.href) {
 }
 
 export function isPageSaveReconciliationPending(pageUrl = location.href) {
-  return config.isPageSaveReconciliationPending(getPageSaveReconciliationState(pageUrl));
+  const reconciliation = getPageSaveReconciliationState(pageUrl);
+  if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+    return false;
+  }
+  return config.isPageSaveReconciliationPending(reconciliation);
 }
 
 export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pageUrl = location.href) {
@@ -9345,8 +9364,13 @@ function cacheUnsavedDraftBeforeDisable() {
   };
 }
 
-export function disable() {
-  cacheUnsavedDraftBeforeDisable();
+export function disable(options = {}) {
+  const preserveUnsavedDraftCache = options.preserveUnsavedDraftCache !== false;
+  if (preserveUnsavedDraftCache) {
+    cacheUnsavedDraftBeforeDisable();
+  } else {
+    state.disabledUnsavedDraft = null;
+  }
   state.enabled = false;
   state.baseUrl = "";
   state.currentPageType = "";
@@ -9466,9 +9490,13 @@ export async function enableForBaseUrl(baseUrl) {
   state.disabledUnsavedDraft = null;
 
   hideConsentOnEnable(pageUrl);
-  const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl);
-  if (!revealReady) {
-    return;
+  if (hasPageMotionPauseReason("silent-highlighting")) {
+    pausePageMotion();
+  } else {
+    const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl);
+    if (!revealReady) {
+      return;
+    }
   }
   scheduleRender();
   scheduleMarkingSettleRenders();

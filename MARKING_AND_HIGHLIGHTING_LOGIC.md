@@ -267,13 +267,21 @@ Marking mode must avoid duplicate full-page passes:
 
 ## Motion Stability Contract
 
-Any page that Unfluffify owns for marking or silent highlighting holds a page
-motion pause. This includes active marking mode, passive silent highlighting,
-and matching base-URL pages that have no selector highlights yet. The pause is
-part of the save and highlighting contract, not just a visual convenience:
+Any page where Unfluffify currently owns the editor role holds a page motion
+pause for both marking and silent-highlighting lifecycles. Editor-role
+activation first runs a one-time page reveal sweep, then silent highlighting
+stays active with motion paused whether or not selectors currently produce
+overlay targets. The pause is part of the save and highlighting contract, not
+just a visual convenience:
 animated carousels can move text outside the viewport, update inline transforms,
 flip visibility state, and change which textual nodes are submitted as visible
 AI evidence.
+
+Editor-role activation reveal is a blocking preparation phase. While that phase
+runs, Unfluffify must block page interaction with the inspection spinner/overlay
+and hold a blocking pending reconciliation reason (`editor_preparing`) so users
+cannot interrupt reveal/freeze setup before silent-highlighting motion pause is
+established.
 
 The pause is source-owned, so marking mode and silent highlighting can both hold
 it without accidentally resuming the page for the other lifecycle. It freezes

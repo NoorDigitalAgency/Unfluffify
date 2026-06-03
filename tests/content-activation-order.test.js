@@ -44,3 +44,15 @@ test("manual page enable waits for activation reveal before refreshing highlight
   assert.match(toggleSource, /try \{[\s\S]*?await core\.enableForBaseUrl\(baseUrl\);[\s\S]*?\} catch \(error\) \{[\s\S]*?core\.disable\(\);[\s\S]*?PROPERTY_LOCK_CONTENT_RELEASE[\s\S]*?showPageToast\("Unable to activate on this page"\);[\s\S]*?return;[\s\S]*?\}/);
   assert.match(toggleSource, /refreshSilentHighlightings\(\)\.then\(\);/);
 });
+
+test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const watcherStart = source.indexOf("function startUrlWatcher() {");
+  const watcherEnd = source.indexOf("function stopUrlWatcher()", watcherStart);
+
+  assert.ok(watcherStart > -1);
+  assert.ok(watcherEnd > watcherStart);
+  const watcherSource = source.slice(watcherStart, watcherEnd);
+  assert.match(watcherSource, /disable\(\{ preserveUnsavedDraftCache: false \}\);/);
+  assert.match(watcherSource, /window\.dispatchEvent\(new Event\("unfluffify:url-changed"\)\);/);
+});

@@ -35,7 +35,7 @@ test("explicit include and exclude removals use the quiet refresh path", () => {
   );
 });
 
-test("Todo List completion switches to local markings while the current tab is the editor", () => {
+test("Todo List completion is sourced from backend-saved markings only", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
   assert.match(
@@ -44,7 +44,7 @@ test("Todo List completion switches to local markings while the current tab is t
   );
   assert.match(
     source,
-    /const coverageMarkedPageItems = useLocalMarkedPagesForCoverage\s*\? localStoredPageMarkingItems\s*:\s*backendSavedPageMarkingItems;/
+    /const coverageMarkedPageItems = backendSavedPageMarkingItems;/
   );
   assert.match(
     source,
@@ -54,6 +54,7 @@ test("Todo List completion switches to local markings while the current tab is t
     source,
     /const pageMarkingItemByKey = new Map\(\s*coverageMarkedPageItems\.map/
   );
+  assert.doesNotMatch(source, /useLocalMarkedPagesForCoverage/);
 });
 
 test("preview and Send to Lynx actions are exposed from silent mode only", () => {

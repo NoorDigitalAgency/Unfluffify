@@ -21,7 +21,7 @@ test("shows saved session state and disables save when nothing is pending", () =
   assert.equal(state.pageSessionNoticeVisible, false);
 });
 
-test("keeps save and discard blocked while reconciliation is pending", () => {
+test("keeps pending reconciliation messaging without blocking save and discard", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: true,
     sessionHasPendingChanges: true,
@@ -32,12 +32,12 @@ test("keeps save and discard blocked while reconciliation is pending", () => {
     }
   });
 
-  assert.equal(state.pageSaveDisabled, true);
-  assert.equal(state.pageRevertDisabled, true);
+  assert.equal(state.pageSaveDisabled, false);
+  assert.equal(state.pageRevertDisabled, false);
   assert.equal(state.pageSaveMobileSimulationRequiredVisible, false);
   assert.equal(state.pageDraftStatusText, PopupText.page.statusServerSyncPending);
   assert.equal(state.pageDraftStatusTone, "warning");
-  assert.equal(state.aiBlockedByDraft, true);
+  assert.equal(state.aiBlockedByDraft, false);
   assert.equal(state.aiDirtyNoticeText, PopupText.page.statusServerSyncPending);
 });
 

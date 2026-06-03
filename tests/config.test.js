@@ -339,7 +339,7 @@ test("page save reconciliation normalizes pending local save locks", () => {
   assert.equal(normalized.baseUrl, "https://example.com/shop");
   assert.equal(normalized.pageUrl, "https://www.example.com/shop/item");
   assert.equal(normalized.reason, "sync_failed");
-  assert.equal(isPageSaveReconciliationPending(normalized), true);
+  assert.equal(isPageSaveReconciliationPending(normalized), false);
 });
 
 test("page save reconciliation keys are scoped by normalized base and exact page url", () => {

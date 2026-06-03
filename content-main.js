@@ -104,6 +104,7 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";
+const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
@@ -177,6 +178,8 @@ let silentHighlightRevealRaf = 0;
 let lastTrackedUrlPath = "";
 let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
+let silentHighlightEditorRevealInFlight = 0;
+let silentHighlightEditorRevealKey = "";
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -2787,6 +2790,73 @@ function setSilentHighlightingPageMotionPaused(paused) {
   }
 }
 
+function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl) {
+    return "";
+  }
+  return `${normalizedBaseUrl}|${pageUrl}`;
+}
+
+async function runEditorSilentHighlightingActivation() {
+  if (state.enabled || !propertyLockState || !propertyLockState.isEditor) {
+    return;
+  }
+  const activationId = Date.now();
+  silentHighlightEditorRevealInFlight = activationId;
+  let shouldRefreshAfterActivation = false;
+  try {
+    const pageUrl = location.href;
+    const configs = await config.getConfigs();
+    const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+    if (!baseUrl) {
+      return;
+    }
+    const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
+    if (revealKey && revealKey === silentHighlightEditorRevealKey) {
+      shouldRefreshAfterActivation = true;
+      return;
+    }
+    const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
+    const isStillCurrent = () =>
+      silentHighlightEditorRevealInFlight === activationId &&
+      !state.enabled &&
+      Boolean(propertyLockState && propertyLockState.isEditor) &&
+      location.href === pageUrl &&
+      utils.isPageWithinBaseUrl(location.href, baseUrl);
+    await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
+      reason: SILENT_HIGHLIGHTING_PREPARATION_REASON
+    });
+    const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
+      baseUrl,
+      pageUrl,
+      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON
+    );
+    if (isStillCurrent() && prepared && revealKey) {
+      silentHighlightEditorRevealKey = revealKey;
+    }
+    shouldRefreshAfterActivation = true;
+    if (previousReconciliation) {
+      await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
+        reason: previousReconciliation.reason || "pending"
+      }).catch(() => {
+        // Best-effort reconciliation restoration.
+      });
+    } else {
+      await core.clearPageSaveReconciliation(baseUrl, pageUrl).catch(() => {
+        // Best-effort reconciliation cleanup.
+      });
+    }
+  } finally {
+    if (silentHighlightEditorRevealInFlight === activationId) {
+      silentHighlightEditorRevealInFlight = 0;
+    }
+  }
+  if (shouldRefreshAfterActivation) {
+    await refreshSilentHighlightings();
+  }
+}
+
 function ensureSilentHighlightOverlay() {
   ensureSilentHighlightingStyles();
   let overlay = document.getElementById(SILENT_HIGHLIGHT_OVERLAY_ID);
@@ -3785,10 +3855,19 @@ function startSilentHighlightingUrlWatcher() {
     }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
+      const shouldRunEditorActivation = Boolean(
+        !state.enabled && propertyLockState && propertyLockState.isEditor
+      );
       runPropertyLockSync({
         pageUrl: lastUrl,
         forceSiteIdRefresh: true
       });
+      if (shouldRunEditorActivation) {
+        runEditorSilentHighlightingActivation().catch(() => {
+          // Best-effort activation during navigation.
+        });
+        return;
+      }
       refreshSilentHighlightings().then();
     }
   }, 800);
@@ -5435,15 +5514,19 @@ async function refreshSilentHighlightings() {
   const configs = await config.getConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
+    silentHighlightEditorRevealKey = "";
     setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
-  // Silent highlighting is passive mode; do not pause page motion/timers here.
-  // Timer freezing is only enabled during explicit interactive activation flows.
-  setSilentHighlightingPageMotionPaused(false);
+  const holdSilentMotionPause = Boolean(
+    propertyLockState &&
+    propertyLockState.isEditor &&
+    !silentHighlightEditorRevealInFlight
+  );
+  setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
@@ -5476,7 +5559,7 @@ async function refreshSilentHighlightings() {
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(false);
+    setSilentHighlightingsActive(holdSilentMotionPause);
     return;
   }
   let contentNodes = [];
@@ -6026,8 +6109,15 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockState = serverMessage;
     propertyLockSuggestionId = "";
     propertyLockSuggestionFromName = "";
-    if (previousState && !previousState.isEditor && serverMessage.isEditor) {
+    const becameEditor = (!previousState || !previousState.isEditor) && serverMessage.isEditor;
+    if (!serverMessage.isEditor) {
+      silentHighlightEditorRevealKey = "";
+    }
+    if (becameEditor) {
       showPageToast(propertyLockText.editorNowToast);
+      runEditorSilentHighlightingActivation().catch(() => {
+        // Silent activation is best-effort and should not block lock-state updates.
+      });
     } else if (
       previousState &&
       previousState.isEditor &&
@@ -6038,6 +6128,9 @@ function applyPropertyLockServerMessage(serverMessage) {
     }
     updatePropertyLockBannerMode();
     renderPropertyLockBanner();
+    if (!becameEditor) {
+      refreshSilentHighlightings().then();
+    }
     return;
   }
 
@@ -6605,14 +6698,17 @@ export function main() {
         stopSilentHighlightingObserver();
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
-        core.enableForBaseUrl(message.baseUrl)
-          .then(() => {
-            refreshEnabledAiHighlights();
-            sendResponse({ ok: true });
-          })
-          .catch(() => {
-            sendResponse({ ok: false });
-          });
+        (async () => {
+          const reconciliation = core.getPageSaveReconciliationState(location.href);
+          if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+            await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
+          }
+          await core.enableForBaseUrl(message.baseUrl);
+          refreshEnabledAiHighlights();
+          sendResponse({ ok: true });
+        })().catch(() => {
+          sendResponse({ ok: false });
+        });
         return true;
       }
       state.currentPageType = "";
@@ -7331,7 +7427,16 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
+    const shouldRunEditorActivation = Boolean(
+      !state.enabled && propertyLockState && propertyLockState.isEditor
+    );
     runPropertyLockSync({ forceSiteIdRefresh: true });
+    if (shouldRunEditorActivation) {
+      runEditorSilentHighlightingActivation().catch(() => {
+        // Best-effort activation during URL transitions.
+      });
+      return;
+    }
     refreshSilentHighlightings().then();
   });
 
