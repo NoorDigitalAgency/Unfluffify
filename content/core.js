@@ -77,6 +77,10 @@ export const state = {
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
+  cachedCollectionsKey: "",
+  markingSettleTimers: [],
+  paintReachabilityFallbackCount: 0,
+  paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
   visibilityCache: null,
   ancestorVisStateCache: null,
@@ -119,6 +123,7 @@ const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
 const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 450;
+const MARKING_MODE_SETTLE_RENDER_DELAYS_MS = [180, 700, 1800];
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
@@ -530,6 +535,36 @@ function getEntryFingerprint(entry) {
   );
 }
 
+function getSelectorSetFingerprint(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  if (combineAiSelectorSet(normalized).length === 0) {
+    return "";
+  }
+  return JSON.stringify(normalized);
+}
+
+function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, entry = null } = {}) {
+  const entryFingerprint = getEntryFingerprint(entry);
+  return [
+    pageUrl,
+    getSelectorSetFingerprint(selectorSet),
+    ...entryFingerprint
+  ].join("\u001f");
+}
+
+function resolveMarkingSelectorContext(configValue, entry = null) {
+  const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
+  const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
+  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths
+    : [];
+  return {
+    selectorSet,
+    hasAiSelectors,
+    selectorSuppressedXpaths
+  };
+}
+
 function isClippedByOverflow(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -836,18 +871,59 @@ function getPaintReachabilityForRect(el, rect) {
       continue;
     }
     sawPageHit = true;
-    if (isElementInHitPath(elementsAtPoint[0], el)) {
+    if (elementsAtPoint.some((hit) => isElementInHitPath(hit, el))) {
       return true;
     }
   }
   return sawPageHit ? false : null;
 }
 
+function reportPaintReachabilityFallback(el, rectCount) {
+  state.paintReachabilityFallbackCount += 1;
+  if (!isTogglePerfEnabled()) {
+    return;
+  }
+  const now = Date.now();
+  const count = state.paintReachabilityFallbackCount;
+  const shouldLog =
+    count <= 3 ||
+    count % 25 === 0 ||
+    now - state.paintReachabilityFallbackLastLoggedAt >= 5000;
+  if (!shouldLog) {
+    return;
+  }
+  state.paintReachabilityFallbackLastLoggedAt = now;
+  logTogglePerf("render.reachability-fallback", nowMs(), {
+    count,
+    rectCount,
+    tag: el && el.nodeType === 1 ? el.tagName : "",
+    className: el && el.nodeType === 1 && typeof el.className === "string"
+      ? el.className.slice(0, 120)
+      : "",
+    pageUrl: typeof location !== "undefined" ? location.href : ""
+  });
+}
+
 function filterPaintReachableRects(el, rects) {
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
   }
-  return rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
+  const reachableRects = rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
+  if (reachableRects.length > 0) {
+    return reachableRects;
+  }
+  // Guard against hit-testing false negatives on complex masks/sliders where
+  // the target can be visible but not top-most at sampled points.
+  if (
+    el &&
+    el.nodeType === 1 &&
+    isVisible(el) &&
+    !isDefinitelyHiddenSubtreeElement(el)
+  ) {
+    reportPaintReachabilityFallback(el, rects.length);
+    return rects;
+  }
+  return reachableRects;
 }
 
 function isPaintReachableInCurrentViewport(el) {
@@ -7768,6 +7844,7 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
     } = collectExplicitMarkingElements(syncedEntry);
     const cachedCollections = state.cachedCollections;
     if (cachedCollections) {
+      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
@@ -7792,6 +7869,11 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
         explicitIncludeElements.filter((el) => aiContentSet.has(el));
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
         hiddenExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
+      state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
+        pageUrl,
+        selectorSet: selectorContext.selectorSet,
+        entry: syncedEntry
+      });
     }
     drawExplicitMarkingLayers(
       explicitExcludeElements,
@@ -7899,6 +7981,7 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
 
 function invalidateCachedCollections() {
   state.cachedCollections = null;
+  state.cachedCollectionsKey = "";
 }
 
 function renderHighlights() {
@@ -7913,9 +7996,17 @@ function renderHighlightsInner() {
   const renderStartedAt = nowMs();
   updateOverlayGutter();
   state.currentPageUrl = location.href;
+  const pageUrl = location.href;
+  const latestEntry = findPageMarkingEntry(state.config, pageUrl);
+  const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry);
+  const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey({
+    pageUrl,
+    selectorSet: latestSelectorContext.selectorSet,
+    entry: latestEntry
+  });
 
   const cached = state.cachedCollections;
-  if (cached) {
+  if (cached && state.cachedCollectionsKey === nextCollectionsCacheKey) {
     const drawStartedAt = nowMs();
     repositionHighlights(cached);
     logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
@@ -7924,9 +8015,8 @@ function renderHighlightsInner() {
 
   const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
-  const pageUrl = location.href;
-  const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
-  const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
+  const normalizedAiSelectorSet = latestSelectorContext.selectorSet;
+  const hasAiSelectors = latestSelectorContext.hasAiSelectors;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   const suppressAutoSeed = state.autoSeedSuppressedPageUrl === pageUrl;
@@ -7960,6 +8050,9 @@ function renderHighlightsInner() {
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
   state.currentPageEntry = entry || null;
+  const selectorContext = resolveMarkingSelectorContext(state.config, entry);
+  const selectorSetForMarking = selectorContext.selectorSet;
+  const hasAiSelectorsForMarking = selectorContext.hasAiSelectors;
   const excludedByState = collectXPathElements(
     collectExcludedXPaths(entry.xpaths)
   );
@@ -7971,15 +8064,12 @@ function renderHighlightsInner() {
   let aiContent = new Set();
   let hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
-  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths
-    : [];
-  if (hasAiSelectors) {
-    const aiCollections = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet, {
+  if (hasAiSelectorsForMarking) {
+    const aiCollections = collectIncludedElementsFromSelectorSet(selectorSetForMarking, {
       ignoreVisibilityForInclusionDetection: true,
       preserveExplicitIncludedDescendants: true,
       includeAllExplicitMatches: true,
-      suppressedXpaths: selectorSuppressedXpaths
+      suppressedXpaths: selectorContext.selectorSuppressedXpaths
     });
     const aiRenderCollections = collectAiContentElementsForRender(aiCollections, {
       immutableExcluded,
@@ -7999,10 +8089,10 @@ function renderHighlightsInner() {
     hiddenExplicitIncludeElements,
     explicitIncludeElements: filteredExplicitInclude
   } = collectExplicitMarkingElements(entry);
-  const aiAnimatedExplicitIncludeElements = hasAiSelectors
+  const aiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
     ? filteredExplicitInclude.filter((el) => aiContent.has(el))
     : [];
-  const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectors
+  const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
     ? hiddenExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
     : [];
   const storedUnexcludedToggleableDefaultElements =
@@ -8040,6 +8130,11 @@ function renderHighlightsInner() {
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
+  state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
+    pageUrl,
+    selectorSet: selectorSetForMarking,
+    entry
+  });
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
@@ -8986,6 +9081,39 @@ function cloneDraftEntryForDisableCache(entry) {
   return cloned;
 }
 
+function clearMarkingSettleRenders() {
+  if (!Array.isArray(state.markingSettleTimers) || state.markingSettleTimers.length === 0) {
+    state.markingSettleTimers = [];
+    return;
+  }
+  state.markingSettleTimers.forEach((timerId) => {
+    if (timerId) {
+      extensionClearTimeout(timerId);
+    }
+  });
+  state.markingSettleTimers = [];
+}
+
+function scheduleMarkingSettleRenders() {
+  clearMarkingSettleRenders();
+  const timers = [];
+  for (const delay of MARKING_MODE_SETTLE_RENDER_DELAYS_MS) {
+    const timerId = extensionSetTimeout(() => {
+      state.markingSettleTimers = state.markingSettleTimers.filter((id) => id !== timerId);
+      if (!state.enabled) {
+        return;
+      }
+      scheduleRender({
+        reason: "marking-settle",
+        delay: 0,
+        invalidate: true
+      });
+    }, delay);
+    timers.push(timerId);
+  }
+  state.markingSettleTimers = timers;
+}
+
 function cacheUnsavedDraftBeforeDisable() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -9064,6 +9192,10 @@ export function disable() {
   }
   state.isScrolling = false;
   state.cachedCollections = null;
+  state.cachedCollectionsKey = "";
+  state.paintReachabilityFallbackCount = 0;
+  state.paintReachabilityFallbackLastLoggedAt = 0;
+  clearMarkingSettleRenders();
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   removeOverlay();
@@ -9089,6 +9221,8 @@ export async function enableForBaseUrl(baseUrl) {
   }
   state.enabled = true;
   state.baseUrl = normalizedBaseUrl;
+  state.paintReachabilityFallbackCount = 0;
+  state.paintReachabilityFallbackLastLoggedAt = 0;
   state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
@@ -9125,6 +9259,7 @@ export async function enableForBaseUrl(baseUrl) {
     return;
   }
   scheduleRender();
+  scheduleMarkingSettleRenders();
   startObservers();
   startUrlWatcher();
 }
