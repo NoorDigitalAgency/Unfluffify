@@ -2851,7 +2851,7 @@ async function runEditorSilentHighlightingActivation() {
       silentHighlightEditorRevealInFlight = 0;
     }
   }
-  if (!state.enabled && shouldRefreshAfterActivation) {
+  if (shouldRefreshAfterActivation) {
     await refreshSilentHighlightings();
   }
 }
@@ -3850,6 +3850,7 @@ function startSilentHighlightingUrlWatcher() {
   silentHighlightingUrlTimer = window.setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
+      silentHighlightEditorRevealKey = "";
       const shouldRunEditorActivation = Boolean(
         propertyLockState && propertyLockState.isEditor
       );
@@ -6116,6 +6117,7 @@ function applyPropertyLockServerMessage(serverMessage) {
         // Silent activation is best-effort and should not block lock-state updates.
       });
     } else if (serverMessage.isEditor) {
+      silentHighlightEditorRevealKey = "";
       runEditorSilentHighlightingActivation().catch(() => {
         // Keep editor-role reveal/freeze aligned with navigation and reconnect updates.
       });
@@ -7428,6 +7430,7 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
+    silentHighlightEditorRevealKey = "";
     const shouldRunEditorActivation = Boolean(
       propertyLockState && propertyLockState.isEditor
     );
