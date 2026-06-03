@@ -1,5 +1,16 @@
 import { PopupText } from "./text.js";
 
+function isBlockingPageSaveReconciliation(reconciliation) {
+  if (!reconciliation || reconciliation.status !== "pending") {
+    return false;
+  }
+  return ![
+    "sync_failed",
+    "sync_skipped",
+    "load_failed"
+  ].includes(reconciliation.reason);
+}
+
 export function getPageSaveReconciliationStatusText(reconciliation) {
   const reason = reconciliation && typeof reconciliation.reason === "string"
     ? reconciliation.reason
@@ -19,62 +30,50 @@ export function getPageSaveReconciliationStatusText(reconciliation) {
 export function buildPageSaveUiState(options = {}) {
   const {
     pageControlsVisible = false,
-    currentDraftAvailable = false,
-    hasSavedPageData = false,
-    currentDraftDirty = false,
-    needsAiSnapshotBackfill = false,
-    mobileSimulationBlocked = false,
+    sessionHasPendingChanges = false,
+    sessionRequiresAiRun = false,
     reconciliation = null
   } = options;
 
-  const pageSaveReconciliationPending = Boolean(reconciliation);
-  const canInitialPageSave = !hasSavedPageData;
+  const hasPageSaveReconciliation = Boolean(reconciliation);
+  const pageSaveReconciliationPending = isBlockingPageSaveReconciliation(reconciliation);
 
   const pageSaveDisabled =
     !pageControlsVisible ||
-    !currentDraftAvailable ||
-    (!pageSaveReconciliationPending && mobileSimulationBlocked) ||
-    (!pageSaveReconciliationPending &&
-      !currentDraftDirty &&
-      !canInitialPageSave &&
-      !needsAiSnapshotBackfill);
+    pageSaveReconciliationPending ||
+    !sessionHasPendingChanges ||
+    sessionRequiresAiRun;
 
-  const pageSaveMobileSimulationRequiredVisible =
-    pageControlsVisible &&
-    !pageSaveReconciliationPending &&
-    mobileSimulationBlocked &&
-    currentDraftAvailable &&
-    (currentDraftDirty || canInitialPageSave || needsAiSnapshotBackfill);
+  const pageSaveMobileSimulationRequiredVisible = false;
 
   const pageRevertDisabled =
     !pageControlsVisible ||
     pageSaveReconciliationPending ||
-    !currentDraftAvailable ||
-    !hasSavedPageData ||
-    !currentDraftDirty;
+    !sessionHasPendingChanges;
 
   let pageDraftStatusText = "";
   let pageDraftStatusTone = "muted";
+  let pageSessionNoticeVisible = false;
+  let pageSessionNoticeText = "";
 
   if (!pageControlsVisible) {
     pageDraftStatusText = "";
-  } else if (!currentDraftAvailable) {
-    pageDraftStatusText = PopupText.page.statusDraftUnavailable;
-    pageDraftStatusTone = "warning";
   } else if (pageSaveReconciliationPending) {
     pageDraftStatusText = getPageSaveReconciliationStatusText(reconciliation);
     pageDraftStatusTone = "warning";
-  } else if (!hasSavedPageData) {
-    pageDraftStatusText = PopupText.page.statusNoSavedData;
-    pageDraftStatusTone = "muted";
-  } else if (currentDraftDirty) {
-    pageDraftStatusText = PopupText.page.statusUnsavedChanges;
+  } else if (hasPageSaveReconciliation) {
+    pageDraftStatusText = getPageSaveReconciliationStatusText(reconciliation);
     pageDraftStatusTone = "warning";
-  } else if (needsAiSnapshotBackfill) {
-    pageDraftStatusText = PopupText.page.statusNeedsAiSnapshot;
+  } else if (sessionHasPendingChanges && sessionRequiresAiRun) {
+    pageDraftStatusText = PopupText.page.statusRunAiBeforeSaving;
+    pageDraftStatusTone = "warning";
+    pageSessionNoticeVisible = true;
+    pageSessionNoticeText = PopupText.page.noticeRunAiBeforeSaving;
+  } else if (sessionHasPendingChanges) {
+    pageDraftStatusText = PopupText.page.statusSessionChangesReadyToSave;
     pageDraftStatusTone = "warning";
   } else {
-    pageDraftStatusText = PopupText.page.statusAllChangesSaved;
+    pageDraftStatusText = PopupText.page.statusSessionSaved;
     pageDraftStatusTone = "success";
   }
 
@@ -85,14 +84,12 @@ export function buildPageSaveUiState(options = {}) {
     pageRevertDisabled,
     pageDraftStatusText,
     pageDraftStatusTone,
-    pageDataNewNoticeHidden:
-      !pageControlsVisible ||
-      !currentDraftAvailable ||
-      pageSaveReconciliationPending ||
-      hasSavedPageData,
-    aiBlockedByDraft: currentDraftDirty || pageSaveReconciliationPending,
-    aiDirtyNoticeText: pageSaveReconciliationPending
-      ? PopupText.page.statusServerSyncPending
+    pageSessionNoticeVisible,
+    pageSessionNoticeText,
+    pageDataNewNoticeHidden: true,
+    aiBlockedByDraft: pageSaveReconciliationPending,
+    aiDirtyNoticeText: hasPageSaveReconciliation
+      ? getPageSaveReconciliationStatusText(reconciliation)
       : PopupText.ai.dirtyNotice
   };
 }

@@ -70,7 +70,14 @@ export function normalizePageSaveReconciliation(value) {
 
 export function isPageSaveReconciliationPending(value) {
   const normalized = normalizePageSaveReconciliation(value);
-  return Boolean(normalized && normalized.status === PAGE_SAVE_RECONCILIATION_STATUS_PENDING);
+  if (!normalized || normalized.status !== PAGE_SAVE_RECONCILIATION_STATUS_PENDING) {
+    return false;
+  }
+  return ![
+    "sync_failed",
+    "sync_skipped",
+    "load_failed"
+  ].includes(normalized.reason);
 }
 
 async function getPageSaveReconciliations() {

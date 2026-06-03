@@ -11,14 +11,17 @@ property-lock tests in the same commit.
   the current page resolves to a Live Page candidate property.
 - The connection stays alive while that tab remains on a candidate page for the
   same property.
+- Landing on an eligible Live Page queues the editor claim immediately for that
+  extension page session; claiming the editor role no longer waits for marking
+  mode to be enabled.
 - The lock identity is a stable page-session client ID stored in
   `sessionStorage`, not the Chrome tab ID. Chrome tab IDs can be used only as a
   local routing hint for popup commands.
 - A duplicated or cloned tab copies that `sessionStorage` value, so the
   extension must rotate the new tab onto a fresh client ID before lock state,
   popup routing, or observer/editor decisions are derived from it.
-- The first page-session client that enters marking mode requests the lock and
-  becomes the editor when the server grants it.
+- The first page-session client that lands on an eligible Live Page candidate
+  property requests the lock and becomes the editor when the server grants it.
 - Every other page-session client for the same property is passive and must
   show the locked UI, even when it belongs to the same authenticated user.
 
@@ -110,4 +113,4 @@ The focused guard tests are:
 They cover stable client IDs, same-user passive locks, heartbeat/release timing,
 navigation grace, cloned-tab client rotation, command routing,
 extension-context invalidation handling, and source-level guards that prevent
-lock acquisition before marking mode is entered.
+lock acquisition from drifting away from the eligible-page connection flow.

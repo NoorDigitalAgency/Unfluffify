@@ -575,7 +575,6 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS = 120 * 1000;
 const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 * 1000;
-const LYNX_CHECKLIST_AI_AUTO_CONFIRM_WINDOW_MS = 15 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
@@ -1162,6 +1161,57 @@ function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
     });
   });
   return items;
+}
+
+function createNormalizedPageMarkingsSnapshot(pageMarkings) {
+  return config.createBackendSavedPageMarkingsSnapshot(pageMarkings);
+}
+
+function arePageMarkingSnapshotsEqual(left, right) {
+  return JSON.stringify(createNormalizedPageMarkingsSnapshot(left)) ===
+    JSON.stringify(createNormalizedPageMarkingsSnapshot(right));
+}
+
+function hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings) {
+  return !arePageMarkingSnapshotsEqual(localPageMarkings, backendSavedPageMarkings);
+}
+
+function getLatestPageMarkingTimestamp(pageMarkings) {
+  let latestTimestamp = config.PAGE_TIMESTAMP_FALLBACK;
+  Object.values(createNormalizedPageMarkingsSnapshot(pageMarkings)).forEach((entry) => {
+    const timestamp = config.normalizeEntryTimestamp(entry && entry.timestamp);
+    if (config.isIncomingTimestampNewer(timestamp, latestTimestamp)) {
+      latestTimestamp = timestamp;
+    }
+  });
+  return latestTimestamp;
+}
+
+function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
+  if (options.currentDraftDirty) {
+    return true;
+  }
+  if (!hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)) {
+    return false;
+  }
+  if (!config.isSelectorSetCurrentForRenderMode(sourceConfig, "selectors")) {
+    return true;
+  }
+  if (!hasCalculatedSelectorsFromConfig(sourceConfig)) {
+    return true;
+  }
+  return config.isIncomingTimestampNewer(
+    getLatestPageMarkingTimestamp(localPageMarkings),
+    config.normalizeEntryTimestamp(sourceConfig && sourceConfig.selectorsUpdatedAt)
+  );
+}
+
+function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
+  return Boolean(
+    options.currentDraftDirty ||
+      options.reconciliationPending ||
+      hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)
+  );
 }
 
 function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
@@ -2072,7 +2122,7 @@ async function setCurrentPageSaveReconciliationReason(reason) {
     reason: typeof reason === "string" ? reason : "pending"
   });
   state.currentPageSaveReconciliation = reconciliation;
-  state.currentPageSaveReconciliationPending = Boolean(reconciliation);
+  state.currentPageSaveReconciliationPending = config.isPageSaveReconciliationPending(reconciliation);
   await messages.sendTabMessage({
     type: "setPageSaveReconciliationPending",
     baseUrl: state.currentBaseUrl,
@@ -2627,6 +2677,7 @@ async function syncBaseConfigToServer(options = {}) {
     stageBase = "",
     alertOnCurrentReplacement = true,
     includeCurrentPageMarking = false,
+    includeAllLocalPageMarkings = false,
     maxAttempts = 5
   } = options;
   if (!baseUrl || !pageUrl || !endpointValue) {
@@ -2683,6 +2734,10 @@ async function syncBaseConfigToServer(options = {}) {
       backendSavedPageMarkings,
       resolvedBaseUrl
     );
+    const localPageMarkingItems = collectStoredPageMarkingItems(
+      sourceConfig.pageMarkings,
+      resolvedBaseUrl
+    );
     const backendSavedPageUrls = new Set(
       Object.keys(backendSavedPageMarkings || {}).filter(Boolean)
     );
@@ -2693,12 +2748,16 @@ async function syncBaseConfigToServer(options = {}) {
         ? sourceConfig.pageMarkings[pageUrl]
         : null;
     let filterPageMarking = (url) =>
-      backendSavedPageUrls.has(url) || (includeCurrentPageMarking && url === pageUrl);
+      includeAllLocalPageMarkings ||
+      backendSavedPageUrls.has(url) ||
+      (includeCurrentPageMarking && url === pageUrl);
     if (propertyPageTypesResult && propertyPageTypesResult.ok) {
       const coverageModel = buildLynxChecklistViewModel({
         aiAnswer: "yes",
         pageTypes: propertyPageTypesResult.pageTypes,
-        markedPages: backendSavedPageMarkingItems
+        markedPages: includeAllLocalPageMarkings
+          ? localPageMarkingItems
+          : backendSavedPageMarkingItems
       });
       const activePageMarkingKeys = new Set(
         coverageModel.activeMarkedPages
@@ -2724,6 +2783,10 @@ async function syncBaseConfigToServer(options = {}) {
         response,
         currentTokenValue
       );
+      if (response.status === 401 || response.status === 403) {
+        await invalidateTokenAndLockConfiguration(true);
+        return { ok: false, status: response.status || 0, authExpired: true };
+      }
       if (!response.ok) {
         lastStatus = response.status || 0;
         if (attempt + 1 < attempts && isRetryableHttpStatus(lastStatus)) {
@@ -2749,7 +2812,7 @@ async function syncBaseConfigToServer(options = {}) {
           pageUrl,
           {
             confirmedPageMarkings: payload.pageMarkings,
-            preferConfirmedPageMarkings: includeCurrentPageMarking
+            preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
           }
         );
         return { ok: mergeResult.ok, replacedCurrentPage: false };
@@ -2757,7 +2820,7 @@ async function syncBaseConfigToServer(options = {}) {
 
       const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl, {
         confirmedPageMarkings: payload.pageMarkings,
-        preferConfirmedPageMarkings: includeCurrentPageMarking
+        preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
       });
       if (!mergeResult.ok) {
         return { ok: false };
@@ -3615,8 +3678,6 @@ async function refreshUiInner(options = {}) {
         scale: state.currentDeviceScale
       };
   const normalizedDeviceState = emulation.syncDeviceEmulationState(storedDeviceState);
-  const mobileSimulationReady = isMobileSimulationActive(normalizedDeviceState);
-  const mobileSimulationBlocked = !mobileSimulationReady;
   const loginEmailValue = view.loginEmailValue || "";
   const loginPasswordValue = view.loginPasswordValue || "";
   if (!configEndpointValue) {
@@ -3741,9 +3802,22 @@ async function refreshUiInner(options = {}) {
     backendSavedPageMarkings,
     state.currentBaseUrl
   );
+  const currentPageCandidateState = getCurrentPageCandidateState(
+    pageUrl,
+    propertyPageTypes
+  );
+  const propertyLockCandidateSiteId = currentPageCandidateState.status === "candidate"
+    ? liveSiteId
+    : null;
+  if (propertyLockCandidateSiteId && state.currentBaseUrl && tokenValue) {
+    await refreshPropertyLockSnapshot(propertyLockCandidateSiteId, {
+      skipFetch: skipPropertyLockFetch
+    });
+  } else {
+    resetPropertyLockState();
+  }
   if (propertyPageTypes.length && state.currentBaseUrl) {
     let coverageModel = buildLynxChecklistViewModel({
-      aiAnswer: state.lynxChecklistAiAnswer,
       pageTypes: propertyPageTypes,
       markedPages: backendSavedPageMarkingItems
     });
@@ -3761,7 +3835,6 @@ async function refreshUiInner(options = {}) {
         ).config;
         pageMarkings = (state.currentConfig && state.currentConfig.pageMarkings) || {};
         coverageModel = buildLynxChecklistViewModel({
-          aiAnswer: state.lynxChecklistAiAnswer,
           pageTypes: propertyPageTypes,
           markedPages: backendSavedPageMarkingItems
         });
@@ -3811,10 +3884,18 @@ async function refreshUiInner(options = {}) {
     backendSavedPageMarkings,
     state.currentBaseUrl
   );
+  const useLocalMarkedPagesForCoverage = Boolean(
+    propertyLockCandidateSiteId &&
+      state.propertyLockSiteId === propertyLockCandidateSiteId &&
+      state.propertyLockState &&
+      state.propertyLockState.isEditor
+  );
+  const coverageMarkedPageItems = useLocalMarkedPagesForCoverage
+    ? localStoredPageMarkingItems
+    : backendSavedPageMarkingItems;
   const pageTypeCoverageModel = buildLynxChecklistViewModel({
-    aiAnswer: state.lynxChecklistAiAnswer,
     pageTypes: propertyPageTypes,
-    markedPages: backendSavedPageMarkingItems
+    markedPages: coverageMarkedPageItems
   });
   const activeMarkedPageKeys = new Set(
     pageTypeCoverageModel.activeMarkedPages
@@ -3822,25 +3903,11 @@ async function refreshUiInner(options = {}) {
       .filter(Boolean)
   );
   const pageMarkingItemByKey = new Map(
-    backendSavedPageMarkingItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
+    coverageMarkedPageItems.map((item) => [buildPageMarkingKey(item.url, item.pageType), item])
   );
   const hasStoredCurrentPageEntry = localStoredPageMarkingItems.some(
     (item) => normalizeCandidatePageUrl(item.url) === normalizedCurrentPageUrl
   );
-  const currentPageCandidateState = getCurrentPageCandidateState(
-    pageUrl,
-    pageTypeCoverageModel.pageTypes
-  );
-  const propertyLockCandidateSiteId = currentPageCandidateState.status === "candidate"
-    ? liveSiteId
-    : null;
-  if (propertyLockCandidateSiteId && state.currentBaseUrl && tokenValue) {
-    await refreshPropertyLockSnapshot(propertyLockCandidateSiteId, {
-      skipFetch: skipPropertyLockFetch
-    });
-  } else {
-    resetPropertyLockState();
-  }
   syncObserverRemoteConfigRefreshTimer(
     Boolean(
       propertyLockCandidateSiteId &&
@@ -3963,7 +4030,6 @@ async function refreshUiInner(options = {}) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
   }
-  const selectorsReadyForSubmit = hasNewSelectors;
   const aiBusy = Boolean(state.aiRequestInFlight);
   const hasStoredSelectors = hasCalculatedSelectorsFromConfig();
 
@@ -3987,37 +4053,22 @@ async function refreshUiInner(options = {}) {
       state.currentPageSaveReconciliationPending = Boolean(draftStatus.reconciliationPending);
     }
   }
-  const savedEntry =
-    state.currentSavedEntry ||
-    (state.currentConfig &&
-      state.currentConfig.pageMarkings &&
-      state.currentConfig.pageMarkings[pageUrl]);
-  const hasSavedPageData = Boolean(
-    savedEntry &&
-      ((Array.isArray(savedEntry.xpaths) && savedEntry.xpaths.length > 0) ||
-        (Array.isArray(savedEntry.includeXpaths) &&
-          savedEntry.includeXpaths.length > 0) ||
-        (typeof savedEntry.renderedHtml === "string" &&
-          savedEntry.renderedHtml.length > 0))
-  );
-  const hasSavedAiSubmissionSnapshot = Boolean(
-    savedEntry &&
-      typeof savedEntry.renderedHtml === "string" &&
-      savedEntry.renderedHtml.length > 0 &&
-      Array.isArray(savedEntry.submissionXpaths) &&
-      savedEntry.submissionXpaths.length > 0
-  );
-  const needsAiSnapshotBackfill =
-    hasSavedPageData && !hasSavedAiSubmissionSnapshot;
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
-  const aiBlockedByDraft = state.currentDraftDirty || pageSaveReconciliationPending;
-  const aiBlockedByMissingSavedSnapshot =
-    isEnabled &&
-    baseUrlReady &&
-    siteIdReady &&
-    state.currentDraftAvailable &&
-    !state.currentDraftDirty &&
-    !hasSavedAiSubmissionSnapshot;
+  const sessionHasPendingChanges = hasSessionPendingChanges(
+    state.currentConfig,
+    pageMarkings,
+    backendSavedPageMarkings,
+    {
+      currentDraftDirty: state.currentDraftDirty,
+      reconciliationPending: pageSaveReconciliationPending
+    }
+  );
+  const sessionRequiresAiRun = doesSessionRequireAiRun(
+    state.currentConfig,
+    pageMarkings,
+    backendSavedPageMarkings,
+    { currentDraftDirty: state.currentDraftDirty }
+  );
 
   let resolvedView =
     state.currentView ||
@@ -4070,30 +4121,33 @@ async function refreshUiInner(options = {}) {
     isPropertyLockBlockingEditing() ||
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
   const configurationUiDisabled = aiBusy;
+  const silentModeActive =
+    !pageScopedUiDisabled &&
+    resolvedView === uiModule.View.Marking &&
+    renderModeReady &&
+    !isEnabled;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
     pageScopedUiDisabled || pageSaveReconciliationPending || !baseUrlReady || !siteIdReady || !renderModeReady;
   nextViewState.mainUiHidden =
     pageScopedUiDisabled || !isEnabled || !siteIdReady || !renderModeReady;
+  nextViewState.silentModeActive = silentModeActive;
   nextViewState.computeButtonDisabled =
     pageScopedUiDisabled ||
     aiBusy ||
     !aiReady ||
-    aiBlockedByDraft ||
-    aiBlockedByMissingSavedSnapshot;
+    pageSaveReconciliationPending;
   nextViewState.saveExcludesButtonDisabled =
-    pageScopedUiDisabled ||
+    !silentModeActive ||
     aiBusy ||
-    !aiReady ||
-    !selectorsReadyForSubmit ||
-    aiBlockedByDraft;
+    !baseUrlReady ||
+    !siteIdReady;
   nextViewState.previewLatestButtonDisabled =
-    pageScopedUiDisabled ||
+    !silentModeActive ||
     aiBusy ||
     !baseUrlReady ||
     !siteIdReady ||
-    !hasStoredSelectors ||
-    aiBlockedByDraft;
+    !hasStoredSelectors;
   nextViewState.renderModeReady = renderModeReady;
   nextViewState.todoListVisible = siteIdReady && renderModeReady;
   nextViewState.renderModeValue = renderModeField.value;
@@ -4118,6 +4172,8 @@ async function refreshUiInner(options = {}) {
   nextViewState.lynxChecklistAiQuestionDisabled = Boolean(state.lynxChecklistAiQuestionDisabled);
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
+  nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
+  nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;
   nextViewState.renderModeInputDisabled =
     aiBusy ||
     pageScopedUiDisabled ||
@@ -4230,12 +4286,11 @@ async function refreshUiInner(options = {}) {
         )
       : "0:00";
   nextViewState.aiControlsBusy = aiBusy;
-  nextViewState.aiDirtyNoticeVisible = aiBlockedByDraft || aiBlockedByMissingSavedSnapshot;
-  nextViewState.aiDirtyNoticeText = PopupText.ai.dirtyNotice;
-  nextViewState.cssSelectorsVisible =
-    !pageScopedUiDisabled &&
-    resolvedView === uiModule.View.Marking &&
-    renderModeReady;
+  nextViewState.aiDirtyNoticeVisible = pageSaveReconciliationPending;
+  nextViewState.aiDirtyNoticeText = pageSaveReconciliationPending
+    ? PopupText.page.statusServerSyncPending
+    : PopupText.ai.dirtyNotice;
+  nextViewState.cssSelectorsVisible = silentModeActive;
   nextViewState.baseUrlInputValue = baseField.value;
   nextViewState.baseUrlNoticeText =
     state.remoteConfigConnectionIssue
@@ -4248,11 +4303,8 @@ async function refreshUiInner(options = {}) {
   const pageControlsVisible = !nextViewState.mainUiHidden && nextViewState.renderModeReady;
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
-    currentDraftAvailable: state.currentDraftAvailable,
-    hasSavedPageData,
-    currentDraftDirty: state.currentDraftDirty,
-    needsAiSnapshotBackfill,
-    mobileSimulationBlocked,
+    sessionHasPendingChanges,
+    sessionRequiresAiRun,
     reconciliation: state.currentPageSaveReconciliation
   });
   nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
@@ -4263,6 +4315,8 @@ async function refreshUiInner(options = {}) {
   nextViewState.pageRevertDisabled = pageSaveUiState.pageRevertDisabled;
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
+  nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
+  nextViewState.pageSessionNoticeText = pageSaveUiState.pageSessionNoticeText;
   nextViewState.aiDirtyNoticeText = pageSaveUiState.aiDirtyNoticeText;
   nextViewState.syncLoadStatusText = state.lastConfigLoadStatusText || ViewText.syncLoadIdle;
   nextViewState.syncLoadStatusTone = state.lastConfigLoadStatusTone || "muted";
@@ -4821,35 +4875,16 @@ function setLynxChecklistViewState() {
   });
 }
 
-function isRecentConfigSelectorComputation(sourceConfig = state.currentConfig) {
-  if (!hasCalculatedSelectorsFromConfig(sourceConfig)) {
-    return false;
-  }
-  const updatedAt = config.normalizeEntryTimestamp(
-    sourceConfig && sourceConfig.selectorsUpdatedAt
-  );
-  if (updatedAt === config.PAGE_TIMESTAMP_FALLBACK) {
-    return false;
-  }
-  return Date.now() - updatedAt <= LYNX_CHECKLIST_AI_AUTO_CONFIRM_WINDOW_MS;
-}
-
 function resetLynxChecklistState() {
   const initial = createInitialLynxChecklistState();
-  const hasCalculatedSelectors = hasCalculatedSelectorsFromConfig(state.currentConfig);
-  const promptState = buildLynxChecklistPromptState({
-    hasCalculatedSelectors,
-    recentlyCalculatedSelectors: isRecentConfigSelectorComputation(state.currentConfig)
-  });
+  const promptState = buildLynxChecklistPromptState();
   state.lynxChecklistAiAnswer = promptState.aiAnswer || initial.aiAnswer;
   state.lynxChecklistPageTypes = Array.isArray(state.propertyPageTypes)
     ? state.propertyPageTypes
     : initial.pageTypes;
   state.lynxChecklistAiQuestionDisabled = promptState.aiQuestionDisabled;
   state.lynxChecklistAiQuestionHidden = Boolean(promptState.aiQuestionHidden);
-  state.lynxChecklistNoticeText = hasCalculatedSelectors
-    ? ""
-    : PopupText.lynxChecklist.noticeRunAiDetectionFirst;
+  state.lynxChecklistNoticeText = "";
 }
 
 function openLynxChecklistPopover() {
@@ -4861,16 +4896,6 @@ function openLynxChecklistPopover() {
 function closeLynxChecklistPopover() {
   state.lynxChecklistVisible = false;
   resetLynxChecklistState();
-  setLynxChecklistViewState();
-}
-
-function handleLynxChecklistAiAnswerChange(event) {
-  if (state.lynxChecklistAiQuestionDisabled) {
-    return;
-  }
-  const nextValue =
-    event && event.currentTarget && event.currentTarget.value === "no" ? "no" : "yes";
-  state.lynxChecklistAiAnswer = nextValue;
   setLynxChecklistViewState();
 }
 
@@ -5893,6 +5918,17 @@ async function handleEnableToggle(event) {
     await refreshUi();
     return;
   }
+  if (!desiredEnabled && currentViewState.sessionHasPendingChanges) {
+    uiModule.setViewState({ toggleEnabled: true });
+    state.lastPopupEnabled = true;
+    uiModule.showToast(
+      currentViewState.sessionRequiresAiRun
+        ? PopupText.page.exitRequiresAiResolution
+        : PopupText.page.exitRequiresResolution
+    );
+    await refreshUi();
+    return;
+  }
   state.lastPopupEnabled = desiredEnabled;
   const baseUrlValue = state.currentBaseUrl;
   const currentPageTypeKey = desiredEnabled ? state.currentPageTypeKey || "" : "";
@@ -6345,26 +6381,30 @@ async function handlePageSave() {
   if (!helpers.ensureBaseUrl()) {
     return;
   }
-  const wasReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
-  if (!wasReconciliationPending && !ensureMobileSimulationForSave()) {
+  if (state.currentPageSaveReconciliationPending) {
+    uiModule.showToast(PopupText.page.statusServerSyncPending);
+    return;
+  }
+  const currentViewState = uiModule.getViewState();
+  if (!currentViewState.sessionHasPendingChanges) {
+    updateLastConfigSaveStatus(PopupText.page.noLocalChangesToSave);
+    uiModule.showToast(PopupText.page.noChangesToSave);
+    return;
+  }
+  if (currentViewState.sessionRequiresAiRun) {
+    uiModule.showToast(PopupText.page.noticeRunAiBeforeSaving);
+    return;
+  }
+  const tokenIsValid = await validateStoredToken({ force: true });
+  if (!tokenIsValid) {
     return;
   }
   await runWithPopupBusyOverlay(PopupText.overlay.savingPage, async () => {
-    const response = await messages.sendTabMessage({
-      type: "savePageDraft",
-      baseUrl: state.currentBaseUrl,
-      pageType: state.currentPageTypeKey || ""
-    });
-    if (!response || !response.ok) {
-      updateLastConfigSaveStatus(PopupText.page.saveFailed);
-      uiModule.showToast(PopupText.page.saveFailedToast);
-      return;
-    }
-    if (response.saved) {
-      updateLastConfigSaveStatus(PopupText.page.savedLocallySyncPending);
-      const pageUrl = getCurrentPageUrl();
-      const { tokenValue, configEndpointValue, stageBaseValue } =
-        await helpers.loadGlobalAiSettings();
+    const pageUrl = getCurrentPageUrl();
+    const { tokenValue, configEndpointValue, stageBaseValue } =
+      await helpers.loadGlobalAiSettings();
+    let retryDelayMs = 1500;
+    while (true) {
       const syncResult = await syncBaseConfigToServer({
         baseUrl: state.currentBaseUrl,
         pageUrl,
@@ -6372,40 +6412,28 @@ async function handlePageSave() {
         tokenValue,
         stageBase: stageBaseValue,
         alertOnCurrentReplacement: false,
-        includeCurrentPageMarking: true
+        includeAllLocalPageMarkings: true,
+        maxAttempts: 1
       });
-      const syncSkipped = Boolean(syncResult && syncResult.skipped);
-      const syncCompleted = isCompletedPageConfigSyncResult(syncResult);
-      if (!syncCompleted) {
-        await setCurrentPageSaveReconciliationReason(syncSkipped ? "sync_skipped" : "sync_failed");
-        updateLastConfigSaveStatus(
-          syncSkipped
-            ? PopupText.page.savedLocallySyncSkipped
-            : PopupText.page.savedLocallySyncFailed
-        );
-        uiModule.showToast(
-          syncSkipped
-            ? PopupText.page.pageSavedLocallySyncSkipped
-            : PopupText.page.pageSavedLocallySyncFailed
-        );
-      } else {
-        const effectiveBaseUrl = (syncResult && syncResult.baseUrl) || state.currentBaseUrl;
-        const backendSavedAfterSync = await config.getBackendSavedPageMarkings(effectiveBaseUrl);
-        if (!hasBackendSavedPageMarking(backendSavedAfterSync, pageUrl)) {
-          await setCurrentPageSaveReconciliationReason("load_failed");
-          updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
-          uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
-        } else {
-          await clearCurrentPageSaveReconciliation(effectiveBaseUrl);
-          updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
-          uiModule.showToast(PopupText.page.pageSaved);
-        }
+      if (syncResult && syncResult.ok) {
+        await clearCurrentPageSaveReconciliation();
+        updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
+        uiModule.showToast(PopupText.page.sessionSaved);
+        await refreshUi();
+        return;
       }
-    } else {
-      updateLastConfigSaveStatus(PopupText.page.noLocalChangesToSave);
-      uiModule.showToast(PopupText.page.noChangesToSave);
+      if (syncResult && syncResult.authExpired) {
+        return;
+      }
+      if (syncResult && syncResult.skipped) {
+        updateLastConfigSaveStatus(PopupText.page.saveFailed);
+        uiModule.showToast(syncResult.reason || PopupText.page.saveFailedToast);
+        return;
+      }
+      uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice);
+      await waitForRetryDelay(retryDelayMs);
+      retryDelayMs = Math.min(retryDelayMs * 2, 10000);
     }
-    await refreshUi();
   });
 }
 
@@ -6420,60 +6448,95 @@ async function handlePageRevert() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
+  const currentViewState = uiModule.getViewState();
+  if (!currentViewState.sessionHasPendingChanges) {
+    uiModule.showToast(PopupText.page.noChangesToSave);
+    return;
+  }
   const confirmed = window.confirm(PopupText.page.revertConfirm);
   if (!confirmed) {
     return;
   }
+  const tokenIsValid = await validateStoredToken({ force: true });
+  if (!tokenIsValid) {
+    return;
+  }
   await runWithPopupBusyOverlay(PopupText.overlay.revertingPage, async () => {
-    const response = await messages.sendTabMessage({
-      type: "revertPageDraft",
-      baseUrl: state.currentBaseUrl
-    });
-    if (!response || !response.ok) {
+    const pageUrl = getCurrentPageUrl();
+    const currentTabId = state.currentTab && state.currentTab.id;
+    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
+    if (!configEndpointValue) {
+      uiModule.showToast(PopupText.configuration.endpointEnter);
+      return;
+    }
+    if (!tokenValue) {
+      await invalidateTokenAndLockConfiguration(true);
+      return;
+    }
+    let discardResult = null;
+
+    if (currentTabId && pageUrl && state.currentSiteId) {
+      let retryDelayMs = 1500;
+      while (true) {
+        discardResult = await loadRemoteConfigForCurrentPage({
+          tabId: currentTabId,
+          pageUrl,
+          baseUrl: state.currentBaseUrl,
+          siteId: state.currentSiteId,
+          endpointValue: configEndpointValue,
+          tokenValue,
+          force: true,
+          notifyOnChange: false
+        });
+        if (discardResult && discardResult.status !== "error") {
+          break;
+        }
+        uiModule.setUiBusy(true, PopupText.status.remoteConfigRetryNotice);
+        await waitForRetryDelay(retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+      }
+    }
+
+    if (discardResult && discardResult.status === "auth_error") {
+      return;
+    }
+    if (discardResult && discardResult.status === "not_found") {
+      await config.clearBackendSavedPageMarkings(state.currentBaseUrl);
+      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+        targetConfig.pageMarkings = {};
+        targetConfig.selectors = normalizeAiSelectorSet(null);
+        targetConfig.selectorsUpdatedAt = config.PAGE_TIMESTAMP_FALLBACK;
+        targetConfig.submittedSelectorsFingerprint = "";
+      });
+      await messages.sendTabMessageWithRetry({
+        type: "configUpdated",
+        baseUrl: state.currentBaseUrl,
+        forceReloadPageEntry: true
+      }, 2);
+      await clearCurrentPageSaveReconciliation();
+      state.aiSelectorsComputedSinceLastSubmit = false;
+      state.aiSelectorsComputedBaseUrl = "";
+      updateLastConfigSaveStatus(PopupText.page.revertedAndSynced);
+      uiModule.showToast(PopupText.page.revertedToLastSaved);
+      await refreshUi();
+      return;
+    }
+
+    if (!discardResult || discardResult.status !== "ok") {
       updateLastConfigSaveStatus(PopupText.page.revertFailed);
       uiModule.showToast(PopupText.page.revertFailedToast);
       return;
     }
-    await setCurrentPageSaveReconciliationReason("pending");
-    const pageUrl = getCurrentPageUrl();
-    const { tokenValue, configEndpointValue, stageBaseValue } =
-      await helpers.loadGlobalAiSettings();
-    const syncResult = await syncBaseConfigToServer({
-      baseUrl: state.currentBaseUrl,
-      pageUrl,
-      endpointValue: configEndpointValue,
-      tokenValue,
-      stageBase: stageBaseValue,
-      alertOnCurrentReplacement: false,
-      includeCurrentPageMarking: true
-    });
-    const syncSkipped = Boolean(syncResult && syncResult.skipped);
-    const syncCompleted = isCompletedPageConfigSyncResult(syncResult);
-    if (!syncCompleted) {
-      await setCurrentPageSaveReconciliationReason(syncSkipped ? "sync_skipped" : "sync_failed");
-      updateLastConfigSaveStatus(
-        syncSkipped
-          ? PopupText.page.revertedLocallySyncSkipped
-          : PopupText.page.revertedLocallySyncFailed
-      );
-      uiModule.showToast(
-        syncSkipped
-          ? PopupText.page.revertedLocallyServerSyncSkipped
-          : PopupText.page.revertedLocallyServerSyncFailed
-      );
-    } else {
-      const effectiveBaseUrl = (syncResult && syncResult.baseUrl) || state.currentBaseUrl;
-      const backendSavedAfterSync = await config.getBackendSavedPageMarkings(effectiveBaseUrl);
-      if (!hasBackendSavedPageMarking(backendSavedAfterSync, pageUrl)) {
-        await setCurrentPageSaveReconciliationReason("load_failed");
-        updateLastConfigSaveStatus(PopupText.page.savedAndSyncedRefreshFailed);
-        uiModule.showToast(PopupText.page.pageSavedAndSyncedRefreshFailed);
-      } else {
-        await clearCurrentPageSaveReconciliation(effectiveBaseUrl);
-        updateLastConfigSaveStatus(PopupText.page.revertedAndSynced);
-        uiModule.showToast(PopupText.page.revertedToLastSaved);
-      }
-    }
+    await messages.sendTabMessageWithRetry({
+      type: "configUpdated",
+      baseUrl: discardResult.baseUrl || state.currentBaseUrl,
+      forceReloadPageEntry: true
+    }, 2);
+    await clearCurrentPageSaveReconciliation();
+    state.aiSelectorsComputedSinceLastSubmit = false;
+    state.aiSelectorsComputedBaseUrl = "";
+    updateLastConfigSaveStatus(PopupText.page.revertedAndSynced);
+    uiModule.showToast(PopupText.page.revertedToLastSaved);
     await refreshUi();
   });
 }
@@ -6715,10 +6778,6 @@ async function handleComputeSelectors() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
-  if (state.currentDraftDirty) {
-    uiModule.showToast(PopupText.ai.dirtyNotice);
-    return;
-  }
   const credentials = await helpers.requireAiCredentials();
   if (!credentials) {
     return;
@@ -6731,27 +6790,23 @@ async function handleComputeSelectors() {
     uiModule.showToast(PopupText.ai.currentPageUnavailable);
     return;
   }
-  const pageMarkings = state.currentConfig.pageMarkings || {};
-  const currentPageEntry = pageMarkings[currentPageUrl];
-  if (!currentPageEntry || typeof currentPageEntry !== "object") {
-    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
-    return;
-  }
-  const currentPageHtml =
-    typeof currentPageEntry.renderedHtml === "string" ? currentPageEntry.renderedHtml : "";
+  let pageMarkings = state.currentConfig.pageMarkings || {};
+  let currentPageEntry = pageMarkings[currentPageUrl];
   const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  if (!currentPageHtml) {
-    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
-    return;
-  }
   const hasCurrentSubmissionXpaths =
-    Array.isArray(currentPageEntry.submissionXpaths) &&
+    Array.isArray(currentPageEntry && currentPageEntry.submissionXpaths) &&
     currentPageEntry.submissionXpaths.length > 0;
-  if (!hasCurrentSubmissionXpaths) {
-    // AI compute no longer rebuilds xpaths from stored HTML. The live DOM decides
-    // visibility/hidden/excluded state when the page is saved, and that snapshot
-    // (`submissionXpaths`) becomes the source of truth for later AI requests.
-    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
+  const currentPageHtml =
+    currentPageEntry && typeof currentPageEntry.renderedHtml === "string"
+      ? currentPageEntry.renderedHtml
+      : "";
+  const currentPageNeedsSnapshot =
+    state.currentDraftDirty ||
+    !currentPageEntry ||
+    typeof currentPageEntry !== "object" ||
+    !currentPageHtml ||
+    !hasCurrentSubmissionXpaths;
+  if (currentPageNeedsSnapshot && !ensureMobileSimulationForSave()) {
     return;
   }
 
@@ -6783,35 +6838,6 @@ async function handleComputeSelectors() {
       })
       .filter((item) => item && !isAiSubmissionDocumentRootXpath(item.xpath));
   };
-  const storedPageEntries = Object.entries(pageMarkings)
-    .filter(([url, entry]) => {
-      if (!url || !entry || typeof entry !== "object") {
-        return false;
-      }
-      if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
-        return false;
-      }
-      if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
-        return false;
-      }
-      if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
-        return false;
-      }
-      return true;
-    });
-
-  if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
-    // Guard against stale state where the current tab exists in `pageMarkings`
-    // but does not yet have the required saved snapshot fields.
-    uiModule.showToast(PopupText.ai.saveCurrentPageBeforeComputing);
-    return;
-  }
-
-  if (!storedPageEntries.length) {
-    uiModule.showToast(PopupText.ai.savePagesBeforeComputing);
-    return;
-  }
-
   const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
   const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
   setAiRunActiveState({
@@ -6830,6 +6856,60 @@ async function handleComputeSelectors() {
       return;
     }
     await waitForPopupUiPaint();
+
+    if (currentPageNeedsSnapshot) {
+      const snapshotResponse = await messages.sendTabMessage({
+        type: "capturePageSnapshot",
+        baseUrl: state.currentBaseUrl,
+        pageType: state.currentPageTypeKey || "",
+        persist: true
+      });
+      if (!snapshotResponse || !snapshotResponse.ok) {
+        await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+        return;
+      }
+      state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+      pageMarkings = state.currentConfig.pageMarkings || {};
+      currentPageEntry = pageMarkings[currentPageUrl];
+      if (
+        !currentPageEntry ||
+        typeof currentPageEntry !== "object" ||
+        typeof currentPageEntry.renderedHtml !== "string" ||
+        !currentPageEntry.renderedHtml ||
+        !Array.isArray(currentPageEntry.submissionXpaths) ||
+        currentPageEntry.submissionXpaths.length === 0
+      ) {
+        await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+        return;
+      }
+    }
+
+    // Every AI run must reuse the stored local snapshots for all marked pages
+    // under the current base URL. Do not mix in live DOM re-collection here.
+    const storedPageEntries = Object.entries(pageMarkings)
+      .filter(([url, entry]) => {
+        if (!url || !entry || typeof entry !== "object") {
+          return false;
+        }
+        if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
+          return false;
+        }
+        if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
+          return false;
+        }
+        if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
+          return false;
+        }
+        return true;
+      });
+    if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
+      await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+      return;
+    }
+    if (!storedPageEntries.length) {
+      await failAiRun(PopupText.ai.savePagesBeforeComputing);
+      return;
+    }
 
     const rawHtmlBackfills = await backfillRawHtmlForPages(
       state.currentBaseUrl,
@@ -7146,8 +7226,10 @@ async function submitSelectorSetToServer(options = {}) {
 }
 
 async function handleLynxChecklistSend() {
+  if (!uiModule.getViewState().silentModeActive) {
+    return;
+  }
   const checklist = buildLynxChecklistViewModel({
-    aiAnswer: state.lynxChecklistAiAnswer,
     pageTypes: state.lynxChecklistPageTypes,
     markedPages: uiModule.getViewState().markedPages
   });
@@ -7202,10 +7284,16 @@ async function handleSaveExcludes() {
     uiModule.showToast(PopupText.page.statusServerSyncPending);
     return;
   }
+  if (!uiModule.getViewState().silentModeActive) {
+    return;
+  }
   openLynxChecklistPopover();
 }
 
 async function handlePreviewLatest() {
+  if (!uiModule.getViewState().silentModeActive) {
+    return;
+  }
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
@@ -7394,7 +7482,6 @@ async function init() {
     onRenderModeSummaryToggle: handleRenderModeSummaryToggle,
     onRenderModeInspectWithJavaScript: handleRenderModeInspectWithJavaScript,
     onRenderModeInspectWithoutJavaScript: handleRenderModeInspectWithoutJavaScript,
-    onLynxChecklistAiAnswerChange: handleLynxChecklistAiAnswerChange,
     onLynxChecklistPageTypeDecisionChange: handleLynxChecklistPageTypeDecisionChange,
     onLynxChecklistPageTypePageChange: handleLynxChecklistPageTypePageChange,
     onLynxChecklistCandidateNavigate: handleLynxChecklistCandidateNavigate,

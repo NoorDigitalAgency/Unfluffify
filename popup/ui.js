@@ -145,8 +145,8 @@ const initialViewState = {
   lynxChecklistVisible: false,
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
-  lynxChecklistAiQuestionDisabled: false,
-  lynxChecklistAiQuestionHidden: false,
+  lynxChecklistAiQuestionDisabled: true,
+  lynxChecklistAiQuestionHidden: true,
   lynxChecklistNoticeText: "",
   renderModeReady: false,
   renderModeInputDisabled: false,
@@ -166,8 +166,13 @@ const initialViewState = {
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
   aiDirtyNoticeText: PopupText.ai.dirtyNotice,
+  silentModeActive: false,
+  sessionHasPendingChanges: false,
+  sessionRequiresAiRun: false,
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",
+  pageSessionNoticeVisible: false,
+  pageSessionNoticeText: "",
   computeButtonText: ViewText.computeButtonIdle,
   computeButtonDisabled: true,
   computeButtonLoading: false,
@@ -1896,45 +1901,12 @@ function getLynxChecklistNoticeText(checklist, view) {
   return "";
 }
 
-function renderLynxChecklistRadioOption({
-  name,
-  value,
-  checked,
-  disabled,
-  label,
-  onChange
-}) {
-  return h(
-    "label",
-    {
-      class: classNames(
-        "lynx-checklist-popover__choice",
-        disabled && "lynx-checklist-popover__choice--disabled"
-      )
-    },
-    h("input", {
-      type: "radio",
-      name,
-      value,
-      checked,
-      disabled,
-      onChange
-    }),
-    h("span", null, label)
-  );
-}
-
 function renderLynxChecklistPopover(view, handlers) {
   const checklist = buildLynxChecklistViewModel({
-    aiAnswer: view.lynxChecklistAiAnswer,
     pageTypes: view.lynxChecklistPageTypes,
     markedPages: view.markedPages
   });
   const noticeText = getLynxChecklistNoticeText(checklist, view);
-  const showAiQuestion =
-    checklist.missingPageTypes.length === 0 &&
-    !view.lynxChecklistAiQuestionDisabled &&
-    !view.lynxChecklistAiQuestionHidden;
 
   return h(
     "div",
@@ -2005,37 +1977,6 @@ function renderLynxChecklistPopover(view, handlers) {
             )
           : h("div", { class: "hint" }, PopupText.lynxChecklist.noticeNoCandidates)
       ),
-      showAiQuestion
-        ? h(
-            "section",
-            { class: "lynx-checklist-popover__section" },
-            h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.aiQuestion),
-            h(
-              "div",
-              {
-                class: "lynx-checklist-popover__choices",
-                role: "radiogroup",
-                "aria-label": PopupText.lynxChecklist.aiQuestion
-              },
-              renderLynxChecklistRadioOption({
-                name: "lynx-checklist-ai",
-                value: "yes",
-                checked: checklist.aiAnswer === "yes",
-                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-                label: ViewText.yes,
-                onChange: handlers.onLynxChecklistAiAnswerChange
-              }),
-              renderLynxChecklistRadioOption({
-                name: "lynx-checklist-ai",
-                value: "no",
-                checked: checklist.aiAnswer === "no",
-                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-                label: ViewText.no,
-                onChange: handlers.onLynxChecklistAiAnswerChange
-              })
-            )
-          )
-        : null,
       noticeText &&
         h(
           "div",
@@ -2091,7 +2032,7 @@ function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const showDeviceSection = !view.mainUiHidden;
   const markingMode = !view.mainUiHidden;
-  const pageSaveNotice = view.pageSaveMobileSimulationRequiredVisible
+  const pageSaveNotice = view.pageSessionNoticeVisible
     ? h(
         "div",
         {
@@ -2099,35 +2040,27 @@ function renderMarkingView({state: view, actions: handlers}) {
           role: "status",
           "aria-live": "polite"
         },
-        view.pageSaveMobileSimulationRequiredText
+        view.pageSessionNoticeText
       )
-    : h(
-        "div",
-        {
-          id: "page-data-new-notice",
-          class: warningNoticeClass(),
-          role: "status",
-          "aria-live": "polite",
-          hidden: view.pageDataNewNoticeHidden,
-          dangerouslySetInnerHTML: {
-            __html: PopupText.page.noSavedDataNotice
-          }
-        }
-      );
-  const mergedControlsSectionChildren = [
-    h(
-      "label",
-      {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
-      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
-      h("input", {
-        id: "device-emulation-enabled",
-        type: "checkbox",
-        checked: view.deviceEmulationEnabled,
-        disabled: view.deviceControlsDisabled,
-        onChange: handlers.onDeviceEmulationEnabledChange
-      })
-    )
-  ];
+    : null;
+  const mergedControlsSectionChildren = [];
+
+  if (showDeviceSection) {
+    mergedControlsSectionChildren.push(
+      h(
+        "label",
+        {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
+        h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
+        h("input", {
+          id: "device-emulation-enabled",
+          type: "checkbox",
+          checked: view.deviceEmulationEnabled,
+          disabled: view.deviceControlsDisabled,
+          onChange: handlers.onDeviceEmulationEnabledChange
+        })
+      )
+    );
+  }
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
@@ -2141,7 +2074,6 @@ function renderMarkingView({state: view, actions: handlers}) {
           {
             id: "page-save",
             type: "button",
-            title: PopupText.tooltips.pageSaveHotkey,
             disabled: view.pageSaveDisabled,
             onClick: handlers.onPageSave
           },
@@ -2158,7 +2090,7 @@ function renderMarkingView({state: view, actions: handlers}) {
             onClick: handlers.onPageRevert
           },
           icon("restore"),
-          PopupText.actions.revertToSaved
+          PopupText.actions.discard
         )
       ),
       h(
@@ -2180,20 +2112,23 @@ function renderMarkingView({state: view, actions: handlers}) {
   }
 
   if (view.cssSelectorsVisible) {
+    if (mergedControlsSectionChildren.length) {
+      mergedControlsSectionChildren.push(
+        h("div", { class: "section-divider", role: "separator" })
+      );
+    }
     mergedControlsSectionChildren.push(
-      h("div", { class: "section-divider", role: "separator" }),
       renderCssSelectorsSection({ state: view, actions: handlers })
     );
   }
 
-  const mergedControlsSection = h(
-    "section",
-    {
-      class: "card",
-      hidden: !showDeviceSection && !view.cssSelectorsVisible
-    },
-    ...mergedControlsSectionChildren
-  );
+  const mergedControlsSection = mergedControlsSectionChildren.length
+    ? h(
+        "section",
+        { class: "card" },
+        ...mergedControlsSectionChildren
+      )
+    : null;
 
   const lynxChecklistPopover = renderLynxChecklistPopover(view, handlers);
 

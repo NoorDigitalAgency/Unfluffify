@@ -9510,11 +9510,9 @@ export function handleScroll(event, options = {}) {
     return;
   }
   const isViewportScroll = isViewportScrollEvent(event);
-  if (!isViewportScroll) {
-    // Nested scroll containers (carousels, internal panes) should not trigger a
-    // full overlay redraw. This avoids flicker/redraw storms unrelated to page scroll.
-    return;
-  }
+  // Nested scroll containers still need a debounced redraw so partially visible
+  // marked content tracks carousels and internal panes. Only viewport scrolls
+  // hide the overlay during motion to avoid full-page flicker.
   const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;

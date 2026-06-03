@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  handleScroll,
   scheduleDraftPersist,
   scheduleExplicitOverlayRefresh,
   scheduleSnapshotSave,
@@ -30,13 +31,17 @@ function withFakeTimers(callback, options = {}) {
       ? state.markingSettleTimers.slice()
       : [],
     enabled: state.enabled,
-    overlay: state.overlay
+    overlay: state.overlay,
+    aiPopover: state.aiPopover,
+    scrollHideTimer: state.scrollHideTimer,
+    isScrolling: state.isScrolling
   };
   const scheduled = [];
   const cleared = [];
   const idleCallbacks = [];
   const rafCallbacks = [];
   const cancelledRaf = [];
+  const originalDocument = globalThis.document;
   let nextId = 1;
   globalThis.window = {
     setTimeout(fn, delay) {
@@ -48,6 +53,10 @@ function withFakeTimers(callback, options = {}) {
     clearTimeout(id) {
       cleared.push(id);
     }
+  };
+  globalThis.document = {
+    documentElement: {},
+    body: {}
   };
   if (options.withIdleCallback) {
     globalThis.window.requestIdleCallback = (fn, idleOptions) => {
@@ -83,10 +92,14 @@ function withFakeTimers(callback, options = {}) {
   state.explicitFullRenderTimer = 0;
   state.cachedCollectionsKey = "";
   state.markingSettleTimers = [];
+  state.aiPopover = null;
+  state.scrollHideTimer = 0;
+  state.isScrolling = false;
   try {
     callback({ scheduled, cleared, idleCallbacks, rafCallbacks, cancelledRaf });
   } finally {
     globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
     state.baseUrl = originalState.baseUrl;
     state.config = originalState.config;
     state.renderRaf = originalState.renderRaf;
@@ -104,6 +117,9 @@ function withFakeTimers(callback, options = {}) {
     state.markingSettleTimers = originalState.markingSettleTimers;
     state.enabled = originalState.enabled;
     state.overlay = originalState.overlay;
+    state.aiPopover = originalState.aiPopover;
+    state.scrollHideTimer = originalState.scrollHideTimer;
+    state.isScrolling = originalState.isScrolling;
   }
 }
 
@@ -191,6 +207,28 @@ test("pending explicit overlay refresh can be cancelled via rAF cancel", () => {
 
     assert.deepEqual(cancelledRaf, [handle]);
   }, { withRaf: true });
+});
+
+test("nested scroll containers still schedule a redraw without hiding the overlay", () => {
+  withFakeTimers(({ scheduled }) => {
+    let addCount = 0;
+    state.enabled = true;
+    state.overlay = {
+      classList: {
+        add() {
+          addCount += 1;
+        },
+        remove() {}
+      }
+    };
+
+    const scrollContainer = {};
+    handleScroll({ target: scrollContainer, currentTarget: scrollContainer });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(state.isScrolling, false);
+    assert.equal(addCount, 0);
+  });
 });
 
 test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {

@@ -87,6 +87,7 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", activeIndex);
   const lockIndex = body.indexOf("await syncAiComputeLock(true, initialLockExpiresAt);", firstPaintIndex);
   const secondPaintIndex = body.indexOf("await waitForPopupUiPaint();", lockIndex);
+  const snapshotIndex = body.indexOf("type: \"capturePageSnapshot\"", secondPaintIndex);
   const backfillIndex = body.indexOf("const rawHtmlBackfills = await backfillRawHtmlForPages", secondPaintIndex);
   const refineIndex = body.indexOf("refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)", backfillIndex);
 
@@ -94,6 +95,59 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
   assert.ok(lockIndex > firstPaintIndex, "marking should be locked after busy feedback is visible");
   assert.ok(secondPaintIndex > lockIndex, "popup should yield after marking is locked");
+  assert.ok(snapshotIndex > secondPaintIndex, "current-page snapshot capture should wait for visible feedback");
   assert.ok(backfillIndex > secondPaintIndex, "raw HTML backfill should wait for visible feedback");
   assert.ok(refineIndex > backfillIndex, "XPath refinement should remain behind the busy feedback");
+});
+
+test("AI compute builds the request from stored local page snapshots only", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const match = source.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+  );
+
+  assert.ok(match, "handleComputeSelectors body should be found");
+  const body = match[1];
+
+  assert.match(
+    body,
+    /let pageMarkings = state\.currentConfig\.pageMarkings \|\| \{\};/
+  );
+  assert.match(
+    body,
+    /const currentPageNeedsSnapshot =\s*[\s\S]*?state\.currentDraftDirty[\s\S]*?!currentPageEntry[\s\S]*?!currentPageHtml[\s\S]*?!hasCurrentSubmissionXpaths/
+  );
+  assert.match(
+    body,
+    /type: "capturePageSnapshot"[\s\S]*?persist: true/
+  );
+  assert.match(
+    body,
+    /const storedPageEntries = Object\.entries\(pageMarkings\)[\s\S]*?state\.currentBaseUrl[\s\S]*?entry\.renderedHtml[\s\S]*?entry\.submissionXpaths/
+  );
+  assert.match(
+    body,
+    /const rawHtmlBackfills = await backfillRawHtmlForPages\([\s\S]*?storedPageEntries\.map\(\(\[url\]\) => url\),[\s\S]*?pageMarkings/
+  );
+  assert.match(
+    body,
+    /const storedPages = storedPageEntries\.map\(\(\[url, entry\]\) => \{[\s\S]*?getStoredPageHtmlSnapshot\(entry, url, rawHtmlBackfills\)[\s\S]*?const renderedXPaths = toAiPayloadXpaths\(entry\);[\s\S]*?rawXPaths: isStatic \? refineXPathEntries\(renderedHtml, rawHtml, renderedXPaths\) : undefined/
+  );
+  assert.match(
+    body,
+    /const payload = \{[\s\S]*?pages: storedPages[\s\S]*?\};/
+  );
+  assert.doesNotMatch(
+    body,
+    /collectAiSubmissionXpaths|savePageDraft|getPageDraftStatus/
+  );
+});
+
+test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const logicDoc = readFileSync(new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url), "utf8");
+
+  assert.match(readme, /stored raw\/rendered HTML and XPath evidence for every marked page/);
+  assert.match(logicDoc, /An AI run always uses the stored local page snapshots for every marked page/);
+  assert.match(logicDoc, /Compute-time DOM collection must not replace that corpus/);
 });

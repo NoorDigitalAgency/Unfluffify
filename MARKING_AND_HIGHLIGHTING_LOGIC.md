@@ -69,9 +69,15 @@ The resulting model renders marking overlays while marking mode is enabled and
 stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
 
 `config.pageMarkings` can contain local drafts. Candidate completion is a
-backend-save fact, not a local-draft fact: the Todo List, candidate `Marked`
-badges, marked-pages list, and Lynx checklist coverage must read the separate
-backend-saved page-marking cache populated from confirmed backend payloads.
+backend-save fact for passive observers, but the current editor's popup must use
+the local page-marking session as the source of truth for the Todo List,
+candidate `Marked` badges, marked-pages list, and Lynx checklist coverage while
+that editor remains on an eligible Live Page.
+Preview Contents and Send to Lynx belong to the silent-highlighting surface
+only. They must stay hidden or disabled while marking mode is active. Preview
+must read from the latest stored selector set in config storage, and Lynx send
+must read its marked-page coverage from that same editor-local storage view
+while the editor owns the property.
 When the current tab is a valid Live Page candidate, the Todo List must label
 both the candidate row and its parent page-type subsection as `Current` so the
 active page remains findable when subsections are collapsed.
@@ -82,14 +88,15 @@ active page is no longer valid, marking is stopped and a blocking alert explains
 why; in all changed cases the Todo List root is expanded and a warning notice
 asks the user to review the updated candidates.
 Unrelated config syncs must not upload local draft page markings; only
-backend-saved pages and the current page during an explicit save/revert belong
-in a sync payload. Page-save reconciliation can be cleared only after the
-forced backend reload confirms that current page exists in the backend-saved
-cache. Confirmed current-page saves must refresh that cache even when their
-second-granularity timestamp matches the previous saved entry, otherwise the
-saved baseline can stay one save behind and keep the page falsely dirty. A new
-page with no saved local or remote data remains saveable with the default
-markings accepted as-is.
+backend-saved pages belong in those ordinary sync payloads. The explicit
+session save action is the exception: it uploads all local marked pages for the
+current property as one session snapshot. Marking changes remain session-local
+until that save, and discarding the session must reload the saved backend state
+for the current property and force the current page entry to be reloaded in the
+content script so no live draft survives the discard. A marking session that
+changes local page markings must run AI again before save is enabled, and
+marking mode must not be disabled until the user saves or discards that
+session.
 
 Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
 mode must respect that contract: only the current property editor can mutate
@@ -458,6 +465,17 @@ pauses marking edits. Raw HTML backfills, XPath refinement, and payload
 construction run only after that visible feedback has had a chance to paint, so
 large saved-page payloads cannot make the click look ignored. Async run status
 polling uses a five-second cadence while the run is active.
+
+An AI run always uses the stored local page snapshots for every marked page
+under the current base URL. The payload must be built from saved `renderedHtml`,
+saved or backfilled `rawHtml`, and saved `submissionXpaths`/refined raw XPaths.
+Compute-time DOM collection must not replace that corpus, because selector
+calculation depends on the whole saved multi-page property snapshot rather than
+just the current tab.
+The only allowed live overlay is the active current page: if the editor has
+unsaved current-page changes, the run may refresh that page's stored snapshot
+immediately before building the request, but every other page in the corpus
+must still come from existing stored local data.
 
 ## AI Submission Rows
 

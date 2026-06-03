@@ -35,7 +35,7 @@ test("explicit include and exclude removals use the quiet refresh path", () => {
   );
 });
 
-test("Todo List completion uses backend-saved markings instead of local drafts", () => {
+test("Todo List completion switches to local markings while the current tab is the editor", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
   assert.match(
@@ -44,16 +44,84 @@ test("Todo List completion uses backend-saved markings instead of local drafts",
   );
   assert.match(
     source,
-    /const pageTypeCoverageModel = buildLynxChecklistViewModel\(\{[\s\S]*?markedPages: backendSavedPageMarkingItems[\s\S]*?\}\);/
+    /const coverageMarkedPageItems = useLocalMarkedPagesForCoverage\s*\? localStoredPageMarkingItems\s*:\s*backendSavedPageMarkingItems;/
   );
   assert.match(
     source,
-    /const pageMarkingItemByKey = new Map\(\s*backendSavedPageMarkingItems\.map/
+    /const pageTypeCoverageModel = buildLynxChecklistViewModel\(\{[\s\S]*?markedPages: coverageMarkedPageItems[\s\S]*?\}\);/
   );
   assert.match(
     source,
-    /nextViewState\.pageTypeGroups = pageTypeCoverageModel\.pageTypes\.map/
+    /const pageMarkingItemByKey = new Map\(\s*coverageMarkedPageItems\.map/
   );
+});
+
+test("preview and Send to Lynx actions are exposed from silent mode only", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const previewBody = popupSource.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+  const saveExcludesBody = popupSource.match(
+    /async function handleSaveExcludes\(\) \{([\s\S]*?)\n\}\n\nasync function handlePreviewLatest/
+  )[1];
+
+  assert.match(
+    popupSource,
+    /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.saveExcludesButtonDisabled =[\s\S]*?!silentModeActive/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!silentModeActive/
+  );
+  assert.match(
+    popupSource,
+    /nextViewState\.cssSelectorsVisible = silentModeActive;/
+  );
+  assert.match(previewBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
+  assert.match(saveExcludesBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
+  assert.match(
+    uiSource,
+    /if \(showDeviceSection\) \{[\s\S]*?device-emulation-enabled/
+  );
+  assert.match(
+    uiSource,
+    /const mergedControlsSection = mergedControlsSectionChildren\.length/
+  );
+  assert.doesNotMatch(uiSource, /title: PopupText\.tooltips\.pageSaveHotkey/);
+  assert.doesNotMatch(uiSource, /lynx-checklist-ai|PopupText\.lynxChecklist\.aiQuestion/);
+});
+
+test("Preview Contents uses the latest stored selector set and stays disabled without stored selectors", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const previewBody = source.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+
+  assert.match(source, /const hasStoredSelectors = hasCalculatedSelectorsFromConfig\(\);/);
+  assert.match(source, /nextViewState\.previewLatestButtonDisabled =[\s\S]*?!hasStoredSelectors/);
+  assert.match(previewBody, /if \(!hasCalculatedSelectorsFromConfig\(state\.currentConfig\)\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
+  assert.match(previewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
+  assert.match(previewBody, /if \(!combineAiSelectorSet\(selectorSet\)\.length\) \{[\s\S]*?PopupText\.preview\.noStoredSelectors/);
+  assert.doesNotMatch(previewBody, /getCurrentSelectorsFromConfig\(/);
+});
+
+test("Lynx checklist submission uses the current view's marked-page coverage without AI-answer gating", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const sendBody = popupSource.match(
+    /async function handleLynxChecklistSend\(\) \{([\s\S]*?)\n\}\n\nasync function handleSaveExcludes/
+  )[1];
+
+  assert.match(sendBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
+  assert.match(sendBody, /markedPages: uiModule\.getViewState\(\)\.markedPages/);
+  assert.doesNotMatch(sendBody, /aiAnswer:/);
+  assert.doesNotMatch(uiSource, /lynx-checklist-popover__choices|lynx-checklist-popover__choice/);
+  assert.doesNotMatch(uiSource, /onLynxChecklistAiAnswerChange/);
 });
 
 test("Todo List marks the current candidate's parent subsection", () => {
@@ -132,31 +200,58 @@ test("page-type refresh change copy is documented in shared text", () => {
   assert.match(textSource, /currentPageInvalidAfterRefreshAlert: "Live Page candidates changed in Lynx,[\s\S]*?Marking has been stopped/);
 });
 
-test("config sync does not upload unsaved local page drafts by default", () => {
+test("session save uploads all local page markings while default sync stays backend-scoped", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const handlePageSaveBody = source.match(
+    /async function handlePageSave\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
+  )[1];
+  const handlePageRevertBody = source.match(
+    /async function handlePageRevert\(\) \{([\s\S]*?)\n\}\n\nasync function requestAiRunStart/
+  )[1];
 
   assert.match(source, /includeCurrentPageMarking = false/);
+  assert.match(source, /includeAllLocalPageMarkings = false/);
   assert.match(
     source,
     /const backendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(resolvedBaseUrl\)/
   );
   assert.match(
     source,
-    /backendSavedPageUrls\.has\(url\) \|\| \(includeCurrentPageMarking && url === pageUrl\)/
+    /includeAllLocalPageMarkings \|\|[\s\S]*?backendSavedPageUrls\.has\(url\) \|\|[\s\S]*?\(includeCurrentPageMarking && url === pageUrl\)/
   );
   assert.match(
     source,
-    /type: "savePageDraft"[\s\S]*?syncBaseConfigToServer\(\{[\s\S]*?includeCurrentPageMarking: true/
+    /markedPages: includeAllLocalPageMarkings[\s\S]*?\?[\s\S]*?localPageMarkingItems[\s\S]*?:[\s\S]*?backendSavedPageMarkingItems/
   );
   assert.match(
-    source,
-    /function hasBackendSavedPageMarking\(pageMarkings, pageUrl\) \{[\s\S]*?normalizeCandidatePageUrl\(url\) === normalizedTargetUrl/
+    handlePageSaveBody,
+    /syncBaseConfigToServer\(\{[\s\S]*?includeAllLocalPageMarkings: true/
   );
+  assert.match(handlePageSaveBody, /validateStoredToken\(\{ force: true \}\)/);
+  assert.match(handlePageSaveBody, /PopupText\.status\.remoteServerRetryNotice/);
+  assert.match(handlePageSaveBody, /maxAttempts: 1/);
+  assert.match(handlePageSaveBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.match(
-    source,
-    /const backendSavedAfterSync = await config\.getBackendSavedPageMarkings\(effectiveBaseUrl\);[\s\S]*?!hasBackendSavedPageMarking\(backendSavedAfterSync, pageUrl\)/
+    handlePageRevertBody,
+    /loadRemoteConfigForCurrentPage\(\{[\s\S]*?force: true,[\s\S]*?notifyOnChange: false/
   );
-  assert.doesNotMatch(source, /type: "savePageDraft"[\s\S]*?loadRemoteConfigForCurrentPage/);
+  assert.match(handlePageRevertBody, /validateStoredToken\(\{ force: true \}\)/);
+  assert.match(handlePageRevertBody, /PopupText\.status\.remoteConfigRetryNotice/);
+  assert.match(handlePageRevertBody, /discardResult && discardResult\.status === "auth_error"/);
+  assert.match(handlePageRevertBody, /await clearCurrentPageSaveReconciliation\(\);/);
+  assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
+});
+
+test("session pending is no longer tied to Lynx selector submission state", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const pendingBody = source.match(
+    /function hasSessionPendingChanges\(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(pendingBody, /options\.currentDraftDirty/);
+  assert.match(pendingBody, /options\.reconciliationPending/);
+  assert.match(pendingBody, /hasSessionPageMarkingChanges\(localPageMarkings, backendSavedPageMarkings\)/);
+  assert.doesNotMatch(pendingBody, /areCurrentSelectorsSubmitted|submittedSelectorsFingerprint/);
 });
 
 test("observer remote config polling stays passive-only and runs once a minute", () => {
@@ -181,6 +276,28 @@ test("marking enable does not send a redundant force refresh after setEnabled", 
 
   assert.match(enableBody, /type: "setEnabled"[\s\S]*enabled: true/);
   assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
+});
+
+test("marking cannot be disabled while the current session still needs save or discard", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const enableBody = source.match(
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+  )[1];
+
+  assert.match(enableBody, /if \(!desiredEnabled && currentViewState\.sessionHasPendingChanges\)/);
+  assert.match(enableBody, /PopupText\.page\.exitRequiresAiResolution/);
+  assert.match(enableBody, /PopupText\.page\.exitRequiresResolution/);
+  assert.match(enableBody, /uiModule\.setViewState\(\{ toggleEnabled: true \}\)/);
+});
+
+test("content-side save hotkey workflow is removed from the marking session", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const keydownBody = source.match(
+    /document\.addEventListener\("keydown", \(event\) => \{([\s\S]*?)\n\s*\}, true\);/
+  )[1];
+
+  assert.match(keydownBody, /if \(key !== "e" && key !== "m"\) \{/);
+  assert.doesNotMatch(keydownBody, /key === "s"|isPageSaveHotkeyAllowedOnPage|saveCurrentPageDraft/);
 });
 
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {

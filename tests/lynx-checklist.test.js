@@ -190,7 +190,7 @@ test("keeps non-candidate and ambiguous duplicate URLs invalid instead of auto-r
   ]);
 });
 
-test("requires the AI confirmation before sending", () => {
+test("allows sending once every current page type has a marked candidate", () => {
   const checklist = buildLynxChecklistViewModel({
     pageTypes: propertyPageTypes,
     markedPages: [
@@ -201,46 +201,20 @@ test("requires the AI confirmation before sending", () => {
     ]
   });
 
-  assert.equal(checklist.canSend, false);
-  assert.deepEqual(checklist.blockingReason, { code: "ai_unanswered" });
+  assert.equal(checklist.canSend, true);
+  assert.deepEqual(checklist.blockingReason, { code: "" });
 });
 
-test("disables AI question when selectors were never computed", () => {
-  const promptState = buildLynxChecklistPromptState({
-    hasCalculatedSelectors: false,
-    recentlyCalculatedSelectors: false
-  });
+test("keeps the legacy AI confirmation hidden for Lynx submissions", () => {
+  const promptState = buildLynxChecklistPromptState();
 
   assert.equal(promptState.aiQuestionDisabled, true);
-  assert.equal(promptState.aiQuestionHidden, false);
-  assert.equal(promptState.aiAnswer, "");
-});
-
-test("auto-confirms AI question when selectors were computed recently", () => {
-  const promptState = buildLynxChecklistPromptState({
-    hasCalculatedSelectors: true,
-    recentlyCalculatedSelectors: true
-  });
-
-  assert.equal(promptState.aiQuestionDisabled, false);
   assert.equal(promptState.aiQuestionHidden, true);
-  assert.equal(promptState.aiAnswer, "yes");
-});
-
-test("keeps AI question unanswered when selectors exist but are older", () => {
-  const promptState = buildLynxChecklistPromptState({
-    hasCalculatedSelectors: true,
-    recentlyCalculatedSelectors: false
-  });
-
-  assert.equal(promptState.aiQuestionDisabled, false);
-  assert.equal(promptState.aiQuestionHidden, false);
   assert.equal(promptState.aiAnswer, "");
 });
 
-test("prioritizes missing page types before AI confirmation when coverage is incomplete", () => {
+test("reports missing page types when coverage is incomplete", () => {
   const checklist = buildLynxChecklistViewModel({
-    aiAnswer: "",
     pageTypes: propertyPageTypes,
     markedPages: [
       { url: "https://example.com/", title: "Home", pageType: "homepage" },
@@ -258,7 +232,6 @@ test("prioritizes missing page types before AI confirmation when coverage is inc
 
 test("reports missing page types until each current type has at least one marked page", () => {
   const initial = createInitialLynxChecklistState();
-  initial.aiAnswer = "yes";
 
   const checklist = buildLynxChecklistViewModel({
     ...initial,
@@ -272,22 +245,6 @@ test("reports missing page types until each current type has at least one marked
     pageTypeKeys: ["product"]
   });
   assert.deepEqual(checklist.missingPageTypes.map((item) => item.key), ["product"]);
-});
-
-test("allows sending once AI is confirmed and every current page type has a marked candidate", () => {
-  const checklist = buildLynxChecklistViewModel({
-    aiAnswer: "yes",
-    pageTypes: propertyPageTypes,
-    markedPages: [
-      { url: "https://example.com/", title: "Home", pageType: "homepage" },
-      { url: "https://example.com/article", title: "Article", pageType: "article" },
-      { url: "https://example.com/listing?page=1", title: "Listing", pageType: "listing" },
-      { url: "https://example.com/product-a", title: "Product", pageType: "product" }
-    ]
-  });
-
-  assert.equal(checklist.canSend, true);
-  assert.deepEqual(checklist.blockingReason, { code: "" });
 });
 
 test("builds assignments from marked candidate pages only and drops duplicate or legacy entries", () => {

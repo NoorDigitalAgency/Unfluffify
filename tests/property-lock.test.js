@@ -176,21 +176,29 @@ test("content-main connects property lock without gating on Live Page candidate 
   assert.equal(candidateIndex, -1);
 });
 
-test("content-main connects property lock with a stable client identity and does not auto-take before marking", () => {
+test("content-main connects property lock with a stable client identity and auto-claims on eligible-page connect", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection");
   const syncEnd = source.indexOf("function handlePropertyLockPortMessage", syncStart);
   const syncSource = source.slice(syncStart, syncEnd);
-  const applyStart = source.indexOf("function applyPropertyLockServerMessage");
-  const applyEnd = source.indexOf("function updatePropertyLockBannerMode", applyStart);
-  const applySource = source.slice(applyStart, applyEnd);
+  const portMessageStart = source.indexOf("function handlePropertyLockPortMessage");
+  const portMessageEnd = source.indexOf("function sendPropertyLockActivity", portMessageStart);
+  const portMessageSource = source.slice(portMessageStart, portMessageEnd);
 
   assert.match(source, /const PROPERTY_LOCK_CLIENT_SESSION_KEY = "unfluffify:propertyLockClientId";/);
   assert.match(source, /function getPropertyLockClientId\(\)/);
   assert.match(source, /function setPropertyLockClientId\(nextClientId\)/);
   assert.match(syncSource, /type: PROPERTY_LOCK_CONTENT_CONNECT,[\s\S]*?\.\.\.getPropertyLockDraftStatusPayload\(\)/);
+  assert.match(syncSource, /queuePropertyLockEditorClaim\(\);/);
   assert.match(source, /if \(typeof message\.clientId === "string" && message\.clientId\) \{\s*setPropertyLockClientId\(message\.clientId\);\s*\}/);
-  assert.doesNotMatch(applySource, /PROPERTY_LOCK_CONTENT_TAKE_LOCK/);
+  assert.match(
+    portMessageSource,
+    /message\.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS[\s\S]*?message\.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
+  );
+  assert.match(
+    portMessageSource,
+    /serverMessage\.type === PROPERTY_LOCK_WS_LOCK_STATE[\s\S]*?flushQueuedPropertyLockEditorClaim\(\);/
+  );
 });
 
 test("content-main resolves property lock targets without requiring current extension base-url state", () => {
@@ -237,7 +245,12 @@ test("property lock contract is documented with stable client and editor source-
   const propertyLockDoc = readFileSync(new URL("../PROPERTY_LOCK.md", import.meta.url), "utf8");
 
   assert.match(readme, /PROPERTY_LOCK\.md/);
+  assert.match(readme, /active editor uses the local session data/);
   assert.match(propertyLockDoc, /stable page-session client ID/);
+  assert.match(
+    propertyLockDoc,
+    /lands on an eligible Live Page candidate[\s\S]*?property requests the lock/
+  );
   assert.match(propertyLockDoc, /duplicated or cloned tab copies that [`']?sessionStorage[`']? value/i);
   assert.match(propertyLockDoc, /must rotate the new tab onto a fresh client ID/);
   assert.match(propertyLockDoc, /not the Chrome tab ID/);

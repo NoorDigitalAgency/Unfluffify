@@ -67,6 +67,7 @@ import {
   PROPERTY_LOCK_CONTENT_CONTINUE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+  PROPERTY_LOCK_CONNECTION_CONNECTED,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
   PROPERTY_LOCK_WS_LOCK_STATE,
@@ -149,6 +150,7 @@ let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockConnectedSiteId = null;
+let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
@@ -5716,6 +5718,7 @@ function disconnectPropertyLockPort(options = {}) {
   const currentSiteId = propertyLockConnectedSiteId;
   propertyLockPort = null;
   propertyLockConnectedSiteId = null;
+  propertyLockEditorClaimPending = false;
 
   if (currentPort) {
     if (notifyBackground && currentSiteId) {
@@ -5768,6 +5771,22 @@ function handlePropertyLockSyncError(error, options = {}) {
   }
   disconnectPropertyLockPort({ notifyBackground: false });
   schedulePropertyLockReconnect(options);
+}
+
+function queuePropertyLockEditorClaim() {
+  propertyLockEditorClaimPending = true;
+}
+
+function flushQueuedPropertyLockEditorClaim() {
+  if (!propertyLockEditorClaimPending) {
+    return;
+  }
+  if (propertyLockState && propertyLockState.isEditor) {
+    propertyLockEditorClaimPending = false;
+    return;
+  }
+  propertyLockEditorClaimPending = false;
+  sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
 }
 
 function runPropertyLockSync(options = {}) {
@@ -5841,6 +5860,7 @@ async function syncPropertyLockConnection(options = {}) {
         siteId,
         ...getPropertyLockDraftStatusPayload()
       });
+      queuePropertyLockEditorClaim();
     } catch (error) {
       if (markExtensionContextInvalidated(error)) {
         return;
@@ -5863,12 +5883,23 @@ function handlePropertyLockPortMessage(message) {
     setPropertyLockClientId(message.clientId);
   }
 
+  if (
+    message.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS &&
+    message.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED
+  ) {
+    flushQueuedPropertyLockEditorClaim();
+    return;
+  }
+
   const { type, message: serverMessage } = message;
   if (type !== PROPERTY_LOCK_BACKGROUND_STATE_UPDATE || !serverMessage || typeof serverMessage !== "object") {
     return;
   }
 
   applyPropertyLockServerMessage(serverMessage);
+  if (serverMessage.type === PROPERTY_LOCK_WS_LOCK_STATE) {
+    flushQueuedPropertyLockEditorClaim();
+  }
 }
 
 function sendPropertyLockActivity() {
@@ -6457,12 +6488,7 @@ export function main() {
       return;
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    if (key !== "e" && key !== "s" && key !== "m") {
-      return;
-    }
-    if (key === "s" && !checkPropertyLockBlocksMarking()) {
-      event.preventDefault();
-      event.stopPropagation();
+    if (key !== "e" && key !== "m") {
       return;
     }
     event.preventDefault();
@@ -6481,18 +6507,7 @@ export function main() {
         return;
       }
       toggleDeviceEmulationFromPage().then();
-      return;
     }
-    isPageSaveHotkeyAllowedOnPage().then((allowed) => {
-      if (!allowed) {
-        return;
-      }
-      saveCurrentPageDraft({ showToast: true }).then((result) => {
-        if (result && result.ok) {
-          sendPropertyLockActivity();
-        }
-      });
-    });
   }, true);
 
   document.addEventListener("click", (event) => {
@@ -6965,7 +6980,7 @@ export function main() {
           savedEntry,
           dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
           reconciliation,
-          reconciliationPending: Boolean(reconciliation)
+          reconciliationPending: config.isPageSaveReconciliationPending(reconciliation)
         });
       })().catch(() => {
         sendResponse({ ok: false });

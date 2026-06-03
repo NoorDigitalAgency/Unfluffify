@@ -36,12 +36,12 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
-- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors
-- **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
+- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; Preview Contents and Send to Lynx live on this silent-highlighting surface, not inside marking mode
+- **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff, always from the stored raw/rendered HTML and XPath evidence for every marked page under the current property
 - **Device Simulation**: Opens tabs in mobile simulation by default, with a per-session toggle for disabling or adjusting the simulated viewport
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
-- **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
-- **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
+- **Data Persistence**: Marking edits stay session-local until users run AI and explicitly Save Session or Discard Session; passive observers use backend-saved page data while the active editor uses the local session data, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
+- **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, immediate eligible-page editor claiming for the current extension session, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
@@ -154,7 +154,7 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup
 6. **Navigate**: Go to other pages under the base URL to see inferred patterns
-7. **Save Markings**: Click save to persist your changes
+7. **Run AI, Then Save or Discard**: After marking changes, run AI content detection, then save the full session or discard it before exiting marking
 
 When a save or sync step temporarily blocks editing, the page overlay dims and shows a marking-paused notice until marking is available again.
 
@@ -173,7 +173,7 @@ When Unfluffify owns a matching page for marking or silent highlighting, it paus
 
 ### AI Selectors
 
-The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions.
+The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. If the current page has unsaved local marking changes, the run first captures that page into the local stored snapshot so the AI request still uses stored evidence only. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI. Preview Contents always reads the latest stored selector set for the property, and the Preview/Send to Lynx actions stay on the silent-highlighting surface even while marking stays focused on current-page editing.
 
 ### Base URLs
 
