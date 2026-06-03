@@ -5287,7 +5287,7 @@ function createOverlay() {
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 2147483646;
+        z-index: 2147483647 !important;
         pointer-events: auto;
       }
       #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} {
@@ -5467,6 +5467,7 @@ function createOverlay() {
         position: fixed;
         top: 50%;
         left: 50%;
+        z-index: 2147483647;
         display: flex;
         align-items: center;
         gap: 12px;
@@ -5608,6 +5609,7 @@ function setPageInspectionUiActive(active) {
 }
 
 async function inspectPageBeforeMotionPause(isStillCurrent) {
+  const keepUiActive = arguments.length > 1 && Boolean(arguments[1]?.keepUiActive);
   startPageInspectionInputBlocker();
   try {
     createOverlay();
@@ -5619,12 +5621,15 @@ async function inspectPageBeforeMotionPause(isStillCurrent) {
       isStillCurrent
     );
   } finally {
-    setPageInspectionUiActive(false);
-    stopPageInspectionInputBlocker();
+    if (!keepUiActive) {
+      setPageInspectionUiActive(false);
+      stopPageInspectionInputBlocker();
+    }
   }
 }
 
-async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl) {
+async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {}) {
+  const keepUiActive = Boolean(options.keepUiActive);
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
   const isRevealWarmupCurrent = () =>
@@ -5632,8 +5637,11 @@ async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl) {
     state.enabled &&
     state.baseUrl === baseUrl &&
     location.href === pageUrl;
-  await inspectPageBeforeMotionPause(isRevealWarmupCurrent);
+  await inspectPageBeforeMotionPause(isRevealWarmupCurrent, { keepUiActive });
   if (!isRevealWarmupCurrent()) {
+    if (keepUiActive) {
+      finishPageInspectionUi();
+    }
     return false;
   }
   pausePageMotion();
@@ -5651,8 +5659,10 @@ function hasPageMotionPauseReason(reason) {
 export async function warmupSilentHighlightingBeforeMotionPause(
   baseUrl,
   pageUrl,
-  reason = PAGE_MOTION_PAUSE_DEFAULT_REASON
+  reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
+  options = {}
 ) {
+  const keepUiActive = Boolean(options.keepUiActive);
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
   const isRevealWarmupCurrent = () =>
@@ -5682,14 +5692,40 @@ export async function warmupSilentHighlightingBeforeMotionPause(
     pausePageMotion(reason);
     return true;
   } finally {
-    setPageInspectionUiActive(false);
-    stopPageInspectionInputBlocker();
-    // Silent highlighting reveal uses the inspection UI only as a temporary
-    // blocker while preparing the frozen page posture.
-    if (!state.enabled) {
-      removeOverlay();
+    if (!keepUiActive) {
+      setPageInspectionUiActive(false);
+      stopPageInspectionInputBlocker();
+      // Silent highlighting reveal uses the inspection UI only as a temporary
+      // blocker while preparing the frozen page posture.
+      if (!state.enabled) {
+        removeOverlay();
+      }
+    } else if (!state.enabled && !isRevealWarmupCurrent()) {
+      finishPageInspectionUi();
     }
   }
+}
+
+export function finishPageInspectionUi() {
+  setPageInspectionUiActive(false);
+  stopPageInspectionInputBlocker();
+  if (!state.enabled) {
+    removeOverlay();
+  }
+}
+
+export function finishPageInspectionUiAfterRender() {
+  return new Promise((resolve) => {
+    const pollUntilRendered = () => {
+      if (state.renderTimer || state.renderRaf) {
+        extensionRequestAnimationFrame(pollUntilRendered);
+        return;
+      }
+      finishPageInspectionUi();
+      resolve();
+    };
+    pollUntilRendered();
+  });
 }
 
 
@@ -9535,7 +9571,9 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   if (hasPageMotionPauseReason("silent-highlighting")) {
     pausePageMotion();
   } else if (!skipInitialReveal) {
-    const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl);
+    const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl, {
+      keepUiActive: true
+    });
     if (!revealReady) {
       return;
     }
@@ -9544,6 +9582,9 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   scheduleMarkingSettleRenders();
   startObservers();
   startUrlWatcher();
+  if (!skipInitialReveal) {
+    await finishPageInspectionUiAfterRender();
+  }
 }
 
 export function handleBeforeUnload(event) {
@@ -9844,7 +9885,9 @@ export async function refreshFromTabState(options = {}) {
       state.consentRootElements = new Set();
       hideConsentOnEnable(pageUrl);
       if (withInitialReveal) {
-        const revealReady = await warmupPageRevealBeforeMotionPause(response.baseUrl, pageUrl);
+        const revealReady = await warmupPageRevealBeforeMotionPause(response.baseUrl, pageUrl, {
+          keepUiActive: true
+        });
         if (!revealReady) {
           disable();
           return;
@@ -9853,6 +9896,9 @@ export async function refreshFromTabState(options = {}) {
       scheduleRender();
       startObservers();
       startUrlWatcher();
+      if (withInitialReveal) {
+        await finishPageInspectionUiAfterRender();
+      }
       return;
     }
   }

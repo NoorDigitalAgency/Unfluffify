@@ -1096,8 +1096,10 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(inspectSource, /startPageInspectionInputBlocker\(\);[\s\S]*?createOverlay\(\);/);
   assert.match(inspectSource, /setPageInspectionUiActive\(true\);/);
   assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
-  assert.match(inspectSource, /setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
-  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent\);[\s\S]*?pausePageMotion\(\);/);
+  assert.match(inspectSource, /if \(!keepUiActive\) \{[\s\S]*?setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);[\s\S]*?\}/);
+  assert.match(warmupSource, /const keepUiActive = Boolean\(options\.keepUiActive\);/);
+  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent, \{ keepUiActive \}\);[\s\S]*?pausePageMotion\(\);/);
+  assert.match(source, /await finishPageInspectionUiAfterRender\(\);/);
   assert.match(source, /ContentText\.marking\.pageInspection/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);

@@ -2829,7 +2829,8 @@ async function runEditorSilentHighlightingActivation() {
     const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
       baseUrl,
       pageUrl,
-      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON
+      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
+      { keepUiActive: true }
     );
     if (isStillCurrent() && prepared && revealKey) {
       silentHighlightEditorRevealKey = revealKey;
@@ -2852,8 +2853,14 @@ async function runEditorSilentHighlightingActivation() {
     }
   }
   if (shouldRefreshAfterActivation) {
-    await refreshSilentHighlightings();
+    try {
+      await refreshSilentHighlightings();
+    } finally {
+      core.finishPageInspectionUi();
+    }
+    return;
   }
+  core.finishPageInspectionUi();
 }
 
 function ensureSilentHighlightOverlay() {

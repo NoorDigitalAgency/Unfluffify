@@ -13,9 +13,10 @@ test("refreshFromTabState can reveal restored enabled pages before freeze and re
   assert.match(refreshSource, /const withInitialReveal = Boolean\(options\.withInitialReveal\);/);
   assert.match(refreshSource, /state\.enabled = true;/);
   assert.match(refreshSource, /state\.consentRootElements = new Set\(\);/);
-  assert.match(refreshSource, /hideConsentOnEnable\(pageUrl\);[\s\S]*?if \(withInitialReveal\) \{[\s\S]*?await warmupPageRevealBeforeMotionPause\(response\.baseUrl, pageUrl\);/);
+  assert.match(refreshSource, /hideConsentOnEnable\(pageUrl\);[\s\S]*?if \(withInitialReveal\) \{[\s\S]*?await warmupPageRevealBeforeMotionPause\(response\.baseUrl, pageUrl, \{[\s\S]*?keepUiActive:\s*true[\s\S]*?\}\);/);
   assert.match(refreshSource, /if \(!revealReady\) \{[\s\S]*?disable\(\);[\s\S]*?return;[\s\S]*?\}/);
   assert.match(refreshSource, /scheduleRender\(\);[\s\S]*?startObservers\(\);[\s\S]*?startUrlWatcher\(\);/);
+  assert.match(refreshSource, /if \(withInitialReveal\) \{[\s\S]*?await finishPageInspectionUiAfterRender\(\);[\s\S]*?\}/);
 });
 
 test("main restores tab state with initial reveal before highlight refresh", () => {
