@@ -3652,8 +3652,9 @@ async function scrollPageInspectionDocumentToBlock(block, isStillCurrent, option
   if (doc && typeof doc.scrollIntoView === "function") {
     doc.scrollIntoView({ block, inline: "nearest", behavior: "smooth" });
   } else if (typeof window.scrollTo === "function") {
+    const viewportHeight = Number(window.innerHeight || doc?.clientHeight) || 0;
     window.scrollTo({
-      top: block === "end" ? getPageInspectionScrollHeight() : 0,
+      top: block === "end" ? Math.max(0, getPageInspectionScrollHeight() - viewportHeight) : 0,
       behavior: "smooth"
     });
   } else {

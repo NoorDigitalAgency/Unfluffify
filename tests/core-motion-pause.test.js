@@ -610,6 +610,7 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   dom.window.scrollY = reservedScrollY;
   dom.window.pageXOffset = 12;
   dom.window.pageYOffset = reservedScrollY;
+  const expectedMaxScrollY = dom.html.scrollHeight - dom.window.innerHeight;
   const scrollBlocks = [];
   const originalScrollIntoView = dom.html.scrollIntoView;
   dom.html.scrollIntoView = function (options = {}) {
@@ -629,8 +630,8 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
     assert.equal(inspected, true);
     assert.deepEqual(scrollBlocks, ["start", "end"]);
     assert.equal(dom.scrollCalls[0].y, 0);
-    assert.ok(dom.scrollCalls.findIndex((call) => call.y === 2500) > 0);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.ok(dom.scrollCalls.findIndex((call) => call.y === expectedMaxScrollY) > 0);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedMaxScrollY);
     assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
     assert.equal(dom.window.scrollY, reservedScrollY);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
@@ -672,6 +673,7 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 1000;
   dom.window.innerHeight = 500;
+  const expectedExpandedMaxScrollY = 3000 - dom.window.innerHeight;
   const originalScrollTo = dom.window.scrollTo.bind(dom.window);
   let expanded = false;
   dom.window.scrollTo = (xOrOptions, y) => {
@@ -696,14 +698,14 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
     );
 
     assert.equal(inspected, true);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedExpandedMaxScrollY);
     assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
     dom.restore();
   }
 });
 
-test("page inspection overlay avoids backdrop blur during page inspection", () => {
+test("page inspection overlay avoids backdrop blur", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const inspectionOverlaySource = source.slice(
     source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`),
