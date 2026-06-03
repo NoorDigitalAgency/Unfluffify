@@ -41,8 +41,30 @@ test("manual page enable waits for activation reveal before refreshing highlight
   assert.ok(toggleStart > -1);
   assert.ok(toggleEnd > toggleStart);
   const toggleSource = source.slice(toggleStart, toggleEnd);
-  assert.match(toggleSource, /try \{[\s\S]*?await core\.enableForBaseUrl\(baseUrl\);[\s\S]*?\} catch \(error\) \{[\s\S]*?core\.disable\(\);[\s\S]*?PROPERTY_LOCK_CONTENT_RELEASE[\s\S]*?showPageToast\("Unable to activate on this page"\);[\s\S]*?return;[\s\S]*?\}/);
+  assert.match(toggleSource, /try \{[\s\S]*?await core\.enableForBaseUrl\(baseUrl, \{\s*skipInitialReveal:\s*true\s*\}\);[\s\S]*?\} catch \(error\) \{[\s\S]*?core\.disable\(\);[\s\S]*?PROPERTY_LOCK_CONTENT_RELEASE[\s\S]*?showPageToast\("Unable to activate on this page"\);[\s\S]*?return;[\s\S]*?\}/);
   assert.match(toggleSource, /refreshSilentHighlightings\(\)\.then\(\);/);
+});
+
+test("reveal activation starts on becameEditor transition and not on marking enable", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  const messageStart = source.indexOf("if (message.type === \"setEnabled\") {");
+  const messageEnd = source.indexOf("if (message.type === \"hideConsentForInspection\") {", messageStart);
+  const messageSource = source.slice(messageStart, messageEnd);
+  assert.ok(messageStart > -1);
+  assert.ok(messageEnd > messageStart);
+  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{\s*skipInitialReveal:\s*true\s*\}\);/);
+  assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
+  assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
+  assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
+
+  const lockStateStart = source.indexOf("if (type === PROPERTY_LOCK_WS_LOCK_STATE) {");
+  const lockStateEnd = source.indexOf("if (type === PROPERTY_LOCK_WS_DISCONNECT_WARNING) {", lockStateStart);
+  const lockStateSource = source.slice(lockStateStart, lockStateEnd);
+  assert.ok(lockStateStart > -1);
+  assert.ok(lockStateEnd > lockStateStart);
+  assert.match(lockStateSource, /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;/);
+  assert.match(lockStateSource, /if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
 });
 
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {

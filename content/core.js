@@ -5621,7 +5621,6 @@ export async function warmupSilentHighlightingBeforeMotionPause(
   state.pageRevealWarmupId = revealWarmupId;
   const isRevealWarmupCurrent = () =>
     state.pageRevealWarmupId === revealWarmupId &&
-    !state.enabled &&
     location.href === pageUrl &&
     (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
   try {
@@ -9449,7 +9448,8 @@ export function disable(options = {}) {
   stopUrlWatcher();
 }
 
-export async function enableForBaseUrl(baseUrl) {
+export async function enableForBaseUrl(baseUrl, options = {}) {
+  const skipInitialReveal = Boolean(options && options.skipInitialReveal);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
@@ -9492,7 +9492,7 @@ export async function enableForBaseUrl(baseUrl) {
   hideConsentOnEnable(pageUrl);
   if (hasPageMotionPauseReason("silent-highlighting")) {
     pausePageMotion();
-  } else {
+  } else if (!skipInitialReveal) {
     const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl);
     if (!revealReady) {
       return;

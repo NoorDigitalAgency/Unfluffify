@@ -2694,7 +2694,7 @@ async function toggleEnabledFromPage(options = {}) {
   });
   sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
   try {
-    await core.enableForBaseUrl(baseUrl);
+    await core.enableForBaseUrl(baseUrl, { skipInitialReveal: true });
   } catch (error) {
     console.error("Failed to enable marking from page:", error);
     state.currentPageType = "";
@@ -2799,7 +2799,7 @@ function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
 }
 
 async function runEditorSilentHighlightingActivation() {
-  if (state.enabled || !propertyLockState || !propertyLockState.isEditor) {
+  if (!propertyLockState || !propertyLockState.isEditor) {
     return;
   }
   const activationId = Date.now();
@@ -2820,7 +2820,6 @@ async function runEditorSilentHighlightingActivation() {
     const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
     const isStillCurrent = () =>
       silentHighlightEditorRevealInFlight === activationId &&
-      !state.enabled &&
       Boolean(propertyLockState && propertyLockState.isEditor) &&
       location.href === pageUrl &&
       utils.isPageWithinBaseUrl(location.href, baseUrl);
@@ -2852,7 +2851,7 @@ async function runEditorSilentHighlightingActivation() {
       silentHighlightEditorRevealInFlight = 0;
     }
   }
-  if (shouldRefreshAfterActivation) {
+  if (!state.enabled && shouldRefreshAfterActivation) {
     await refreshSilentHighlightings();
   }
 }
@@ -3978,7 +3977,9 @@ async function exitAiPreviewMode() {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
-    await core.enableForBaseUrl(restoreState.previousBaseUrl);
+    await core.enableForBaseUrl(restoreState.previousBaseUrl, {
+      skipInitialReveal: true
+    });
     restoreAiPreviewDraftState(restoreState);
     refreshEnabledAiHighlights();
     return;
@@ -6703,7 +6704,7 @@ export function main() {
           if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
             await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
           }
-          await core.enableForBaseUrl(message.baseUrl);
+          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal: true });
           refreshEnabledAiHighlights();
           sendResponse({ ok: true });
         })().catch(() => {
