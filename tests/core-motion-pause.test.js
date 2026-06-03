@@ -184,6 +184,7 @@ class FakeElement {
     this.classList = createClassList(this);
     this.style = createStyleDeclaration(this);
     this.dispatchedEvents = [];
+    this.listeners = new Map();
     this.computedStyle = createComputedStyle();
     this.rect = { left: 0, top: 0, right: 320, bottom: 120, width: 320, height: 120 };
     Object.entries(attributes).forEach(([name, value]) => this.setAttribute(name, value));
@@ -262,7 +263,34 @@ class FakeElement {
 
   dispatchEvent(event) {
     this.dispatchedEvents.push(event.type);
+    const listeners = Array.from(this.listeners.get(event.type) || []);
+    listeners.forEach((entry) => {
+      entry.listener.call(this, event);
+      if (entry.once) {
+        this.removeEventListener(event.type, entry.listener);
+      }
+    });
     return true;
+  }
+
+  addEventListener(type, listener, options = {}) {
+    if (typeof listener !== "function") {
+      return;
+    }
+    const listeners = this.listeners.get(type) || [];
+    listeners.push({ listener, once: Boolean(options && options.once) });
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type, listener) {
+    const listeners = this.listeners.get(type);
+    if (!listeners || !listeners.length) {
+      return;
+    }
+    this.listeners.set(
+      type,
+      listeners.filter((entry) => entry.listener !== listener)
+    );
   }
 
   querySelectorAll(selector) {
@@ -715,9 +743,6 @@ test("page inspection overlay avoids backdrop blur", () => {
   assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
 
-  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
-});
-
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
   const dom = installMotionDom();
   const reveal = new FakeElement("section", { class: "scroll-reveal fade-up" });
@@ -891,6 +916,14 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     assert.ok(script);
     assert.equal(script.src, "chrome-extension://unfluffify/common/page-motion-freeze.js");
     assert.equal(script.getAttribute("data-uf-extension-ui"), "true");
+    assert.equal(script.getAttribute("data-uf-loaded"), "false");
+    assert.equal(postedMessages.length, 0);
+
+    script.dispatchEvent(new Event("load"));
+
+    assert.equal(script.getAttribute("data-uf-loaded"), "true");
+    assert.equal(postedMessages.at(-2).command, "init");
+    assert.equal(postedMessages.at(-1).command, "setPaused");
     assert.equal(postedMessages.at(-1).paused, true);
     assert.equal(
       postedMessages.at(-1).__unfluffifyPageMotionFreeze,
@@ -966,19 +999,26 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl)");
 
   assert.ok(enableIndex > -1);
-  const inspectIndex = source.indexOf("await inspectPageBeforeMotionPause", enableIndex);
-  const pauseIndex = source.indexOf("pausePageMotion();", enableIndex);
+  const revealWarmupIndex = source.indexOf("await warmupPageRevealBeforeMotionPause", enableIndex);
+  const scheduleRenderIndex = source.indexOf("scheduleRender();", enableIndex);
+  const pauseIndex = source.indexOf("pausePageMotion();");
   const inspectSource = source.slice(
     source.indexOf("async function inspectPageBeforeMotionPause"),
     source.indexOf("function removeOverlay", source.indexOf("async function inspectPageBeforeMotionPause"))
   );
+  const warmupSource = source.slice(
+    source.indexOf("async function warmupPageRevealBeforeMotionPause"),
+    source.indexOf("function removeOverlay", source.indexOf("async function warmupPageRevealBeforeMotionPause"))
+  );
 
-  assert.ok(inspectIndex > -1);
-  assert.ok(pauseIndex > inspectIndex);
+  assert.ok(revealWarmupIndex > -1);
+  assert.ok(scheduleRenderIndex > revealWarmupIndex);
+  assert.ok(pauseIndex > -1);
   assert.match(inspectSource, /startPageInspectionInputBlocker\(\);[\s\S]*?createOverlay\(\);/);
   assert.match(inspectSource, /setPageInspectionUiActive\(true\);/);
   assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
   assert.match(inspectSource, /setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);/);
+  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent\);[\s\S]*?pausePageMotion\(\);/);
   assert.match(source, /ContentText\.marking\.pageInspection/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
   assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);

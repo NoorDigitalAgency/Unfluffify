@@ -5439,7 +5439,9 @@ async function refreshSilentHighlightings() {
     setSilentHighlightingsActive(false);
     return;
   }
-  setSilentHighlightingPageMotionPaused(true);
+  // Silent highlighting is passive mode; do not pause page motion/timers here.
+  // Timer freezing is only enabled during explicit interactive activation flows.
+  setSilentHighlightingPageMotionPaused(false);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {

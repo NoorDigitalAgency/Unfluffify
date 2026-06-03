@@ -9,22 +9,23 @@
   const STATE_KEY = "__unfluffifyPageMotionFreezeState";
   const CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 
-  if (root[STATE_KEY] && typeof root[STATE_KEY].setPaused === "function") {
+  if (
+    root[STATE_KEY] &&
+    typeof root[STATE_KEY].setPaused === "function" &&
+    typeof root[STATE_KEY].init === "function"
+  ) {
     return;
   }
 
-  const originalSetTimeout = typeof root.setTimeout === "function" ? root.setTimeout.bind(root) : null;
-  const originalClearTimeout = typeof root.clearTimeout === "function" ? root.clearTimeout.bind(root) : null;
-  const originalSetInterval = typeof root.setInterval === "function" ? root.setInterval.bind(root) : null;
-  const originalClearInterval = typeof root.clearInterval === "function" ? root.clearInterval.bind(root) : null;
-  const originalRequestAnimationFrame = typeof root.requestAnimationFrame === "function"
-    ? root.requestAnimationFrame.bind(root)
-    : null;
-  const originalCancelAnimationFrame = typeof root.cancelAnimationFrame === "function"
-    ? root.cancelAnimationFrame.bind(root)
-    : null;
+  let originalSetTimeout = null;
+  let originalClearTimeout = null;
+  let originalSetInterval = null;
+  let originalClearInterval = null;
+  let originalRequestAnimationFrame = null;
+  let originalCancelAnimationFrame = null;
 
   let paused = false;
+  let initialized = false;
   let nextDeferredTimerId = -1;
   let nextDeferredFrameId = -1000000;
   const deferredTimeouts = new Map();
@@ -44,9 +45,13 @@
     try {
       callback.apply(root, args);
     } catch (error) {
-      originalSetTimeout(() => {
-        throw error;
-      }, 0);
+      if (originalSetTimeout) {
+        originalSetTimeout(() => {
+          throw error;
+        }, 0);
+        return;
+      }
+      throw error;
     }
   }
 
@@ -54,9 +59,13 @@
     try {
       callback.call(root, timestamp);
     } catch (error) {
-      originalSetTimeout(() => {
-        throw error;
-      }, 0);
+      if (originalSetTimeout) {
+        originalSetTimeout(() => {
+          throw error;
+        }, 0);
+        return;
+      }
+      throw error;
     }
   }
 
@@ -116,93 +125,119 @@
       return;
     }
     paused = shouldPause;
+    if (!initialized) {
+      return;
+    }
     if (!paused) {
       flushDeferredCallbacks();
     }
   }
 
-  if (originalSetTimeout) {
-    root.setTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
-      if (typeof callback !== "function") {
-        return originalSetTimeout(callback, delay, ...args);
-      }
-      if (paused) {
-        return deferTimeout(callback, args);
-      }
-      return originalSetTimeout(() => {
+  function init() {
+    if (initialized) {
+      return true;
+    }
+
+    originalSetTimeout = typeof root.setTimeout === "function" ? root.setTimeout.bind(root) : null;
+    originalClearTimeout = typeof root.clearTimeout === "function" ? root.clearTimeout.bind(root) : null;
+    originalSetInterval = typeof root.setInterval === "function" ? root.setInterval.bind(root) : null;
+    originalClearInterval = typeof root.clearInterval === "function" ? root.clearInterval.bind(root) : null;
+    originalRequestAnimationFrame = typeof root.requestAnimationFrame === "function"
+      ? root.requestAnimationFrame.bind(root)
+      : null;
+    originalCancelAnimationFrame = typeof root.cancelAnimationFrame === "function"
+      ? root.cancelAnimationFrame.bind(root)
+      : null;
+
+    if (originalSetTimeout) {
+      root.setTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
+        if (typeof callback !== "function") {
+          return originalSetTimeout(callback, delay, ...args);
+        }
         if (paused) {
-          deferTimeout(callback, args);
+          return deferTimeout(callback, args);
+        }
+        return originalSetTimeout(() => {
+          if (paused) {
+            deferTimeout(callback, args);
+            return;
+          }
+          runCallback(callback, args);
+        }, delay);
+      };
+    }
+
+    if (originalClearTimeout) {
+      root.clearTimeout = function unfluffifyClearTimeout(id) {
+        const record = deferredTimeouts.get(id);
+        if (record) {
+          if (record.nativeId !== null && originalClearTimeout) {
+            originalClearTimeout(record.nativeId);
+          }
+          deferredTimeouts.delete(id);
           return;
         }
-        runCallback(callback, args);
-      }, delay);
-    };
-  }
+        originalClearTimeout(id);
+      };
+    }
 
-  if (originalClearTimeout) {
-    root.clearTimeout = function unfluffifyClearTimeout(id) {
-      const record = deferredTimeouts.get(id);
-      if (record) {
-        if (record.nativeId !== null && originalClearTimeout) {
-          originalClearTimeout(record.nativeId);
+    if (originalSetInterval) {
+      root.setInterval = function unfluffifySetInterval(callback, delay, ...args) {
+        if (typeof callback !== "function") {
+          return originalSetInterval(callback, delay, ...args);
         }
-        deferredTimeouts.delete(id);
-        return;
-      }
-      originalClearTimeout(id);
-    };
-  }
+        return originalSetInterval(() => {
+          if (paused) {
+            return;
+          }
+          runCallback(callback, args);
+        }, delay);
+      };
+    }
 
-  if (originalSetInterval) {
-    root.setInterval = function unfluffifySetInterval(callback, delay, ...args) {
-      if (typeof callback !== "function") {
-        return originalSetInterval(callback, delay, ...args);
-      }
-      return originalSetInterval(() => {
+    if (originalClearInterval) {
+      root.clearInterval = function unfluffifyClearInterval(id) {
+        originalClearInterval(id);
+      };
+    }
+
+    if (originalRequestAnimationFrame) {
+      root.requestAnimationFrame = function unfluffifyRequestAnimationFrame(callback) {
+        if (typeof callback !== "function") {
+          return originalRequestAnimationFrame(callback);
+        }
         if (paused) {
+          return deferAnimationFrame(callback);
+        }
+        return originalRequestAnimationFrame((timestamp) => {
+          if (paused) {
+            deferAnimationFrame(callback);
+            return;
+          }
+          runAnimationFrame(callback, timestamp);
+        });
+      };
+    }
+
+    if (originalCancelAnimationFrame) {
+      root.cancelAnimationFrame = function unfluffifyCancelAnimationFrame(id) {
+        const record = deferredFrames.get(id);
+        if (record) {
+          if (record.nativeId !== null && originalCancelAnimationFrame) {
+            originalCancelAnimationFrame(record.nativeId);
+          }
+          deferredFrames.delete(id);
           return;
         }
-        runCallback(callback, args);
-      }, delay);
-    };
-  }
+        originalCancelAnimationFrame(id);
+      };
+    }
 
-  if (originalClearInterval) {
-    root.clearInterval = function unfluffifyClearInterval(id) {
-      originalClearInterval(id);
-    };
-  }
-
-  if (originalRequestAnimationFrame) {
-    root.requestAnimationFrame = function unfluffifyRequestAnimationFrame(callback) {
-      if (typeof callback !== "function") {
-        return originalRequestAnimationFrame(callback);
-      }
-      if (paused) {
-        return deferAnimationFrame(callback);
-      }
-      return originalRequestAnimationFrame((timestamp) => {
-        if (paused) {
-          deferAnimationFrame(callback);
-          return;
-        }
-        runAnimationFrame(callback, timestamp);
-      });
-    };
-  }
-
-  if (originalCancelAnimationFrame) {
-    root.cancelAnimationFrame = function unfluffifyCancelAnimationFrame(id) {
-      const record = deferredFrames.get(id);
-      if (record) {
-        if (record.nativeId !== null && originalCancelAnimationFrame) {
-          originalCancelAnimationFrame(record.nativeId);
-        }
-        deferredFrames.delete(id);
-        return;
-      }
-      originalCancelAnimationFrame(id);
-    };
+    initialized = true;
+    if (!paused) {
+      flushDeferredCallbacks();
+    }
+    return true;
   }
 
   function handleControlMessage(event) {
@@ -213,11 +248,23 @@
     if (!data || data.__unfluffifyPageMotionFreeze !== CONTROL_MARKER) {
       return;
     }
-    setPaused(Boolean(data.paused));
+    const command = typeof data.command === "string" ? data.command : "setPaused";
+    if (command === "init") {
+      init();
+      if (Object.prototype.hasOwnProperty.call(data, "paused")) {
+        setPaused(Boolean(data.paused));
+      }
+      return;
+    }
+    if (command === "setPaused") {
+      setPaused(Boolean(data.paused));
+    }
   }
 
   root[STATE_KEY] = {
+    init,
     setPaused,
+    isInitialized: () => initialized,
     isPaused: () => paused
   };
 

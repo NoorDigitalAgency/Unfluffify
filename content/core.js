@@ -165,6 +165,8 @@ const PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT = "init";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED = "setPaused";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
 const PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons";
 const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff2";
@@ -214,6 +216,9 @@ const PAGE_MOTION_REVEAL_DESCRIPTOR_RE = /(^|[-_\s:])(aos|appear|appearance|anim
 const PAGE_MOTION_REVEAL_EXCLUDED_DESCRIPTOR_RE = /accordion|backdrop|carousel|collapse|dialog|drawer|dropdown|lightbox|marquee|menu|modal|offcanvas|overlay|popover|slider|slideshow|tab|tabpanel|ticker|toast|tooltip/i;
 const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data-w-id"]);
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
+let pageMotionFreezeScriptLoaded = false;
+let pageMotionFreezeBridgeInitialized = false;
+let pageMotionFreezePendingPaused = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -3911,18 +3916,66 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-function postPageMotionFreezeControl(paused) {
+function postPageMotionFreezeControl(command, paused) {
   if (typeof window === "undefined" || typeof window.postMessage !== "function") {
     return;
   }
+  if (typeof command !== "string" || !command) {
+    return;
+  }
   try {
-    window.postMessage({
+    const payload = {
       __unfluffifyPageMotionFreeze: PAGE_MOTION_PAUSE_CONTROL_MARKER,
-      paused: Boolean(paused)
-    }, "*");
+      command
+    };
+    if (typeof paused === "boolean") {
+      payload.paused = paused;
+    }
+    window.postMessage(payload, "*");
   } catch (error) {
     // Ignore pages that reject cross-world control messages.
   }
+}
+
+function ensurePageMotionFreezeBridgeInitialized() {
+  if (pageMotionFreezeBridgeInitialized || !pageMotionFreezeScriptLoaded) {
+    return;
+  }
+  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT);
+  pageMotionFreezeBridgeInitialized = true;
+}
+
+function markPageMotionFreezeScriptLoaded(script) {
+  pageMotionFreezeScriptLoaded = true;
+  if (script && typeof script.setAttribute === "function") {
+    script.setAttribute("data-uf-loaded", "true");
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  if (typeof pageMotionFreezePendingPaused === "boolean") {
+    postPageMotionFreezeControl(
+      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
+      pageMotionFreezePendingPaused
+    );
+    pageMotionFreezePendingPaused = null;
+  }
+}
+
+function ensurePageMotionFreezeScriptLoadListener(script) {
+  if (!script || typeof script.addEventListener !== "function") {
+    return;
+  }
+  if (typeof script.getAttribute === "function" && script.getAttribute("data-uf-load-listener") === "true") {
+    return;
+  }
+  if (typeof script.setAttribute === "function") {
+    script.setAttribute("data-uf-load-listener", "true");
+  }
+  script.addEventListener("load", () => {
+    if (typeof script.setAttribute === "function") {
+      script.setAttribute("data-uf-load-listener", "false");
+    }
+    markPageMotionFreezeScriptLoaded(script);
+  }, { once: true });
 }
 
 function ensurePageMotionFreezeScript() {
@@ -3934,7 +3987,19 @@ function ensurePageMotionFreezeScript() {
   ) {
     return false;
   }
-  if (typeof document.getElementById === "function" && document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)) {
+  const existingScript = typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)
+    : null;
+  if (existingScript) {
+    const scriptReady = typeof existingScript.getAttribute === "function"
+      ? existingScript.getAttribute("data-uf-loaded") === "true"
+      : false;
+    pageMotionFreezeScriptLoaded = scriptReady;
+    if (scriptReady) {
+      ensurePageMotionFreezeBridgeInitialized();
+    } else {
+      ensurePageMotionFreezeScriptLoadListener(existingScript);
+    }
     return true;
   }
   const parent = document.head || document.documentElement;
@@ -3947,10 +4012,9 @@ function ensurePageMotionFreezeScript() {
   script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
   if (typeof script.setAttribute === "function") {
     script.setAttribute("data-uf-extension-ui", "true");
+    script.setAttribute("data-uf-loaded", "false");
   }
-  if (typeof script.addEventListener === "function") {
-    script.addEventListener("load", () => postPageMotionFreezeControl(true), { once: true });
-  }
+  ensurePageMotionFreezeScriptLoadListener(script);
   try {
     parent.appendChild(script);
     return true;
@@ -3960,10 +4024,24 @@ function ensurePageMotionFreezeScript() {
 }
 
 function setPageMotionFreezeTimersPaused(paused) {
-  if (paused) {
-    ensurePageMotionFreezeScript();
+  const shouldPause = Boolean(paused);
+  if (
+    !shouldPause &&
+    !pageMotionFreezeBridgeInitialized &&
+    pageMotionFreezePendingPaused === null
+  ) {
+    return;
   }
-  postPageMotionFreezeControl(paused);
+  if (!ensurePageMotionFreezeScript()) {
+    return;
+  }
+  if (!pageMotionFreezeScriptLoaded) {
+    pageMotionFreezePendingPaused = shouldPause;
+    return;
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED, shouldPause);
+  pageMotionFreezePendingPaused = null;
 }
 
 function getDocumentAnimations() {

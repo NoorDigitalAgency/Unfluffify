@@ -64,12 +64,18 @@ function createTimerWindowHarness() {
     get frameCount() {
       return frames.size;
     },
-    dispatchControl(paused) {
+    dispatchControl(controlOrPaused) {
+      const control = typeof controlOrPaused === "object" && controlOrPaused !== null
+        ? controlOrPaused
+        : { command: "setPaused", paused: controlOrPaused };
       const event = {
         source: windowObject,
         data: {
           __unfluffifyPageMotionFreeze: CONTROL_MARKER,
-          paused
+          command: typeof control.command === "string" ? control.command : "setPaused",
+          ...(Object.prototype.hasOwnProperty.call(control, "paused")
+            ? { paused: control.paused }
+            : {})
         }
       };
       messageListeners.forEach((listener) => listener(event));
@@ -97,18 +103,33 @@ function createTimerWindowHarness() {
   };
 }
 
-async function withTimerWindow(callback) {
+async function withTimerWindow(callback, { init = true } = {}) {
   const originalWindow = globalThis.window;
   const harness = createTimerWindowHarness();
   globalThis.window = harness.windowObject;
   try {
     importCounter += 1;
     await import(`../common/page-motion-freeze.js?case=${importCounter}`);
+    if (init) {
+      harness.dispatchControl({ command: "init" });
+    }
     await callback(harness);
   } finally {
     globalThis.window = originalWindow;
   }
 }
+
+test("page motion freeze ignores setPaused commands before init", async () => {
+  await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout }) => {
+    const calls = [];
+    const timerId = windowObject.setTimeout(() => calls.push("timeout"), 25);
+
+    dispatchControl(true);
+    runTimeout(timerId);
+
+    assert.deepEqual(calls, ["timeout"]);
+  }, { init: false });
+});
 
 test("page motion freeze defers timeout callbacks that become due while paused", async () => {
   await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout, runNextTimeout }) => {
