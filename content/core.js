@@ -3611,24 +3611,47 @@ async function scrollPageInspectionSmoothTo(y, isStillCurrent, options = {}) {
   return true;
 }
 
-function getPageInspectionBodyScrollHeight() {
+function getPageInspectionDocumentElement() {
+  return typeof document !== "undefined" ? document.documentElement : null;
+}
+
+function getPageInspectionScrollHeight() {
   if (typeof document === "undefined") {
     return 0;
   }
-  return Math.max(0, Math.round(Number(document.body?.scrollHeight) || 0));
+  return Math.max(
+    0,
+    Math.round(
+      Math.max(
+        Number(document.documentElement?.scrollHeight) || 0,
+        Number(document.body?.scrollHeight) || 0
+      )
+    )
+  );
 }
 
-async function scrollPageInspectionBodyToTop(isStillCurrent, options = {}) {
+function isPageInspectionAtBottom() {
+  const doc = getPageInspectionDocumentElement();
+  if (!doc || typeof window === "undefined") {
+    return true;
+  }
+  const currentY = Number(window.scrollY ?? window.pageYOffset) || 0;
+  const viewportHeight = Number(window.innerHeight || doc.clientHeight) || 0;
+  return currentY + viewportHeight >= getPageInspectionScrollHeight();
+}
+
+async function scrollPageInspectionDocumentToBlock(block, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof document === "undefined" || typeof window === "undefined") {
     return false;
   }
-  const body = typeof document.querySelector === "function"
-    ? document.querySelector("body")
-    : document.body;
-  if (body && typeof body.scrollIntoView === "function") {
-    body.scrollIntoView({ block: "start", inline: "nearest", behavior: "smooth" });
+  const doc = getPageInspectionDocumentElement();
+  if (doc && typeof doc.scrollIntoView === "function") {
+    doc.scrollIntoView({ block, inline: "nearest", behavior: "smooth" });
   } else if (typeof window.scrollTo === "function") {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: block === "end" ? getPageInspectionScrollHeight() : 0,
+      behavior: "smooth"
+    });
   } else {
     return false;
   }
@@ -3658,30 +3681,23 @@ export async function revealPageContentBeforeMotionPause(
   try {
     if (direction === "top") {
       if (reservedScrollY > 0) {
-        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionDocumentToBlock("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
     if (direction === "bottom" || direction === "both") {
       if (direction === "both" && reservedScrollY > 0) {
-        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionDocumentToBlock("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
-      let lastHeight = 0;
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        const scrolled = await scrollPageInspectionSmoothTo(
-          getPageInspectionBodyScrollHeight(),
-          isStillCurrent,
-          options
-        );
+        const scrolled = await scrollPageInspectionDocumentToBlock("end", isStillCurrent, options);
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-        const newHeight = getPageInspectionBodyScrollHeight();
-        if (newHeight === lastHeight) {
+        if (isPageInspectionAtBottom()) {
           break;
         }
-        lastHeight = newHeight;
         scrollCount++;
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
@@ -5096,8 +5112,6 @@ function createOverlay() {
       }
       #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} {
         background: rgba(16, 20, 28, 0.2);
-        -webkit-backdrop-filter: blur(1px);
-        backdrop-filter: blur(1px);
       }
       #unfluffify-overlay .uf-layer {
         position: absolute;

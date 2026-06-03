@@ -346,6 +346,10 @@ function createMotionDom() {
       return animations;
     }
   };
+  html.scrollIntoView = function (options = {}) {
+    const block = typeof options === "object" && options !== null ? options.block : "start";
+    window.scrollTo(0, block === "end" ? Math.max(0, html.scrollHeight - window.innerHeight) : 0);
+  };
   body.scrollIntoView = function () {
     window.scrollTo(0, 0);
   };
@@ -606,6 +610,12 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   dom.window.scrollY = reservedScrollY;
   dom.window.pageXOffset = 12;
   dom.window.pageYOffset = reservedScrollY;
+  const scrollBlocks = [];
+  const originalScrollIntoView = dom.html.scrollIntoView;
+  dom.html.scrollIntoView = function (options = {}) {
+    scrollBlocks.push(options.block);
+    return originalScrollIntoView.call(this, options);
+  };
 
   try {
     const inspected = await revealPageContentBeforeMotionPause(
@@ -617,9 +627,10 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
     );
 
     assert.equal(inspected, true);
+    assert.deepEqual(scrollBlocks, ["start", "end"]);
     assert.equal(dom.scrollCalls[0].y, 0);
-    assert.ok(dom.scrollCalls.findIndex((call) => call.y === 3000) > 0);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
+    assert.ok(dom.scrollCalls.findIndex((call) => call.y === 2500) > 0);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
     assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
     assert.equal(dom.window.scrollY, reservedScrollY);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
@@ -685,11 +696,21 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
     );
 
     assert.equal(inspected, true);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
     assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
     dom.restore();
   }
+});
+
+test("page inspection overlay avoids backdrop blur during reveal scrolling", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const inspectionOverlaySource = source.slice(
+    source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`),
+    source.indexOf(`#unfluffify-overlay .uf-layer`)
+  );
+
+  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
 
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
