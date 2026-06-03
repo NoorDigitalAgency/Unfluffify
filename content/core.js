@@ -3630,12 +3630,14 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   return new Promise((resolve) => {
     let resolved = false;
     let timeoutHandle = 0;
+    const startScrollY = window.scrollY || 0;
     const finish = () => {
       if (resolved) {
         return;
       }
       resolved = true;
       window.removeEventListener("scrollend", onScrollEnd);
+      window.removeEventListener("scroll", onScroll);
       if (timeoutHandle) {
         extensionClearTimeout(timeoutHandle);
         timeoutHandle = 0;
@@ -3649,6 +3651,14 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
       }
       finish();
     };
+    const onScroll = () => {
+      const currentScrollY = window.scrollY || 0;
+      if (currentScrollY !== startScrollY) {
+        window.removeEventListener("scroll", onScroll);
+        window.addEventListener("scrollend", onScrollEnd);
+      }
+    };
+    window.addEventListener("scroll", onScroll);
     window.addEventListener("scrollend", onScrollEnd);
     timeoutHandle = extensionSetTimeout(finish, timeout);
   });
@@ -3701,20 +3711,7 @@ async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
-  if (target === "start" || target === "end") {
-    const root = document.documentElement;
-    if (root && typeof root.scrollIntoView === "function") {
-      root.scrollIntoView({
-        block: target === "start" ? "start" : "end",
-        inline: "nearest",
-        behavior: "smooth"
-      });
-    } else {
-      window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
-    }
-  } else {
-    window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
-  }
+  window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
   await waitForPageInspectionScrollEnd(isStillCurrent, options);
   return true;
 }
