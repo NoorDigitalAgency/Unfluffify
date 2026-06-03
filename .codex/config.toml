@@ -3,6 +3,6 @@ command = "npx"
 args = [
   "-y",
   "@playwright/mcp@latest",
-  "--user-data-dir=../.mcp-browser-profile",
-  "--config=../.vscode/browser-mcp.config.json"
+  "--user-data-dir=./.mcp-browser-profile",
+  "--config=./.vscode/browser-mcp.config.json"
 ]

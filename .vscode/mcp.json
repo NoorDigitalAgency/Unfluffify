@@ -5,8 +5,8 @@
       "args": [
         "-y",
         "@playwright/mcp@latest",
-        "--user-data-dir=../.mcp-browser-profile",
-        "--config=./browser-mcp.config.json"
+        "--user-data-dir=./.mcp-browser-profile",
+        "--config=./.vscode/browser-mcp.config.json"
       ]
     }
   }
