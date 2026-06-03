@@ -17,6 +17,50 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
 
   const CONTENT_MAIN_FLAG = "__unfluffifyContentMainLoaded";
   const CONTENT_MAIN_LOADING = "__unfluffifyContentMainLoading";
+  const PAGE_MOTION_FREEZE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
+
+  function ensurePageMotionFreezeBootstrapScript() {
+    if (
+      typeof document === "undefined" ||
+      !globalThis.chrome ||
+      !chrome.runtime ||
+      typeof chrome.runtime.getURL !== "function"
+    ) {
+      return;
+    }
+    const existingScript = typeof document.getElementById === "function"
+      ? document.getElementById(PAGE_MOTION_FREEZE_SCRIPT_ID)
+      : null;
+    if (existingScript) {
+      return;
+    }
+    const parent = document.head || document.documentElement;
+    if (!parent || typeof document.createElement !== "function" || typeof parent.appendChild !== "function") {
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = PAGE_MOTION_FREEZE_SCRIPT_ID;
+    script.type = "text/javascript";
+    script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
+    if (typeof script.setAttribute === "function") {
+      script.setAttribute("data-uf-extension-ui", "true");
+      script.setAttribute("data-uf-loaded", "false");
+    }
+    if (typeof script.addEventListener === "function") {
+      script.addEventListener("load", () => {
+        if (typeof script.setAttribute === "function") {
+          script.setAttribute("data-uf-loaded", "true");
+        }
+      }, { once: true });
+    }
+    try {
+      parent.appendChild(script);
+    } catch {
+      // Best-effort early bridge bootstrap.
+    }
+  }
+
+  ensurePageMotionFreezeBootstrapScript();
 
   /**
    * Ensures the content main script is loaded and initialized.

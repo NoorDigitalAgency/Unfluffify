@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   createSanitizedPageSnapshot,
+  disable,
   pausePageMotion,
   refreshPageMotionPause,
   revealPageContentBeforeMotionPause,
@@ -356,6 +357,8 @@ function createMotionDom() {
     documentElement: html,
     head,
     body,
+    addEventListener() {},
+    removeEventListener() {},
     createElement(tagName) {
       return new FakeElement(tagName);
     },
@@ -425,7 +428,9 @@ function createMotionDom() {
     },
     clearInterval(handle) {
       intervals.delete(handle);
-    }
+    },
+    addEventListener() {},
+    removeEventListener() {}
   };
   return { document, window, animations, intervals, scrollCalls, html, head, body };
 }
@@ -729,6 +734,76 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedExpandedMaxScrollY);
     assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
+    dom.restore();
+  }
+});
+
+test("page inspection reveal keeps page-world lazy-load suppression active until marking is disabled", async () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const postedMessages = [];
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 3000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 3000;
+  dom.window.innerHeight = 500;
+  const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  let expansionCount = 0;
+  dom.window.scrollTo = (xOrOptions, y) => {
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    const maxScrollY = Math.max(0, dom.html.scrollHeight - dom.window.innerHeight);
+    if (actualY >= maxScrollY && expansionCount < 2) {
+      expansionCount += 1;
+      dom.html.scrollHeight += 1500;
+      dom.body.scrollHeight += 1500;
+    }
+  };
+  dom.window.postMessage = (message) => {
+    postedMessages.push(message);
+  };
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      }
+    }
+  };
+
+  try {
+    const inspected = await revealPageContentBeforeMotionPause(
+      "bottom",
+      4,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
+
+    assert.equal(inspected, true);
+
+    const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
+    assert.ok(script);
+    assert.equal(postedMessages.length, 0);
+
+    script.dispatchEvent(new Event("load"));
+
+    assert.equal(postedMessages.at(-2).command, "init");
+    assert.equal(postedMessages.at(-1).command, "setLazyLoadingSuppressed");
+    assert.equal(postedMessages.at(-1).suppressed, true);
+
+    disable();
+
+    assert.equal(postedMessages.at(-1).command, "setPaused");
+    assert.equal(postedMessages.at(-1).paused, false);
+    assert.equal(state.lazyLoadSuppressRestorer, null);
+  } finally {
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
     dom.restore();
   }
 });

@@ -3851,20 +3851,10 @@ function startSilentHighlightingUrlWatcher() {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       silentHighlightEditorRevealKey = "";
-      const shouldRunEditorActivation = Boolean(
-        propertyLockState && propertyLockState.isEditor
-      );
       runPropertyLockSync({
         pageUrl: lastUrl,
         forceSiteIdRefresh: true
       });
-      if (shouldRunEditorActivation) {
-        runEditorSilentHighlightingActivation().catch(() => {
-          // Best-effort activation during navigation.
-        });
-        return;
-      }
-      refreshSilentHighlightings().then();
     }
   }, 800);
 }
@@ -7431,17 +7421,7 @@ export function main() {
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
     silentHighlightEditorRevealKey = "";
-    const shouldRunEditorActivation = Boolean(
-      propertyLockState && propertyLockState.isEditor
-    );
     runPropertyLockSync({ forceSiteIdRefresh: true });
-    if (shouldRunEditorActivation) {
-      runEditorSilentHighlightingActivation().catch(() => {
-        // Best-effort activation during URL transitions.
-      });
-      return;
-    }
-    refreshSilentHighlightings().then();
   });
 
   refreshSilentHighlightings().then();

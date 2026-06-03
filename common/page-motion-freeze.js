@@ -5,14 +5,20 @@
   if (!root) {
     return;
   }
+  const doc = root.document || null;
 
   const STATE_KEY = "__unfluffifyPageMotionFreezeState";
   const CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
+  const COMMAND_INIT = "init";
+  const COMMAND_SET_PAUSED = "setPaused";
+  const COMMAND_SET_LAZY_LOADING_SUPPRESSED = "setLazyLoadingSuppressed";
+  const LAZY_LOAD_EVENT_TYPES = ["scroll", "wheel", "touchmove"];
 
   if (
     root[STATE_KEY] &&
     typeof root[STATE_KEY].setPaused === "function" &&
-    typeof root[STATE_KEY].init === "function"
+    typeof root[STATE_KEY].init === "function" &&
+    typeof root[STATE_KEY].setLazyLoadingSuppressed === "function"
   ) {
     return;
   }
@@ -23,13 +29,101 @@
   let originalClearInterval = null;
   let originalRequestAnimationFrame = null;
   let originalCancelAnimationFrame = null;
+  let originalIntersectionObserver = null;
+  let originalResizeObserver = null;
 
   let paused = false;
   let initialized = false;
+  let lazyLoadingBridgeInitialized = false;
+  let lazyLoadingSuppressed = false;
+  let lazyLoadListenersAttached = false;
   let nextDeferredTimerId = -1;
   let nextDeferredFrameId = -1000000;
   const deferredTimeouts = new Map();
   const deferredFrames = new Map();
+
+  function stopLazyLoadEvent(event) {
+    if (event && typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (event && typeof event.stopPropagation === "function") {
+      event.stopPropagation();
+    }
+  }
+
+  function createObserverConstructor(OriginalObserver) {
+    if (typeof OriginalObserver !== "function") {
+      return OriginalObserver;
+    }
+    function UnfluffifyObserver(callback, options) {
+      const wrappedCallback = typeof callback === "function"
+        ? (...args) => {
+          if (lazyLoadingSuppressed) {
+            return;
+          }
+          return callback(...args);
+        }
+        : callback;
+      return Reflect.construct(OriginalObserver, [wrappedCallback, options], new.target || OriginalObserver);
+    }
+    Object.defineProperty(UnfluffifyObserver, "name", {
+      value: OriginalObserver.name || "UnfluffifyObserver"
+    });
+    UnfluffifyObserver.prototype = OriginalObserver.prototype;
+    Object.setPrototypeOf(UnfluffifyObserver, OriginalObserver);
+    return UnfluffifyObserver;
+  }
+
+  function forEachLazyLoadEventTarget(callback) {
+    if (typeof callback !== "function") {
+      return;
+    }
+    callback(root);
+    if (doc && doc !== root) {
+      callback(doc);
+    }
+  }
+
+  function updateLazyLoadListeners() {
+    if (!lazyLoadingBridgeInitialized) {
+      return;
+    }
+    const shouldAttach = lazyLoadingSuppressed;
+    if (shouldAttach === lazyLoadListenersAttached) {
+      return;
+    }
+    forEachLazyLoadEventTarget((target) => {
+      if (!target || typeof target.addEventListener !== "function" || typeof target.removeEventListener !== "function") {
+        return;
+      }
+      for (const eventType of LAZY_LOAD_EVENT_TYPES) {
+        if (shouldAttach) {
+          target.addEventListener(eventType, stopLazyLoadEvent, true);
+        } else {
+          target.removeEventListener(eventType, stopLazyLoadEvent, true);
+        }
+      }
+    });
+    lazyLoadListenersAttached = shouldAttach;
+  }
+
+  function initLazyLoadingBridge() {
+    if (lazyLoadingBridgeInitialized) {
+      return true;
+    }
+    originalIntersectionObserver = root.IntersectionObserver;
+    originalResizeObserver = root.ResizeObserver;
+    if (typeof originalIntersectionObserver === "function") {
+      root.IntersectionObserver = createObserverConstructor(originalIntersectionObserver);
+    }
+    if (typeof originalResizeObserver === "function") {
+      root.ResizeObserver = createObserverConstructor(originalResizeObserver);
+    }
+    lazyLoadingBridgeInitialized = true;
+    updateLazyLoadListeners();
+    return true;
+  }
 
   function nextTimerId() {
     nextDeferredTimerId -= 1;
@@ -133,6 +227,16 @@
     }
   }
 
+  function setLazyLoadingSuppressed(nextSuppressed) {
+    initLazyLoadingBridge();
+    const shouldSuppress = Boolean(nextSuppressed);
+    if (lazyLoadingSuppressed === shouldSuppress) {
+      return;
+    }
+    lazyLoadingSuppressed = shouldSuppress;
+    updateLazyLoadListeners();
+  }
+
   function init() {
     if (initialized) {
       return true;
@@ -148,7 +252,6 @@
     originalCancelAnimationFrame = typeof root.cancelAnimationFrame === "function"
       ? root.cancelAnimationFrame.bind(root)
       : null;
-
     if (originalSetTimeout) {
       root.setTimeout = function unfluffifySetTimeout(callback, delay, ...args) {
         if (typeof callback !== "function") {
@@ -234,6 +337,7 @@
     }
 
     initialized = true;
+    initLazyLoadingBridge();
     if (!paused) {
       flushDeferredCallbacks();
     }
@@ -248,25 +352,36 @@
     if (!data || data.__unfluffifyPageMotionFreeze !== CONTROL_MARKER) {
       return;
     }
-    const command = typeof data.command === "string" ? data.command : "setPaused";
-    if (command === "init") {
+    const command = typeof data.command === "string" ? data.command : COMMAND_SET_PAUSED;
+    if (command === COMMAND_INIT) {
       init();
       if (Object.prototype.hasOwnProperty.call(data, "paused")) {
         setPaused(Boolean(data.paused));
       }
+      if (Object.prototype.hasOwnProperty.call(data, "suppressed")) {
+        setLazyLoadingSuppressed(Boolean(data.suppressed));
+      }
       return;
     }
-    if (command === "setPaused") {
+    if (command === COMMAND_SET_PAUSED) {
       setPaused(Boolean(data.paused));
+      return;
+    }
+    if (command === COMMAND_SET_LAZY_LOADING_SUPPRESSED) {
+      setLazyLoadingSuppressed(Boolean(data.suppressed));
     }
   }
 
   root[STATE_KEY] = {
     init,
     setPaused,
+    setLazyLoadingSuppressed,
     isInitialized: () => initialized,
-    isPaused: () => paused
+    isPaused: () => paused,
+    isLazyLoadingSuppressed: () => lazyLoadingSuppressed
   };
+
+  initLazyLoadingBridge();
 
   if (typeof root.addEventListener === "function") {
     root.addEventListener("message", handleControlMessage);

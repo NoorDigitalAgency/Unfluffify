@@ -109,6 +109,7 @@ export const state = {
   explicitOverlayRefreshContext: null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
+  lazyLoadSuppressRestorer: null,
   perfEnabled: null
 };
 
@@ -172,6 +173,7 @@ const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT = "init";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED = "setPaused";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "setLazyLoadingSuppressed";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
 const PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons";
 const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff2";
@@ -185,6 +187,7 @@ const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
 const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
+const PAGE_INSPECTION_LAZY_LOAD_PHASES = 2;
 const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 2000;
 const PAGE_INSPECTION_INPUT_EVENTS = [
@@ -223,6 +226,7 @@ const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transfo
 let pageMotionFreezeScriptLoaded = false;
 let pageMotionFreezeBridgeInitialized = false;
 let pageMotionFreezePendingPaused = null;
+let pageMotionFreezePendingLazyLoadingSuppressed = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -3707,6 +3711,11 @@ function getPageInspectionScrollTarget(target) {
   return Math.max(0, Math.round(Number(target) || 0));
 }
 
+function suppressPageInspectionLazyLoading() {
+  setPageMotionFreezeLazyLoadingSuppressed(true);
+  return () => {};
+}
+
 async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
@@ -3734,6 +3743,7 @@ export async function revealPageContentBeforeMotionPause(
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
   const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   let visited = false;
+  let lazyLoadRestorer = null;
   ensurePageInspectionStyle();
   try {
     if (direction === "top") {
@@ -3749,6 +3759,10 @@ export async function revealPageContentBeforeMotionPause(
       }
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
+        if (scrollCount === PAGE_INSPECTION_LAZY_LOAD_PHASES && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
+          lazyLoadRestorer = suppressPageInspectionLazyLoading();
+          state.lazyLoadSuppressRestorer = lazyLoadRestorer;
+        }
         const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
@@ -3977,7 +3991,7 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-function postPageMotionFreezeControl(command, paused) {
+function postPageMotionFreezeControl(command, details) {
   if (typeof window === "undefined" || typeof window.postMessage !== "function") {
     return;
   }
@@ -3989,8 +4003,10 @@ function postPageMotionFreezeControl(command, paused) {
       __unfluffifyPageMotionFreeze: PAGE_MOTION_PAUSE_CONTROL_MARKER,
       command
     };
-    if (typeof paused === "boolean") {
-      payload.paused = paused;
+    if (typeof details === "boolean") {
+      payload.paused = details;
+    } else if (details && typeof details === "object") {
+      Object.assign(payload, details);
     }
     window.postMessage(payload, "*");
   } catch (error) {
@@ -4018,6 +4034,13 @@ function markPageMotionFreezeScriptLoaded(script) {
       pageMotionFreezePendingPaused
     );
     pageMotionFreezePendingPaused = null;
+  }
+  if (typeof pageMotionFreezePendingLazyLoadingSuppressed === "boolean") {
+    postPageMotionFreezeControl(
+      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
+      { suppressed: pageMotionFreezePendingLazyLoadingSuppressed }
+    );
+    pageMotionFreezePendingLazyLoadingSuppressed = null;
   }
 }
 
@@ -4056,6 +4079,7 @@ function ensurePageMotionFreezeScript() {
       ? existingScript.getAttribute("data-uf-loaded") === "true"
       : false;
     pageMotionFreezeScriptLoaded = scriptReady;
+    pageMotionFreezeBridgeInitialized = scriptReady;
     if (scriptReady) {
       ensurePageMotionFreezeBridgeInitialized();
     } else {
@@ -4071,6 +4095,8 @@ function ensurePageMotionFreezeScript() {
   script.id = PAGE_MOTION_PAUSE_SCRIPT_ID;
   script.type = "text/javascript";
   script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
+  pageMotionFreezeScriptLoaded = false;
+  pageMotionFreezeBridgeInitialized = false;
   if (typeof script.setAttribute === "function") {
     script.setAttribute("data-uf-extension-ui", "true");
     script.setAttribute("data-uf-loaded", "false");
@@ -4103,6 +4129,30 @@ function setPageMotionFreezeTimersPaused(paused) {
   ensurePageMotionFreezeBridgeInitialized();
   postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED, shouldPause);
   pageMotionFreezePendingPaused = null;
+}
+
+function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
+  const shouldSuppress = Boolean(suppressed);
+  if (
+    !shouldSuppress &&
+    !pageMotionFreezeBridgeInitialized &&
+    pageMotionFreezePendingLazyLoadingSuppressed === null
+  ) {
+    return;
+  }
+  if (!ensurePageMotionFreezeScript()) {
+    return;
+  }
+  if (!pageMotionFreezeScriptLoaded) {
+    pageMotionFreezePendingLazyLoadingSuppressed = shouldSuppress;
+    return;
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  postPageMotionFreezeControl(
+    PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
+    { suppressed: shouldSuppress }
+  );
+  pageMotionFreezePendingLazyLoadingSuppressed = null;
 }
 
 function getDocumentAnimations() {
@@ -5645,6 +5695,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
 
 function removeOverlay() {
   setPageInspectionUiActive(false);
+  if (state.lazyLoadSuppressRestorer) {
+    state.lazyLoadSuppressRestorer = null;
+  }
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
     state.overlay.removeEventListener("click", handleClick, true);
@@ -9355,6 +9408,9 @@ export function disable(options = {}) {
     cacheUnsavedDraftBeforeDisable();
   } else {
     state.disabledUnsavedDraft = null;
+  }
+  if (state.lazyLoadSuppressRestorer) {
+    state.lazyLoadSuppressRestorer = null;
   }
   state.enabled = false;
   state.baseUrl = "";
