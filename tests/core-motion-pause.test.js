@@ -346,6 +346,18 @@ function createMotionDom() {
       return animations;
     }
   };
+  html.scrollIntoView = function (options = {}) {
+    const block = typeof options === "object" && options !== null ? options.block : "start";
+    if (block === "end") {
+      window.scrollTo(0, Math.max(0, html.scrollHeight - window.innerHeight));
+      return;
+    }
+    if (block === "center") {
+      window.scrollTo(0, Math.max(0, Math.round((html.scrollHeight - window.innerHeight) / 2)));
+      return;
+    }
+    window.scrollTo(0, 0);
+  };
   body.scrollIntoView = function () {
     window.scrollTo(0, 0);
   };
@@ -606,6 +618,7 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   dom.window.scrollY = reservedScrollY;
   dom.window.pageXOffset = 12;
   dom.window.pageYOffset = reservedScrollY;
+  const expectedMaxScrollY = dom.html.scrollHeight - dom.window.innerHeight;
 
   try {
     const inspected = await revealPageContentBeforeMotionPause(
@@ -615,11 +628,10 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
       () => true,
       { scrollEndTimeoutMs: 0 }
     );
-
     assert.equal(inspected, true);
     assert.equal(dom.scrollCalls[0].y, 0);
-    assert.ok(dom.scrollCalls.findIndex((call) => call.y === 3000) > 0);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
+    assert.ok(dom.scrollCalls.findIndex((call) => call.y === expectedMaxScrollY) > 0);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedMaxScrollY);
     assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
     assert.equal(dom.window.scrollY, reservedScrollY);
     assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
@@ -661,6 +673,7 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 1000;
   dom.window.innerHeight = 500;
+  const expectedExpandedMaxScrollY = 3000 - dom.window.innerHeight;
   const originalScrollTo = dom.window.scrollTo.bind(dom.window);
   let expanded = false;
   dom.window.scrollTo = (xOrOptions, y) => {
@@ -685,11 +698,24 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
     );
 
     assert.equal(inspected, true);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 3000);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedExpandedMaxScrollY);
     assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
     dom.restore();
   }
+});
+
+test("page inspection overlay avoids backdrop blur", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);
+  const end = source.indexOf(`#unfluffify-overlay .uf-layer`);
+  assert.ok(start >= 0 && end > start, "Expected to locate page inspection overlay CSS in core.js source");
+  const inspectionOverlaySource = source.slice(start, end);
+
+  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
+});
+
+  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
 
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {

@@ -3567,7 +3567,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   );
   return new Promise((resolve) => {
     let resolved = false;
-    let lastPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+    let lastPosition = window.scrollY || 0;
     let sameCount = 0;
     const finish = () => {
       if (resolved) {
@@ -3583,7 +3583,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         finish();
         return;
       }
-      const nextPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+      const nextPosition = window.scrollY || 0;
       if (nextPosition === lastPosition) {
         sameCount += 1;
       } else {
@@ -3598,40 +3598,54 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   });
 }
 
-async function scrollPageInspectionSmoothTo(y, isStillCurrent, options = {}) {
-  if (!isStillCurrent() || typeof window === "undefined") {
-    return false;
-  }
-  if (typeof window.scrollTo === "function") {
-    window.scrollTo({ top: Math.max(0, Math.round(Number(y) || 0)), behavior: "smooth" });
-  } else {
-    return false;
-  }
-  await waitForPageInspectionScrollEnd(isStillCurrent, options);
-  return true;
-}
-
-function getPageInspectionBodyScrollHeight() {
+function getPageInspectionScrollHeight() {
   if (typeof document === "undefined") {
     return 0;
   }
-  return Math.max(0, Math.round(Number(document.body?.scrollHeight) || 0));
+  return Math.max(
+    0,
+    Math.round(
+      Math.max(
+        Number(document.documentElement?.scrollHeight) || 0,
+        Number(document.body?.scrollHeight) || 0
+      )
+    )
+  );
 }
 
-async function scrollPageInspectionBodyToTop(isStillCurrent, options = {}) {
-  if (!isStillCurrent() || typeof document === "undefined" || typeof window === "undefined") {
+function isPageInspectionAtBottom() {
+  const doc = typeof document !== "undefined" ? document.documentElement : null;
+  if (!doc || typeof window === "undefined") {
+    return true;
+  }
+  const currentY = window.scrollY || 0;
+  const viewportHeight = window.innerHeight || doc.clientHeight || 0;
+  const scrollHeight = getPageInspectionScrollHeight();
+  if (scrollHeight <= viewportHeight) {
+    return true;
+  }
+  return currentY + viewportHeight >= scrollHeight;
+}
+
+function getPageInspectionScrollTarget(target) {
+  if (target === "end") {
+    const viewportHeight = (
+      window?.innerHeight
+      || (typeof document !== "undefined" ? document.documentElement?.clientHeight : 0)
+    ) || 0;
+    return Math.max(0, getPageInspectionScrollHeight() - viewportHeight);
+  }
+  if (target === "start") {
+    return 0;
+  }
+  return Math.max(0, Math.round(Number(target) || 0));
+}
+
+async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
+  if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
-  const body = typeof document.querySelector === "function"
-    ? document.querySelector("body")
-    : document.body;
-  if (body && typeof body.scrollIntoView === "function") {
-    body.scrollIntoView({ block: "start", inline: "nearest", behavior: "smooth" });
-  } else if (typeof window.scrollTo === "function") {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  } else {
-    return false;
-  }
+  window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
   await waitForPageInspectionScrollEnd(isStillCurrent, options);
   return true;
 }
@@ -3658,35 +3672,28 @@ export async function revealPageContentBeforeMotionPause(
   try {
     if (direction === "top") {
       if (reservedScrollY > 0) {
-        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
     if (direction === "bottom" || direction === "both") {
       if (direction === "both" && reservedScrollY > 0) {
-        visited = await scrollPageInspectionBodyToTop(isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
-      let lastHeight = 0;
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        const scrolled = await scrollPageInspectionSmoothTo(
-          getPageInspectionBodyScrollHeight(),
-          isStillCurrent,
-          options
-        );
+        const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
-        const newHeight = getPageInspectionBodyScrollHeight();
-        if (newHeight === lastHeight) {
+        if (isPageInspectionAtBottom()) {
           break;
         }
-        lastHeight = newHeight;
         scrollCount++;
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       if (direction === "both" && isStillCurrent()) {
-        visited = await scrollPageInspectionSmoothTo(reservedScrollY, isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
@@ -5096,8 +5103,6 @@ function createOverlay() {
       }
       #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} {
         background: rgba(16, 20, 28, 0.2);
-        -webkit-backdrop-filter: blur(1px);
-        backdrop-filter: blur(1px);
       }
       #unfluffify-overlay .uf-layer {
         position: absolute;
