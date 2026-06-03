@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
+const utilitiesSource = readFileSync(new URL("../common/utilities.js", import.meta.url), "utf8");
+const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
 function extractSourceBlock(source, startNeedle, endNeedle) {
@@ -21,7 +23,10 @@ test("top-level navigation preserves user-controlled device emulation", () => {
     "chrome.webNavigation.onBeforeNavigate"
   );
 
-  assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
+  assert.match(block, /const scriptKey = `\$\{SCRIPT_INJECTED_PREFIX\}\$\{tabId\}`;/);
+  assert.match(block, /await utils\.storageRemove\(chrome\.storage\.session, \[scriptKey\]\);/);
+  assert.match(block, /await chrome\.tabs\.sendMessage\(tabId, \{ type: "setEnabled", enabled: false \}\);/);
+  assert.doesNotMatch(block, /await utils\.disableExtensionForTab\(tabId\);/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);
 });
 
@@ -66,6 +71,69 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(activateBlock, /await activateExtensionForTab\(/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+});
+
+test("popup prefers the side-panel-bound tab id before falling back to active-tab queries", () => {
+  const messageBlock = extractSourceBlock(
+    popupMessagesSource,
+    "async function getSidePanelBoundTab() {",
+    "export function sendRuntimeMessage"
+  );
+  const loadActiveTabBlock = popupMessagesSource.match(
+    /export async function loadActiveTab\(\) \{([\s\S]*?)\n\}/
+  )[0];
+
+  assert.match(messageBlock, /chrome\.runtime\.getContexts/);
+  assert.match(messageBlock, /contextTypes: \["SIDE_PANEL"\]/);
+  assert.match(messageBlock, /documentUrls: \[chrome\.runtime\.getURL\("popup\.html"\)\]/);
+  assert.match(messageBlock, /chrome\.windows\.getCurrent/);
+  assert.match(messageBlock, /contextQuery\.windowIds = \[Math\.trunc\(currentWindow\.id\)\];/);
+  assert.match(messageBlock, /return await chrome\.tabs\.get\(Math\.trunc\(boundContext\.tabId\)\);/);
+  assert.match(loadActiveTabBlock, /const sidePanelBoundTab = await getSidePanelBoundTab\(\);/);
+  assert.match(loadActiveTabBlock, /if \(sidePanelBoundTab && sidePanelBoundTab\.id\) \{/);
+  assert.match(loadActiveTabBlock, /let tabs = await utils\.tabsQuery\(\{ active: true, currentWindow: true \}\);/);
+});
+
+test("shared tab state writes mirror enabled sessions into reload restore state", () => {
+  const setTabStateBlock = extractSourceBlock(
+    utilitiesSource,
+    "export async function setTabState(tabId, state, scope = null) {",
+    "export async function clearTabState"
+  );
+
+  assert.match(setTabStateBlock, /if \(scope\) \{\s*return;\s*\}/);
+  assert.match(setTabStateBlock, /const restoreKey = `\$\{TAB_STATE_PREFIX\}restore:\$\{tabId\}`;/);
+  assert.match(setTabStateBlock, /if \(nextState && nextState\.enabled && nextState\.baseUrl\) \{/);
+  assert.match(setTabStateBlock, /await storageSet\(chrome\.storage\.session, \{/);
+  assert.match(setTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[restoreKey\]\);/);
+});
+
+test("completed reload restores marking when the page stays within the saved base URL", () => {
+  const onUpdatedBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "chrome.storage.onChanged.addListener"
+  );
+
+  assert.match(backgroundSource, /const TAB_RESTORE_SCOPE = "restore";/);
+  assert.match(backgroundSource, /async function getReloadRestoreTabState\(tabId\) \{/);
+  assert.match(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
+  assert.match(onUpdatedBlock, /const tabState = \(await utils\.getTabState\(tabId\)\) \|\| \(await getReloadRestoreTabState\(tabId\)\);/);
+  assert.match(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);
+  assert.match(onUpdatedBlock, /requestContentActivation\(tabId\);/);
+  assert.match(onUpdatedBlock, /restoreEnabledStateForTab\(tabId, tabState\);/);
+  assert.match(backgroundSource, /performInitialReveal: true/);
+});
+
+test("completed navigation clears marking when the new page leaves the saved base URL", () => {
+  const onUpdatedBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "chrome.storage.onChanged.addListener"
+  );
+
+  assert.match(onUpdatedBlock, /!utils\.isPageWithinBaseUrl\(tab\.url \|\| "", tabState\.baseUrl\)/);
+  assert.match(onUpdatedBlock, /await utils\.disableExtensionForTab\(tabId\);/);
 });
 
 test("popup refresh routes fresh active tabs through background activation before reading device state", () => {

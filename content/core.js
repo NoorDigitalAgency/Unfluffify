@@ -5656,6 +5656,13 @@ function setPageInspectionUiActive(active) {
   updateCursorMode();
 }
 
+export function isPageInspectionUiActive() {
+  return Boolean(
+    (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
+      state.inspectionBlocker
+  );
+}
+
 async function inspectPageBeforeMotionPause(isStillCurrent) {
   const keepUiActive = arguments.length > 1 && Boolean(arguments[1]?.keepUiActive);
   startPageInspectionInputBlocker();

@@ -5,6 +5,45 @@ const { state } = stateModule;
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function getSidePanelBoundTab() {
+  if (
+    !globalThis.chrome ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getContexts !== "function" ||
+    !chrome.tabs ||
+    typeof chrome.tabs.get !== "function"
+  ) {
+    return null;
+  }
+  try {
+    const contextQuery = {
+      contextTypes: ["SIDE_PANEL"],
+      documentUrls: [chrome.runtime.getURL("popup.html")]
+    };
+    if (chrome.windows && typeof chrome.windows.getCurrent === "function") {
+      try {
+        const currentWindow = await chrome.windows.getCurrent();
+        if (currentWindow && Number.isFinite(currentWindow.id)) {
+          contextQuery.windowIds = [Math.trunc(currentWindow.id)];
+        }
+      } catch {
+        // Fall back to an unscoped context query.
+      }
+    }
+    const contexts = await chrome.runtime.getContexts(contextQuery);
+    if (!Array.isArray(contexts)) {
+      return null;
+    }
+    const boundContext = contexts.find((context) => Number.isFinite(context && context.tabId));
+    if (!boundContext) {
+      return null;
+    }
+    return await chrome.tabs.get(Math.trunc(boundContext.tabId));
+  } catch {
+    return null;
+  }
+}
+
 export function sendRuntimeMessage(message) {
   return utils.sendRuntimeMessage(message);
 }
@@ -54,6 +93,11 @@ export async function sendTabMessageWithRetry(message, attempts = 3) {
 
 export async function loadActiveTab() {
   try {
+    const sidePanelBoundTab = await getSidePanelBoundTab();
+    if (sidePanelBoundTab && sidePanelBoundTab.id) {
+      state.currentTab = sidePanelBoundTab;
+      return;
+    }
     let tabs = await utils.tabsQuery({ active: true, currentWindow: true });
     if (!tabs.length) {
       tabs = await utils.tabsQuery({ active: true, lastFocusedWindow: true });

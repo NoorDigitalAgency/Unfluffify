@@ -54,7 +54,8 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const messageSource = source.slice(messageStart, messageEnd);
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
-  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{\s*skipInitialReveal:\s*true\s*\}\);/);
+  assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
+  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
@@ -65,8 +66,10 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(lockStateStart > -1);
   assert.ok(lockStateEnd > lockStateStart);
   assert.match(lockStateSource, /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;/);
+  assert.match(lockStateSource, /if \(!serverMessage\.isEditor && !serverMessage\.isSameUserEditor\) \{/);
   assert.match(lockStateSource, /if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
   assert.match(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.doesNotMatch(lockStateSource, /\} else if \(serverMessage\.isEditor\) \{[\s\S]*?silentHighlightEditorRevealKey = "";/);
 
   const urlWatcherStart = source.indexOf("function startSilentHighlightingUrlWatcher() {");
   const urlWatcherEnd = source.indexOf("function resetAiPreviewState()", urlWatcherStart);
@@ -107,6 +110,42 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.match(syncSource, /if \(!shouldRunEditorActivation\) \{[\s\S]*?fetchPropertyLockStateSnapshot\(siteId\);/);
   assert.match(syncSource, /if \(shouldRunEditorActivation\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
   assert.match(syncSource, /refreshSilentHighlightings\(\)\.then\(\);/);
+});
+
+test("content exposes inspection status while reveal or reconciliation is pending", () => {
+  const mainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(coreSource, /export function isPageInspectionUiActive\(\) \{/);
+  assert.match(coreSource, /state\.pageInspectionNotice && !state\.pageInspectionNotice\.hidden/);
+  assert.match(coreSource, /state\.inspectionBlocker/);
+
+  const messageStart = mainSource.indexOf('if (message.type === "getInspectionStatus") {');
+  const messageEnd = mainSource.indexOf('if (message.type === "hideConsentForInspection") {', messageStart);
+  assert.ok(messageStart > -1);
+  assert.ok(messageEnd > messageStart);
+  const messageSource = mainSource.slice(messageStart, messageEnd);
+  assert.match(messageSource, /const pageUrl = location\.href;/);
+  assert.match(messageSource, /const reconciliation = core\.getPageSaveReconciliationState\(pageUrl\);/);
+  assert.match(messageSource, /const reconciliationPending = core\.isPageSaveReconciliationPending\(pageUrl\);/);
+  assert.match(messageSource, /const inspectionActive = core\.isPageInspectionUiActive\(\);/);
+  assert.match(messageSource, /const silentHighlightPreparationActive = Boolean\([\s\S]*?reconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/);
+  assert.match(messageSource, /const reportedInspectionActive =[\s\S]*?inspectionActive &&[\s\S]*?!silentHighlightPreparationActive;/);
+  assert.match(messageSource, /Boolean\(silentHighlightEditorActivationPromise\)/);
+  assert.match(messageSource, /Boolean\(propertyLockEditorClaimPending\)/);
+  assert.match(messageSource, /active: reportedInspectionActive,/);
+});
+
+test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const messageStart = source.indexOf('if (message.type === "setEnabled") {');
+  const messageEnd = source.indexOf('if (message.type === "getInspectionStatus") {', messageStart);
+
+  assert.ok(messageStart > -1);
+  assert.ok(messageEnd > messageStart);
+  const messageSource = source.slice(messageStart, messageEnd);
+  assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
+  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
 });
 
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {

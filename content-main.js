@@ -6277,7 +6277,7 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockSuggestionId = "";
     propertyLockSuggestionFromName = "";
     const becameEditor = (!previousState || !previousState.isEditor) && serverMessage.isEditor;
-    if (!serverMessage.isEditor) {
+    if (!serverMessage.isEditor && !serverMessage.isSameUserEditor) {
       silentHighlightEditorRevealKey = "";
     }
     if (becameEditor) {
@@ -6286,7 +6286,6 @@ function applyPropertyLockServerMessage(serverMessage) {
         // Silent activation is best-effort and should not block lock-state updates.
       });
     } else if (serverMessage.isEditor) {
-      silentHighlightEditorRevealKey = "";
       runEditorSilentHighlightingActivation().catch(() => {
         // Keep editor-role reveal/freeze aligned with navigation and reconnect updates.
       });
@@ -6890,11 +6889,12 @@ export function main() {
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
         (async () => {
+          const skipInitialReveal = !Boolean(message.performInitialReveal);
           const reconciliation = core.getPageSaveReconciliationState(location.href);
           if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
             await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
           }
-          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal: true });
+          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
           refreshEnabledAiHighlights();
           sendResponse({ ok: true });
         })().catch(() => {
@@ -6909,6 +6909,34 @@ export function main() {
         sendResponse({ ok: true });
       });
       return true;
+    }
+
+    if (message.type === "getInspectionStatus") {
+      const pageUrl = location.href;
+      const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+      const reconciliationPending = core.isPageSaveReconciliationPending(pageUrl);
+      const inspectionActive = core.isPageInspectionUiActive();
+      const silentHighlightPreparationActive = Boolean(
+        reconciliation &&
+        reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+      );
+      const reportedInspectionActive =
+        inspectionActive &&
+        !silentHighlightPreparationActive;
+      const inspectionPending =
+        reportedInspectionActive ||
+        (Boolean(silentHighlightEditorActivationPromise) && !silentHighlightPreparationActive) ||
+        (Boolean(propertyLockEditorClaimPending) && !silentHighlightPreparationActive) ||
+        reconciliationPending;
+      sendResponse({
+        ok: true,
+        active: reportedInspectionActive,
+        pending: inspectionPending,
+        pendingReason: reconciliationPending && reconciliation
+          ? reconciliation.reason || "pending"
+          : ""
+      });
+      return;
     }
 
     if (message.type === "hideConsentForInspection") {
@@ -7267,7 +7295,7 @@ export function main() {
           savedEntry,
           dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
           reconciliation,
-          reconciliationPending: config.isPageSaveReconciliationPending(reconciliation)
+          reconciliationPending: core.isPageSaveReconciliationPending(pageUrl)
         });
       })().catch(() => {
         sendResponse({ ok: false });

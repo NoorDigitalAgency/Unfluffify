@@ -263,9 +263,11 @@ test("popup blocks the interface with a spinner while page inspection is running
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
+  assert.match(source, /const contentInspectionPending = Boolean\(/);
+  assert.match(source, /const restoreInspectionPending = Boolean\(/);
   assert.match(
     source,
-    /const pageInspectionBusy =[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
+    /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?restoreInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
   );
   assert.match(source, /nextViewState\.isBusy = popupBusyActive \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/);
   assert.match(
@@ -288,6 +290,46 @@ test("popup busy overlay begin always returns started=true once depth increments
     beginBody,
     /if \(delayMs > 0\) \{[\s\S]*?if \(popupBusyOverlayTimer\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?return true;/
   );
+});
+
+test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(source, /async function waitForEnableMarkingInspectionToSettle\(tabId, baseUrl\) \{/);
+  assert.match(source, /type: "getInspectionStatus"/);
+  assert.match(source, /type: "getPageDraftStatus",\s*\n\s*baseUrl/);
+  assert.match(source, /let responseObserved = false;/);
+  assert.match(source, /responseObserved = true;/);
+  assert.match(source, /\(responseObserved && attempt >= 2\) \|\| attempt >= 6/);
+  assert.match(source, /const navigationInspectionPending = Boolean\(/);
+  assert.match(source, /popupNavigationInspectionOverlayStarted/);
+  assert.match(source, /popupNavigationInspectionOverlayTabId === currentTabId/);
+  assert.match(source, /const contentInspectionPending = Boolean\(/);
+  assert.match(source, /const restoreInspectionPending = Boolean\(/);
+  assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
+  assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
+
+  const onUpdatedBlock = source.match(
+    /chrome\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n  \}\);\n  window\.addEventListener/
+  )[1];
+
+  assert.match(onUpdatedBlock, /changeInfo\.status === "loading"/);
+  assert.match(onUpdatedBlock, /await utils\.getTabState\(tabId, "restore"\)/);
+  assert.match(onUpdatedBlock, /beginNavigationInspectionOverlay\(tabId\);/);
+  assert.match(onUpdatedBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
+  assert.match(onUpdatedBlock, /await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
+  assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);\s*await refreshUi\(\{ useBusyOverlay: false \}\);/);
+  assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);/);
+
+  const refreshBody = source.match(
+    /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
+  )[1];
+  assert.match(refreshBody, /const persistedTabState = await utils\.getTabState\(state\.currentTab\.id\);/);
+  assert.match(refreshBody, /await utils\.getTabState\(state\.currentTab\.id, "restore"\)/);
+  assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
+  assert.match(refreshBody, /restoreInspectionPending \|\|\s*contentInspectionPending/);
+  assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
+  assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
 });
 
 test("session pending is no longer tied to Lynx selector submission state", () => {
@@ -359,6 +401,10 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   assert.match(
     contentSource,
     /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?refreshSavedPageEntryFromBackendCache\(targetBaseUrl, pageUrl\)/
+  );
+  assert.match(
+    contentSource,
+    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?reconciliationPending: core\.isPageSaveReconciliationPending\(pageUrl\)/
   );
   assert.match(
     contentSource,

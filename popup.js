@@ -641,6 +641,8 @@ let popupBusyOverlayDepth = 0;
 let popupBusyOverlayVisible = false;
 let popupBusyOverlayTimer = 0;
 let popupBusyOverlayMessage = PopupText.overlay.loadingPopup;
+let popupNavigationInspectionOverlayStarted = false;
+let popupNavigationInspectionOverlayTabId = null;
 let propertyPageTypesRequest = null;
 let remoteSupportPopupMediaChannel = null;
 let remoteSupportDockPiPWindow = null;
@@ -698,6 +700,16 @@ function beginPopupBusyOverlay(message, options = {}) {
   popupBusyOverlayVisible = true;
   uiModule.setUiBusy(true, popupBusyOverlayMessage);
   return true;
+}
+
+function setPopupBusyOverlayMessage(message) {
+  if (typeof message !== "string" || !message.trim()) {
+    return;
+  }
+  popupBusyOverlayMessage = message.trim();
+  if (popupBusyOverlayVisible) {
+    uiModule.setUiBusy(true, popupBusyOverlayMessage);
+  }
 }
 
 function endPopupBusyOverlay(started = true) {
@@ -2158,6 +2170,76 @@ function waitForRetryDelay(delayMs) {
   });
 }
 
+async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
+  let inspectionObserved = false;
+  let responseObserved = false;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const [inspectionStatus, draftStatus] = await Promise.all([
+      messages.sendTabMessageToTab(tabId, { type: "getInspectionStatus" }),
+      baseUrl
+        ? messages.sendTabMessageToTab(tabId, {
+          type: "getPageDraftStatus",
+          baseUrl
+        })
+        : Promise.resolve(null)
+    ]);
+    if (
+      (inspectionStatus && inspectionStatus.ok) ||
+      (draftStatus && draftStatus.ok)
+    ) {
+      responseObserved = true;
+    }
+    const inspectionPending = Boolean(
+      inspectionStatus &&
+        inspectionStatus.ok &&
+        (inspectionStatus.active || inspectionStatus.pending)
+    );
+    const reconciliationPending = Boolean(
+      draftStatus &&
+        draftStatus.ok &&
+        draftStatus.reconciliationPending &&
+        draftStatus.reconciliation &&
+        draftStatus.reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+    );
+    if (inspectionPending || reconciliationPending) {
+      inspectionObserved = true;
+    } else if (inspectionObserved || (responseObserved && attempt >= 2) || attempt >= 6) {
+      return inspectionObserved;
+    }
+    await waitForRetryDelay(getRetryDelayMs(attempt, 150, 900));
+  }
+  return inspectionObserved;
+}
+
+function beginNavigationInspectionOverlay(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  popupNavigationInspectionOverlayTabId = tabId;
+  setPopupBusyOverlayMessage(PopupText.overlay.pageInspection);
+  if (popupNavigationInspectionOverlayStarted) {
+    return true;
+  }
+  popupNavigationInspectionOverlayStarted = beginPopupBusyOverlay(
+    PopupText.overlay.pageInspection,
+    { delayMs: 0 }
+  );
+  return popupNavigationInspectionOverlayStarted;
+}
+
+function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlayTabId) {
+  if (
+    popupNavigationInspectionOverlayTabId !== null &&
+    tabId !== null &&
+    popupNavigationInspectionOverlayTabId !== tabId
+  ) {
+    return;
+  }
+  endPopupBusyOverlay(popupNavigationInspectionOverlayStarted);
+  popupNavigationInspectionOverlayStarted = false;
+  popupNavigationInspectionOverlayTabId = null;
+}
+
 function waitForPopupUiPaint() {
   return new Promise((resolve) => {
     let settled = false;
@@ -3275,8 +3357,11 @@ async function refreshUiInner(options = {}) {
   } = await helpers.loadGlobalAiSettings();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
-  const tabState =
-    (await utils.getTabState(state.currentTab.id)) || { enabled: false, baseUrl: "" };
+  const persistedTabState = await utils.getTabState(state.currentTab.id);
+  const restoreTabState = persistedTabState
+    ? null
+    : await utils.getTabState(state.currentTab.id, "restore");
+  const tabState = persistedTabState || restoreTabState || { enabled: false, baseUrl: "" };
   let initialTabState = currentTabId
     ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
@@ -3993,10 +4078,54 @@ async function refreshUiInner(options = {}) {
     currentPageMarkingAllowed &&
     Boolean(tokenValue) &&
     renderModeReady;
-  isEnabled = toggleEnabled && siteIdReady && renderModeReady && currentPageMarkingAllowed;
+  const inspectionStatus =
+    currentTabId &&
+    toggleEnabled &&
+    effectiveTabState.enabled &&
+    effectiveTabState.baseUrl
+      ? await messages.sendTabMessageToTab(currentTabId, { type: "getInspectionStatus" })
+      : null;
+  const contentInspectionPending = Boolean(
+    inspectionStatus &&
+      inspectionStatus.ok &&
+      (inspectionStatus.active || inspectionStatus.pending)
+  );
+  const restoreInspectionPending = Boolean(
+    currentTabId &&
+      toggleEnabled &&
+      effectiveTabState.enabled &&
+      effectiveTabState.baseUrl &&
+      !persistedTabState &&
+      restoreTabState &&
+      restoreTabState.enabled &&
+      restoreTabState.baseUrl &&
+      (!pageUrl || utils.isPageWithinBaseUrl(pageUrl, restoreTabState.baseUrl))
+  );
+  const navigationInspectionPending = Boolean(
+    (currentTabId &&
+      popupNavigationInspectionOverlayStarted &&
+      popupNavigationInspectionOverlayTabId === currentTabId &&
+      toggleEnabled &&
+      effectiveTabState.enabled &&
+      effectiveTabState.baseUrl) ||
+    restoreInspectionPending ||
+    contentInspectionPending
+  );
+  if (
+    popupBusyOverlayVisible &&
+    (restoreInspectionPending ||
+      (popupNavigationInspectionOverlayStarted && popupNavigationInspectionOverlayTabId === currentTabId))
+  ) {
+    setPopupBusyOverlayMessage(PopupText.overlay.pageInspection);
+  }
+  isEnabled = toggleEnabled && (
+    navigationInspectionPending ||
+    (siteIdReady && renderModeReady && currentPageMarkingAllowed)
+  );
   if (
     tabInScope &&
     toggleEnabled &&
+    !navigationInspectionPending &&
     (!siteIdReady || !renderModeReady || pageTypeUiBlocked) &&
     currentTabId
   ) {
@@ -4052,11 +4181,13 @@ async function refreshUiInner(options = {}) {
   }
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
   const pageInspectionBusy =
-    pageSaveReconciliationPending &&
-    Boolean(
-      state.currentPageSaveReconciliation &&
-      state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
-    );
+    contentInspectionPending ||
+    restoreInspectionPending ||
+    (pageSaveReconciliationPending &&
+      Boolean(
+        state.currentPageSaveReconciliation &&
+        state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+      ));
   const sessionHasPendingChanges = hasSessionPendingChanges(
     state.currentConfig,
     pageMarkings,
@@ -4120,7 +4251,7 @@ async function refreshUiInner(options = {}) {
     unsupportedByGraphql ||
     !tabInScope ||
     remoteConfigRetryBlocked ||
-    pageTypeUiBlocked ||
+    (pageTypeUiBlocked && !navigationInspectionPending) ||
     isPropertyLockBlockingEditing() ||
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
   const configurationUiDisabled = aiBusy;
@@ -4131,9 +4262,14 @@ async function refreshUiInner(options = {}) {
     !isEnabled;
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
-    pageScopedUiDisabled || pageSaveReconciliationPending || !baseUrlReady || !siteIdReady || !renderModeReady;
+    pageScopedUiDisabled ||
+    pageSaveReconciliationPending ||
+    !baseUrlReady ||
+    (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
   nextViewState.mainUiHidden =
-    pageScopedUiDisabled || !isEnabled || !siteIdReady || !renderModeReady;
+    pageScopedUiDisabled ||
+    !isEnabled ||
+    (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
   nextViewState.silentModeActive = silentModeActive;
   nextViewState.computeButtonDisabled =
     pageScopedUiDisabled ||
@@ -7622,6 +7758,9 @@ async function init() {
     if (!tabId) {
       return;
     }
+    if (popupNavigationInspectionOverlayTabId !== null && popupNavigationInspectionOverlayTabId !== tabId) {
+      endNavigationInspectionOverlay(popupNavigationInspectionOverlayTabId);
+    }
     const tab = await chrome.tabs.get(tabId);
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
@@ -7634,9 +7773,50 @@ async function init() {
     if (!state.currentTab || tabId !== state.currentTab.id) {
       return;
     }
-    if (changeInfo.url || changeInfo.status === "complete") {
-      state.currentTab = tab;
-      await refreshUi();
+    if (!(changeInfo.url || changeInfo.status === "loading" || changeInfo.status === "complete")) {
+      return;
+    }
+    state.currentTab = tab;
+    const persistedTabState = await utils.getTabState(tabId);
+    const tabState =
+      persistedTabState ||
+      (await utils.getTabState(tabId, "restore"));
+    const candidateUrl = typeof changeInfo.url === "string" && changeInfo.url
+      ? changeInfo.url
+      : ((tab && typeof tab.url === "string") ? tab.url : "");
+    const inspectionExpected = Boolean(
+      tabState &&
+        tabState.enabled &&
+        tabState.baseUrl &&
+        (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, tabState.baseUrl))
+    );
+    if (!persistedTabState && inspectionExpected) {
+      await utils.setTabState(tabId, tabState);
+    }
+    if (!inspectionExpected) {
+      if (popupNavigationInspectionOverlayTabId === tabId) {
+        endNavigationInspectionOverlay(tabId);
+      }
+      if (changeInfo.url || changeInfo.status === "complete") {
+        await refreshUi();
+      }
+      return;
+    }
+    beginNavigationInspectionOverlay(tabId);
+    if (changeInfo.status === "loading") {
+      return;
+    }
+    try {
+      await refreshUi({ useBusyOverlay: false });
+      if (changeInfo.status === "complete") {
+        await waitForEnableMarkingInspectionToSettle(tabId, tabState.baseUrl);
+        endNavigationInspectionOverlay(tabId);
+        await refreshUi({ useBusyOverlay: false });
+      }
+    } finally {
+      if (changeInfo.status === "complete") {
+        endNavigationInspectionOverlay(tabId);
+      }
     }
   });
   window.addEventListener("beforeunload", () => {

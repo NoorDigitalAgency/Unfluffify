@@ -254,7 +254,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
           nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
         }
-        return utils.setTabState(tabId, nextState);
+        return utils.setTabState(tabId, nextState)
+          .then(() => {
+            if (nextState.enabled && nextState.baseUrl) {
+              return setReloadRestoreTabState(tabId, nextState);
+            }
+            return clearReloadRestoreTabState(tabId);
+          });
       })
       .then(() => {
         utils.updateActionForTab(tabId).then();
@@ -337,6 +343,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     utils.clearTabState(message.tabId)
+      .then(() => clearReloadRestoreTabState(message.tabId))
       .then(() => {
         utils.updateActionForTab(message.tabId).then();
         sendResponse({ ok: true });
@@ -363,6 +370,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         // Continue with hard state cleanup below.
       }
+      await clearReloadRestoreTabState(tabId);
       await utils.storageRemove(chrome.storage.session, [
         tabKey,
         initialKey,
@@ -549,9 +557,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
   const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
+  const restoreKey = getReloadRestoreTabStateKey(tabId);
   const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  utils.storageRemove(chrome.storage.session, [key, initialKey, deviceKey, scriptKey]).then();
+  utils.storageRemove(chrome.storage.session, [key, initialKey, restoreKey, deviceKey, scriptKey]).then();
   handleRemoteSupportTabRemoved(tabId).then();
 });
 
@@ -567,7 +576,15 @@ async function disableExtensionOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  await utils.disableExtensionForTab(tabId);
+  await setReloadRestoreTabState(tabId, state);
+  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
+  await utils.storageRemove(chrome.storage.session, [scriptKey]);
+  await utils.updateActionForTab(tabId);
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
+  } catch (error) {
+    // Content script may not be loaded during navigation.
+  }
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionOnTopLevelNavigation);
@@ -627,6 +644,42 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   await refreshActionIconsForWindow(windowId);
 });
 
+const TAB_RESTORE_SCOPE = "restore";
+
+function getReloadRestoreTabStateKey(tabId) {
+  return `${TAB_STATE_PREFIX}${TAB_RESTORE_SCOPE}:${tabId}`;
+}
+
+async function getReloadRestoreTabState(tabId) {
+  const state = await utils.getTabState(tabId, TAB_RESTORE_SCOPE);
+  if (!state || !state.enabled || !state.baseUrl) {
+    return null;
+  }
+  return state;
+}
+
+async function clearReloadRestoreTabState(tabId) {
+  if (!tabId) {
+    return;
+  }
+  await utils.storageRemove(chrome.storage.session, [getReloadRestoreTabStateKey(tabId)]);
+}
+
+async function setReloadRestoreTabState(tabId, state) {
+  if (!tabId) {
+    return;
+  }
+  if (!state || !state.enabled || !state.baseUrl) {
+    await clearReloadRestoreTabState(tabId);
+    return;
+  }
+  await utils.setTabState(tabId, {
+    enabled: true,
+    baseUrl: state.baseUrl,
+    pageType: typeof state.pageType === "string" ? state.pageType : ""
+  }, TAB_RESTORE_SCOPE);
+}
+
 function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
@@ -638,6 +691,31 @@ function requestContentActivation(tabId, attempt = 0) {
     }
     void chrome.runtime.lastError;
   });
+}
+
+function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
+  if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
+    return;
+  }
+  chrome.tabs.sendMessage(
+    tabId,
+    {
+      type: "setEnabled",
+      enabled: true,
+      baseUrl: tabState.baseUrl,
+      pageType: typeof tabState.pageType === "string" ? tabState.pageType : "",
+      performInitialReveal: true
+    },
+    (response) => {
+      if (chrome.runtime.lastError || !response || response.ok === false) {
+        if (attempt < 4 && !(response && response.locked)) {
+          setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
+        }
+        return;
+      }
+      void chrome.runtime.lastError;
+    }
+  );
 }
 
 async function getTabUrl(tabId) {
@@ -696,7 +774,22 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   {
     return;
   }
+  const tabState = (await utils.getTabState(tabId)) || (await getReloadRestoreTabState(tabId));
+  if (
+    tabState &&
+    tabState.enabled &&
+    tabState.baseUrl &&
+    !utils.isPageWithinBaseUrl(tab.url || "", tabState.baseUrl)
+  ) {
+    await clearReloadRestoreTabState(tabId);
+    await utils.disableExtensionForTab(tabId);
+    return;
+  }
+  if (tabState && tabState.enabled && tabState.baseUrl) {
+    await utils.setTabState(tabId, tabState);
+  }
   requestContentActivation(tabId);
+  restoreEnabledStateForTab(tabId, tabState);
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

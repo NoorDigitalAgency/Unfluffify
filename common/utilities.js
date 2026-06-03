@@ -653,6 +653,21 @@ export async function setTabState(tabId, state, scope = null) {
     }
   }
   await storageSet(chrome.storage.session, {[key]: nextState});
+  if (scope) {
+    return;
+  }
+  const restoreKey = `${TAB_STATE_PREFIX}restore:${tabId}`;
+  if (nextState && nextState.enabled && nextState.baseUrl) {
+    await storageSet(chrome.storage.session, {
+      [restoreKey]: {
+        enabled: true,
+        baseUrl: nextState.baseUrl,
+        pageType: typeof nextState.pageType === "string" ? nextState.pageType : ""
+      }
+    });
+    return;
+  }
+  await storageRemove(chrome.storage.session, [restoreKey]);
 }
 
 export async function clearTabState(tabId) {
