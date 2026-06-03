@@ -61,6 +61,7 @@ import {
   PROPERTY_LOCK_CONTENT_ACTIVITY,
   PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
+  PROPERTY_LOCK_CONTENT_RELEASE,
   PROPERTY_LOCK_CONTENT_SUGGEST,
   PROPERTY_LOCK_CONTENT_RESPOND,
   PROPERTY_LOCK_CONTENT_CONTINUE,
@@ -2687,7 +2688,22 @@ async function toggleEnabledFromPage(options = {}) {
     pageType: state.currentPageType
   });
   sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-  core.enableForBaseUrl(baseUrl).then();
+  try {
+    await core.enableForBaseUrl(baseUrl);
+  } catch (error) {
+    console.error("Failed to enable marking from page:", error);
+    state.currentPageType = "";
+    core.disable();
+    await utils.sendRuntimeMessage({
+      type: "setTabState",
+      enabled: false,
+      baseUrl,
+      pageType: ""
+    });
+    sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RELEASE);
+    showPageToast("Unable to activate on this page");
+    return;
+  }
   refreshSilentHighlightings().then();
 }
 
@@ -6400,7 +6416,7 @@ export function main() {
   syncRemoteSupportSessionStateFromBackground().then();
   runPropertyLockSync({ forceSiteIdRefresh: true });
 
-  core.refreshFromTabState().then(async () => {
+  core.refreshFromTabState({ withInitialReveal: true }).then(async () => {
     // Check if URL path changed (e.g., language change on same domain)
     // and if so, re-verify the site ID is still correct
     if (state.enabled && state.baseUrl) {

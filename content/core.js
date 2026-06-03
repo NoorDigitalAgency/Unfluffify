@@ -5431,6 +5431,22 @@ async function inspectPageBeforeMotionPause(isStillCurrent) {
   }
 }
 
+async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl) {
+  const revealWarmupId = state.pageRevealWarmupId + 1;
+  state.pageRevealWarmupId = revealWarmupId;
+  const isRevealWarmupCurrent = () =>
+    state.pageRevealWarmupId === revealWarmupId &&
+    state.enabled &&
+    state.baseUrl === baseUrl &&
+    location.href === pageUrl;
+  await inspectPageBeforeMotionPause(isRevealWarmupCurrent);
+  if (!isRevealWarmupCurrent()) {
+    return false;
+  }
+  pausePageMotion();
+  return true;
+}
+
 
 function removeOverlay() {
   setPageInspectionUiActive(false);
@@ -9026,18 +9042,10 @@ export async function enableForBaseUrl(baseUrl) {
   state.disabledUnsavedDraft = null;
 
   hideConsentOnEnable(pageUrl);
-  const revealWarmupId = state.pageRevealWarmupId + 1;
-  state.pageRevealWarmupId = revealWarmupId;
-  const isRevealWarmupCurrent = () =>
-    state.pageRevealWarmupId === revealWarmupId &&
-    state.enabled &&
-    state.baseUrl === normalizedBaseUrl &&
-    location.href === pageUrl;
-  await inspectPageBeforeMotionPause(isRevealWarmupCurrent);
-  if (!isRevealWarmupCurrent()) {
+  const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl);
+  if (!revealReady) {
     return;
   }
-  pausePageMotion();
   scheduleRender();
   startObservers();
   startUrlWatcher();
@@ -9294,7 +9302,8 @@ export function getSavedPageEntry(pageUrl) {
   return state.savedPageEntry ? clonePageEntry(state.savedPageEntry) : null;
 }
 
-export async function refreshFromTabState() {
+export async function refreshFromTabState(options = {}) {
+  const withInitialReveal = Boolean(options.withInitialReveal);
   const response = await utils.sendRuntimeMessage({ type: "getTabState" });
   if (response && response.enabled && response.baseUrl) {
     // Enable if the URL still matches the baseUrl.
@@ -9338,8 +9347,19 @@ export async function refreshFromTabState() {
           setSavedPageEntry(pageUrl, syncResult.entry);
         }
       }
-      scheduleRender();
+      state.enabled = true;
+      state.consentRootElements = new Set();
       hideConsentOnEnable(pageUrl);
+      if (withInitialReveal) {
+        const revealReady = await warmupPageRevealBeforeMotionPause(response.baseUrl, pageUrl);
+        if (!revealReady) {
+          disable();
+          return;
+        }
+      }
+      scheduleRender();
+      startObservers();
+      startUrlWatcher();
       return;
     }
   }
