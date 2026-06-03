@@ -611,12 +611,6 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   dom.window.pageXOffset = 12;
   dom.window.pageYOffset = reservedScrollY;
   const expectedMaxScrollY = dom.html.scrollHeight - dom.window.innerHeight;
-  const scrollBlocks = [];
-  const originalScrollIntoView = dom.html.scrollIntoView;
-  dom.html.scrollIntoView = function (options = {}) {
-    scrollBlocks.push(options.block);
-    return originalScrollIntoView.call(this, options);
-  };
 
   try {
     const inspected = await revealPageContentBeforeMotionPause(
@@ -626,9 +620,7 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
       () => true,
       { scrollEndTimeoutMs: 0 }
     );
-
     assert.equal(inspected, true);
-    assert.deepEqual(scrollBlocks, ["start", "end"]);
     assert.equal(dom.scrollCalls[0].y, 0);
     assert.ok(dom.scrollCalls.findIndex((call) => call.y === expectedMaxScrollY) > 0);
     assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedMaxScrollY);

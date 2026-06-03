@@ -3598,23 +3598,6 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   });
 }
 
-async function scrollPageInspectionSmoothTo(y, isStillCurrent, options = {}) {
-  if (!isStillCurrent() || typeof window === "undefined") {
-    return false;
-  }
-  if (typeof window.scrollTo === "function") {
-    window.scrollTo({ top: Math.max(0, Math.round(Number(y) || 0)), behavior: "smooth" });
-  } else {
-    return false;
-  }
-  await waitForPageInspectionScrollEnd(isStillCurrent, options);
-  return true;
-}
-
-function getPageInspectionDocumentElement() {
-  return typeof document !== "undefined" ? document.documentElement : null;
-}
-
 function getPageInspectionScrollHeight() {
   if (typeof document === "undefined") {
     return 0;
@@ -3631,7 +3614,7 @@ function getPageInspectionScrollHeight() {
 }
 
 function isPageInspectionAtBottom() {
-  const doc = getPageInspectionDocumentElement();
+  const doc = typeof document !== "undefined" ? document.documentElement : null;
   if (!doc || typeof window === "undefined") {
     return true;
   }
@@ -3644,22 +3627,25 @@ function isPageInspectionAtBottom() {
   return currentY + viewportHeight >= scrollHeight;
 }
 
-async function scrollPageInspectionDocumentToBlock(block, isStillCurrent, options = {}) {
-  if (!isStillCurrent() || typeof document === "undefined" || typeof window === "undefined") {
+function getPageInspectionScrollTarget(target) {
+  if (target === "end") {
+    const viewportHeight = Number(
+      window?.innerHeight
+      || (typeof document !== "undefined" ? document.documentElement?.clientHeight : 0)
+    ) || 0;
+    return Math.max(0, getPageInspectionScrollHeight() - viewportHeight);
+  }
+  if (target === "start") {
+    return 0;
+  }
+  return Math.max(0, Math.round(Number(target) || 0));
+}
+
+async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
+  if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
-  const doc = getPageInspectionDocumentElement();
-  if (doc && typeof doc.scrollIntoView === "function") {
-    doc.scrollIntoView({ block, inline: "nearest", behavior: "smooth" });
-  } else if (typeof window.scrollTo === "function") {
-    const viewportHeight = Number(window.innerHeight || doc?.clientHeight) || 0;
-    window.scrollTo({
-      top: block === "end" ? Math.max(0, getPageInspectionScrollHeight() - viewportHeight) : 0,
-      behavior: "smooth"
-    });
-  } else {
-    return false;
-  }
+  window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
   await waitForPageInspectionScrollEnd(isStillCurrent, options);
   return true;
 }
@@ -3686,18 +3672,18 @@ export async function revealPageContentBeforeMotionPause(
   try {
     if (direction === "top") {
       if (reservedScrollY > 0) {
-        visited = await scrollPageInspectionDocumentToBlock("start", isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
     if (direction === "bottom" || direction === "both") {
       if (direction === "both" && reservedScrollY > 0) {
-        visited = await scrollPageInspectionDocumentToBlock("start", isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
       let scrollCount = 0;
       while (scrollCount < maxScrolls && isStillCurrent()) {
-        const scrolled = await scrollPageInspectionDocumentToBlock("end", isStillCurrent, options);
+        const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
         if (isPageInspectionAtBottom()) {
@@ -3707,7 +3693,7 @@ export async function revealPageContentBeforeMotionPause(
       }
       await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       if (direction === "both" && isStillCurrent()) {
-        visited = await scrollPageInspectionSmoothTo(reservedScrollY, isStillCurrent, options) || visited;
+        visited = await scrollPageInspectionTo(reservedScrollY, isStillCurrent, options) || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
     }
