@@ -187,8 +187,6 @@ const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
 const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
 const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 2000;
-const PAGE_INSPECTION_SCROLL_END_INTERVAL_MS = 100;
-const PAGE_INSPECTION_SCROLL_END_STABLE_TICKS = 10;
 const PAGE_INSPECTION_INPUT_EVENTS = [
   "auxclick",
   "beforeinput",
@@ -3629,52 +3627,30 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   if (timeout === 0 || !isStillCurrent()) {
     return Promise.resolve();
   }
-  const intervalMs = Math.max(
-    10,
-    Math.trunc(
-      options.scrollEndIntervalMs === undefined
-        ? PAGE_INSPECTION_SCROLL_END_INTERVAL_MS
-        : Number(options.scrollEndIntervalMs) || 0
-    )
-  );
-  const stableTicks = Math.max(
-    1,
-    Math.trunc(
-      options.scrollEndStableTicks === undefined
-        ? PAGE_INSPECTION_SCROLL_END_STABLE_TICKS
-        : Number(options.scrollEndStableTicks) || 0
-    )
-  );
   return new Promise((resolve) => {
     let resolved = false;
-    let lastPosition = window.scrollY || 0;
-    let sameCount = 0;
+    let timeoutHandle = 0;
     const finish = () => {
       if (resolved) {
         return;
       }
       resolved = true;
-      extensionClearInterval(interval);
-      extensionClearTimeout(timeoutHandle);
+      window.removeEventListener("scrollend", onScrollEnd);
+      if (timeoutHandle) {
+        extensionClearTimeout(timeoutHandle);
+        timeoutHandle = 0;
+      }
       resolve();
     };
-    const interval = extensionSetInterval(() => {
+    const onScrollEnd = () => {
       if (!isStillCurrent()) {
         finish();
         return;
       }
-      const nextPosition = window.scrollY || 0;
-      if (nextPosition === lastPosition) {
-        sameCount += 1;
-      } else {
-        sameCount = 0;
-      }
-      lastPosition = nextPosition;
-      if (sameCount > stableTicks) {
-        finish();
-      }
-    }, intervalMs);
-    const timeoutHandle = extensionSetTimeout(finish, timeout);
+      finish();
+    };
+    window.addEventListener("scrollend", onScrollEnd);
+    timeoutHandle = extensionSetTimeout(finish, timeout);
   });
 }
 
@@ -3725,7 +3701,20 @@ async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
-  window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
+  if (target === "start" || target === "end") {
+    const root = document.documentElement;
+    if (root && typeof root.scrollIntoView === "function") {
+      root.scrollIntoView({
+        block: target === "start" ? "start" : "end",
+        inline: "nearest",
+        behavior: "smooth"
+      });
+    } else {
+      window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
+    }
+  } else {
+    window.scrollTo({ top: getPageInspectionScrollTarget(target), behavior: "smooth" });
+  }
   await waitForPageInspectionScrollEnd(isStillCurrent, options);
   return true;
 }
