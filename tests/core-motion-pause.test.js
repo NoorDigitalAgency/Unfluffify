@@ -707,10 +707,13 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
 
 test("page inspection overlay avoids backdrop blur", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const inspectionOverlaySource = source.slice(
-    source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`),
-    source.indexOf(`#unfluffify-overlay .uf-layer`)
-  );
+  const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);
+  const end = source.indexOf(`#unfluffify-overlay .uf-layer`);
+  assert.ok(start >= 0 && end > start, "Expected to locate page inspection overlay CSS in core.js source");
+  const inspectionOverlaySource = source.slice(start, end);
+
+  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
+});
 
   assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
