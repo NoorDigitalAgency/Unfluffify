@@ -5266,12 +5266,14 @@ function createOverlay() {
       }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
-      #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
+      #unfluffify-overlay .uf-layer[data-layer="saved-explicit-exclude"] { z-index: 4; }
+      #unfluffify-overlay .uf-layer[data-layer="saved-explicit-include"] { z-index: 5; }
       #unfluffify-overlay .uf-layer[data-layer="ai-content"] { z-index: 6; }
-      #unfluffify-overlay .uf-layer[data-layer="explicit-include"] { z-index: 7; }
-      #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 8; }
-      #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
-      #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 10; }
+      #unfluffify-overlay .uf-layer[data-layer="session-explicit-exclude"] { z-index: 7; }
+      #unfluffify-overlay .uf-layer[data-layer="session-explicit-include"] { z-index: 8; }
+      #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 9; }
+      #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 10; }
+      #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 11; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
         opacity: 0;
       }
@@ -5484,10 +5486,12 @@ function createOverlay() {
 
   const layerKeys = [
     "hard",
-    "explicit-exclude",
-    "explicit-include",
+    "saved-explicit-exclude",
+    "saved-explicit-include",
     "interaction",
     "ai-content",
+    "session-explicit-exclude",
+    "session-explicit-include",
     "default",
     "focus",
     "hover"
@@ -7621,6 +7625,60 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
+function collectEntryExplicitXpathSets(entry) {
+  const excludedXpaths = new Set(
+    collectExcludedXPaths(Array.isArray(entry && entry.xpaths) ? entry.xpaths : [])
+  );
+  const includeXpaths = new Set(
+    Array.isArray(entry && entry.includeXpaths)
+      ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+      : []
+  );
+  return {
+    excludedXpaths,
+    includeXpaths
+  };
+}
+
+function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEntry) {
+  const savedSets = collectEntryExplicitXpathSets(savedEntry);
+  const splitByXpath = (items, savedXpathSet) => {
+    const fetched = [];
+    const session = [];
+    for (const el of Array.isArray(items) ? items : []) {
+      const xpath = getXPath(el);
+      if (xpath && savedXpathSet.has(xpath)) {
+        fetched.push(el);
+      } else {
+        session.push(el);
+      }
+    }
+    return { fetched, session };
+  };
+
+  const excludeSplit = splitByXpath(
+    currentCollections && currentCollections.explicitExcludeElements,
+    savedSets.excludedXpaths
+  );
+  const includeSplit = splitByXpath(
+    currentCollections && currentCollections.explicitIncludeElements,
+    savedSets.includeXpaths
+  );
+  const hiddenIncludeSplit = splitByXpath(
+    currentCollections && currentCollections.hiddenExplicitIncludeElements,
+    savedSets.includeXpaths
+  );
+
+  return {
+    fetchedExplicitExcludeElements: excludeSplit.fetched,
+    sessionExplicitExcludeElements: excludeSplit.session,
+    fetchedExplicitIncludeElements: includeSplit.fetched,
+    sessionExplicitIncludeElements: includeSplit.session,
+    hiddenFetchedExplicitIncludeElements: hiddenIncludeSplit.fetched,
+    hiddenSessionExplicitIncludeElements: hiddenIncludeSplit.session
+  };
+}
+
 export function collectAiContentElementsForRender(aiCollections, options = {}) {
   const immutableExcluded = options.immutableExcluded || new Set();
   const consentExcluded = options.consentExcluded || new Set();
@@ -7718,61 +7776,119 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
 }
 
 function drawExplicitMarkingLayers(
-  explicitExcludeElements,
-  explicitIncludeElements,
-  hiddenExplicitIncludeElements,
+  fetchedExplicitExcludeElements,
+  fetchedExplicitIncludeElements,
+  hiddenFetchedExplicitIncludeElements,
+  sessionExplicitExcludeElements,
+  sessionExplicitIncludeElements,
+  hiddenSessionExplicitIncludeElements,
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
-  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
-  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
-  for (const el of explicitExcludeElements) {
+  const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+  const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
+  const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+  const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
+
+  for (const el of fetchedExplicitExcludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
-        layerExplicitExcludeState,
+        layerSavedExplicitExcludeState,
         rects,
         presentation.className,
         el,
-        "explicit-exclude",
+        "saved-explicit-exclude",
         null
       );
     }
   }
-  for (const el of explicitIncludeElements) {
+
+  for (const el of fetchedExplicitIncludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include",
+        "saved-explicit-include",
         null
       );
     }
   }
-  for (const el of hiddenExplicitIncludeElements || []) {
+
+  for (const el of hiddenFetchedExplicitIncludeElements || []) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include-ghost",
+        "saved-explicit-include-ghost",
         null
       );
     }
   }
-  finalizeLayerRender(layerExplicitExcludeState);
-  finalizeLayerRender(layerExplicitIncludeState);
+
+  for (const el of sessionExplicitExcludeElements) {
+    const rects = computeElementRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
+      drawMultiRectReuse(
+        layerSessionExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-exclude",
+        null
+      );
+    }
+  }
+
+  for (const el of sessionExplicitIncludeElements) {
+    const rects = computeElementRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include",
+        null
+      );
+    }
+  }
+
+  for (const el of hiddenSessionExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include-ghost",
+        null
+      );
+    }
+  }
+
+  finalizeLayerRender(layerSavedExplicitExcludeState);
+  finalizeLayerRender(layerSavedExplicitIncludeState);
+  finalizeLayerRender(layerSessionExplicitExcludeState);
+  finalizeLayerRender(layerSessionExplicitIncludeState);
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
-    excludeCount: explicitExcludeElements.length,
-    includeCount: explicitIncludeElements.length + (hiddenExplicitIncludeElements || []).length
+    savedExcludeCount: fetchedExplicitExcludeElements.length,
+    savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
+    sessionExcludeCount: sessionExplicitExcludeElements.length,
+    sessionIncludeCount: sessionExplicitIncludeElements.length + (hiddenSessionExplicitIncludeElements || []).length
   });
 }
 
@@ -7842,6 +7958,15 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
       explicitIncludeElements,
       hiddenExplicitIncludeElements
     } = collectExplicitMarkingElements(syncedEntry);
+    const explicitLayerSplit = splitExplicitMarkingCollectionsBySavedState(
+      {
+        explicitExcludeElements,
+        hiddenExplicitExcludeElements,
+        explicitIncludeElements,
+        hiddenExplicitIncludeElements
+      },
+      getSavedPageEntry(pageUrl)
+    );
     const cachedCollections = state.cachedCollections;
     if (cachedCollections) {
       const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
@@ -7852,11 +7977,17 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+      cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
+      cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
+      cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
+      cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
+      cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
+      cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
-          explicitExcludeElements,
-          explicitIncludeElements
+          explicitLayerSplit.sessionExplicitExcludeElements,
+          explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
       cachedCollections.hardElements = Array.from(new Set([
@@ -7866,9 +7997,9 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
         !isWithinElementSet(el, consentExcluded)
       );
       cachedCollections.aiAnimatedExplicitIncludeElements =
-        explicitIncludeElements.filter((el) => aiContentSet.has(el));
+        explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
-        hiddenExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
+        explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
       state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
         pageUrl,
         selectorSet: selectorContext.selectorSet,
@@ -7876,9 +8007,12 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
       });
     }
     drawExplicitMarkingLayers(
-      explicitExcludeElements,
-      explicitIncludeElements,
-      hiddenExplicitIncludeElements,
+      explicitLayerSplit.fetchedExplicitExcludeElements,
+      explicitLayerSplit.fetchedExplicitIncludeElements,
+      explicitLayerSplit.hiddenFetchedExplicitIncludeElements,
+      explicitLayerSplit.sessionExplicitExcludeElements,
+      explicitLayerSplit.sessionExplicitIncludeElements,
+      explicitLayerSplit.hiddenSessionExplicitIncludeElements,
       getVisibleRects
     );
     logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
@@ -8015,7 +8149,7 @@ function renderHighlightsInner() {
 
   const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
-  const normalizedAiSelectorSet = latestSelectorContext.selectorSet;
+  const selectorSetForSeed = latestSelectorContext.selectorSet;
   const hasAiSelectors = latestSelectorContext.hasAiSelectors;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
@@ -8033,7 +8167,7 @@ function renderHighlightsInner() {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
       pageUrl,
-      normalizedAiSelectorSet,
+      selectorSetForSeed,
       immutableExcluded
     );
     if (seeded.createdEntry) {
@@ -8052,7 +8186,9 @@ function renderHighlightsInner() {
   state.currentPageEntry = entry || null;
   const selectorContext = resolveMarkingSelectorContext(state.config, entry);
   const selectorSetForMarking = selectorContext.selectorSet;
+  const normalizedAiSelectorSet = selectorSetForMarking;
   const hasAiSelectorsForMarking = selectorContext.hasAiSelectors;
+  const selectorSuppressedXpaths = selectorContext.selectorSuppressedXpaths;
   const excludedByState = collectXPathElements(
     collectExcludedXPaths(entry.xpaths)
   );
@@ -8064,18 +8200,45 @@ function renderHighlightsInner() {
   let aiContent = new Set();
   let hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
+  const {
+    explicitExcludeElements: filteredExplicitExclude,
+    hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
+    hiddenExplicitIncludeElements,
+    explicitIncludeElements: filteredExplicitInclude
+  } = collectExplicitMarkingElements(entry);
+  const explicitLayerSplit = splitExplicitMarkingCollectionsBySavedState(
+    {
+      explicitExcludeElements: filteredExplicitExclude,
+      hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
+      hiddenExplicitIncludeElements,
+      explicitIncludeElements: filteredExplicitInclude
+    },
+    getSavedPageEntry(pageUrl)
+  );
+  const savedEntryExplicitSets = collectEntryExplicitXpathSets(getSavedPageEntry(pageUrl));
+  const aiSuppressedBySessionExcluded = new Set([
+    ...explicitLayerSplit.sessionExplicitExcludeElements,
+    ...hiddenStoredExplicitExclude.filter((el) => {
+      const xpath = getXPath(el);
+      return Boolean(xpath && savedEntryExplicitSets.excludedXpaths.has(xpath) === false);
+    })
+  ]);
+  const sessionExplicitIncludeForAi = new Set([
+    ...explicitLayerSplit.sessionExplicitIncludeElements,
+    ...explicitLayerSplit.hiddenSessionExplicitIncludeElements
+  ]);
   if (hasAiSelectorsForMarking) {
-    const aiCollections = collectIncludedElementsFromSelectorSet(selectorSetForMarking, {
+    const aiCollections = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet, {
       ignoreVisibilityForInclusionDetection: true,
       preserveExplicitIncludedDescendants: true,
       includeAllExplicitMatches: true,
-      suppressedXpaths: selectorContext.selectorSuppressedXpaths
+      suppressedXpaths: selectorSuppressedXpaths
     });
     const aiRenderCollections = collectAiContentElementsForRender(aiCollections, {
       immutableExcluded,
       consentExcluded,
-      excludedByState,
-      explicitInclude
+      excludedByState: aiSuppressedBySessionExcluded,
+      explicitInclude: sessionExplicitIncludeForAi
     });
     aiContent = new Set(aiRenderCollections.aiContentElements);
     hiddenAiContent = new Set(aiRenderCollections.hiddenAiContentElements);
@@ -8083,17 +8246,11 @@ function renderHighlightsInner() {
       selectorExcludedSet.add(el);
     }
   }
-  const {
-    explicitExcludeElements: filteredExplicitExclude,
-    hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
-    hiddenExplicitIncludeElements,
-    explicitIncludeElements: filteredExplicitInclude
-  } = collectExplicitMarkingElements(entry);
   const aiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
-    ? filteredExplicitInclude.filter((el) => aiContent.has(el))
+    ? explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContent.has(el))
     : [];
   const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
-    ? hiddenExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
+    ? explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
     : [];
   const storedUnexcludedToggleableDefaultElements =
     collectStoredUnexcludedToggleableDefaultElements(entry);
@@ -8122,6 +8279,12 @@ function renderHighlightsInner() {
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     hiddenExplicitIncludeElements,
+    fetchedExplicitExcludeElements: explicitLayerSplit.fetchedExplicitExcludeElements,
+    fetchedExplicitIncludeElements: explicitLayerSplit.fetchedExplicitIncludeElements,
+    hiddenFetchedExplicitIncludeElements: explicitLayerSplit.hiddenFetchedExplicitIncludeElements,
+    sessionExplicitExcludeElements: explicitLayerSplit.sessionExplicitExcludeElements,
+    sessionExplicitIncludeElements: explicitLayerSplit.sessionExplicitIncludeElements,
+    hiddenSessionExplicitIncludeElements: explicitLayerSplit.hiddenSessionExplicitIncludeElements,
     aiAnimatedExplicitIncludeElements,
     hiddenAiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
@@ -8173,9 +8336,11 @@ function repositionHighlights(collections) {
 
 function drawCollections(collections, getRects) {
   const layerHardState = beginLayerRender(state.layers["hard"]);
-  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
-  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
+  const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+  const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
+  const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+  const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -8188,46 +8353,46 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  for (const el of collections.explicitExcludeElements) {
+  for (const el of collections.fetchedExplicitExcludeElements || []) {
     const rects = getRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
-        layerExplicitExcludeState,
+        layerSavedExplicitExcludeState,
         rects,
         presentation.className,
         el,
-        "explicit-exclude",
+        "saved-explicit-exclude",
         markedElements
       );
     }
   }
 
-  for (const el of collections.explicitIncludeElements) {
+  for (const el of collections.fetchedExplicitIncludeElements || []) {
     const rects = getRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include",
+        "saved-explicit-include",
         markedElements
       );
     }
   }
 
-  for (const el of collections.hiddenExplicitIncludeElements || []) {
+  for (const el of collections.hiddenFetchedExplicitIncludeElements || []) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include-ghost",
+        "saved-explicit-include-ghost",
         markedElements
       );
     }
@@ -8284,6 +8449,51 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  for (const el of collections.sessionExplicitExcludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
+      drawMultiRectReuse(
+        layerSessionExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-exclude",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.sessionExplicitIncludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.hiddenSessionExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include-ghost",
+        markedElements
+      );
+    }
+  }
+
   for (const el of collections.defaultElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
@@ -8294,9 +8504,11 @@ function drawCollections(collections, getRects) {
   }
 
   finalizeLayerRender(layerHardState);
-  finalizeLayerRender(layerExplicitExcludeState);
-  finalizeLayerRender(layerExplicitIncludeState);
+  finalizeLayerRender(layerSavedExplicitExcludeState);
+  finalizeLayerRender(layerSavedExplicitIncludeState);
   finalizeLayerRender(layerAiContentState);
+  finalizeLayerRender(layerSessionExplicitExcludeState);
+  finalizeLayerRender(layerSessionExplicitIncludeState);
   finalizeLayerRender(layerDefaultState);
 
   updateFocusHighlight();

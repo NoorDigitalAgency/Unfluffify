@@ -53,12 +53,17 @@ The implementation is split across:
 
 ## Core Model
 
-A page marking entry combines four inputs:
+A page marking entry combines immutable defaults, toggleable defaults, selector
+matches, and explicit XPath choices, but rendering precedence is a separate
+locked contract:
 
-1. immutable default exclusions,
-2. toggleable default exclusions,
-3. AI selector matches,
-4. explicit per-page XPath choices.
+1. defaults,
+2. fetched backend-saved explicit markings,
+3. CSS/AI selector influence,
+4. current marking-session explicit markings.
+
+`current marking-session explicit markings` means local draft deltas relative to
+the fetched saved baseline for the same page in the same base URL.
 
 The resulting model renders marking overlays while marking mode is enabled and
 stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
@@ -213,6 +218,10 @@ default, selector, AI, and ancestor layers cannot visibly lag behind the
 acknowledgement. Leaf explicit-exclude toggles may patch cached lower-priority
 collections and debounce that full rebuild so the user-visible mark/unmark
 acknowledgement is not blocked by a full-page collection pass.
+
+When that fast patch is applied to cached lower-priority collections, it must
+apply only current-session explicit deltas, not fetched saved explicit rows, so
+saved rows cannot accidentally outrank selector influence.
 
 ## Marking Performance Contract
 
