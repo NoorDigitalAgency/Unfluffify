@@ -703,7 +703,7 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   }
 });
 
-test("page inspection overlay avoids backdrop blur during reveal scrolling", () => {
+test("page inspection overlay avoids backdrop blur during page inspection", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const inspectionOverlaySource = source.slice(
     source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`),

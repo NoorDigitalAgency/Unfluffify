@@ -3637,7 +3637,11 @@ function isPageInspectionAtBottom() {
   }
   const currentY = Number(window.scrollY ?? window.pageYOffset) || 0;
   const viewportHeight = Number(window.innerHeight || doc.clientHeight) || 0;
-  return currentY + viewportHeight >= getPageInspectionScrollHeight();
+  const scrollHeight = getPageInspectionScrollHeight();
+  if (scrollHeight <= viewportHeight) {
+    return true;
+  }
+  return currentY + viewportHeight >= scrollHeight;
 }
 
 async function scrollPageInspectionDocumentToBlock(block, isStillCurrent, options = {}) {
