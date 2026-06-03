@@ -86,6 +86,14 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.match(urlEventSource, /runPropertyLockSync\(\{\s*forceSiteIdRefresh:\s*true\s*\}\);/);
   assert.doesNotMatch(urlEventSource, /const shouldRunEditorActivation/);
   assert.doesNotMatch(urlEventSource, /runEditorSilentHighlightingActivation\(/);
+
+  const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
+  const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
+  const syncSource = source.slice(syncStart, syncEnd);
+  assert.ok(syncStart > -1);
+  assert.ok(syncEnd > syncStart);
+  assert.match(syncSource, /sendPropertyLockActivity\(\);[\s\S]*?if \(propertyLockState && propertyLockState\.isEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/);
+  assert.match(syncSource, /refreshSilentHighlightings\(\)\.then\(\);/);
 });
 
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {

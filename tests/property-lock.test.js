@@ -165,6 +165,89 @@ test("content-main requests a reconnect when property lock activity or page comm
   );
 });
 
+test("content-main blocks extension and page interaction while connection-loss banner is active", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /function isPropertyLockDisconnectedForInteractionBlock\(\) \{/);
+  assert.match(source, /function isPropertyLockInactivityWarningForInteractionBlock\(\) \{/);
+  assert.match(
+    source,
+    /function isPropertyLockInteractionBlocked\(\) \{[\s\S]*?isMarkingBlockedByPropertyLock\(\) \|\|[\s\S]*?isPropertyLockDisconnectedForInteractionBlock\(\) \|\|[\s\S]*?isPropertyLockInactivityWarningForInteractionBlock\(\);/
+  );
+  assert.match(
+    source,
+    /function handleBlockedPropertyLockInteraction\(event\) \{[\s\S]*?const blockDuringDisconnect = isPropertyLockDisconnectedForInteractionBlock\(\);[\s\S]*?const blockDuringInactivityWarning = isPropertyLockInactivityWarningForInteractionBlock\(\);[\s\S]*?const blockDuringEditorWarning =[\s\S]*?blockDuringDisconnect \|\|[\s\S]*?blockDuringInactivityWarning;[\s\S]*?if \(\(!blockDuringEditorWarning && !isMarkingBlockedByPropertyLock\(\)\) \|\| !event \|\| !event\.isTrusted\) \{/
+  );
+  assert.match(
+    source,
+    /const isInactivityRescueControl = Boolean\([\s\S]*?blockDuringInactivityWarning[\s\S]*?target\.closest\(`#\$\{PROPERTY_LOCK_BANNER_ID\} \.uf-lock-banner-continue-editing`\)[\s\S]*?\);[\s\S]*?if \(isInactivityRescueControl\) \{[\s\S]*?return;/
+  );
+  assert.match(
+    source,
+    /if \(\s*!blockDuringEditorWarning[\s\S]*?target\.closest\('\[data-uf-extension-ui="true"\]'\)[\s\S]*?\) \{[\s\S]*?return;/
+  );
+  assert.match(
+    source,
+    /if \(!currentlyEnabled && isPropertyLockInteractionBlocked\(\)\) \{[\s\S]*?showPropertyLockBlockedToast\(\);/
+  );
+  assert.match(
+    source,
+    /if \(isPropertyLockInteractionBlocked\(\)\) \{[\s\S]*?sendResponse\(\{ ok: false, locked: true \}\);/
+  );
+});
+
+test("property lock text includes disconnected interaction blocked message", () => {
+  const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
+  assert.match(textSource, /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/);
+  assert.match(textSource, /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/);
+});
+
+test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const applyStart = source.indexOf("function applyPropertyLockServerMessage(serverMessage) {");
+  const applyEnd = source.indexOf("function updatePropertyLockBannerMode()", applyStart);
+  const applySource = source.slice(applyStart, applyEnd);
+
+  assert.ok(applyStart >= 0);
+  assert.match(
+    applySource,
+    /if \(propertyLockBannerMode !== "editor_disconnect_countdown" \|\| propertyLockBannerCountdownValue <= 0\) \{[\s\S]*?propertyLockBannerCountdownValue = defaultDisconnectCountdownSeconds;[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+  );
+  assert.match(
+    applySource,
+    /\} else if \(!propertyLockBannerCountdownTimer\) \{[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+  );
+});
+
+test("content-main uses 70-second fallback countdown for inactivity warning and keeps it running", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const applyStart = source.indexOf("function applyPropertyLockServerMessage(serverMessage) {");
+  const applyEnd = source.indexOf("function updatePropertyLockBannerMode()", applyStart);
+  const applySource = source.slice(applyStart, applyEnd);
+  const updateStart = source.indexOf("function updatePropertyLockBannerMode() {");
+  const updateEnd = source.indexOf("function ensurePropertyLockBannerStyle()", updateStart);
+  const updateSource = source.slice(updateStart, updateEnd);
+
+  assert.ok(applyStart >= 0);
+  assert.ok(updateStart >= 0);
+  assert.match(
+    applySource,
+    /if \(type === PROPERTY_LOCK_WS_INACTIVITY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);/
+  );
+  assert.match(
+    applySource,
+    /\} else if \(propertyLockBannerCountdownValue <= 0\) \{[\s\S]*?propertyLockBannerCountdownValue = defaultInactivityCountdownSeconds;[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+  );
+  assert.match(
+    applySource,
+    /\} else if \(!propertyLockBannerCountdownTimer\) \{[\s\S]*?restartPropertyLockBannerCountdown\(\);/
+  );
+  assert.match(
+    updateSource,
+    /if \(isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING\) \{[\s\S]*?const defaultInactivityCountdownSeconds = Math\.ceil\(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS \/ 1000\);[\s\S]*?propertyLockBannerMode = "editor_inactivity_warning";/
+  );
+});
+
 test("content-main connects property lock without gating on Live Page candidate verification", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const syncStart = source.indexOf("async function syncPropertyLockConnection");
@@ -238,6 +321,34 @@ test("content-main starts property lock sync immediately during content-script i
   assert.ok(mainStart >= 0);
   assert.ok(immediateSyncIndex > mainStart);
   assert.ok(refreshIndex > immediateSyncIndex);
+});
+
+test("content-main coalesces concurrent property lock sync requests", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const runSyncStart = source.indexOf("function runPropertyLockSync(options = {}) {");
+  const runSyncEnd = source.indexOf("async function syncPropertyLockConnection(options = {}) {", runSyncStart);
+  const runSyncSource = source.slice(runSyncStart, runSyncEnd);
+
+  assert.ok(runSyncStart >= 0);
+  assert.match(source, /let propertyLockSyncInFlight = false;/);
+  assert.match(source, /let propertyLockQueuedSyncOptions = null;/);
+  assert.match(source, /function mergePropertyLockSyncOptions\(currentOptions = \{\}, incomingOptions = \{\}\)/);
+  assert.match(runSyncSource, /if \(propertyLockSyncInFlight\) \{[\s\S]*?propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions\(/);
+  assert.match(runSyncSource, /while \(!extensionContextInvalidated\) \{[\s\S]*?await syncPropertyLockConnection\(activeOptions\);/);
+  assert.match(runSyncSource, /if \(propertyLockQueuedSyncOptions && !extensionContextInvalidated\) \{[\s\S]*?runPropertyLockSync\(queuedOptions\);/);
+});
+
+test("content-main re-queues property lock sync when URL changes during a sync", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const syncStart = source.indexOf("async function syncPropertyLockConnection(options = {}) {");
+  const syncEnd = source.indexOf("function handlePropertyLockPortMessage(message) {", syncStart);
+  const syncSource = source.slice(syncStart, syncEnd);
+
+  assert.ok(syncStart >= 0);
+  assert.match(
+    syncSource,
+    /if \(pageUrl !== location\.href\) \{[\s\S]*?runPropertyLockSync\(\{[\s\S]*?pageUrl: location\.href,[\s\S]*?forceSiteIdRefresh: true[\s\S]*?\}\);[\s\S]*?return;[\s\S]*?\}/
+  );
 });
 
 test("property lock contract is documented with stable client and editor source-of-truth rules", () => {

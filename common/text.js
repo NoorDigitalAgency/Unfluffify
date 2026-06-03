@@ -128,6 +128,8 @@ export const propertyLockText = Object.freeze({
   transferSaveBeforeAcceptToast: "Save from the extension popup before accepting the transfer.",
   transferDiscardBeforeAcceptConfirm: "Discard unsaved changes and transfer editing?",
   lockedInteractionBlockedToast: (editorName) => `Property is being edited by ${editorName}`,
+  disconnectedInteractionBlockedToast: "Editing is temporarily blocked while the property lock reconnects.",
+  inactivityInteractionBlockedToast: "Editing is temporarily blocked due to inactivity. Continue editing from the warning banner.",
   popupUnlocked: "No active editor",
   popupConnecting: "Checking edit lock...",
   popupUnavailable: "Edit lock unavailable",
