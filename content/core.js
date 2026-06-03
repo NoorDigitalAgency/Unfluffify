@@ -3567,7 +3567,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
   );
   return new Promise((resolve) => {
     let resolved = false;
-    let lastPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+    let lastPosition = Number(window.scrollY) || 0;
     let sameCount = 0;
     const finish = () => {
       if (resolved) {
@@ -3583,7 +3583,7 @@ function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
         finish();
         return;
       }
-      const nextPosition = Number(window.scrollY ?? window.pageYOffset) || 0;
+      const nextPosition = Number(window.scrollY) || 0;
       if (nextPosition === lastPosition) {
         sameCount += 1;
       } else {
@@ -3618,7 +3618,7 @@ function isPageInspectionAtBottom() {
   if (!doc || typeof window === "undefined") {
     return true;
   }
-  const currentY = Number(window.scrollY ?? window.pageYOffset) || 0;
+  const currentY = Number(window.scrollY) || 0;
   const viewportHeight = Number(window.innerHeight || doc.clientHeight) || 0;
   const scrollHeight = getPageInspectionScrollHeight();
   if (scrollHeight <= viewportHeight) {
