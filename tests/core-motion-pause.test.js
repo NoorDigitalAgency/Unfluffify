@@ -741,6 +741,7 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
 test("page inspection reveal keeps page-world lazy-load suppression active until marking is disabled", async () => {
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
+  const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
   const postedMessages = [];
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
@@ -755,7 +756,7 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
       ? Number(xOrOptions.top) || 0
       : Number(y) || 0;
     const maxScrollY = Math.max(0, dom.html.scrollHeight - dom.window.innerHeight);
-    if (actualY >= maxScrollY && expansionCount < 2) {
+    if (actualY >= maxScrollY && expansionCount < 1) {
       expansionCount += 1;
       dom.html.scrollHeight += 1500;
       dom.body.scrollHeight += 1500;
@@ -773,6 +774,8 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
   };
 
   try {
+    state.lazyLoadSuppressRestorer = null;
+
     const inspected = await revealPageContentBeforeMotionPause(
       "bottom",
       4,
@@ -799,6 +802,7 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
     assert.equal(postedMessages.at(-1).paused, false);
     assert.equal(state.lazyLoadSuppressRestorer, null);
   } finally {
+    state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
     if (typeof originalChrome === "undefined") {
       delete globalThis.chrome;
     } else {

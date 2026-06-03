@@ -281,16 +281,20 @@ test("page motion freeze skips interval ticks only while paused", async () => {
 });
 
 test("page motion freeze can suppress and restore lazy-load listeners and future observers", async () => {
-  await withTimerWindow(async ({ windowObject }) => {
+  await withTimerWindow(async ({ windowObject, dispatchEvent }) => {
     const freezeState = windowObject.__unfluffifyPageMotionFreezeState;
     const calls = [];
     const observer = new windowObject.IntersectionObserver(() => calls.push("intersection"));
     const resizeObserver = new windowObject.ResizeObserver(() => calls.push("resize"));
+    windowObject.addEventListener("scroll", () => calls.push("scroll"));
+    windowObject.addEventListener("wheel", () => calls.push("wheel"));
 
     freezeState.setLazyLoadingSuppressed(true);
 
     observer.__trigger();
     resizeObserver.__trigger();
+    dispatchEvent("window", "scroll");
+    dispatchEvent("window", "wheel");
 
     assert.equal(freezeState.isLazyLoadingSuppressed(), true);
     assert.deepEqual(calls, []);
@@ -299,8 +303,10 @@ test("page motion freeze can suppress and restore lazy-load listeners and future
 
     observer.__trigger();
     resizeObserver.__trigger();
+    dispatchEvent("window", "scroll");
+    dispatchEvent("window", "wheel");
 
     assert.equal(freezeState.isLazyLoadingSuppressed(), false);
-    assert.deepEqual(calls, ["intersection", "resize"]);
+    assert.deepEqual(calls, ["intersection", "resize", "scroll", "wheel"]);
   });
 });

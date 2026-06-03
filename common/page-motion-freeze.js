@@ -31,26 +31,20 @@
   let originalCancelAnimationFrame = null;
   let originalIntersectionObserver = null;
   let originalResizeObserver = null;
+  let originalRootAddEventListener = null;
+  let originalRootRemoveEventListener = null;
+  let originalDocumentAddEventListener = null;
+  let originalDocumentRemoveEventListener = null;
 
   let paused = false;
   let initialized = false;
   let lazyLoadingBridgeInitialized = false;
   let lazyLoadingSuppressed = false;
-  let lazyLoadListenersAttached = false;
   let nextDeferredTimerId = -1;
   let nextDeferredFrameId = -1000000;
   const deferredTimeouts = new Map();
   const deferredFrames = new Map();
-
-  function stopLazyLoadEvent(event) {
-    if (event && typeof event.stopImmediatePropagation === "function") {
-      event.stopImmediatePropagation();
-      return;
-    }
-    if (event && typeof event.stopPropagation === "function") {
-      event.stopPropagation();
-    }
-  }
+  const lazyLoadListenerWrappers = new WeakMap();
 
   function createObserverConstructor(OriginalObserver) {
     if (typeof OriginalObserver !== "function") {
@@ -85,27 +79,70 @@
     }
   }
 
-  function updateLazyLoadListeners() {
-    if (!lazyLoadingBridgeInitialized) {
-      return;
-    }
-    const shouldAttach = lazyLoadingSuppressed;
-    if (shouldAttach === lazyLoadListenersAttached) {
-      return;
-    }
-    forEachLazyLoadEventTarget((target) => {
-      if (!target || typeof target.addEventListener !== "function" || typeof target.removeEventListener !== "function") {
-        return;
-      }
-      for (const eventType of LAZY_LOAD_EVENT_TYPES) {
-        if (shouldAttach) {
-          target.addEventListener(eventType, stopLazyLoadEvent, true);
-        } else {
-          target.removeEventListener(eventType, stopLazyLoadEvent, true);
+  function getLazyLoadListenerKey(type, options) {
+    return `${type}:${Boolean(options === true || (options && options.capture))}`;
+  }
+
+  function createWrappedLazyLoadListener(listener) {
+    if (typeof listener === "function") {
+      return function unfluffifyLazyLoadWrappedListener(...args) {
+        if (lazyLoadingSuppressed) {
+          return;
         }
+        return listener.apply(this, args);
+      };
+    }
+    if (listener && typeof listener.handleEvent === "function") {
+      return {
+        handleEvent(...args) {
+          if (lazyLoadingSuppressed) {
+            return;
+          }
+          return listener.handleEvent.apply(listener, args);
+        }
+      };
+    }
+    return listener;
+  }
+
+  function getWrappedLazyLoadListener(listener, type, options) {
+    if (!listener || (typeof listener !== "function" && typeof listener.handleEvent !== "function")) {
+      return listener;
+    }
+    let entry = lazyLoadListenerWrappers.get(listener);
+    if (!entry) {
+      entry = new Map();
+      lazyLoadListenerWrappers.set(listener, entry);
+    }
+    const key = getLazyLoadListenerKey(type, options);
+    if (!entry.has(key)) {
+      entry.set(key, createWrappedLazyLoadListener(listener));
+    }
+    return entry.get(key);
+  }
+
+  function wrapLazyLoadEventTarget(target, originalAddEventListener, originalRemoveEventListener) {
+    if (
+      !target ||
+      typeof originalAddEventListener !== "function" ||
+      typeof originalRemoveEventListener !== "function"
+    ) {
+      return;
+    }
+    target.addEventListener = function unfluffifyAddEventListener(type, listener, options) {
+      if (LAZY_LOAD_EVENT_TYPES.includes(type)) {
+        const wrappedListener = getWrappedLazyLoadListener(listener, type, options);
+        return originalAddEventListener.call(this, type, wrappedListener, options);
       }
-    });
-    lazyLoadListenersAttached = shouldAttach;
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+    target.removeEventListener = function unfluffifyRemoveEventListener(type, listener, options) {
+      if (LAZY_LOAD_EVENT_TYPES.includes(type)) {
+        const wrappedListener = getWrappedLazyLoadListener(listener, type, options);
+        return originalRemoveEventListener.call(this, type, wrappedListener, options);
+      }
+      return originalRemoveEventListener.call(this, type, listener, options);
+    };
   }
 
   function initLazyLoadingBridge() {
@@ -114,14 +151,27 @@
     }
     originalIntersectionObserver = root.IntersectionObserver;
     originalResizeObserver = root.ResizeObserver;
+    originalRootAddEventListener = typeof root.addEventListener === "function"
+      ? root.addEventListener
+      : null;
+    originalRootRemoveEventListener = typeof root.removeEventListener === "function"
+      ? root.removeEventListener
+      : null;
+    originalDocumentAddEventListener = doc && typeof doc.addEventListener === "function"
+      ? doc.addEventListener
+      : null;
+    originalDocumentRemoveEventListener = doc && typeof doc.removeEventListener === "function"
+      ? doc.removeEventListener
+      : null;
     if (typeof originalIntersectionObserver === "function") {
       root.IntersectionObserver = createObserverConstructor(originalIntersectionObserver);
     }
     if (typeof originalResizeObserver === "function") {
       root.ResizeObserver = createObserverConstructor(originalResizeObserver);
     }
+    wrapLazyLoadEventTarget(root, originalRootAddEventListener, originalRootRemoveEventListener);
+    wrapLazyLoadEventTarget(doc, originalDocumentAddEventListener, originalDocumentRemoveEventListener);
     lazyLoadingBridgeInitialized = true;
-    updateLazyLoadListeners();
     return true;
   }
 
@@ -234,7 +284,6 @@
       return;
     }
     lazyLoadingSuppressed = shouldSuppress;
-    updateLazyLoadListeners();
   }
 
   function init() {
