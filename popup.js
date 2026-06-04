@@ -7883,9 +7883,6 @@ async function init() {
     if (!tabId) {
       return;
     }
-    if (popupNavigationInspectionOverlayTabId !== null && popupNavigationInspectionOverlayTabId !== tabId) {
-      endNavigationInspectionOverlay(popupNavigationInspectionOverlayTabId);
-    }
     const tab = await chrome.tabs.get(tabId);
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
@@ -7911,6 +7908,8 @@ async function init() {
       popupSpinnerVisible = false;
       uiModule.setUiBusy(false);
     }
+    popupNavigationInspectionOverlayStarted = false;
+    popupNavigationInspectionOverlayTabId = null;
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
     const newTabId = state.currentTab && state.currentTab.id;
