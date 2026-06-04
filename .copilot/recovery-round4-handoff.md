@@ -121,7 +121,13 @@ at 50% width. The button itself is `u-btn-secondary u-full-width`.
   full-width row class in `popup/popup.css` (or wherever styles live) and apply it. Update
   the ui test that asserts the row class if present.
 
-### ❌ 6. Navigating from marking leaves the popup marking-toggle active on the new (silent) page
+### ✅ 6. Navigating from marking leaves the popup marking-toggle active on the new (silent) page
+FIXED: `confirmNavigationAwayFromMarking` now calls the shared `alignPopupToSilentMode()`
+(clears popup toggle + sets tab state `enabled:false` + `toggleEnabled:false`) on BOTH
+navigate-away paths (clean session and after OK-discard) so the destination page's popup
+shows silent controls. LIVE re-test required.
+
+Prior analysis:
 After OK-discard + navigate, the page lands silent but the popup still shows marking
 controls (toggle still "on").
 - `confirmNavigationAwayFromMarking` (popup.js) discards locally and allows navigation but
@@ -133,7 +139,11 @@ controls (toggle still "on").
   and ensure the post-navigation `refreshUi` reads `toggleEnabled=false`. Same fix pattern
   as #4a.
 
-### ❌ 7. Re-enabling marking after a navigation shows controls but does not enter marking on the page
+### ✅ 7. Re-enabling marking after a navigation shows controls but does not enter marking on the page
+FIXED via #6: with popup + tab state reset to silent, `handleEnableToggle` sees
+`toggleEnabled=false` and runs the full enable path again. LIVE re-test required.
+
+Prior analysis:
 Caused by the stale enabled/tab state from #6 — the popup thinks marking is already
 enabled, so `handleEnableToggle` no-ops the content `setEnabled`/`enableForBaseUrl` while
 still showing controls (and Run AI is clickable).

@@ -60,10 +60,18 @@ test("a successful save transitions the popup from marking to silent mode", () =
   // Reset the content page entry to the saved baseline (drop session deltas).
   assert.match(fnBody, /forceReloadPageEntry: true/);
   assert.match(fnBody, /state\.currentDraftDirty = false;/);
-  // Align popup + tab state to silent without re-sending setEnabled to content.
+  // Align popup + tab state to silent via the shared helper.
+  assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
+});
+
+test("aligning to silent mode clears the popup toggle without touching content", () => {
+  const fnBody = popupSource.match(
+    /async function alignPopupToSilentMode\(\) \{([\s\S]*?)\n\}/
+  )[1];
   assert.match(fnBody, /enabled: false/);
   assert.match(fnBody, /clearLastPopupEnabled\(\);/);
   assert.match(fnBody, /toggleEnabled: false/);
+  // No enable/disable message is sent to the content script here.
   assert.doesNotMatch(fnBody, /setEnabled/);
 });
 
@@ -102,12 +110,16 @@ test("navigating away from a pending marking session prompts to discard first", 
   )[1];
   // Clean session / silent mode navigates freely.
   assert.match(fnBody, /if \(!view\.toggleEnabled\) \{\s*return true;\s*\}/);
-  assert.match(fnBody, /if \(!view\.sessionHasPendingChanges\) \{\s*return true;\s*\}/);
+  assert.match(
+    fnBody,
+    /if \(!view\.sessionHasPendingChanges\) \{[\s\S]*?await alignPopupToSilentMode\(\);\s*return true;\s*\}/
+  );
   // Pending session shows toast + confirm gated on the same discard flow.
   assert.match(fnBody, /window\.confirm\(PopupText\.page\.navigateDiscardConfirm\)/);
   // Cancel stops navigation; OK discards locally before navigating.
   assert.match(fnBody, /if \(!confirmedDiscard\) \{[\s\S]*?return false;\s*\}/);
-  assert.match(fnBody, /await applyLocalPageDiscard\(\);\s*return true;/);
+  // OK discards locally and resets the popup + tab state to silent (#6/#7).
+  assert.match(fnBody, /await applyLocalPageDiscard\(\);\s*await alignPopupToSilentMode\(\);\s*return true;/);
   // All user-initiated navigation funnels through the guard.
   assert.match(
     popupSource,

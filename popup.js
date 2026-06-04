@@ -6603,6 +6603,9 @@ async function confirmNavigationAwayFromMarking() {
     view = uiModule.getViewState();
   }
   if (!view.sessionHasPendingChanges) {
+    // Clean marking session navigating away: the destination loads in silent
+    // highlighting, so align the popup + tab state to silent too.
+    await alignPopupToSilentMode();
     return true;
   }
   uiModule.showToast(
@@ -6616,8 +6619,10 @@ async function confirmNavigationAwayFromMarking() {
     return false;
   }
   // OK: discard the pending session locally before navigating; the destination
-  // page loads in silent highlighting mode.
+  // page loads in silent highlighting mode, so align the popup + tab state to
+  // silent (#6/#7) so re-enabling marking runs the full enable path again.
   await applyLocalPageDiscard();
+  await alignPopupToSilentMode();
   return true;
 }
 
@@ -7166,6 +7171,22 @@ async function handleLoginAction() {
   await refreshUi();
 }
 
+async function alignPopupToSilentMode() {
+  // Aligns the popup + tab state to silent (highlighting) mode WITHOUT touching
+  // the content script: clears the popup enable toggle and marks the tab disabled
+  // so the next refresh renders silent controls. Used by the post-save transition
+  // and when navigating away from marking mode.
+  const baseUrl = state.currentBaseUrl;
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (tabId !== null) {
+    await utils.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
+  }
+  clearLastPopupEnabled();
+  uiModule.setViewState({ toggleEnabled: false });
+}
+
 async function applyPostSaveSilentTransition() {
   // Post-save contract (recovery-plan B2): the current page render resets from
   // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
@@ -7175,9 +7196,6 @@ async function applyPostSaveSilentTransition() {
   // do NOT re-issue an enable message to the content script; only align the popup
   // + tab state.
   const baseUrl = state.currentBaseUrl;
-  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
   // Reset the content-side page entry to the saved baseline so its draft is no
   // longer dirty (Discard detects no pending changes).
   if (baseUrl) {
@@ -7188,11 +7206,7 @@ async function applyPostSaveSilentTransition() {
     }, 2);
   }
   state.currentDraftDirty = false;
-  if (tabId !== null) {
-    await utils.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
-  }
-  clearLastPopupEnabled();
-  uiModule.setViewState({ toggleEnabled: false });
+  await alignPopupToSilentMode();
 }
 
 async function handlePageSave() {
