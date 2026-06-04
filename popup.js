@@ -6645,15 +6645,22 @@ async function handleEnableToggle(event) {
   }
 
   if (!desiredEnabled && latestViewState.sessionHasPendingChanges) {
-    uiModule.setViewState({ toggleEnabled: true });
-    setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
     uiModule.showToast(
       latestViewState.sessionRequiresAiRun
         ? PopupText.page.exitRequiresAiResolution
         : PopupText.page.exitRequiresResolution
     );
-    await refreshUi();
-    return;
+    const confirmedDiscard = window.confirm(PopupText.page.disableDiscardConfirm);
+    if (!confirmedDiscard) {
+      // Cancel: stay in marking mode with the pending session intact.
+      uiModule.setViewState({ toggleEnabled: true });
+      setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+      await refreshUi();
+      return;
+    }
+    // OK: discard the pending CSS selectors/markings locally, then fall through
+    // to disable marking (which drops to silent highlighting mode).
+    await applyLocalPageDiscard();
   }
   setLastPopupEnabled(desiredEnabled, buildPopupEnabledContext(tab, state.currentBaseUrl));
   const baseUrlValue = state.currentBaseUrl;
@@ -7173,6 +7180,40 @@ async function handlePageSave() {
   });
 }
 
+async function applyLocalPageDiscard() {
+  const pageUrl = getCurrentPageUrl();
+  const baseUrl = state.currentBaseUrl;
+  // Discard drops the current-session marking deltas LOCALLY by restoring the
+  // page entry from the already-cached backend-saved markings. No network
+  // round-trip and no forced remote refetch keeps discard fast; the AI/CSS
+  // selector baseline is intentionally preserved (only page markings revert).
+  const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
+  const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
+    if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+      targetConfig.pageMarkings = {};
+    }
+    Object.keys(targetConfig.pageMarkings).forEach((url) => {
+      if (normalizeCandidatePageUrl(url) === normalizedTargetUrl) {
+        delete targetConfig.pageMarkings[url];
+      }
+    });
+    if (backendEntry) {
+      targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
+    }
+  });
+  await messages.sendTabMessageWithRetry({
+    type: "configUpdated",
+    baseUrl,
+    forceReloadPageEntry: true
+  }, 2);
+  await clearCurrentPageSaveReconciliation();
+  state.aiSelectorsComputedSinceLastSubmit = false;
+  state.aiSelectorsComputedBaseUrl = "";
+  resetAiRunMarkingsFingerprint();
+}
+
 async function handlePageRevert() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -7195,37 +7236,7 @@ async function handlePageRevert() {
     return;
   }
   await runWithSpinner(null, PopupText.overlay.revertingPage, async () => {
-    const pageUrl = getCurrentPageUrl();
-    const baseUrl = state.currentBaseUrl;
-    // Discard drops the current-session marking deltas LOCALLY by restoring the
-    // page entry from the already-cached backend-saved markings. No network
-    // round-trip and no forced remote refetch keeps discard fast; the AI/CSS
-    // selector baseline is intentionally preserved (only page markings revert).
-    const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
-    const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
-    const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
-    state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
-      if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
-        targetConfig.pageMarkings = {};
-      }
-      Object.keys(targetConfig.pageMarkings).forEach((url) => {
-        if (normalizeCandidatePageUrl(url) === normalizedTargetUrl) {
-          delete targetConfig.pageMarkings[url];
-        }
-      });
-      if (backendEntry) {
-        targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
-      }
-    });
-    await messages.sendTabMessageWithRetry({
-      type: "configUpdated",
-      baseUrl,
-      forceReloadPageEntry: true
-    }, 2);
-    await clearCurrentPageSaveReconciliation();
-    state.aiSelectorsComputedSinceLastSubmit = false;
-    state.aiSelectorsComputedBaseUrl = "";
-    resetAiRunMarkingsFingerprint();
+    await applyLocalPageDiscard();
     updateLastConfigSaveStatus(PopupText.page.revertedToLastSaved);
     uiModule.showToast(PopupText.page.revertedToLastSaved);
     await refreshUi();

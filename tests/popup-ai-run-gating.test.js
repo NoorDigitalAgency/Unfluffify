@@ -37,10 +37,10 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
     popupSource,
     /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
   );
-  // Discard success.
+  // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(
     popupSource,
-    /state\.aiSelectorsComputedBaseUrl = "";\s*resetAiRunMarkingsFingerprint\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.revertedToLastSaved\);/
+    /state\.aiSelectorsComputedBaseUrl = "";\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
   );
 });
 

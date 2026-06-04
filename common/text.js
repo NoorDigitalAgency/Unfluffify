@@ -417,6 +417,8 @@ export const PopupText = Object.freeze({
     revertFailedToast: "Unable to discard session", // Toast shown when the session discard request fails.
     exitRequiresResolution: "Save or discard the current session before exiting marking.", // Toast shown when exit is blocked by a pending local session.
     exitRequiresAiResolution: "Run AI, then save or discard before exiting marking.", // Toast shown when exit is blocked until AI is rerun.
+    disableDiscardConfirm: "Disable marking and discard the CSS selectors and markings from this session? This cannot be undone.", // Confirmation dialog before disabling marking discards the pending session.
+    navigateDiscardConfirm: "Leave this page and discard the CSS selectors and markings from this session? This cannot be undone.", // Confirmation dialog before navigating away discards the pending session.
     mobileSimulationRequired: "Mobile simulation must be enabled to save markings." // Notice shown when page save is blocked by missing mobile emulation.
   }),
 

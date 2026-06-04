@@ -207,7 +207,7 @@ test("session save uploads all local page markings while default sync stays back
     /async function handlePageSave\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
   )[1];
   const handlePageRevertBody = source.match(
-    /async function handlePageRevert\(\) \{([\s\S]*?)\n\}\n\nasync function requestAiRunStart/
+    /async function applyLocalPageDiscard\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
   )[1];
 
   assert.match(source, /includeCurrentPageMarking = false/);
@@ -450,7 +450,7 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
   assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
 });
 
-test("marking cannot be disabled while the current session still needs save or discard", () => {
+test("disabling marking with a pending session prompts to discard before exiting", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
@@ -460,8 +460,12 @@ test("marking cannot be disabled while the current session still needs save or d
   assert.match(enableBody, /if \(!desiredEnabled && latestViewState\.sessionHasPendingChanges\)/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresAiResolution/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresResolution/);
-  assert.match(enableBody, /uiModule\.setViewState\(\{ toggleEnabled: true \}\)/);
-  assert.match(enableBody, /setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)/);
+  // A toast is shown, then a confirm dialog gates discard+disable.
+  assert.match(enableBody, /const confirmedDiscard = window\.confirm\(PopupText\.page\.disableDiscardConfirm\);/);
+  // Cancel keeps the session and stays in marking mode.
+  assert.match(enableBody, /if \(!confirmedDiscard\) \{[\s\S]*?uiModule\.setViewState\(\{ toggleEnabled: true \}\)[\s\S]*?setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)[\s\S]*?return;/);
+  // OK discards locally, then falls through to disable.
+  assert.match(enableBody, /await applyLocalPageDiscard\(\);/);
 });
 
 test("popup scopes optimistic enabled state to the current tab page and base URL", () => {
