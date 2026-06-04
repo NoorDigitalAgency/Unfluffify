@@ -66,8 +66,16 @@ on save) Run AI should be hidden/irrelevant; ALSO consider gating `computeButton
 on `!sessionRequiresAiRun` (or `!sessionHasPendingChanges`) so a clean, just-saved page
 keeps Run AI disabled.
 
-### ❌ 4 (save). `/save` is auto-called after a successful AI run (can persist stale changes)
-ROOT CAUSE CONFIRMED: `applyComputedSelectorSet` (popup.js ~7375) calls
+### ✅ 4 (save). `/save` is auto-called after a successful AI run (can persist stale changes)
+FIXED: removed the `syncBaseConfigToServer` push (and the dependent
+`updateLastConfigSaveStatus`/toast "…AndSynced" branch) from `applyComputedSelectorSet`
+(popup.js ~7400). AI run now computes selectors LOCALLY (`config.updateConfig`,
+`configUpdated` message, `showAiPreview`, `captureAiRunMarkingsFingerprint`) and shows a
+local-only status/toast (`PopupText.ai.selectorsComputedLocally` /
+`selectorsComputedLocallyToast`). Save (`handlePageSave`) remains the explicit server-sync
+step. New source-pattern test in tests/popup-ai-run-gating.test.js asserts no
+`syncBaseConfigToServer` in the function. LIVE re-test still required.
+ROOT CAUSE was: `applyComputedSelectorSet` (popup.js ~7375) called
 `syncBaseConfigToServer({...})` immediately after computing selectors (around line 7404).
 That is an automatic server push on every AI run.
 - Per contract, AI run computes selectors LOCALLY + opens preview; **Save is the explicit,

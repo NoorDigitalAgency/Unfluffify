@@ -26,6 +26,15 @@ test("a successful AI run captures the markings fingerprint", () => {
   assert.match(fnBody, /captureAiRunMarkingsFingerprint\(\);/);
 });
 
+test("an AI run computes selectors locally and does not auto-sync to the server", () => {
+  const fnBody = popupSource.match(
+    /function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
+  )[0];
+  // Save (handlePageSave) is the explicit server-sync step; the AI run must not push.
+  assert.doesNotMatch(fnBody, /syncBaseConfigToServer\(/);
+  assert.match(fnBody, /PopupText\.ai\.selectorsComputedLocally/);
+});
+
 test("entering marking mode, saving, and discarding reset the fingerprint", () => {
   // Enabling marking: Run AI starts enabled.
   assert.match(

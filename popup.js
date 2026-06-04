@@ -7402,33 +7402,11 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     selectorSet
   });
   const previewOpened = Boolean(previewResponse && previewResponse.ok);
-  const { configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-  const syncResult = await syncBaseConfigToServer({
-    baseUrl: state.currentBaseUrl,
-    pageUrl: currentPageUrl,
-    endpointValue: configEndpointValue,
-    tokenValue,
-    stageBase: stageBaseValue,
-    alertOnCurrentReplacement: false
-  });
-  const syncSkipped = Boolean(syncResult && syncResult.skipped);
-  const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
-  updateLastConfigSaveStatus(
-    syncSkipped
-      ? PopupText.ai.selectorsUpdatedLocallySyncSkipped
-      : syncFailed
-        ? PopupText.ai.selectorsUpdatedLocallySyncFailed
-        : PopupText.ai.selectorsUpdatedAndSynced
-  );
-  if (syncSkipped && syncResult.reason) {
-    uiModule.showToast(formatSelectorsComputedLocally(syncResult.reason));
-  } else if (syncSkipped) {
-    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncSkipped);
-  } else if (syncFailed) {
-    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncFailed);
-  } else {
-    uiModule.showToast(PopupText.ai.selectorsComputedAndSaved);
-  }
+  // AI run computes selectors LOCALLY and opens the preview only. Saving
+  // (handlePageSave) is the explicit, separate server-sync step, so do NOT push
+  // the base config to the server here.
+  updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
+  uiModule.showToast(PopupText.ai.selectorsComputedLocallyToast);
   return { previewOpened };
 }
 
