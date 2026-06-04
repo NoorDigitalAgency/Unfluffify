@@ -72,3 +72,22 @@ test("marking-mode preview mirrors Save gating and is wired to a handler", () =>
   assert.match(uiSource, /id: "marking-preview"/);
   assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
 });
+
+test("navigating away from a pending marking session prompts to discard first", () => {
+  const fnBody = popupSource.match(
+    /async function confirmNavigationAwayFromMarking\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Clean session / silent mode navigates freely.
+  assert.match(fnBody, /if \(!view\.toggleEnabled\) \{\s*return true;\s*\}/);
+  assert.match(fnBody, /if \(!view\.sessionHasPendingChanges\) \{\s*return true;\s*\}/);
+  // Pending session shows toast + confirm gated on the same discard flow.
+  assert.match(fnBody, /window\.confirm\(PopupText\.page\.navigateDiscardConfirm\)/);
+  // Cancel stops navigation; OK discards locally before navigating.
+  assert.match(fnBody, /if \(!confirmedDiscard\) \{[\s\S]*?return false;\s*\}/);
+  assert.match(fnBody, /await applyLocalPageDiscard\(\);\s*return true;/);
+  // All user-initiated navigation funnels through the guard.
+  assert.match(
+    popupSource,
+    /async function navigateActiveTabToUrlWithTodoCollapse\(url\) \{\s*if \(!\(await confirmNavigationAwayFromMarking\(\)\)\) \{/
+  );
+});

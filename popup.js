@@ -6573,7 +6573,41 @@ async function navigateActiveTabToUrl(url) {
   return true;
 }
 
+async function confirmNavigationAwayFromMarking() {
+  let view = uiModule.getViewState();
+  // Only marking mode with an unsaved session needs the discard gate; silent
+  // highlighting (and a clean marking session) navigates freely.
+  if (!view.toggleEnabled) {
+    return true;
+  }
+  if ((await helpers.ensureActiveTab({ requireId: true })) && state.currentBaseUrl) {
+    await refreshCurrentPageRuntimeStatus();
+    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+    view = uiModule.getViewState();
+  }
+  if (!view.sessionHasPendingChanges) {
+    return true;
+  }
+  uiModule.showToast(
+    view.sessionRequiresAiRun
+      ? PopupText.page.exitRequiresAiResolution
+      : PopupText.page.exitRequiresResolution
+  );
+  const confirmedDiscard = window.confirm(PopupText.page.navigateDiscardConfirm);
+  if (!confirmedDiscard) {
+    // Cancel: navigation stopped, stay in marking mode with the session intact.
+    return false;
+  }
+  // OK: discard the pending session locally before navigating; the destination
+  // page loads in silent highlighting mode.
+  await applyLocalPageDiscard();
+  return true;
+}
+
 async function navigateActiveTabToUrlWithTodoCollapse(url) {
+  if (!(await confirmNavigationAwayFromMarking())) {
+    return false;
+  }
   const navigated = await navigateActiveTabToUrl(url);
   if (navigated) {
     collapseTodoListForAutoCollapse();
