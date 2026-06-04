@@ -2603,7 +2603,10 @@ function renderApp() {
     });
     lastRemoteSupportSectionScrollKey = remoteSupportScrollKey;
   }
-  syncBlockingUiCurtainDom();
+  // The curtain is rendered declaratively by Preact (see App / getBlockingUiCurtainState).
+  // Do NOT imperatively mutate the curtain DOM here: doing so desyncs Preact's
+  // virtual DOM and throws "insertBefore" on the next render. syncBlockingUiCurtainDom
+  // is reserved for the setUiBusy catch fallback after Preact has already failed.
 }
 
 export function initUi(actionHandlers) {
@@ -2718,7 +2721,6 @@ export function setUiBusy(isBusy, message = "") {
     syncBlockingUiCurtainDom();
     notifyViewStateListeners();
   }
-  syncBlockingUiCurtainDom();
 }
 
 export function toggleConfigurationExtrasExpanded() {
