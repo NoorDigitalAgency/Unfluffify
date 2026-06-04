@@ -345,6 +345,8 @@ export const PopupText = Object.freeze({
     selectorsComputedLocallySyncSkipped: "Selectors computed locally (server sync skipped)", // Toast shown when compute succeeded locally without server sync.
     selectorsComputedLocallySyncFailed: "Selectors computed locally (server sync failed)", // Toast shown when compute succeeded locally but server sync failed.
     selectorsComputedAndSaved: "Selectors computed and saved to config server", // Toast shown when compute and server sync both succeed.
+    selectorsComputedLocally: "Selectors computed locally", // Status text after an AI run computes selectors locally (no server sync; Save syncs).
+    selectorsComputedLocallyToast: "Selectors computed locally — Save to sync", // Toast shown after an AI run; reminds the user that Save performs the server sync.
     noSelectorsToSubmit: "No selectors available to submit", // Submission guard reason when the selector set is empty.
     noNewSelectorsToSubmit: "No new selectors to submit", // Submission guard reason when nothing changed since the last submit.
     submitResponseError: "Submit response error", // Submission failure reason when the upstream response is not successful.

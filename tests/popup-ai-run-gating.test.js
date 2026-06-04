@@ -26,6 +26,15 @@ test("a successful AI run captures the markings fingerprint", () => {
   assert.match(fnBody, /captureAiRunMarkingsFingerprint\(\);/);
 });
 
+test("an AI run computes selectors locally and does not auto-sync to the server", () => {
+  const fnBody = popupSource.match(
+    /function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
+  )[0];
+  // Save (handlePageSave) is the explicit server-sync step; the AI run must not push.
+  assert.doesNotMatch(fnBody, /syncBaseConfigToServer\(/);
+  assert.match(fnBody, /PopupText\.ai\.selectorsComputedLocally/);
+});
+
 test("entering marking mode, saving, and discarding reset the fingerprint", () => {
   // Enabling marking: Run AI starts enabled.
   assert.match(
@@ -35,13 +44,35 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // Save success.
   assert.match(
     popupSource,
-    /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
+    /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\/\/[\s\S]*?await applyPostSaveSilentTransition\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(
     popupSource,
     /state\.aiSelectorsComputedBaseUrl = "";\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
   );
+});
+
+test("a successful save transitions the popup from marking to silent mode", () => {
+  const fnBody = popupSource.match(
+    /async function applyPostSaveSilentTransition\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Reset the content page entry to the saved baseline (drop session deltas).
+  assert.match(fnBody, /forceReloadPageEntry: true/);
+  assert.match(fnBody, /state\.currentDraftDirty = false;/);
+  // Align popup + tab state to silent via the shared helper.
+  assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
+});
+
+test("aligning to silent mode clears the popup toggle without touching content", () => {
+  const fnBody = popupSource.match(
+    /async function alignPopupToSilentMode\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(fnBody, /enabled: false/);
+  assert.match(fnBody, /clearLastPopupEnabled\(\);/);
+  assert.match(fnBody, /toggleEnabled: false/);
+  // No enable/disable message is sent to the content script here.
+  assert.doesNotMatch(fnBody, /setEnabled/);
 });
 
 test("Run AI is disabled while the run is up to date for current markings", () => {
@@ -71,6 +102,12 @@ test("marking-mode preview mirrors Save gating and is wired to a handler", () =>
   assert.match(popupSource, /async function handleMarkingPreview\(\) \{/);
   assert.match(uiSource, /id: "marking-preview"/);
   assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
+  // The preview button renders full-width (not inside the half-width button-row grid).
+  const previewBlock = uiSource.match(
+    /markingMode && view\.markingPreviewVisible\) \{([\s\S]*?)\n  \}/
+  )[1];
+  assert.match(previewBlock, /class: "u-btn-secondary u-full-width"/);
+  assert.doesNotMatch(previewBlock, /button-row/);
 });
 
 test("navigating away from a pending marking session prompts to discard first", () => {
@@ -79,12 +116,16 @@ test("navigating away from a pending marking session prompts to discard first", 
   )[1];
   // Clean session / silent mode navigates freely.
   assert.match(fnBody, /if \(!view\.toggleEnabled\) \{\s*return true;\s*\}/);
-  assert.match(fnBody, /if \(!view\.sessionHasPendingChanges\) \{\s*return true;\s*\}/);
+  assert.match(
+    fnBody,
+    /if \(!view\.sessionHasPendingChanges\) \{[\s\S]*?await alignPopupToSilentMode\(\);\s*return true;\s*\}/
+  );
   // Pending session shows toast + confirm gated on the same discard flow.
   assert.match(fnBody, /window\.confirm\(PopupText\.page\.navigateDiscardConfirm\)/);
   // Cancel stops navigation; OK discards locally before navigating.
   assert.match(fnBody, /if \(!confirmedDiscard\) \{[\s\S]*?return false;\s*\}/);
-  assert.match(fnBody, /await applyLocalPageDiscard\(\);\s*return true;/);
+  // OK discards locally and resets the popup + tab state to silent (#6/#7).
+  assert.match(fnBody, /await applyLocalPageDiscard\(\);\s*await alignPopupToSilentMode\(\);\s*return true;/);
   // All user-initiated navigation funnels through the guard.
   assert.match(
     popupSource,
@@ -107,9 +148,21 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
     popupSource,
     /isEnabled \|\| toggleEnabled \|\| effectiveTabState\.enabled \|\| navigationInspectionPending \|\| silentInspectionInScope/
   );
-  // Silent mode keeps polling until the reveal/freeze warmup clears the curtain.
+  // Silent mode keeps polling until the reveal/freeze warmup clears the curtain,
+  // including a leftover navigation-inspection spinner restored from a prior
+  // marking session.
   assert.match(
     popupSource,
-    /if \(pageInspectionBusy && silentInspectionInScope && currentTabId\) \{\s*scheduleStaleInspectionBusyClear\(currentTabId, runtimeStatusBaseUrl\);/
+    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*popupSpinnerQueue\.has\("navInspect"\)\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /scheduleStaleInspectionBusyClear\(currentTabId, runtimeStatusBaseUrl, \{\s*reconcileSilentNavSpinner: silentNavSpinnerStuck\s*\}\);/
+  );
+  // The stale-clear reconciles a stuck silent-mode navigation spinner by ending
+  // the leftover overlay once inspection is no longer pending.
+  assert.match(
+    popupSource,
+    /silentNavSpinnerStuck\) \{\s*logPopupSpinnerDebug\("silent-nav-curtain-clear"[\s\S]*?endNavigationInspectionOverlay\(tabId\);/
   );
 });

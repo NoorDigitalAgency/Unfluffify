@@ -2145,20 +2145,17 @@ function renderMarkingView({state: view, actions: handlers}) {
   if (markingMode && view.markingPreviewVisible) {
     mergedControlsSectionChildren.push(
       h(
-        "div",
-        { key: "marking-preview-row", class: "button-row" },
-        h(
-          "button",
-          {
-            id: "marking-preview",
-            type: "button",
-            class: "u-btn-secondary u-full-width",
-            disabled: view.markingPreviewDisabled,
-            onClick: handlers.onMarkingPreview
-          },
-          icon("eye-outline"),
-          PopupText.actions.previewLatest
-        )
+        "button",
+        {
+          key: "marking-preview-row",
+          id: "marking-preview",
+          type: "button",
+          class: "u-btn-secondary u-full-width",
+          disabled: view.markingPreviewDisabled,
+          onClick: handlers.onMarkingPreview
+        },
+        icon("eye-outline"),
+        PopupText.actions.previewLatest
       )
     );
   }

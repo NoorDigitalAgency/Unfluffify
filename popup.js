@@ -942,7 +942,11 @@ function clearStaleInspectionBusyClearTimer() {
   popupStaleInspectionBusyClearTimer = 0;
 }
 
-function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.currentTab.id, baseUrl = state.currentBaseUrl) {
+function scheduleStaleInspectionBusyClear(
+  tabId = state.currentTab && state.currentTab.id,
+  baseUrl = state.currentBaseUrl,
+  { reconcileSilentNavSpinner = false } = {}
+) {
   if (!tabId) {
     return;
   }
@@ -953,13 +957,22 @@ function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.curr
     popupStaleInspectionBusyClearTimer = 0;
     attempt += 1;
     const view = uiModule.getViewState();
-    if (
+    const curtainShowing =
+      view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
+    // A leftover navigation-inspection spinner from a prior marking session keeps
+    // popupSpinnerVisible true, so the queue-empty gate below never fires and the
+    // fresh-load curtain sticks in silent mode. Reconcile that case directly:
+    // once the silent reveal/freeze warmup is no longer pending, end the stale
+    // overlay (which pops the spinner and drops the curtain).
+    const silentNavSpinnerStuck =
+      reconcileSilentNavSpinner &&
+      !view.toggleEnabled &&
+      popupSpinnerQueue.has("navInspect");
+    const queueClearGate =
       popupSpinnerQueue.size === 0 &&
       !popupSpinnerVisible &&
-      !popupSpinnerTimer &&
-      view.isBusy &&
-      view.busyMessage === PopupText.overlay.pageInspection
-    ) {
+      !popupSpinnerTimer;
+    if (curtainShowing && (silentNavSpinnerStuck || queueClearGate)) {
       const runtimeStatus = await refreshCurrentPageRuntimeStatus({
         tabId,
         baseUrl
@@ -977,8 +990,13 @@ function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.curr
           (runtimeStatus.inspectionPending || editorPreparationPending)
       );
       if (!inspectionPending) {
-        logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
-        uiModule.setUiBusy(false);
+        if (silentNavSpinnerStuck) {
+          logPopupSpinnerDebug("silent-nav-curtain-clear", { tabId, attempt });
+          endNavigationInspectionOverlay(tabId);
+        } else {
+          logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
+          uiModule.setUiBusy(false);
+        }
         return;
       }
     }
@@ -3760,7 +3778,38 @@ async function completeRenderModeInspectionReloadFollowUp(tabId) {
     return false;
   }
   await hideConsentForRenderModeInspection(tabId);
+  // The reload tore down the page, so the content script's property-lock port
+  // disconnected and re-claims after re-injection. Reconcile the popup view so it
+  // stops showing "disconnected" once the connection is re-established (#9).
+  await reconcilePropertyLockAfterRenderModeReload();
   return true;
+}
+
+async function reconcilePropertyLockAfterRenderModeReload() {
+  const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
+  if (!siteId) {
+    return;
+  }
+  // Poll the snapshot until the content re-establishes the lock connection (or
+  // attempts run out). INACTIVE means no active lock (nothing to reconnect), so
+  // treat it as settled alongside CONNECTED; keep polling while CONNECTING or
+  // UNAVAILABLE so a transient post-reload disconnect resolves on its own.
+  const maxAttempts = 6;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await refreshPropertyLockSnapshot(siteId).catch(() => null);
+    uiModule.setViewState(buildPropertyLockViewState());
+    const status = state.propertyLockConnectionStatus;
+    if (
+      status === PROPERTY_LOCK_CONNECTION_CONNECTED ||
+      status === PROPERTY_LOCK_CONNECTION_INACTIVE
+    ) {
+      break;
+    }
+    if (attempt + 1 < maxAttempts) {
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+    }
+  }
+  await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
 function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {
@@ -4752,9 +4801,19 @@ async function refreshUiInner(options = {}) {
         state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
       ));
   // In silent mode no spinner key drives the curtain, so keep polling until the
-  // editor reveal/freeze warmup clears and then drop the "Inspecting page..." curtain.
-  if (pageInspectionBusy && silentInspectionInScope && currentTabId) {
-    scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl);
+  // editor reveal/freeze warmup clears and then drop the "Inspecting page..."
+  // curtain. A leftover navigation-inspection spinner (restored from a prior
+  // marking session) keeps the curtain up via the spinner queue even after the
+  // warmup settles, so reconcile that case too.
+  const silentNavSpinnerStuck = Boolean(
+    silentInspectionInScope &&
+    currentTabId &&
+    popupSpinnerQueue.has("navInspect")
+  );
+  if (((pageInspectionBusy && silentInspectionInScope) || silentNavSpinnerStuck) && currentTabId) {
+    scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl, {
+      reconcileSilentNavSpinner: silentNavSpinnerStuck
+    });
   }
   const sessionHasPendingChanges = hasSessionPendingChanges(
     state.currentConfig,
@@ -6603,6 +6662,9 @@ async function confirmNavigationAwayFromMarking() {
     view = uiModule.getViewState();
   }
   if (!view.sessionHasPendingChanges) {
+    // Clean marking session navigating away: the destination loads in silent
+    // highlighting, so align the popup + tab state to silent too.
+    await alignPopupToSilentMode();
     return true;
   }
   uiModule.showToast(
@@ -6616,8 +6678,10 @@ async function confirmNavigationAwayFromMarking() {
     return false;
   }
   // OK: discard the pending session locally before navigating; the destination
-  // page loads in silent highlighting mode.
+  // page loads in silent highlighting mode, so align the popup + tab state to
+  // silent (#6/#7) so re-enabling marking runs the full enable path again.
   await applyLocalPageDiscard();
+  await alignPopupToSilentMode();
   return true;
 }
 
@@ -7166,6 +7230,44 @@ async function handleLoginAction() {
   await refreshUi();
 }
 
+async function alignPopupToSilentMode() {
+  // Aligns the popup + tab state to silent (highlighting) mode WITHOUT touching
+  // the content script: clears the popup enable toggle and marks the tab disabled
+  // so the next refresh renders silent controls. Used by the post-save transition
+  // and when navigating away from marking mode.
+  const baseUrl = state.currentBaseUrl;
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (tabId !== null) {
+    await utils.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
+  }
+  clearLastPopupEnabled();
+  uiModule.setViewState({ toggleEnabled: false });
+}
+
+async function applyPostSaveSilentTransition() {
+  // Post-save contract (recovery-plan B2): the current page render resets from
+  // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
+  // explicit deltas are dropped from the overlay), the mode switches marking ->
+  // silent highlighting, and the user stays in silent until Enable Marking
+  // re-enters marking from scratch. The page already drops to silent on save, so
+  // do NOT re-issue an enable message to the content script; only align the popup
+  // + tab state.
+  const baseUrl = state.currentBaseUrl;
+  // Reset the content-side page entry to the saved baseline so its draft is no
+  // longer dirty (Discard detects no pending changes).
+  if (baseUrl) {
+    await messages.sendTabMessageWithRetry({
+      type: "configUpdated",
+      baseUrl,
+      forceReloadPageEntry: true
+    }, 2);
+  }
+  state.currentDraftDirty = false;
+  await alignPopupToSilentMode();
+}
+
 async function handlePageSave() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -7211,6 +7313,9 @@ async function handlePageSave() {
       if (syncResult && syncResult.ok) {
         await clearCurrentPageSaveReconciliation();
         resetAiRunMarkingsFingerprint();
+        // Switch marking -> silent and reset the current page to the saved
+        // baseline so Discard is disabled and Run AI stays irrelevant in silent.
+        await applyPostSaveSilentTransition();
         updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
         uiModule.showToast(PopupText.page.sessionSaved);
         await refreshUi();
@@ -7402,33 +7507,10 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     selectorSet
   });
   const previewOpened = Boolean(previewResponse && previewResponse.ok);
-  const { configEndpointValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-  const syncResult = await syncBaseConfigToServer({
-    baseUrl: state.currentBaseUrl,
-    pageUrl: currentPageUrl,
-    endpointValue: configEndpointValue,
-    tokenValue,
-    stageBase: stageBaseValue,
-    alertOnCurrentReplacement: false
-  });
-  const syncSkipped = Boolean(syncResult && syncResult.skipped);
-  const syncFailed = !syncSkipped && !isSuccessfulConfigSyncResult(syncResult);
-  updateLastConfigSaveStatus(
-    syncSkipped
-      ? PopupText.ai.selectorsUpdatedLocallySyncSkipped
-      : syncFailed
-        ? PopupText.ai.selectorsUpdatedLocallySyncFailed
-        : PopupText.ai.selectorsUpdatedAndSynced
-  );
-  if (syncSkipped && syncResult.reason) {
-    uiModule.showToast(formatSelectorsComputedLocally(syncResult.reason));
-  } else if (syncSkipped) {
-    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncSkipped);
-  } else if (syncFailed) {
-    uiModule.showToast(PopupText.ai.selectorsComputedLocallySyncFailed);
-  } else {
-    uiModule.showToast(PopupText.ai.selectorsComputedAndSaved);
-  }
+  updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
+  // This state is intentionally unsynced; keep the tone non-muted until Save runs.
+  state.lastConfigSaveStatusTone = "warning";
+  uiModule.showToast(PopupText.ai.selectorsComputedLocallyToast);
   return { previewOpened };
 }
 
