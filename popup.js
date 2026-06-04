@@ -945,7 +945,7 @@ function clearStaleInspectionBusyClearTimer() {
 function scheduleStaleInspectionBusyClear(
   tabId = state.currentTab && state.currentTab.id,
   baseUrl = state.currentBaseUrl,
-  { reconcileSilentNavSpinner = false } = {}
+  { reconcileSilentNavSpinner = false, reconcileRenderModeNavSpinner = false } = {}
 ) {
   if (!tabId) {
     return;
@@ -968,11 +968,15 @@ function scheduleStaleInspectionBusyClear(
       reconcileSilentNavSpinner &&
       !view.toggleEnabled &&
       popupSpinnerQueue.has("navInspect");
+    const renderModeNavSpinnerStuck =
+      reconcileRenderModeNavSpinner &&
+      popupSpinnerQueue.size === 1 &&
+      popupSpinnerQueue.has("navInspect");
     const queueClearGate =
       popupSpinnerQueue.size === 0 &&
       !popupSpinnerVisible &&
       !popupSpinnerTimer;
-    if (curtainShowing && (silentNavSpinnerStuck || queueClearGate)) {
+    if (curtainShowing && (silentNavSpinnerStuck || renderModeNavSpinnerStuck || queueClearGate)) {
       const runtimeStatus = await refreshCurrentPageRuntimeStatus({
         tabId,
         baseUrl
@@ -990,9 +994,13 @@ function scheduleStaleInspectionBusyClear(
           (runtimeStatus.inspectionPending || editorPreparationPending)
       );
       if (!inspectionPending) {
-        if (silentNavSpinnerStuck) {
-          logPopupSpinnerDebug("silent-nav-curtain-clear", { tabId, attempt });
+        if (silentNavSpinnerStuck || renderModeNavSpinnerStuck) {
+          logPopupSpinnerDebug(
+            renderModeNavSpinnerStuck ? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear",
+            { tabId, attempt }
+          );
           endNavigationInspectionOverlay(tabId);
+          popSpinner("navInspect");
         } else {
           logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
           uiModule.setUiBusy(false);
@@ -3860,6 +3868,9 @@ async function completeRenderModeInspectionReloadFollowUp(tabId) {
   // disconnected and re-claims after re-injection. Reconcile the popup view so it
   // stops showing "disconnected" once the connection is re-established (#9).
   await reconcilePropertyLockAfterRenderModeReload();
+  scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
+    reconcileRenderModeNavSpinner: true
+  });
   return true;
 }
 

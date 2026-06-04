@@ -64,6 +64,37 @@ Live validation status:
 
 ---
 
+## Round-5 Stage 2 (2026-06-04) — implemented and live-validated
+
+Implemented: render-mode inspection curtain cleanup for stale `navInspect` spinners.
+
+What changed:
+- `scheduleStaleInspectionBusyClear()` now accepts `reconcileRenderModeNavSpinner` and
+  treats a lone `navInspect` spinner as eligible for stale-clear once content reports no
+  inspection/reconciliation pending.
+- The render-mode branch logs `render-mode-nav-curtain-clear`, ends the navigation
+  inspection overlay, and explicitly pops `navInspect` so an inherited reload spinner
+  cannot keep the blocking curtain visible after reveal/capture completes.
+- `completeRenderModeInspectionReloadFollowUp()` schedules that render-mode stale-clear
+  after load → content-main ready → reveal → clean HTML capture → hide consent → property
+  lock reconcile.
+
+Automated validation:
+- Focused: `node --test tests/popup-marking-refresh.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 455`, `pass 455`, `fail 0`.
+
+Live validation status:
+- With JavaScript on `https://unitedspaces.com/sv` showed the expected in-progress state
+  (`sessionInspection: "1"`, page overlay true, popup busy text present) during the action.
+- Final page state after settle: `sessionInspection: null`, no inspection style, no
+  inspection notice, no overlay, motion pause restored for silent/editor posture.
+- Final popup state: no `Working... controls are temporarily blocked`, no `Please wait`,
+  no `Inspecting page`; Render Mode suggested JavaScript and controls were enabled.
+- 15-second browser-side sample: 16 samples, `anyCurtain: false`,
+  `anySessionInspection: false`.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

@@ -51,6 +51,7 @@ test("render mode follow-up captures clean HTML only after reveal and before hid
   const rememberIndex = block.indexOf("rememberRenderModeInspectionSnapshot(");
   const hideIndex = block.indexOf("await hideConsentForRenderModeInspection(tabId)");
   const reconcileIndex = block.indexOf("await reconcilePropertyLockAfterRenderModeReload()");
+  const staleClearIndex = block.indexOf("scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl", reconcileIndex);
 
   assert.ok(loadIndex > -1);
   assert.ok(readyIndex > loadIndex);
@@ -59,6 +60,8 @@ test("render mode follow-up captures clean HTML only after reveal and before hid
   assert.ok(rememberIndex > captureIndex);
   assert.ok(hideIndex > rememberIndex);
   assert.ok(reconcileIndex > hideIndex);
+  assert.ok(staleClearIndex > reconcileIndex);
+  assert.match(block, /reconcileRenderModeNavSpinner: true/);
 });
 
 test("render mode inspection waits for content-main before lifecycle messages", () => {

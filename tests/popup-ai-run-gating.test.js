@@ -163,6 +163,6 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
   // the leftover overlay once inspection is no longer pending.
   assert.match(
     popupSource,
-    /silentNavSpinnerStuck\) \{\s*logPopupSpinnerDebug\("silent-nav-curtain-clear"[\s\S]*?endNavigationInspectionOverlay\(tabId\);/
+    /silentNavSpinnerStuck \|\| renderModeNavSpinnerStuck\) \{[\s\S]*?renderModeNavSpinnerStuck \? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear"[\s\S]*?endNavigationInspectionOverlay\(tabId\);/
   );
 });

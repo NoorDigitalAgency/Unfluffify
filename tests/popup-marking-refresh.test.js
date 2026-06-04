@@ -289,6 +289,10 @@ test("popup blocks the interface with a spinner while page inspection is running
   // drains and the content side reports no pending inspection.
   assert.match(source, /function scheduleStaleInspectionBusyClear\(/);
   assert.match(source, /logPopupSpinnerDebug\("stale-inspection-busy-clear"/);
+  assert.match(source, /reconcileRenderModeNavSpinner = false/);
+  assert.match(source, /const renderModeNavSpinnerStuck =\s*reconcileRenderModeNavSpinner &&\s*popupSpinnerQueue\.size === 1 &&\s*popupSpinnerQueue\.has\("navInspect"\);/);
+  assert.match(source, /render-mode-nav-curtain-clear/);
+  assert.match(source, /popSpinner\("navInspect"\);/);
 });
 
 test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
