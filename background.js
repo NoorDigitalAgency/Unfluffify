@@ -77,6 +77,199 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "pageDraftChanged"
 ]);
 
+const POPUP_STATE_PORT_PREFIX = "ufPopupState:";
+const tabLifecycleStateByTabId = new Map();
+const tabSpinnerQueueByTabId = new Map();
+const popupStatePortsByTabId = new Map();
+
+function normalizeBrokerTabId(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+}
+
+function getMessageTabId(message, sender) {
+  return normalizeBrokerTabId(message && message.tabId) ||
+    normalizeBrokerTabId(sender && sender.tab && sender.tab.id);
+}
+
+function getSpinnerQueueForTab(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return null;
+  }
+  if (!tabSpinnerQueueByTabId.has(normalizedTabId)) {
+    tabSpinnerQueueByTabId.set(normalizedTabId, new Map());
+  }
+  return tabSpinnerQueueByTabId.get(normalizedTabId);
+}
+
+function serializeSpinnerQueue(tabId) {
+  const queue = tabSpinnerQueueByTabId.get(tabId);
+  if (!queue || queue.size === 0) {
+    return [];
+  }
+  return [...queue.entries()].map(([key, entry]) => ({
+    key,
+    message: entry && typeof entry.message === "string" ? entry.message : "",
+    persistent: Boolean(entry && entry.persistent),
+    owner: entry && typeof entry.owner === "string" ? entry.owner : ""
+  }));
+}
+
+function buildBrokerState(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  return {
+    ok: Boolean(normalizedTabId),
+    tabId: normalizedTabId,
+    lifecycle: normalizedTabId ? (tabLifecycleStateByTabId.get(normalizedTabId) || null) : null,
+    spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : []
+  };
+}
+
+function broadcastBrokerState(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return;
+  }
+  const ports = popupStatePortsByTabId.get(normalizedTabId);
+  if (!ports || ports.size === 0) {
+    return;
+  }
+  const state = buildBrokerState(normalizedTabId);
+  ports.forEach((port) => {
+    try {
+      port.postMessage({ type: "ufBackgroundState", state });
+    } catch {
+      ports.delete(port);
+    }
+  });
+}
+
+function updateLifecycleState(tabId, event = {}) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !event || typeof event !== "object") {
+    return buildBrokerState(normalizedTabId);
+  }
+  const previous = tabLifecycleStateByTabId.get(normalizedTabId) || {};
+  const eventOperationId = typeof event.operationId === "string" && event.operationId
+    ? event.operationId
+    : "";
+  const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
+  const isTerminalEvent = eventPhase === "finished" || eventPhase === "failed";
+  if (
+    eventOperationId &&
+    previous.operationId &&
+    eventOperationId !== previous.operationId &&
+    isTerminalEvent
+  ) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const operationId = eventOperationId
+    ? event.operationId
+    : previous.operationId || `lifecycle:${normalizedTabId}:${Date.now()}`;
+  const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
+  const next = {
+    ...previous,
+    ...event,
+    operationId,
+    kind: typeof event.kind === "string" && event.kind ? event.kind : previous.kind || "unknown",
+    phase: eventPhase || previous.phase || "unknown",
+    message: typeof event.message === "string" ? event.message : previous.message || "",
+    busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy),
+    updatedAt: Date.now()
+  };
+  tabLifecycleStateByTabId.set(normalizedTabId, next);
+  broadcastBrokerState(normalizedTabId);
+  return buildBrokerState(normalizedTabId);
+}
+
+function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !key) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const queue = getSpinnerQueueForTab(normalizedTabId);
+  queue.set(String(key), {
+    message: typeof entry.message === "string" ? entry.message : "",
+    persistent: Boolean(entry.persistent),
+    owner: typeof entry.owner === "string" ? entry.owner : "popup"
+  });
+  broadcastBrokerState(normalizedTabId);
+  return buildBrokerState(normalizedTabId);
+}
+
+function removeBackgroundSpinnerEntry(tabId, key) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !key) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const queue = getSpinnerQueueForTab(normalizedTabId);
+  queue.delete(String(key));
+  if (queue.size === 0) {
+    tabSpinnerQueueByTabId.delete(normalizedTabId);
+  }
+  broadcastBrokerState(normalizedTabId);
+  return buildBrokerState(normalizedTabId);
+}
+
+function clearBackgroundSpinnerQueue(tabId, options = {}) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
+  if (!queue) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const transientOnly = Boolean(options.transientOnly);
+  if (transientOnly) {
+    [...queue.entries()].forEach(([key, entry]) => {
+      if (!entry || !entry.persistent) {
+        queue.delete(key);
+      }
+    });
+    if (queue.size === 0) {
+      tabSpinnerQueueByTabId.delete(normalizedTabId);
+    }
+  } else {
+    tabSpinnerQueueByTabId.delete(normalizedTabId);
+  }
+  broadcastBrokerState(normalizedTabId);
+  return buildBrokerState(normalizedTabId);
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || typeof port.name !== "string" || !port.name.startsWith(POPUP_STATE_PORT_PREFIX)) {
+    return;
+  }
+  const tabId = normalizeBrokerTabId(port.name.slice(POPUP_STATE_PORT_PREFIX.length));
+  if (!tabId) {
+    try {
+      port.disconnect();
+    } catch {
+      // Ignore invalid popup state ports.
+    }
+    return;
+  }
+  if (!popupStatePortsByTabId.has(tabId)) {
+    popupStatePortsByTabId.set(tabId, new Set());
+  }
+  const ports = popupStatePortsByTabId.get(tabId);
+  ports.add(port);
+  try {
+    port.postMessage({ type: "ufBackgroundState", state: buildBrokerState(tabId) });
+  } catch {
+    ports.delete(port);
+  }
+  port.onDisconnect.addListener(() => {
+    ports.delete(port);
+    if (ports.size === 0) {
+      popupStatePortsByTabId.delete(tabId);
+      clearBackgroundSpinnerQueue(tabId, { transientOnly: true });
+    }
+  });
+});
+
 initRemoteSupportBackground();
 initPropertyLockBackground();
 installExtensionTelemetry({
@@ -217,6 +410,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false });
       });
     return true;
+  }
+
+  if (message.type === "ufLifecycleEvent") {
+    const tabId = getMessageTabId(message, sender);
+    const state = updateLifecycleState(tabId, message.event || {});
+    sendResponse(state);
+    return;
+  }
+
+  if (message.type === "getUfBackgroundState") {
+    sendResponse(buildBrokerState(getMessageTabId(message, sender)));
+    return;
+  }
+
+  if (message.type === "ufSpinnerSet") {
+    sendResponse(setBackgroundSpinnerEntry(
+      getMessageTabId(message, sender),
+      message.key,
+      {
+        message: message.message,
+        persistent: message.persistent,
+        owner: message.owner
+      }
+    ));
+    return;
+  }
+
+  if (message.type === "ufSpinnerRemove") {
+    sendResponse(removeBackgroundSpinnerEntry(getMessageTabId(message, sender), message.key));
+    return;
+  }
+
+  if (message.type === "ufSpinnerClear") {
+    sendResponse(clearBackgroundSpinnerQueue(getMessageTabId(message, sender), {
+      transientOnly: Boolean(message.transientOnly)
+    }));
+    return;
   }
 
   if (message.type === "getTabState") {
@@ -697,6 +927,14 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
   if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
     return;
   }
+  const operationId = `activation:${tabId}:${Date.now()}:${attempt}`;
+  updateLifecycleState(tabId, {
+    operationId,
+    kind: "activation",
+    phase: "started",
+    busy: true,
+    message: "Inspecting page..."
+  });
   chrome.tabs.sendMessage(
     tabId,
     {
@@ -704,12 +942,21 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
       enabled: true,
       baseUrl: tabState.baseUrl,
       pageType: typeof tabState.pageType === "string" ? tabState.pageType : "",
-      performInitialReveal: true
+      performInitialReveal: true,
+      operationId
     },
     (response) => {
       if (chrome.runtime.lastError || !response || response.ok === false) {
         if (attempt < 4 && !(response && response.locked)) {
           setTimeout(() => restoreEnabledStateForTab(tabId, tabState, attempt + 1), 200);
+        } else {
+          updateLifecycleState(tabId, {
+            operationId,
+            kind: "activation",
+            phase: "failed",
+            busy: false,
+            message: ""
+          });
         }
         return;
       }

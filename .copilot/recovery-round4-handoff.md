@@ -204,6 +204,36 @@ Validation:
 
 ---
 
+## Round-6 architecture follow-up (2026-06-05) — event-first lifecycle + background spinner state
+
+Implemented: a background-owned current-state broker for inspection lifecycle and popup
+spinner queue state.
+
+What changed:
+- `background.js` now stores per-tab lifecycle snapshots and spinner queues in memory,
+  exposes `getUfBackgroundState`, accepts `ufLifecycleEvent` and spinner mutations, and
+  broadcasts state to popup ports named `ufPopupState:<tabId>`.
+- Background activation restore creates an operation ID, marks activation busy before
+  sending `setEnabled`, and passes that operation ID into content.
+- `content-main.js` emits lifecycle events for content ready, marking activation
+  started/finished/failed, render-mode inspection started, reveal started/finished,
+  HTML captured, and inspection finished.
+- `popup.js` no longer restores/persists spinner state through `spinnerQueue:<tabId>`
+  session storage. Popup spinners are delegated to background via `ufSpinnerSet`,
+  `ufSpinnerRemove`, and `ufSpinnerClear`, and the UI mirrors background current state.
+- Existing polling/settle checks remain as fallback safeguards, but no longer own the
+  popup spinner source of truth.
+
+Validation:
+- Focused: `node --test tests/lifecycle-broker.test.js tests/popup-marking-refresh.test.js tests/content-activation-order.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 467`, `pass 467`, `fail 0`.
+- Live note: after extension reload, AppleScript-executed JS in the extension popup could
+  render the popup page but did not expose `chrome.runtime` to the executed script, so broker
+  internals could not be queried directly through Apple Events. User/browser validation is
+  still required for the first-run spinner path.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

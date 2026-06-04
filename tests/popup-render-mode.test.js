@@ -110,7 +110,7 @@ test("render mode inspection reload waits for the full explicit inspection follo
   );
   assert.match(
     inspectionBlock,
-    /type: "renderModeInspectionBegin"[\s\S]*?try \{[\s\S]*?const followUpCompleted = await completeRenderModeInspectionReloadFollowUp\(tabId\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);[\s\S]*?\} finally \{[\s\S]*?type: "renderModeInspectionEnd"/
+    /const operationId = `render-mode-inspection:\$\{tabId\}:\$\{Date\.now\(\)\}`;[\s\S]*?type: "renderModeInspectionBegin",[\s\S]*?operationId[\s\S]*?try \{[\s\S]*?const followUpCompleted = await completeRenderModeInspectionReloadFollowUp\(tabId, operationId\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);[\s\S]*?\} finally \{[\s\S]*?type: "renderModeInspectionEnd",[\s\S]*?operationId/
   );
   assert.doesNotMatch(inspectionBlock, /void completeRenderModeInspectionReloadFollowUp/);
   assert.match(

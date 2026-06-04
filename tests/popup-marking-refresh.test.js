@@ -309,9 +309,10 @@ test("popup spinner queue pushSpinner returns key and handles delays correctly",
   assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?uiModule\.setUiBusy\(true/);
   // upsert path updates in-place without re-checking suppressIfActive
   assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
+  assert.match(pushBody, /syncSpinnerEntryToBackground\(effectiveKey\)/);
 });
 
-test("popup spinner pop can clean up orphaned entries for inactive tabs", () => {
+test("popup spinner pop removes entries from the background broker", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const popBody = source.match(
     /function popSpinner\(key\) \{([\s\S]*?)\n\}/
@@ -319,36 +320,42 @@ test("popup spinner pop can clean up orphaned entries for inactive tabs", () => 
 
   assert.match(source, /const popupSpinnerKeyTabIds = new Map\(\);/);
   assert.match(popBody, /const mappedTabId = popupSpinnerKeyTabIds\.get\(key\);/);
-  assert.match(popBody, /if \(!popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?removeSpinnerEntryFromStorage\(mappedTabId, key\)/);
+  assert.match(popBody, /if \(!popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?removeSpinnerEntryFromBackground\(key, mappedTabId\)/);
+  assert.match(popBody, /removeSpinnerEntryFromBackground\(key, mappedTabId \|\| getCurrentPopupTabId\(\)\)/);
 });
 
-test("popup serializes spinner storage operations per tab", () => {
+test("popup delegates spinner queue state to the background broker", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const persistBody = source.match(
-    /async function persistSpinnerQueueToStorage\(tabId, stored = buildSpinnerQueueStorageRecord\(popupSpinnerQueue\)\) \{([\s\S]*?)\n\}/
+  const setBody = source.match(
+    /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
   )[1];
   const clearBody = source.match(
-    /async function clearSpinnerQueueStorage\(tabId\) \{([\s\S]*?)\n\}/
+    /function clearSpinnerQueueInBackground\(tabId = getCurrentPopupTabId\(\), options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(source, /const popupSpinnerStorageQueueByTabId = new Map\(\);/);
-  assert.match(source, /function enqueueSpinnerStorageUpdate\(tabId, operation\) \{/);
-  assert.match(persistBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
-  assert.match(clearBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
+  assert.match(setBody, /type: "ufSpinnerSet"/);
+  assert.match(setBody, /persistent: entry\.persistent/);
+  assert.match(clearBody, /type: "ufSpinnerClear"/);
+  assert.match(clearBody, /transientOnly: Boolean\(options\.transientOnly\)/);
+  assert.doesNotMatch(source, /spinnerQueue:<tabId>/);
+  assert.doesNotMatch(source, /restoreSpinnerQueueFromStorage/);
 });
 
-test("popup restores only persistent spinner queue entries", () => {
+test("popup restores spinner state from background current state", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const restoreBody = source.match(
-    /async function restoreSpinnerQueueFromStorage\(tabId\) \{([\s\S]*?)\n\}\n\nfunction pushSpinner/
+    /async function restoreSpinnerQueueFromBackground\(tabId\) \{([\s\S]*?)\n\}/
+  )[1];
+  const applyBody = source.match(
+    /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(restoreBody, /const restored = \{\};/);
-  assert.match(restoreBody, /if \(!entry\.persistent\) \{[\s\S]*?return;[\s\S]*?\}/);
-  assert.match(restoreBody, /popupSpinnerQueue\.set\(key,[\s\S]*?persistent: Boolean\(entry\.persistent\)/);
-  assert.match(restoreBody, /restored\[key\] = \{ message:[\s\S]*?persistent: true \};/);
-  assert.match(restoreBody, /Object\.keys\(restored\)\.length !== Object\.keys\(stored\)\.length/);
-  assert.match(restoreBody, /utils\.storageRemove\(chrome\.storage\.session, storageKey\)/);
+  assert.match(restoreBody, /type: "getUfBackgroundState"/);
+  assert.match(restoreBody, /applyBackgroundStateSnapshot\(response\)/);
+  assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
+  assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);
+  assert.match(applyBody, /popupSpinnerQueue\.set\(entry\.key/);
+  assert.match(applyBody, /syncUiBusyFromBrokerState\(\);/);
 });
 
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
@@ -409,7 +416,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
   )[1];
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
-  assert.match(onActivatedBlock, /clearSpinnerQueueStorage\(oldTabId\)\.catch\(\(\) => \{\}\);/);
+  assert.match(onActivatedBlock, /clearSpinnerQueueInBackground\(oldTabId, \{ transientOnly: true \}\)\.catch\(\(\) => \{\}\);/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
 });

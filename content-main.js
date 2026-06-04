@@ -188,6 +188,7 @@ let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
+let lifecycleOperationCounter = 0;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -739,6 +740,23 @@ function sendRuntimeMessageSafely(message) {
       }
       return null;
     });
+}
+
+function createLifecycleOperationId(kind) {
+  lifecycleOperationCounter += 1;
+  return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
+}
+
+function emitLifecycleEvent(event = {}) {
+  void sendRuntimeMessageSafely({
+    type: "ufLifecycleEvent",
+    event: {
+      contentMode: state.enabled ? "marking" : "silent",
+      markingEnabled: Boolean(state.enabled),
+      pageUrl: location.href,
+      ...event
+    }
+  });
 }
 
 function forwardPageTelemetryMessage(message) {
@@ -6826,6 +6844,11 @@ export function main() {
     });
     refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
+    emitLifecycleEvent({
+      kind: "content-ready",
+      phase: "finished",
+      message: ""
+    });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -6946,6 +6969,16 @@ export function main() {
           sendResponse({ ok: false, locked: true });
           return;
         }
+        const operationId = typeof message.operationId === "string" && message.operationId
+          ? message.operationId
+          : createLifecycleOperationId("activation");
+        emitLifecycleEvent({
+          operationId,
+          kind: "activation",
+          phase: "started",
+          busy: true,
+          message: "Inspecting page..."
+        });
         sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
         state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
         stopSilentHighlightingObserver();
@@ -6959,8 +6992,26 @@ export function main() {
           }
           await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
           refreshEnabledAiHighlights();
+          emitLifecycleEvent({
+            operationId,
+            kind: "activation",
+            phase: "finished",
+            busy: false,
+            message: "",
+            contentMode: state.enabled ? "marking" : "silent",
+            markingEnabled: Boolean(state.enabled)
+          });
           sendResponse({ ok: true });
         })().catch(() => {
+          emitLifecycleEvent({
+            operationId,
+            kind: "activation",
+            phase: "failed",
+            busy: false,
+            message: "",
+            contentMode: state.enabled ? "marking" : "silent",
+            markingEnabled: Boolean(state.enabled)
+          });
           sendResponse({ ok: false });
         });
         return true;
@@ -6968,6 +7019,15 @@ export function main() {
       state.currentPageType = "";
       clearAiPreviewState();
       core.disable();
+      emitLifecycleEvent({
+        operationId: createLifecycleOperationId("mode"),
+        kind: "mode",
+        phase: "finished",
+        busy: false,
+        message: "",
+        contentMode: "silent",
+        markingEnabled: false
+      });
       refreshSilentHighlightings().then(() => {
         sendResponse({ ok: true });
       });
@@ -7010,18 +7070,37 @@ export function main() {
     if (message.type === "renderModeInspectionBegin") {
       setRenderModeInspectionActive(true);
       cancelSilentHighlightEditorActivation();
+      emitLifecycleEvent({
+        operationId: typeof message.operationId === "string" && message.operationId
+          ? message.operationId
+          : createLifecycleOperationId("render-mode-inspection"),
+        kind: "render-mode-inspection",
+        phase: "started",
+        busy: true,
+        message: "Inspecting page..."
+      });
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "runRenderModeRevealOnce") {
       (async () => {
+        const operationId = typeof message.operationId === "string" && message.operationId
+          ? message.operationId
+          : createLifecycleOperationId("render-mode-inspection");
         setRenderModeInspectionActive(true);
         cancelSilentHighlightEditorActivation();
         const pageUrl = location.href;
         const baseUrl = message.baseUrl || await resolveBaseUrlForCurrentPage();
         if (!baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
           core.finishPageInspectionUi();
+          emitLifecycleEvent({
+            operationId,
+            kind: "render-mode-inspection",
+            phase: "failed",
+            busy: false,
+            message: ""
+          });
           sendResponse({ ok: false });
           return;
         }
@@ -7032,6 +7111,13 @@ export function main() {
           silentHighlightEditorRevealInFlight === revealId &&
           location.href === pageUrl &&
           utils.isPageWithinBaseUrl(location.href, baseUrl);
+        emitLifecycleEvent({
+          operationId,
+          kind: "render-mode-inspection",
+          phase: "reveal-started",
+          busy: true,
+          message: "Inspecting page..."
+        });
         const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
           baseUrl,
           pageUrl,
@@ -7040,9 +7126,23 @@ export function main() {
         );
         if (!prepared || !isStillCurrent()) {
           core.finishPageInspectionUi();
+          emitLifecycleEvent({
+            operationId,
+            kind: "render-mode-inspection",
+            phase: "failed",
+            busy: false,
+            message: ""
+          });
           sendResponse({ ok: false });
           return;
         }
+        emitLifecycleEvent({
+          operationId,
+          kind: "render-mode-inspection",
+          phase: "reveal-finished",
+          busy: true,
+          message: "Inspecting page..."
+        });
         sendResponse({ ok: true, pageUrl });
       })().catch(() => {
         core.finishPageInspectionUi();
@@ -7053,9 +7153,19 @@ export function main() {
 
     if (message.type === "captureRenderModeInspectionHtml") {
       (async () => {
+        const operationId = typeof message.operationId === "string" && message.operationId
+          ? message.operationId
+          : createLifecycleOperationId("render-mode-inspection");
         const snapshot = createCurrentPageSnapshot();
         const rawHtml = await fetchCurrentPageRawHtml(location.href);
         core.finishPageInspectionUi();
+        emitLifecycleEvent({
+          operationId,
+          kind: "render-mode-inspection",
+          phase: "html-captured",
+          busy: true,
+          message: "Inspecting page..."
+        });
         sendResponse({
           ok: Boolean(snapshot && snapshot.renderedHtml && typeof rawHtml === "string"),
           pageUrl: location.href,
@@ -7071,6 +7181,9 @@ export function main() {
     }
 
     if (message.type === "renderModeInspectionEnd") {
+      const operationId = typeof message.operationId === "string" && message.operationId
+        ? message.operationId
+        : createLifecycleOperationId("render-mode-inspection");
       setRenderModeInspectionActive(false);
       if (silentHighlightEditorRevealInFlight) {
         silentHighlightEditorRevealInFlight = 0;
@@ -7080,6 +7193,13 @@ export function main() {
         updatePropertyLockBannerMode();
         renderPropertyLockBanner();
       }
+      emitLifecycleEvent({
+        operationId,
+        kind: "render-mode-inspection",
+        phase: "finished",
+        busy: false,
+        message: ""
+      });
       sendResponse({ ok: true });
       return;
     }

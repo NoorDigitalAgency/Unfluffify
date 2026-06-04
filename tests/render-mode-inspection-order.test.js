@@ -23,12 +23,15 @@ test("render mode reload begins inspection before reload and always clears it", 
 
   const beginIndex = block.indexOf('type: "renderModeInspectionBegin"');
   const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled)");
-  const followUpIndex = block.indexOf("const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId)");
+  const followUpIndex = block.indexOf("const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId, operationId)");
   const refreshIndex = block.indexOf("await refreshUi({ useBusyOverlay: false })", followUpIndex);
   const finallyIndex = block.indexOf("} finally {");
   const endIndex = block.indexOf('type: "renderModeInspectionEnd"', finallyIndex);
+  const operationIdIndex = block.indexOf("const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;");
 
+  assert.ok(operationIdIndex > -1);
   assert.ok(beginIndex > -1);
+  assert.ok(beginIndex > operationIdIndex);
   assert.ok(reloadIndex > beginIndex);
   assert.ok(followUpIndex > reloadIndex);
   assert.ok(refreshIndex > followUpIndex);

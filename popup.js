@@ -658,13 +658,14 @@ mutation updateScrapingConditions(
 `;
 const popupSpinnerQueue = new Map();
 const popupSpinnerKeyTabIds = new Map();
-const popupSpinnerStorageQueueByTabId = new Map();
 let popupSpinnerVisible = false;
 let popupSpinnerTimer = 0;
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
+let popupBackgroundStatePort = null;
+let popupBackgroundLifecycle = null;
 let propertyPageTypesRequest = null;
 let remoteSupportPopupMediaChannel = null;
 let remoteSupportDockPiPWindow = null;
@@ -716,132 +717,156 @@ function logPopupSpinnerDebug(eventName, details = {}) {
   }
 }
 
-function enqueueSpinnerStorageUpdate(tabId, operation) {
-  if (!tabId || typeof operation !== "function") {
-    return Promise.resolve();
-  }
-  const previous = popupSpinnerStorageQueueByTabId.get(tabId) || Promise.resolve();
-  const current = previous
-    .catch(() => {})
-    .then(() => operation());
-  popupSpinnerStorageQueueByTabId.set(tabId, current);
-  current.finally(() => {
-    if (popupSpinnerStorageQueueByTabId.get(tabId) === current) {
-      popupSpinnerStorageQueueByTabId.delete(tabId);
-    }
-  }).catch(() => {});
-  return current;
+function getCurrentPopupTabId() {
+  return state.currentTab && Number.isFinite(state.currentTab.id)
+    ? Math.trunc(state.currentTab.id)
+    : null;
 }
 
-function buildSpinnerQueueStorageRecord(queue, options = {}) {
-  const { persistentOnly = false } = options;
-  const stored = {};
-  queue.forEach((entry, key) => {
-    if (!entry || typeof entry !== "object") {
-      return;
-    }
-    if (persistentOnly && !entry.persistent) {
-      return;
-    }
-    stored[key] = { message: entry.message, persistent: entry.persistent };
-  });
-  return stored;
-}
-
-async function persistSpinnerQueueToStorage(tabId, stored = buildSpinnerQueueStorageRecord(popupSpinnerQueue)) {
-  if (!tabId) {
-    return;
-  }
-  const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
-  try {
-    await enqueueSpinnerStorageUpdate(tabId, () =>
-      utils.storageSet(chrome.storage.session, { [storageKey]: stored })
-    );
-  } catch {
-    // Non-fatal; spinner queue persistence is best-effort.
-  }
-}
-
-async function clearSpinnerQueueStorage(tabId) {
-  if (!tabId) {
-    return;
-  }
-  try {
-    await enqueueSpinnerStorageUpdate(tabId, () =>
-      utils.storageRemove(
-        chrome.storage.session,
-        `${constants.SPINNER_QUEUE_PREFIX}${tabId}`
-      )
-    );
-  } catch {
-    // Non-fatal.
-  }
-}
-
-async function removeSpinnerEntryFromStorage(tabId, key) {
-  if (!tabId || !key) {
-    return;
-  }
-  const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
-  try {
-    await enqueueSpinnerStorageUpdate(tabId, async () => {
-      const result = await utils.storageGet(chrome.storage.session, storageKey);
-      const stored = (result && result[storageKey] && typeof result[storageKey] === "object")
-        ? result[storageKey]
-        : {};
-      if (!Object.prototype.hasOwnProperty.call(stored, key)) {
-        return;
-      }
-      delete stored[key];
-      if (Object.keys(stored).length > 0) {
-        await utils.storageSet(chrome.storage.session, { [storageKey]: stored });
-      } else {
-        await utils.storageRemove(chrome.storage.session, storageKey);
-      }
-    });
-  } catch {
-    // Non-fatal.
-  }
-}
-
-async function restoreSpinnerQueueFromStorage(tabId) {
-  if (!tabId) {
-    return;
-  }
-  const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
-  try {
-    const result = await utils.storageGet(chrome.storage.session, storageKey);
-    const stored = (result && result[storageKey] && typeof result[storageKey] === "object")
-      ? result[storageKey]
-      : {};
-    const restored = {};
-    Object.entries(stored).forEach(([key, entry]) => {
-      if (!entry || typeof entry !== "object") {
-        return;
-      }
-      if (!entry.persistent) {
-        return;
-      }
-      popupSpinnerQueue.set(key, {
-        message: typeof entry.message === "string" ? entry.message : "",
-        persistent: Boolean(entry.persistent)
-      });
-      popupSpinnerKeyTabIds.set(key, tabId);
-      restored[key] = { message: typeof entry.message === "string" ? entry.message : "", persistent: true };
-    });
-    if (Object.keys(restored).length !== Object.keys(stored).length) {
-      if (Object.keys(restored).length > 0) {
-        await utils.storageSet(chrome.storage.session, { [storageKey]: restored });
-      } else {
-        await utils.storageRemove(chrome.storage.session, storageKey);
-      }
-    }
-  } catch {
-    // Non-fatal.
-  }
+function syncUiBusyFromBrokerState() {
   if (popupSpinnerQueue.size > 0) {
     popupSpinnerVisible = true;
     uiModule.setUiBusy(true, currentSpinnerMessage());
+    return;
+  }
+  const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
+  if (lifecycleBusy) {
+    popupSpinnerVisible = false;
+    uiModule.setUiBusy(true, popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait);
+    return;
+  }
+  popupSpinnerVisible = false;
+  uiModule.setUiBusy(false);
+}
+
+function applyBackgroundStateSnapshot(snapshot) {
+  if (!snapshot || !snapshot.ok) {
+    return;
+  }
+  const tabId = getCurrentPopupTabId();
+  if (tabId && snapshot.tabId && Math.trunc(snapshot.tabId) !== tabId) {
+    return;
+  }
+  popupBackgroundLifecycle = snapshot.lifecycle || null;
+  popupSpinnerQueue.clear();
+  popupSpinnerKeyTabIds.clear();
+  (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
+    if (!entry || typeof entry.key !== "string" || !entry.key) {
+      return;
+    }
+    popupSpinnerQueue.set(entry.key, {
+      message: typeof entry.message === "string" ? entry.message : "",
+      persistent: Boolean(entry.persistent)
+    });
+    if (tabId) {
+      popupSpinnerKeyTabIds.set(entry.key, tabId);
+    }
+  });
+  popupNavigationInspectionOverlayStarted = popupSpinnerQueue.has("navInspect");
+  popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
+  syncUiBusyFromBrokerState();
+}
+
+function sendSpinnerBrokerMessage(message) {
+  const tabId = getCurrentPopupTabId();
+  if (!tabId || !message || typeof message !== "object") {
+    return Promise.resolve(null);
+  }
+  return messages.sendRuntimeMessage({ tabId, owner: "popup", ...message })
+    .then((response) => {
+      if (response && response.ok) {
+        applyBackgroundStateSnapshot(response);
+      }
+      return response;
+    })
+    .catch(() => null);
+}
+
+function syncSpinnerEntryToBackground(key) {
+  const entry = popupSpinnerQueue.get(key);
+  if (!entry) {
+    return Promise.resolve(null);
+  }
+  return sendSpinnerBrokerMessage({
+    type: "ufSpinnerSet",
+    key,
+    message: entry.message,
+    persistent: entry.persistent
+  });
+}
+
+function removeSpinnerEntryFromBackground(key, tabId = getCurrentPopupTabId()) {
+  if (!tabId || !key) {
+    return Promise.resolve(null);
+  }
+  return messages.sendRuntimeMessage({
+    type: "ufSpinnerRemove",
+    tabId,
+    key
+  }).then((response) => {
+    if (response && response.ok) {
+      applyBackgroundStateSnapshot(response);
+    }
+    return response;
+  }).catch(() => null);
+}
+
+function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options = {}) {
+  if (!tabId) {
+    return Promise.resolve(null);
+  }
+  return messages.sendRuntimeMessage({
+    type: "ufSpinnerClear",
+    tabId,
+    transientOnly: Boolean(options.transientOnly)
+  }).then((response) => {
+    if (response && response.ok) {
+      applyBackgroundStateSnapshot(response);
+    }
+    return response;
+  }).catch(() => null);
+}
+
+async function restoreSpinnerQueueFromBackground(tabId) {
+  if (!tabId) {
+    return;
+  }
+  const response = await messages.sendRuntimeMessage({
+    type: "getUfBackgroundState",
+    tabId
+  }).catch(() => null);
+  if (response && response.ok) {
+    applyBackgroundStateSnapshot(response);
+  }
+}
+
+function connectBackgroundStatePort(tabId) {
+  if (!tabId || !chrome.runtime || typeof chrome.runtime.connect !== "function") {
+    return;
+  }
+  if (popupBackgroundStatePort) {
+    try {
+      popupBackgroundStatePort.disconnect();
+    } catch {
+      // Existing port may already be closed.
+    }
+    popupBackgroundStatePort = null;
+  }
+  try {
+    const port = chrome.runtime.connect({ name: `ufPopupState:${tabId}` });
+    popupBackgroundStatePort = port;
+    port.onMessage.addListener((message) => {
+      if (message && message.type === "ufBackgroundState") {
+        applyBackgroundStateSnapshot(message.state);
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      if (popupBackgroundStatePort === port) {
+        popupBackgroundStatePort = null;
+      }
+    });
+  } catch {
+    popupBackgroundStatePort = null;
   }
 }
 
@@ -887,7 +912,7 @@ function pushSpinner(key, message, options = {}) {
     if (tabId) {
       popupSpinnerKeyTabIds.set(effectiveKey, tabId);
     }
-    persistSpinnerQueueToStorage(tabId).catch(() => {});
+    syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
     return effectiveKey;
   }
 
@@ -899,7 +924,7 @@ function pushSpinner(key, message, options = {}) {
   if (popupSpinnerVisible) {
     logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent });
     uiModule.setUiBusy(true, currentSpinnerMessage());
-    persistSpinnerQueueToStorage(tabId).catch(() => {});
+    syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
     return effectiveKey;
   }
 
@@ -912,8 +937,7 @@ function pushSpinner(key, message, options = {}) {
         }
         popupSpinnerVisible = true;
         uiModule.setUiBusy(true, currentSpinnerMessage());
-        const timerTabId = state.currentTab && state.currentTab.id;
-        persistSpinnerQueueToStorage(timerTabId).catch(() => {});
+        syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
       }, delayMs);
     }
     return effectiveKey;
@@ -929,7 +953,7 @@ function pushSpinner(key, message, options = {}) {
   if (tabId) {
     popupSpinnerKeyTabIds.set(effectiveKey, tabId);
   }
-  persistSpinnerQueueToStorage(tabId).catch(() => {});
+  syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
   return effectiveKey;
 }
 
@@ -944,7 +968,7 @@ function setSpinnerMessage(key, message) {
   entry.message = message.trim();
   logPopupSpinnerDebug("set-message", { key, message: entry.message });
   const tabId = state.currentTab && state.currentTab.id;
-  persistSpinnerQueueToStorage(tabId).catch(() => {});
+  syncSpinnerEntryToBackground(key).catch(() => {});
   if (popupSpinnerVisible) {
     const topKey = [...popupSpinnerQueue.keys()].at(-1);
     if (topKey === key) {
@@ -1047,18 +1071,18 @@ function popSpinner(key) {
   if (!popupSpinnerQueue.has(key)) {
     if (mappedTabId) {
       popupSpinnerKeyTabIds.delete(key);
-      removeSpinnerEntryFromStorage(mappedTabId, key).catch(() => {});
+      removeSpinnerEntryFromBackground(key, mappedTabId).catch(() => {});
     }
     return;
   }
   popupSpinnerKeyTabIds.delete(key);
   popupSpinnerQueue.delete(key);
   logPopupSpinnerDebug("pop", { key, mappedTabId });
+  removeSpinnerEntryFromBackground(key, mappedTabId || getCurrentPopupTabId()).catch(() => {});
   if (popupSpinnerQueue.size > 0) {
     if (popupSpinnerVisible) {
       uiModule.setUiBusy(true, currentSpinnerMessage());
-      const tabId = state.currentTab && state.currentTab.id;
-      persistSpinnerQueueToStorage(tabId).catch(() => {});
+      syncUiBusyFromBrokerState();
     }
     return;
   }
@@ -1067,9 +1091,7 @@ function popSpinner(key) {
     popupSpinnerTimer = 0;
   }
   const tabId = state.currentTab && state.currentTab.id;
-  if (tabId) {
-    clearSpinnerQueueStorage(tabId).catch(() => {});
-  }
+  clearSpinnerQueueInBackground(tabId).catch(() => {});
   if (popupSpinnerVisible) {
     popupSpinnerVisible = false;
     logPopupSpinnerDebug("pop:hide", { key, mappedTabId });
@@ -3851,7 +3873,7 @@ async function waitForTabLoadComplete(
   });
 }
 
-async function completeRenderModeInspectionReloadFollowUp(tabId) {
+async function completeRenderModeInspectionReloadFollowUp(tabId, operationId = "") {
   const loadCompleted = await waitForTabLoadComplete(
     tabId,
     RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
@@ -3865,14 +3887,16 @@ async function completeRenderModeInspectionReloadFollowUp(tabId) {
   }
   const revealResponse = await messages.sendTabMessageToTab(tabId, {
     type: "runRenderModeRevealOnce",
-    baseUrl: state.currentBaseUrl
+    baseUrl: state.currentBaseUrl,
+    operationId
   });
   if (!revealResponse || !revealResponse.ok) {
     return false;
   }
   const htmlResponse = await messages.sendTabMessageToTab(tabId, {
     type: "captureRenderModeInspectionHtml",
-    baseUrl: state.currentBaseUrl
+    baseUrl: state.currentBaseUrl,
+    operationId
   });
   if (!htmlResponse || !htmlResponse.ok) {
     return false;
@@ -5695,11 +5719,13 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
     uiModule.showToast(PopupText.renderMode.toastUnavailable);
     return;
   }
+  const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;
 
   await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
     state.renderModeInspectionActive = true;
     await messages.sendTabMessageToTab(tabId, {
-      type: "renderModeInspectionBegin"
+      type: "renderModeInspectionBegin",
+      operationId
     }).catch(() => null);
     try {
       const loadStartPromise = waitForTabLoadStart(
@@ -5714,7 +5740,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
         return;
       }
 
-      const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId);
+      const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId, operationId);
       if (followUpCompleted) {
         await refreshUi({ useBusyOverlay: false });
       }
@@ -5722,7 +5748,8 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
     } finally {
       await ensureContentReadyForRenderModeInspection(tabId).catch(() => false);
       await messages.sendTabMessageToTab(tabId, {
-        type: "renderModeInspectionEnd"
+        type: "renderModeInspectionEnd",
+        operationId
       }).catch(() => null);
       state.renderModeInspectionActive = false;
       uiModule.setViewState(buildPropertyLockViewState());
@@ -8489,7 +8516,8 @@ async function init() {
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
-    await restoreSpinnerQueueFromStorage(initTabId);
+    connectBackgroundStatePort(initTabId);
+    await restoreSpinnerQueueFromBackground(initTabId);
     if (popupSpinnerQueue.has("navInspect")) {
       popupNavigationInspectionOverlayStarted = true;
       popupNavigationInspectionOverlayTabId = initTabId;
@@ -8685,7 +8713,7 @@ async function init() {
     // Remove old-tab spinner storage when switching tabs; the popup keeps only the active tab queue.
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
-      clearSpinnerQueueStorage(oldTabId).catch(() => {});
+      clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
     }
     popupSpinnerQueue.clear();
     if (popupSpinnerTimer) {
@@ -8703,7 +8731,8 @@ async function init() {
     const newTabId = state.currentTab && state.currentTab.id;
     if (newTabId) {
       try {
-        await restoreSpinnerQueueFromStorage(newTabId);
+        connectBackgroundStatePort(newTabId);
+        await restoreSpinnerQueueFromBackground(newTabId);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.
       }
@@ -8777,13 +8806,8 @@ async function init() {
   window.addEventListener("beforeunload", () => {
     clearObserverRemoteConfigRefreshTimer();
     const tabId = state.currentTab && state.currentTab.id;
-    if (tabId && popupSpinnerQueue.size > 0) {
-      const persistedOnly = buildSpinnerQueueStorageRecord(popupSpinnerQueue, { persistentOnly: true });
-      if (Object.keys(persistedOnly).length === 0) {
-        clearSpinnerQueueStorage(tabId).catch(() => {});
-      } else {
-        persistSpinnerQueueToStorage(tabId, persistedOnly).catch(() => {});
-      }
+    if (tabId) {
+      clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
     }
     if (popupSpinnerTimer) {
       window.clearTimeout(popupSpinnerTimer);

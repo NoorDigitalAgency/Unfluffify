@@ -117,6 +117,15 @@ without sending a redundant `setEnabled` message. This prevents stale popup or
 reload-restore state from showing marking controls while the page is actually in
 silent highlighting mode, or the inverse.
 
+Inspection and popup busy state is event-first. Content emits lifecycle events
+to the background broker for content readiness, marking activation, render-mode
+inspection, reveal/freeze progress, HTML capture, finish, and failure. Popup
+spinners are current background state, not session-storage replay: popup-owned
+spinners call background `ufSpinnerSet`/`ufSpinnerRemove`/`ufSpinnerClear`, and
+the popup mirrors `getUfBackgroundState` / `ufPopupState:<tabId>` updates. Polls
+such as `getInspectionStatus` are fallback/diagnostic safeguards, not the
+primary source of spinner truth.
+
 ## Exclusion Categories
 
 ### Immutable Defaults
