@@ -276,20 +276,46 @@ test("popup blocks the interface with a spinner while page inspection is running
   );
 });
 
-test("popup busy overlay begin always returns started=true once depth increments", () => {
+test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const beginBody = source.match(
-    /function beginPopupBusyOverlay\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+  const pushBody = source.match(
+    /function pushSpinner\(key, message, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(
-    beginBody,
-    /if \(popupBusyOverlayVisible\) \{[\s\S]*?uiModule\.setUiBusy\(true, popupBusyOverlayMessage\);[\s\S]*?return true;/
-  );
-  assert.match(
-    beginBody,
-    /if \(delayMs > 0\) \{[\s\S]*?if \(popupBusyOverlayTimer\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?return true;/
-  );
+  // suppressIfActive path returns null when queue is active
+  assert.match(pushBody, /suppressIfActive[\s\S]*?return null;/);
+  // delay path sets timer and returns effectiveKey
+  assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?popupSpinnerTimer[\s\S]*?return effectiveKey;/);
+  // immediate show path sets popupSpinnerVisible and calls setUiBusy
+  assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?uiModule\.setUiBusy\(true/);
+  // upsert path updates in-place without re-checking suppressIfActive
+  assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
+});
+
+test("popup spinner pop can clean up orphaned entries for inactive tabs", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popBody = source.match(
+    /function popSpinner\(key\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(source, /const popupSpinnerKeyTabIds = new Map\(\);/);
+  assert.match(popBody, /const mappedTabId = popupSpinnerKeyTabIds\.get\(key\);/);
+  assert.match(popBody, /if \(!popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?removeSpinnerEntryFromStorage\(mappedTabId, key\)/);
+});
+
+test("popup serializes spinner storage operations per tab", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const persistBody = source.match(
+    /async function persistSpinnerQueueToStorage\(tabId, stored = buildSpinnerQueueStorageRecord\(popupSpinnerQueue\)\) \{([\s\S]*?)\n\}/
+  )[1];
+  const clearBody = source.match(
+    /async function clearSpinnerQueueStorage\(tabId\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(source, /const popupSpinnerStorageQueueByTabId = new Map\(\);/);
+  assert.match(source, /function enqueueSpinnerStorageUpdate\(tabId, operation\) \{/);
+  assert.match(persistBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
+  assert.match(clearBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
 });
 
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
@@ -330,6 +356,18 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /restoreInspectionPending \|\|\s*contentInspectionPending/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
+});
+
+test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const onActivatedBlock = source.match(
+    /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.tabs\.onUpdated/
+  )[1];
+
+  assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
+  assert.match(onActivatedBlock, /clearSpinnerQueueStorage\(oldTabId\)\.catch\(\(\) => \{\}\);/);
+  assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
+  assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
 });
 
 test("session pending is no longer tied to Lynx selector submission state", () => {
