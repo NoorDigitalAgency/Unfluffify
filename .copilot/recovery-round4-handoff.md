@@ -153,6 +153,31 @@ Live validation status:
 
 ---
 
+## Round-5 Stage 5 (2026-06-04) — implemented and live-validated
+
+Implemented: popup marking toggle reconciles to the content script's authoritative mode.
+
+What changed:
+- `getInspectionStatus` now returns `markingEnabled` and `mode` (`"marking"`/`"silent"`).
+- `refreshUiInner()` asks content for mode when the current page/base URL is in scope and,
+  when content mode is known, updates `effectiveTabState`, clears optimistic popup toggle
+  state, and sets `toggleEnabled` from content truth.
+- The reconciliation path writes tab state only; it does not send a redundant `setEnabled`
+  message, so it cannot re-trigger reveal/inspection lifecycle.
+
+Automated validation:
+- Focused: `node --test tests/popup-mode-sync.test.js tests/content-activation-order.test.js tests/popup-marking-refresh.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 461`, `pass 461`, `fail 0`.
+
+Live validation status:
+- Forced divergence by writing persisted tab state as `enabled:true` for
+  `https://unitedspaces.com` while leaving content in silent mode.
+- After popup reload, toggle reconciled to false, marking Save controls were absent,
+  silent controls were visible, and page-side markers showed no marking overlay with motion
+  pause still active for silent/editor posture.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

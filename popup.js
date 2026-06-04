@@ -4443,6 +4443,32 @@ async function refreshUiInner(options = {}) {
       }
     }
   }
+  let contentModeStatus = null;
+  if (currentTabId && tabInScope && state.currentBaseUrl) {
+    contentModeStatus = await messages.sendTabMessageToTab(currentTabId, {
+      type: "getInspectionStatus"
+    }).catch(() => null);
+  }
+  const contentModeKnown = Boolean(
+    contentModeStatus &&
+      contentModeStatus.ok &&
+      typeof contentModeStatus.markingEnabled === "boolean"
+  );
+  if (contentModeKnown) {
+    const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
+    if (contentMarkingEnabled !== Boolean(effectiveTabState.enabled) && currentTabId) {
+      effectiveTabState = {
+        ...effectiveTabState,
+        enabled: contentMarkingEnabled,
+        baseUrl: contentMarkingEnabled
+          ? state.currentBaseUrl || effectiveTabState.baseUrl || ""
+          : effectiveTabState.baseUrl || state.currentBaseUrl || ""
+      };
+      await utils.setTabState(currentTabId, effectiveTabState);
+      clearLastPopupEnabled();
+    }
+    toggleEnabled = contentMarkingEnabled;
+  }
   let isEnabled = toggleEnabled;
   const storedDeviceState = currentTabId
     ? await emulation.reconcileDeviceEmulationState(currentTabId)
@@ -4779,9 +4805,10 @@ async function refreshUiInner(options = {}) {
     baseUrlReady
   );
   let inspectionStatus =
-    markingInspectionInScope || silentInspectionInScope
+    contentModeStatus ||
+    (markingInspectionInScope || silentInspectionInScope
       ? await messages.sendTabMessageToTab(currentTabId, { type: "getInspectionStatus" })
-      : null;
+      : null);
   let contentInspectionPending = Boolean(
     inspectionStatus &&
       inspectionStatus.ok &&

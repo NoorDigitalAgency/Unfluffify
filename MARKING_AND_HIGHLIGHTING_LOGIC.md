@@ -110,6 +110,13 @@ mode must respect that contract: only the current property editor can mutate
 page markings, while locked passive observers may refresh remote state and
 silent-highlighting status without becoming a second source of truth.
 
+The content script is the source of truth for whether the page is in marking
+mode. Popup refreshes must reconcile the toggle and tab state to the content
+`getInspectionStatus.markingEnabled` value when that status is available,
+without sending a redundant `setEnabled` message. This prevents stale popup or
+reload-restore state from showing marking controls while the page is actually in
+silent highlighting mode, or the inverse.
+
 ## Exclusion Categories
 
 ### Immutable Defaults

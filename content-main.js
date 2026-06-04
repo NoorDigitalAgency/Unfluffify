@@ -6997,6 +6997,8 @@ export function main() {
         active: inspectionActive,
         pending: inspectionPending,
         renderModeInspectionActive: isRenderModeInspectionActive(),
+        markingEnabled: Boolean(state.enabled),
+        mode: state.enabled ? "marking" : "silent",
         lockClaimPending,
         pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
