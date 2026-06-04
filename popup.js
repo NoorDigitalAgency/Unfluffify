@@ -3778,7 +3778,38 @@ async function completeRenderModeInspectionReloadFollowUp(tabId) {
     return false;
   }
   await hideConsentForRenderModeInspection(tabId);
+  // The reload tore down the page, so the content script's property-lock port
+  // disconnected and re-claims after re-injection. Reconcile the popup view so it
+  // stops showing "disconnected" once the connection is re-established (#9).
+  await reconcilePropertyLockAfterRenderModeReload();
   return true;
+}
+
+async function reconcilePropertyLockAfterRenderModeReload() {
+  const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
+  if (!siteId) {
+    return;
+  }
+  // Poll the snapshot until the content re-establishes the lock connection (or
+  // attempts run out). INACTIVE means no active lock (nothing to reconnect), so
+  // treat it as settled alongside CONNECTED; keep polling while CONNECTING or
+  // UNAVAILABLE so a transient post-reload disconnect resolves on its own.
+  const maxAttempts = 6;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await refreshPropertyLockSnapshot(siteId).catch(() => null);
+    uiModule.setViewState(buildPropertyLockViewState());
+    const status = state.propertyLockConnectionStatus;
+    if (
+      status === PROPERTY_LOCK_CONNECTION_CONNECTED ||
+      status === PROPERTY_LOCK_CONNECTION_INACTIVE
+    ) {
+      break;
+    }
+    if (attempt + 1 < maxAttempts) {
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+    }
+  }
+  await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
 }
 
 function buildTodoExpansionContextKey(tabId = null, baseUrl = "") {

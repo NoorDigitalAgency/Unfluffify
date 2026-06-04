@@ -186,7 +186,14 @@ so `hasSessionPendingChanges` returns true and Discard lights up.
   `hasSessionPendingChanges` is false → Discard disabled. Coordinate with #4a (this is part
   of the same post-save transition).
 
-### ❌ 9. Property lock shows "disconnected" after each render-mode detection
+### ✅ 9. Property lock shows "disconnected" after each render-mode detection
+FIXED: `completeRenderModeInspectionReloadFollowUp` now calls
+`reconcilePropertyLockAfterRenderModeReload()` after the reload load completes. It polls
+`refreshPropertyLockSnapshot` (up to 6×400ms) until the content re-claims the lock
+(`CONNECTED`, or `INACTIVE` = nothing to reconnect), updates the lock view, then refreshes
+the UI (skipping a redundant fetch). LIVE re-test required.
+
+Prior analysis:
 Render-mode inspection reload (`runRenderModeInspectionReload`, popup.js ~5478) reloads the
 page; the content script re-injects and the property-lock claim/heartbeat is lost, so the
 popup shows disconnected until (if ever) it reconciles.

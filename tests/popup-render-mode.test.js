@@ -124,6 +124,24 @@ test("render mode inspection reload waits only for load start and defers post-re
     followUpBlock,
     /await hideConsentForRenderModeInspection\(tabId\);/
   );
+  // After the reload, the popup reconciles the property lock so it stops showing
+  // "disconnected" once the content re-claims the lock (#9).
+  assert.match(
+    followUpBlock,
+    /await reconcilePropertyLockAfterRenderModeReload\(\);/
+  );
+});
+
+test("the property lock is reconciled (polled until reconnected) after a render-mode reload", () => {
+  const reconcileBlock = extractSourceBlock(
+    popupSource,
+    "async function reconcilePropertyLockAfterRenderModeReload",
+    "function buildTodoExpansionContextKey"
+  );
+  assert.match(reconcileBlock, /refreshPropertyLockSnapshot\(siteId\)/);
+  assert.match(reconcileBlock, /PROPERTY_LOCK_CONNECTION_CONNECTED/);
+  assert.match(reconcileBlock, /PROPERTY_LOCK_CONNECTION_INACTIVE/);
+  assert.match(reconcileBlock, /skipPropertyLockFetch: true/);
 });
 
 test("render mode inspection reload outcome returns the started toast for the chosen javascript mode", () => {
