@@ -1,4 +1,5 @@
 import {
+  hasEstablishedRemoteSupportPeerTransport,
   REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES,
   REMOTE_SUPPORT_DATA_CHANNEL_KEY_DEFAULT,
   REMOTE_SUPPORT_DATA_CHANNEL_LABEL_DEFAULT,
@@ -1423,7 +1424,18 @@ async function connectSignalingSocket(runtime) {
         return;
       }
 
-      handleFatalTransportError(runtime.sessionId, formatTransportError(runtime, "Signaling channel closed"));
+      const closeError = formatTransportError(runtime, "Signaling channel closed");
+      runtime.signalingSocket = null;
+      if (hasEstablishedRemoteSupportPeerTransport(runtime)) {
+        postTransportEvent({
+          type: "transport-error",
+          sessionId: runtime.sessionId,
+          error: closeError
+        });
+        return;
+      }
+
+      handleFatalTransportError(runtime.sessionId, closeError);
     };
   });
 

@@ -3,7 +3,7 @@ import {
   DEVICE_EMULATION_PRESETS,
   DEVICE_SCALE_DEFAULTS
 } from "./constants.js";
-import { storageGet, storageSet, storageRemove } from "./utilities.js";
+import { storageGet, storageSet } from "./utilities.js";
 
 function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";
@@ -278,6 +278,7 @@ export async function updateDeviceEmulation(tabId, updates) {
     ...updates
   };
   const shouldRecalculateScale = Boolean(updates && updates.recalculateScale);
+  delete next.recalculateScale;
   next.mode = normalizeDeviceMode(next.mode);
   next.scale = normalizeDeviceScale(next.scale, next.mode);
 
@@ -305,6 +306,25 @@ export async function updateDeviceEmulation(tabId, updates) {
   return { ok: true, state: next };
 }
 
+export async function ensureDefaultMobileDeviceEmulation(tabId) {
+  if (!tabId) {
+    return { ok: false, error: "Missing tab" };
+  }
+  if (await hasStoredDeviceEmulationState(tabId)) {
+    return {
+      ok: true,
+      state: await reconcileDeviceEmulationState(tabId),
+      alreadyStored: true
+    };
+  }
+  return updateDeviceEmulation(tabId, {
+    enabled: true,
+    mode: "mobile",
+    scale: DEVICE_SCALE_DEFAULTS.mobile,
+    recalculateScale: true
+  });
+}
+
 export function normalizeDeviceEmulationStateForUi(value) {
   return normalizeDeviceEmulationState(value);
 }
@@ -327,7 +347,4 @@ export async function clearDeviceEmulationAfterNavigation(tabId) {
   }
   await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
   await detachDebugger(tabId);
-  // Remove the stored state so subsequent navigations don't needlessly re-clear.
-  const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  await storageRemove(chrome.storage.session, key);
 }

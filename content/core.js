@@ -48,6 +48,8 @@ export const state = {
   toast: null,
   toastHideTimer: 0,
   markingDisabledNotice: null,
+  pageInspectionNotice: null,
+  inspectionBlocker: null,
   altPassThrough: false,
   altHeld: false,
   shiftHeld: false,
@@ -75,6 +77,10 @@ export const state = {
   initialized: false,
   layerBoxes: new WeakMap(),
   cachedCollections: null,
+  cachedCollectionsKey: "",
+  markingSettleTimers: [],
+  paintReachabilityFallbackCount: 0,
+  paintReachabilityFallbackLastLoggedAt: 0,
   elementComputationCacheDepth: 0,
   visibilityCache: null,
   ancestorVisStateCache: null,
@@ -103,6 +109,7 @@ export const state = {
   explicitOverlayRefreshContext: null,
   pageMotionPause: null,
   pageRevealWarmupId: 0,
+  lazyLoadSuppressRestorer: null,
   perfEnabled: null
 };
 
@@ -116,7 +123,8 @@ const TOGGLE_ACK_CLEAR_MS = TOGGLE_ACK_ANIMATION_MS + 20;
 const DEFAULT_SNAPSHOT_SAVE_DELAY_MS = 1000;
 const EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS = 3500;
 const EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS = 350;
-const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 450;
+const EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS = 180;
+const MARKING_MODE_SETTLE_RENDER_DELAYS_MS = [180, 700, 1800];
 const SNAPSHOT_IDLE_TIMEOUT_MS = 5000;
 const PAGE_INTERACTION_KEY = " ";
 const PAGE_INTERACTION_KEY_CODE = "Space";
@@ -163,6 +171,9 @@ const PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT = "init";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED = "setPaused";
+const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "setLazyLoadingSuppressed";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
 const PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons";
 const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff2";
@@ -172,11 +183,40 @@ const PAGE_MOTION_PAUSE_DEFAULT_REASON = "marking";
 const PAGE_MOTION_PAUSE_REFRESH_MS = 250;
 const PAGE_MOTION_PAUSE_MAX_LOCKED_ELEMENTS = 800;
 const PAGE_MOTION_PAUSE_MAX_HOVER_TARGETS = 500;
-const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
-const PAGE_REVEAL_WARMUP_MAX_INTERVALS = 12;
-const PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES = 5;
-const PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES = 2;
-const PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA = 2;
+const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
+const PAGE_INSPECTION_OVERLAY_CLASS = "uf-page-inspection-active";
+const PAGE_INSPECTION_DEFAULT_MAX_SCROLLS = 10;
+const PAGE_INSPECTION_DEFAULT_PAUSE_MS = 1000;
+const PAGE_INSPECTION_LAZY_LOAD_PHASES = 1;
+const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
+const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;
+const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;
+const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;
+const PAGE_INSPECTION_INPUT_EVENTS = [
+  "auxclick",
+  "beforeinput",
+  "click",
+  "contextmenu",
+  "dblclick",
+  "dragstart",
+  "drop",
+  "input",
+  "keydown",
+  "keypress",
+  "keyup",
+  "mousedown",
+  "mouseup",
+  "pointercancel",
+  "pointerdown",
+  "pointermove",
+  "pointerup",
+  "submit",
+  "touchcancel",
+  "touchend",
+  "touchmove",
+  "touchstart",
+  "wheel"
+];
 const PAGE_MOTION_PAUSE_CONTENT_SELECTOR = `html.${PAGE_MOTION_PAUSE_ROOT_CLASS} body ` +
   `:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *)` +
   `:not([id^="unfluffify-"]):not([id^="unfluffify-"] *)`;
@@ -185,6 +225,10 @@ const PAGE_MOTION_REVEAL_DESCRIPTOR_RE = /(^|[-_\s:])(aos|appear|appearance|anim
 const PAGE_MOTION_REVEAL_EXCLUDED_DESCRIPTOR_RE = /accordion|backdrop|carousel|collapse|dialog|drawer|dropdown|lightbox|marquee|menu|modal|offcanvas|overlay|popover|slider|slideshow|tab|tabpanel|ticker|toast|tooltip/i;
 const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data-w-id"]);
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
+let pageMotionFreezeScriptLoaded = false;
+let pageMotionFreezeBridgeInitialized = false;
+let pageMotionFreezePendingPaused = null;
+let pageMotionFreezePendingLazyLoadingSuppressed = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -224,10 +268,12 @@ const EXTENSION_SNAPSHOT_ROOT_CLASSES = [
   "uf-cursor-include",
   "uf-cursor-passthrough",
   MARKING_DISABLED_CURSOR_CLASS,
+  PAGE_INSPECTION_OVERLAY_CLASS,
   PAGE_MOTION_PAUSE_ROOT_CLASS
 ];
 const AI_PREVIEW_FOCUS_CLASS = "uf-ai-preview-focus-target";
 const AI_PREVIEW_FOCUS_STYLE_ID = "unfluffify-ai-preview-focus-style";
+const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 
 const capturedExtensionTimers = (() => {
   const root = typeof window !== "undefined" ? window : globalThis;
@@ -495,6 +541,36 @@ function getEntryFingerprint(entry) {
   );
 }
 
+function getSelectorSetFingerprint(selectorSet) {
+  const normalized = normalizeAiSelectorSet(selectorSet);
+  if (combineAiSelectorSet(normalized).length === 0) {
+    return "";
+  }
+  return JSON.stringify(normalized);
+}
+
+function buildMarkingCollectionsCacheKey({ pageUrl = "", selectorSet = null, entry = null } = {}) {
+  const entryFingerprint = getEntryFingerprint(entry);
+  return [
+    pageUrl,
+    getSelectorSetFingerprint(selectorSet),
+    ...entryFingerprint
+  ].join("\u001f");
+}
+
+function resolveMarkingSelectorContext(configValue, entry = null) {
+  const selectorSet = config.getNewestConfigSelectorSet(configValue).selectorSet;
+  const hasAiSelectors = combineAiSelectorSet(selectorSet).length > 0;
+  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
+    ? entry.selectorSuppressedXpaths
+    : [];
+  return {
+    selectorSet,
+    hasAiSelectors,
+    selectorSuppressedXpaths
+  };
+}
+
 function isClippedByOverflow(el) {
   if (!el || el.nodeType !== 1) {
     return false;
@@ -755,9 +831,6 @@ function isElementInHitPath(target, element) {
   if (target === element) {
     return true;
   }
-  if (typeof target.contains === "function" && target.contains(element)) {
-    return true;
-  }
   if (typeof element.contains === "function" && element.contains(target)) {
     return true;
   }
@@ -801,18 +874,59 @@ function getPaintReachabilityForRect(el, rect) {
       continue;
     }
     sawPageHit = true;
-    if (isElementInHitPath(elementsAtPoint[0], el)) {
+    if (elementsAtPoint.some((hit) => isElementInHitPath(hit, el))) {
       return true;
     }
   }
   return sawPageHit ? false : null;
 }
 
+function reportPaintReachabilityFallback(el, rectCount) {
+  state.paintReachabilityFallbackCount += 1;
+  if (!isTogglePerfEnabled()) {
+    return;
+  }
+  const now = Date.now();
+  const count = state.paintReachabilityFallbackCount;
+  const shouldLog =
+    count <= 3 ||
+    count % 25 === 0 ||
+    now - state.paintReachabilityFallbackLastLoggedAt >= 5000;
+  if (!shouldLog) {
+    return;
+  }
+  state.paintReachabilityFallbackLastLoggedAt = now;
+  logTogglePerf("render.reachability-fallback", nowMs(), {
+    count,
+    rectCount,
+    tag: el && el.nodeType === 1 ? el.tagName : "",
+    className: el && el.nodeType === 1 && typeof el.className === "string"
+      ? el.className.slice(0, 120)
+      : "",
+    pageUrl: typeof location !== "undefined" ? location.href : ""
+  });
+}
+
 function filterPaintReachableRects(el, rects) {
   if (!Array.isArray(rects) || rects.length === 0) {
     return [];
   }
-  return rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
+  const reachableRects = rects.filter((rect) => getPaintReachabilityForRect(el, rect) !== false);
+  if (reachableRects.length > 0) {
+    return reachableRects;
+  }
+  // Guard against hit-testing false negatives on complex masks/sliders where
+  // the target can be visible but not top-most at sampled points.
+  if (
+    el &&
+    el.nodeType === 1 &&
+    isVisible(el) &&
+    !isDefinitelyHiddenSubtreeElement(el)
+  ) {
+    reportPaintReachabilityFallback(el, rects.length);
+    return rects;
+  }
+  return reachableRects;
 }
 
 function isPaintReachableInCurrentViewport(el) {
@@ -3374,7 +3488,7 @@ function getMaterialDesignIconFontFaceCss() {
   `;
 }
 
-function getViewportHeightForRevealWarmup() {
+function getViewportHeightForPageInspection() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
   }
@@ -3386,15 +3500,11 @@ function getViewportHeightForRevealWarmup() {
   ]);
 }
 
-function getMaxScrollYForRevealWarmup() {
+function getDocumentScrollHeightForPageInspection() {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
   }
-  const viewportHeight = getViewportHeightForRevealWarmup();
-  if (!viewportHeight) {
-    return 0;
-  }
-  const documentHeight = getPositiveFiniteMax([
+  return getPositiveFiniteMax([
     document.documentElement?.scrollHeight,
     document.body?.scrollHeight,
     document.documentElement?.offsetHeight,
@@ -3402,46 +3512,18 @@ function getMaxScrollYForRevealWarmup() {
     document.documentElement?.clientHeight,
     document.body?.clientHeight
   ]);
+}
+
+function getMaxScrollYForPageInspection() {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return 0;
+  }
+  const viewportHeight = getViewportHeightForPageInspection();
+  if (!viewportHeight) {
+    return 0;
+  }
+  const documentHeight = getDocumentScrollHeightForPageInspection();
   return Math.max(0, Math.round(documentHeight - viewportHeight));
-}
-
-function createPageRevealWarmupScrollPositions() {
-  const maxScrollY = getMaxScrollYForRevealWarmup();
-  if (maxScrollY <= PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-    return [];
-  }
-  const viewportHeight = getViewportHeightForRevealWarmup();
-  const preferredStep = Math.max(320, Math.round(viewportHeight * 0.85));
-  const intervals = Math.min(
-    PAGE_REVEAL_WARMUP_MAX_INTERVALS,
-    Math.max(1, Math.ceil(maxScrollY / preferredStep))
-  );
-  const positions = [];
-  for (let index = 0; index <= intervals; index += 1) {
-    const position = Math.round((maxScrollY * index) / intervals);
-    if (positions.length === 0 || Math.abs(positions[positions.length - 1] - position) > PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-      positions.push(position);
-    }
-  }
-  if (Math.abs(positions[positions.length - 1] - maxScrollY) > PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-    positions.push(maxScrollY);
-  }
-  return positions;
-}
-
-function extendPageRevealWarmupScrollPositions(existingPositions) {
-  const nextPositions = createPageRevealWarmupScrollPositions();
-  if (!nextPositions.length) {
-    return existingPositions || [];
-  }
-  const positions = Array.isArray(existingPositions) ? existingPositions : [];
-  const previousMaxPosition = getPositiveFiniteMax(positions);
-  for (const position of nextPositions) {
-    if (position > previousMaxPosition + PAGE_REVEAL_WARMUP_MIN_SCROLL_DELTA) {
-      positions.push(position);
-    }
-  }
-  return positions;
 }
 
 function scrollWindowInstantlyTo(x, y) {
@@ -3469,12 +3551,12 @@ function scrollWindowInstantlyTo(x, y) {
   }
 }
 
-function ensurePageRevealWarmupStyle() {
+function ensurePageInspectionStyle() {
   if (typeof document === "undefined") {
     return null;
   }
   const existing = typeof document.getElementById === "function"
-    ? document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID)
+    ? document.getElementById(PAGE_INSPECTION_STYLE_ID)
     : null;
   if (existing) {
     return existing;
@@ -3483,14 +3565,14 @@ function ensurePageRevealWarmupStyle() {
     return null;
   }
   const style = document.createElement("style");
-  style.id = PAGE_REVEAL_WARMUP_STYLE_ID;
+  style.id = PAGE_INSPECTION_STYLE_ID;
   if (typeof style.setAttribute === "function") {
     style.setAttribute("data-uf-extension-ui", "true");
   }
   style.textContent = `
-    html,
-    body {
-      scroll-behavior: auto !important;
+    html.${PAGE_INSPECTION_OVERLAY_CLASS},
+    html.${PAGE_INSPECTION_OVERLAY_CLASS} * {
+      cursor: progress !important;
     }
   `;
   const parent = document.head || document.documentElement || document.body;
@@ -3500,88 +3582,301 @@ function ensurePageRevealWarmupStyle() {
   return style;
 }
 
-function removePageRevealWarmupStyle() {
+function removePageInspectionStyle() {
   const style = typeof document !== "undefined" && typeof document.getElementById === "function"
-    ? document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID)
+    ? document.getElementById(PAGE_INSPECTION_STYLE_ID)
     : null;
   if (style && typeof style.remove === "function") {
     style.remove();
   }
 }
 
-function waitForPageRevealWarmupFrame() {
+function waitForPageInspectionDelay(ms, isStillCurrent = () => true) {
+  const delay = Math.max(0, Math.trunc(Number(ms) || 0));
+  if (delay === 0 || !isStillCurrent()) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
-    extensionRequestAnimationFrame(() => resolve());
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!isStillCurrent()) {
+        resolve();
+        return;
+      }
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= delay) {
+        resolve();
+        return;
+      }
+      extensionSetTimeout(tick, Math.min(100, delay - elapsed));
+    };
+    extensionSetTimeout(tick, Math.min(100, delay));
   });
 }
 
-function getPageRevealWarmupSettleSignature() {
-  return [
-    Math.round(getWindowScrollOffset().y),
-    Math.round(getViewportHeightForRevealWarmup()),
-    Math.round(getMaxScrollYForRevealWarmup()),
-    Math.round(getPositiveFiniteMax([
-      document.documentElement?.scrollHeight,
-      document.body?.scrollHeight
-    ]))
-  ].join(":");
+function normalizePageInspectionScrollDirection(value) {
+  const direction = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return direction === "top" || direction === "bottom" || direction === "both"
+    ? direction
+    : "both";
 }
 
-async function waitForPageRevealWarmupSettle(isStillCurrent) {
-  let stableFrames = 0;
-  let previousSignature = "";
-  for (let frame = 0; frame < PAGE_REVEAL_WARMUP_MAX_SETTLE_FRAMES; frame += 1) {
-    await waitForPageRevealWarmupFrame();
-    if (!isStillCurrent()) {
-      return;
-    }
-    const signature = getPageRevealWarmupSettleSignature();
-    if (signature === previousSignature) {
-      stableFrames += 1;
-      if (stableFrames >= PAGE_REVEAL_WARMUP_REQUIRED_STABLE_FRAMES) {
+function waitForPageInspectionScrollEnd(isStillCurrent, options = {}) {
+  const timeout = Math.max(
+    0,
+    Math.trunc(
+      options.scrollEndTimeoutMs === undefined
+        ? PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS
+        : Number(options.scrollEndTimeoutMs) || 0
+    )
+  );
+  if (timeout === 0 || !isStillCurrent()) {
+    return Promise.resolve();
+  }
+  const settleMs = Math.max(
+    0,
+    Math.trunc(
+      options.scrollSettleMs === undefined
+        ? PAGE_INSPECTION_SCROLL_SETTLE_MS
+        : Number(options.scrollSettleMs) || 0
+    )
+  );
+  const targetY = Number.isFinite(options.targetY) ? Number(options.targetY) : null;
+  return new Promise((resolve) => {
+    let resolved = false;
+    let timeoutHandle = 0;
+    let rafHandle = 0;
+    let lastScrollY = Number(window.scrollY) || 0;
+    let lastMovementAt = Date.now();
+    const finish = () => {
+      if (resolved) {
         return;
       }
-    } else {
-      previousSignature = signature;
-      stableFrames = 0;
-    }
-  }
+      resolved = true;
+      if (rafHandle) {
+        extensionCancelAnimationFrame(rafHandle);
+        rafHandle = 0;
+      }
+      window.removeEventListener("scrollend", onScrollEnd);
+      window.removeEventListener("scroll", onScroll);
+      if (timeoutHandle) {
+        extensionClearTimeout(timeoutHandle);
+        timeoutHandle = 0;
+      }
+      resolve();
+    };
+    const updateMovement = () => {
+      const currentScrollY = Number(window.scrollY) || 0;
+      if (Math.abs(currentScrollY - lastScrollY) > PAGE_INSPECTION_SCROLL_TOLERANCE_PX) {
+        lastScrollY = currentScrollY;
+        lastMovementAt = Date.now();
+      }
+    };
+    const isNearTarget = () => {
+      if (targetY === null) {
+        return true;
+      }
+      const currentScrollY = Number(window.scrollY) || 0;
+      return Math.abs(currentScrollY - targetY) <= PAGE_INSPECTION_SCROLL_TOLERANCE_PX;
+    };
+    const hasSettled = () => Date.now() - lastMovementAt >= settleMs;
+    const pollUntilSettled = () => {
+      if (!isStillCurrent()) {
+        finish();
+        return;
+      }
+      updateMovement();
+      if (hasSettled() && isNearTarget()) {
+        finish();
+        return;
+      }
+      rafHandle = extensionRequestAnimationFrame(pollUntilSettled);
+    };
+    const onScrollEnd = () => {
+      if (!isStillCurrent()) {
+        finish();
+        return;
+      }
+      updateMovement();
+      if (hasSettled() && isNearTarget()) {
+        finish();
+      }
+    };
+    const onScroll = () => {
+      updateMovement();
+    };
+    window.addEventListener("scroll", onScroll);
+    window.addEventListener("scrollend", onScrollEnd);
+    rafHandle = extensionRequestAnimationFrame(pollUntilSettled);
+    timeoutHandle = extensionSetTimeout(finish, timeout);
+  });
 }
 
-export async function warmPageRevealTriggersBeforeMotionPause(isStillCurrent = () => true) {
+function getPageInspectionScrollHeight() {
+  if (typeof document === "undefined") {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.round(
+      Math.max(
+        Number(document.documentElement?.scrollHeight) || 0,
+        Number(document.body?.scrollHeight) || 0
+      )
+    )
+  );
+}
+
+function isPageInspectionAtBottom() {
+  const doc = typeof document !== "undefined" ? document.documentElement : null;
+  if (!doc || typeof window === "undefined") {
+    return true;
+  }
+  const currentY = window.scrollY || 0;
+  const viewportHeight = window.innerHeight || doc.clientHeight || 0;
+  const scrollHeight = getPageInspectionScrollHeight();
+  if (scrollHeight <= viewportHeight) {
+    return true;
+  }
+  return currentY + viewportHeight >= scrollHeight;
+}
+
+function getPageInspectionScrollTarget(target) {
+  if (target === "end") {
+    const viewportHeight = (
+      window?.innerHeight
+      || (typeof document !== "undefined" ? document.documentElement?.clientHeight : 0)
+    ) || 0;
+    return Math.max(0, getPageInspectionScrollHeight() - viewportHeight);
+  }
+  if (target === "start") {
+    return 0;
+  }
+  return Math.max(0, Math.round(Number(target) || 0));
+}
+
+function suppressPageInspectionLazyLoading() {
+  setPageMotionFreezeLazyLoadingSuppressed(true);
+  return () => {};
+}
+
+async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
+  if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
+    return false;
+  }
+  const targetScrollY = getPageInspectionScrollTarget(target);
+  window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+  await waitForPageInspectionScrollEnd(isStillCurrent, {
+    ...options,
+    targetY: targetScrollY
+  });
+  return true;
+}
+
+export async function revealPageContentBeforeMotionPause(
+  scrollDirection = "both",
+  maximumScrollCount = PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+  pauseMs = PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+  isStillCurrent = () => true,
+  options = {}
+) {
   if (typeof document === "undefined" || typeof window === "undefined" || !isStillCurrent()) {
     return false;
   }
   if (document.visibilityState === "hidden") {
     return false;
   }
-  const positions = createPageRevealWarmupScrollPositions();
-  if (!positions.length) {
-    return false;
-  }
-  const originalScroll = getWindowScrollOffset();
+  const direction = normalizePageInspectionScrollDirection(scrollDirection);
+  const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
+  const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
+  const reservedScrollY = Math.max(0, Math.round(getWindowScrollOffset().y));
   let visited = false;
-  ensurePageRevealWarmupStyle();
+  let lazyLoadRestorer = null;
+  ensurePageInspectionStyle();
   try {
-    for (let index = 0; index < positions.length; index += 1) {
-      const position = positions[index];
-      if (!isStillCurrent()) {
-        break;
+    if (direction === "top") {
+      if (reservedScrollY > 0) {
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
-      if (scrollWindowInstantlyTo(originalScroll.x, position)) {
-        visited = true;
+    }
+    if (direction === "bottom" || direction === "both") {
+      if (direction === "both" && reservedScrollY > 0) {
+        visited = await scrollPageInspectionTo("start", isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
       }
-      await waitForPageRevealWarmupSettle(isStillCurrent);
-      extendPageRevealWarmupScrollPositions(positions);
+      let scrollCount = 0;
+      while (scrollCount < maxScrolls && isStillCurrent()) {
+        if (scrollCount === PAGE_INSPECTION_LAZY_LOAD_PHASES && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
+          lazyLoadRestorer = suppressPageInspectionLazyLoading();
+          state.lazyLoadSuppressRestorer = lazyLoadRestorer;
+        }
+        const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
+        visited = scrolled || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+        if (isPageInspectionAtBottom()) {
+          break;
+        }
+        scrollCount++;
+      }
+      await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      if (direction === "both" && isStillCurrent()) {
+        visited = await scrollPageInspectionTo(reservedScrollY, isStillCurrent, options) || visited;
+        await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+      }
     }
   } finally {
-    scrollWindowInstantlyTo(originalScroll.x, originalScroll.y);
-    removePageRevealWarmupStyle();
-    if (visited && isStillCurrent()) {
-      await waitForPageRevealWarmupSettle(isStillCurrent);
-    }
+    removePageInspectionStyle();
   }
   return visited;
+}
+
+function blockPageInspectionInput(event) {
+  if (!state.inspectionBlocker) {
+    return;
+  }
+  if (event && event.cancelable && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  if (event && typeof event.stopImmediatePropagation === "function") {
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (event && typeof event.stopPropagation === "function") {
+    event.stopPropagation();
+  }
+}
+
+function startPageInspectionInputBlocker() {
+  if (state.inspectionBlocker) {
+    return;
+  }
+  const targets = [window, document].filter((target) =>
+    target && typeof target.addEventListener === "function"
+  );
+  const options = { capture: true, passive: false };
+  for (const target of targets) {
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.addEventListener(eventName, blockPageInspectionInput, options);
+    }
+  }
+  state.inspectionBlocker = { targets, options };
+}
+
+function stopPageInspectionInputBlocker() {
+  const blocker = state.inspectionBlocker;
+  if (!blocker) {
+    return;
+  }
+  for (const target of blocker.targets) {
+    if (!target || typeof target.removeEventListener !== "function") {
+      continue;
+    }
+    for (const eventName of PAGE_INSPECTION_INPUT_EVENTS) {
+      target.removeEventListener(eventName, blockPageInspectionInput, blocker.options);
+    }
+  }
+  state.inspectionBlocker = null;
 }
 
 function ensurePageMotionPauseStyle() {
@@ -3711,6 +4006,21 @@ function setPageMotionPauseClass(paused) {
   }
 }
 
+function setElementClassPresence(element, className, enabled) {
+  if (!element || !element.classList) {
+    return;
+  }
+  if (typeof element.classList.toggle === "function") {
+    element.classList.toggle(className, Boolean(enabled));
+    return;
+  }
+  if (enabled && typeof element.classList.add === "function") {
+    element.classList.add(className);
+  } else if (!enabled && typeof element.classList.remove === "function") {
+    element.classList.remove(className);
+  }
+}
+
 function removePageMotionPauseStyle() {
   const style = typeof document !== "undefined" && typeof document.getElementById === "function"
     ? document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID)
@@ -3729,18 +4039,75 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-function postPageMotionFreezeControl(paused) {
+function postPageMotionFreezeControl(command, details) {
   if (typeof window === "undefined" || typeof window.postMessage !== "function") {
     return;
   }
+  if (typeof command !== "string" || !command) {
+    return;
+  }
   try {
-    window.postMessage({
+    const payload = {
       __unfluffifyPageMotionFreeze: PAGE_MOTION_PAUSE_CONTROL_MARKER,
-      paused: Boolean(paused)
-    }, "*");
+      command
+    };
+    if (typeof details === "boolean") {
+      payload.paused = details;
+    } else if (details && typeof details === "object") {
+      Object.assign(payload, details);
+    }
+    window.postMessage(payload, "*");
   } catch (error) {
     // Ignore pages that reject cross-world control messages.
   }
+}
+
+function ensurePageMotionFreezeBridgeInitialized() {
+  if (pageMotionFreezeBridgeInitialized || !pageMotionFreezeScriptLoaded) {
+    return;
+  }
+  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT);
+  pageMotionFreezeBridgeInitialized = true;
+}
+
+function markPageMotionFreezeScriptLoaded(script) {
+  pageMotionFreezeScriptLoaded = true;
+  if (script && typeof script.setAttribute === "function") {
+    script.setAttribute("data-uf-loaded", "true");
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  if (typeof pageMotionFreezePendingPaused === "boolean") {
+    postPageMotionFreezeControl(
+      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
+      pageMotionFreezePendingPaused
+    );
+    pageMotionFreezePendingPaused = null;
+  }
+  if (typeof pageMotionFreezePendingLazyLoadingSuppressed === "boolean") {
+    postPageMotionFreezeControl(
+      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
+      { suppressed: pageMotionFreezePendingLazyLoadingSuppressed }
+    );
+    pageMotionFreezePendingLazyLoadingSuppressed = null;
+  }
+}
+
+function ensurePageMotionFreezeScriptLoadListener(script) {
+  if (!script || typeof script.addEventListener !== "function") {
+    return;
+  }
+  if (typeof script.getAttribute === "function" && script.getAttribute("data-uf-load-listener") === "true") {
+    return;
+  }
+  if (typeof script.setAttribute === "function") {
+    script.setAttribute("data-uf-load-listener", "true");
+  }
+  script.addEventListener("load", () => {
+    if (typeof script.setAttribute === "function") {
+      script.setAttribute("data-uf-load-listener", "false");
+    }
+    markPageMotionFreezeScriptLoaded(script);
+  }, { once: true });
 }
 
 function ensurePageMotionFreezeScript() {
@@ -3752,7 +4119,20 @@ function ensurePageMotionFreezeScript() {
   ) {
     return false;
   }
-  if (typeof document.getElementById === "function" && document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)) {
+  const existingScript = typeof document.getElementById === "function"
+    ? document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)
+    : null;
+  if (existingScript) {
+    const scriptReady = typeof existingScript.getAttribute === "function"
+      ? existingScript.getAttribute("data-uf-loaded") === "true"
+      : false;
+    pageMotionFreezeScriptLoaded = scriptReady;
+    pageMotionFreezeBridgeInitialized = scriptReady;
+    if (scriptReady) {
+      ensurePageMotionFreezeBridgeInitialized();
+    } else {
+      ensurePageMotionFreezeScriptLoadListener(existingScript);
+    }
     return true;
   }
   const parent = document.head || document.documentElement;
@@ -3763,12 +4143,13 @@ function ensurePageMotionFreezeScript() {
   script.id = PAGE_MOTION_PAUSE_SCRIPT_ID;
   script.type = "text/javascript";
   script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
+  pageMotionFreezeScriptLoaded = false;
+  pageMotionFreezeBridgeInitialized = false;
   if (typeof script.setAttribute === "function") {
     script.setAttribute("data-uf-extension-ui", "true");
+    script.setAttribute("data-uf-loaded", "false");
   }
-  if (typeof script.addEventListener === "function") {
-    script.addEventListener("load", () => postPageMotionFreezeControl(true), { once: true });
-  }
+  ensurePageMotionFreezeScriptLoadListener(script);
   try {
     parent.appendChild(script);
     return true;
@@ -3778,10 +4159,48 @@ function ensurePageMotionFreezeScript() {
 }
 
 function setPageMotionFreezeTimersPaused(paused) {
-  if (paused) {
-    ensurePageMotionFreezeScript();
+  const shouldPause = Boolean(paused);
+  if (
+    !shouldPause &&
+    !pageMotionFreezeBridgeInitialized &&
+    pageMotionFreezePendingPaused === null
+  ) {
+    return;
   }
-  postPageMotionFreezeControl(paused);
+  if (!ensurePageMotionFreezeScript()) {
+    return;
+  }
+  if (!pageMotionFreezeScriptLoaded) {
+    pageMotionFreezePendingPaused = shouldPause;
+    return;
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED, shouldPause);
+  pageMotionFreezePendingPaused = null;
+}
+
+function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
+  const shouldSuppress = Boolean(suppressed);
+  if (
+    !shouldSuppress &&
+    !pageMotionFreezeBridgeInitialized &&
+    pageMotionFreezePendingLazyLoadingSuppressed === null
+  ) {
+    return;
+  }
+  if (!ensurePageMotionFreezeScript()) {
+    return;
+  }
+  if (!pageMotionFreezeScriptLoaded) {
+    pageMotionFreezePendingLazyLoadingSuppressed = shouldSuppress;
+    return;
+  }
+  ensurePageMotionFreezeBridgeInitialized();
+  postPageMotionFreezeControl(
+    PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
+    { suppressed: shouldSuppress }
+  );
+  pageMotionFreezePendingLazyLoadingSuppressed = null;
 }
 
 function getDocumentAnimations() {
@@ -4916,8 +5335,11 @@ function createOverlay() {
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 2147483646;
+        z-index: 2147483647 !important;
         pointer-events: auto;
+      }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} {
+        background: rgba(16, 20, 28, 0.2);
       }
       #unfluffify-overlay .uf-layer {
         position: absolute;
@@ -4927,13 +5349,18 @@ function createOverlay() {
       }
       #unfluffify-overlay .uf-layer[data-layer="hard"] { z-index: 2; }
       #unfluffify-overlay .uf-layer[data-layer="default"] { z-index: 3; }
-      #unfluffify-overlay .uf-layer[data-layer="explicit-exclude"] { z-index: 5; }
+      #unfluffify-overlay .uf-layer[data-layer="saved-explicit-exclude"] { z-index: 4; }
+      #unfluffify-overlay .uf-layer[data-layer="saved-explicit-include"] { z-index: 5; }
       #unfluffify-overlay .uf-layer[data-layer="ai-content"] { z-index: 6; }
-      #unfluffify-overlay .uf-layer[data-layer="explicit-include"] { z-index: 7; }
-      #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 8; }
-      #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 9; }
-      #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 10; }
+      #unfluffify-overlay .uf-layer[data-layer="session-explicit-exclude"] { z-index: 7; }
+      #unfluffify-overlay .uf-layer[data-layer="session-explicit-include"] { z-index: 8; }
+      #unfluffify-overlay .uf-layer[data-layer="focus"] { z-index: 9; }
+      #unfluffify-overlay .uf-layer[data-layer="hover"] { z-index: 10; }
+      #unfluffify-overlay .uf-layer[data-layer="interaction"] { z-index: 11; }
       #unfluffify-overlay.uf-scrolling .uf-layer {
+        opacity: 0;
+      }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} .uf-layer {
         opacity: 0;
       }
       #unfluffify-overlay.${MARKING_DISABLED_OVERLAY_CLASS} .uf-layer {
@@ -5084,6 +5511,56 @@ function createOverlay() {
       #unfluffify-overlay .uf-marking-disabled-notice[hidden] {
         display: none;
       }
+      #unfluffify-overlay .uf-page-inspection-notice {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: min(460px, calc(100vw - 32px));
+        box-sizing: border-box;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        background: rgba(22, 26, 34, 0.96);
+        color: #ffffff;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 14px;
+        font-weight: 650;
+        line-height: 1.3;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(0.98);
+        opacity: 0;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+      #unfluffify-overlay.${PAGE_INSPECTION_OVERLAY_CLASS} .uf-page-inspection-notice {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      #unfluffify-overlay .uf-page-inspection-notice[hidden] {
+        display: none;
+      }
+      #unfluffify-overlay .uf-page-inspection-spinner {
+        width: 20px;
+        height: 20px;
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 255, 255, 0.28);
+        border-top-color: #ffffff;
+        border-radius: 999px;
+        animation: uf-page-inspection-spin 0.8s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes uf-page-inspection-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #unfluffify-overlay .uf-page-inspection-spinner {
+          animation: none;
+        }
+      }
     `;
   (document.body || document.documentElement).appendChild(style);
 
@@ -5093,10 +5570,12 @@ function createOverlay() {
 
   const layerKeys = [
     "hard",
-    "explicit-exclude",
-    "explicit-include",
+    "saved-explicit-exclude",
+    "saved-explicit-include",
     "interaction",
     "ai-content",
+    "session-explicit-exclude",
+    "session-explicit-include",
     "default",
     "focus",
     "hover"
@@ -5128,6 +5607,23 @@ function createOverlay() {
   overlay.appendChild(disabledNotice);
   state.markingDisabledNotice = disabledNotice;
 
+  const inspectionNotice = document.createElement("div");
+  inspectionNotice.className = "uf-page-inspection-notice";
+  inspectionNotice.hidden = true;
+  inspectionNotice.setAttribute("data-uf-extension-ui", "true");
+  inspectionNotice.setAttribute("role", "status");
+  inspectionNotice.setAttribute("aria-live", "assertive");
+  const inspectionSpinner = document.createElement("span");
+  inspectionSpinner.className = "uf-page-inspection-spinner";
+  inspectionSpinner.setAttribute("aria-hidden", "true");
+  const inspectionMessage = document.createElement("span");
+  inspectionMessage.className = "uf-page-inspection-message";
+  inspectionMessage.textContent = ContentText.marking.pageInspection;
+  inspectionNotice.appendChild(inspectionSpinner);
+  inspectionNotice.appendChild(inspectionMessage);
+  overlay.appendChild(inspectionNotice);
+  state.pageInspectionNotice = inspectionNotice;
+
   overlay.addEventListener("mousemove", handleMouseMove, true);
   overlay.addEventListener("click", handleClick, true);
   overlay.addEventListener("contextmenu", handleContextMenu, true);
@@ -5145,8 +5641,154 @@ function createOverlay() {
   updateOverlayGutter();
 }
 
+function setPageInspectionUiActive(active) {
+  const enabled = Boolean(active);
+  if (typeof document !== "undefined" && document.documentElement) {
+    setElementClassPresence(document.documentElement, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
+  }
+  if (state.overlay) {
+    setElementClassPresence(state.overlay, PAGE_INSPECTION_OVERLAY_CLASS, enabled);
+    state.overlay.setAttribute("aria-busy", enabled ? "true" : "false");
+  }
+  if (state.pageInspectionNotice) {
+    state.pageInspectionNotice.hidden = !enabled;
+  }
+  updateCursorMode();
+}
+
+export function isPageInspectionUiActive() {
+  return Boolean(
+    (state.pageInspectionNotice && !state.pageInspectionNotice.hidden) ||
+      state.inspectionBlocker
+  );
+}
+
+async function inspectPageBeforeMotionPause(isStillCurrent) {
+  const keepUiActive = arguments.length > 1 && Boolean(arguments[1]?.keepUiActive);
+  startPageInspectionInputBlocker();
+  try {
+    createOverlay();
+    setPageInspectionUiActive(true);
+    return await revealPageContentBeforeMotionPause(
+      "both",
+      PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+      PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+      isStillCurrent
+    );
+  } finally {
+    if (!keepUiActive) {
+      setPageInspectionUiActive(false);
+      stopPageInspectionInputBlocker();
+    }
+  }
+}
+
+async function warmupPageRevealBeforeMotionPause(baseUrl, pageUrl, options = {}) {
+  const keepUiActive = Boolean(options.keepUiActive);
+  const revealWarmupId = state.pageRevealWarmupId + 1;
+  state.pageRevealWarmupId = revealWarmupId;
+  const isRevealWarmupCurrent = () =>
+    state.pageRevealWarmupId === revealWarmupId &&
+    state.enabled &&
+    state.baseUrl === baseUrl &&
+    location.href === pageUrl;
+  await inspectPageBeforeMotionPause(isRevealWarmupCurrent, { keepUiActive });
+  if (!isRevealWarmupCurrent()) {
+    if (keepUiActive) {
+      finishPageInspectionUi();
+    }
+    return false;
+  }
+  pausePageMotion();
+  return true;
+}
+
+function hasPageMotionPauseReason(reason) {
+  const pauseState = state.pageMotionPause;
+  if (!pauseState || !pauseState.reasons || pauseState.reasons.size === 0) {
+    return false;
+  }
+  return pauseState.reasons.has(normalizePageMotionPauseReason(reason));
+}
+
+export async function warmupSilentHighlightingBeforeMotionPause(
+  baseUrl,
+  pageUrl,
+  reason = PAGE_MOTION_PAUSE_DEFAULT_REASON,
+  options = {}
+) {
+  const keepUiActive = Boolean(options.keepUiActive);
+  const revealWarmupId = state.pageRevealWarmupId + 1;
+  state.pageRevealWarmupId = revealWarmupId;
+  const isRevealWarmupCurrent = () =>
+    state.pageRevealWarmupId === revealWarmupId &&
+    location.href === pageUrl &&
+    (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
+  try {
+    startPageInspectionInputBlocker();
+    createOverlay();
+    setPageInspectionUiActive(true);
+    await revealPageContentBeforeMotionPause(
+      "both",
+      PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
+      PAGE_INSPECTION_DEFAULT_PAUSE_MS,
+      isRevealWarmupCurrent
+    );
+    if (!isRevealWarmupCurrent()) {
+      return false;
+    }
+    await waitForPageInspectionDelay(
+      SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS,
+      isRevealWarmupCurrent
+    );
+    if (!isRevealWarmupCurrent()) {
+      return false;
+    }
+    pausePageMotion(reason);
+    return true;
+  } finally {
+    if (!keepUiActive) {
+      setPageInspectionUiActive(false);
+      stopPageInspectionInputBlocker();
+      // Silent highlighting reveal uses the inspection UI only as a temporary
+      // blocker while preparing the frozen page posture.
+      if (!state.enabled) {
+        removeOverlay();
+      }
+    } else if (!state.enabled && !isRevealWarmupCurrent()) {
+      finishPageInspectionUi();
+    }
+  }
+}
+
+export function finishPageInspectionUi() {
+  setPageInspectionUiActive(false);
+  stopPageInspectionInputBlocker();
+  if (!state.enabled) {
+    removeOverlay();
+  }
+}
+
+export function finishPageInspectionUiAfterRender() {
+  return new Promise((resolve) => {
+    const pollUntilRendered = () => {
+      if (state.renderTimer || state.renderRaf) {
+        extensionRequestAnimationFrame(pollUntilRendered);
+        return;
+      }
+      finishPageInspectionUi();
+      resolve();
+    };
+    pollUntilRendered();
+  });
+}
+
 
 function removeOverlay() {
+  setPageInspectionUiActive(false);
+  if (state.lazyLoadSuppressRestorer) {
+    state.lazyLoadSuppressRestorer = null;
+  }
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
     state.overlay.removeEventListener("click", handleClick, true);
@@ -5159,6 +5801,7 @@ function removeOverlay() {
     state.focusElement = null;
     state.toast = null;
     state.markingDisabledNotice = null;
+    state.pageInspectionNotice = null;
   }
   state.lastPointer = null;
   if (state.toggleAckTimer) {
@@ -5212,6 +5855,9 @@ function getMarkingTemporarilyDisabledReason() {
   const pageUrl = typeof location !== "undefined" ? location.href : "";
   const reconciliation = pageUrl ? getPageSaveReconciliationState(pageUrl) : null;
   if (config.isPageSaveReconciliationPending(reconciliation)) {
+    if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+      return "";
+    }
     return reconciliation.reason || "pending";
   }
   return "";
@@ -6447,38 +7093,7 @@ function toggleExplicitExclude(target) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-  const hasRelatedStoredMarking = (currentXPath) => {
-    const isRelatedXPath = (candidateXPath, candidateEl) => {
-      if (!candidateXPath || candidateXPath === currentXPath) {
-        return false;
-      }
-      if (candidateEl) {
-        return candidateEl.contains(target) || target.contains(candidateEl);
-      }
-      return isXPathDescendant(candidateXPath, currentXPath) ||
-        isXPathDescendant(currentXPath, candidateXPath);
-    };
-    for (const item of items) {
-      if (!item || !item.xpath) {
-        continue;
-      }
-      if (isRelatedXPath(item.xpath, getCachedElementFromXPath(item.xpath))) {
-        return true;
-      }
-    }
-    for (const includeXPath of includeXpaths) {
-      if (!includeXPath) {
-        continue;
-      }
-      if (isRelatedXPath(includeXPath, getCachedElementFromXPath(includeXPath))) {
-        return true;
-      }
-    }
-    return false;
-  };
   const includeIndex = includeXpaths.indexOf(xpath);
-  const immediateFullRender = !isLeafExplicitExcludeFastPathTarget(target) ||
-    hasRelatedStoredMarking(xpath);
   if (includeIndex >= 0) {
     includeXpaths.splice(includeIndex, 1);
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6493,9 +7108,7 @@ function toggleExplicitExclude(target) {
     normalizePageEntryXpaths(entry);
     setPageMarkingEntry(config.pageMarkings, location.href, entry);
     state.config = config;
-    completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
-      immediateFullRender
-    });
+    completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
     return;
   }
   const cleanupHierarchy = (currentXPath) => {
@@ -6633,9 +7246,7 @@ function toggleExplicitExclude(target) {
   normalizePageEntryXpaths(entry);
   setPageMarkingEntry(config.pageMarkings, location.href, entry);
   state.config = config;
-  completeExplicitToggle(entry, target, "exclude", mutationStartedAt, {
-    immediateFullRender
-  });
+  completeExplicitToggle(entry, target, "exclude", mutationStartedAt);
 }
 
 function toggleExplicitInclude(target) {
@@ -7163,6 +7774,60 @@ export function collectExplicitMarkingElements(entry) {
   };
 }
 
+function collectEntryExplicitXpathSets(entry) {
+  const excludedXpaths = new Set(
+    collectExcludedXPaths(Array.isArray(entry && entry.xpaths) ? entry.xpaths : [])
+  );
+  const includeXpaths = new Set(
+    Array.isArray(entry && entry.includeXpaths)
+      ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+      : []
+  );
+  return {
+    excludedXpaths,
+    includeXpaths
+  };
+}
+
+function splitExplicitMarkingCollectionsBySavedState(currentCollections, savedEntry) {
+  const savedSets = collectEntryExplicitXpathSets(savedEntry);
+  const splitByXpath = (items, savedXpathSet) => {
+    const fetched = [];
+    const session = [];
+    for (const el of Array.isArray(items) ? items : []) {
+      const xpath = getXPath(el);
+      if (xpath && savedXpathSet.has(xpath)) {
+        fetched.push(el);
+      } else {
+        session.push(el);
+      }
+    }
+    return { fetched, session };
+  };
+
+  const excludeSplit = splitByXpath(
+    currentCollections && currentCollections.explicitExcludeElements,
+    savedSets.excludedXpaths
+  );
+  const includeSplit = splitByXpath(
+    currentCollections && currentCollections.explicitIncludeElements,
+    savedSets.includeXpaths
+  );
+  const hiddenIncludeSplit = splitByXpath(
+    currentCollections && currentCollections.hiddenExplicitIncludeElements,
+    savedSets.includeXpaths
+  );
+
+  return {
+    fetchedExplicitExcludeElements: excludeSplit.fetched,
+    sessionExplicitExcludeElements: excludeSplit.session,
+    fetchedExplicitIncludeElements: includeSplit.fetched,
+    sessionExplicitIncludeElements: includeSplit.session,
+    hiddenFetchedExplicitIncludeElements: hiddenIncludeSplit.fetched,
+    hiddenSessionExplicitIncludeElements: hiddenIncludeSplit.session
+  };
+}
+
 export function collectAiContentElementsForRender(aiCollections, options = {}) {
   const immutableExcluded = options.immutableExcluded || new Set();
   const consentExcluded = options.consentExcluded || new Set();
@@ -7260,79 +7925,126 @@ export function collectStoredUnexcludedToggleableDefaultElements(entry) {
 }
 
 function drawExplicitMarkingLayers(
-  explicitExcludeElements,
-  explicitIncludeElements,
-  hiddenExplicitIncludeElements,
+  fetchedExplicitExcludeElements,
+  fetchedExplicitIncludeElements,
+  hiddenFetchedExplicitIncludeElements,
+  sessionExplicitExcludeElements,
+  sessionExplicitIncludeElements,
+  hiddenSessionExplicitIncludeElements,
   computeElementRects
 ) {
   const drawStartedAt = nowMs();
-  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
-  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
-  for (const el of explicitExcludeElements) {
+  const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+  const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
+  const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+  const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
+
+  for (const el of fetchedExplicitExcludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
-        layerExplicitExcludeState,
+        layerSavedExplicitExcludeState,
         rects,
         presentation.className,
         el,
-        "explicit-exclude",
+        "saved-explicit-exclude",
         null
       );
     }
   }
-  for (const el of explicitIncludeElements) {
+
+  for (const el of fetchedExplicitIncludeElements) {
     const rects = computeElementRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include",
+        "saved-explicit-include",
         null
       );
     }
   }
-  for (const el of hiddenExplicitIncludeElements || []) {
+
+  for (const el of hiddenFetchedExplicitIncludeElements || []) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include-ghost",
+        "saved-explicit-include-ghost",
         null
       );
     }
   }
-  finalizeLayerRender(layerExplicitExcludeState);
-  finalizeLayerRender(layerExplicitIncludeState);
+
+  for (const el of sessionExplicitExcludeElements) {
+    const rects = computeElementRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
+      drawMultiRectReuse(
+        layerSessionExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-exclude",
+        null
+      );
+    }
+  }
+
+  for (const el of sessionExplicitIncludeElements) {
+    const rects = computeElementRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include",
+        null
+      );
+    }
+  }
+
+  for (const el of hiddenSessionExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include-ghost",
+        null
+      );
+    }
+  }
+
+  finalizeLayerRender(layerSavedExplicitExcludeState);
+  finalizeLayerRender(layerSavedExplicitIncludeState);
+  finalizeLayerRender(layerSessionExplicitExcludeState);
+  finalizeLayerRender(layerSessionExplicitIncludeState);
   logTogglePerf("draw.explicit-layers", drawStartedAt, {
-    excludeCount: explicitExcludeElements.length,
-    includeCount: explicitIncludeElements.length + (hiddenExplicitIncludeElements || []).length
+    savedExcludeCount: fetchedExplicitExcludeElements.length,
+    savedIncludeCount: fetchedExplicitIncludeElements.length + (hiddenFetchedExplicitIncludeElements || []).length,
+    sessionExcludeCount: sessionExplicitExcludeElements.length,
+    sessionIncludeCount: sessionExplicitIncludeElements.length + (hiddenSessionExplicitIncludeElements || []).length
   });
 }
 
-function isLeafExplicitExcludeFastPathTarget(target) {
-  if (!target || target.nodeType !== 1) {
-    return false;
-  }
-  if (matchesToggleableDefaultExcluded(target)) {
-    return false;
-  }
-  return !target.children || target.children.length === 0;
-}
-
 function shouldUseImmediateFullRenderForExplicitToggle(options = {}) {
-  if (options.type !== "exclude") {
-    return true;
-  }
-  return !isLeafExplicitExcludeFastPathTarget(options.target);
+  // Keep toggles responsive: explicit layers update immediately, while the
+  // heavier invalidating rebuild is deferred and coalesced.
+  return false;
 }
 
 function applyExplicitStateToCachedCollections(
@@ -7384,8 +8096,18 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
       explicitIncludeElements,
       hiddenExplicitIncludeElements
     } = collectExplicitMarkingElements(syncedEntry);
+    const explicitLayerSplit = splitExplicitMarkingCollectionsBySavedState(
+      {
+        explicitExcludeElements,
+        hiddenExplicitExcludeElements,
+        explicitIncludeElements,
+        hiddenExplicitIncludeElements
+      },
+      getSavedPageEntry(pageUrl)
+    );
     const cachedCollections = state.cachedCollections;
     if (cachedCollections) {
+      const selectorContext = resolveMarkingSelectorContext(state.config, syncedEntry);
       const consentExcluded = collectConsentExcludedElements();
       const aiContentSet = new Set(cachedCollections.aiContentElements || []);
       const hiddenAiContentSet = new Set(cachedCollections.hiddenAiContentElements || []);
@@ -7393,11 +8115,17 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
       cachedCollections.explicitExcludeElements = explicitExcludeElements;
       cachedCollections.explicitIncludeElements = explicitIncludeElements;
       cachedCollections.hiddenExplicitIncludeElements = hiddenExplicitIncludeElements;
+      cachedCollections.fetchedExplicitExcludeElements = explicitLayerSplit.fetchedExplicitExcludeElements;
+      cachedCollections.fetchedExplicitIncludeElements = explicitLayerSplit.fetchedExplicitIncludeElements;
+      cachedCollections.hiddenFetchedExplicitIncludeElements = explicitLayerSplit.hiddenFetchedExplicitIncludeElements;
+      cachedCollections.sessionExplicitExcludeElements = explicitLayerSplit.sessionExplicitExcludeElements;
+      cachedCollections.sessionExplicitIncludeElements = explicitLayerSplit.sessionExplicitIncludeElements;
+      cachedCollections.hiddenSessionExplicitIncludeElements = explicitLayerSplit.hiddenSessionExplicitIncludeElements;
       if (context && context.immediateFullRender === false) {
         applyExplicitStateToCachedCollections(
           cachedCollections,
-          explicitExcludeElements,
-          explicitIncludeElements
+          explicitLayerSplit.sessionExplicitExcludeElements,
+          explicitLayerSplit.sessionExplicitIncludeElements
         );
       }
       cachedCollections.hardElements = Array.from(new Set([
@@ -7407,14 +8135,22 @@ function refreshExplicitMarkingOverlay(entry, context = null) {
         !isWithinElementSet(el, consentExcluded)
       );
       cachedCollections.aiAnimatedExplicitIncludeElements =
-        explicitIncludeElements.filter((el) => aiContentSet.has(el));
+        explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContentSet.has(el));
       cachedCollections.hiddenAiAnimatedExplicitIncludeElements =
-        hiddenExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
+        explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContentSet.has(el));
+      state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
+        pageUrl,
+        selectorSet: selectorContext.selectorSet,
+        entry: syncedEntry
+      });
     }
     drawExplicitMarkingLayers(
-      explicitExcludeElements,
-      explicitIncludeElements,
-      hiddenExplicitIncludeElements,
+      explicitLayerSplit.fetchedExplicitExcludeElements,
+      explicitLayerSplit.fetchedExplicitIncludeElements,
+      explicitLayerSplit.hiddenFetchedExplicitIncludeElements,
+      explicitLayerSplit.sessionExplicitExcludeElements,
+      explicitLayerSplit.sessionExplicitIncludeElements,
+      explicitLayerSplit.hiddenSessionExplicitIncludeElements,
       getVisibleRects
     );
     logTogglePerf("toggle.explicit-overlay-refresh", refreshStartedAt);
@@ -7517,10 +8253,17 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
 
 function invalidateCachedCollections() {
   state.cachedCollections = null;
+  state.cachedCollectionsKey = "";
 }
 
 function renderHighlights() {
-  if (!state.enabled || !state.overlay) {
+  if (!state.enabled) {
+    return;
+  }
+  if (!state.overlay) {
+    createOverlay();
+  }
+  if (!state.overlay) {
     return;
   }
   withElementComputationCache(renderHighlightsInner);
@@ -7531,9 +8274,17 @@ function renderHighlightsInner() {
   const renderStartedAt = nowMs();
   updateOverlayGutter();
   state.currentPageUrl = location.href;
+  const pageUrl = location.href;
+  const latestEntry = findPageMarkingEntry(state.config, pageUrl);
+  const latestSelectorContext = resolveMarkingSelectorContext(state.config, latestEntry);
+  const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey({
+    pageUrl,
+    selectorSet: latestSelectorContext.selectorSet,
+    entry: latestEntry
+  });
 
   const cached = state.cachedCollections;
-  if (cached) {
+  if (cached && state.cachedCollectionsKey === nextCollectionsCacheKey) {
     const drawStartedAt = nowMs();
     repositionHighlights(cached);
     logTogglePerf("render.reposition", drawStartedAt, { pageUrl: location.href });
@@ -7542,9 +8293,8 @@ function renderHighlightsInner() {
 
   const rebuildStartedAt = nowMs();
   const immutableExcluded = collectImmutableElements();
-  const pageUrl = location.href;
-  const normalizedAiSelectorSet = config.getNewestConfigSelectorSet(state.config).selectorSet;
-  const hasAiSelectors = combineAiSelectorSet(normalizedAiSelectorSet).length > 0;
+  const selectorSetForSeed = latestSelectorContext.selectorSet;
+  const hasAiSelectors = latestSelectorContext.hasAiSelectors;
   const existingPageEntry = findPageMarkingEntry(state.config, pageUrl);
   const hasSavedMarkingsForPage = hasExplicitUserMarkings(existingPageEntry);
   const suppressAutoSeed = state.autoSeedSuppressedPageUrl === pageUrl;
@@ -7561,7 +8311,7 @@ function renderHighlightsInner() {
     const seeded = seedMarkingsFromAiSelectorsForUnmarkedPage(
       state.config,
       pageUrl,
-      normalizedAiSelectorSet,
+      selectorSetForSeed,
       immutableExcluded
     );
     if (seeded.createdEntry) {
@@ -7578,6 +8328,11 @@ function renderHighlightsInner() {
   const entry =
       syncResult.entry || getPageMarkingEntry(state.config, pageUrl, { create: false });
   state.currentPageEntry = entry || null;
+  const selectorContext = resolveMarkingSelectorContext(state.config, entry);
+  const selectorSetForMarking = selectorContext.selectorSet;
+  const normalizedAiSelectorSet = selectorSetForMarking;
+  const hasAiSelectorsForMarking = selectorContext.hasAiSelectors;
+  const selectorSuppressedXpaths = selectorContext.selectorSuppressedXpaths;
   const excludedByState = collectXPathElements(
     collectExcludedXPaths(entry.xpaths)
   );
@@ -7589,10 +8344,34 @@ function renderHighlightsInner() {
   let aiContent = new Set();
   let hiddenAiContent = new Set();
   const selectorExcludedSet = new Set();
-  const selectorSuppressedXpaths = Array.isArray(entry && entry.selectorSuppressedXpaths)
-    ? entry.selectorSuppressedXpaths
-    : [];
-  if (hasAiSelectors) {
+  const {
+    explicitExcludeElements: filteredExplicitExclude,
+    hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
+    hiddenExplicitIncludeElements,
+    explicitIncludeElements: filteredExplicitInclude
+  } = collectExplicitMarkingElements(entry);
+  const explicitLayerSplit = splitExplicitMarkingCollectionsBySavedState(
+    {
+      explicitExcludeElements: filteredExplicitExclude,
+      hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
+      hiddenExplicitIncludeElements,
+      explicitIncludeElements: filteredExplicitInclude
+    },
+    getSavedPageEntry(pageUrl)
+  );
+  const savedEntryExplicitSets = collectEntryExplicitXpathSets(getSavedPageEntry(pageUrl));
+  const aiSuppressedBySessionExcluded = new Set([
+    ...explicitLayerSplit.sessionExplicitExcludeElements,
+    ...hiddenStoredExplicitExclude.filter((el) => {
+      const xpath = getXPath(el);
+      return Boolean(xpath && savedEntryExplicitSets.excludedXpaths.has(xpath) === false);
+    })
+  ]);
+  const sessionExplicitIncludeForAi = new Set([
+    ...explicitLayerSplit.sessionExplicitIncludeElements,
+    ...explicitLayerSplit.hiddenSessionExplicitIncludeElements
+  ]);
+  if (hasAiSelectorsForMarking) {
     const aiCollections = collectIncludedElementsFromSelectorSet(normalizedAiSelectorSet, {
       ignoreVisibilityForInclusionDetection: true,
       preserveExplicitIncludedDescendants: true,
@@ -7602,8 +8381,8 @@ function renderHighlightsInner() {
     const aiRenderCollections = collectAiContentElementsForRender(aiCollections, {
       immutableExcluded,
       consentExcluded,
-      excludedByState,
-      explicitInclude
+      excludedByState: aiSuppressedBySessionExcluded,
+      explicitInclude: sessionExplicitIncludeForAi
     });
     aiContent = new Set(aiRenderCollections.aiContentElements);
     hiddenAiContent = new Set(aiRenderCollections.hiddenAiContentElements);
@@ -7611,17 +8390,11 @@ function renderHighlightsInner() {
       selectorExcludedSet.add(el);
     }
   }
-  const {
-    explicitExcludeElements: filteredExplicitExclude,
-    hiddenExplicitExcludeElements: hiddenStoredExplicitExclude,
-    hiddenExplicitIncludeElements,
-    explicitIncludeElements: filteredExplicitInclude
-  } = collectExplicitMarkingElements(entry);
-  const aiAnimatedExplicitIncludeElements = hasAiSelectors
-    ? filteredExplicitInclude.filter((el) => aiContent.has(el))
+  const aiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
+    ? explicitLayerSplit.sessionExplicitIncludeElements.filter((el) => aiContent.has(el))
     : [];
-  const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectors
-    ? hiddenExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
+  const hiddenAiAnimatedExplicitIncludeElements = hasAiSelectorsForMarking
+    ? explicitLayerSplit.hiddenSessionExplicitIncludeElements.filter((el) => hiddenAiContent.has(el))
     : [];
   const storedUnexcludedToggleableDefaultElements =
     collectStoredUnexcludedToggleableDefaultElements(entry);
@@ -7650,6 +8423,12 @@ function renderHighlightsInner() {
     explicitExcludeElements: filteredExplicitExclude,
     explicitIncludeElements: filteredExplicitInclude,
     hiddenExplicitIncludeElements,
+    fetchedExplicitExcludeElements: explicitLayerSplit.fetchedExplicitExcludeElements,
+    fetchedExplicitIncludeElements: explicitLayerSplit.fetchedExplicitIncludeElements,
+    hiddenFetchedExplicitIncludeElements: explicitLayerSplit.hiddenFetchedExplicitIncludeElements,
+    sessionExplicitExcludeElements: explicitLayerSplit.sessionExplicitExcludeElements,
+    sessionExplicitIncludeElements: explicitLayerSplit.sessionExplicitIncludeElements,
+    hiddenSessionExplicitIncludeElements: explicitLayerSplit.hiddenSessionExplicitIncludeElements,
     aiAnimatedExplicitIncludeElements,
     hiddenAiAnimatedExplicitIncludeElements,
     aiContentElements: Array.from(aiContent),
@@ -7658,6 +8437,11 @@ function renderHighlightsInner() {
     defaultElements: defaultTargets
   };
   state.cachedCollections = collections;
+  state.cachedCollectionsKey = buildMarkingCollectionsCacheKey({
+    pageUrl,
+    selectorSet: selectorSetForMarking,
+    entry
+  });
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
@@ -7696,9 +8480,11 @@ function repositionHighlights(collections) {
 
 function drawCollections(collections, getRects) {
   const layerHardState = beginLayerRender(state.layers["hard"]);
-  const layerExplicitExcludeState = beginLayerRender(state.layers["explicit-exclude"]);
-  const layerExplicitIncludeState = beginLayerRender(state.layers["explicit-include"]);
+  const layerSavedExplicitExcludeState = beginLayerRender(state.layers["saved-explicit-exclude"]);
+  const layerSavedExplicitIncludeState = beginLayerRender(state.layers["saved-explicit-include"]);
   const layerAiContentState = beginLayerRender(state.layers["ai-content"]);
+  const layerSessionExplicitExcludeState = beginLayerRender(state.layers["session-explicit-exclude"]);
+  const layerSessionExplicitIncludeState = beginLayerRender(state.layers["session-explicit-include"]);
   const layerDefaultState = beginLayerRender(state.layers["default"]);
   const markedElements = new Set();
 
@@ -7711,46 +8497,46 @@ function drawCollections(collections, getRects) {
     }
   }
 
-  for (const el of collections.explicitExcludeElements) {
+  for (const el of collections.fetchedExplicitExcludeElements || []) {
     const rects = getRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "exclude" });
       drawMultiRectReuse(
-        layerExplicitExcludeState,
+        layerSavedExplicitExcludeState,
         rects,
         presentation.className,
         el,
-        "explicit-exclude",
+        "saved-explicit-exclude",
         markedElements
       );
     }
   }
 
-  for (const el of collections.explicitIncludeElements) {
+  for (const el of collections.fetchedExplicitIncludeElements || []) {
     const rects = getRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include" });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include",
+        "saved-explicit-include",
         markedElements
       );
     }
   }
 
-  for (const el of collections.hiddenExplicitIncludeElements || []) {
+  for (const el of collections.hiddenFetchedExplicitIncludeElements || []) {
     const rects = getGhostRects(el);
     if (rects.length > 0) {
       const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
       drawMultiRectReuse(
-        layerExplicitIncludeState,
+        layerSavedExplicitIncludeState,
         rects,
         presentation.className,
         el,
-        "explicit-include-ghost",
+        "saved-explicit-include-ghost",
         markedElements
       );
     }
@@ -7807,6 +8593,51 @@ function drawCollections(collections, getRects) {
     }
   }
 
+  for (const el of collections.sessionExplicitExcludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "exclude" });
+      drawMultiRectReuse(
+        layerSessionExplicitExcludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-exclude",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.sessionExplicitIncludeElements || []) {
+    const rects = getRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include" });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include",
+        markedElements
+      );
+    }
+  }
+
+  for (const el of collections.hiddenSessionExplicitIncludeElements || []) {
+    const rects = getGhostRects(el);
+    if (rects.length > 0) {
+      const presentation = getExplicitMarkingPresentation({ type: "include", ghost: true });
+      drawMultiRectReuse(
+        layerSessionExplicitIncludeState,
+        rects,
+        presentation.className,
+        el,
+        "session-explicit-include-ghost",
+        markedElements
+      );
+    }
+  }
+
   for (const el of collections.defaultElements) {
     const rects = getRects(el);
     if (rects.length > 0) {
@@ -7817,9 +8648,11 @@ function drawCollections(collections, getRects) {
   }
 
   finalizeLayerRender(layerHardState);
-  finalizeLayerRender(layerExplicitExcludeState);
-  finalizeLayerRender(layerExplicitIncludeState);
+  finalizeLayerRender(layerSavedExplicitExcludeState);
+  finalizeLayerRender(layerSavedExplicitIncludeState);
   finalizeLayerRender(layerAiContentState);
+  finalizeLayerRender(layerSessionExplicitExcludeState);
+  finalizeLayerRender(layerSessionExplicitIncludeState);
   finalizeLayerRender(layerDefaultState);
 
   updateFocusHighlight();
@@ -7888,8 +8721,8 @@ function startUrlWatcher() {
   state.urlCheckTimer = extensionSetInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      // Page-scoped behavior: disable extension on any URL change
-      disable();
+      // URL transitions must not carry temporary draft cache to the next page.
+      disable({ preserveUnsavedDraftCache: false });
       window.dispatchEvent(new Event("unfluffify:url-changed"));
     }
   }, 800);
@@ -8021,7 +8854,8 @@ export function getPageSaveReconciliationState(pageUrl = location.href) {
 }
 
 export function isPageSaveReconciliationPending(pageUrl = location.href) {
-  return config.isPageSaveReconciliationPending(getPageSaveReconciliationState(pageUrl));
+  const reconciliation = getPageSaveReconciliationState(pageUrl);
+  return config.isPageSaveReconciliationPending(reconciliation);
 }
 
 export async function refreshPageSaveReconciliation(baseUrl = state.baseUrl, pageUrl = location.href) {
@@ -8604,6 +9438,39 @@ function cloneDraftEntryForDisableCache(entry) {
   return cloned;
 }
 
+function clearMarkingSettleRenders() {
+  if (!Array.isArray(state.markingSettleTimers) || state.markingSettleTimers.length === 0) {
+    state.markingSettleTimers = [];
+    return;
+  }
+  state.markingSettleTimers.forEach((timerId) => {
+    if (timerId) {
+      extensionClearTimeout(timerId);
+    }
+  });
+  state.markingSettleTimers = [];
+}
+
+function scheduleMarkingSettleRenders() {
+  clearMarkingSettleRenders();
+  const timers = [];
+  for (const delay of MARKING_MODE_SETTLE_RENDER_DELAYS_MS) {
+    const timerId = extensionSetTimeout(() => {
+      state.markingSettleTimers = state.markingSettleTimers.filter((id) => id !== timerId);
+      if (!state.enabled) {
+        return;
+      }
+      scheduleRender({
+        reason: "marking-settle",
+        delay: 0,
+        invalidate: true
+      });
+    }, delay);
+    timers.push(timerId);
+  }
+  state.markingSettleTimers = timers;
+}
+
 function cacheUnsavedDraftBeforeDisable() {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
@@ -8623,8 +9490,16 @@ function cacheUnsavedDraftBeforeDisable() {
   };
 }
 
-export function disable() {
-  cacheUnsavedDraftBeforeDisable();
+export function disable(options = {}) {
+  const preserveUnsavedDraftCache = options.preserveUnsavedDraftCache !== false;
+  if (preserveUnsavedDraftCache) {
+    cacheUnsavedDraftBeforeDisable();
+  } else {
+    state.disabledUnsavedDraft = null;
+  }
+  if (state.lazyLoadSuppressRestorer) {
+    state.lazyLoadSuppressRestorer = null;
+  }
   state.enabled = false;
   state.baseUrl = "";
   state.currentPageType = "";
@@ -8640,6 +9515,7 @@ export function disable() {
   state.altPassThrough = false;
   state.consentSyncedPageUrl = "";
   state.pageRevealWarmupId += 1;
+  stopPageInspectionInputBlocker();
   if (state.renderTimer) {
     extensionClearTimeout(state.renderTimer);
     state.renderTimer = 0;
@@ -8681,6 +9557,10 @@ export function disable() {
   }
   state.isScrolling = false;
   state.cachedCollections = null;
+  state.cachedCollectionsKey = "";
+  state.paintReachabilityFallbackCount = 0;
+  state.paintReachabilityFallbackLastLoggedAt = 0;
+  clearMarkingSettleRenders();
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   removeOverlay();
@@ -8698,7 +9578,8 @@ export function disable() {
   stopUrlWatcher();
 }
 
-export async function enableForBaseUrl(baseUrl) {
+export async function enableForBaseUrl(baseUrl, options = {}) {
+  const skipInitialReveal = Boolean(options && options.skipInitialReveal);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
@@ -8706,6 +9587,8 @@ export async function enableForBaseUrl(baseUrl) {
   }
   state.enabled = true;
   state.baseUrl = normalizedBaseUrl;
+  state.paintReachabilityFallbackCount = 0;
+  state.paintReachabilityFallbackLastLoggedAt = 0;
   state.config = await loadConfig(normalizedBaseUrl);
   state.consentRootElements = new Set();
   const pageUrl = location.href;
@@ -8737,22 +9620,23 @@ export async function enableForBaseUrl(baseUrl) {
   state.disabledUnsavedDraft = null;
 
   hideConsentOnEnable(pageUrl);
-  const revealWarmupId = state.pageRevealWarmupId + 1;
-  state.pageRevealWarmupId = revealWarmupId;
-  const isRevealWarmupCurrent = () =>
-    state.pageRevealWarmupId === revealWarmupId &&
-    state.enabled &&
-    state.baseUrl === normalizedBaseUrl &&
-    location.href === pageUrl;
-  await warmPageRevealTriggersBeforeMotionPause(isRevealWarmupCurrent);
-  if (!isRevealWarmupCurrent()) {
-    return;
+  if (hasPageMotionPauseReason("silent-highlighting")) {
+    pausePageMotion();
+  } else if (!skipInitialReveal) {
+    const revealReady = await warmupPageRevealBeforeMotionPause(normalizedBaseUrl, pageUrl, {
+      keepUiActive: true
+    });
+    if (!revealReady) {
+      return;
+    }
   }
-  pausePageMotion();
-  createOverlay();
   scheduleRender();
+  scheduleMarkingSettleRenders();
   startObservers();
   startUrlWatcher();
+  if (!skipInitialReveal) {
+    await finishPageInspectionUiAfterRender();
+  }
 }
 
 export function handleBeforeUnload(event) {
@@ -8789,11 +9673,9 @@ export function handleScroll(event, options = {}) {
     return;
   }
   const isViewportScroll = isViewportScrollEvent(event);
-  if (!isViewportScroll) {
-    // Nested scroll containers (carousels, internal panes) should not trigger a
-    // full overlay redraw. This avoids flicker/redraw storms unrelated to page scroll.
-    return;
-  }
+  // Nested scroll containers still need a debounced redraw so partially visible
+  // marked content tracks carousels and internal panes. Only viewport scrolls
+  // hide the overlay during motion to avoid full-page flicker.
   const hideDuringScroll = isViewportScroll && (!options || options.hideDuringScroll !== false);
   if (hideDuringScroll && !state.isScrolling) {
     state.isScrolling = true;
@@ -9006,7 +9888,8 @@ export function getSavedPageEntry(pageUrl) {
   return state.savedPageEntry ? clonePageEntry(state.savedPageEntry) : null;
 }
 
-export async function refreshFromTabState() {
+export async function refreshFromTabState(options = {}) {
+  const withInitialReveal = Boolean(options.withInitialReveal);
   const response = await utils.sendRuntimeMessage({ type: "getTabState" });
   if (response && response.enabled && response.baseUrl) {
     // Enable if the URL still matches the baseUrl.
@@ -9050,8 +9933,24 @@ export async function refreshFromTabState() {
           setSavedPageEntry(pageUrl, syncResult.entry);
         }
       }
-      scheduleRender();
+      state.enabled = true;
+      state.consentRootElements = new Set();
       hideConsentOnEnable(pageUrl);
+      if (withInitialReveal) {
+        const revealReady = await warmupPageRevealBeforeMotionPause(response.baseUrl, pageUrl, {
+          keepUiActive: true
+        });
+        if (!revealReady) {
+          disable();
+          return;
+        }
+      }
+      scheduleRender();
+      startObservers();
+      startUrlWatcher();
+      if (withInitialReveal) {
+        await finishPageInspectionUiAfterRender();
+      }
       return;
     }
   }

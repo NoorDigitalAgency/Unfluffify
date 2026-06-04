@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  handleScroll,
   scheduleDraftPersist,
   scheduleExplicitOverlayRefresh,
   scheduleSnapshotSave,
@@ -25,14 +26,22 @@ function withFakeTimers(callback, options = {}) {
     explicitOverlayRefreshEntry: state.explicitOverlayRefreshEntry,
     explicitOverlayRefreshContext: state.explicitOverlayRefreshContext,
     explicitFullRenderTimer: state.explicitFullRenderTimer,
+    cachedCollectionsKey: state.cachedCollectionsKey,
+    markingSettleTimers: Array.isArray(state.markingSettleTimers)
+      ? state.markingSettleTimers.slice()
+      : [],
     enabled: state.enabled,
-    overlay: state.overlay
+    overlay: state.overlay,
+    aiPopover: state.aiPopover,
+    scrollHideTimer: state.scrollHideTimer,
+    isScrolling: state.isScrolling
   };
   const scheduled = [];
   const cleared = [];
   const idleCallbacks = [];
   const rafCallbacks = [];
   const cancelledRaf = [];
+  const originalDocument = globalThis.document;
   let nextId = 1;
   globalThis.window = {
     setTimeout(fn, delay) {
@@ -44,6 +53,10 @@ function withFakeTimers(callback, options = {}) {
     clearTimeout(id) {
       cleared.push(id);
     }
+  };
+  globalThis.document = {
+    documentElement: {},
+    body: {}
   };
   if (options.withIdleCallback) {
     globalThis.window.requestIdleCallback = (fn, idleOptions) => {
@@ -77,10 +90,16 @@ function withFakeTimers(callback, options = {}) {
   state.explicitOverlayRefreshEntry = null;
   state.explicitOverlayRefreshContext = null;
   state.explicitFullRenderTimer = 0;
+  state.cachedCollectionsKey = "";
+  state.markingSettleTimers = [];
+  state.aiPopover = null;
+  state.scrollHideTimer = 0;
+  state.isScrolling = false;
   try {
     callback({ scheduled, cleared, idleCallbacks, rafCallbacks, cancelledRaf });
   } finally {
     globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
     state.baseUrl = originalState.baseUrl;
     state.config = originalState.config;
     state.renderRaf = originalState.renderRaf;
@@ -94,8 +113,13 @@ function withFakeTimers(callback, options = {}) {
     state.explicitOverlayRefreshEntry = originalState.explicitOverlayRefreshEntry;
     state.explicitOverlayRefreshContext = originalState.explicitOverlayRefreshContext;
     state.explicitFullRenderTimer = originalState.explicitFullRenderTimer;
+    state.cachedCollectionsKey = originalState.cachedCollectionsKey;
+    state.markingSettleTimers = originalState.markingSettleTimers;
     state.enabled = originalState.enabled;
     state.overlay = originalState.overlay;
+    state.aiPopover = originalState.aiPopover;
+    state.scrollHideTimer = originalState.scrollHideTimer;
+    state.isScrolling = originalState.isScrolling;
   }
 }
 
@@ -185,6 +209,28 @@ test("pending explicit overlay refresh can be cancelled via rAF cancel", () => {
   }, { withRaf: true });
 });
 
+test("nested scroll containers still schedule a redraw without hiding the overlay", () => {
+  withFakeTimers(({ scheduled }) => {
+    let addCount = 0;
+    state.enabled = true;
+    state.overlay = {
+      classList: {
+        add() {
+          addCount += 1;
+        },
+        remove() {}
+      }
+    };
+
+    const scrollContainer = {};
+    handleScroll({ target: scrollContainer, currentTarget: scrollContainer });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(state.isScrolling, false);
+    assert.equal(addCount, 0);
+  });
+});
+
 test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshBody = source.match(
@@ -204,16 +250,17 @@ test("explicit overlay refresh updates explicit layers before scheduling full re
   );
 });
 
-test("structural explicit toggle full rebuild is immediate to avoid ancestor lag", () => {
+test("explicit toggle full rebuild is deferred and coalesced for responsiveness", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const rulesSource = readFileSync(new URL("../content/marking-rules.js", import.meta.url), "utf8");
 
   const fullRenderBody = coreSource.match(
     /function scheduleExplicitToggleFullRender\(options = \{\}\) \{([\s\S]*?)\n\}\n\nexport function scheduleExplicitOverlayRefresh/
   )[1];
-  assert.match(fullRenderBody, /scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
   assert.match(fullRenderBody, /if \(immediate\) \{[\s\S]*?scheduleRender\(getExplicitMarkingFullRenderOptions\(\)\)/);
+  assert.match(fullRenderBody, /state\.explicitFullRenderTimer = extensionSetTimeout\([\s\S]*?EXPLICIT_TOGGLE_DEFERRED_FULL_RENDER_DELAY_MS/);
   assert.doesNotMatch(coreSource, /const EXPLICIT_TOGGLE_FULL_RENDER_DELAY_MS/);
+  assert.match(coreSource, /function shouldUseImmediateFullRenderForExplicitToggle\(options = \{\}\) \{[\s\S]*?return false;/);
 
   const renderOptionsMatch = rulesSource.match(
     /getExplicitMarkingFullRenderOptions\(\) \{[\s\S]*?delay:\s*(\d+),[\s\S]*?minInterval:\s*(\d+),/
@@ -232,7 +279,7 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
     rafCallbacks[0].fn();
 
     assert.equal(scheduled.length, 1);
-    assert.equal(scheduled[0].delay, 450);
+    assert.equal(scheduled[0].delay, 180);
     assert.equal(state.explicitFullRenderTimer, scheduled[0].id);
 
     scheduled[0].fn();
@@ -243,21 +290,15 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
   }, { withRaf: true });
 });
 
-test("leaf explicit exclude fast path stays immediate when stored marks are related", () => {
+test("explicit exclude no longer forces immediate full rebuild prechecks", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target)");
   const includeStart = coreSource.indexOf("function toggleExplicitInclude(target)", excludeStart);
   const excludeSource = coreSource.slice(excludeStart, includeStart);
 
-  assert.match(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
-  assert.match(
-    excludeSource,
-    /const immediateFullRender = !isLeafExplicitExcludeFastPathTarget\(target\) \|\|\s*hasRelatedStoredMarking\(xpath\);/
-  );
-  assert.match(
-    excludeSource,
-    /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt, \{\s*immediateFullRender\s*\}\);/
-  );
+  assert.doesNotMatch(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
+  assert.doesNotMatch(excludeSource, /const immediateFullRender =/);
+  assert.match(excludeSource, /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt\);/);
 });
 
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
@@ -336,4 +377,50 @@ test("marking mode surfaces temporary disabled state while save sync blocks edit
   assert.match(source, /export async function clearPageSaveReconciliation[\s\S]*?state\.pageSaveReconciliation = null;[\s\S]*?updateMarkingTemporarilyDisabledUi\(\);[\s\S]*?notifyDraftStatus\(pageUrl\);/);
   assert.match(textSource, /temporarilyDisabledSaving: "Saving page\.\.\. marking paused"/);
   assert.match(textSource, /temporarilyDisabledSyncing: "Save sync pending\.\.\. marking paused"/);
+});
+
+test("marking render cache keys include selector and entry fingerprints before reuse", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /cachedCollectionsKey:\s*""/);
+  assert.match(source, /function buildMarkingCollectionsCacheKey\(\{ pageUrl = "", selectorSet = null, entry = null \} = \{\}\)/);
+  assert.match(source, /function resolveMarkingSelectorContext\(configValue, entry = null\)/);
+  assert.match(source, /const nextCollectionsCacheKey = buildMarkingCollectionsCacheKey\(\{/);
+  assert.match(source, /if \(cached && state\.cachedCollectionsKey === nextCollectionsCacheKey\)/);
+  assert.match(source, /state\.cachedCollectionsKey = buildMarkingCollectionsCacheKey\(\{/);
+  assert.match(source, /function invalidateCachedCollections\(\) \{[\s\S]*?state\.cachedCollectionsKey = "";/);
+});
+
+test("marking enable schedules settle renders that force invalidating rebuilds", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /const MARKING_MODE_SETTLE_RENDER_DELAYS_MS = \[180, 700, 1800\];/);
+  assert.match(source, /function clearMarkingSettleRenders\(\)/);
+  assert.match(source, /function scheduleMarkingSettleRenders\(\) \{[\s\S]*?MARKING_MODE_SETTLE_RENDER_DELAYS_MS/);
+  assert.match(source, /scheduleRender\(\{[\s\S]*?reason: "marking-settle",[\s\S]*?invalidate: true/);
+  assert.match(source, /export async function enableForBaseUrl\(baseUrl, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
+  assert.match(source, /export function disable\(options = \{\}\) \{[\s\S]*?clearMarkingSettleRenders\(\);/);
+});
+
+test("paint reachability allows in-path hits deeper in the hit stack and falls back when all checks reject", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /function getPaintReachabilityForRect\(el, rect\) \{[\s\S]*?elementsAtPoint\.some\(\(hit\) => isElementInHitPath\(hit, el\)\)/);
+  assert.match(source, /function filterPaintReachableRects\(el, rects\) \{[\s\S]*?const reachableRects = rects\.filter\(\(rect\) => getPaintReachabilityForRect\(el, rect\) !== false\);/);
+  assert.match(source, /if \(reachableRects\.length > 0\) \{[\s\S]*?return reachableRects;/);
+  assert.match(source, /if \([\s\S]*?isVisible\(el\)[\s\S]*?!isDefinitelyHiddenSubtreeElement\(el\)[\s\S]*?\) \{[\s\S]*?return rects;/);
+});
+
+test("paint reachability fallback emits throttled counter telemetry in toggle perf logs", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(source, /paintReachabilityFallbackCount:\s*0/);
+  assert.match(source, /paintReachabilityFallbackLastLoggedAt:\s*0/);
+  assert.match(source, /function reportPaintReachabilityFallback\(el, rectCount\) \{/);
+  assert.match(source, /state\.paintReachabilityFallbackCount \+= 1;/);
+  assert.match(source, /count <= 3 \|\|[\s\S]*?count % 25 === 0 \|\|[\s\S]*?paintReachabilityFallbackLastLoggedAt >= 5000/);
+  assert.match(source, /logTogglePerf\("render\.reachability-fallback", nowMs\(\), \{/);
+  assert.match(source, /reportPaintReachabilityFallback\(el, rects\.length\);/);
+  assert.match(source, /state\.paintReachabilityFallbackCount = 0;/);
+  assert.match(source, /state\.paintReachabilityFallbackLastLoggedAt = 0;/);
 });

@@ -61,11 +61,14 @@ import {
   PROPERTY_LOCK_CONTENT_ACTIVITY,
   PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
   PROPERTY_LOCK_CONTENT_TAKE_LOCK,
+  PROPERTY_LOCK_CONTENT_RELEASE,
   PROPERTY_LOCK_CONTENT_SUGGEST,
   PROPERTY_LOCK_CONTENT_RESPOND,
   PROPERTY_LOCK_CONTENT_CONTINUE,
+  PROPERTY_LOCK_BACKGROUND_GET_STATE,
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+  PROPERTY_LOCK_CONNECTION_CONNECTED,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
   PROPERTY_LOCK_WS_LOCK_STATE,
@@ -102,6 +105,7 @@ const URL_CHANGED_EVENT = "unfluffify:url-changed";
 const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";
+const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
@@ -148,7 +152,10 @@ let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockConnectedSiteId = null;
+let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
+let propertyLockSyncInFlight = false;
+let propertyLockQueuedSyncOptions = null;
 let propertyLockReconnectTimer = 0;
 let propertyLockClientId = "";
 let extensionContextInvalidated = false;
@@ -174,6 +181,11 @@ let silentHighlightRevealRaf = 0;
 let lastTrackedUrlPath = "";
 let lastTrackedUrlHostname = "";
 let silentHighlightLegacyAttrsCleaned = false;
+let silentHighlightEditorRevealInFlight = 0;
+let silentHighlightEditorRevealKey = "";
+let silentHighlightEditorActivationPromise = null;
+let silentHighlightEditorActivationQueued = false;
+let silentHighlightEditorActivationIdCounter = 0;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -410,12 +422,10 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
   }
 
   if (message.type === "transport-event") {
-    chrome.runtime.sendMessage({
+    sendRuntimeMessageSafely({
       type: "remoteSupportTransportEvent",
       source: "remoteSupportViewer",
       event: message.event && typeof message.event === "object" ? message.event : {}
-    }).then().catch(() => {
-      // Ignore transport event delivery failures while the background reloads.
     });
     return;
   }
@@ -426,7 +436,7 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
       width: message.width,
       height: message.height
     });
-    chrome.runtime.sendMessage({
+    sendRuntimeMessageSafely({
       type: "remoteSupportTransportEvent",
       source: "remoteSupportViewer",
       event: {
@@ -434,8 +444,6 @@ function handleRemoteSupportSupportPageViewerPortMessage(event) {
         sessionId: typeof message.sessionId === "string" ? message.sessionId : "",
         active: Boolean(message.active)
       }
-    }).then().catch(() => {
-      // Ignore transport event delivery failures while the background reloads.
     });
     return;
   }
@@ -700,22 +708,47 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
   syncRemoteSupportTerminateButton();
 }
 
-function forwardPageTelemetryMessage(message) {
+function sendRuntimeMessageSafely(message) {
   if (
+    extensionContextInvalidated ||
     !message ||
     typeof message !== "object" ||
     !globalThis.chrome ||
     !chrome.runtime ||
     typeof chrome.runtime.sendMessage !== "function"
   ) {
+    return Promise.resolve(null);
+  }
+
+  return Promise.resolve()
+    .then(() => utils.sendRuntimeMessage(message))
+    .then((response) => {
+      if (response && response.contextInvalidated) {
+        markExtensionContextInvalidated(
+          response.error || "Extension context invalidated."
+        );
+        return null;
+      }
+      return response;
+    })
+    .catch((error) => {
+      if (markExtensionContextInvalidated(error)) {
+        return null;
+      }
+      return null;
+    });
+}
+
+function forwardPageTelemetryMessage(message) {
+  if (!message || typeof message !== "object") {
     return;
   }
 
-  Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => {});
+  void sendRuntimeMessageSafely(message);
 }
 
 function handlePageTelemetryWindowMessage(event) {
-  if (!event || event.source !== window) {
+  if (extensionContextInvalidated || !event || event.source !== window) {
     return;
   }
 
@@ -733,7 +766,11 @@ function handlePageTelemetryWindowMessage(event) {
 }
 
 function syncPageTelemetryControl() {
-  if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+  if (
+    extensionContextInvalidated ||
+    typeof window === "undefined" ||
+    typeof window.postMessage !== "function"
+  ) {
     return;
   }
 
@@ -745,6 +782,7 @@ function syncPageTelemetryControl() {
 
 function ensurePageTelemetryBridge() {
   if (
+    extensionContextInvalidated ||
     typeof window === "undefined" ||
     typeof document !== "object" ||
     !globalThis.chrome ||
@@ -851,10 +889,8 @@ function ensureRemoteSupportTerminateButton() {
 
       remoteSupportTerminatePending = true;
       syncRemoteSupportTerminateButton();
-      chrome.runtime.sendMessage({
+      sendRuntimeMessageSafely({
         type: "remoteSupportEnd"
-      }).catch(() => {
-        // Ignore transport teardown races.
       }).finally(() => {
         remoteSupportTerminatePending = false;
         syncRemoteSupportTerminateButton();
@@ -981,7 +1017,6 @@ function ensureRemoteSupportSupportPageStyles() {
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__hero,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__connect-card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page--viewer-only .uf-support-page__caption {
       display: none;
     }
@@ -1000,8 +1035,7 @@ function ensureRemoteSupportSupportPageStyles() {
       backdrop-filter: none;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage,
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
+    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__stage {
       min-width: 0;
     }
 
@@ -1012,28 +1046,12 @@ function ensureRemoteSupportSupportPageStyles() {
       justify-self: center;
     }
 
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
-      width: min(360px, 100%);
-      justify-self: start;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card,
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface {
       border: 1px solid rgba(182, 209, 246, 0.14);
       border-radius: 24px;
       background: rgba(8, 16, 27, 0.84);
       box-shadow: 0 24px 60px rgba(5, 10, 19, 0.35);
       backdrop-filter: blur(18px);
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__card {
-      padding: 20px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__connect-card {
-      display: grid;
-      gap: 12px;
-      align-content: start;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__sidebar-brand {
@@ -1048,22 +1066,6 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta {
       display: grid;
       gap: 14px;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-label {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #7ea4d4;
-    }
-
-    #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__meta-value {
-      margin-top: 6px;
-      color: #ffffff;
-      font-size: 18px;
-      font-weight: 600;
-      word-break: break-word;
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} .uf-support-page__surface:focus-visible {
@@ -1377,12 +1379,12 @@ async function syncRemoteSupportSupportPageDockState(dockState) {
     dockState: normalizedDockState
   });
   renderRemoteSupportSupportPage();
-  await chrome.runtime.sendMessage({
+  await sendRuntimeMessageSafely({
     type: "remoteSupportSetDockState",
     tabId: Number.isFinite(remoteSupportSupportPageTabId) ? remoteSupportSupportPageTabId : undefined,
     sessionId: remoteSupportSupportPageState.sessionId || "",
     dockState: normalizedDockState
-  }).catch(() => {});
+  });
   sendRemoteSupportSupportPageViewerRequest("remoteSupportUpdateDockState", {
     dockState: normalizedDockState
   }).then();
@@ -1458,6 +1460,10 @@ function ensureRemoteSupportSupportPageUi() {
               <div class="uf-support-page__stage-copy" data-uf-extension-ui="true">
                 <h1 class="uf-support-page__sidebar-brand" data-uf-extension-ui="true">Unfluffify Support</h1>
                 <p id="uf-support-page-passive-state" class="uf-support-page__status" data-uf-extension-ui="true">Join a support session from the Unfluffify extension popup while this /support tab stays focused on viewing.</p>
+                <div id="uf-support-page-error" class="uf-support-page__notice" role="alert" aria-live="assertive" aria-atomic="true" hidden data-uf-extension-ui="true">
+                  <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
+                  <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
+                </div>
               </div>
               <button id="uf-support-page-fullscreen" class="uf-support-page__button uf-support-page__button--compact" type="button" data-uf-extension-ui="true">Enter fullscreen</button>
             </div>
@@ -1467,14 +1473,6 @@ function ensureRemoteSupportSupportPageUi() {
               <div id="uf-support-page-placeholder" class="uf-support-page__placeholder" data-uf-extension-ui="true"></div>
             </div>
             <p class="uf-support-page__caption" data-uf-extension-ui="true">Live Chrome window stream. Remote control is disabled.</p>
-          </div>
-          <div class="uf-support-page__card uf-support-page__connect-card" data-uf-extension-ui="true">
-            <div class="uf-support-page__meta-label" data-uf-extension-ui="true">Support page</div>
-            <p class="uf-support-page__status" data-uf-extension-ui="true">Use the extension popup to join. The page surface stays dedicated to the shared screen.</p>
-            <div id="uf-support-page-error" class="uf-support-page__notice" hidden data-uf-extension-ui="true">
-              <span id="uf-support-page-error-text" data-uf-extension-ui="true"></span>
-              <button id="uf-support-page-error-dismiss" class="uf-support-page__notice-dismiss" type="button" aria-label="Dismiss notice" title="Dismiss notice" data-uf-extension-ui="true"></button>
-            </div>
           </div>
         </section>
       </div>
@@ -2045,13 +2043,11 @@ function syncAiPreviewClickableTargets(items) {
 }
 
 function notifyAiPreviewFocusChanged(xpath) {
-  chrome.runtime.sendMessage({
+  void sendRuntimeMessageSafely({
     type: "aiPreviewFocusChanged",
     baseUrl: state.baseUrl || "",
     pageUrl: location.href,
     xpath: typeof xpath === "string" ? xpath : ""
-  }).then().catch(() => {
-    // Ignore popup-sync failures while preview focus changes.
   });
 }
 
@@ -2675,7 +2671,7 @@ async function toggleEnabledFromPage(options = {}) {
   if (!gateResult.allowed) {
     return;
   }
-  if (!currentlyEnabled && isMarkingBlockedByPropertyLock()) {
+  if (!currentlyEnabled && isPropertyLockInteractionBlocked()) {
     showPropertyLockBlockedToast();
     return;
   }
@@ -2703,7 +2699,22 @@ async function toggleEnabledFromPage(options = {}) {
     pageType: state.currentPageType
   });
   sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
-  core.enableForBaseUrl(baseUrl).then();
+  try {
+    await core.enableForBaseUrl(baseUrl, { skipInitialReveal: true });
+  } catch (error) {
+    console.error("Failed to enable marking from page:", error);
+    state.currentPageType = "";
+    core.disable();
+    await utils.sendRuntimeMessage({
+      type: "setTabState",
+      enabled: false,
+      baseUrl,
+      pageType: ""
+    });
+    sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RELEASE);
+    showPageToast("Unable to activate on this page");
+    return;
+  }
   refreshSilentHighlightings().then();
 }
 
@@ -2783,6 +2794,102 @@ function setSilentHighlightingPageMotionPaused(paused) {
   } else {
     core.resumePageMotion(SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON);
   }
+}
+
+function getSilentHighlightEditorRevealKey(baseUrl, pageUrl) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
+  if (!normalizedBaseUrl || !pageUrl) {
+    return "";
+  }
+  return `${normalizedBaseUrl}|${pageUrl}`;
+}
+
+async function runEditorSilentHighlightingActivation() {
+  if (silentHighlightEditorActivationPromise) {
+    silentHighlightEditorActivationQueued = true;
+    return silentHighlightEditorActivationPromise;
+  }
+
+  const runActivationLoop = async () => {
+    do {
+      silentHighlightEditorActivationQueued = false;
+      await runEditorSilentHighlightingActivationOnce();
+    } while (
+      silentHighlightEditorActivationQueued &&
+      Boolean(propertyLockState && propertyLockState.isEditor)
+    );
+  };
+
+  silentHighlightEditorActivationPromise = runActivationLoop().finally(() => {
+    silentHighlightEditorActivationPromise = null;
+  });
+
+  return silentHighlightEditorActivationPromise;
+}
+
+async function runEditorSilentHighlightingActivationOnce() {
+  if (!propertyLockState || !propertyLockState.isEditor) {
+    return;
+  }
+  const activationId = ++silentHighlightEditorActivationIdCounter;
+  silentHighlightEditorRevealInFlight = activationId;
+  let shouldRefreshAfterActivation = false;
+  try {
+    const pageUrl = location.href;
+    const configs = await config.getConfigs();
+    const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
+    if (!baseUrl) {
+      return;
+    }
+    const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
+    if (revealKey && revealKey === silentHighlightEditorRevealKey) {
+      shouldRefreshAfterActivation = true;
+      return;
+    }
+    const previousReconciliation = core.getPageSaveReconciliationState(pageUrl);
+    const isStillCurrent = () =>
+      silentHighlightEditorRevealInFlight === activationId &&
+      Boolean(propertyLockState && propertyLockState.isEditor) &&
+      location.href === pageUrl &&
+      utils.isPageWithinBaseUrl(location.href, baseUrl);
+    await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
+      reason: SILENT_HIGHLIGHTING_PREPARATION_REASON
+    });
+    const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
+      baseUrl,
+      pageUrl,
+      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
+      { keepUiActive: true }
+    );
+    if (isStillCurrent() && prepared && revealKey) {
+      silentHighlightEditorRevealKey = revealKey;
+    }
+    shouldRefreshAfterActivation = true;
+    if (previousReconciliation) {
+      await core.setPageSaveReconciliationPending(baseUrl, pageUrl, {
+        reason: previousReconciliation.reason || "pending"
+      }).catch(() => {
+        // Best-effort reconciliation restoration.
+      });
+    } else {
+      await core.clearPageSaveReconciliation(baseUrl, pageUrl).catch(() => {
+        // Best-effort reconciliation cleanup.
+      });
+    }
+  } finally {
+    if (silentHighlightEditorRevealInFlight === activationId) {
+      silentHighlightEditorRevealInFlight = 0;
+    }
+  }
+  if (shouldRefreshAfterActivation) {
+    try {
+      await refreshSilentHighlightings();
+    } finally {
+      core.finishPageInspectionUi();
+    }
+    return;
+  }
+  core.finishPageInspectionUi();
 }
 
 function ensureSilentHighlightOverlay() {
@@ -3777,17 +3884,13 @@ function startSilentHighlightingUrlWatcher() {
   }
   let lastUrl = location.href;
   silentHighlightingUrlTimer = window.setInterval(() => {
-    if (state.enabled) {
-      lastUrl = location.href;
-      return;
-    }
     if (location.href !== lastUrl) {
       lastUrl = location.href;
+      silentHighlightEditorRevealKey = "";
       runPropertyLockSync({
         pageUrl: lastUrl,
         forceSiteIdRefresh: true
       });
-      refreshSilentHighlightings().then();
     }
   }, 800);
 }
@@ -3897,7 +4000,9 @@ async function exitAiPreviewMode() {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
-    await core.enableForBaseUrl(restoreState.previousBaseUrl);
+    await core.enableForBaseUrl(restoreState.previousBaseUrl, {
+      skipInitialReveal: true
+    });
     restoreAiPreviewDraftState(restoreState);
     refreshEnabledAiHighlights();
     return;
@@ -5219,13 +5324,14 @@ function toRenderableNodeList(nodes) {
   return toRenderableNodeListWithSelectors(nodes).nodes;
 }
 
-function collectAiSubmissionXpathsForCurrentPage() {
+function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   core.refreshPageMotionPause();
-  if (!state.config) {
+  const configValue = sourceConfig || state.config;
+  if (!configValue) {
     return [];
   }
   const pageUrl = location.href;
-  const entry = core.getPageMarkingEntry(state.config, pageUrl, {
+  const entry = core.getPageMarkingEntry(configValue, pageUrl, {
     create: false,
     persist: false
   });
@@ -5370,7 +5476,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
         !explicitlyIncluded &&
         !insideExcludedAncestorRow
       ) {
-        isMarkableTextual = core.isMarkableElement(node, state.config, {
+        isMarkableTextual = core.isMarkableElement(node, configValue, {
           allowParent: false,
           allowImmutableChildren: false,
           allowConsentElements: true,
@@ -5433,13 +5539,19 @@ async function refreshSilentHighlightings() {
   const configs = await config.getConfigs();
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
+    silentHighlightEditorRevealKey = "";
     setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
     return;
   }
-  setSilentHighlightingPageMotionPaused(true);
+  const holdSilentMotionPause = Boolean(
+    propertyLockState &&
+    propertyLockState.isEditor &&
+    !silentHighlightEditorRevealInFlight
+  );
+  setSilentHighlightingPageMotionPaused(holdSilentMotionPause);
   const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]);
   const baseConfig = normalized.config || {};
   if (normalized.changed) {
@@ -5472,7 +5584,7 @@ async function refreshSilentHighlightings() {
   if (!shouldObserve) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
-    setSilentHighlightingsActive(false);
+    setSilentHighlightingsActive(holdSilentMotionPause);
     return;
   }
   let contentNodes = [];
@@ -5574,18 +5686,40 @@ function isMarkingBlockedByPropertyLock() {
     !propertyLockState.isEditor;
 }
 
+function isPropertyLockDisconnectedForInteractionBlock() {
+  return propertyLockBannerVisible && propertyLockBannerMode === "editor_disconnect_countdown";
+}
+
+function isPropertyLockInactivityWarningForInteractionBlock() {
+  return propertyLockBannerVisible && propertyLockBannerMode === "editor_inactivity_warning";
+}
+
+function isPropertyLockInteractionBlocked() {
+  return isMarkingBlockedByPropertyLock() ||
+    isPropertyLockDisconnectedForInteractionBlock() ||
+    isPropertyLockInactivityWarningForInteractionBlock();
+}
+
 function showPropertyLockBlockedToast() {
   const now = Date.now();
   if (now - propertyLockLastBlockedToastAt < 1200) {
     return;
   }
   propertyLockLastBlockedToastAt = now;
+  if (isPropertyLockDisconnectedForInteractionBlock()) {
+    showPageToast(propertyLockText.disconnectedInteractionBlockedToast);
+    return;
+  }
+  if (isPropertyLockInactivityWarningForInteractionBlock()) {
+    showPageToast(propertyLockText.inactivityInteractionBlockedToast);
+    return;
+  }
   const editorName = propertyLockState?.editorName || "Someone";
   showPageToast(propertyLockText.lockedInteractionBlockedToast(editorName));
 }
 
 function checkPropertyLockBlocksMarking() {
-  if (!isMarkingBlockedByPropertyLock()) {
+  if (!isPropertyLockInteractionBlocked()) {
     return true;
   }
   showPropertyLockBlockedToast();
@@ -5649,12 +5783,31 @@ function sendPropertyLockDraftStatus() {
 }
 
 function handleBlockedPropertyLockInteraction(event) {
-  if (!isMarkingBlockedByPropertyLock() || !event || !event.isTrusted) {
+  const blockDuringDisconnect = isPropertyLockDisconnectedForInteractionBlock();
+  const blockDuringInactivityWarning = isPropertyLockInactivityWarningForInteractionBlock();
+  const blockDuringEditorWarning =
+    blockDuringDisconnect ||
+    blockDuringInactivityWarning;
+  if ((!blockDuringEditorWarning && !isMarkingBlockedByPropertyLock()) || !event || !event.isTrusted) {
     return;
   }
 
   const target = event.target && event.target.nodeType === 1 ? event.target : null;
-  if (target && typeof target.closest === "function" && target.closest('[data-uf-extension-ui="true"]')) {
+  const isInactivityRescueControl = Boolean(
+    blockDuringInactivityWarning &&
+    target &&
+    typeof target.closest === "function" &&
+    target.closest(`#${PROPERTY_LOCK_BANNER_ID} .uf-lock-banner-continue-editing`)
+  );
+  if (isInactivityRescueControl) {
+    return;
+  }
+  if (
+    !blockDuringEditorWarning &&
+    target &&
+    typeof target.closest === "function" &&
+    target.closest('[data-uf-extension-ui="true"]')
+  ) {
     return;
   }
 
@@ -5714,6 +5867,7 @@ function disconnectPropertyLockPort(options = {}) {
   const currentSiteId = propertyLockConnectedSiteId;
   propertyLockPort = null;
   propertyLockConnectedSiteId = null;
+  propertyLockEditorClaimPending = false;
 
   if (currentPort) {
     if (notifyBackground && currentSiteId) {
@@ -5742,6 +5896,14 @@ function markExtensionContextInvalidated(error) {
     return false;
   }
   extensionContextInvalidated = true;
+  if (
+    pageTelemetryBridgeListenerBound &&
+    typeof window !== "undefined" &&
+    typeof window.removeEventListener === "function"
+  ) {
+    window.removeEventListener("message", handlePageTelemetryWindowMessage);
+    pageTelemetryBridgeListenerBound = false;
+  }
   propertyLockSyncToken += 1;
   disconnectPropertyLockPort({ notifyBackground: false });
   return true;
@@ -5760,13 +5922,75 @@ function handlePropertyLockSyncError(error, options = {}) {
   schedulePropertyLockReconnect(options);
 }
 
+function queuePropertyLockEditorClaim() {
+  propertyLockEditorClaimPending = true;
+}
+
+function mergePropertyLockSyncOptions(currentOptions = {}, incomingOptions = {}) {
+  const mergedOptions = {};
+  const currentPageUrl = typeof currentOptions.pageUrl === "string" && currentOptions.pageUrl
+    ? currentOptions.pageUrl
+    : "";
+  const incomingPageUrl = typeof incomingOptions.pageUrl === "string" && incomingOptions.pageUrl
+    ? incomingOptions.pageUrl
+    : "";
+  const mergedPageUrl = incomingPageUrl || currentPageUrl;
+  if (mergedPageUrl) {
+    mergedOptions.pageUrl = mergedPageUrl;
+  }
+  if (Boolean(currentOptions.forceSiteIdRefresh) || Boolean(incomingOptions.forceSiteIdRefresh)) {
+    mergedOptions.forceSiteIdRefresh = true;
+  }
+  return mergedOptions;
+}
+
+function flushQueuedPropertyLockEditorClaim() {
+  if (!propertyLockEditorClaimPending) {
+    return;
+  }
+  if (propertyLockState && propertyLockState.isEditor) {
+    propertyLockEditorClaimPending = false;
+    return;
+  }
+  propertyLockEditorClaimPending = false;
+  sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+}
+
 function runPropertyLockSync(options = {}) {
   if (extensionContextInvalidated) {
     return;
   }
-  syncPropertyLockConnection(options).catch((error) => {
-    handlePropertyLockSyncError(error, options);
-  });
+  const nextOptions = mergePropertyLockSyncOptions({}, options);
+  if (propertyLockSyncInFlight) {
+    propertyLockQueuedSyncOptions = mergePropertyLockSyncOptions(
+      propertyLockQueuedSyncOptions || {},
+      nextOptions
+    );
+    return;
+  }
+
+  propertyLockSyncInFlight = true;
+  (async () => {
+    let activeOptions = nextOptions;
+    while (!extensionContextInvalidated) {
+      try {
+        await syncPropertyLockConnection(activeOptions);
+      } catch (error) {
+        handlePropertyLockSyncError(error, activeOptions);
+      }
+      if (!propertyLockQueuedSyncOptions) {
+        break;
+      }
+      activeOptions = propertyLockQueuedSyncOptions;
+      propertyLockQueuedSyncOptions = null;
+    }
+    propertyLockSyncInFlight = false;
+    if (propertyLockQueuedSyncOptions && !extensionContextInvalidated) {
+      const queuedOptions = propertyLockQueuedSyncOptions;
+      propertyLockQueuedSyncOptions = null;
+      runPropertyLockSync(queuedOptions);
+    }
+  })();
 }
 
 async function syncPropertyLockConnection(options = {}) {
@@ -5792,7 +6016,15 @@ async function syncPropertyLockConnection(options = {}) {
     throw error;
   }
 
-  if (extensionContextInvalidated || syncToken !== propertyLockSyncToken || pageUrl !== location.href) {
+  if (extensionContextInvalidated || syncToken !== propertyLockSyncToken) {
+    return;
+  }
+
+  if (pageUrl !== location.href) {
+    runPropertyLockSync({
+      pageUrl: location.href,
+      forceSiteIdRefresh: true
+    });
     return;
   }
 
@@ -5831,6 +6063,7 @@ async function syncPropertyLockConnection(options = {}) {
         siteId,
         ...getPropertyLockDraftStatusPayload()
       });
+      queuePropertyLockEditorClaim();
     } catch (error) {
       if (markExtensionContextInvalidated(error)) {
         return;
@@ -5841,7 +6074,39 @@ async function syncPropertyLockConnection(options = {}) {
       schedulePropertyLockReconnect({ forceSiteIdRefresh });
       return;
     }
+    return;
   }
+
+  // Same-property navigations can keep the existing lock connection alive.
+  // Re-run activation/refresh so reveal+freeze still executes per visited page.
+  sendPropertyLockActivity();
+  let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
+  if (!shouldRunEditorActivation) {
+    const snapshot = await fetchPropertyLockStateSnapshot(siteId);
+    if (
+      extensionContextInvalidated ||
+      syncToken !== propertyLockSyncToken ||
+      pageUrl !== location.href
+    ) {
+      return;
+    }
+    const snapshotState = snapshot && snapshot.state && typeof snapshot.state === "object"
+      ? snapshot.state
+      : null;
+    if (snapshotState) {
+      propertyLockState = snapshotState;
+      updatePropertyLockBannerMode();
+      renderPropertyLockBanner();
+      shouldRunEditorActivation = Boolean(snapshotState.isEditor);
+    }
+  }
+  if (shouldRunEditorActivation) {
+    runEditorSilentHighlightingActivation().catch(() => {
+      // Best-effort activation refresh for same-site navigation sync.
+    });
+    return;
+  }
+  refreshSilentHighlightings().then();
 }
 
 function handlePropertyLockPortMessage(message) {
@@ -5853,12 +6118,23 @@ function handlePropertyLockPortMessage(message) {
     setPropertyLockClientId(message.clientId);
   }
 
+  if (
+    message.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS &&
+    message.connectionStatus === PROPERTY_LOCK_CONNECTION_CONNECTED
+  ) {
+    flushQueuedPropertyLockEditorClaim();
+    return;
+  }
+
   const { type, message: serverMessage } = message;
   if (type !== PROPERTY_LOCK_BACKGROUND_STATE_UPDATE || !serverMessage || typeof serverMessage !== "object") {
     return;
   }
 
   applyPropertyLockServerMessage(serverMessage);
+  if (serverMessage.type === PROPERTY_LOCK_WS_LOCK_STATE) {
+    flushQueuedPropertyLockEditorClaim();
+  }
 }
 
 function sendPropertyLockActivity() {
@@ -5907,6 +6183,22 @@ function sendPropertyLockMessage(type, payload = {}) {
     propertyLockConnectedSiteId = null;
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
+  }
+}
+
+async function fetchPropertyLockStateSnapshot(siteId) {
+  const normalizedSiteId = normalizeSiteIdValue(siteId);
+  if (!normalizedSiteId) {
+    return null;
+  }
+  try {
+    return await utils.sendRuntimeMessage({
+      type: PROPERTY_LOCK_BACKGROUND_GET_STATE,
+      siteId: normalizedSiteId,
+      clientId: getPropertyLockClientId()
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -5985,8 +6277,19 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockState = serverMessage;
     propertyLockSuggestionId = "";
     propertyLockSuggestionFromName = "";
-    if (previousState && !previousState.isEditor && serverMessage.isEditor) {
+    const becameEditor = (!previousState || !previousState.isEditor) && serverMessage.isEditor;
+    if (!serverMessage.isEditor && !serverMessage.isSameUserEditor) {
+      silentHighlightEditorRevealKey = "";
+    }
+    if (becameEditor) {
       showPageToast(propertyLockText.editorNowToast);
+      runEditorSilentHighlightingActivation().catch(() => {
+        // Silent activation is best-effort and should not block lock-state updates.
+      });
+    } else if (serverMessage.isEditor) {
+      runEditorSilentHighlightingActivation().catch(() => {
+        // Keep editor-role reveal/freeze aligned with navigation and reconnect updates.
+      });
     } else if (
       previousState &&
       previousState.isEditor &&
@@ -5997,6 +6300,9 @@ function applyPropertyLockServerMessage(serverMessage) {
     }
     updatePropertyLockBannerMode();
     renderPropertyLockBanner();
+    if (!becameEditor) {
+      refreshSilentHighlightings().then();
+    }
     return;
   }
 
@@ -6009,9 +6315,17 @@ function applyPropertyLockServerMessage(serverMessage) {
   }
 
   if (type === PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
+    const defaultInactivityCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
     propertyLockBannerMode = "editor_inactivity_warning";
-    propertyLockBannerCountdownValue = secondsRemaining || 0;
-    restartPropertyLockBannerCountdown();
+    if (secondsRemaining !== null) {
+      propertyLockBannerCountdownValue = secondsRemaining;
+      restartPropertyLockBannerCountdown();
+    } else if (propertyLockBannerCountdownValue <= 0) {
+      propertyLockBannerCountdownValue = defaultInactivityCountdownSeconds;
+      restartPropertyLockBannerCountdown();
+    } else if (!propertyLockBannerCountdownTimer) {
+      restartPropertyLockBannerCountdown();
+    }
     renderPropertyLockBanner();
     return;
   }
@@ -6063,14 +6377,20 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockState &&
     propertyLockState.isEditor
   ) {
-    propertyLockBannerMode = "editor_disconnect_countdown";
-    propertyLockBannerCountdownValue = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
-    restartPropertyLockBannerCountdown();
+    const defaultDisconnectCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
+    if (propertyLockBannerMode !== "editor_disconnect_countdown" || propertyLockBannerCountdownValue <= 0) {
+      propertyLockBannerMode = "editor_disconnect_countdown";
+      propertyLockBannerCountdownValue = defaultDisconnectCountdownSeconds;
+      restartPropertyLockBannerCountdown();
+    } else if (!propertyLockBannerCountdownTimer) {
+      restartPropertyLockBannerCountdown();
+    }
     renderPropertyLockBanner();
   }
 }
 
 function updatePropertyLockBannerMode() {
+  const previousBannerMode = propertyLockBannerMode;
   if (!propertyLockState) {
     propertyLockBannerMode = "no_banner";
     clearPropertyLockBannerCountdown();
@@ -6098,8 +6418,13 @@ function updatePropertyLockBannerMode() {
   }
 
   if (isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
+    const defaultInactivityCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
     propertyLockBannerMode = "editor_inactivity_warning";
-    propertyLockBannerCountdownValue = secondsRemaining || 60;
+    if (secondsRemaining !== null && secondsRemaining > 0) {
+      propertyLockBannerCountdownValue = secondsRemaining;
+    } else if (previousBannerMode !== "editor_inactivity_warning" || propertyLockBannerCountdownValue <= 0) {
+      propertyLockBannerCountdownValue = defaultInactivityCountdownSeconds;
+    }
     restartPropertyLockBannerCountdown();
     return;
   }
@@ -6408,7 +6733,7 @@ export function main() {
   syncRemoteSupportSessionStateFromBackground().then();
   runPropertyLockSync({ forceSiteIdRefresh: true });
 
-  core.refreshFromTabState().then(async () => {
+  core.refreshFromTabState({ withInitialReveal: true }).then(async () => {
     // Check if URL path changed (e.g., language change on same domain)
     // and if so, re-verify the site ID is still correct
     if (state.enabled && state.baseUrl) {
@@ -6447,12 +6772,7 @@ export function main() {
       return;
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    if (key !== "e" && key !== "s" && key !== "m") {
-      return;
-    }
-    if (key === "s" && !checkPropertyLockBlocksMarking()) {
-      event.preventDefault();
-      event.stopPropagation();
+    if (key !== "e" && key !== "m") {
       return;
     }
     event.preventDefault();
@@ -6471,18 +6791,7 @@ export function main() {
         return;
       }
       toggleDeviceEmulationFromPage().then();
-      return;
     }
-    isPageSaveHotkeyAllowedOnPage().then((allowed) => {
-      if (!allowed) {
-        return;
-      }
-      saveCurrentPageDraft({ showToast: true }).then((result) => {
-        if (result && result.ok) {
-          sendPropertyLockActivity();
-        }
-      });
-    });
   }, true);
 
   document.addEventListener("click", (event) => {
@@ -6571,7 +6880,7 @@ export function main() {
 
     if (message.type === "setEnabled") {
       if (message.enabled) {
-        if (isMarkingBlockedByPropertyLock()) {
+        if (isPropertyLockInteractionBlocked()) {
           sendResponse({ ok: false, locked: true });
           return;
         }
@@ -6580,14 +6889,18 @@ export function main() {
         stopSilentHighlightingObserver();
         clearSilentHighlightingMarks();
         setSilentHighlightingsActive(false);
-        core.enableForBaseUrl(message.baseUrl)
-          .then(() => {
-            refreshEnabledAiHighlights();
-            sendResponse({ ok: true });
-          })
-          .catch(() => {
-            sendResponse({ ok: false });
-          });
+        (async () => {
+          const skipInitialReveal = !Boolean(message.performInitialReveal);
+          const reconciliation = core.getPageSaveReconciliationState(location.href);
+          if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+            await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
+          }
+          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
+          refreshEnabledAiHighlights();
+          sendResponse({ ok: true });
+        })().catch(() => {
+          sendResponse({ ok: false });
+        });
         return true;
       }
       state.currentPageType = "";
@@ -6597,6 +6910,35 @@ export function main() {
         sendResponse({ ok: true });
       });
       return true;
+    }
+
+    if (message.type === "getInspectionStatus") {
+      const pageUrl = location.href;
+      const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+      const reconciliationPending = core.isPageSaveReconciliationPending(pageUrl);
+      const inspectionActive = core.isPageInspectionUiActive();
+      const silentHighlightPreparationActive = Boolean(
+        reconciliation &&
+        reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+      );
+      const editorPreparationPending = Boolean(
+        silentHighlightPreparationActive ||
+        silentHighlightEditorActivationPromise ||
+        propertyLockEditorClaimPending
+      );
+      const inspectionPending =
+        inspectionActive ||
+        editorPreparationPending ||
+        reconciliationPending;
+      sendResponse({
+        ok: true,
+        active: inspectionActive,
+        pending: inspectionPending,
+        pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
+          ? reconciliation.reason || "pending"
+          : ""
+      });
+      return;
     }
 
     if (message.type === "hideConsentForInspection") {
@@ -6707,20 +7049,13 @@ export function main() {
             pageUrl,
             state.baseUrl
           );
+          const loadedEntry = core.findPageMarkingEntry(loadedConfig, pageUrl, state.baseUrl);
           if (!forceReloadPageEntry) {
             core.mergeDraftEntry(loadedConfig, pageUrl, draftEntry, savedEntry);
           } else {
-            core.setSavedPageEntry(pageUrl, backendEntry || null);
-            if (backendEntry) {
-              const immutableExcluded = core.collectImmutableElements();
-              const syncResult = core.syncPageMarkings(loadedConfig, pageUrl, immutableExcluded, {
-                allowCreate: true,
-                persist: true
-              });
-              if (syncResult && syncResult.entry) {
-                core.setSavedPageEntry(pageUrl, syncResult.entry);
-              }
-            }
+            const reloadedEntry = backendEntry || loadedEntry || null;
+            core.setSavedPageEntry(pageUrl, reloadedEntry);
+            state.currentPageType = (reloadedEntry && reloadedEntry.pageType) || state.currentPageType || "";
           }
           if (!forceReloadPageEntry) {
             core.setSavedPageEntry(pageUrl, backendEntry || null);
@@ -6900,7 +7235,7 @@ export function main() {
             ? entry.rawHtml
             : "";
         entry.title = document.title || location.href;
-        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage(config);
         core.touchPageEntryTimestamp(entry);
         config.pageMarkings[location.href] = entry;
 
@@ -6962,7 +7297,7 @@ export function main() {
           savedEntry,
           dirty: core.isPageDraftDirty(pageUrl) || submissionXpathsStale,
           reconciliation,
-          reconciliationPending: Boolean(reconciliation)
+          reconciliationPending: core.isPageSaveReconciliationPending(pageUrl)
         });
       })().catch(() => {
         sendResponse({ ok: false });
@@ -7313,8 +7648,8 @@ export function main() {
   });
 
   window.addEventListener(URL_CHANGED_EVENT, () => {
+    silentHighlightEditorRevealKey = "";
     runPropertyLockSync({ forceSiteIdRefresh: true });
-    refreshSilentHighlightings().then();
   });
 
   refreshSilentHighlightings().then();

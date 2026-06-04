@@ -33,6 +33,17 @@ const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
 const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
+const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
+  "",
+  "pending",
+  "saving",
+  "preparing",
+  "loading",
+  "calculating",
+  "sync_failed",
+  "sync_skipped",
+  "load_failed"
+]);
 
 export function buildPageSaveReconciliationKey(baseUrl, pageUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
@@ -70,7 +81,10 @@ export function normalizePageSaveReconciliation(value) {
 
 export function isPageSaveReconciliationPending(value) {
   const normalized = normalizePageSaveReconciliation(value);
-  return Boolean(normalized && normalized.status === PAGE_SAVE_RECONCILIATION_STATUS_PENDING);
+  if (!normalized || normalized.status !== PAGE_SAVE_RECONCILIATION_STATUS_PENDING) {
+    return false;
+  }
+  return !NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS.has(normalized.reason);
 }
 
 async function getPageSaveReconciliations() {

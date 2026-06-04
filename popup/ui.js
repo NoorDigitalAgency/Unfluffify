@@ -16,6 +16,10 @@ import {
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState
 } from "../common/lynx-checklist.js";
+import {
+  getRenderModeOptionIcon,
+  getRenderModeOptionLabel
+} from "./render-mode.js";
 
 export { ViewText } from "../common/text.js";
 
@@ -141,8 +145,8 @@ const initialViewState = {
   lynxChecklistVisible: false,
   lynxChecklistAiAnswer: initialLynxChecklistState.aiAnswer,
   lynxChecklistPageTypes: initialLynxChecklistState.pageTypes,
-  lynxChecklistAiQuestionDisabled: false,
-  lynxChecklistAiQuestionHidden: false,
+  lynxChecklistAiQuestionDisabled: true,
+  lynxChecklistAiQuestionHidden: true,
   lynxChecklistNoticeText: "",
   renderModeReady: false,
   renderModeInputDisabled: false,
@@ -162,8 +166,13 @@ const initialViewState = {
   aiControlsBusy: false,
   aiDirtyNoticeVisible: false,
   aiDirtyNoticeText: PopupText.ai.dirtyNotice,
+  silentModeActive: false,
+  sessionHasPendingChanges: false,
+  sessionRequiresAiRun: false,
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",
+  pageSessionNoticeVisible: false,
+  pageSessionNoticeText: "",
   computeButtonText: ViewText.computeButtonIdle,
   computeButtonDisabled: true,
   computeButtonLoading: false,
@@ -1072,17 +1081,24 @@ function renderRemoteSupportedView(view, handlers) {
 
 function renderRenderModeEditor(view, handlers) {
   const renderModeInputDisabled = view.renderModeInputDisabled || view.renderModeReadOnly;
+  const selectedRenderModeLabel = getRenderModeOptionLabel(view.renderModeValue);
+  const selectedRenderModeIcon = getRenderModeOptionIcon(view.renderModeValue);
 
   return h(
     Fragment,
     null,
     h(
       "div",
-      { class: "render-mode-inspect-group" },
+      { class: "render-mode-step" },
       h(
         "div",
-        { class: "render-mode-inspect-row" },
-        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepOneLabel),
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "1"),
+        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepOneLabel)
+      ),
+      h(
+        "div",
+        { class: "render-mode-inspect-actions" },
         h(
           "button",
           {
@@ -1093,12 +1109,7 @@ function renderRenderModeEditor(view, handlers) {
             onClick: handlers.onRenderModeInspectWithJavaScript
           },
           PopupText.renderMode.inspectWithJavaScriptButton
-        )
-      ),
-      h(
-        "div",
-        { class: "render-mode-inspect-row" },
-        h("span", { class: "control-label" }, PopupText.renderMode.inspectStepTwoLabel),
+        ),
         h(
           "button",
           {
@@ -1114,8 +1125,13 @@ function renderRenderModeEditor(view, handlers) {
     ),
     h(
       "div",
-      { class: "render-mode-interpretation" },
-      h("span", { class: "control-label" }, PopupText.renderMode.stepThreeLabel),
+      { class: "render-mode-step" },
+      h(
+        "div",
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "2"),
+        h("span", { class: "control-label" }, PopupText.renderMode.stepThreeLabel)
+      ),
       h(
         "div",
         { class: "render-mode-radio-group" },
@@ -1161,20 +1177,37 @@ function renderRenderModeEditor(view, handlers) {
       )
     ),
     h(
-      "label",
-      {class: "field"},
-      h("span", { class: "control-label" }, PopupText.renderMode.stepFourLabel),
-      h("span", { class: "control-label" }, PopupText.renderMode.renderModeLabel),
+      "div",
+      { class: "render-mode-step" },
       h(
         "div",
-        {class: "input-row"},
+        { class: "render-mode-step-header" },
+        h("span", { class: "render-mode-step-index", "aria-hidden": "true" }, "3"),
+        h("span", { class: "control-label" }, PopupText.renderMode.stepFourLabel)
+      ),
+      h(
+        "div",
+        { class: "input-row" },
+        h(
+          "span",
+          {
+            class: "render-mode-selected-value",
+            role: "status",
+            "aria-live": "polite"
+          },
+          icon(selectedRenderModeIcon, "render-mode-selected-value__icon"),
+          h("span", { class: "render-mode-selected-value__text" }, selectedRenderModeLabel)
+        ),
         h(
           "select",
           {
             id: "render-mode",
+            class: "u-d-none",
             value: view.renderModeValue,
             disabled: renderModeInputDisabled,
             onChange: handlers.onRenderModeInput,
+            "aria-hidden": "true",
+            tabIndex: -1,
             ref: (el) => {
               refs.renderModeSelect = el;
             }
@@ -1868,45 +1901,12 @@ function getLynxChecklistNoticeText(checklist, view) {
   return "";
 }
 
-function renderLynxChecklistRadioOption({
-  name,
-  value,
-  checked,
-  disabled,
-  label,
-  onChange
-}) {
-  return h(
-    "label",
-    {
-      class: classNames(
-        "lynx-checklist-popover__choice",
-        disabled && "lynx-checklist-popover__choice--disabled"
-      )
-    },
-    h("input", {
-      type: "radio",
-      name,
-      value,
-      checked,
-      disabled,
-      onChange
-    }),
-    h("span", null, label)
-  );
-}
-
 function renderLynxChecklistPopover(view, handlers) {
   const checklist = buildLynxChecklistViewModel({
-    aiAnswer: view.lynxChecklistAiAnswer,
     pageTypes: view.lynxChecklistPageTypes,
     markedPages: view.markedPages
   });
   const noticeText = getLynxChecklistNoticeText(checklist, view);
-  const showAiQuestion =
-    checklist.missingPageTypes.length === 0 &&
-    !view.lynxChecklistAiQuestionDisabled &&
-    !view.lynxChecklistAiQuestionHidden;
 
   return h(
     "div",
@@ -1977,37 +1977,6 @@ function renderLynxChecklistPopover(view, handlers) {
             )
           : h("div", { class: "hint" }, PopupText.lynxChecklist.noticeNoCandidates)
       ),
-      showAiQuestion
-        ? h(
-            "section",
-            { class: "lynx-checklist-popover__section" },
-            h("div", { class: "lynx-checklist-popover__question" }, PopupText.lynxChecklist.aiQuestion),
-            h(
-              "div",
-              {
-                class: "lynx-checklist-popover__choices",
-                role: "radiogroup",
-                "aria-label": PopupText.lynxChecklist.aiQuestion
-              },
-              renderLynxChecklistRadioOption({
-                name: "lynx-checklist-ai",
-                value: "yes",
-                checked: checklist.aiAnswer === "yes",
-                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-                label: ViewText.yes,
-                onChange: handlers.onLynxChecklistAiAnswerChange
-              }),
-              renderLynxChecklistRadioOption({
-                name: "lynx-checklist-ai",
-                value: "no",
-                checked: checklist.aiAnswer === "no",
-                disabled: Boolean(view.lynxChecklistAiQuestionDisabled),
-                label: ViewText.no,
-                onChange: handlers.onLynxChecklistAiAnswerChange
-              })
-            )
-          )
-        : null,
       noticeText &&
         h(
           "div",
@@ -2063,7 +2032,7 @@ function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
   const showDeviceSection = !view.mainUiHidden;
   const markingMode = !view.mainUiHidden;
-  const pageSaveNotice = view.pageSaveMobileSimulationRequiredVisible
+  const pageSaveNotice = view.pageSessionNoticeVisible
     ? h(
         "div",
         {
@@ -2071,35 +2040,27 @@ function renderMarkingView({state: view, actions: handlers}) {
           role: "status",
           "aria-live": "polite"
         },
-        view.pageSaveMobileSimulationRequiredText
+        view.pageSessionNoticeText
       )
-    : h(
-        "div",
-        {
-          id: "page-data-new-notice",
-          class: warningNoticeClass(),
-          role: "status",
-          "aria-live": "polite",
-          hidden: view.pageDataNewNoticeHidden,
-          dangerouslySetInnerHTML: {
-            __html: PopupText.page.noSavedDataNotice
-          }
-        }
-      );
-  const mergedControlsSectionChildren = [
-    h(
-      "label",
-      {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
-      h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
-      h("input", {
-        id: "device-emulation-enabled",
-        type: "checkbox",
-        checked: view.deviceEmulationEnabled,
-        disabled: view.deviceControlsDisabled,
-        onChange: handlers.onDeviceEmulationEnabledChange
-      })
-    )
-  ];
+    : null;
+  const mergedControlsSectionChildren = [];
+
+  if (showDeviceSection) {
+    mergedControlsSectionChildren.push(
+      h(
+        "label",
+        {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
+        h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
+        h("input", {
+          id: "device-emulation-enabled",
+          type: "checkbox",
+          checked: view.deviceEmulationEnabled,
+          disabled: view.deviceControlsDisabled,
+          onChange: handlers.onDeviceEmulationEnabledChange
+        })
+      )
+    );
+  }
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
@@ -2113,7 +2074,6 @@ function renderMarkingView({state: view, actions: handlers}) {
           {
             id: "page-save",
             type: "button",
-            title: PopupText.tooltips.pageSaveHotkey,
             disabled: view.pageSaveDisabled,
             onClick: handlers.onPageSave
           },
@@ -2130,7 +2090,7 @@ function renderMarkingView({state: view, actions: handlers}) {
             onClick: handlers.onPageRevert
           },
           icon("restore"),
-          PopupText.actions.revertToSaved
+          PopupText.actions.discard
         )
       ),
       h(
@@ -2152,20 +2112,23 @@ function renderMarkingView({state: view, actions: handlers}) {
   }
 
   if (view.cssSelectorsVisible) {
+    if (mergedControlsSectionChildren.length) {
+      mergedControlsSectionChildren.push(
+        h("div", { class: "section-divider", role: "separator" })
+      );
+    }
     mergedControlsSectionChildren.push(
-      h("div", { class: "section-divider", role: "separator" }),
       renderCssSelectorsSection({ state: view, actions: handlers })
     );
   }
 
-  const mergedControlsSection = h(
-    "section",
-    {
-      class: "card",
-      hidden: !showDeviceSection && !view.cssSelectorsVisible
-    },
-    ...mergedControlsSectionChildren
-  );
+  const mergedControlsSection = mergedControlsSectionChildren.length
+    ? h(
+        "section",
+        { class: "card" },
+        ...mergedControlsSectionChildren
+      )
+    : null;
 
   const lynxChecklistPopover = renderLynxChecklistPopover(view, handlers);
 

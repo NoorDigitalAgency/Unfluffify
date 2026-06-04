@@ -351,3 +351,7 @@ MigrationBackup/
 
 # Jetbrains
 .idea/
+
+# Playwright profile
+.mcp-browser-profile/
+.playwright-mcp/

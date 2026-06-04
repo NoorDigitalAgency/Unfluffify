@@ -75,7 +75,11 @@ export function formatConfigLoadStatusLabel(status, baseUrl = "") {
   if (status === "auth_error") {
     return syncText.loginRequired;
   }
-  if (status === "skipped") {
+  if (
+    status === "skipped" ||
+    status === "skipped_editor" ||
+    status === "skipped_missing_config"
+  ) {
     return syncText.skipped;
   }
   if (status === "error") {
@@ -124,6 +128,8 @@ export const propertyLockText = Object.freeze({
   transferSaveBeforeAcceptToast: "Save from the extension popup before accepting the transfer.",
   transferDiscardBeforeAcceptConfirm: "Discard unsaved changes and transfer editing?",
   lockedInteractionBlockedToast: (editorName) => `Property is being edited by ${editorName}`,
+  disconnectedInteractionBlockedToast: "Editing is temporarily blocked while the property lock reconnects.",
+  inactivityInteractionBlockedToast: "Editing is temporarily blocked due to inactivity. Continue editing from the warning banner.",
   popupUnlocked: "No active editor",
   popupConnecting: "Checking edit lock...",
   popupUnavailable: "Edit lock unavailable",
@@ -148,6 +154,7 @@ export const ContentText = Object.freeze({
     altIncludeParentHint: "Use ALT-click to inclusion to override decendents of an excluded parent", // Toast shown when an excluded ancestor blocks a direct exclude action.
     explicitIncludeBlocked: "Element cannot be explicitly included", // Toast shown when an element fails the explicit-include eligibility rules.
     pageInteractionMode: "Page interaction mode", // Toast shown while Space is held to let clicks reach page UI.
+    pageInspection: "Inspecting page... it will be ready soon", // Persistent page-overlay notice while the extension reveals lazy content before marking starts.
     saveReconciliationBlocked: "Finish server sync before editing", // Toast shown when page editing is locked after a local save.
     temporarilyDisabledSaving: "Saving page... marking paused", // Persistent page-overlay notice while a save is in progress.
     temporarilyDisabledSyncing: "Save sync pending... marking paused", // Persistent page-overlay notice while saved page sync is pending.
@@ -173,7 +180,8 @@ export const PopupText = Object.freeze({
 
   actions: Object.freeze({
     set: "Set", // Primary confirmation label for editable rows.
-    save: "Save", // Page-data action that persists the current page snapshot.
+    save: "Save Session", // Session action that persists the current local marking session.
+    discard: "Discard", // Session action that discards the current local changes.
     navigate: "Navigate", // Marked-page list action that opens a saved page.
     goBack: "Go Back", // Configuration-view action that returns to the marking view.
     login: "Login", // Authentication form submit label.
@@ -182,7 +190,7 @@ export const PopupText = Object.freeze({
     sendToLynx: "Send to Lynx", // Final confirmation label inside the Lynx checklist popover.
     previewLatest: "Show Content List", // Selector action that previews the latest stored selector set.
     exitPreview: "Exit Preview", // Curtain action that closes page preview mode.
-    revertToSaved: "Revert to saved", // Page-data action that restores the last saved draft.
+    revertToSaved: "Discard", // Session action that discards the local marking session.
     enableMarking: "Enable Marking", // Toggle label that enables page-marking mode.
     back: "Back" // Compact icon-only action that returns from configuration to marking.
   }),
@@ -190,7 +198,6 @@ export const PopupText = Object.freeze({
   tooltips: Object.freeze({
     basePageUrls: "Properties", // Tooltip on the base-page URL menu button.
     mobileSimulationHotkey: "CTRL/CMD+M", // Shortcut hint for the mobile-simulation toggle row.
-    pageSaveHotkey: "CTRL/CMD+S", // Shortcut hint for the page-save button.
     enableMarkingHotkey: "CTRL/CMD+E" // Shortcut hint for the marking toggle row.
   }),
 
@@ -212,29 +219,26 @@ export const PopupText = Object.freeze({
     updatingInclusion: "Updating inclusion...", // Busy message while an explicit inclusion is removed.
     enablingMarking: "Enabling marking...", // Busy message while page marking is enabled.
     disablingMarking: "Disabling marking...", // Busy message while page marking is disabled.
+    pageInspection: "Inspecting page...", // Busy message while the page reveal inspection is in progress.
     clearingCacheAndReloading: "Clearing cache and reloading page...", // Busy message while domain cache is cleared and the tab reloads.
     unregisteringTabAndReloading: "Unregistering tab and reloading page...", // Busy message while the current tab is detached from the extension.
-    savingPage: "Saving page...", // Busy message while page data is being saved.
-    revertingPage: "Reverting page..." // Busy message while page data is reverted.
+    savingPage: "Saving session...", // Busy message while the local marking session is being saved.
+    revertingPage: "Discarding session..." // Busy message while the local marking session is discarded.
   }),
 
   renderMode: Object.freeze({
     title: "Render Mode", // Field label and default collapsible title for render-mode controls.
     menuAction: "View or change render mode", // Configuration-menu action that opens the render-mode editor.
-    summaryTitleRendered: "Render Mode: JavaScript", // Collapsible title when the resolved render mode is rendered HTML.
-    summaryTitleStatic: "Render Mode: Static", // Collapsible title when the resolved render mode is static HTML.
     optionStatic: "Static", // Select-option label for static HTML mode.
     optionRendered: "JavaScript", // Select-option label for rendered HTML mode.
     optionUndetermined: "Undetermined", // Disabled select-option label when auto detection could not decide.
-    inspectStepOneLabel: "Step 1 - Inspect the page:", // Label shown above the first inspection action.
-    inspectStepTwoLabel: "Step 2 - Inspect the page:", // Label shown above the second inspection action.
+    inspectStepOneLabel: "Inspect the page", // Label for the inspection step that reloads with and without JavaScript.
     inspectWithJavaScriptButton: "With JavaScript", // Button text for reloading with JavaScript enabled.
     inspectWithoutJavaScriptButton: "Without JavaScript", // Button text for reloading with JavaScript disabled.
-    stepThreeLabel: "Step 3 - Does the copy look:", // Label shown above the render-mode radio choices.
-    stepFourLabel: "Step 4", // Label shown above the render-mode dropdown step.
-    renderModeLabel: "Render mode", // Label shown for the render-mode dropdown.
-    copyLookAlmostSame: "Almost the same", // Radio label for choosing static mode.
-    copyLookVeryDifferent: "Very different", // Radio label for choosing JavaScript mode.
+    stepThreeLabel: "What did you observe?", // Label shown above the render-mode radio choices.
+    stepFourLabel: "Render mode", // Label shown above the render-mode confirmation step.
+    copyLookAlmostSame: "Meaningful content the same in both", // Radio label for choosing static mode.
+    copyLookVeryDifferent: "Meaningful content only with JavaScript", // Radio label for choosing JavaScript mode.
     warningTitle: "How to Verify the Render Mode Manually", // Title for the manual render-mode instructions popover.
     warningAcknowledge: "I have determined and ready to choose the render mode", // Checkbox label inside the render-mode warning popover.
     warningConfirmToast: "Confirm to continue.", // Toast shown when the warning popover is confirmed without acknowledgement.
@@ -325,10 +329,10 @@ export const PopupText = Object.freeze({
   }),
 
   ai: Object.freeze({
-    dirtyNotice: "Save before you can run the AI", // Notice shown when AI actions are blocked by unsaved page changes.
+    dirtyNotice: "Run AI before you can save", // Notice shown when the local session still needs a fresh AI run before save.
     currentPageUnavailable: "Current page unavailable", // Toast shown when AI computation runs without a current page URL.
-    saveCurrentPageBeforeComputing: "Save the current page before computing selectors", // Guard toast while required saved page snapshots are missing.
-    savePagesBeforeComputing: "Save pages before computing selectors", // Guard toast while no saved page snapshots exist at all.
+    saveCurrentPageBeforeComputing: "Unable to prepare the current page for AI", // Guard toast while the current page snapshot cannot be prepared locally.
+    savePagesBeforeComputing: "Mark pages before computing selectors", // Guard toast while no local marked-page snapshots exist at all.
     endpointResponseError: "Endpoint response error", // Toast shown when the AI endpoint returns a non-success response.
     endpointResponseFormatError: "Endpoint response format error", // Toast shown when the AI endpoint response shape is invalid.
     endpointRequestFailed: "Endpoint request failed", // Toast shown when the AI endpoint request throws.
@@ -355,12 +359,8 @@ export const PopupText = Object.freeze({
 
   lynxChecklist: Object.freeze({
     title: "Final check before sending to Lynx:", // Title shown at the top of the Lynx submission popover.
-    aiQuestion: "I have run the AI content detection a final time and the content looks good:", // Required confirmation question before Lynx submission.
     pageTypesTitle: "Current Live Page coverage:", // Helper text above the current page-type coverage summary.
-    noticeAiUnanswered: "Please answer the AI content check before sending.", // Notice shown before the first checklist question is answered.
-    noticeAiNo: "Please run the AI content detection one last time and confirm it looks good before sending.", // Notice shown while the AI confirmation is set to No.
     noticeNoCandidates: "Live Pages are not prepared for this site yet. Prepare them before sending to Lynx.", // Notice shown when the GraphQL query returns no candidates.
-    noticeRunAiDetectionFirst: "No previous content detection was found for this property. Run AI content detection first, then come back to Send to Lynx.", // Notice shown when selectors have not been computed for this property yet.
     noticeCoverageComplete: "All listed page types have at least one marked page.", // Notice shown when the send prerequisites are satisfied.
     noticeMissingPageTypesPrefix: "Mark at least one page for: ", // Prefix for the missing-coverage notice.
     noticeMissingPageTypesSuffix: ".", // Suffix for the missing-coverage notice.
@@ -375,17 +375,21 @@ export const PopupText = Object.freeze({
   }),
 
   page: Object.freeze({
-    noSavedDataNotice: "This page has not been marked before.<br />You can save to store your markings.", // Notice shown before the page has ever been saved.
+    noSavedDataNotice: "", // Legacy page-save notice kept empty after switching to session save/discard.
     serverSyncTitle: "Server Sync", // Collapsible summary title for remote load/save status.
     statusDraftUnavailable: "Draft unavailable", // Draft-status text when the page draft could not be loaded.
     statusNoSavedData: "No saved data yet", // Draft-status text when there is still no saved snapshot for the page.
     statusUnsavedChanges: "Unsaved changes", // Draft-status text while the live draft differs from saved data.
+    statusRunAiBeforeSaving: "Run AI before saving", // Session-status text while the local marking session needs a fresh AI run.
+    statusSessionChangesReadyToSave: "Changes ready to save", // Session-status text once the current AI results cover the local marking session.
+    statusSessionSaved: "No unsaved session changes", // Session-status text when the local session matches the saved server state.
     statusNeedsAiSnapshot: "Save current page to refresh AI snapshot", // Draft-status text when the page snapshot needs AI backfill.
     statusAllChangesSaved: "All changes saved", // Draft-status text when the draft and saved state are aligned.
     statusServerSyncPending: "Server sync pending", // Draft-status text when local page changes are waiting for remote sync and reload.
     statusServerSyncFailed: "Server sync failed. Save again to retry.", // Draft-status text after remote page sync fails.
     statusServerSyncSkipped: "Server sync required. Save again to retry.", // Draft-status text after remote page sync is skipped because sync is unavailable.
     statusServerRefreshFailed: "Server refresh failed. Save again to retry.", // Draft-status text after save succeeds but the remote reload does not.
+    noticeRunAiBeforeSaving: "Run AI content detection before saving or exiting marking.", // Session notice shown while save/exit is blocked on a fresh AI run.
     saveFailed: "Save failed", // Save-status label when page save did not complete.
     savedLocallySyncPending: "Saved locally (server sync pending)", // Save-status label while page edits are locally stored but not remotely reconciled.
     savedLocallySyncSkipped: "Saved locally (sync skipped)", // Save-status label when page save succeeded locally but config sync was skipped.
@@ -397,18 +401,22 @@ export const PopupText = Object.freeze({
     pageSavedLocallySyncFailed: "Page saved locally (server sync failed)", // Toast shown when a page save succeeded locally but server sync failed.
     pageSavedAndSyncedRefreshFailed: "Page saved and synced, but refresh failed", // Toast shown when server save succeeds but reload reconciliation fails.
     pageSaved: "Page saved", // Toast shown when a page save fully succeeds.
+    sessionSaved: "Session saved", // Toast shown when the full local marking session is synced.
+    remoteDataUpdated: "Property data updated from server", // Toast shown after a passive observer refresh replaces the local property state.
     noLocalChangesToSave: "No local changes to save", // Save-status label when a save was requested but nothing changed.
     noChangesToSave: "No changes to save", // Toast shown when a save was requested but nothing changed.
-    revertConfirm: "Revert to the last saved version? Unsaved changes will be lost.", // Confirmation dialog before reverting page changes.
+    revertConfirm: "Discard the current session? Unsaved changes will be lost.", // Confirmation dialog before discarding the local session.
     revertFailed: "Revert failed", // Save-status label when a revert did not complete.
     revertedLocallySyncSkipped: "Reverted locally (sync skipped)", // Save-status label when revert succeeded locally but config sync was skipped.
     revertedLocallySyncFailed: "Reverted locally (sync failed)", // Save-status label when revert succeeded locally but config sync failed.
     revertedAndSynced: "Reverted and synced", // Save-status label when revert and config sync both succeeded.
     revertedLocallyServerSyncSkipped: "Reverted locally (server sync skipped)", // Toast shown when a revert succeeded locally without server sync.
     revertedLocallyServerSyncFailed: "Reverted locally (server sync failed)", // Toast shown when a revert succeeded locally but server sync failed.
-    revertedToLastSaved: "Reverted to last saved", // Toast shown when a revert fully succeeds.
-    saveFailedToast: "Unable to save page", // Toast shown when the page save request fails.
-    revertFailedToast: "Unable to revert page", // Toast shown when the page revert request fails.
+    revertedToLastSaved: "Session discarded", // Toast shown when the local session is discarded.
+    saveFailedToast: "Unable to save session", // Toast shown when the session save request fails.
+    revertFailedToast: "Unable to discard session", // Toast shown when the session discard request fails.
+    exitRequiresResolution: "Save or discard the current session before exiting marking.", // Toast shown when exit is blocked by a pending local session.
+    exitRequiresAiResolution: "Run AI, then save or discard before exiting marking.", // Toast shown when exit is blocked until AI is rerun.
     mobileSimulationRequired: "Mobile simulation must be enabled to save markings." // Notice shown when page save is blocked by missing mobile emulation.
   }),
 
@@ -428,7 +436,7 @@ export const PopupText = Object.freeze({
     themeModeLight: "Light", // Theme mode option that forces light mode.
     themeModeDark: "Dark", // Theme mode option that forces dark mode.
     remoteSupportSectionTitle: "Remote Support", // Section title for support-code requests.
-    remoteSupportHint: "Request a one-time code from the tab being supported. To join a session, open the configured /support page in a tab, then enter the support code from the Unfluffify extension popup.", // Helper text for the remote support request.
+    remoteSupportHint: "Click to request a one-time support code and send the code to the support party.", // Helper text for the remote support request.
     remoteSupportButton: "Request remote support", // Button label that generates a support request code.
     remoteSupportCodeLabel: "Share this code:", // Label shown before the generated support code.
     remoteSupportCodeHint: "Code validity is controlled by the backend (expected: 10 minutes).", // Hint shown after generating support code.

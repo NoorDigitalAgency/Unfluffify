@@ -89,11 +89,23 @@ test("silent highlighting owns page motion pause for matching pages even without
   );
   assert.match(
     source,
-    /const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(false\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setSilentHighlightingPageMotionPaused\(true\);[\s\S]*?const normalized = config\.normalizeConfig/
+    /const baseUrl = utils\.findMatchingBaseUrl\(pageUrl, configs\);[\s\S]*?if \(!baseUrl\) \{[\s\S]*?setSilentHighlightingPageMotionPaused\(false\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?const holdSilentMotionPause = Boolean\([\s\S]*?propertyLockState &&[\s\S]*?propertyLockState\.isEditor &&[\s\S]*?!silentHighlightEditorRevealInFlight[\s\S]*?\);[\s\S]*?setSilentHighlightingPageMotionPaused\(holdSilentMotionPause\);[\s\S]*?const normalized = config\.normalizeConfig/
+  );
+  assert.match(
+    source,
+    /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/
+  );
+  assert.match(
+    source,
+    /async function runEditorSilentHighlightingActivation\(\) \{[\s\S]*?core\.setPageSaveReconciliationPending\(baseUrl, pageUrl, \{[\s\S]*?reason: SILENT_HIGHLIGHTING_PREPARATION_REASON[\s\S]*?\}\);[\s\S]*?core\.warmupSilentHighlightingBeforeMotionPause\([\s\S]*?SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON[\s\S]*?\);[\s\S]*?await refreshSilentHighlightings\(\);[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /const becameEditor = \(!previousState \|\| !previousState\.isEditor\) && serverMessage\.isEditor;[\s\S]*?if \(becameEditor\) \{[\s\S]*?runEditorSilentHighlightingActivation\(\)\.catch\(\(\) => \{/
   );
   const noTargetsBlock = source.match(/const shouldObserve = hasSelectorHighlights \|\| hasHiddenConsent;[\s\S]*?if \(!shouldObserve\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.ok(noTargetsBlock);
-  assert.doesNotMatch(noTargetsBlock[0], /setSilentHighlightingPageMotionPaused\(false\)/);
+  assert.match(noTargetsBlock[0], /setSilentHighlightingsActive\(holdSilentMotionPause\);/);
 });
 
 test("silent highlight reposition and mutation tracking use source collections instead of only stale render targets", () => {

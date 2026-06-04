@@ -2,6 +2,8 @@
 
 A Chrome extension (Manifest V3) that helps extract meaningful content from web pages by identifying and marking non-meaningful elements. This tool assists AI systems in focusing on the substantive content of a page.
 
+Unfluffify targets recent Chrome browsers only. The extension intentionally relies on current Chrome Manifest V3 and modern Web API coverage; backward compatibility with older Chrome releases or other browsers is not a project goal.
+
 The detailed source of truth for marking and highlighting behavior is documented in [MARKING_AND_HIGHLIGHTING_LOGIC.md](./MARKING_AND_HIGHLIGHTING_LOGIC.md). Those marking rules are a locked 052c-derived restored contract and should not be changed unless a task explicitly asks for a marking-rules contract change.
 Property edit-lock ownership, takeover, heartbeat, cloned-tab client rotation, and observer-refresh behavior is documented in [PROPERTY_LOCK.md](./PROPERTY_LOCK.md). That lock contract is also locked and should not be changed unless a task explicitly asks for property-lock behavior changes.
 Remote support design, security guarantees, and backend endpoint expectations are documented in [REMOTE_SUPPORT.md](./REMOTE_SUPPORT.md).
@@ -34,12 +36,12 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
-- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors
-- **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff
-- **Device Simulation**: Emulate mobile and desktop viewports to test content extraction
+- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; Preview Contents and Send to Lynx live on this silent-highlighting surface, not inside marking mode
+- **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff, always from the stored raw/rendered HTML and XPath evidence for every marked page under the current property
+- **Device Simulation**: Opens tabs in mobile simulation by default, with a per-session toggle for disabling or adjusting the simulated viewport
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
-- **Data Persistence**: Save and sync markings across page navigation; Todo List completion uses backend-saved page data, not local draft markings, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
-- **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, and passive observer refresh
+- **Data Persistence**: Marking edits stay session-local until users run AI and explicitly Save Session or Discard Session; passive observers use backend-saved page data while the active editor uses the local session data, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
+- **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, immediate eligible-page editor claiming for the current extension session, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
@@ -68,7 +70,7 @@ The remote-support regressions also cover tab-scoped background state, concurren
 For marking-rule work, also run the focused guard suite:
 
 ```bash
-node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
 ```
 
 ## Project Structure
@@ -111,6 +113,7 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 - **`marking-rules.test.js`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
 - **`submission-rules.test.js`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
 - **`core-visibility.test.js`** - Regression coverage for content-side visibility guards, restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`core-motion-pause.test.js`** - Regression coverage for pre-freeze page inspection, input blocking, full-scroll lazy-content reveal, and motion-freeze normalization
 - **`theme-colors.test.js`** - Regression coverage for AA contrast on semantic theme colors
 - **`silent-highlight-rules.test.js`** - Regression coverage for settle-before-redraw silent highlight behavior
 - **`config.test.js`** - Coverage for configuration normalization and sync-payload construction
@@ -151,9 +154,9 @@ node --test tests/core-visibility.test.js tests/core-scheduling.test.js tests/ma
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup
 6. **Navigate**: Go to other pages under the base URL to see inferred patterns
-7. **Save Markings**: Click save to persist your changes
+7. **Run AI, Then Save or Discard**: After marking changes, run AI content detection, then save the full session or discard it before exiting marking
 
-When a save or sync step temporarily blocks editing, the page overlay dims and shows a marking-paused notice until marking is available again.
+Page-save reconciliation states are generally non-blocking for preparation, loading, calculation, saving, and retry messaging. The editor-role activation preparation (`editor_preparing`) is the explicit exception and is blocking so reveal/freeze setup cannot be interrupted by user input.
 
 ## Key Concepts
 
@@ -166,11 +169,11 @@ Visual overlay showing page content classification:
 
 ### Motion Stability
 
-When Unfluffify owns a matching page for marking or silent highlighting, it pauses page animations, transitions, timer-driven JavaScript carousels and sliders, SVG animation clocks, and autoplay-like media so markings and saves are compared from one stable page posture. Marking enable first runs a bounded instant scroll sweep to trigger viewport and lazy reveal handlers, restores the user's original scroll position, and then freezes page motion before overlays render. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small Material Design Icons snowflake/code indicator appears on the page while this freeze is active; its content-script font face and selectors are Unfluffify-scoped so the target page does not receive global `.mdi` styles.
+When a tab acquires the editor role, Unfluffify runs one content-reveal sweep for that page and then keeps page motion paused for both silent highlighting and marking mode so markings and saves are compared from one stable posture. If selectors exist, silent highlighting renders immediately; if selectors do not exist yet, the tab still remains in silent-highlighting mode with motion paused until marking mode is enabled. Marking enable runs its own bounded instant scroll sweep, restores the user's original scroll position, and then renders overlays against the already-frozen page. Scroll, viewport, and attribute-driven reveal elements such as Webflow interaction hooks are normalized to their visible posture instead of being frozen hidden, while semantic hidden UI such as dialogs, menus, tabs, and carousels stays hidden. The freeze applies to page content only: Unfluffify's overlay, status UI, and internal render scheduling remain active. A small Material Design Icons snowflake/code indicator appears on the page while this freeze is active; its content-script font face and selectors are Unfluffify-scoped so the target page does not receive global `.mdi` styles.
 
 ### AI Selectors
 
-The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions.
+The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. If the current page has unsaved local marking changes, the run first captures that page into the local stored snapshot so the AI request still uses stored evidence only. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI. Preview Contents always reads the latest stored selector set for the property, and the Preview/Send to Lynx actions stay on the silent-highlighting surface even while marking stays focused on current-page editing.
 
 ### Base URLs
 
@@ -181,8 +184,7 @@ A base URL defines the scope for pattern inference. For example:
 
 ### Device Simulation
 
-Simulate mobile (412x960) or desktop (1920x1080) viewports to test how content extraction works on different devices.
-The extension preserves the chosen simulation mode across marking-mode navigation and unregister/reload cleanup; switching back to desktop is always a user-controlled action.
+Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. Every fresh tab session opened through the extension starts in that mobile simulation mode, including when the side panel is already open and you switch to a new tab. The simulation choice is stored per tab session: users can disable it from the popup for that session, and the extension will not re-enable it until the tab session state is cleared. Navigation, reload, unregister/reload cleanup, and Render Mode inspection must preserve the user's current simulation choice.
 
 ## Architecture Notes
 

@@ -275,12 +275,10 @@ export function createInitialLynxChecklistState() {
 }
 
 export function buildLynxChecklistPromptState(options = {}) {
-  const hasCalculatedSelectors = Boolean(options.hasCalculatedSelectors);
-  const recentlyCalculatedSelectors = Boolean(options.recentlyCalculatedSelectors);
   return {
-    aiAnswer: hasCalculatedSelectors && recentlyCalculatedSelectors ? "yes" : "",
-    aiQuestionDisabled: !hasCalculatedSelectors,
-    aiQuestionHidden: hasCalculatedSelectors && recentlyCalculatedSelectors
+    aiAnswer: "",
+    aiQuestionDisabled: true,
+    aiQuestionHidden: true
   };
 }
 
@@ -326,10 +324,6 @@ export function buildLynxChecklistViewModel(options = {}) {
       code: "missing_page_types",
       pageTypeKeys: missingPageTypes.map((item) => item.key)
     };
-  } else if (normalized.aiAnswer === "no") {
-    blockingReason = { code: "ai_no" };
-  } else if (normalized.aiAnswer !== "yes") {
-    blockingReason = { code: "ai_unanswered" };
   }
 
   return {

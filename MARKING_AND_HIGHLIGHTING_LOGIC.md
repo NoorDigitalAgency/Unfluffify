@@ -48,23 +48,36 @@ The implementation is split across:
 - `content/submission-rules.js` for AI submission row decisions.
 - `content/silent-highlight-rules.js` for silent-highlight redraw/source rules.
 - `common/constants.js` for default exclusion categories.
+- `common/emulation.js` for the mobile simulation state that submission
+  visibility uses.
 
 ## Core Model
 
-A page marking entry combines four inputs:
+A page marking entry combines immutable defaults, toggleable defaults, selector
+matches, and explicit XPath choices, but rendering precedence is a separate
+locked contract:
 
-1. immutable default exclusions,
-2. toggleable default exclusions,
-3. AI selector matches,
-4. explicit per-page XPath choices.
+1. defaults,
+2. fetched backend-saved explicit markings,
+3. CSS/AI selector influence,
+4. current marking-session explicit markings.
+
+`current marking-session explicit markings` means local draft deltas relative to
+the fetched saved baseline for the same page in the same base URL.
 
 The resulting model renders marking overlays while marking mode is enabled and
 stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
 
 `config.pageMarkings` can contain local drafts. Candidate completion is a
-backend-save fact, not a local-draft fact: the Todo List, candidate `Marked`
-badges, marked-pages list, and Lynx checklist coverage must read the separate
-backend-saved page-marking cache populated from confirmed backend payloads.
+backend-save fact for passive observers, but the current editor's popup must use
+the local page-marking session as the source of truth for the Todo List,
+candidate `Marked` badges, marked-pages list, and Lynx checklist coverage while
+that editor remains on an eligible Live Page.
+Preview Contents and Send to Lynx belong to the silent-highlighting surface
+only. They must stay hidden or disabled while marking mode is active. Preview
+must read from the latest stored selector set in config storage, and Lynx send
+must read its marked-page coverage from that same editor-local storage view
+while the editor owns the property.
 When the current tab is a valid Live Page candidate, the Todo List must label
 both the candidate row and its parent page-type subsection as `Current` so the
 active page remains findable when subsections are collapsed.
@@ -75,14 +88,15 @@ active page is no longer valid, marking is stopped and a blocking alert explains
 why; in all changed cases the Todo List root is expanded and a warning notice
 asks the user to review the updated candidates.
 Unrelated config syncs must not upload local draft page markings; only
-backend-saved pages and the current page during an explicit save/revert belong
-in a sync payload. Page-save reconciliation can be cleared only after the
-forced backend reload confirms that current page exists in the backend-saved
-cache. Confirmed current-page saves must refresh that cache even when their
-second-granularity timestamp matches the previous saved entry, otherwise the
-saved baseline can stay one save behind and keep the page falsely dirty. A new
-page with no saved local or remote data remains saveable with the default
-markings accepted as-is.
+backend-saved pages belong in those ordinary sync payloads. The explicit
+session save action is the exception: it uploads all local marked pages for the
+current property as one session snapshot. Marking changes remain session-local
+until that save, and discarding the session must reload the saved backend state
+for the current property and force the current page entry to be reloaded in the
+content script so no live draft survives the discard. A marking session that
+changes local page markings must run AI again before save is enabled, and
+marking mode must not be disabled until the user saves or discards that
+session.
 
 Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
 mode must respect that contract: only the current property editor can mutate
@@ -212,15 +226,20 @@ acknowledgement. Leaf explicit-exclude toggles may patch cached lower-priority
 collections and debounce that full rebuild so the user-visible mark/unmark
 acknowledgement is not blocked by a full-page collection pass.
 
+When that fast patch is applied to cached lower-priority collections, it must
+apply only current-session explicit deltas, not fetched saved explicit rows, so
+saved rows cannot accidentally outrank selector influence.
+
 ## Marking Performance Contract
 
 Marking mode must avoid duplicate full-page passes:
 
 - Enabling marking performs one activation path. The popup sends `setEnabled`;
   content activation/sync/render is handled from there, without a second
-  immediate `forceRefresh`. Before page motion is frozen and overlays are
-  rendered, activation may run a bounded reveal warm-up that restores the
-  user's original scroll position.
+  immediate `forceRefresh`. Before page motion is frozen and marking overlays
+  are rendered, activation must show the page-inspection spinner, block page and
+  content-overlay input, perform a bottom-and-top reveal scroll for lazy
+  content, then restore the user's original scroll position.
 - A manual refinement performs a cheap immediate explicit-layer refresh.
   Structural refinements then run an immediate invalidating full rebuild for
   correctness. Leaf explicit-exclude refinements may debounce the invalidating
@@ -248,13 +267,21 @@ Marking mode must avoid duplicate full-page passes:
 
 ## Motion Stability Contract
 
-Any page that Unfluffify owns for marking or silent highlighting holds a page
-motion pause. This includes active marking mode, passive silent highlighting,
-and matching base-URL pages that have no selector highlights yet. The pause is
-part of the save and highlighting contract, not just a visual convenience:
+Any page where Unfluffify currently owns the editor role holds a page motion
+pause for both marking and silent-highlighting lifecycles. Editor-role
+activation first runs a one-time page reveal sweep, then silent highlighting
+stays active with motion paused whether or not selectors currently produce
+overlay targets. The pause is part of the save and highlighting contract, not
+just a visual convenience:
 animated carousels can move text outside the viewport, update inline transforms,
 flip visibility state, and change which textual nodes are submitted as visible
 AI evidence.
+
+Editor-role activation reveal is a blocking preparation phase. While that phase
+runs, Unfluffify must block page interaction with the inspection spinner/overlay
+and hold a blocking pending reconciliation reason (`editor_preparing`) so users
+cannot interrupt reveal/freeze setup before silent-highlighting motion pause is
+established.
 
 The pause is source-owned, so marking mode and silent highlighting can both hold
 it without accidentally resuming the page for the other lifecycle. It freezes
@@ -447,6 +474,17 @@ construction run only after that visible feedback has had a chance to paint, so
 large saved-page payloads cannot make the click look ignored. Async run status
 polling uses a five-second cadence while the run is active.
 
+An AI run always uses the stored local page snapshots for every marked page
+under the current base URL. The payload must be built from saved `renderedHtml`,
+saved or backfilled `rawHtml`, and saved `submissionXpaths`/refined raw XPaths.
+Compute-time DOM collection must not replace that corpus, because selector
+calculation depends on the whole saved multi-page property snapshot rather than
+just the current tab.
+The only allowed live overlay is the active current page: if the editor has
+unsaved current-page changes, the run may refresh that page's stored snapshot
+immediately before building the request, but every other page in the corpus
+must still come from existing stored local data.
+
 ## AI Submission Rows
 
 `submissionXpaths` is the shallow boundary list sent for CSS selector
@@ -479,6 +517,11 @@ Rules:
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
   content outside the mobile viewport width or document height is invisible,
+- opening Unfluffify enables mobile simulation by default for each fresh tab
+  session, including when an already-open side panel moves to a new tab, but a
+  user-disabled simulation state is preserved for that session and must not be
+  auto-enabled again, and Render Mode inspection must not clear an existing
+  session simulation choice,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 

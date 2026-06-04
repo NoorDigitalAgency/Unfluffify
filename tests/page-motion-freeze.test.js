@@ -13,6 +13,66 @@ function createTimerWindowHarness() {
   const intervals = new Map();
   const frames = new Map();
   const messageListeners = [];
+  const listenerTargets = new Map();
+
+  function createEventTarget(name) {
+    const listeners = new Map();
+    listenerTargets.set(name, listeners);
+    return {
+      addEventListener(type, listener, options) {
+        if (typeof listener !== "function") {
+          return;
+        }
+        const entries = listeners.get(type) || [];
+        entries.push({ listener, capture: Boolean(options === true || (options && options.capture)) });
+        listeners.set(type, entries);
+        if (name === "window" && type === "message") {
+          messageListeners.push(listener);
+        }
+      },
+      removeEventListener(type, listener, options) {
+        const entries = listeners.get(type) || [];
+        const capture = Boolean(options === true || (options && options.capture));
+        listeners.set(
+          type,
+          entries.filter((entry) => entry.listener !== listener || entry.capture !== capture)
+        );
+      }
+    };
+  }
+
+  const windowEventTarget = createEventTarget("window");
+  const documentObject = createEventTarget("document");
+  class FakeIntersectionObserver {
+    constructor(callback) {
+      this.callback = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+    __trigger(entries = []) {
+      if (typeof this.callback === "function") {
+        this.callback(entries, this);
+      }
+    }
+  }
+
+  class FakeResizeObserver {
+    constructor(callback) {
+      this.callback = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    __trigger(entries = []) {
+      if (typeof this.callback === "function") {
+        this.callback(entries, this);
+      }
+    }
+  }
 
   const windowObject = {
     setTimeout(callback, delay, ...args) {
@@ -42,12 +102,29 @@ function createTimerWindowHarness() {
     cancelAnimationFrame(id) {
       frames.delete(id);
     },
-    addEventListener(type, listener) {
-      if (type === "message") {
-        messageListeners.push(listener);
-      }
-    }
+    addEventListener: windowEventTarget.addEventListener,
+    removeEventListener: windowEventTarget.removeEventListener,
+    document: documentObject,
+    IntersectionObserver: FakeIntersectionObserver,
+    ResizeObserver: FakeResizeObserver
   };
+
+  function dispatchEvent(targetName, type) {
+    const listeners = Array.from(listenerTargets.get(targetName)?.get(type) || []);
+    const event = {
+      type,
+      stopImmediatePropagationCalls: 0,
+      stopPropagationCalls: 0,
+      stopImmediatePropagation() {
+        this.stopImmediatePropagationCalls += 1;
+      },
+      stopPropagation() {
+        this.stopPropagationCalls += 1;
+      }
+    };
+    listeners.forEach((entry) => entry.listener.call(targetName === "window" ? windowObject : documentObject, event));
+    return event;
+  }
 
   function runTimeout(id) {
     const record = timeouts.get(id);
@@ -58,18 +135,25 @@ function createTimerWindowHarness() {
 
   return {
     windowObject,
+    documentObject,
     get timeoutCount() {
       return timeouts.size;
     },
     get frameCount() {
       return frames.size;
     },
-    dispatchControl(paused) {
+    dispatchControl(controlOrPaused) {
+      const control = typeof controlOrPaused === "object" && controlOrPaused !== null
+        ? controlOrPaused
+        : { command: "setPaused", paused: controlOrPaused };
       const event = {
         source: windowObject,
         data: {
           __unfluffifyPageMotionFreeze: CONTROL_MARKER,
-          paused
+          command: typeof control.command === "string" ? control.command : "setPaused",
+          ...(Object.prototype.hasOwnProperty.call(control, "paused")
+            ? { paused: control.paused }
+            : {})
         }
       };
       messageListeners.forEach((listener) => listener(event));
@@ -93,22 +177,41 @@ function createTimerWindowHarness() {
       frames.delete(id);
       record.callback(timestamp);
       return id;
-    }
+    },
+    dispatchEvent
   };
 }
 
-async function withTimerWindow(callback) {
+async function withTimerWindow(callback, { init = true } = {}) {
   const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
   const harness = createTimerWindowHarness();
   globalThis.window = harness.windowObject;
+  globalThis.document = harness.documentObject;
   try {
     importCounter += 1;
     await import(`../common/page-motion-freeze.js?case=${importCounter}`);
+    if (init) {
+      harness.dispatchControl({ command: "init" });
+    }
     await callback(harness);
   } finally {
     globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
   }
 }
+
+test("page motion freeze ignores setPaused commands before init", async () => {
+  await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout }) => {
+    const calls = [];
+    const timerId = windowObject.setTimeout(() => calls.push("timeout"), 25);
+
+    dispatchControl(true);
+    runTimeout(timerId);
+
+    assert.deepEqual(calls, ["timeout"]);
+  }, { init: false });
+});
 
 test("page motion freeze defers timeout callbacks that become due while paused", async () => {
   await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout, runNextTimeout }) => {
@@ -174,5 +277,36 @@ test("page motion freeze skips interval ticks only while paused", async () => {
     dispatchControl(false);
     runInterval(intervalId);
     assert.deepEqual(calls, ["interval"]);
+  });
+});
+
+test("page motion freeze can suppress and restore lazy-load listeners and future observers", async () => {
+  await withTimerWindow(async ({ windowObject, dispatchEvent }) => {
+    const freezeState = windowObject.__unfluffifyPageMotionFreezeState;
+    const calls = [];
+    const observer = new windowObject.IntersectionObserver(() => calls.push("intersection"));
+    const resizeObserver = new windowObject.ResizeObserver(() => calls.push("resize"));
+    windowObject.addEventListener("scroll", () => calls.push("scroll"));
+    windowObject.addEventListener("wheel", () => calls.push("wheel"));
+
+    freezeState.setLazyLoadingSuppressed(true);
+
+    observer.__trigger();
+    resizeObserver.__trigger();
+    dispatchEvent("window", "scroll");
+    dispatchEvent("window", "wheel");
+
+    assert.equal(freezeState.isLazyLoadingSuppressed(), true);
+    assert.deepEqual(calls, []);
+
+    freezeState.setLazyLoadingSuppressed(false);
+
+    observer.__trigger();
+    resizeObserver.__trigger();
+    dispatchEvent("window", "scroll");
+    dispatchEvent("window", "wheel");
+
+    assert.equal(freezeState.isLazyLoadingSuppressed(), false);
+    assert.deepEqual(calls, ["intersection", "resize", "scroll", "wheel"]);
   });
 });

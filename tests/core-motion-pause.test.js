@@ -4,11 +4,12 @@ import { readFileSync } from "node:fs";
 
 import {
   createSanitizedPageSnapshot,
+  disable,
   pausePageMotion,
   refreshPageMotionPause,
+  revealPageContentBeforeMotionPause,
   resumePageMotion,
-  state,
-  warmPageRevealTriggersBeforeMotionPause
+  state
 } from "../content/core.js";
 
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
@@ -16,7 +17,7 @@ const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
 const PAGE_MOTION_LOCK_ATTR = "data-uf-motion-lock-id";
-const PAGE_REVEAL_WARMUP_STYLE_ID = "unfluffify-reveal-warmup-style";
+const PAGE_INSPECTION_STYLE_ID = "unfluffify-page-inspection-style";
 
 function createClassList(owner, initialValue = "") {
   const values = new Set(String(initialValue || "").split(/\s+/).filter(Boolean));
@@ -184,6 +185,7 @@ class FakeElement {
     this.classList = createClassList(this);
     this.style = createStyleDeclaration(this);
     this.dispatchedEvents = [];
+    this.listeners = new Map();
     this.computedStyle = createComputedStyle();
     this.rect = { left: 0, top: 0, right: 320, bottom: 120, width: 320, height: 120 };
     Object.entries(attributes).forEach(([name, value]) => this.setAttribute(name, value));
@@ -262,7 +264,34 @@ class FakeElement {
 
   dispatchEvent(event) {
     this.dispatchedEvents.push(event.type);
+    const listeners = Array.from(this.listeners.get(event.type) || []);
+    listeners.forEach((entry) => {
+      entry.listener.call(this, event);
+      if (entry.once) {
+        this.removeEventListener(event.type, entry.listener);
+      }
+    });
     return true;
+  }
+
+  addEventListener(type, listener, options = {}) {
+    if (typeof listener !== "function") {
+      return;
+    }
+    const listeners = this.listeners.get(type) || [];
+    listeners.push({ listener, once: Boolean(options && options.once) });
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type, listener) {
+    const listeners = this.listeners.get(type);
+    if (!listeners || !listeners.length) {
+      return;
+    }
+    this.listeners.set(
+      type,
+      listeners.filter((entry) => entry.listener !== listener)
+    );
   }
 
   querySelectorAll(selector) {
@@ -328,11 +357,17 @@ function createMotionDom() {
     documentElement: html,
     head,
     body,
+    addEventListener() {},
+    removeEventListener() {},
     createElement(tagName) {
       return new FakeElement(tagName);
     },
     getElementById(id) {
       return [html, ...html.querySelectorAll("*")].find((element) => element.id === id) || null;
+    },
+    querySelector(selector) {
+      if (selector === "body") return body;
+      return [html, ...html.querySelectorAll("*")].find((element) => selectorMatches(element, selector)) || null;
     },
     querySelectorAll(selector) {
       return [html, ...html.querySelectorAll("*")].filter((element) => selectorMatches(element, selector));
@@ -342,15 +377,36 @@ function createMotionDom() {
       return animations;
     }
   };
+  html.scrollIntoView = function (options = {}) {
+    const block = typeof options === "object" && options !== null ? options.block : "start";
+    if (block === "end") {
+      window.scrollTo(0, Math.max(0, html.scrollHeight - window.innerHeight));
+      return;
+    }
+    if (block === "center") {
+      window.scrollTo(0, Math.max(0, Math.round((html.scrollHeight - window.innerHeight) / 2)));
+      return;
+    }
+    window.scrollTo(0, 0);
+  };
+  body.scrollIntoView = function () {
+    window.scrollTo(0, 0);
+  };
   const window = {
     innerHeight: 120,
     scrollX: 0,
     scrollY: 0,
     pageXOffset: 0,
     pageYOffset: 0,
-    scrollTo(x, y) {
-      const nextX = Number(x) || 0;
-      const nextY = Number(y) || 0;
+    scrollTo(xOrOptions, y) {
+      let nextX, nextY;
+      if (typeof xOrOptions === "object" && xOrOptions !== null) {
+        nextX = Number(xOrOptions.left) || 0;
+        nextY = Number(xOrOptions.top) || 0;
+      } else {
+        nextX = Number(xOrOptions) || 0;
+        nextY = Number(y) || 0;
+      }
       this.scrollX = nextX;
       this.scrollY = nextY;
       this.pageXOffset = nextX;
@@ -372,7 +428,9 @@ function createMotionDom() {
     },
     clearInterval(handle) {
       intervals.delete(handle);
-    }
+    },
+    addEventListener() {},
+    removeEventListener() {}
   };
   return { document, window, animations, intervals, scrollCalls, html, head, body };
 }
@@ -581,35 +639,41 @@ test("page motion pause skips extension-owned marking UI", () => {
   }
 });
 
-test("page reveal warmup sweeps scroll positions and restores the original viewport", async () => {
+test("page inspection reveal scrolls to top, bottom, and then the reserved point", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 3000;
   dom.window.innerHeight = 500;
+  const reservedScrollY = 375;
   dom.window.scrollX = 12;
-  dom.window.scrollY = 375;
+  dom.window.scrollY = reservedScrollY;
   dom.window.pageXOffset = 12;
-  dom.window.pageYOffset = 375;
+  dom.window.pageYOffset = reservedScrollY;
+  const expectedMaxScrollY = dom.html.scrollHeight - dom.window.innerHeight;
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
-
-    assert.equal(warmed, true);
-    assert.equal(dom.scrollCalls[0].x, 12);
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
+    assert.equal(inspected, true);
     assert.equal(dom.scrollCalls[0].y, 0);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
-    assert.deepEqual(dom.scrollCalls.at(-1), { x: 12, y: 375 });
-    assert.equal(dom.window.scrollX, 12);
-    assert.equal(dom.window.scrollY, 375);
-    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+    assert.ok(dom.scrollCalls.findIndex((call) => call.y === expectedMaxScrollY) > 0);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedMaxScrollY);
+    assert.equal(dom.scrollCalls.at(-1).y, reservedScrollY);
+    assert.equal(dom.window.scrollY, reservedScrollY);
+    assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
   }
 });
 
-test("page reveal warmup skips pages without vertical scroll room", async () => {
+test("page inspection reveal still scrolls on pages without vertical scroll room", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 700;
   dom.html.scrollHeight = 700;
@@ -618,52 +682,144 @@ test("page reveal warmup skips pages without vertical scroll room", async () => 
   dom.window.innerHeight = 700;
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
 
-    assert.equal(warmed, false);
-    assert.deepEqual(dom.scrollCalls, []);
-    assert.equal(dom.document.getElementById(PAGE_REVEAL_WARMUP_STYLE_ID), null);
+    assert.equal(inspected, true);
+    assert.ok(dom.scrollCalls.length > 0);
+    assert.equal(dom.scrollCalls.at(-1).y, 0);
+    assert.equal(dom.document.getElementById(PAGE_INSPECTION_STYLE_ID), null);
   } finally {
     dom.restore();
   }
 });
 
-test("page reveal warmup extends its sweep when delayed layout growth increases scroll range", async () => {
+test("page inspection reveal repeats bottom scrolls while lazy layout growth increases scroll range", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 1000;
   dom.body.clientHeight = 500;
   dom.body.scrollHeight = 1000;
   dom.window.innerHeight = 500;
-  let pendingExpansionFrames = -1;
+  const expectedExpandedMaxScrollY = 3000 - dom.window.innerHeight;
   const originalScrollTo = dom.window.scrollTo.bind(dom.window);
-  dom.window.scrollTo = (x, y) => {
-    originalScrollTo(x, y);
-    if (y >= 500 && pendingExpansionFrames < 0) {
-      pendingExpansionFrames = 3;
+  let expanded = false;
+  dom.window.scrollTo = (xOrOptions, y) => {
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    if (actualY >= 500 && !expanded) {
+      expanded = true;
+      dom.html.scrollHeight = 3000;
+      dom.body.scrollHeight = 3000;
     }
-  };
-  dom.window.requestAnimationFrame = (callback) => {
-    if (pendingExpansionFrames > 0) {
-      pendingExpansionFrames -= 1;
-      if (pendingExpansionFrames === 0) {
-        dom.html.scrollHeight = 3000;
-        dom.body.scrollHeight = 3000;
-      }
-    }
-    callback(0);
-    return { callback };
   };
 
   try {
-    const warmed = await warmPageRevealTriggersBeforeMotionPause();
+    const inspected = await revealPageContentBeforeMotionPause(
+      "both",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
 
-    assert.equal(warmed, true);
-    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 2500);
-    assert.deepEqual(dom.scrollCalls.at(-1), { x: 0, y: 0 });
+    assert.equal(inspected, true);
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), expectedExpandedMaxScrollY);
+    assert.equal(dom.scrollCalls.at(-1).y, 0);
   } finally {
     dom.restore();
   }
+});
+
+test("page inspection reveal keeps page-world lazy-load suppression active until marking is disabled", async () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
+  const postedMessages = [];
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 3000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 3000;
+  dom.window.innerHeight = 500;
+  const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  let expansionCount = 0;
+  dom.window.scrollTo = (xOrOptions, y) => {
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    const maxScrollY = Math.max(0, dom.html.scrollHeight - dom.window.innerHeight);
+    if (actualY >= maxScrollY && expansionCount < 1) {
+      expansionCount += 1;
+      dom.html.scrollHeight += 1500;
+      dom.body.scrollHeight += 1500;
+    }
+  };
+  dom.window.postMessage = (message) => {
+    postedMessages.push(message);
+  };
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      }
+    }
+  };
+
+  try {
+    state.lazyLoadSuppressRestorer = null;
+
+    const inspected = await revealPageContentBeforeMotionPause(
+      "bottom",
+      4,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
+
+    assert.equal(inspected, true);
+
+    const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
+    assert.ok(script);
+    assert.equal(postedMessages.length, 0);
+
+    script.dispatchEvent(new Event("load"));
+
+    assert.equal(postedMessages.at(-2).command, "init");
+    assert.equal(postedMessages.at(-1).command, "setLazyLoadingSuppressed");
+    assert.equal(postedMessages.at(-1).suppressed, true);
+
+    disable();
+
+    assert.equal(postedMessages.at(-1).command, "setPaused");
+    assert.equal(postedMessages.at(-1).paused, false);
+    assert.equal(state.lazyLoadSuppressRestorer, null);
+  } finally {
+    state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
+    dom.restore();
+  }
+});
+
+test("page inspection overlay avoids backdrop blur", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);
+  const end = source.indexOf(`#unfluffify-overlay .uf-layer`);
+  assert.ok(start >= 0 && end > start, "Expected to locate page inspection overlay CSS in core.js source");
+  const inspectionOverlaySource = source.slice(start, end);
+
+  assert.doesNotMatch(inspectionOverlaySource, /backdrop-filter/);
 });
 
 test("page motion pause normalizes scroll reveal candidates to their visible posture", () => {
@@ -839,6 +995,14 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     assert.ok(script);
     assert.equal(script.src, "chrome-extension://unfluffify/common/page-motion-freeze.js");
     assert.equal(script.getAttribute("data-uf-extension-ui"), "true");
+    assert.equal(script.getAttribute("data-uf-loaded"), "false");
+    assert.equal(postedMessages.length, 0);
+
+    script.dispatchEvent(new Event("load"));
+
+    assert.equal(script.getAttribute("data-uf-loaded"), "true");
+    assert.equal(postedMessages.at(-2).command, "init");
+    assert.equal(postedMessages.at(-1).command, "setPaused");
     assert.equal(postedMessages.at(-1).paused, true);
     assert.equal(
       postedMessages.at(-1).__unfluffifyPageMotionFreeze,
@@ -909,16 +1073,41 @@ test("page motion pause stylesheet excludes extension-owned UI", () => {
   assert.doesNotMatch(source, /html\.\$\{PAGE_MOTION_PAUSE_ROOT_CLASS\} \*,/);
 });
 
-test("marking enable warms page reveals before freezing and rendering overlays", () => {
+test("marking enable inspects and blocks input before freezing and rendering overlays", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl)");
+  const enableIndex = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {})");
 
   assert.ok(enableIndex > -1);
-  const warmIndex = source.indexOf("await warmPageRevealTriggersBeforeMotionPause", enableIndex);
-  const pauseIndex = source.indexOf("pausePageMotion();", enableIndex);
-  const overlayIndex = source.indexOf("createOverlay();", enableIndex);
+  const revealWarmupIndex = source.indexOf("await warmupPageRevealBeforeMotionPause", enableIndex);
+  const scheduleRenderIndex = source.indexOf("scheduleRender();", enableIndex);
+  const pauseIndex = source.indexOf("pausePageMotion();");
+  const inspectSource = source.slice(
+    source.indexOf("async function inspectPageBeforeMotionPause"),
+    source.indexOf("function removeOverlay", source.indexOf("async function inspectPageBeforeMotionPause"))
+  );
+  const warmupSource = source.slice(
+    source.indexOf("async function warmupPageRevealBeforeMotionPause"),
+    source.indexOf("function removeOverlay", source.indexOf("async function warmupPageRevealBeforeMotionPause"))
+  );
 
-  assert.ok(warmIndex > -1);
-  assert.ok(pauseIndex > warmIndex);
-  assert.ok(overlayIndex > pauseIndex);
+  assert.ok(revealWarmupIndex > -1);
+  assert.ok(scheduleRenderIndex > revealWarmupIndex);
+  assert.ok(pauseIndex > -1);
+  assert.match(inspectSource, /startPageInspectionInputBlocker\(\);[\s\S]*?createOverlay\(\);/);
+  assert.match(inspectSource, /setPageInspectionUiActive\(true\);/);
+  assert.match(inspectSource, /revealPageContentBeforeMotionPause\(\s*"both",/);
+  assert.match(inspectSource, /if \(!keepUiActive\) \{[\s\S]*?setPageInspectionUiActive\(false\);[\s\S]*?stopPageInspectionInputBlocker\(\);[\s\S]*?\}/);
+  assert.match(warmupSource, /const keepUiActive = Boolean\(options\.keepUiActive\);/);
+  assert.match(warmupSource, /await inspectPageBeforeMotionPause\(isRevealWarmupCurrent, \{ keepUiActive \}\);[\s\S]*?pausePageMotion\(\);/);
+  assert.match(source, /await finishPageInspectionUiAfterRender\(\);/);
+  assert.match(source, /ContentText\.marking\.pageInspection/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"wheel"/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"keydown"/);
+  assert.match(source, /PAGE_INSPECTION_INPUT_EVENTS = \[[\s\S]*?"touchmove"/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;/);
+  assert.match(source, /const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;/);
+  assert.match(source, /const targetY = Number\.isFinite\(options\.targetY\) \? Number\(options\.targetY\) : null;/);
+  assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasSettled\(\) && isNearTarget\(\)\) \{[\s\S]*?finish\(\);/);
+  assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });

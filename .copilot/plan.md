@@ -39,6 +39,7 @@ Explicit taxonomy change completed:
 4. Keep selector/AI exclusions decision-only with no dedicated AI-excluded marking overlay, and keep silent highlighting on `immutable`, `content`, and `excluded` layers only.
 5. Keep `explicit: true` tagging for user-created exclude rows, but submit every stored excluded XPath row as excluded unless it is explicitly included or suppressed by an excluded ancestor.
 6. Keep fast explicit-layer acknowledgement; force structural invalidating full marking rebuilds immediately, while leaf explicit-exclude toggles may debounce the full rebuild after patching cached lower-priority collections.
+7. Marking enable must inspect the page before the motion freeze: show a spinner, block page/content-overlay input, run a bottom-and-top reveal scroll, restore the original viewport, then freeze and render.
 
 Backend-saved candidate completion completed:
 
@@ -85,10 +86,16 @@ Motion stability pass completed:
 2. Matching base-URL pages hold the pause even when no selector highlights or visible overlays exist yet.
 3. The freeze covers CSS animations/transitions, Web Animations, SVG clocks, autoplay-like media, generic hover-pause candidates, computed inline locks for common motion properties, and a page-world timer/rAF gate for JavaScript-driven carousel loops.
 4. The freeze excludes extension-owned UI and routes marking overlay scheduling through extension-owned timers/rAF, so Unfluffify controls keep rendering while page motion is held.
-5. Marking enable runs a bounded instant top-to-bottom reveal warm-up, restores the user's scroll position, then freezes page motion and renders overlays.
+5. Marking enable shows an inspection spinner, blocks page/content-overlay input, runs a bottom-and-top reveal scroll, restores the user's scroll position, then freezes page motion and renders overlays.
 6. Layout-present scroll/viewport/attribute-driven reveal candidates, including Webflow interaction hooks, are normalized to visible posture while semantic hidden UI and carousel states remain hidden.
 7. The pause indicator uses an Unfluffify-scoped Material Design Icons snowflake/code glyph pair without injecting global `.mdi` styles into target pages.
 8. Save snapshots restore and strip extension-owned pause classes, UI, timer bridge script, reveal normalizations, and inline locks before serializing `renderedHtml`.
+
+Mobile simulation default completed:
+
+1. Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session.
+2. Disabling mobile simulation from the popup is preserved as a per-session tab choice, including across navigation/reload cleanup, and must not be silently auto-enabled again.
+3. AI-submission visibility continues to use mobile simulation geometry when classifying visible versus invisible textual content.
 
 Page interaction pass-through completed:
 

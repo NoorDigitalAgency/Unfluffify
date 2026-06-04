@@ -116,7 +116,29 @@ test("marking mode renders synced default exclusions as ordinary exclude marking
   );
   assert.match(
     coreSource,
-    /drawMultiRectReuse\([\s\S]*?layerExplicitExcludeState,[\s\S]*?presentation\.className,[\s\S]*?"explicit-exclude"/
+    /drawMultiRectReuse\([\s\S]*?layerSavedExplicitExcludeState,[\s\S]*?presentation\.className,[\s\S]*?"saved-explicit-exclude"/
+  );
+});
+
+test("marking precedence contract is enforced as defaults then saved then css then session", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(coreSource, /saved-explicit-exclude/);
+  assert.match(coreSource, /saved-explicit-include/);
+  assert.match(coreSource, /session-explicit-exclude/);
+  assert.match(coreSource, /session-explicit-include/);
+  assert.match(coreSource, /splitExplicitMarkingCollectionsBySavedState\(/);
+  assert.match(
+    coreSource,
+    /#unfluffify-overlay \.uf-layer\[data-layer="default"\] \{ z-index: 3; \}[\s\S]*?#unfluffify-overlay \.uf-layer\[data-layer="saved-explicit-exclude"\] \{ z-index: 4; \}[\s\S]*?#unfluffify-overlay \.uf-layer\[data-layer="saved-explicit-include"\] \{ z-index: 5; \}[\s\S]*?#unfluffify-overlay \.uf-layer\[data-layer="ai-content"\] \{ z-index: 6; \}[\s\S]*?#unfluffify-overlay \.uf-layer\[data-layer="session-explicit-exclude"\] \{ z-index: 7; \}[\s\S]*?#unfluffify-overlay \.uf-layer\[data-layer="session-explicit-include"\] \{ z-index: 8; \}/
+  );
+  assert.match(
+    coreSource,
+    /collectAiContentElementsForRender\(aiCollections, \{[\s\S]*?excludedByState: aiSuppressedBySessionExcluded,[\s\S]*?explicitInclude: sessionExplicitIncludeForAi/
+  );
+  assert.match(
+    coreSource,
+    /for \(const el of collections\.fetchedExplicitExcludeElements \|\| \[\]\)[\s\S]*?for \(const el of collections\.fetchedExplicitIncludeElements \|\| \[\]\)[\s\S]*?for \(const el of collections\.aiContentElements\)[\s\S]*?for \(const el of collections\.sessionExplicitExcludeElements \|\| \[\]\)[\s\S]*?for \(const el of collections\.sessionExplicitIncludeElements \|\| \[\]\)/
   );
 });
 
@@ -330,7 +352,7 @@ test("marking contract is locked across docs, memory, plan, and README", () => {
   assert.match(planSource, /052c-derived marking restoration completed/);
   assert.match(planSource, /submit every stored excluded XPath row as excluded/i);
   assert.match(readmeSource, /locked 052c-derived restored contract/i);
-  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
+  assert.match(readmeSource, /node --test tests\/core-visibility\.test\.js tests\/core-motion-pause\.test\.js tests\/core-scheduling\.test\.js tests\/marking-rules\.test\.js tests\/popup-marking-refresh\.test\.js tests\/selector-suppression\.test\.js tests\/silent-highlight-annotations\.test\.js tests\/silent-highlight-rules\.test\.js tests\/submission-rules\.test\.js/);
   assert.match(constantsSource, /locked marking contract/);
 });
 

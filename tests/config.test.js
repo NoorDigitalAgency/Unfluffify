@@ -339,6 +339,19 @@ test("page save reconciliation normalizes pending local save locks", () => {
   assert.equal(normalized.baseUrl, "https://example.com/shop");
   assert.equal(normalized.pageUrl, "https://www.example.com/shop/item");
   assert.equal(normalized.reason, "sync_failed");
+  assert.equal(isPageSaveReconciliationPending(normalized), false);
+});
+
+test("page save reconciliation treats editor preparation as pending", () => {
+  const normalized = normalizePageSaveReconciliation({
+    status: "pending",
+    baseUrl: "https://www.example.com/shop/",
+    pageUrl: "https://www.example.com/shop/item",
+    reason: "editor_preparing",
+    updatedAt: "2026-01-01T00:00:00Z"
+  });
+
+  assert.equal(normalized.reason, "editor_preparing");
   assert.equal(isPageSaveReconciliationPending(normalized), true);
 });
 

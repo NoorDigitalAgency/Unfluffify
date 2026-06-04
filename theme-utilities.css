@@ -115,7 +115,7 @@ button.u-full-width {
 
 .u-alert-warn {
   --alert-tone: var(--warn);
-  --alert-ink: var(--warn);
+  --alert-ink: var(--warn-ink);
 }
 
 .u-alert-danger {
@@ -357,7 +357,7 @@ button.u-full-width {
 }
 
 .u-color-warning {
-  color: var(--warn);
+  color: var(--warn-ink);
 }
 
 .u-color-danger {
@@ -376,7 +376,7 @@ button.u-full-width {
 
 .u-tone-warning {
   --tone: var(--warn);
-  --tone-ink: var(--warn);
+  --tone-ink: var(--warn-ink);
 }
 
 .u-tone-danger {
