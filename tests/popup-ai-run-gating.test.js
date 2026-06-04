@@ -102,6 +102,12 @@ test("marking-mode preview mirrors Save gating and is wired to a handler", () =>
   assert.match(popupSource, /async function handleMarkingPreview\(\) \{/);
   assert.match(uiSource, /id: "marking-preview"/);
   assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
+  // The preview button renders full-width (not inside the half-width button-row grid).
+  const previewBlock = uiSource.match(
+    /markingMode && view\.markingPreviewVisible\) \{([\s\S]*?)\n  \}/
+  )[1];
+  assert.match(previewBlock, /class: "u-btn-secondary u-full-width"/);
+  assert.doesNotMatch(previewBlock, /button-row/);
 });
 
 test("navigating away from a pending marking session prompts to discard first", () => {

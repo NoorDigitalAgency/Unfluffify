@@ -113,7 +113,12 @@ Page UI goes silent but the popup still renders marking controls.
   and `refreshUi()` so `toggleEnabled` is false and silent controls render. Mirror how
   `handleEnableToggle` disable path updates popup state, but WITHOUT discarding saved data.
 
-### ❌ 5. Marking-mode "Show content / Preview" button is half width
+### ✅ 5. Marking-mode "Show content / Preview" button is half width
+FIXED: popup/ui.js no longer wraps `#marking-preview` in the 2-column `.button-row` grid;
+the button renders directly as a full-width `u-btn-secondary u-full-width` button (matching
+the silent-mode preview/save-excludes buttons). LIVE re-test recommended.
+
+Prior analysis:
 `popup/ui.js:2149` wraps `#marking-preview` in `{ class: "button-row" }`, which lays out
 at 50% width. The button itself is `u-btn-secondary u-full-width`.
 - NEXT: use a full-width row container instead of `button-row` (e.g. a plain row class /
