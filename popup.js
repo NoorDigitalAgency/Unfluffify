@@ -797,6 +797,8 @@ function setSpinnerMessage(key, message) {
     return;
   }
   entry.message = message.trim();
+  const tabId = state.currentTab && state.currentTab.id;
+  persistSpinnerQueueToStorage(tabId).catch(() => {});
   if (popupSpinnerVisible) {
     const topKey = [...popupSpinnerQueue.keys()].at(-1);
     if (topKey === key) {
@@ -807,6 +809,9 @@ function setSpinnerMessage(key, message) {
 
 function popSpinner(key) {
   if (!key || typeof key !== "string") {
+    return;
+  }
+  if (!popupSpinnerQueue.has(key)) {
     return;
   }
   popupSpinnerQueue.delete(key);
