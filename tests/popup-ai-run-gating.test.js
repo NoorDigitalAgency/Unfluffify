@@ -148,9 +148,21 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
     popupSource,
     /isEnabled \|\| toggleEnabled \|\| effectiveTabState\.enabled \|\| navigationInspectionPending \|\| silentInspectionInScope/
   );
-  // Silent mode keeps polling until the reveal/freeze warmup clears the curtain.
+  // Silent mode keeps polling until the reveal/freeze warmup clears the curtain,
+  // including a leftover navigation-inspection spinner restored from a prior
+  // marking session.
   assert.match(
     popupSource,
-    /if \(pageInspectionBusy && silentInspectionInScope && currentTabId\) \{\s*scheduleStaleInspectionBusyClear\(currentTabId, runtimeStatusBaseUrl\);/
+    /const silentNavSpinnerStuck = Boolean\(\s*silentInspectionInScope &&\s*currentTabId &&\s*popupSpinnerQueue\.has\("navInspect"\)\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /scheduleStaleInspectionBusyClear\(currentTabId, runtimeStatusBaseUrl, \{\s*reconcileSilentNavSpinner: silentNavSpinnerStuck\s*\}\);/
+  );
+  // The stale-clear reconciles a stuck silent-mode navigation spinner by ending
+  // the leftover overlay once inspection is no longer pending.
+  assert.match(
+    popupSource,
+    /silentNavSpinnerStuck\) \{\s*logPopupSpinnerDebug\("silent-nav-curtain-clear"[\s\S]*?endNavigationInspectionOverlay\(tabId\);/
   );
 });

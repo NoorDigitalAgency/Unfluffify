@@ -942,7 +942,11 @@ function clearStaleInspectionBusyClearTimer() {
   popupStaleInspectionBusyClearTimer = 0;
 }
 
-function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.currentTab.id, baseUrl = state.currentBaseUrl) {
+function scheduleStaleInspectionBusyClear(
+  tabId = state.currentTab && state.currentTab.id,
+  baseUrl = state.currentBaseUrl,
+  { reconcileSilentNavSpinner = false } = {}
+) {
   if (!tabId) {
     return;
   }
@@ -953,13 +957,22 @@ function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.curr
     popupStaleInspectionBusyClearTimer = 0;
     attempt += 1;
     const view = uiModule.getViewState();
-    if (
+    const curtainShowing =
+      view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
+    // A leftover navigation-inspection spinner from a prior marking session keeps
+    // popupSpinnerVisible true, so the queue-empty gate below never fires and the
+    // fresh-load curtain sticks in silent mode. Reconcile that case directly:
+    // once the silent reveal/freeze warmup is no longer pending, end the stale
+    // overlay (which pops the spinner and drops the curtain).
+    const silentNavSpinnerStuck =
+      reconcileSilentNavSpinner &&
+      !view.toggleEnabled &&
+      popupSpinnerQueue.has("navInspect");
+    const queueClearGate =
       popupSpinnerQueue.size === 0 &&
       !popupSpinnerVisible &&
-      !popupSpinnerTimer &&
-      view.isBusy &&
-      view.busyMessage === PopupText.overlay.pageInspection
-    ) {
+      !popupSpinnerTimer;
+    if (curtainShowing && (silentNavSpinnerStuck || queueClearGate)) {
       const runtimeStatus = await refreshCurrentPageRuntimeStatus({
         tabId,
         baseUrl
@@ -977,8 +990,13 @@ function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.curr
           (runtimeStatus.inspectionPending || editorPreparationPending)
       );
       if (!inspectionPending) {
-        logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
-        uiModule.setUiBusy(false);
+        if (silentNavSpinnerStuck) {
+          logPopupSpinnerDebug("silent-nav-curtain-clear", { tabId, attempt });
+          endNavigationInspectionOverlay(tabId);
+        } else {
+          logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
+          uiModule.setUiBusy(false);
+        }
         return;
       }
     }
@@ -4752,9 +4770,19 @@ async function refreshUiInner(options = {}) {
         state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
       ));
   // In silent mode no spinner key drives the curtain, so keep polling until the
-  // editor reveal/freeze warmup clears and then drop the "Inspecting page..." curtain.
-  if (pageInspectionBusy && silentInspectionInScope && currentTabId) {
-    scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl);
+  // editor reveal/freeze warmup clears and then drop the "Inspecting page..."
+  // curtain. A leftover navigation-inspection spinner (restored from a prior
+  // marking session) keeps the curtain up via the spinner queue even after the
+  // warmup settles, so reconcile that case too.
+  const silentNavSpinnerStuck = Boolean(
+    silentInspectionInScope &&
+      currentTabId &&
+      popupSpinnerQueue.has("navInspect")
+  );
+  if (((pageInspectionBusy && silentInspectionInScope) || silentNavSpinnerStuck) && currentTabId) {
+    scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl, {
+      reconcileSilentNavSpinner: silentNavSpinnerStuck
+    });
   }
   const sessionHasPendingChanges = hasSessionPendingChanges(
     state.currentConfig,

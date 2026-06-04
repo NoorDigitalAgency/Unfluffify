@@ -36,7 +36,17 @@ Companion docs in repo:
 ### ✅ 1. Render-mode With/Without JavaScript no longer fires reveal/freeze
 Confirmed fixed by item 1. No action.
 
-### ❌ 2. Fresh-load "Inspecting page…" spinner never disappears
+### ✅ 2. Fresh-load "Inspecting page…" spinner never disappears
+FIXED: root cause was a leftover `navInspect` spinner restored from a prior marking
+session (popup.js init ~8281). In silent mode it keeps `popupSpinnerVisible` true, so the
+queue-empty gate in `scheduleStaleInspectionBusyClear` never fired. Added a
+`reconcileSilentNavSpinner` path: `refreshUiInner` now detects a stuck silent-mode
+`navInspect` spinner (`silentNavSpinnerStuck`) and schedules the stale-clear with that
+flag; the poller ends the leftover overlay (`endNavigationInspectionOverlay`) once the
+silent reveal/freeze warmup is no longer pending, dropping the curtain. LIVE re-test
+required.
+
+Prior analysis:
 Reveal/freeze runs correctly, but the initial curtain stays up after warmup completes.
 - Item-2 added silent-mode polling in `refreshUiInner` (popup.js): `silentInspectionInScope`,
   the `getInspectionStatus` query gate, and a `scheduleStaleInspectionBusyClear` call when
