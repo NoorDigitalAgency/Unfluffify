@@ -4807,8 +4807,8 @@ async function refreshUiInner(options = {}) {
   // warmup settles, so reconcile that case too.
   const silentNavSpinnerStuck = Boolean(
     silentInspectionInScope &&
-      currentTabId &&
-      popupSpinnerQueue.has("navInspect")
+    currentTabId &&
+    popupSpinnerQueue.has("navInspect")
   );
   if (((pageInspectionBusy && silentInspectionInScope) || silentNavSpinnerStuck) && currentTabId) {
     scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl, {
