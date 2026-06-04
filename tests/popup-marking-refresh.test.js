@@ -292,6 +292,32 @@ test("popup spinner queue pushSpinner returns key and handles delays correctly",
   assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
 });
 
+test("popup spinner pop can clean up orphaned entries for inactive tabs", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popBody = source.match(
+    /function popSpinner\(key\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(source, /const popupSpinnerKeyTabIds = new Map\(\);/);
+  assert.match(popBody, /const mappedTabId = popupSpinnerKeyTabIds\.get\(key\);/);
+  assert.match(popBody, /if \(!popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?removeSpinnerEntryFromStorage\(mappedTabId, key\)/);
+});
+
+test("popup serializes spinner storage operations per tab", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const persistBody = source.match(
+    /async function persistSpinnerQueueToStorage\(tabId, stored = buildSpinnerQueueStorageRecord\(popupSpinnerQueue\)\) \{([\s\S]*?)\n\}/
+  )[1];
+  const clearBody = source.match(
+    /async function clearSpinnerQueueStorage\(tabId\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(source, /const popupSpinnerStorageQueueByTabId = new Map\(\);/);
+  assert.match(source, /function enqueueSpinnerStorageUpdate\(tabId, operation\) \{/);
+  assert.match(persistBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
+  assert.match(clearBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
+});
+
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
@@ -339,7 +365,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
   )[1];
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
-  assert.match(onActivatedBlock, /persistSpinnerQueueToStorage\(oldTabId\)/);
+  assert.match(onActivatedBlock, /persistSpinnerQueueToStorage\(oldTabId,\s*buildSpinnerQueueStorageRecord\(popupSpinnerQueue\)\)/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
 });

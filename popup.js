@@ -638,6 +638,8 @@ mutation updateScrapingConditions(
 }
 `;
 const popupSpinnerQueue = new Map();
+const popupSpinnerKeyTabIds = new Map();
+const popupSpinnerStorageQueueByTabId = new Map();
 let popupSpinnerVisible = false;
 let popupSpinnerTimer = 0;
 let popupNavigationInspectionOverlayStarted = false;
@@ -666,19 +668,91 @@ function currentSpinnerMessage() {
   return [...popupSpinnerQueue.values()].at(-1).message;
 }
 
-async function persistSpinnerQueueToStorage(tabId) {
+function enqueueSpinnerStorageUpdate(tabId, operation) {
+  if (!tabId || typeof operation !== "function") {
+    return Promise.resolve();
+  }
+  const previous = popupSpinnerStorageQueueByTabId.get(tabId) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(() => operation());
+  popupSpinnerStorageQueueByTabId.set(tabId, current);
+  current.finally(() => {
+    if (popupSpinnerStorageQueueByTabId.get(tabId) === current) {
+      popupSpinnerStorageQueueByTabId.delete(tabId);
+    }
+  }).catch(() => {});
+  return current;
+}
+
+function buildSpinnerQueueStorageRecord(queue, options = {}) {
+  const { persistentOnly = false } = options;
+  const stored = {};
+  queue.forEach((entry, key) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    if (persistentOnly && !entry.persistent) {
+      return;
+    }
+    stored[key] = { message: entry.message, persistent: entry.persistent };
+  });
+  return stored;
+}
+
+async function persistSpinnerQueueToStorage(tabId, stored = buildSpinnerQueueStorageRecord(popupSpinnerQueue)) {
   if (!tabId) {
     return;
   }
   const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
-  const stored = {};
-  popupSpinnerQueue.forEach((entry, key) => {
-    stored[key] = { message: entry.message, persistent: entry.persistent };
-  });
   try {
-    await utils.storageSet(chrome.storage.session, { [storageKey]: stored });
+    await enqueueSpinnerStorageUpdate(tabId, () =>
+      utils.storageSet(chrome.storage.session, { [storageKey]: stored })
+    );
   } catch {
     // Non-fatal; spinner queue persistence is best-effort.
+  }
+}
+
+async function clearSpinnerQueueStorage(tabId) {
+  if (!tabId) {
+    return;
+  }
+  try {
+    await enqueueSpinnerStorageUpdate(tabId, () =>
+      utils.storageRemove(
+        chrome.storage.session,
+        `${constants.SPINNER_QUEUE_PREFIX}${tabId}`
+      )
+    );
+  } catch {
+    // Non-fatal.
+  }
+}
+
+async function removeSpinnerEntryFromStorage(tabId, key) {
+  if (!tabId || !key) {
+    return;
+  }
+  const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
+  try {
+    await enqueueSpinnerStorageUpdate(tabId, async () => {
+      const result = await utils.storageGet(chrome.storage.session, storageKey);
+      const stored = (result && result[storageKey] && typeof result[storageKey] === "object")
+        ? result[storageKey]
+        : {};
+      if (!Object.prototype.hasOwnProperty.call(stored, key)) {
+        return;
+      }
+      delete stored[key];
+      if (Object.keys(stored).length > 0) {
+        await utils.storageSet(chrome.storage.session, { [storageKey]: stored });
+      } else {
+        await utils.storageRemove(chrome.storage.session, storageKey);
+      }
+    });
+  } catch {
+    // Non-fatal.
   }
 }
 
@@ -700,6 +774,7 @@ async function restoreSpinnerQueueFromStorage(tabId) {
         message: typeof entry.message === "string" ? entry.message : "",
         persistent: Boolean(entry.persistent)
       });
+      popupSpinnerKeyTabIds.set(key, tabId);
     });
   } catch {
     // Non-fatal.
@@ -715,6 +790,7 @@ function pushSpinner(key, message, options = {}) {
   const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
   const persistent = Boolean(options.persistent);
   const isUpdate = popupSpinnerQueue.has(effectiveKey);
+  const tabId = state.currentTab && state.currentTab.id;
 
   if (!isUpdate) {
     const suppressIfActive = Boolean(options.suppressIfActive);
@@ -748,16 +824,20 @@ function pushSpinner(key, message, options = {}) {
         uiModule.setUiBusy(true, currentSpinnerMessage());
       }
     }
-    const tabId = state.currentTab && state.currentTab.id;
+    if (tabId) {
+      popupSpinnerKeyTabIds.set(effectiveKey, tabId);
+    }
     persistSpinnerQueueToStorage(tabId).catch(() => {});
     return effectiveKey;
   }
 
   popupSpinnerQueue.set(effectiveKey, { message: msg, persistent });
+  if (tabId) {
+    popupSpinnerKeyTabIds.set(effectiveKey, tabId);
+  }
 
   if (popupSpinnerVisible) {
     uiModule.setUiBusy(true, currentSpinnerMessage());
-    const tabId = state.currentTab && state.currentTab.id;
     persistSpinnerQueueToStorage(tabId).catch(() => {});
     return effectiveKey;
   }
@@ -771,8 +851,8 @@ function pushSpinner(key, message, options = {}) {
         }
         popupSpinnerVisible = true;
         uiModule.setUiBusy(true, currentSpinnerMessage());
-        const tabId = state.currentTab && state.currentTab.id;
-        persistSpinnerQueueToStorage(tabId).catch(() => {});
+        const timerTabId = state.currentTab && state.currentTab.id;
+        persistSpinnerQueueToStorage(timerTabId).catch(() => {});
       }, delayMs);
     }
     return effectiveKey;
@@ -784,7 +864,9 @@ function pushSpinner(key, message, options = {}) {
   }
   popupSpinnerVisible = true;
   uiModule.setUiBusy(true, currentSpinnerMessage());
-  const tabId = state.currentTab && state.currentTab.id;
+  if (tabId) {
+    popupSpinnerKeyTabIds.set(effectiveKey, tabId);
+  }
   persistSpinnerQueueToStorage(tabId).catch(() => {});
   return effectiveKey;
 }
@@ -812,9 +894,15 @@ function popSpinner(key) {
   if (!key || typeof key !== "string") {
     return;
   }
+  const mappedTabId = popupSpinnerKeyTabIds.get(key);
   if (!popupSpinnerQueue.has(key)) {
+    if (mappedTabId) {
+      popupSpinnerKeyTabIds.delete(key);
+      removeSpinnerEntryFromStorage(mappedTabId, key).catch(() => {});
+    }
     return;
   }
+  popupSpinnerKeyTabIds.delete(key);
   popupSpinnerQueue.delete(key);
   if (popupSpinnerQueue.size > 0) {
     if (popupSpinnerVisible) {
@@ -830,10 +918,7 @@ function popSpinner(key) {
   }
   const tabId = state.currentTab && state.currentTab.id;
   if (tabId) {
-    utils.storageRemove(
-      chrome.storage.session,
-      `${constants.SPINNER_QUEUE_PREFIX}${tabId}`
-    ).catch(() => {});
+    clearSpinnerQueueStorage(tabId).catch(() => {});
   }
   if (popupSpinnerVisible) {
     popupSpinnerVisible = false;
@@ -7891,12 +7976,9 @@ async function init() {
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
       if (popupSpinnerQueue.size > 0) {
-        persistSpinnerQueueToStorage(oldTabId).catch(() => {});
+        persistSpinnerQueueToStorage(oldTabId, buildSpinnerQueueStorageRecord(popupSpinnerQueue)).catch(() => {});
       } else {
-        utils.storageRemove(
-          chrome.storage.session,
-          `${constants.SPINNER_QUEUE_PREFIX}${oldTabId}`
-        ).catch(() => {});
+        clearSpinnerQueueStorage(oldTabId).catch(() => {});
       }
     }
     popupSpinnerQueue.clear();
@@ -7981,17 +8063,11 @@ async function init() {
     clearObserverRemoteConfigRefreshTimer();
     const tabId = state.currentTab && state.currentTab.id;
     if (tabId && popupSpinnerQueue.size > 0) {
-      const persistedOnly = {};
-      popupSpinnerQueue.forEach((entry, key) => {
-        if (entry.persistent) {
-          persistedOnly[key] = { message: entry.message, persistent: true };
-        }
-      });
-      const storageKey = `${constants.SPINNER_QUEUE_PREFIX}${tabId}`;
+      const persistedOnly = buildSpinnerQueueStorageRecord(popupSpinnerQueue, { persistentOnly: true });
       if (Object.keys(persistedOnly).length === 0) {
-        utils.storageRemove(chrome.storage.session, storageKey).catch(() => {});
+        clearSpinnerQueueStorage(tabId).catch(() => {});
       } else {
-        utils.storageSet(chrome.storage.session, { [storageKey]: persistedOnly }).catch(() => {});
+        persistSpinnerQueueToStorage(tabId, persistedOnly).catch(() => {});
       }
     }
     if (popupSpinnerTimer) {
