@@ -90,6 +90,11 @@ import {
 } from "./common/selector-set.js";
 import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
+  SPINNER_OWNERS,
+  WORLD_MESSAGE_TYPES,
+  buildPopupStatePortName
+} from "./common/world-messaging-contract.js";
+import {
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
   REMOTE_SUPPORT_DOCK_STATE_EMBEDDED_MINIMIZED,
   REMOTE_SUPPORT_DOCK_STATE_FLOATING_PIP,
@@ -772,7 +777,7 @@ function sendSpinnerBrokerMessage(message) {
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
-  return messages.sendRuntimeMessage({ tabId, owner: "popup", ...message })
+  return messages.sendRuntimeMessage({ tabId, owner: SPINNER_OWNERS.POPUP, ...message })
     .then((response) => {
       if (response && response.ok) {
         applyBackgroundStateSnapshot(response);
@@ -788,7 +793,7 @@ function syncSpinnerEntryToBackground(key) {
     return Promise.resolve(null);
   }
   return sendSpinnerBrokerMessage({
-    type: "ufSpinnerSet",
+    type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key,
     message: entry.message,
     persistent: entry.persistent
@@ -800,7 +805,7 @@ function removeSpinnerEntryFromBackground(key, tabId = getCurrentPopupTabId()) {
     return Promise.resolve(null);
   }
   return messages.sendRuntimeMessage({
-    type: "ufSpinnerRemove",
+    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
     tabId,
     key
   }).then((response) => {
@@ -816,7 +821,7 @@ function clearSpinnerQueueInBackground(tabId = getCurrentPopupTabId(), options =
     return Promise.resolve(null);
   }
   return messages.sendRuntimeMessage({
-    type: "ufSpinnerClear",
+    type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
     tabId,
     transientOnly: Boolean(options.transientOnly)
   }).then((response) => {
@@ -832,7 +837,7 @@ async function restoreSpinnerQueueFromBackground(tabId) {
     return;
   }
   const response = await messages.sendRuntimeMessage({
-    type: "getUfBackgroundState",
+    type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
     tabId
   }).catch(() => null);
   if (response && response.ok) {
@@ -853,10 +858,10 @@ function connectBackgroundStatePort(tabId) {
     popupBackgroundStatePort = null;
   }
   try {
-    const port = chrome.runtime.connect({ name: `ufPopupState:${tabId}` });
+    const port = chrome.runtime.connect({ name: buildPopupStatePortName(tabId) });
     popupBackgroundStatePort = port;
     port.onMessage.addListener((message) => {
-      if (message && message.type === "ufBackgroundState") {
+      if (message && message.type === WORLD_MESSAGE_TYPES.BACKGROUND_STATE) {
         applyBackgroundStateSnapshot(message.state);
       }
     });

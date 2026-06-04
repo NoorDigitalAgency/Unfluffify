@@ -84,6 +84,12 @@ import {
   createPropertyLockClientId
 } from "./common/property-lock.js";
 import { propertyLockText } from "./common/text.js";
+import {
+  CONTENT_MODES,
+  LIFECYCLE_KINDS,
+  LIFECYCLE_PHASES,
+  WORLD_MESSAGE_TYPES
+} from "./common/world-messaging-contract.js";
 
 const { state } = core;
 
@@ -749,9 +755,9 @@ function createLifecycleOperationId(kind) {
 
 function emitLifecycleEvent(event = {}) {
   void sendRuntimeMessageSafely({
-    type: "ufLifecycleEvent",
+    type: WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT,
     event: {
-      contentMode: state.enabled ? "marking" : "silent",
+      contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
       markingEnabled: Boolean(state.enabled),
       pageUrl: location.href,
       ...event
@@ -6845,8 +6851,8 @@ export function main() {
     refreshEnabledAiHighlights();
     refreshSilentHighlightings().then();
     emitLifecycleEvent({
-      kind: "content-ready",
-      phase: "finished",
+      kind: LIFECYCLE_KINDS.CONTENT_READY,
+      phase: LIFECYCLE_PHASES.FINISHED,
       message: ""
     });
   });
@@ -6971,11 +6977,11 @@ export function main() {
         }
         const operationId = typeof message.operationId === "string" && message.operationId
           ? message.operationId
-          : createLifecycleOperationId("activation");
+          : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
         emitLifecycleEvent({
           operationId,
-          kind: "activation",
-          phase: "started",
+          kind: LIFECYCLE_KINDS.ACTIVATION,
+          phase: LIFECYCLE_PHASES.STARTED,
           busy: true,
           message: "Inspecting page..."
         });
@@ -6994,22 +7000,22 @@ export function main() {
           refreshEnabledAiHighlights();
           emitLifecycleEvent({
             operationId,
-            kind: "activation",
-            phase: "finished",
+            kind: LIFECYCLE_KINDS.ACTIVATION,
+            phase: LIFECYCLE_PHASES.FINISHED,
             busy: false,
             message: "",
-            contentMode: state.enabled ? "marking" : "silent",
+            contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
             markingEnabled: Boolean(state.enabled)
           });
           sendResponse({ ok: true });
         })().catch(() => {
           emitLifecycleEvent({
             operationId,
-            kind: "activation",
-            phase: "failed",
+            kind: LIFECYCLE_KINDS.ACTIVATION,
+            phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: "",
-            contentMode: state.enabled ? "marking" : "silent",
+            contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
             markingEnabled: Boolean(state.enabled)
           });
           sendResponse({ ok: false });
@@ -7020,12 +7026,12 @@ export function main() {
       clearAiPreviewState();
       core.disable();
       emitLifecycleEvent({
-        operationId: createLifecycleOperationId("mode"),
-        kind: "mode",
-        phase: "finished",
+        operationId: createLifecycleOperationId(LIFECYCLE_KINDS.MODE),
+        kind: LIFECYCLE_KINDS.MODE,
+        phase: LIFECYCLE_PHASES.FINISHED,
         busy: false,
         message: "",
-        contentMode: "silent",
+        contentMode: CONTENT_MODES.SILENT,
         markingEnabled: false
       });
       refreshSilentHighlightings().then(() => {
@@ -7058,7 +7064,7 @@ export function main() {
         pending: inspectionPending,
         renderModeInspectionActive: isRenderModeInspectionActive(),
         markingEnabled: Boolean(state.enabled),
-        mode: state.enabled ? "marking" : "silent",
+        mode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
         lockClaimPending,
         pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
@@ -7073,9 +7079,9 @@ export function main() {
       emitLifecycleEvent({
         operationId: typeof message.operationId === "string" && message.operationId
           ? message.operationId
-          : createLifecycleOperationId("render-mode-inspection"),
-        kind: "render-mode-inspection",
-        phase: "started",
+          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION),
+        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+        phase: LIFECYCLE_PHASES.STARTED,
         busy: true,
         message: "Inspecting page..."
       });
@@ -7087,7 +7093,7 @@ export function main() {
       (async () => {
         const operationId = typeof message.operationId === "string" && message.operationId
           ? message.operationId
-          : createLifecycleOperationId("render-mode-inspection");
+          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
         setRenderModeInspectionActive(true);
         cancelSilentHighlightEditorActivation();
         const pageUrl = location.href;
@@ -7096,8 +7102,8 @@ export function main() {
           core.finishPageInspectionUi();
           emitLifecycleEvent({
             operationId,
-            kind: "render-mode-inspection",
-            phase: "failed",
+            kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+            phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: ""
           });
@@ -7113,8 +7119,8 @@ export function main() {
           utils.isPageWithinBaseUrl(location.href, baseUrl);
         emitLifecycleEvent({
           operationId,
-          kind: "render-mode-inspection",
-          phase: "reveal-started",
+          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+          phase: LIFECYCLE_PHASES.REVEAL_STARTED,
           busy: true,
           message: "Inspecting page..."
         });
@@ -7128,8 +7134,8 @@ export function main() {
           core.finishPageInspectionUi();
           emitLifecycleEvent({
             operationId,
-            kind: "render-mode-inspection",
-            phase: "failed",
+            kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+            phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: ""
           });
@@ -7138,8 +7144,8 @@ export function main() {
         }
         emitLifecycleEvent({
           operationId,
-          kind: "render-mode-inspection",
-          phase: "reveal-finished",
+          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+          phase: LIFECYCLE_PHASES.REVEAL_FINISHED,
           busy: true,
           message: "Inspecting page..."
         });
@@ -7155,14 +7161,14 @@ export function main() {
       (async () => {
         const operationId = typeof message.operationId === "string" && message.operationId
           ? message.operationId
-          : createLifecycleOperationId("render-mode-inspection");
+          : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
         const snapshot = createCurrentPageSnapshot();
         const rawHtml = await fetchCurrentPageRawHtml(location.href);
         core.finishPageInspectionUi();
         emitLifecycleEvent({
           operationId,
-          kind: "render-mode-inspection",
-          phase: "html-captured",
+          kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+          phase: LIFECYCLE_PHASES.HTML_CAPTURED,
           busy: true,
           message: "Inspecting page..."
         });
@@ -7183,7 +7189,7 @@ export function main() {
     if (message.type === "renderModeInspectionEnd") {
       const operationId = typeof message.operationId === "string" && message.operationId
         ? message.operationId
-        : createLifecycleOperationId("render-mode-inspection");
+        : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
       setRenderModeInspectionActive(false);
       if (silentHighlightEditorRevealInFlight) {
         silentHighlightEditorRevealInFlight = 0;
@@ -7195,8 +7201,8 @@ export function main() {
       }
       emitLifecycleEvent({
         operationId,
-        kind: "render-mode-inspection",
-        phase: "finished",
+        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+        phase: LIFECYCLE_PHASES.FINISHED,
         busy: false,
         message: ""
       });

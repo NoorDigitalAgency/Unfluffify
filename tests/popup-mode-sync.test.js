@@ -21,7 +21,7 @@ test("content inspection status reports the authoritative marking mode", () => {
   );
 
   assert.match(statusBlock, /markingEnabled: Boolean\(state\.enabled\)/);
-  assert.match(statusBlock, /mode: state\.enabled \? "marking" : "silent"/);
+  assert.match(statusBlock, /mode: state\.enabled \? CONTENT_MODES\.MARKING : CONTENT_MODES\.SILENT/);
 });
 
 test("popup refresh reconciles toggle state to content mode without setEnabled", () => {

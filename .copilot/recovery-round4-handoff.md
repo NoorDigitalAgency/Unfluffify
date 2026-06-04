@@ -210,6 +210,10 @@ Implemented: a background-owned current-state broker for inspection lifecycle an
 spinner queue state.
 
 What changed:
+- `common/world-messaging-contract.js` is now the canonical vocabulary for cross-world
+  lifecycle/spinner messages, lifecycle kinds/phases, content modes, spinner owners, and
+  popup state port names. Future popup/content/background/page-world lifecycle work must
+  import this contract instead of minting raw message strings.
 - `background.js` now stores per-tab lifecycle snapshots and spinner queues in memory,
   exposes `getUfBackgroundState`, accepts `ufLifecycleEvent` and spinner mutations, and
   broadcasts state to popup ports named `ufPopupState:<tabId>`.

@@ -333,9 +333,9 @@ test("popup delegates spinner queue state to the background broker", () => {
     /function clearSpinnerQueueInBackground\(tabId = getCurrentPopupTabId\(\), options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(setBody, /type: "ufSpinnerSet"/);
+  assert.match(setBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_SET/);
   assert.match(setBody, /persistent: entry\.persistent/);
-  assert.match(clearBody, /type: "ufSpinnerClear"/);
+  assert.match(clearBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_CLEAR/);
   assert.match(clearBody, /transientOnly: Boolean\(options\.transientOnly\)/);
   assert.doesNotMatch(source, /spinnerQueue:<tabId>/);
   assert.doesNotMatch(source, /restoreSpinnerQueueFromStorage/);
@@ -350,7 +350,7 @@ test("popup restores spinner state from background current state", () => {
     /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(restoreBody, /type: "getUfBackgroundState"/);
+  assert.match(restoreBody, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(restoreBody, /applyBackgroundStateSnapshot\(response\)/);
   assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
   assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);

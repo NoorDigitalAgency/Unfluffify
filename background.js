@@ -50,6 +50,14 @@ import {
   handlePropertyLockBackgroundMessage,
   initPropertyLockBackground
 } from "./common/property-lock-background.js";
+import {
+  LIFECYCLE_KINDS,
+  LIFECYCLE_PHASES,
+  SPINNER_OWNERS,
+  WORLD_MESSAGE_TYPES,
+  WORLD_PORTS,
+  isLifecycleTerminalPhase
+} from "./common/world-messaging-contract.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -77,7 +85,6 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "pageDraftChanged"
 ]);
 
-const POPUP_STATE_PORT_PREFIX = "ufPopupState:";
 const tabLifecycleStateByTabId = new Map();
 const tabSpinnerQueueByTabId = new Map();
 const popupStatePortsByTabId = new Map();
@@ -138,7 +145,7 @@ function broadcastBrokerState(tabId) {
   const state = buildBrokerState(normalizedTabId);
   ports.forEach((port) => {
     try {
-      port.postMessage({ type: "ufBackgroundState", state });
+      port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state });
     } catch {
       ports.delete(port);
     }
@@ -155,7 +162,7 @@ function updateLifecycleState(tabId, event = {}) {
     ? event.operationId
     : "";
   const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
-  const isTerminalEvent = eventPhase === "finished" || eventPhase === "failed";
+  const isTerminalEvent = isLifecycleTerminalPhase(eventPhase);
   if (
     eventOperationId &&
     previous.operationId &&
@@ -172,8 +179,8 @@ function updateLifecycleState(tabId, event = {}) {
     ...previous,
     ...event,
     operationId,
-    kind: typeof event.kind === "string" && event.kind ? event.kind : previous.kind || "unknown",
-    phase: eventPhase || previous.phase || "unknown",
+    kind: typeof event.kind === "string" && event.kind ? event.kind : previous.kind || LIFECYCLE_KINDS.UNKNOWN,
+    phase: eventPhase || previous.phase || LIFECYCLE_PHASES.UNKNOWN,
     message: typeof event.message === "string" ? event.message : previous.message || "",
     busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy),
     updatedAt: Date.now()
@@ -192,7 +199,7 @@ function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
   queue.set(String(key), {
     message: typeof entry.message === "string" ? entry.message : "",
     persistent: Boolean(entry.persistent),
-    owner: typeof entry.owner === "string" ? entry.owner : "popup"
+    owner: typeof entry.owner === "string" ? entry.owner : SPINNER_OWNERS.POPUP
   });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
@@ -239,10 +246,10 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (!port || typeof port.name !== "string" || !port.name.startsWith(POPUP_STATE_PORT_PREFIX)) {
+  if (!port || typeof port.name !== "string" || !port.name.startsWith(WORLD_PORTS.POPUP_STATE_PREFIX)) {
     return;
   }
-  const tabId = normalizeBrokerTabId(port.name.slice(POPUP_STATE_PORT_PREFIX.length));
+  const tabId = normalizeBrokerTabId(port.name.slice(WORLD_PORTS.POPUP_STATE_PREFIX.length));
   if (!tabId) {
     try {
       port.disconnect();
@@ -257,7 +264,7 @@ chrome.runtime.onConnect.addListener((port) => {
   const ports = popupStatePortsByTabId.get(tabId);
   ports.add(port);
   try {
-    port.postMessage({ type: "ufBackgroundState", state: buildBrokerState(tabId) });
+    port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state: buildBrokerState(tabId) });
   } catch {
     ports.delete(port);
   }
@@ -412,19 +419,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "ufLifecycleEvent") {
+  if (message.type === WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT) {
     const tabId = getMessageTabId(message, sender);
     const state = updateLifecycleState(tabId, message.event || {});
     sendResponse(state);
     return;
   }
 
-  if (message.type === "getUfBackgroundState") {
+  if (message.type === WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE) {
     sendResponse(buildBrokerState(getMessageTabId(message, sender)));
     return;
   }
 
-  if (message.type === "ufSpinnerSet") {
+  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_SET) {
     sendResponse(setBackgroundSpinnerEntry(
       getMessageTabId(message, sender),
       message.key,
@@ -437,12 +444,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  if (message.type === "ufSpinnerRemove") {
+  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_REMOVE) {
     sendResponse(removeBackgroundSpinnerEntry(getMessageTabId(message, sender), message.key));
     return;
   }
 
-  if (message.type === "ufSpinnerClear") {
+  if (message.type === WORLD_MESSAGE_TYPES.SPINNER_CLEAR) {
     sendResponse(clearBackgroundSpinnerQueue(getMessageTabId(message, sender), {
       transientOnly: Boolean(message.transientOnly)
     }));
@@ -930,8 +937,8 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
   const operationId = `activation:${tabId}:${Date.now()}:${attempt}`;
   updateLifecycleState(tabId, {
     operationId,
-    kind: "activation",
-    phase: "started",
+    kind: LIFECYCLE_KINDS.ACTIVATION,
+    phase: LIFECYCLE_PHASES.STARTED,
     busy: true,
     message: "Inspecting page..."
   });
@@ -952,8 +959,8 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         } else {
           updateLifecycleState(tabId, {
             operationId,
-            kind: "activation",
-            phase: "failed",
+            kind: LIFECYCLE_KINDS.ACTIVATION,
+            phase: LIFECYCLE_PHASES.FAILED,
             busy: false,
             message: ""
           });
