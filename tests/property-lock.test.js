@@ -314,7 +314,7 @@ test("content-main starts property lock sync immediately during content-script i
   const mainStart = source.indexOf("export function main()");
   const immediateSyncIndex = source.indexOf("runPropertyLockSync({ forceSiteIdRefresh: true });", mainStart);
   const refreshMatch = source.slice(mainStart).match(
-    /core\.refreshFromTabState\(\{\s*withInitialReveal:\s*true\s*\}\)\.then\(async \(\) => \{/
+    /core\.refreshFromTabState\(\)\.then\(async \(\) => \{/
   );
   const refreshIndex = refreshMatch ? mainStart + refreshMatch.index : -1;
 

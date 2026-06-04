@@ -9927,7 +9927,7 @@ export function getSavedPageEntry(pageUrl) {
 }
 
 export async function refreshFromTabState(options = {}) {
-  const withInitialReveal = Boolean(options.withInitialReveal);
+  void options;
   const response = await utils.sendRuntimeMessage({ type: "getTabState" });
   if (response && response.enabled && response.baseUrl) {
     // Enable if the URL still matches the baseUrl.
@@ -9974,21 +9974,13 @@ export async function refreshFromTabState(options = {}) {
       state.enabled = true;
       state.consentRootElements = new Set();
       hideConsentOnEnable(pageUrl);
-      if (withInitialReveal) {
-        const revealReady = await warmupPageRevealBeforeMotionPause(response.baseUrl, pageUrl, {
-          keepUiActive: true
-        });
-        if (!revealReady) {
-          disable();
-          return;
-        }
-      }
+      // Reveal/freeze is intentionally NOT run here. It is bound strictly to the
+      // silent-highlighting activation gate (and to manual marking enable), so a
+      // marking-restore reload (e.g. render-mode inspection) does not re-trigger
+      // the scroll-reveal routine.
       scheduleRender();
       startObservers();
       startUrlWatcher();
-      if (withInitialReveal) {
-        await finishPageInspectionUiAfterRender();
-      }
       return;
     }
   }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-test("refreshFromTabState can reveal restored enabled pages before freeze and render", () => {
+test("refreshFromTabState restores enabled pages without re-running reveal/freeze", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const refreshStart = source.indexOf("export async function refreshFromTabState(options = {})");
   const refreshEnd = source.indexOf("export function syncPageMarkings", refreshStart);
@@ -10,16 +10,18 @@ test("refreshFromTabState can reveal restored enabled pages before freeze and re
   assert.ok(refreshStart > -1);
   assert.ok(refreshEnd > refreshStart);
   const refreshSource = source.slice(refreshStart, refreshEnd);
-  assert.match(refreshSource, /const withInitialReveal = Boolean\(options\.withInitialReveal\);/);
   assert.match(refreshSource, /state\.enabled = true;/);
   assert.match(refreshSource, /state\.consentRootElements = new Set\(\);/);
-  assert.match(refreshSource, /hideConsentOnEnable\(pageUrl\);[\s\S]*?if \(withInitialReveal\) \{[\s\S]*?await warmupPageRevealBeforeMotionPause\(response\.baseUrl, pageUrl, \{[\s\S]*?keepUiActive:\s*true[\s\S]*?\}\);/);
-  assert.match(refreshSource, /if \(!revealReady\) \{[\s\S]*?disable\(\);[\s\S]*?return;[\s\S]*?\}/);
+  assert.match(refreshSource, /hideConsentOnEnable\(pageUrl\);/);
   assert.match(refreshSource, /scheduleRender\(\);[\s\S]*?startObservers\(\);[\s\S]*?startUrlWatcher\(\);/);
-  assert.match(refreshSource, /if \(withInitialReveal\) \{[\s\S]*?await finishPageInspectionUiAfterRender\(\);[\s\S]*?\}/);
+  // Reveal/freeze is bound to the silent-highlight activation gate (and manual
+  // enable) only; the marking-restore path must not run it.
+  assert.doesNotMatch(refreshSource, /warmupPageRevealBeforeMotionPause\(/);
+  assert.doesNotMatch(refreshSource, /finishPageInspectionUiAfterRender\(/);
+  assert.doesNotMatch(refreshSource, /withInitialReveal/);
 });
 
-test("main restores tab state with initial reveal before highlight refresh", () => {
+test("main restores tab state then refreshes highlight state without an initial reveal", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");
   const mainEnd = source.indexOf("document.addEventListener(\"keydown\"", mainStart);
@@ -27,8 +29,9 @@ test("main restores tab state with initial reveal before highlight refresh", () 
   assert.ok(mainStart > -1);
   assert.ok(mainEnd > mainStart);
   const mainSource = source.slice(mainStart, mainEnd);
-  assert.match(mainSource, /core\.refreshFromTabState\(\{\s*withInitialReveal:\s*true\s*\}\)\.then\(async \(\) => \{/);
-  const refreshIndex = mainSource.indexOf("core.refreshFromTabState({ withInitialReveal: true }).then(async () => {");
+  assert.match(mainSource, /core\.refreshFromTabState\(\)\.then\(async \(\) => \{/);
+  assert.doesNotMatch(mainSource, /withInitialReveal/);
+  const refreshIndex = mainSource.indexOf("core.refreshFromTabState().then(async () => {");
   const silentIndex = mainSource.indexOf("refreshSilentHighlightings().then();");
   assert.ok(refreshIndex > -1);
   assert.ok(silentIndex > refreshIndex);

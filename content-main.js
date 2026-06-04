@@ -6733,7 +6733,7 @@ export function main() {
   syncRemoteSupportSessionStateFromBackground().then();
   runPropertyLockSync({ forceSiteIdRefresh: true });
 
-  core.refreshFromTabState({ withInitialReveal: true }).then(async () => {
+  core.refreshFromTabState().then(async () => {
     // Check if URL path changed (e.g., language change on same domain)
     // and if so, re-verify the site ID is still correct
     if (state.enabled && state.baseUrl) {
