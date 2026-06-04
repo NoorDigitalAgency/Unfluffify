@@ -227,10 +227,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     utils.getTabState(tabId)
       .then((state) => {
-        sendResponse(state || { enabled: false, baseUrl: "" });
+        sendResponse(state ? { ...state, tabId } : { enabled: false, baseUrl: "", tabId });
       })
       .catch(() => {
-        sendResponse({ enabled: false, baseUrl: "" });
+        sendResponse({ enabled: false, baseUrl: "", tabId });
       });
     return true;
   }

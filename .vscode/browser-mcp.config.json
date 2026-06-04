@@ -2,8 +2,8 @@
   "launchOptions": {
     "headless": false,
     "args": [
-      "--load-extension=../", 
-      "--disable-extensions-except=../"
+      "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify",
+      "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify"
     ]
   }
 }

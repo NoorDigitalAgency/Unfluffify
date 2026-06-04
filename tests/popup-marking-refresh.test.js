@@ -334,6 +334,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /const restoreInspectionPending = Boolean\(/);
   assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
+  assert.match(source, /function scheduleNavigationInspectionSettlePoll\(tabId, baseUrl\) \{/);
+  assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
 
   const onUpdatedBlock = source.match(
     /chrome\.tabs\.onUpdated\.addListener\(async \(tabId, changeInfo, tab\) => \{([\s\S]*?)\n  \}\);\n  window\.addEventListener/
@@ -343,9 +345,11 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(onUpdatedBlock, /await utils\.getTabState\(tabId, "restore"\)/);
   assert.match(onUpdatedBlock, /beginNavigationInspectionOverlay\(tabId\);/);
   assert.match(onUpdatedBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
-  assert.match(onUpdatedBlock, /await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
+  assert.match(onUpdatedBlock, /const settleResult = await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
+  assert.match(onUpdatedBlock, /if \(settleResult\.responseObserved \|\| settleResult\.inspectionObserved\) \{/);
   assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);\s*await refreshUi\(\{ useBusyOverlay: false \}\);/);
-  assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);/);
+  assert.match(onUpdatedBlock, /scheduleNavigationInspectionSettlePoll\(tabId, tabState\.baseUrl\);/);
+  assert.doesNotMatch(onUpdatedBlock, /finally \{[\s\S]*?endNavigationInspectionOverlay\(tabId\);/);
 
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
@@ -406,16 +410,57 @@ test("marking enable does not send a redundant force refresh after setEnabled", 
   assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
 });
 
+test("marking enable upgrades the popup spinner to page inspection during reveal warmup", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const runWithSpinnerBody = source.match(
+    /async function runWithSpinner\(key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+  const enableBody = source.match(
+    /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
+  )[1];
+
+  assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
+  assert.match(
+    enableBody,
+    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/
+  );
+  assert.match(enableBody, /performInitialReveal: true/);
+  assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
+});
+
 test("marking cannot be disabled while the current session still needs save or discard", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
   )[1];
 
-  assert.match(enableBody, /if \(!desiredEnabled && currentViewState\.sessionHasPendingChanges\)/);
+  assert.match(enableBody, /if \(!desiredEnabled\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\{[\s\S]*?tabId: tab\.id,[\s\S]*?baseUrl: state\.currentBaseUrl[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);[\s\S]*?latestViewState = uiModule\.getViewState\(\);/);
+  assert.match(enableBody, /if \(!desiredEnabled && latestViewState\.sessionHasPendingChanges\)/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresAiResolution/);
   assert.match(enableBody, /PopupText\.page\.exitRequiresResolution/);
   assert.match(enableBody, /uiModule\.setViewState\(\{ toggleEnabled: true \}\)/);
+  assert.match(enableBody, /setLastPopupEnabled\(true, buildPopupEnabledContext\(tab, state\.currentBaseUrl\)\)/);
+});
+
+test("popup scopes optimistic enabled state to the current tab page and base URL", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(source, /lastPopupEnabledContext/);
+  assert.match(source, /function buildPopupEnabledContext\(tab = state\.currentTab, baseUrl = state\.currentBaseUrl\) \{/);
+  assert.match(source, /function isPopupEnabledContextCurrent\(context, currentContext = buildPopupEnabledContext\(\)\) \{/);
+  assert.match(source, /function clearLastPopupEnabled\(\) \{/);
+  assert.match(source, /if \(tabChanged\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
+  assert.match(source, /if \(pageUrl !== state\.lastPopupPageUrl\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
+  assert.match(source, /if \(!isPopupEnabledContextCurrent\(state\.lastPopupEnabledContext, popupEnabledContext\)\) \{[\s\S]*?clearLastPopupEnabled\(\);/);
+});
+
+test("run ai refreshes page runtime status before honoring reconciliation gates", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const computeBody = source.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nfunction getStoredPageHtmlSnapshot/
+  )[1];
+
+  assert.match(computeBody, /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?if \(state\.currentPageSaveReconciliationPending\) \{/);
 });
 
 test("content-side save hotkey workflow is removed from the marking session", () => {

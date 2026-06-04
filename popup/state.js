@@ -58,6 +58,7 @@ export const state = {
   remoteSupportViewLocked: false,
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
+  lastPopupEnabledContext: null,
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,

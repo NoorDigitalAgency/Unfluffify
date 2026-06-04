@@ -8855,9 +8855,6 @@ export function getPageSaveReconciliationState(pageUrl = location.href) {
 
 export function isPageSaveReconciliationPending(pageUrl = location.href) {
   const reconciliation = getPageSaveReconciliationState(pageUrl);
-  if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
-    return false;
-  }
   return config.isPageSaveReconciliationPending(reconciliation);
 }
 

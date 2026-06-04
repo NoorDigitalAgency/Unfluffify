@@ -398,7 +398,7 @@ test("marking enable schedules settle renders that force invalidating rebuilds",
   assert.match(source, /function clearMarkingSettleRenders\(\)/);
   assert.match(source, /function scheduleMarkingSettleRenders\(\) \{[\s\S]*?MARKING_MODE_SETTLE_RENDER_DELAYS_MS/);
   assert.match(source, /scheduleRender\(\{[\s\S]*?reason: "marking-settle",[\s\S]*?invalidate: true/);
-  assert.match(source, /export async function enableForBaseUrl\(baseUrl\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
+  assert.match(source, /export async function enableForBaseUrl\(baseUrl, options = \{\}\) \{[\s\S]*?scheduleRender\(\);[\s\S]*?scheduleMarkingSettleRenders\(\);/);
   assert.match(source, /export function disable\(options = \{\}\) \{[\s\S]*?clearMarkingSettleRenders\(\);/);
 });
 

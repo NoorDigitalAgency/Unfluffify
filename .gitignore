@@ -354,3 +354,4 @@ MigrationBackup/
 
 # Playwright profile
 .mcp-browser-profile/
+.playwright-mcp/

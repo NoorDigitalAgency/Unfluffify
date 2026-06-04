@@ -143,6 +143,26 @@ test("AI compute builds the request from stored local page snapshots only", () =
   );
 });
 
+test("AI compute reports specific snapshot preparation blockers", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const failureStart = source.indexOf("function getAiSnapshotFailureMessage");
+  const failureEnd = source.indexOf("async function continueAiRunPolling", failureStart);
+  const computeMatch = source.match(
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+  );
+
+  assert.ok(failureStart > -1);
+  assert.ok(failureEnd > failureStart);
+  assert.ok(computeMatch, "handleComputeSelectors body should be found");
+  const failureSource = source.slice(failureStart, failureEnd);
+  const computeBody = computeMatch[1];
+
+  assert.match(failureSource, /if \(response && response\.reconciliationPending\) \{[\s\S]*?return PopupText\.page\.statusServerSyncPending;/);
+  assert.match(failureSource, /if \(response && response\.locked\) \{[\s\S]*?propertyLockText\.lockedInteractionBlockedToast/);
+  assert.match(failureSource, /return PopupText\.ai\.saveCurrentPageBeforeComputing;/);
+  assert.match(computeBody, /await failAiRun\(getAiSnapshotFailureMessage\(snapshotResponse\)\);/);
+});
+
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logicDoc = readFileSync(new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url), "utf8");

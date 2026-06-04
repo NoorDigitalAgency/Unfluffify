@@ -130,10 +130,12 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.match(messageSource, /const reconciliationPending = core\.isPageSaveReconciliationPending\(pageUrl\);/);
   assert.match(messageSource, /const inspectionActive = core\.isPageInspectionUiActive\(\);/);
   assert.match(messageSource, /const silentHighlightPreparationActive = Boolean\([\s\S]*?reconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/);
-  assert.match(messageSource, /const reportedInspectionActive =[\s\S]*?inspectionActive &&[\s\S]*?!silentHighlightPreparationActive;/);
-  assert.match(messageSource, /Boolean\(silentHighlightEditorActivationPromise\)/);
-  assert.match(messageSource, /Boolean\(propertyLockEditorClaimPending\)/);
-  assert.match(messageSource, /active: reportedInspectionActive,/);
+  assert.match(messageSource, /const editorPreparationPending = Boolean\([\s\S]*?silentHighlightPreparationActive \|\|[\s\S]*?silentHighlightEditorActivationPromise \|\|[\s\S]*?propertyLockEditorClaimPending/);
+  assert.match(messageSource, /const inspectionPending =[\s\S]*?inspectionActive \|\|[\s\S]*?editorPreparationPending \|\|[\s\S]*?reconciliationPending;/);
+  assert.match(messageSource, /silentHighlightEditorActivationPromise/);
+  assert.match(messageSource, /propertyLockEditorClaimPending/);
+  assert.match(messageSource, /active: inspectionActive,/);
+  assert.match(messageSource, /pendingReason: reconciliation && \(reconciliationPending \|\| editorPreparationPending\)/);
 });
 
 test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {
@@ -146,6 +148,27 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   const messageSource = source.slice(messageStart, messageEnd);
   assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
   assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+});
+
+test("capturePageSnapshot collects AI submission rows from the target config", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
+  const collectorEnd = source.indexOf("function refreshEnabledAiHighlights", collectorStart);
+  const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
+  const captureEnd = source.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
+
+  assert.ok(collectorStart > -1);
+  assert.ok(collectorEnd > collectorStart);
+  assert.ok(captureStart > -1);
+  assert.ok(captureEnd > captureStart);
+  const collectorSource = source.slice(collectorStart, collectorEnd);
+  const captureSource = source.slice(captureStart, captureEnd);
+
+  assert.match(collectorSource, /function collectAiSubmissionXpathsForCurrentPage\(sourceConfig = state\.config\) \{/);
+  assert.match(collectorSource, /const configValue = sourceConfig \|\| state\.config;/);
+  assert.match(collectorSource, /core\.getPageMarkingEntry\(configValue, pageUrl, \{/);
+  assert.match(collectorSource, /core\.isMarkableElement\(node, configValue, \{/);
+  assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
 });
 
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {

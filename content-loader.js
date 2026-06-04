@@ -108,4 +108,29 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
       .catch(() => sendResponse({ ok: false }));
     return true;
   });
+
+  // Debug hook: when debug mode is active, expose this tab's ID via a DOM
+  // dataset attribute so Playwright can read it with:
+  //   page.evaluate(() => document.documentElement.dataset.ufDebugTabId)
+  // Activate by setting localStorage.ufDebugSpinnerQueue = "1" on the page.
+  try {
+    if (
+      typeof window !== "undefined" &&
+      window.localStorage &&
+      window.localStorage.getItem("ufDebugSpinnerQueue") === "1"
+    ) {
+      chrome.runtime.sendMessage({ type: "getTabState" }, (response) => {
+        if (
+          response &&
+          Number.isFinite(response.tabId) &&
+          typeof document !== "undefined" &&
+          document.documentElement
+        ) {
+          document.documentElement.dataset.ufDebugTabId = String(response.tabId);
+        }
+      });
+    }
+  } catch {
+    // Best-effort debug hook; never block normal extension operation.
+  }
 }

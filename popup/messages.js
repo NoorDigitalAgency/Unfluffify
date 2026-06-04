@@ -93,6 +93,23 @@ export async function sendTabMessageWithRetry(message, attempts = 3) {
 
 export async function loadActiveTab() {
   try {
+    // Debug override: when popup.html is opened with ?debugTabId=N (e.g. from Playwright),
+    // bind to that specific tab instead of the active/side-panel tab.
+    const debugTabIdParam = typeof location !== "undefined"
+      ? Number(new URLSearchParams(location.search).get("debugTabId") || "")
+      : 0;
+    if (Number.isFinite(debugTabIdParam) && debugTabIdParam > 0) {
+      try {
+        const tab = await chrome.tabs.get(Math.trunc(debugTabIdParam));
+        if (tab && tab.id) {
+          state.currentTab = tab;
+          return;
+        }
+      } catch {
+        // Fall through to normal tab resolution if the override tab is gone.
+      }
+    }
+
     const sidePanelBoundTab = await getSidePanelBoundTab();
     if (sidePanelBoundTab && sidePanelBoundTab.id) {
       state.currentTab = sidePanelBoundTab;

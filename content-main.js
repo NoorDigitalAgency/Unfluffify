@@ -5324,13 +5324,14 @@ function toRenderableNodeList(nodes) {
   return toRenderableNodeListWithSelectors(nodes).nodes;
 }
 
-function collectAiSubmissionXpathsForCurrentPage() {
+function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
   core.refreshPageMotionPause();
-  if (!state.config) {
+  const configValue = sourceConfig || state.config;
+  if (!configValue) {
     return [];
   }
   const pageUrl = location.href;
-  const entry = core.getPageMarkingEntry(state.config, pageUrl, {
+  const entry = core.getPageMarkingEntry(configValue, pageUrl, {
     create: false,
     persist: false
   });
@@ -5475,7 +5476,7 @@ function collectAiSubmissionXpathsForCurrentPage() {
         !explicitlyIncluded &&
         !insideExcludedAncestorRow
       ) {
-        isMarkableTextual = core.isMarkableElement(node, state.config, {
+        isMarkableTextual = core.isMarkableElement(node, configValue, {
           allowParent: false,
           allowImmutableChildren: false,
           allowConsentElements: true,
@@ -6920,19 +6921,20 @@ export function main() {
         reconciliation &&
         reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
       );
-      const reportedInspectionActive =
-        inspectionActive &&
-        !silentHighlightPreparationActive;
+      const editorPreparationPending = Boolean(
+        silentHighlightPreparationActive ||
+        silentHighlightEditorActivationPromise ||
+        propertyLockEditorClaimPending
+      );
       const inspectionPending =
-        reportedInspectionActive ||
-        (Boolean(silentHighlightEditorActivationPromise) && !silentHighlightPreparationActive) ||
-        (Boolean(propertyLockEditorClaimPending) && !silentHighlightPreparationActive) ||
+        inspectionActive ||
+        editorPreparationPending ||
         reconciliationPending;
       sendResponse({
         ok: true,
-        active: reportedInspectionActive,
+        active: inspectionActive,
         pending: inspectionPending,
-        pendingReason: reconciliationPending && reconciliation
+        pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
           : ""
       });
@@ -7233,7 +7235,7 @@ export function main() {
             ? entry.rawHtml
             : "";
         entry.title = document.title || location.href;
-        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage();
+        entry.submissionXpaths = collectAiSubmissionXpathsForCurrentPage(config);
         core.touchPageEntryTimestamp(entry);
         config.pageMarkings[location.href] = entry;
 

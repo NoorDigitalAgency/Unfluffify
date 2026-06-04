@@ -395,3 +395,23 @@ test("popup only skips periodic remote loads for the active editor tab and inclu
   assert.match(skipSource, /state\.propertyLockState &&[\s\S]*state\.propertyLockState\.isEditor/);
   assert.doesNotMatch(skipSource, /isSameUserEditor/);
 });
+
+test("popup property lock commands refresh draft status and reconcile lock state", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const commandStart = source.indexOf("async function sendPropertyLockCommand");
+  const commandEnd = source.indexOf("async function reconcilePropertyLockAfterCommand", commandStart);
+  const commandSource = source.slice(commandStart, commandEnd);
+  const reconcileStart = source.indexOf("async function reconcilePropertyLockAfterCommand");
+  const reconcileEnd = source.indexOf("const TOKEN_VALIDATION_INTERVAL_MS", reconcileStart);
+  const reconcileSource = source.slice(reconcileStart, reconcileEnd);
+
+  assert.match(commandSource, /await refreshCurrentPageRuntimeStatus\(\)\.catch\(\(\) => null\);/);
+  assert.match(reconcileSource, /await refreshPropertyLockSnapshot\(siteId\)\.catch\(\(\) => null\);/);
+  assert.match(reconcileSource, /uiModule\.setViewState\(buildPropertyLockViewState\(\)\);/);
+  assert.match(reconcileSource, /await refreshUi\(\{ useBusyOverlay \}\);/);
+  assert.match(source, /async function handlePropertyLockTake\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(source, /async function handlePropertyLockContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(source, /async function handlePropertyLockForceContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(source, /async function handlePropertyLockAcceptSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(source, /async function handlePropertyLockRejectSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+});
