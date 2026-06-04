@@ -98,6 +98,13 @@ changes local page markings must run AI again before save is enabled, and
 marking mode must not be disabled until the user saves or discards that
 session.
 
+The Save Session button is gated by the page-save UI state: pending session
+changes, page controls visibility, reconciliation state, and
+`sessionRequiresAiRun`. It must not add a second `aiRunUpToDate` fingerprint
+gate on top of `sessionRequiresAiRun`; that fingerprint only disables Run AI
+while the last AI output still matches the current exclude/include XPaths.
+CSS-selector-only edits do not change the AI-run fingerprint.
+
 Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
 mode must respect that contract: only the current property editor can mutate
 page markings, while locked passive observers may refresh remote state and

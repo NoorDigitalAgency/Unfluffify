@@ -5180,7 +5180,7 @@ async function refreshUiInner(options = {}) {
     sessionRequiresAiRun,
     reconciliation: state.currentPageSaveReconciliation
   });
-  nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled || !aiRunUpToDate;
+  nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =

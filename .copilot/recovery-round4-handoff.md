@@ -125,6 +125,34 @@ Live validation status:
 
 ---
 
+## Round-5 Stage 4 (2026-06-04) — implemented and live-validated
+
+Implemented: Save Session now follows the page-save UI state / `sessionRequiresAiRun`
+source of truth instead of also requiring `aiRunUpToDate`.
+
+What changed:
+- Removed the redundant `|| !aiRunUpToDate` term from `nextViewState.pageSaveDisabled`.
+- Kept `aiRunUpToDate` for Run AI freshness and marking-preview freshness; Save is now
+  enabled when `buildPageSaveUiState()` says the session has pending changes and does not
+  require AI.
+- Focused tests document that `sessionRequiresAiRun` is the Save gate source and that the
+  AI-run fingerprint still covers only exclude/include XPaths, not CSS selector edits.
+
+Automated validation:
+- Focused: `node --test tests/page-save-state.test.js tests/popup-ai-run-gating.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 458`, `pass 458`, `fail 0`.
+
+Live validation status:
+- Confirmed Render Mode = JavaScript, enabled marking, enabled mobile simulation, and ran AI
+  content detection on `https://unitedspaces.com/sv`.
+- AI completed into Detected Content preview. After exiting preview, popup showed
+  `Changes ready to save`, `Save Session` enabled, `Discard` enabled, preview enabled, and
+  Run AI disabled.
+- Clicking Save completed successfully and returned the popup to silent mode:
+  `toggleChecked: false`, `page-save` absent, silent controls visible, and `Session saved`.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

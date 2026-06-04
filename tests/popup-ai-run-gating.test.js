@@ -82,14 +82,22 @@ test("Run AI is disabled while the run is up to date for current markings", () =
   );
 });
 
-test("Save is enabled only when the AI run is up to date", () => {
+test("Save uses the page-save state instead of the redundant AI-run fingerprint gate", () => {
   assert.match(
+    popupSource,
+    /nextViewState\.pageSaveDisabled = pageSaveUiState\.pageSaveDisabled;/
+  );
+  assert.doesNotMatch(
     popupSource,
     /nextViewState\.pageSaveDisabled = pageSaveUiState\.pageSaveDisabled \|\| !aiRunUpToDate;/
   );
+  assert.match(
+    popupSource,
+    /sessionRequiresAiRun,[\s\S]*?reconciliation: state\.currentPageSaveReconciliation/
+  );
 });
 
-test("marking-mode preview mirrors Save gating and is wired to a handler", () => {
+test("marking-mode preview stays gated on AI-run freshness and is wired to a handler", () => {
   assert.match(
     popupSource,
     /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/
