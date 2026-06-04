@@ -44,13 +44,27 @@ test("entering marking mode, saving, and discarding reset the fingerprint", () =
   // Save success.
   assert.match(
     popupSource,
-    /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
+    /await clearCurrentPageSaveReconciliation\(\);\s*resetAiRunMarkingsFingerprint\(\);\s*\/\/[\s\S]*?await applyPostSaveSilentTransition\(\);\s*updateLastConfigSaveStatus\(PopupText\.page\.savedAndSynced\);/
   );
   // Discard (applyLocalPageDiscard, shared by manual discard + disable/nav confirm).
   assert.match(
     popupSource,
     /state\.aiSelectorsComputedBaseUrl = "";\s*resetAiRunMarkingsFingerprint\(\);\s*\}/
   );
+});
+
+test("a successful save transitions the popup from marking to silent mode", () => {
+  const fnBody = popupSource.match(
+    /async function applyPostSaveSilentTransition\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Reset the content page entry to the saved baseline (drop session deltas).
+  assert.match(fnBody, /forceReloadPageEntry: true/);
+  assert.match(fnBody, /state\.currentDraftDirty = false;/);
+  // Align popup + tab state to silent without re-sending setEnabled to content.
+  assert.match(fnBody, /enabled: false/);
+  assert.match(fnBody, /clearLastPopupEnabled\(\);/);
+  assert.match(fnBody, /toggleEnabled: false/);
+  assert.doesNotMatch(fnBody, /setEnabled/);
 });
 
 test("Run AI is disabled while the run is up to date for current markings", () => {

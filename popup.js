@@ -7166,6 +7166,35 @@ async function handleLoginAction() {
   await refreshUi();
 }
 
+async function applyPostSaveSilentTransition() {
+  // Post-save contract (recovery-plan B2): the current page render resets from
+  // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
+  // explicit deltas are dropped from the overlay), the mode switches marking ->
+  // silent highlighting, and the user stays in silent until Enable Marking
+  // re-enters marking from scratch. The page already drops to silent on save, so
+  // do NOT re-issue an enable message to the content script; only align the popup
+  // + tab state.
+  const baseUrl = state.currentBaseUrl;
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  // Reset the content-side page entry to the saved baseline so its draft is no
+  // longer dirty (Discard detects no pending changes).
+  if (baseUrl) {
+    await messages.sendTabMessageWithRetry({
+      type: "configUpdated",
+      baseUrl,
+      forceReloadPageEntry: true
+    }, 2);
+  }
+  state.currentDraftDirty = false;
+  if (tabId !== null) {
+    await utils.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
+  }
+  clearLastPopupEnabled();
+  uiModule.setViewState({ toggleEnabled: false });
+}
+
 async function handlePageSave() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -7211,6 +7240,9 @@ async function handlePageSave() {
       if (syncResult && syncResult.ok) {
         await clearCurrentPageSaveReconciliation();
         resetAiRunMarkingsFingerprint();
+        // Switch marking -> silent and reset the current page to the saved
+        // baseline so Discard is disabled and Run AI stays irrelevant in silent.
+        await applyPostSaveSilentTransition();
         updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
         uiModule.showToast(PopupText.page.sessionSaved);
         await refreshUi();

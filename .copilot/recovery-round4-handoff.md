@@ -58,7 +58,12 @@ Reveal/freeze runs correctly, but the initial curtain stays up after warmup comp
   `runEditorSilentHighlightingActivationOnce` finishes (it sets then clears the
   `SILENT_HIGHLIGHTING_PREPARATION_REASON` reconciliation).
 
-### ❌ 3. Run AI re-enables after a successful Save with no changes
+### ✅ 3. Run AI re-enables after a successful Save with no changes
+FIXED via the post-save silent switch (see #4a): after save the popup drops to silent
+mode where Run AI (compute) is not shown, and re-entering marking resets the fingerprint
+from scratch. `computeButtonDisabled` already gates on `aiRunUpToDate`.
+
+Prior analysis:
 After save the fingerprint is reset to `null` → `aiRunUpToDate` false → Run AI enabled.
 Root cause is shared with #4a: the popup does not switch to silent after save, and Run AI
 is not additionally gated on "session has pending changes". After fixing #4a (popup → silent
@@ -87,7 +92,15 @@ That is an automatic server push on every AI run.
   locally"). Update tests that assert the post-run sync (search tests for
   `selectorsComputedAndSaved` / `syncBaseConfigToServer`).
 
-### ❌ 4a. Saving in marking mode does not switch the popup to silent mode
+### ✅ 4a. Saving in marking mode does not switch the popup to silent mode
+FIXED: new `applyPostSaveSilentTransition()` (popup.js, before `handlePageSave`) runs in
+the `handlePageSave` success branch. It resets the content page entry to the saved
+baseline (`configUpdated` + `forceReloadPageEntry: true`), clears `state.currentDraftDirty`,
+sets tab state `enabled:false`, `clearLastPopupEnabled()`, and `toggleEnabled:false` so the
+popup renders silent controls WITHOUT re-issuing an enable message to content (page is
+already silent). LIVE re-test required.
+
+Prior analysis:
 Page UI goes silent but the popup still renders marking controls.
 - Per `.copilot/recovery-plan.md` + round-2 spec: after a successful Save the mode must
   switch marking → silent (highlighting), and the content preview popup shows. The user
@@ -130,7 +143,12 @@ still showing controls (and Run AI is clickable).
 - Verify `handleEnableToggle` enable branch isn't short-circuiting on a stale
   `latestViewState.toggleEnabled` / persisted state.
 
-### ❌ 8. After save→silent, Discard is immediately enabled (should detect no changes)
+### ✅ 8. After save→silent, Discard is immediately enabled (should detect no changes)
+FIXED as part of `applyPostSaveSilentTransition()` (see #4a): the content draft is reset
+to the saved baseline and `state.currentDraftDirty` is cleared, so `hasSessionPendingChanges`
+is false and Discard is disabled. LIVE re-test required.
+
+Prior analysis:
 Post-save, in-memory current-page state still carries session deltas / `currentDraftDirty`,
 so `hasSessionPendingChanges` returns true and Discard lights up.
 - Per contract (recovery-plan B2): after save the current page rendering RESETS to
