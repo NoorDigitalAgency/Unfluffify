@@ -31,12 +31,12 @@ test("package script stages runtime files and excludes repo-only files", async (
     const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
     const stagedManifest = JSON.parse(await fs.readFile(path.join(stageDir, "manifest.json"), "utf8"));
 
-    assert.equal(metadata.archiveFileName, "Unfluffify-v1.1.0-240101-1200.zip");
+    assert.equal(metadata.archiveFileName, "Unfluffify-v1.2.0-240101-1200.zip");
     assert.equal(metadata.latestAliasFileName, "Unfluffify-latest.zip");
-  assert.equal(metadata.versionLatestAliasFileName, "Unfluffify-v1.1.0-latest.zip");
+  assert.equal(metadata.versionLatestAliasFileName, "Unfluffify-v1.2.0-latest.zip");
     assert.equal(metadata.releaseTag, "extension-latest");
     assert.equal(metadata.version, stagedManifest.version);
-  assert.equal(metadata.originalVersion, "1.1.0");
+  assert.equal(metadata.originalVersion, "1.2.0");
   assert.equal(metadata.releaseDisplayVersion, null);
     assert.equal(metadata.stageDir, stageDir);
 
@@ -81,13 +81,13 @@ test("package script adds a release-only build display version to the staged man
     const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
     const stagedManifest = JSON.parse(await fs.readFile(path.join(stageDir, "manifest.json"), "utf8"));
 
-    assert.equal(metadata.version, "1.1.0");
-    assert.equal(metadata.originalVersion, "1.1.0");
-    assert.equal(metadata.releaseDisplayVersion, "1.1.0.2605122318");
-    assert.equal(stagedManifest.version, "1.1.0");
-    assert.equal(stagedManifest.version_name, "1.1.0.2605122318");
-    assert.equal(metadata.archiveFileName, "Unfluffify-v1.1.0-240101-1200.zip");
-    assert.equal(metadata.versionLatestAliasFileName, "Unfluffify-v1.1.0-latest.zip");
+    assert.equal(metadata.version, "1.2.0");
+    assert.equal(metadata.originalVersion, "1.2.0");
+    assert.equal(metadata.releaseDisplayVersion, "1.2.0.2605122318");
+    assert.equal(stagedManifest.version, "1.2.0");
+    assert.equal(stagedManifest.version_name, "1.2.0.2605122318");
+    assert.equal(metadata.archiveFileName, "Unfluffify-v1.2.0-240101-1200.zip");
+    assert.equal(metadata.versionLatestAliasFileName, "Unfluffify-v1.2.0-latest.zip");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
