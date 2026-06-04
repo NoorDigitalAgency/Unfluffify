@@ -7972,14 +7972,10 @@ async function init() {
     if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
       return;
     }
-    // Persist spinner entries for the old tab so persistent entries can be restored if the user switches back.
+    // Remove old-tab spinner storage when switching tabs; the popup keeps only the active tab queue.
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
-      if (popupSpinnerQueue.size > 0) {
-        persistSpinnerQueueToStorage(oldTabId, buildSpinnerQueueStorageRecord(popupSpinnerQueue)).catch(() => {});
-      } else {
-        clearSpinnerQueueStorage(oldTabId).catch(() => {});
-      }
+      clearSpinnerQueueStorage(oldTabId).catch(() => {});
     }
     popupSpinnerQueue.clear();
     if (popupSpinnerTimer) {

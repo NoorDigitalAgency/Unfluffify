@@ -358,14 +358,14 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
 });
 
-test("tab activation does not end persisted inspection overlay before old-tab spinner state is saved", () => {
+test("tab activation does not end persisted inspection overlay before old-tab spinner state is cleared", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const onActivatedBlock = source.match(
     /chrome\.tabs\.onActivated\.addListener\(async \(\{ tabId \}\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.tabs\.onUpdated/
   )[1];
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
-  assert.match(onActivatedBlock, /persistSpinnerQueueToStorage\(oldTabId,\s*buildSpinnerQueueStorageRecord\(popupSpinnerQueue\)\)/);
+  assert.match(onActivatedBlock, /clearSpinnerQueueStorage\(oldTabId\)\.catch\(\(\) => \{\}\);/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
 });
