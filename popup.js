@@ -7880,13 +7880,17 @@ async function init() {
     if (popupNavigationInspectionOverlayTabId !== null && popupNavigationInspectionOverlayTabId !== tabId) {
       endNavigationInspectionOverlay(popupNavigationInspectionOverlayTabId);
     }
-    // Clean up any remaining spinner entries for the old tab in memory and storage.
+    // Persist spinner entries for the old tab so they can be restored if the user switches back.
     const oldTabId = state.currentTab && state.currentTab.id;
-    if (oldTabId && popupSpinnerQueue.size > 0) {
-      utils.storageRemove(
-        chrome.storage.session,
-        `${constants.SPINNER_QUEUE_PREFIX}${oldTabId}`
-      ).catch(() => {});
+    if (oldTabId) {
+      if (popupSpinnerQueue.size > 0) {
+        persistSpinnerQueueToStorage(oldTabId).catch(() => {});
+      } else {
+        utils.storageRemove(
+          chrome.storage.session,
+          `${constants.SPINNER_QUEUE_PREFIX}${oldTabId}`
+        ).catch(() => {});
+      }
     }
     popupSpinnerQueue.clear();
     if (popupSpinnerTimer) {
