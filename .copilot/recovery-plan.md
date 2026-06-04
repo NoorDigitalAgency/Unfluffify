@@ -70,6 +70,24 @@ Each unit lists: the genuine behavior, the concrete implementation surface, the 
 **Drop:** `e6a8e0a`, `9f8173b`, `6c02db2` (refactor churn — fold their net effect into clean code).
 - **Tests:** `tests/core-scheduling.test.js`, `tests/selector-suppression.test.js`, `tests/silent-highlight-annotations.test.js`, `tests/page-save-state.test.js`, `tests/popup-marking-refresh.test.js`. **Update/replace** any test that asserts a backend-saved explicit rendering layer or saved/session split, and add a test asserting discard reverts to the defaults+selector baseline without uploading.
 
+#### B2 execution spec (concrete code-level findings — execution-ready; requires live MCP/Playwright validation with the user's JWT before commit)
+
+**Why this is high-risk and was NOT implemented blind:** the explicit collections feed **both** the render layers **and** the AI-content suppression/promotion. Saved (fetched) explicit elements currently (a) get drawn as `saved-explicit-*` overlay layers and (b) suppress AI content under explicit-exclude / protect content under explicit-include. The directive removes (a) AND (b) for *saved* markings while keeping them in the entry data for the AI payload + save upload. There is no runtime test coverage; source-pattern tests will pass even if the overlay/data behavior regresses. **Must be validated live (bonliva, JWT) before committing.**
+
+**Consumption points to make session-only (content/core.js):**
+1. `refreshExplicitMarkingOverlay` (~line 8113): stop passing `fetchedExplicit*` into `drawExplicitMarkingLayers`; the working render set becomes `sessionExplicit*` only. Keep `splitExplicitMarkingCollectionsBySavedState` to *derive* the session set, but do not assemble or store `fetchedExplicit*` cache fields for rendering.
+2. `drawExplicitMarkingLayers` (~line 7965) + layer CSS defs (~lines 5353-5357) + layer-name list (~lines 5574-5579): remove the `saved-explicit-exclude` (z 4) and `saved-explicit-include` (z 5) layers entirely.
+3. `applyExplicitStateToCachedCollections` (~line 8089): already called with `sessionExplicit*` on the fast path — verify the **full-render** path (initial `cachedCollections` assembly) likewise suppresses/promotes AI content using **session-only** explicit sets, not the full explicit set. This is the subtle spot: today saved-explicit-exclude removes AI content from `aiContentElements`; after the change a saved-exclude must leave the AI content visible (AI/selector is authoritative).
+4. `collectAiContentElementsForRender` (~line 7869): confirm its `excludedByState`/`explicitInclude` inputs are session-only.
+
+**Data-safety invariant:** saved markings MUST stay in `state.currentPageEntry` / the config entry so `syncPageMarkings(persist:true)` and the save (`includeAllLocalPageMarkings: true`) still upload them, and the AI payload for other pages still includes them. Ignoring saved markings in *render* must not delete them from the entry — verify `syncPageMarkings` and snapshot/payload assembly are untouched.
+
+**Post-save flow (popup.js `handlePageSave` ~line 7047):** on success — (1) update local data from the returned payload; (2) reset the current page render to the defaults→AI baseline (drop session explicit deltas); (3) switch marking→highlighting (silent) mode; (4) show the content-preview popup; (5) keep the user in highlighting until they click Enable Marking again, which re-enters marking from scratch (defaults→AI). Coordinate with `silentModeActive` (popup.js ~4764/4779) and the content message that triggers a from-scratch re-render in core.
+
+**Revert (popup.js `handlePageRevert` ~line 7111):** drop the backend round-trip (`loadRemoteConfigForCurrentPage({force,...})` + `forceReloadPageEntry:true`); instead message core to discard current-session explicit deltas and re-render to the defaults→AI baseline. Upload nothing.
+
+**Docs to update in the same commit:** `MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`, `.copilot/plan.md`, `README.md` (all currently document the OLD precedence with a backend-saved layer).
+
 ### Unit C — Spinner keyed queue + busy-curtain reconciliation + reload restoration + activation order (the corrupted zone — rebuild cleanly)
 **Genuine behavior**
 - Persistent keyed spinner queue: `popupSpinnerQueue = Map<key,{message,persistent}>`, per-tab `chrome.storage` persistence (`persistSpinnerQueueToStorage`/`restoreSpinnerQueueFromStorage`/`buildSpinnerQueueStorageRecord`), `pushSpinner`/`popSpinner`/`setSpinnerMessage` with `suppressIfActive`, in-place upsert, top-key message resolution, per-tab serialized storage ordering, orphan cleanup for inactive tabs (`popupSpinnerKeyTabIds`). `navInspect` key preserved across tab activation; persistent-only record persisted on tab switch.
