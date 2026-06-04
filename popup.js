@@ -4615,11 +4615,23 @@ async function refreshUiInner(options = {}) {
     currentPageMarkingAllowed &&
     Boolean(tokenValue) &&
     renderModeReady;
-  let inspectionStatus =
+  const markingInspectionInScope = Boolean(
     currentTabId &&
     toggleEnabled &&
     effectiveTabState.enabled &&
     effectiveTabState.baseUrl
+  );
+  // Silent highlighting runs the editor reveal/freeze warmup, which also reports
+  // an inspection-pending status. Poll it in silent mode (in-scope page) so the
+  // "Inspecting page..." curtain can track silent reveal/freeze, not just marking.
+  const silentInspectionInScope = Boolean(
+    currentTabId &&
+    !markingInspectionInScope &&
+    tabInScope &&
+    baseUrlReady
+  );
+  let inspectionStatus =
+    markingInspectionInScope || silentInspectionInScope
       ? await messages.sendTabMessageToTab(currentTabId, { type: "getInspectionStatus" })
       : null;
   let contentInspectionPending = Boolean(
@@ -4707,7 +4719,7 @@ async function refreshUiInner(options = {}) {
   if (
     runtimeStatusBaseUrl &&
     currentTabId &&
-    (isEnabled || toggleEnabled || effectiveTabState.enabled || navigationInspectionPending)
+    (isEnabled || toggleEnabled || effectiveTabState.enabled || navigationInspectionPending || silentInspectionInScope)
   ) {
     latestRuntimeStatus = await refreshCurrentPageRuntimeStatus({
       tabId: currentTabId,
@@ -4739,6 +4751,11 @@ async function refreshUiInner(options = {}) {
         state.currentPageSaveReconciliation &&
         state.currentPageSaveReconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
       ));
+  // In silent mode no spinner key drives the curtain, so keep polling until the
+  // editor reveal/freeze warmup clears and then drop the "Inspecting page..." curtain.
+  if (pageInspectionBusy && silentInspectionInScope && currentTabId) {
+    scheduleStaleInspectionBusyClear(currentTabId, runtimeStatusBaseUrl);
+  }
   const sessionHasPendingChanges = hasSessionPendingChanges(
     state.currentConfig,
     pageMarkings,

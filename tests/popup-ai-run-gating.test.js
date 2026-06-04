@@ -91,3 +91,25 @@ test("navigating away from a pending marking session prompts to discard first", 
     /async function navigateActiveTabToUrlWithTodoCollapse\(url\) \{\s*if \(!\(await confirmNavigationAwayFromMarking\(\)\)\) \{/
   );
 });
+
+test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
+  // The popup polls inspection status in silent mode (in-scope page), not only marking.
+  assert.match(
+    popupSource,
+    /const silentInspectionInScope = Boolean\(\s*currentTabId &&\s*!markingInspectionInScope &&\s*tabInScope &&\s*baseUrlReady\s*\);/
+  );
+  assert.match(
+    popupSource,
+    /markingInspectionInScope \|\| silentInspectionInScope\s*\?\s*await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/
+  );
+  // Runtime status refresh also runs in silent mode so the curtain can clear.
+  assert.match(
+    popupSource,
+    /isEnabled \|\| toggleEnabled \|\| effectiveTabState\.enabled \|\| navigationInspectionPending \|\| silentInspectionInScope/
+  );
+  // Silent mode keeps polling until the reveal/freeze warmup clears the curtain.
+  assert.match(
+    popupSource,
+    /if \(pageInspectionBusy && silentInspectionInScope && currentTabId\) \{\s*scheduleStaleInspectionBusyClear\(currentTabId, runtimeStatusBaseUrl\);/
+  );
+});
