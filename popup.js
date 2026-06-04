@@ -693,12 +693,13 @@ async function restoreSpinnerQueueFromStorage(tabId) {
       ? result[storageKey]
       : {};
     Object.entries(stored).forEach(([key, entry]) => {
-      if (entry && entry.persistent) {
-        popupSpinnerQueue.set(key, {
-          message: typeof entry.message === "string" ? entry.message : "",
-          persistent: true
-        });
+      if (!entry || typeof entry !== "object") {
+        return;
       }
+      popupSpinnerQueue.set(key, {
+        message: typeof entry.message === "string" ? entry.message : "",
+        persistent: Boolean(entry.persistent)
+      });
     });
   } catch {
     // Non-fatal.
