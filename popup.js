@@ -7507,10 +7507,9 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     selectorSet
   });
   const previewOpened = Boolean(previewResponse && previewResponse.ok);
-  // AI run computes selectors LOCALLY and opens the preview only. Saving
-  // (handlePageSave) is the explicit, separate server-sync step, so do NOT push
-  // the base config to the server here.
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
+  // This state is intentionally unsynced; keep the tone non-muted until Save runs.
+  state.lastConfigSaveStatusTone = "warning";
   uiModule.showToast(PopupText.ai.selectorsComputedLocallyToast);
   return { previewOpened };
 }
