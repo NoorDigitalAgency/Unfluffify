@@ -1,6 +1,7 @@
 export const TAB_STATE_PREFIX = "tabState:";
 export const DEVICE_EMULATION_PREFIX = "deviceEmulation:";
 export const SCRIPT_INJECTED_PREFIX = "scriptInjected:";
+export const SPINNER_QUEUE_PREFIX = "spinnerQueue:";
 
 export const DEVICE_SCALE_DEFAULTS = {
   desktop: 0.7,

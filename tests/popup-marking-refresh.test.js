@@ -276,20 +276,20 @@ test("popup blocks the interface with a spinner while page inspection is running
   );
 });
 
-test("popup busy overlay begin always returns started=true once depth increments", () => {
+test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const beginBody = source.match(
-    /function beginPopupBusyOverlay\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+  const pushBody = source.match(
+    /function pushSpinner\(key, message, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(
-    beginBody,
-    /if \(popupBusyOverlayVisible\) \{[\s\S]*?uiModule\.setUiBusy\(true, popupBusyOverlayMessage\);[\s\S]*?return true;/
-  );
-  assert.match(
-    beginBody,
-    /if \(delayMs > 0\) \{[\s\S]*?if \(popupBusyOverlayTimer\) \{[\s\S]*?return true;[\s\S]*?\}[\s\S]*?return true;/
-  );
+  // suppressIfActive path returns null when queue is active
+  assert.match(pushBody, /suppressIfActive[\s\S]*?return null;/);
+  // delay path sets timer and returns effectiveKey
+  assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?popupSpinnerTimer[\s\S]*?return effectiveKey;/);
+  // immediate show path sets popupSpinnerVisible and calls setUiBusy
+  assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?uiModule\.setUiBusy\(true/);
+  // upsert path updates in-place without re-checking suppressIfActive
+  assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
 });
 
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
