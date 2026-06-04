@@ -18,6 +18,52 @@ Companion docs in repo:
 
 ---
 
+## Round-5 Stage 1 (2026-06-04) — implemented and live-validated
+
+Implemented: render-mode entry gating + explicit inspection reveal/capture lifecycle.
+Source changes are in `content-main.js`, `popup.js`,
+`popup/state.js`, `tests/content-activation-order.test.js`,
+`tests/popup-render-mode.test.js`, and new `tests/render-mode-inspection-order.test.js`.
+
+What changed:
+- Popup render-mode auto-detection now consumes a cached explicit-inspection snapshot
+  instead of calling `collectPageData` / static fetch on initial render-mode view entry.
+- `runRenderModeInspectionReload` sends `renderModeInspectionBegin`, awaits reload start,
+  awaits `completeRenderModeInspectionReloadFollowUp`, refreshes UI after a successful
+  follow-up, and waits for content-main before sending `renderModeInspectionEnd` in `finally`.
+- Follow-up order is load complete → content-main ready → `runRenderModeRevealOnce` →
+  `captureRenderModeInspectionHtml` → remember snapshot → hide consent → property-lock
+  reconcile.
+- Content suppresses editor-acquisition reveal while render-mode inspection is active or
+  the matching base URL has no confirmed render mode. The inspection flag is also stored
+  in page `sessionStorage` so it survives the reload.
+- Content capture reuses `createCurrentPageSnapshot()` (sanitized by
+  `EXTENSION_SNAPSHOT_STRIP_SELECTORS`) and `fetchCurrentPageRawHtml()` after reveal,
+  before highlight refresh.
+
+Automated validation:
+- Focused: `node --test tests/content-activation-order.test.js tests/popup-render-mode.test.js tests/render-mode-inspection-order.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 455`, `pass 455`, `fail 0`.
+
+Live validation status:
+- MCP active page: `https://unitedspaces.com/sv`, popup tab at
+  `chrome-extension://bfbljhcodkjihodjlpcnnfkdmejoehgo/popup.html?debugTabId=809898377`.
+- Required Chrome setting for this harness: `View > Developer > Allow JavaScript from Apple Events`
+  allowed driving the existing popup tab because the MCP page object stayed attached to the web page.
+- Initial page load check after extension/page reload: no `#unfluffify-page-inspection-style`,
+  no inspection notice, no `#unfluffify-overlay`, and no render-mode inspection session flag.
+- First live attempt found a real race: after reload, `runRenderModeRevealOnce` and
+  `renderModeInspectionEnd` hit `content-loader` before `content-main` was ready, leaving
+  `sessionStorage.unfluffify:render-mode-inspection-active = "1"`. Fixed by adding
+  `ensureContentReadyForRenderModeInspection()` before reveal and before final cleanup.
+- Final With JavaScript run: console order showed `renderModeInspectionBegin` → content-main
+  activation/ready → `runRenderModeRevealOnce` → `captureRenderModeInspectionHtml` →
+  `hideConsentForInspection`/refresh → `renderModeInspectionEnd`; final page state had
+  `sessionInspection: null`, no inspection style, no inspection notice, no overlay, and
+  popup suggested Render Mode = JavaScript (`renderModeValue: "rendered"`).
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

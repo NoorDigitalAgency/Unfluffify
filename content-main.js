@@ -106,6 +106,7 @@ const SILENT_HIGHLIGHT_OVERLAY_ID = "unfluffify-silent-highlight-overlay";
 const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";
 const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
+const RENDER_MODE_INSPECTION_SESSION_KEY = "unfluffify:render-mode-inspection-active";
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
@@ -186,6 +187,7 @@ let silentHighlightEditorRevealKey = "";
 let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
+let renderModeInspectionActive = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -2383,6 +2385,40 @@ function getCurrentPageSnapshotXPath(node) {
   return core.getSnapshotXPath(node, getCurrentPageSnapshotOptions());
 }
 
+function readRenderModeInspectionActive() {
+  try {
+    return window.sessionStorage.getItem(RENDER_MODE_INSPECTION_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setRenderModeInspectionActive(active) {
+  renderModeInspectionActive = Boolean(active);
+  try {
+    if (renderModeInspectionActive) {
+      window.sessionStorage.setItem(RENDER_MODE_INSPECTION_SESSION_KEY, "1");
+    } else {
+      window.sessionStorage.removeItem(RENDER_MODE_INSPECTION_SESSION_KEY);
+    }
+  } catch {
+    // Some pages block sessionStorage; the in-memory guard still covers this document.
+  }
+}
+
+function cancelSilentHighlightEditorActivation() {
+  silentHighlightEditorActivationQueued = false;
+  silentHighlightEditorRevealInFlight = ++silentHighlightEditorActivationIdCounter;
+}
+
+function isRenderModeConfirmedForBaseUrl(baseUrl, configs) {
+  if (!baseUrl || !configs || !Object.prototype.hasOwnProperty.call(configs, baseUrl)) {
+    return false;
+  }
+  const normalized = config.normalizeConfig(baseUrl, configs[baseUrl]).config;
+  return config.isRenderModeConfirmed(normalized);
+}
+
 async function fetchCurrentPageRawHtml(pageUrl = location.href) {
   const targetUrl = typeof pageUrl === "string" ? pageUrl : "";
   if (!targetUrl) {
@@ -2831,6 +2867,10 @@ async function runEditorSilentHighlightingActivationOnce() {
   if (!propertyLockState || !propertyLockState.isEditor) {
     return;
   }
+  if (renderModeInspectionActive || readRenderModeInspectionActive()) {
+    setRenderModeInspectionActive(true);
+    return;
+  }
   const activationId = ++silentHighlightEditorActivationIdCounter;
   silentHighlightEditorRevealInFlight = activationId;
   let shouldRefreshAfterActivation = false;
@@ -2839,6 +2879,9 @@ async function runEditorSilentHighlightingActivationOnce() {
     const configs = await config.getConfigs();
     const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
     if (!baseUrl) {
+      return;
+    }
+    if (!isRenderModeConfirmedForBaseUrl(baseUrl, configs)) {
       return;
     }
     const revealKey = getSilentHighlightEditorRevealKey(baseUrl, pageUrl);
@@ -6934,11 +6977,85 @@ export function main() {
         ok: true,
         active: inspectionActive,
         pending: inspectionPending,
+        renderModeInspectionActive: renderModeInspectionActive || readRenderModeInspectionActive(),
         lockClaimPending,
         pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
           : ""
       });
+      return;
+    }
+
+    if (message.type === "renderModeInspectionBegin") {
+      setRenderModeInspectionActive(true);
+      cancelSilentHighlightEditorActivation();
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (message.type === "runRenderModeRevealOnce") {
+      (async () => {
+        setRenderModeInspectionActive(true);
+        cancelSilentHighlightEditorActivation();
+        const pageUrl = location.href;
+        const baseUrl = message.baseUrl || await resolveBaseUrlForCurrentPage();
+        if (!baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
+          core.finishPageInspectionUi();
+          sendResponse({ ok: false });
+          return;
+        }
+        const revealId = ++silentHighlightEditorActivationIdCounter;
+        silentHighlightEditorRevealInFlight = revealId;
+        const isStillCurrent = () =>
+          renderModeInspectionActive &&
+          silentHighlightEditorRevealInFlight === revealId &&
+          location.href === pageUrl &&
+          utils.isPageWithinBaseUrl(location.href, baseUrl);
+        const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
+          baseUrl,
+          pageUrl,
+          SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
+          { keepUiActive: true }
+        );
+        if (!prepared || !isStillCurrent()) {
+          core.finishPageInspectionUi();
+          sendResponse({ ok: false });
+          return;
+        }
+        sendResponse({ ok: true, pageUrl });
+      })().catch(() => {
+        core.finishPageInspectionUi();
+        sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (message.type === "captureRenderModeInspectionHtml") {
+      (async () => {
+        const snapshot = createCurrentPageSnapshot();
+        const rawHtml = await fetchCurrentPageRawHtml(location.href);
+        core.finishPageInspectionUi();
+        sendResponse({
+          ok: Boolean(snapshot && snapshot.renderedHtml && typeof rawHtml === "string"),
+          pageUrl: location.href,
+          renderedHtml: snapshot && typeof snapshot.renderedHtml === "string" ? snapshot.renderedHtml : "",
+          rawHtml: typeof rawHtml === "string" ? rawHtml : "",
+          renderMode: snapshot && typeof snapshot.renderMode === "string" ? snapshot.renderMode : ""
+        });
+      })().catch(() => {
+        core.finishPageInspectionUi();
+        sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (message.type === "renderModeInspectionEnd") {
+      setRenderModeInspectionActive(false);
+      if (silentHighlightEditorRevealInFlight) {
+        silentHighlightEditorRevealInFlight = 0;
+      }
+      core.finishPageInspectionUi();
+      sendResponse({ ok: true });
       return;
     }
 

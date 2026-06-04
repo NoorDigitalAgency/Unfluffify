@@ -53,7 +53,7 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
   const messageStart = source.indexOf("if (message.type === \"setEnabled\") {");
-  const messageEnd = source.indexOf("if (message.type === \"hideConsentForInspection\") {", messageStart);
+  const messageEnd = source.indexOf("if (message.type === \"getInspectionStatus\") {", messageStart);
   const messageSource = source.slice(messageStart, messageEnd);
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
@@ -145,6 +145,30 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.match(messageSource, /lockClaimPending,/);
   assert.match(messageSource, /active: inspectionActive,/);
   assert.match(messageSource, /pendingReason: reconciliation && \(reconciliationPending \|\| editorPreparationPending\)/);
+});
+
+test("editor reveal is gated during render-mode inspection or before render mode is confirmed", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const activationStart = source.indexOf("async function runEditorSilentHighlightingActivationOnce() {");
+  const activationEnd = source.indexOf("function ensureSilentHighlightOverlay()", activationStart);
+
+  assert.ok(activationStart > -1);
+  assert.ok(activationEnd > activationStart);
+  const activationSource = source.slice(activationStart, activationEnd);
+  assert.match(
+    activationSource,
+    /if \(renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)\) \{[\s\S]*?setRenderModeInspectionActive\(true\);[\s\S]*?return;[\s\S]*?\}/
+  );
+  assert.match(
+    activationSource,
+    /if \(!isRenderModeConfirmedForBaseUrl\(baseUrl, configs\)\) \{[\s\S]*?return;[\s\S]*?\}/
+  );
+  const inspectionGuardIndex = activationSource.indexOf("renderModeInspectionActive || readRenderModeInspectionActive()");
+  const confirmedGuardIndex = activationSource.indexOf("!isRenderModeConfirmedForBaseUrl(baseUrl, configs)");
+  const warmupIndex = activationSource.indexOf("warmupSilentHighlightingBeforeMotionPause");
+  assert.ok(inspectionGuardIndex > -1);
+  assert.ok(confirmedGuardIndex > inspectionGuardIndex);
+  assert.ok(warmupIndex > confirmedGuardIndex);
 });
 
 test("runtime setEnabled can request an initial reveal when reload restoration re-enables marking", () => {

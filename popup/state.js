@@ -76,6 +76,8 @@ export const state = {
   renderModeDetectionAccuracy: Number.NaN,
   renderModeSuggestedKey: "",
   renderModeSuggestedValue: "undetermined",
+  renderModeInspectionSnapshotKey: "",
+  renderModeInspectionSnapshot: null,
   renderModeUndeterminedNoticeKey: "",
   renderModeWarningDismissedKey: "",
   renderModeManualStepsVisible: false,

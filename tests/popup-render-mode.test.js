@@ -88,7 +88,7 @@ test("render mode inspection reload outcome fails when navigation never starts",
   );
 });
 
-test("render mode inspection reload waits only for load start and defers post-reload follow-up", () => {
+test("render mode inspection reload waits for the full explicit inspection follow-up", () => {
   const inspectionBlock = extractSourceBlock(
     popupSource,
     "async function runRenderModeInspectionReload",
@@ -110,16 +110,16 @@ test("render mode inspection reload waits only for load start and defers post-re
   );
   assert.match(
     inspectionBlock,
-    /void completeRenderModeInspectionReloadFollowUp\(tabId\)\.catch\(\(\) => \{\}\);/
+    /type: "renderModeInspectionBegin"[\s\S]*?try \{[\s\S]*?const followUpCompleted = await completeRenderModeInspectionReloadFollowUp\(tabId\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);[\s\S]*?\} finally \{[\s\S]*?type: "renderModeInspectionEnd"/
   );
-  assert.doesNotMatch(
-    inspectionBlock,
-    /await hideConsentForRenderModeInspection\(\);/
-  );
+  assert.doesNotMatch(inspectionBlock, /void completeRenderModeInspectionReloadFollowUp/);
   assert.match(
     followUpBlock,
     /waitForTabLoadComplete\(\s*tabId,\s*RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS\s*\)/
   );
+  assert.match(followUpBlock, /ensureContentReadyForRenderModeInspection\(tabId\)/);
+  assert.match(followUpBlock, /type: "runRenderModeRevealOnce"/);
+  assert.match(followUpBlock, /type: "captureRenderModeInspectionHtml"/);
   assert.match(
     followUpBlock,
     /await hideConsentForRenderModeInspection\(tabId\);/

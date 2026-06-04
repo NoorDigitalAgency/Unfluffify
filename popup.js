@@ -1808,6 +1808,49 @@ function shouldAutoDetectRenderMode(sourceConfig) {
   );
 }
 
+function getRenderModeInspectionSnapshotKey(baseUrl, pageUrl) {
+  return baseUrl && pageUrl ? `${baseUrl}|${pageUrl}` : "";
+}
+
+function getCurrentRenderModeInspectionSnapshot(detectionKey) {
+  const snapshot = state.renderModeInspectionSnapshot;
+  if (
+    !detectionKey ||
+    state.renderModeInspectionSnapshotKey !== detectionKey ||
+    !snapshot ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.renderedHtml !== "string" ||
+    !snapshot.renderedHtml ||
+    typeof snapshot.rawHtml !== "string"
+  ) {
+    return null;
+  }
+  return snapshot;
+}
+
+function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
+  const snapshotKey = getRenderModeInspectionSnapshotKey(baseUrl, pageUrl);
+  if (
+    !snapshotKey ||
+    !snapshot ||
+    typeof snapshot.renderedHtml !== "string" ||
+    !snapshot.renderedHtml ||
+    typeof snapshot.rawHtml !== "string"
+  ) {
+    return false;
+  }
+  state.renderModeInspectionSnapshotKey = snapshotKey;
+  state.renderModeInspectionSnapshot = {
+    renderedHtml: snapshot.renderedHtml,
+    rawHtml: snapshot.rawHtml,
+    renderMode: typeof snapshot.renderMode === "string" ? snapshot.renderMode : "",
+    pageUrl
+  };
+  state.renderModeDetectionInFlight = false;
+  state.renderModeDetectionKey = "";
+  return true;
+}
+
 async function maybeAutoDetectRenderMode(pageUrl) {
   if (
     !pageUrl ||
@@ -1824,6 +1867,15 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   }
 
   const detectionKey = `${state.currentBaseUrl}|${pageUrl}`;
+  const inspectionSnapshot = getCurrentRenderModeInspectionSnapshot(detectionKey);
+  if (!inspectionSnapshot) {
+    state.renderModeSuggestedKey = detectionKey;
+    state.renderModeSuggestedValue = RENDER_MODE_UNDETERMINED;
+    state.renderModeDetectionUnsure = false;
+    state.renderModeDetectionAccuracy = Number.NaN;
+    state.renderModeUndeterminedNoticeKey = "";
+    return RENDER_MODE_UNDETERMINED;
+  }
   if (state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
     return getSuggestedRenderModeForPage(pageUrl);
   }
@@ -1839,24 +1891,7 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   state.renderModeUndeterminedNoticeKey = "";
   try {
     const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
-    const renderedSnapshot = await messages.sendTabMessage({
-      type: "collectPageData",
-      baseUrl: state.currentBaseUrl
-    });
-    if (
-      !renderedSnapshot ||
-      typeof renderedSnapshot.renderedHtml !== "string" ||
-      !renderedSnapshot.renderedHtml
-    ) {
-      markRenderModeUndetermined(detectionKey);
-      return RENDER_MODE_UNDETERMINED;
-    }
-
-    const staticResponse = await messages.sendRuntimeMessage({
-      type: "fetchStaticPageHtml",
-      url: pageUrl
-    });
-    if (!staticResponse || !staticResponse.ok || typeof staticResponse.html !== "string") {
+    if (!inspectionSnapshot.renderedHtml || typeof inspectionSnapshot.rawHtml !== "string") {
       markRenderModeUndetermined(detectionKey);
       return RENDER_MODE_UNDETERMINED;
     }
@@ -1867,8 +1902,8 @@ async function maybeAutoDetectRenderMode(pageUrl) {
       () => detectRenderModeViaEndpoint({
         endpointValue,
         tokenValue,
-        rawHtml: staticResponse.html,
-        renderedHtml: renderedSnapshot.renderedHtml
+        rawHtml: inspectionSnapshot.rawHtml,
+        renderedHtml: inspectionSnapshot.renderedHtml
       }),
       { delayMs: 0 }
     );
@@ -3667,6 +3702,26 @@ async function hideConsentForRenderModeInspection(targetTabId = state.currentTab
   return Boolean(hideResponse && hideResponse.ok);
 }
 
+async function ensureContentReadyForRenderModeInspection(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const maxAttempts = 6;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
+    const status = await messages.sendTabMessageToTab(tabId, {
+      type: "getInspectionStatus"
+    }).catch(() => null);
+    if (status && status.ok) {
+      return true;
+    }
+    if (attempt + 1 < maxAttempts) {
+      await messages.delay(250);
+    }
+  }
+  return false;
+}
+
 async function waitForTabLoadStart(tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) {
   if (!tabId) {
     return false;
@@ -3777,6 +3832,29 @@ async function completeRenderModeInspectionReloadFollowUp(tabId) {
   if (!loadCompleted) {
     return false;
   }
+  const contentReady = await ensureContentReadyForRenderModeInspection(tabId);
+  if (!contentReady) {
+    return false;
+  }
+  const revealResponse = await messages.sendTabMessageToTab(tabId, {
+    type: "runRenderModeRevealOnce",
+    baseUrl: state.currentBaseUrl
+  });
+  if (!revealResponse || !revealResponse.ok) {
+    return false;
+  }
+  const htmlResponse = await messages.sendTabMessageToTab(tabId, {
+    type: "captureRenderModeInspectionHtml",
+    baseUrl: state.currentBaseUrl
+  });
+  if (!htmlResponse || !htmlResponse.ok) {
+    return false;
+  }
+  rememberRenderModeInspectionSnapshot(
+    state.currentBaseUrl,
+    htmlResponse.pageUrl || (state.currentTab && state.currentTab.url) || "",
+    htmlResponse
+  );
   await hideConsentForRenderModeInspection(tabId);
   // The reload tore down the page, so the content script's property-lock port
   // disconnected and re-claims after re-injection. Reconcile the popup view so it
@@ -5559,20 +5637,33 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 
   await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
-    const loadStartPromise = waitForTabLoadStart(
-      tabId,
-      RENDER_MODE_INSPECTION_START_TIMEOUT_MS
-    );
-    const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
-    const loadStarted = await loadStartPromise;
-    const outcome = resolveRenderModeInspectionReloadOutcome(result, loadStarted, javaScriptDisabled);
-    if (!outcome.ok) {
-      uiModule.showToast(outcome.toast);
-      return;
-    }
+    await messages.sendTabMessageToTab(tabId, {
+      type: "renderModeInspectionBegin"
+    }).catch(() => null);
+    try {
+      const loadStartPromise = waitForTabLoadStart(
+        tabId,
+        RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+      );
+      const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
+      const loadStarted = await loadStartPromise;
+      const outcome = resolveRenderModeInspectionReloadOutcome(result, loadStarted, javaScriptDisabled);
+      if (!outcome.ok) {
+        uiModule.showToast(outcome.toast);
+        return;
+      }
 
-    void completeRenderModeInspectionReloadFollowUp(tabId).catch(() => {});
-    uiModule.showToast(outcome.toast);
+      const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId);
+      if (followUpCompleted) {
+        await refreshUi({ useBusyOverlay: false });
+      }
+      uiModule.showToast(outcome.toast);
+    } finally {
+      await ensureContentReadyForRenderModeInspection(tabId).catch(() => false);
+      await messages.sendTabMessageToTab(tabId, {
+        type: "renderModeInspectionEnd"
+      }).catch(() => null);
+    }
   });
 }
 

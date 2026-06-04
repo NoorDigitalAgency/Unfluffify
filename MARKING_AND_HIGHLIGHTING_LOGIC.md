@@ -283,6 +283,16 @@ and hold a blocking pending reconciliation reason (`editor_preparing`) so users
 cannot interrupt reveal/freeze setup before silent-highlighting motion pause is
 established.
 
+Render Mode inspection owns its reveal/freeze lifecycle separately from editor
+activation. Entering the Render Mode view must not run editor-acquisition
+reveal/freeze while the base URL still has an unconfirmed render mode. The
+explicit With/Without JavaScript inspection action is the only Render Mode path
+that may reveal/freeze: after the reload completes and content-main is active,
+it runs one reveal pass, captures sanitized rendered HTML and static/raw HTML,
+then allows local/remote data loading and highlighting to continue. The rendered
+capture must be taken before highlighting refresh and must use the same
+extension-node stripping rules as saved snapshots.
+
 The pause is source-owned, so marking mode and silent highlighting can both hold
 it without accidentally resuming the page for the other lifecycle. It freezes
 CSS animations and transitions with an extension stylesheet, pauses Web
@@ -522,6 +532,9 @@ Rules:
   user-disabled simulation state is preserved for that session and must not be
   auto-enabled again, and Render Mode inspection must not clear an existing
   session simulation choice,
+- Render Mode detection uses the explicit inspection snapshot: sanitized
+  rendered HTML captured after reveal/freeze and before highlighting, paired
+  with static/raw HTML from the background `fetchStaticPageHtml` path,
 - non-textual implicit nodes are omitted,
 - document roots `/html[1]` and `/html[1]/body[1]` are never submitted.
 
