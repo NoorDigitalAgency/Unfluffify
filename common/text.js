@@ -134,6 +134,8 @@ export const propertyLockText = Object.freeze({
   popupConnecting: "Checking edit lock...",
   popupUnavailable: "Edit lock unavailable",
   popupUnavailableDetail: "Marking controls are paused until coordination reconnects.",
+  popupInspectionReconnecting: "Reconnecting after inspection...",
+  editorInspectionReconnectingMessage: "Reconnecting after inspection...",
   popupEditorActive: "You are editing this property",
   popupEditorDetail: "Changes are reserved to your session.",
   popupPassiveDetail: "Marking controls are paused until you take over or the lock is released.",

@@ -95,6 +95,36 @@ Live validation status:
 
 ---
 
+## Round-5 Stage 3 (2026-06-04) — implemented and live-validated
+
+Implemented: property-lock re-claim and connection-loss countdown suppression during
+expected render-mode inspection reloads.
+
+What changed:
+- `reconcilePropertyLockAfterRenderModeReload()` sends
+  `PROPERTY_LOCK_CONTENT_TAKE_LOCK` with a render-mode reconnect marker before polling
+  lock snapshots, then keeps the existing connected/inactive polling bound.
+- Popup state tracks `renderModeInspectionActive`; while active, popup lock UI shows
+  `Reconnecting after inspection...` instead of the editor disconnect countdown.
+- Content-side property-lock banner suppresses both explicit disconnect warnings and
+  unavailable connection-status countdowns while `renderModeInspectionActive`/session flag
+  is set, then restores the ordinary banner mode after `renderModeInspectionEnd`.
+
+Automated validation:
+- Focused: `node --test tests/property-lock-render-mode.test.js tests/property-lock.test.js tests/popup-render-mode.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 458`, `pass 458`, `fail 0`.
+
+Live validation status:
+- With JavaScript on `https://unitedspaces.com/sv`: during action, popup had no
+  `Connection lost`, page banner text was empty, and only the expected inspection overlay
+  was visible.
+- Final popup state: no `Connection lost`, no `Edit lock unavailable`, editor lock text
+  still active (`You are editing this property`), Render Mode suggested JavaScript.
+- Final page state: `sessionInspection: null`, lock banner empty, no `Connection lost`,
+  no reconnect banner, no overlay.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

@@ -359,6 +359,13 @@ function buildPropertyLockViewState() {
     return viewState;
   }
 
+  if (state.renderModeInspectionActive && state.propertyLockDisconnectCountdown !== null) {
+    viewState.propertyLockTone = "muted";
+    viewState.propertyLockIcon = "sync";
+    viewState.propertyLockStatusText = propertyLockText.popupInspectionReconnecting;
+    return viewState;
+  }
+
   if (state.propertyLockDisconnectCountdown !== null) {
     viewState.propertyLockTone = "warning";
     viewState.propertyLockIcon = "wifi-off";
@@ -3879,6 +3886,9 @@ async function reconcilePropertyLockAfterRenderModeReload() {
   if (!siteId) {
     return;
   }
+  await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_TAKE_LOCK, {
+    renderModeInspectionReconnect: true
+  }).catch(() => null);
   // Poll the snapshot until the content re-establishes the lock connection (or
   // attempts run out). INACTIVE means no active lock (nothing to reconnect), so
   // treat it as settled alongside CONNECTED; keep polling while CONNECTING or
@@ -5648,6 +5658,7 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
   }
 
   await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
+    state.renderModeInspectionActive = true;
     await messages.sendTabMessageToTab(tabId, {
       type: "renderModeInspectionBegin"
     }).catch(() => null);
@@ -5674,6 +5685,8 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
       await messages.sendTabMessageToTab(tabId, {
         type: "renderModeInspectionEnd"
       }).catch(() => null);
+      state.renderModeInspectionActive = false;
+      uiModule.setViewState(buildPropertyLockViewState());
     }
   });
 }

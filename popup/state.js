@@ -78,6 +78,7 @@ export const state = {
   renderModeSuggestedValue: "undetermined",
   renderModeInspectionSnapshotKey: "",
   renderModeInspectionSnapshot: null,
+  renderModeInspectionActive: false,
   renderModeUndeterminedNoticeKey: "",
   renderModeWarningDismissedKey: "",
   renderModeManualStepsVisible: false,

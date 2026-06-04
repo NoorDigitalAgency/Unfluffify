@@ -155,15 +155,16 @@ test("editor reveal is gated during render-mode inspection or before render mode
   assert.ok(activationStart > -1);
   assert.ok(activationEnd > activationStart);
   const activationSource = source.slice(activationStart, activationEnd);
+  assert.match(source, /function isRenderModeInspectionActive\(\) \{[\s\S]*?renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)/);
   assert.match(
     activationSource,
-    /if \(renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)\) \{[\s\S]*?setRenderModeInspectionActive\(true\);[\s\S]*?return;[\s\S]*?\}/
+    /if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?setRenderModeInspectionActive\(true\);[\s\S]*?return;[\s\S]*?\}/
   );
   assert.match(
     activationSource,
     /if \(!isRenderModeConfirmedForBaseUrl\(baseUrl, configs\)\) \{[\s\S]*?return;[\s\S]*?\}/
   );
-  const inspectionGuardIndex = activationSource.indexOf("renderModeInspectionActive || readRenderModeInspectionActive()");
+  const inspectionGuardIndex = activationSource.indexOf("isRenderModeInspectionActive()");
   const confirmedGuardIndex = activationSource.indexOf("!isRenderModeConfirmedForBaseUrl(baseUrl, configs)");
   const warmupIndex = activationSource.indexOf("warmupSilentHighlightingBeforeMotionPause");
   assert.ok(inspectionGuardIndex > -1);

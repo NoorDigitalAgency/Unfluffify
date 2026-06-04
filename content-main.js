@@ -2406,6 +2406,10 @@ function setRenderModeInspectionActive(active) {
   }
 }
 
+function isRenderModeInspectionActive() {
+  return renderModeInspectionActive || readRenderModeInspectionActive();
+}
+
 function cancelSilentHighlightEditorActivation() {
   silentHighlightEditorActivationQueued = false;
   silentHighlightEditorRevealInFlight = ++silentHighlightEditorActivationIdCounter;
@@ -2867,7 +2871,7 @@ async function runEditorSilentHighlightingActivationOnce() {
   if (!propertyLockState || !propertyLockState.isEditor) {
     return;
   }
-  if (renderModeInspectionActive || readRenderModeInspectionActive()) {
+  if (isRenderModeInspectionActive()) {
     setRenderModeInspectionActive(true);
     return;
   }
@@ -6350,6 +6354,12 @@ function applyPropertyLockServerMessage(serverMessage) {
   }
 
   if (type === PROPERTY_LOCK_WS_DISCONNECT_WARNING) {
+    if (isRenderModeInspectionActive()) {
+      propertyLockBannerMode = "editor_inspection_reconnecting";
+      clearPropertyLockBannerCountdown();
+      renderPropertyLockBanner();
+      return;
+    }
     propertyLockBannerMode = "editor_disconnect_countdown";
     propertyLockBannerCountdownValue = secondsRemaining || 0;
     restartPropertyLockBannerCountdown();
@@ -6420,6 +6430,12 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockState &&
     propertyLockState.isEditor
   ) {
+    if (isRenderModeInspectionActive()) {
+      propertyLockBannerMode = "editor_inspection_reconnecting";
+      clearPropertyLockBannerCountdown();
+      renderPropertyLockBanner();
+      return;
+    }
     const defaultDisconnectCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
     if (propertyLockBannerMode !== "editor_disconnect_countdown" || propertyLockBannerCountdownValue <= 0) {
       propertyLockBannerMode = "editor_disconnect_countdown";
@@ -6711,6 +6727,9 @@ function renderPropertyLockBanner() {
     case "editor_disconnect_countdown":
       content.textContent = propertyLockText.editorDisconnectCountdownMessage(propertyLockBannerCountdownValue);
       break;
+    case "editor_inspection_reconnecting":
+      content.textContent = propertyLockText.editorInspectionReconnectingMessage;
+      break;
     case "editor_inactivity_warning":
       content.textContent = propertyLockText.editorInactivityWarningMessage(propertyLockBannerCountdownValue);
       actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingButton, "uf-lock-banner-continue-editing", () => {
@@ -6977,7 +6996,7 @@ export function main() {
         ok: true,
         active: inspectionActive,
         pending: inspectionPending,
-        renderModeInspectionActive: renderModeInspectionActive || readRenderModeInspectionActive(),
+        renderModeInspectionActive: isRenderModeInspectionActive(),
         lockClaimPending,
         pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
@@ -7055,6 +7074,10 @@ export function main() {
         silentHighlightEditorRevealInFlight = 0;
       }
       core.finishPageInspectionUi();
+      if (propertyLockBannerMode === "editor_inspection_reconnecting") {
+        updatePropertyLockBannerMode();
+        renderPropertyLockBanner();
+      }
       sendResponse({ ok: true });
       return;
     }

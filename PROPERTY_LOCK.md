@@ -46,6 +46,11 @@ the editor session while discarding the previous tab's unsaved local draft.
   is expected to lose the lock after the server's warning window.
 - If the editor loses connectivity, the editor sees a 70 second countdown saying
   that the editor role will be lost unless the connection recovers.
+- Render Mode inspection reloads are expected, short-lived page reloads. During
+  that inspection window the editor should see a reconnecting-after-inspection
+  status instead of the 70 second connection-loss countdown. After the page is
+  re-injected, the popup explicitly re-claims the property lock, then polls the
+  lock snapshot until the connection returns to connected/inactive.
 - If the editor navigates away from the property or closes the editor tab, the
   client runtime remains in the background grace window for 70 seconds.
 - During the last 60 seconds before release, passive subscribers see a countdown
@@ -108,6 +113,7 @@ The focused guard tests are:
 
 - `tests/property-lock.test.js`
 - `tests/property-lock-background.test.js`
+- `tests/property-lock-render-mode.test.js`
 - `tests/utilities-runtime.test.js`
 
 They cover stable client IDs, same-user passive locks, heartbeat/release timing,
