@@ -2072,6 +2072,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     ? h(
         "div",
         {
+          key: "page-session-notice",
           class: warningNoticeClass(),
           role: "status",
           "aria-live": "polite"
@@ -2085,7 +2086,7 @@ function renderMarkingView({state: view, actions: handlers}) {
     mergedControlsSectionChildren.push(
       h(
         "label",
-        {class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
+        {key: "device-row", class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
         h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
         h("input", {
           id: "device-emulation-enabled",
@@ -2100,11 +2101,11 @@ function renderMarkingView({state: view, actions: handlers}) {
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
-      h("div", { class: "section-divider", role: "separator" }),
+      h("div", { key: "page-save-divider", class: "section-divider", role: "separator" }),
       pageSaveNotice,
       h(
         "div",
-        {class: "button-row"},
+        {key: "page-save-row", class: "button-row"},
         h(
           "button",
           {
@@ -2132,6 +2133,7 @@ function renderMarkingView({state: view, actions: handlers}) {
       h(
         "div",
         {
+          key: "page-draft-status",
           id: "page-draft-status",
           class: classNames("hint", statusToneClass(view.pageDraftStatusTone))
         },
@@ -2142,19 +2144,19 @@ function renderMarkingView({state: view, actions: handlers}) {
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
-      h("div", { class: "section-divider", role: "separator" }),
-      renderAiControlsContent(view, handlers)
+      h("div", { key: "ai-divider", class: "section-divider", role: "separator" }),
+      h(Fragment, { key: "ai-controls" }, renderAiControlsContent(view, handlers))
     );
   }
 
   if (view.cssSelectorsVisible) {
     if (mergedControlsSectionChildren.length) {
       mergedControlsSectionChildren.push(
-        h("div", { class: "section-divider", role: "separator" })
+        h("div", { key: "css-divider", class: "section-divider", role: "separator" })
       );
     }
     mergedControlsSectionChildren.push(
-      renderCssSelectorsSection({ state: view, actions: handlers })
+      h(Fragment, { key: "css-selectors" }, renderCssSelectorsSection({ state: view, actions: handlers }))
     );
   }
 
@@ -2171,34 +2173,47 @@ function renderMarkingView({state: view, actions: handlers}) {
   return h(
     Fragment,
     null,
-    view.renderModeSectionVisible &&
-      h(
-        "section",
-        { class: "card render-mode-section" },
-        h("div", { class: "section-title" }, icon("monitor-dashboard", "field-icon"), view.renderModeSummaryTitle),
-        renderRenderModeEditor(view, handlers)
-      ),
-    view.todoListVisible && renderMarkedPagesSection(view, handlers),
-    postRenderModeControlsVisible &&
-      h(
-        "section",
-        {class: "card"},
-        h(
-          "label",
-          {class: "row", title: PopupText.tooltips.enableMarkingHotkey},
-          h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), PopupText.actions.enableMarking),
-          h("input", {
-            id: "toggle-enabled",
-            type: "checkbox",
-            checked: view.toggleEnabled,
-            disabled: view.toggleEnabledDisabled,
-            onChange: handlers.onToggleEnabled
-          })
+    view.renderModeSectionVisible
+      ? h(
+          Fragment,
+          { key: "render-mode-section" },
+          h(
+            "section",
+            { class: "card render-mode-section" },
+            h("div", { class: "section-title" }, icon("monitor-dashboard", "field-icon"), view.renderModeSummaryTitle),
+            renderRenderModeEditor(view, handlers)
+          )
         )
-      )
-    ,
-    postRenderModeControlsVisible && mergedControlsSection,
-    lynxChecklistPopover
+      : null,
+    view.todoListVisible
+      ? h(Fragment, { key: "todo-section" }, renderMarkedPagesSection(view, handlers))
+      : null,
+    postRenderModeControlsVisible
+      ? h(
+          Fragment,
+          { key: "enable-marking-section" },
+          h(
+            "section",
+            {class: "card"},
+            h(
+              "label",
+              {class: "row", title: PopupText.tooltips.enableMarkingHotkey},
+              h("span", {class: "row-label"}, icon("pencil-box-outline", "row-icon"), PopupText.actions.enableMarking),
+              h("input", {
+                id: "toggle-enabled",
+                type: "checkbox",
+                checked: view.toggleEnabled,
+                disabled: view.toggleEnabledDisabled,
+                onChange: handlers.onToggleEnabled
+              })
+            )
+          )
+        )
+      : null,
+    postRenderModeControlsVisible && mergedControlsSection
+      ? h(Fragment, { key: "merged-controls" }, mergedControlsSection)
+      : null,
+    h(Fragment, { key: "lynx-popover" }, lynxChecklistPopover)
   );
 }
 
@@ -2570,7 +2585,25 @@ function renderApp() {
     return;
   }
   refs.previewActiveItem = null;
-  render(h(App, { state: viewState, actions }), root);
+  try {
+    render(h(App, { state: viewState, actions }), root);
+  } catch (renderError) {
+    // Defense-in-depth: a Preact reconciliation failure (e.g. a keyed-reorder
+    // edge case) would otherwise corrupt root.__k and brick every later render.
+    // Hard-reset the root and remount from scratch so the popup self-heals.
+    // This should not trigger in normal operation; if it does it signals a
+    // remaining structural vnode problem, so log it loudly for diagnosis.
+    console.error("[unfluffify] popup render failed; remounting from scratch", renderError);
+    try {
+      delete root._children;
+      delete root.__k;
+      root.textContent = "";
+      render(h(App, { state: viewState, actions }), root);
+    } catch (remountError) {
+      console.error("[unfluffify] popup remount failed", remountError);
+      return;
+    }
+  }
   if (viewState.previewBlocked || viewState.previewActive) {
     const activeXpath = typeof viewState.previewFocusedXpath === "string"
       ? viewState.previewFocusedXpath
