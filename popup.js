@@ -7885,7 +7885,11 @@ async function init() {
     if (popupNavigationInspectionOverlayTabId !== null && popupNavigationInspectionOverlayTabId !== tabId) {
       endNavigationInspectionOverlay(popupNavigationInspectionOverlayTabId);
     }
-    // Persist spinner entries for the old tab so they can be restored if the user switches back.
+    const tab = await chrome.tabs.get(tabId);
+    if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
+      return;
+    }
+    // Persist spinner entries for the old tab so persistent entries can be restored if the user switches back.
     const oldTabId = state.currentTab && state.currentTab.id;
     if (oldTabId) {
       if (popupSpinnerQueue.size > 0) {
@@ -7905,10 +7909,6 @@ async function init() {
     if (popupSpinnerVisible) {
       popupSpinnerVisible = false;
       uiModule.setUiBusy(false);
-    }
-    const tab = await chrome.tabs.get(tabId);
-    if (state.currentTab && tab.windowId !== state.currentTab.windowId) {
-      return;
     }
     await helpers.ensureActiveTab();
     // Restore spinner queue for the newly active tab.
