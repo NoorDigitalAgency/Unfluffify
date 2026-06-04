@@ -814,8 +814,12 @@ async function restoreSpinnerQueueFromStorage(tabId) {
     const stored = (result && result[storageKey] && typeof result[storageKey] === "object")
       ? result[storageKey]
       : {};
+    const restored = {};
     Object.entries(stored).forEach(([key, entry]) => {
       if (!entry || typeof entry !== "object") {
+        return;
+      }
+      if (!entry.persistent) {
         return;
       }
       popupSpinnerQueue.set(key, {
@@ -823,7 +827,15 @@ async function restoreSpinnerQueueFromStorage(tabId) {
         persistent: Boolean(entry.persistent)
       });
       popupSpinnerKeyTabIds.set(key, tabId);
+      restored[key] = { message: typeof entry.message === "string" ? entry.message : "", persistent: true };
     });
+    if (Object.keys(restored).length !== Object.keys(stored).length) {
+      if (Object.keys(restored).length > 0) {
+        await utils.storageSet(chrome.storage.session, { [storageKey]: restored });
+      } else {
+        await utils.storageRemove(chrome.storage.session, storageKey);
+      }
+    }
   } catch {
     // Non-fatal.
   }

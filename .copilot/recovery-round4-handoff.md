@@ -178,6 +178,32 @@ Live validation status:
 
 ---
 
+## Round-5 follow-up (2026-06-05) — intermittent popup spinner persistence
+
+Observed report: the spinner disappeared in the agent-controlled popup sessions but persisted
+intermittently in the user's session. The live popup I could inspect had a hidden `#ui-curtain`
+(`display:none`) and no visible page inspection markers, which suggested an orphaned popup
+task spinner rather than the deterministic `navInspect` path.
+
+Root cause/fix:
+- `persistSpinnerQueueToStorage()` stores the in-flight queue during normal operation,
+  including non-persistent random task spinner keys from `runWithSpinner(null, ...)`.
+- If the popup disappears before that task's `finally { popSpinner(...) }` or before the
+  `beforeunload` persistent-only cleanup wins, the next popup can restore an ownerless
+  non-persistent spinner and keep the blocking curtain visible.
+- `restoreSpinnerQueueFromStorage()` now restores only entries explicitly marked
+  `persistent:true` (for example `navInspect`) and immediately rewrites/removes storage to
+  drop non-persistent orphan task spinners.
+
+Validation:
+- Focused: `node --test tests/popup-marking-refresh.test.js` → `fail = 0`.
+- Full: `npm test` → `tests 462`, `pass 462`, `fail 0`.
+- Live simulation: manually wrote `spinnerQueue:<tabId>` with a fake non-persistent
+  `staleTaskSpinner`, reloaded the popup, and confirmed `#ui-curtain` stayed hidden
+  (`display:none`) with no `Working... controls are temporarily blocked` text.
+
+---
+
 ## Round-3 status (committed, but several regressed in live test)
 
 | Item | What | Commit | Live result |

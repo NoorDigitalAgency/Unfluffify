@@ -337,6 +337,20 @@ test("popup serializes spinner storage operations per tab", () => {
   assert.match(clearBody, /await enqueueSpinnerStorageUpdate\(tabId, \(\) =>/);
 });
 
+test("popup restores only persistent spinner queue entries", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const restoreBody = source.match(
+    /async function restoreSpinnerQueueFromStorage\(tabId\) \{([\s\S]*?)\n\}\n\nfunction pushSpinner/
+  )[1];
+
+  assert.match(restoreBody, /const restored = \{\};/);
+  assert.match(restoreBody, /if \(!entry\.persistent\) \{[\s\S]*?return;[\s\S]*?\}/);
+  assert.match(restoreBody, /popupSpinnerQueue\.set\(key,[\s\S]*?persistent: Boolean\(entry\.persistent\)/);
+  assert.match(restoreBody, /restored\[key\] = \{ message:[\s\S]*?persistent: true \};/);
+  assert.match(restoreBody, /Object\.keys\(restored\)\.length !== Object\.keys\(stored\)\.length/);
+  assert.match(restoreBody, /utils\.storageRemove\(chrome\.storage\.session, storageKey\)/);
+});
+
 test("tab reload keeps the inspection curtain active while enabled pages re-inspect", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
