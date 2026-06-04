@@ -1555,6 +1555,36 @@ function clonePageMarkingEntry(entry) {
   return JSON.parse(JSON.stringify(entry));
 }
 
+function fingerprintPageMarkingEntry(entry) {
+  // Stable signature of the element-level markings only (exclude + include
+  // xpaths). CSS-selector edits intentionally do not affect this fingerprint,
+  // so only mark/unmark actions re-enable Run AI.
+  const excludeXpaths = entry && Array.isArray(entry.xpaths) ? entry.xpaths.slice() : [];
+  const includeXpaths = entry && Array.isArray(entry.includeXpaths) ? entry.includeXpaths.slice() : [];
+  excludeXpaths.sort();
+  includeXpaths.sort();
+  return JSON.stringify({ exclude: excludeXpaths, include: includeXpaths });
+}
+
+function getCurrentPageMarkingsFingerprint() {
+  return fingerprintPageMarkingEntry(state.currentDraftEntry);
+}
+
+function isAiRunUpToDateForCurrentMarkings() {
+  return (
+    state.aiRunMarkingsFingerprint !== null &&
+    state.aiRunMarkingsFingerprint === getCurrentPageMarkingsFingerprint()
+  );
+}
+
+function captureAiRunMarkingsFingerprint() {
+  state.aiRunMarkingsFingerprint = getCurrentPageMarkingsFingerprint();
+}
+
+function resetAiRunMarkingsFingerprint() {
+  state.aiRunMarkingsFingerprint = null;
+}
+
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
@@ -4724,6 +4754,10 @@ async function refreshUiInner(options = {}) {
     backendSavedPageMarkings,
     { currentDraftDirty: state.currentDraftDirty }
   );
+  // True only while the last successful AI run still matches the live element
+  // markings. Gates Run AI (disabled when up to date) and Save/Preview (enabled
+  // only when up to date). Any mark/unmark change flips this back to false.
+  const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings();
 
   let resolvedView =
     state.currentView ||
@@ -4799,7 +4833,8 @@ async function refreshUiInner(options = {}) {
     pageScopedUiDisabled ||
     aiBusy ||
     !aiReady ||
-    pageSaveReconciliationPending;
+    pageSaveReconciliationPending ||
+    aiRunUpToDate;
   nextViewState.saveExcludesButtonDisabled =
     !silentModeActive ||
     aiBusy ||
@@ -4970,12 +5005,20 @@ async function refreshUiInner(options = {}) {
     sessionRequiresAiRun,
     reconciliation: state.currentPageSaveReconciliation
   });
-  nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
+  nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled || !aiRunUpToDate;
   nextViewState.pageSaveMobileSimulationRequiredVisible =
     pageSaveUiState.pageSaveMobileSimulationRequiredVisible;
   nextViewState.pageSaveMobileSimulationRequiredText =
     PopupText.page.mobileSimulationRequired;
   nextViewState.pageRevertDisabled = pageSaveUiState.pageRevertDisabled;
+  // Marking-mode "Preview Content": let the user see the AI content detection
+  // without leaving marking mode. Mirrors Save gating - only available once a
+  // successful AI run matches the live markings (and before the next change).
+  nextViewState.markingPreviewVisible = pageControlsVisible && Boolean(isEnabled);
+  nextViewState.markingPreviewDisabled =
+    aiBusy ||
+    pageSaveReconciliationPending ||
+    !aiRunUpToDate;
   nextViewState.pageDraftStatusText = pageSaveUiState.pageDraftStatusText;
   nextViewState.pageDraftStatusTone = pageSaveUiState.pageDraftStatusTone;
   nextViewState.pageSessionNoticeVisible = pageSaveUiState.pageSessionNoticeVisible;
@@ -6697,6 +6740,9 @@ async function handleEnableToggle(event) {
           return;
         }
         await waitForEnableMarkingInspectionToSettle(tab.id, effectiveBaseUrl);
+        // Fresh entry into marking mode: Run AI starts enabled (no successful
+        // run yet for the current markings), Save/Preview start disabled.
+        resetAiRunMarkingsFingerprint();
       } else {
         await utils.setTabState(tab.id, {
           enabled: false,
@@ -7106,6 +7152,7 @@ async function handlePageSave() {
       });
       if (syncResult && syncResult.ok) {
         await clearCurrentPageSaveReconciliation();
+        resetAiRunMarkingsFingerprint();
         updateLastConfigSaveStatus(PopupText.page.savedAndSynced);
         uiModule.showToast(PopupText.page.sessionSaved);
         await refreshUi();
@@ -7178,6 +7225,7 @@ async function handlePageRevert() {
     await clearCurrentPageSaveReconciliation();
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
+    resetAiRunMarkingsFingerprint();
     updateLastConfigSaveStatus(PopupText.page.revertedToLastSaved);
     uiModule.showToast(PopupText.page.revertedToLastSaved);
     await refreshUi();
@@ -7282,6 +7330,9 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
   state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
   state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
+  // Record the markings this AI run was computed for so Run AI disables and
+  // Save/Preview enable until the next mark/unmark change.
+  captureAiRunMarkingsFingerprint();
 
   await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
   const previewResponse = await messages.sendTabMessage({
@@ -7997,6 +8048,52 @@ async function handlePreviewLatest() {
   }
 }
 
+async function handleMarkingPreview() {
+  const view = uiModule.getViewState();
+  if (!view.markingPreviewVisible || view.markingPreviewDisabled) {
+    return;
+  }
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  if (!helpers.ensureBaseUrl()) {
+    return;
+  }
+  if (!state.currentConfig) {
+    uiModule.showToast(ViewText.noMappedBaseUrlOrSiteId);
+    return;
+  }
+  await refreshCurrentPageRuntimeStatus();
+  if (state.currentPageSaveReconciliationPending) {
+    uiModule.showToast(PopupText.page.statusServerSyncPending);
+    return;
+  }
+  const selectorSet = getLatestAvailableSelectorsFromConfig();
+  if (!combineAiSelectorSet(selectorSet).length) {
+    uiModule.showToast(PopupText.preview.noStoredSelectors);
+    return;
+  }
+  if (uiModule.getViewState().previewBlocked) {
+    return;
+  }
+  collapseTodoListForAutoCollapse();
+  setPreviewBlocked(true, PopupText.preview.blockedActive);
+  try {
+    const response = await messages.sendTabMessage({
+      type: "showAiPreview",
+      selectorSet
+    });
+    if (!response || !response.ok) {
+      throw new Error(PopupText.preview.openFailed);
+    }
+    await refreshUi();
+  } catch (error) {
+    setPreviewBlocked(false);
+    uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
+    await refreshUi();
+  }
+}
+
 async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
@@ -8126,6 +8223,7 @@ async function init() {
     onUnregisterCurrentTab: handleUnregisterCurrentTab,
     onPageSave: handlePageSave,
     onPageRevert: handlePageRevert,
+    onMarkingPreview: handleMarkingPreview,
     onConfigEndpointInput: handleConfigEndpointInput,
     onConfigEndpointKeyDown: handleConfigEndpointKeyDown,
     onConfigEndpointSet: handleConfigEndpointSet,

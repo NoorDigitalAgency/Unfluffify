@@ -33,6 +33,13 @@ export const state = {
   aiRunResumeInFlight: false,
   aiSelectorsComputedSinceLastSubmit: false,
   aiSelectorsComputedBaseUrl: "",
+  // Fingerprint of the page markings (exclude + include xpaths) captured at the
+  // moment the last successful AI run completed for the current page. Used to
+  // gate Run AI / Save / Preview: while this equals the live markings, the AI
+  // output is up to date (Run AI disabled, Save/Preview enabled); any
+  // mark/unmark change makes it differ (Run AI re-enabled, Save/Preview off).
+  // null means no successful run for the current page since enabling marking.
+  aiRunMarkingsFingerprint: null,
   configMenuOpen: false,
   basePageMenuOpen: false,
   currentTodoExpansionKey: "",
