@@ -1537,6 +1537,24 @@ function hasBackendSavedPageMarking(pageMarkings, pageUrl) {
   return Object.keys(pageMarkings).some((url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl);
 }
 
+function findBackendSavedPageMarkingEntry(pageMarkings, pageUrl) {
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
+    return null;
+  }
+  const matchingUrl = Object.keys(pageMarkings).find(
+    (url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl
+  );
+  return matchingUrl ? pageMarkings[matchingUrl] || null : null;
+}
+
+function clonePageMarkingEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(entry));
+}
+
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
@@ -7129,85 +7147,38 @@ async function handlePageRevert() {
   if (!confirmed) {
     return;
   }
-  const tokenIsValid = await validateStoredToken({ force: true });
-  if (!tokenIsValid) {
-    return;
-  }
   await runWithSpinner(null, PopupText.overlay.revertingPage, async () => {
     const pageUrl = getCurrentPageUrl();
-    const currentTabId = state.currentTab && state.currentTab.id;
-    const { tokenValue, configEndpointValue } = await helpers.loadGlobalAiSettings();
-    if (!configEndpointValue) {
-      uiModule.showToast(PopupText.configuration.endpointEnter);
-      return;
-    }
-    if (!tokenValue) {
-      await invalidateTokenAndLockConfiguration(true);
-      return;
-    }
-    let discardResult = null;
-
-    if (currentTabId && pageUrl && state.currentSiteId) {
-      let retryDelayMs = 1500;
-      while (true) {
-        discardResult = await loadRemoteConfigForCurrentPage({
-          tabId: currentTabId,
-          pageUrl,
-          baseUrl: state.currentBaseUrl,
-          siteId: state.currentSiteId,
-          endpointValue: configEndpointValue,
-          tokenValue,
-          force: true,
-          notifyOnChange: false
-        });
-        if (discardResult && discardResult.status !== "error") {
-          break;
-        }
-        uiModule.setUiBusy(true, PopupText.status.remoteConfigRetryNotice);
-        await waitForRetryDelay(retryDelayMs);
-        retryDelayMs = Math.min(retryDelayMs * 2, 10000);
-      }
-    }
-
-    if (discardResult && discardResult.status === "auth_error") {
-      return;
-    }
-    if (discardResult && discardResult.status === "not_found") {
-      await config.clearBackendSavedPageMarkings(state.currentBaseUrl);
-      state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+    const baseUrl = state.currentBaseUrl;
+    // Discard drops the current-session marking deltas LOCALLY by restoring the
+    // page entry from the already-cached backend-saved markings. No network
+    // round-trip and no forced remote refetch keeps discard fast; the AI/CSS
+    // selector baseline is intentionally preserved (only page markings revert).
+    const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
+    const backendEntry = findBackendSavedPageMarkingEntry(backendSavedPageMarkings, pageUrl);
+    const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+    state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
+      if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
         targetConfig.pageMarkings = {};
-        targetConfig.selectors = normalizeAiSelectorSet(null);
-        targetConfig.selectorsUpdatedAt = config.PAGE_TIMESTAMP_FALLBACK;
-        targetConfig.submittedSelectorsFingerprint = "";
+      }
+      Object.keys(targetConfig.pageMarkings).forEach((url) => {
+        if (normalizeCandidatePageUrl(url) === normalizedTargetUrl) {
+          delete targetConfig.pageMarkings[url];
+        }
       });
-      await messages.sendTabMessageWithRetry({
-        type: "configUpdated",
-        baseUrl: state.currentBaseUrl,
-        forceReloadPageEntry: true
-      }, 2);
-      await clearCurrentPageSaveReconciliation();
-      state.aiSelectorsComputedSinceLastSubmit = false;
-      state.aiSelectorsComputedBaseUrl = "";
-      updateLastConfigSaveStatus(PopupText.page.revertedAndSynced);
-      uiModule.showToast(PopupText.page.revertedToLastSaved);
-      await refreshUi();
-      return;
-    }
-
-    if (!discardResult || discardResult.status !== "ok") {
-      updateLastConfigSaveStatus(PopupText.page.revertFailed);
-      uiModule.showToast(PopupText.page.revertFailedToast);
-      return;
-    }
+      if (backendEntry) {
+        targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
+      }
+    });
     await messages.sendTabMessageWithRetry({
       type: "configUpdated",
-      baseUrl: discardResult.baseUrl || state.currentBaseUrl,
+      baseUrl,
       forceReloadPageEntry: true
     }, 2);
     await clearCurrentPageSaveReconciliation();
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
-    updateLastConfigSaveStatus(PopupText.page.revertedAndSynced);
+    updateLastConfigSaveStatus(PopupText.page.revertedToLastSaved);
     uiModule.showToast(PopupText.page.revertedToLastSaved);
     await refreshUi();
   });

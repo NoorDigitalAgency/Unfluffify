@@ -234,11 +234,15 @@ test("session save uploads all local page markings while default sync stays back
   assert.match(handlePageSaveBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.match(
     handlePageRevertBody,
-    /loadRemoteConfigForCurrentPage\(\{[\s\S]*?force: true,[\s\S]*?notifyOnChange: false/
+    /const backendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(baseUrl\)/
   );
-  assert.match(handlePageRevertBody, /validateStoredToken\(\{ force: true \}\)/);
-  assert.match(handlePageRevertBody, /PopupText\.status\.remoteConfigRetryNotice/);
-  assert.match(handlePageRevertBody, /discardResult && discardResult\.status === "auth_error"/);
+  assert.match(
+    handlePageRevertBody,
+    /findBackendSavedPageMarkingEntry\(backendSavedPageMarkings, pageUrl\)/
+  );
+  assert.match(handlePageRevertBody, /forceReloadPageEntry: true/);
+  assert.doesNotMatch(handlePageRevertBody, /loadRemoteConfigForCurrentPage/);
+  assert.doesNotMatch(handlePageRevertBody, /validateStoredToken/);
   assert.match(handlePageRevertBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
 });
