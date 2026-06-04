@@ -657,6 +657,7 @@ let popupSpinnerTimer = 0;
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
+let popupStaleInspectionBusyClearTimer = 0;
 let propertyPageTypesRequest = null;
 let remoteSupportPopupMediaChannel = null;
 let remoteSupportDockPiPWindow = null;
@@ -933,6 +934,66 @@ function setSpinnerMessage(key, message) {
   }
 }
 
+function clearStaleInspectionBusyClearTimer() {
+  if (!popupStaleInspectionBusyClearTimer) {
+    return;
+  }
+  window.clearTimeout(popupStaleInspectionBusyClearTimer);
+  popupStaleInspectionBusyClearTimer = 0;
+}
+
+function scheduleStaleInspectionBusyClear(tabId = state.currentTab && state.currentTab.id, baseUrl = state.currentBaseUrl) {
+  if (!tabId) {
+    return;
+  }
+  clearStaleInspectionBusyClearTimer();
+  let attempt = 0;
+  const maxAttempts = 12;
+  const run = async () => {
+    popupStaleInspectionBusyClearTimer = 0;
+    attempt += 1;
+    const view = uiModule.getViewState();
+    if (
+      popupSpinnerQueue.size === 0 &&
+      !popupSpinnerVisible &&
+      !popupSpinnerTimer &&
+      view.isBusy &&
+      view.busyMessage === PopupText.overlay.pageInspection
+    ) {
+      const runtimeStatus = await refreshCurrentPageRuntimeStatus({
+        tabId,
+        baseUrl
+      }).catch(() => null);
+      const draftStatus = runtimeStatus && runtimeStatus.draftStatus;
+      const editorPreparationPending = Boolean(
+        draftStatus &&
+          draftStatus.ok &&
+          draftStatus.reconciliationPending &&
+          draftStatus.reconciliation &&
+          draftStatus.reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+      );
+      const inspectionPending = Boolean(
+        runtimeStatus &&
+          (runtimeStatus.inspectionPending || editorPreparationPending)
+      );
+      if (!inspectionPending) {
+        logPopupSpinnerDebug("stale-inspection-busy-clear", { tabId, attempt });
+        uiModule.setUiBusy(false);
+        return;
+      }
+    }
+    if (attempt >= maxAttempts) {
+      return;
+    }
+    popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
+      void run();
+    }, 400);
+  };
+  popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
+    void run();
+  }, 150);
+}
+
 function popSpinner(key) {
   if (!key || typeof key !== "string") {
     return;
@@ -969,6 +1030,7 @@ function popSpinner(key) {
     logPopupSpinnerDebug("pop:hide", { key, mappedTabId });
     uiModule.setUiBusy(false);
   }
+  scheduleStaleInspectionBusyClear(mappedTabId || tabId);
 }
 
 async function runWithSpinner(key, message, task, options = {}) {
@@ -4505,19 +4567,19 @@ async function refreshUiInner(options = {}) {
     currentPageMarkingAllowed &&
     Boolean(tokenValue) &&
     renderModeReady;
-  const inspectionStatus =
+  let inspectionStatus =
     currentTabId &&
     toggleEnabled &&
     effectiveTabState.enabled &&
     effectiveTabState.baseUrl
       ? await messages.sendTabMessageToTab(currentTabId, { type: "getInspectionStatus" })
       : null;
-  const contentInspectionPending = Boolean(
+  let contentInspectionPending = Boolean(
     inspectionStatus &&
       inspectionStatus.ok &&
       (inspectionStatus.active || inspectionStatus.pending)
   );
-  const restoreInspectionPending = Boolean(
+  let restoreInspectionPending = Boolean(
     currentTabId &&
       toggleEnabled &&
       effectiveTabState.enabled &&
@@ -4592,15 +4654,33 @@ async function refreshUiInner(options = {}) {
   state.currentDraftAvailable = false;
   state.currentPageSaveReconciliation = null;
   state.currentPageSaveReconciliationPending = false;
+  let latestRuntimeStatus = null;
+  const runtimeStatusBaseUrl = state.currentBaseUrl || effectiveTabState.baseUrl || (restoreTabState && restoreTabState.baseUrl) || "";
   if (
-    state.currentBaseUrl &&
+    runtimeStatusBaseUrl &&
     currentTabId &&
     (isEnabled || toggleEnabled || effectiveTabState.enabled || navigationInspectionPending)
   ) {
-    await refreshCurrentPageRuntimeStatus({
+    latestRuntimeStatus = await refreshCurrentPageRuntimeStatus({
       tabId: currentTabId,
-      baseUrl: state.currentBaseUrl
+      baseUrl: runtimeStatusBaseUrl
     });
+  }
+  const latestRuntimeResponseObserved = Boolean(
+    latestRuntimeStatus &&
+      ((latestRuntimeStatus.inspectionStatus && latestRuntimeStatus.inspectionStatus.ok) ||
+        (latestRuntimeStatus.draftStatus && latestRuntimeStatus.draftStatus.ok))
+  );
+  if (latestRuntimeResponseObserved) {
+    restoreInspectionPending = false;
+  }
+  if (
+    latestRuntimeStatus &&
+    latestRuntimeStatus.inspectionStatus &&
+    latestRuntimeStatus.inspectionStatus.ok
+  ) {
+    inspectionStatus = latestRuntimeStatus.inspectionStatus;
+    contentInspectionPending = Boolean(latestRuntimeStatus.inspectionPending);
   }
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
   const pageInspectionBusy =

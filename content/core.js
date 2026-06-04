@@ -192,6 +192,7 @@ const SILENT_HIGHLIGHT_WARMUP_SETTLE_DELAY_MS = 2000;
 const PAGE_INSPECTION_SCROLL_END_TIMEOUT_MS = 8000;
 const PAGE_INSPECTION_SCROLL_SETTLE_MS = 220;
 const PAGE_INSPECTION_SCROLL_TOLERANCE_PX = 2;
+const PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS = 3000;
 const PAGE_INSPECTION_INPUT_EVENTS = [
   "auxclick",
   "beforeinput",
@@ -5769,11 +5770,48 @@ export function finishPageInspectionUi() {
   }
 }
 
+function flushPendingInspectionRender() {
+  const hadPendingRender = Boolean(state.renderTimer || state.renderRaf);
+  if (state.renderTimer) {
+    extensionClearTimeout(state.renderTimer);
+    state.renderTimer = 0;
+  }
+  if (state.renderRaf) {
+    extensionCancelAnimationFrame(state.renderRaf);
+    state.renderRaf = 0;
+  }
+  if (!hadPendingRender) {
+    return;
+  }
+  if (state.pendingRenderInvalidate) {
+    invalidateCachedCollections();
+  }
+  state.lastRenderAt = Date.now();
+  try {
+    renderHighlights();
+  } finally {
+    state.pendingRenderInvalidate = false;
+  }
+}
+
 export function finishPageInspectionUiAfterRender() {
   return new Promise((resolve) => {
+    const startedAt = Date.now();
     const pollUntilRendered = () => {
       if (state.renderTimer || state.renderRaf) {
-        extensionRequestAnimationFrame(pollUntilRendered);
+        if (Date.now() - startedAt >= PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS) {
+          try {
+            flushPendingInspectionRender();
+          } catch {
+            // Rendering is best-effort here; the inspection blocker must not outlive the enable response.
+          }
+        } else {
+          extensionSetTimeout(pollUntilRendered, 50);
+          return;
+        }
+      }
+      if (state.renderTimer || state.renderRaf) {
+        extensionSetTimeout(pollUntilRendered, 50);
         return;
       }
       finishPageInspectionUi();

@@ -130,10 +130,16 @@ test("content exposes inspection status while reveal or reconciliation is pendin
   assert.match(messageSource, /const reconciliationPending = core\.isPageSaveReconciliationPending\(pageUrl\);/);
   assert.match(messageSource, /const inspectionActive = core\.isPageInspectionUiActive\(\);/);
   assert.match(messageSource, /const silentHighlightPreparationActive = Boolean\([\s\S]*?reconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/);
-  assert.match(messageSource, /const editorPreparationPending = Boolean\([\s\S]*?silentHighlightPreparationActive \|\|[\s\S]*?silentHighlightEditorActivationPromise \|\|[\s\S]*?propertyLockEditorClaimPending/);
+  const editorPreparationBlock = messageSource.match(
+    /const editorPreparationPending = Boolean\([\s\S]*?\n      \);/
+  );
+  assert.ok(editorPreparationBlock);
+  assert.match(editorPreparationBlock[0], /silentHighlightPreparationActive \|\|[\s\S]*?silentHighlightEditorActivationPromise/);
+  assert.doesNotMatch(editorPreparationBlock[0], /propertyLockEditorClaimPending/);
+  assert.match(messageSource, /const lockClaimPending = Boolean\(propertyLockEditorClaimPending\);/);
   assert.match(messageSource, /const inspectionPending =[\s\S]*?inspectionActive \|\|[\s\S]*?editorPreparationPending \|\|[\s\S]*?reconciliationPending;/);
   assert.match(messageSource, /silentHighlightEditorActivationPromise/);
-  assert.match(messageSource, /propertyLockEditorClaimPending/);
+  assert.match(messageSource, /lockClaimPending,/);
   assert.match(messageSource, /active: inspectionActive,/);
   assert.match(messageSource, /pendingReason: reconciliation && \(reconciliationPending \|\| editorPreparationPending\)/);
 });

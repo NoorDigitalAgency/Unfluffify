@@ -552,6 +552,42 @@ function getBlockingUiCurtainState(view) {
   };
 }
 
+// Direct DOM reconciliation for the blocking busy curtain. Preact owns the
+// curtain node during normal renders, but if a render aborts on the persistent
+// curtain subtree the view state and DOM can desync, leaving "Inspecting
+// page..." stuck visible. This module-scope fallback keeps body.is-busy and
+// #ui-curtain in sync with the derived curtain state regardless of Preact.
+function syncBlockingUiCurtainDom() {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const curtain = getBlockingUiCurtainState(viewState);
+  if (document.body) {
+    document.body.classList.toggle("is-busy", curtain.visible);
+  }
+  const curtainElement = document.getElementById("ui-curtain");
+  if (!curtainElement) {
+    return;
+  }
+  curtainElement.hidden = !curtain.visible;
+  if (!curtain.visible) {
+    return;
+  }
+  const titleElement = curtainElement.querySelector(".ui-curtain__title");
+  if (titleElement) {
+    titleElement.textContent = curtain.message || PopupText.overlay.pleaseWait;
+  }
+  const hintElement = curtainElement.querySelector(".ui-curtain__hint");
+  if (hintElement) {
+    hintElement.textContent = curtain.note || PopupText.overlay.busyHint;
+  }
+  const timerElement = curtainElement.querySelector(".ui-curtain__timer");
+  if (timerElement) {
+    timerElement.textContent = curtain.timerText || "";
+    timerElement.hidden = !curtain.timerText;
+  }
+}
+
 function renderBasePageMenu(view, handlers) {
   return h(
     "div",
@@ -2567,10 +2603,7 @@ function renderApp() {
     });
     lastRemoteSupportSectionScrollKey = remoteSupportScrollKey;
   }
-  document.body.classList.toggle(
-    "is-busy",
-    getBlockingUiCurtainState(viewState).visible
-  );
+  syncBlockingUiCurtainDom();
 }
 
 export function initUi(actionHandlers) {
@@ -2672,10 +2705,20 @@ export function showToast(message) {
 }
 
 export function setUiBusy(isBusy, message = "") {
-  setViewState({
+  const patch = {
     isBusy: Boolean(isBusy),
     busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : ""
-  });
+  };
+  try {
+    setViewState(patch);
+  } catch {
+    // If a Preact render throws on the persistent curtain node, keep the view
+    // state and DOM consistent so the busy curtain cannot get stuck.
+    viewState = normalizeViewState({ ...viewState, ...patch });
+    syncBlockingUiCurtainDom();
+    notifyViewStateListeners();
+  }
+  syncBlockingUiCurtainDom();
 }
 
 export function toggleConfigurationExtrasExpanded() {

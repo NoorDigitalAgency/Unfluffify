@@ -261,10 +261,11 @@ test("todo completion backend cache ignores local confirmed page markings unless
 
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 
   assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
-  assert.match(source, /const contentInspectionPending = Boolean\(/);
-  assert.match(source, /const restoreInspectionPending = Boolean\(/);
+  assert.match(source, /let contentInspectionPending = Boolean\(/);
+  assert.match(source, /let restoreInspectionPending = Boolean\(/);
   assert.match(
     source,
     /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?restoreInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
@@ -274,6 +275,16 @@ test("popup blocks the interface with a spinner while page inspection is running
     source,
     /nextViewState\.busyMessage = popupBusyActive[\s\S]*?PopupText\.overlay\.pageInspection/
   );
+  // The blocking curtain DOM is reconciled by a module-scope helper, not an
+  // IIFE buried inside a render call, so the popup never throws a reference
+  // error while toggling the busy state.
+  assert.match(uiSource, /^function syncBlockingUiCurtainDom\(\) \{/m);
+  assert.match(uiSource, /document\.body\.classList\.toggle\("is-busy", curtain\.visible\)/);
+  assert.match(uiSource, /function setUiBusy\([\s\S]*?try \{[\s\S]*?setViewState\(patch\);[\s\S]*?\} catch[\s\S]*?syncBlockingUiCurtainDom\(\);/);
+  // A stale "Inspecting page..." curtain is cleared once the spinner queue
+  // drains and the content side reports no pending inspection.
+  assert.match(source, /function scheduleStaleInspectionBusyClear\(/);
+  assert.match(source, /logPopupSpinnerDebug\("stale-inspection-busy-clear"/);
 });
 
 test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
@@ -330,8 +341,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /const navigationInspectionPending = Boolean\(/);
   assert.match(source, /popupNavigationInspectionOverlayStarted/);
   assert.match(source, /popupNavigationInspectionOverlayTabId === currentTabId/);
-  assert.match(source, /const contentInspectionPending = Boolean\(/);
-  assert.match(source, /const restoreInspectionPending = Boolean\(/);
+  assert.match(source, /let contentInspectionPending = Boolean\(/);
+  assert.match(source, /let restoreInspectionPending = Boolean\(/);
   assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
   assert.match(source, /function scheduleNavigationInspectionSettlePoll\(tabId, baseUrl\) \{/);
@@ -358,6 +369,13 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /await utils\.getTabState\(state\.currentTab\.id, "restore"\)/);
   assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
   assert.match(refreshBody, /restoreInspectionPending \|\|\s*contentInspectionPending/);
+  // After a tab reload, the latest runtime status response is authoritative:
+  // once it arrives the popup stops treating restore inspection as pending and
+  // adopts the fresh inspection status instead of the stale optimistic value.
+  assert.match(refreshBody, /let latestRuntimeStatus = null;/);
+  assert.match(refreshBody, /const runtimeStatusBaseUrl = state\.currentBaseUrl \|\| effectiveTabState\.baseUrl \|\|/);
+  assert.match(refreshBody, /if \(latestRuntimeResponseObserved\) \{\s*restoreInspectionPending = false;/);
+  assert.match(refreshBody, /inspectionStatus = latestRuntimeStatus\.inspectionStatus;/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
 });

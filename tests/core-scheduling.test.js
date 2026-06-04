@@ -318,6 +318,32 @@ test("marking UI scheduling uses extension-owned timers during page motion pause
   assert.match(coreSource, /state\.draftPersistTimer = extensionSetTimeout/);
 });
 
+test("page inspection completion waits for a real render before lifting the curtain", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(coreSource, /const PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS = 3000;/);
+
+  const flushBody = coreSource.match(
+    /function flushPendingInspectionRender\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(flushBody, /const hadPendingRender = Boolean\(state\.renderTimer \|\| state\.renderRaf\);/);
+  assert.match(flushBody, /extensionClearTimeout\(state\.renderTimer\);/);
+  assert.match(flushBody, /extensionCancelAnimationFrame\(state\.renderRaf\);/);
+  assert.match(flushBody, /if \(state\.pendingRenderInvalidate\) \{[\s\S]*?invalidateCachedCollections\(\);/);
+  assert.match(flushBody, /renderHighlights\(\);/);
+
+  const finishBody = coreSource.match(
+    /export function finishPageInspectionUiAfterRender\(\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Polls on extension-owned timers (not rAF) so a frozen page still settles.
+  assert.match(finishBody, /extensionSetTimeout\(pollUntilRendered, 50\)/);
+  assert.doesNotMatch(finishBody, /extensionRequestAnimationFrame\(pollUntilRendered\)/);
+  // Force-flushes after the timeout so the curtain cannot outlive the enable response.
+  assert.match(finishBody, /Date\.now\(\) - startedAt >= PAGE_INSPECTION_RENDER_WAIT_TIMEOUT_MS/);
+  assert.match(finishBody, /flushPendingInspectionRender\(\);/);
+  assert.match(finishBody, /finishPageInspectionUi\(\);\s*resolve\(\);/);
+});
+
 test("marking passes share broad per-pass element caches", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 

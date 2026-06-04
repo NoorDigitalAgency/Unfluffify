@@ -6923,9 +6923,9 @@ export function main() {
       );
       const editorPreparationPending = Boolean(
         silentHighlightPreparationActive ||
-        silentHighlightEditorActivationPromise ||
-        propertyLockEditorClaimPending
+        silentHighlightEditorActivationPromise
       );
+      const lockClaimPending = Boolean(propertyLockEditorClaimPending);
       const inspectionPending =
         inspectionActive ||
         editorPreparationPending ||
@@ -6934,6 +6934,7 @@ export function main() {
         ok: true,
         active: inspectionActive,
         pending: inspectionPending,
+        lockClaimPending,
         pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
           ? reconciliation.reason || "pending"
           : ""
