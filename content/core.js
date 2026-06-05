@@ -2010,16 +2010,34 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
   const toggleableCandidates = [];
   const silentWhitespaceCandidates = [];
   if (!document.body) {
-    return { toggleableCandidates, silentWhitespaceCandidates };
+    return {
+      toggleableCandidates,
+      silentWhitespaceCandidates,
+      stats: {
+        visitedCount: 0,
+        autoDefaultCount: 0,
+        autoDefaultElapsedMs: 0,
+        selfMarkableCount: 0,
+        selfMarkableElapsedMs: 0
+      }
+    };
   }
   const stack = [{ node: document.body, withinExcludedParent: false }];
   const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
+  const stats = {
+    visitedCount: 0,
+    autoDefaultCount: 0,
+    autoDefaultElapsedMs: 0,
+    selfMarkableCount: 0,
+    selfMarkableElapsedMs: 0
+  };
   while (stack.length) {
     const current = stack.pop();
     const node = current && current.node;
     if (!node || node.nodeType !== 1) {
       continue;
     }
+    stats.visitedCount += 1;
     if (isWithinAiPopover(node)) {
       continue;
     }
@@ -2029,15 +2047,26 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
     }
     const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    let autoToggleableDefault = false;
     if (
       !current.withinExcludedParent &&
-      !withinImmutable &&
-      (
-        (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
-        isSelfMarkableWithoutParentMode(node)
-      )
+      !withinImmutable
     ) {
-      toggleableCandidates.push(node);
+      const autoDefaultStartedAt = nowMs();
+      autoToggleableDefault = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
+      stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
+      stats.autoDefaultCount += 1;
+      if (autoToggleableDefault) {
+        toggleableCandidates.push(node);
+      } else {
+        const selfMarkableStartedAt = nowMs();
+        const selfMarkable = isSelfMarkableWithoutParentMode(node);
+        stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
+        stats.selfMarkableCount += 1;
+        if (selfMarkable) {
+          toggleableCandidates.push(node);
+        }
+      }
     }
     if (
       !withinImmutable &&
@@ -2055,7 +2084,8 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
   }
   return {
     toggleableCandidates,
-    silentWhitespaceCandidates
+    silentWhitespaceCandidates,
+    stats
   };
 }
 
@@ -2063,13 +2093,30 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
   const toggleableCandidates = [];
   const silentWhitespaceCandidates = [];
   if (!document.body) {
-    return { toggleableCandidates, silentWhitespaceCandidates };
+    return {
+      toggleableCandidates,
+      silentWhitespaceCandidates,
+      stats: {
+        visitedCount: 0,
+        autoDefaultCount: 0,
+        autoDefaultElapsedMs: 0,
+        selfMarkableCount: 0,
+        selfMarkableElapsedMs: 0
+      }
+    };
   }
   const shouldAbort = typeof options.shouldAbort === "function"
     ? options.shouldAbort
     : null;
   const stack = [{ node: document.body, withinExcludedParent: false }];
   const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
+  const stats = {
+    visitedCount: 0,
+    autoDefaultCount: 0,
+    autoDefaultElapsedMs: 0,
+    selfMarkableCount: 0,
+    selfMarkableElapsedMs: 0
+  };
   let processedCount = 0;
   while (stack.length) {
     const current = stack.pop();
@@ -2077,8 +2124,9 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
     if (!node || node.nodeType !== 1) {
       continue;
     }
+    stats.visitedCount += 1;
     if (shouldAbort && shouldAbort()) {
-      return { toggleableCandidates, silentWhitespaceCandidates };
+      return { toggleableCandidates, silentWhitespaceCandidates, stats };
     }
     if (isWithinAiPopover(node)) {
       continue;
@@ -2089,15 +2137,26 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
     }
     const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    let autoToggleableDefault = false;
     if (
       !current.withinExcludedParent &&
-      !withinImmutable &&
-      (
-        (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
-        isSelfMarkableWithoutParentMode(node)
-      )
+      !withinImmutable
     ) {
-      toggleableCandidates.push(node);
+      const autoDefaultStartedAt = nowMs();
+      autoToggleableDefault = matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node);
+      stats.autoDefaultElapsedMs += nowMs() - autoDefaultStartedAt;
+      stats.autoDefaultCount += 1;
+      if (autoToggleableDefault) {
+        toggleableCandidates.push(node);
+      } else {
+        const selfMarkableStartedAt = nowMs();
+        const selfMarkable = isSelfMarkableWithoutParentMode(node);
+        stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
+        stats.selfMarkableCount += 1;
+        if (selfMarkable) {
+          toggleableCandidates.push(node);
+        }
+      }
     }
     if (
       !withinImmutable &&
@@ -2120,7 +2179,8 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
   }
   return {
     toggleableCandidates,
-    silentWhitespaceCandidates
+    silentWhitespaceCandidates,
+    stats
   };
 }
 
@@ -10647,6 +10707,13 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size
   });
+  logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
+    visitedCount: scannedCandidates.stats.visitedCount,
+    autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
+    autoDefaultElapsedMs: Number(scannedCandidates.stats.autoDefaultElapsedMs.toFixed(1)),
+    selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
+    selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1))
+  });
   const candidateMergeStartedAt = nowMs();
   appendSyncedCandidateItems(candidates, {
     seen,
@@ -10943,6 +11010,14 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size,
+    async: true
+  });
+  logTogglePerf("sync.candidate-evaluation", candidateCollectionStartedAt, {
+    visitedCount: scannedCandidates.stats.visitedCount,
+    autoDefaultCount: scannedCandidates.stats.autoDefaultCount,
+    autoDefaultElapsedMs: Number(scannedCandidates.stats.autoDefaultElapsedMs.toFixed(1)),
+    selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
+    selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1)),
     async: true
   });
   if (shouldAbort && shouldAbort()) {

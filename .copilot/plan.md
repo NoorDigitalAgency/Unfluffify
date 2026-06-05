@@ -386,6 +386,17 @@ Validation checkpoint after Round-7 authority slices:
    pre-scan entry metadata as the remaining UI-freeze cause on this page and
    narrows the next optimization target to the main candidate traversal and, in
    parallel, the post-sync render rebuild cost.
+40. Candidate predicate split completed:
+   the next safe diagnostics phase split candidate collection into predicate
+   timing so the remaining reconcile hotspot is no longer treated as a black
+   box. A headful Bonliva run showed roughly `~1.4k` nodes evaluated during the
+   scan, with auto-default evaluation itself costing only about `~3-4.5ms` for
+   `~1.4k` checks on the tested page. That means the overwhelming majority of
+   the `~70-100ms` candidate-collection budget is not default-boundary
+   detection, but the self-markable path (`isSelfMarkableWithoutParentMode(...)`
+   and the descendant/visibility/paint checks it triggers). The next phase
+   should therefore target the self-markable branch specifically rather than
+   spending more time on `matchesAutoToggleableDefaultExcluded(...)`.
 
 ## Marking Reload Handoff
 
