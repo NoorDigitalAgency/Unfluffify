@@ -2620,7 +2620,11 @@ async function disableExtensionOnTopLevelNavigation(details) {
   await utils.disableExtensionForTab(tabId);
 }
 
-chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionOnTopLevelNavigation);
+// Use onCommitted (not onBeforeNavigate) so we only disable marking when the
+// navigation actually commits. onBeforeNavigate fires before the browser shows
+// the "Leave site?" dialog; if the user clicks "Stay", the navigation is
+// cancelled but we would have already torn down the marking session.
+chrome.webNavigation.onCommitted.addListener(disableExtensionOnTopLevelNavigation);
 
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) {

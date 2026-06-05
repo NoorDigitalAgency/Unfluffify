@@ -33,7 +33,7 @@ test("disableExtensionOnTopLevelNavigation clears the reload restore scope witho
   const block = extractFunctionBody(
     backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
-    "chrome.webNavigation.onBeforeNavigate"
+    "chrome.webNavigation.onCommitted"
   );
 
   assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);

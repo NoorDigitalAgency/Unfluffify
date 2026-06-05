@@ -21,14 +21,15 @@ test("top-level navigation preserves user-controlled device emulation", () => {
   const block = extractSourceBlock(
     backgroundSource,
     "async function disableExtensionOnTopLevelNavigation",
-    "chrome.webNavigation.onBeforeNavigate"
+    "chrome.webNavigation.onCommitted"
   );
 
-  // Marking does not survive a navigation/reload in the editor-mobile-only
-  // contract, so the navigation hook fully tears down the marking-active tab
-  // state. utils.disableExtensionForTab clears tab state, the script-injected
-  // flag, sends setEnabled:false to the content script, and refreshes the
-  // toolbar action; crucially it does NOT touch device emulation.
+  // onCommitted (not onBeforeNavigate) fires after the navigation actually
+  // commits, so rejected beforeunload dialogs don't prematurely tear down
+  // the marking session. The listener fully tears down marking tab state
+  // via utils.disableExtensionForTab, which does NOT touch device emulation.
+  assert.match(backgroundSource, /chrome\.webNavigation\.onCommitted\.addListener\(disableExtensionOnTopLevelNavigation\)/);
+  assert.doesNotMatch(backgroundSource, /chrome\.webNavigation\.onBeforeNavigate\.addListener\(disableExtensionOnTopLevelNavigation\)/);
   assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);

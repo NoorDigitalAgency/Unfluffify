@@ -1266,6 +1266,20 @@ Phase 2 drift audit and fixes (2026-06-06):
    is now repurposed for desktop preview. Full `npm test` (532/532) green;
    Bonliva live smoke clean.
 
+Phase 2 bug fix — beforeunload/onCommitted ordering (2026-06-06):
+   `disableExtensionOnTopLevelNavigation` was wired to
+   `chrome.webNavigation.onBeforeNavigate` which fires BEFORE the browser
+   shows the "Leave site?" dialog triggered by `handleBeforeUnload`. If the
+   user clicked "Stay" (rejecting navigation), the navigation was cancelled
+   but `disableExtensionForTab` had already run — tearing down the marking
+   session even though the user explicitly chose to stay. Fixed by switching
+   to `chrome.webNavigation.onCommitted`, which fires only after the
+   navigation actually commits (meaning the user either accepted or there was
+   no dialog). `onHistoryStateUpdated` and `onReferenceFragmentUpdated` are
+   unaffected (those don't trigger `beforeunload` dialogs). Guard test
+   updated to assert `onCommitted` listener, not `onBeforeNavigate`.
+   Full `npm test` (474/474) green.
+
 Phase 2 code-review pass (2026-06-06, automated):
    Additional cleanup and correctness improvements after the drift audit:
    - Removed dead `setReloadRestoreTabState` function body (had no callers
