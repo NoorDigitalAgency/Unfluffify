@@ -5606,9 +5606,67 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     if (!submissionRow.shouldSubmit) {
       continue;
     }
+    // Phase B ancestor guard: an implicit `markableTextual && !visibleToUser`
+    // ancestor row must not over-promote a broad wrapper to excluded when a
+    // visible descendant inside the same branch is already the canonical
+    // content carrier. Without this guard, structural shells (article wrappers,
+    // sticky columns, multi-line inlines whose primary bounding rect anchors
+    // off-bounds) would be sent as `excluded: true` while their visible
+    // descendant rows remain included, which is the failure shape observed in
+    // the Bonliva article repro at .copilot/round7-responsiveness-handoff.md.
+    if (
+      submissionRow.excluded &&
+      !explicitlyExcluded &&
+      !insideExcludedAncestorRow &&
+      hasVisibleMarkableTextualSubmissionDescendant(node, configValue)
+    ) {
+      continue;
+    }
     pushRow(xpath, submissionRow.excluded);
   }
   return rows;
+}
+
+function hasVisibleMarkableTextualSubmissionDescendant(root, configValue) {
+  if (!root || root.nodeType !== 1) {
+    return false;
+  }
+  const children = root.children;
+  if (!children || children.length === 0) {
+    return false;
+  }
+  const stack = [];
+  for (let i = 0; i < children.length; i += 1) {
+    stack.push(children[i]);
+  }
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || node.nodeType !== 1) {
+      continue;
+    }
+    if (core.isImmutableExcludedElement(node)) {
+      continue;
+    }
+    if (core.isVisibleForSubmission(node)) {
+      const markable = core.isMarkableElement(node, configValue, {
+        allowParent: false,
+        allowImmutableChildren: false,
+        allowConsentElements: true,
+        ignoreVisibilityForInclusionDetection: true
+      });
+      if (markable) {
+        return true;
+      }
+    }
+    const childList = node.children;
+    if (!childList || childList.length === 0) {
+      continue;
+    }
+    for (let i = 0; i < childList.length; i += 1) {
+      stack.push(childList[i]);
+    }
+  }
+  return false;
 }
 
 function refreshEnabledAiHighlights() {

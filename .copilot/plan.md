@@ -567,6 +567,16 @@ Validation checkpoint after Round-7 authority slices:
    their visible content is still being submitted as included. Focused
    visibility/silent/submission tests (`151/151`) and full `npm test`
    (`443/443`) stayed green.
+50b. Phase B AI submission ancestor guard completed:
+   `collectAiSubmissionXpathsForCurrentPage(...)` in [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now omits an implicit `markableTextual && !visibleToUser` ancestor row when
+   a visible markable-textual descendant inside the same branch already carries
+   the content. The guard uses `hasVisibleMarkableTextualSubmissionDescendant(...)`
+   to early-exit on the first visible markable descendant and skips immutable
+   subtrees. Explicit user exclusions, rows inside an excluded ancestor, and
+   included rows are unaffected. Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`449/449`) stayed
+   green.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around

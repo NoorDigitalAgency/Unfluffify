@@ -205,6 +205,30 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
   assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
 });
 
+test("AI submission collector guards implicit excluded ancestors with a visible markable descendant", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const collectorStart = source.indexOf("function collectAiSubmissionXpathsForCurrentPage");
+  const collectorEnd = source.indexOf("function refreshEnabledAiHighlights", collectorStart);
+  assert.ok(collectorStart > -1 && collectorEnd > collectorStart);
+  const collectorSource = source.slice(collectorStart, collectorEnd);
+  assert.match(
+    collectorSource,
+    /hasVisibleMarkableTextualSubmissionDescendant\(node, configValue\)/
+  );
+  assert.match(
+    collectorSource,
+    /submissionRow\.excluded &&\s*!explicitlyExcluded &&\s*!insideExcludedAncestorRow &&\s*hasVisibleMarkableTextualSubmissionDescendant/
+  );
+  const helperStart = source.indexOf("function hasVisibleMarkableTextualSubmissionDescendant");
+  assert.ok(helperStart > -1);
+  const helperEnd = source.indexOf("\n}\n", helperStart);
+  assert.ok(helperEnd > helperStart);
+  const helperSource = source.slice(helperStart, helperEnd);
+  assert.match(helperSource, /core\.isVisibleForSubmission\(node\)/);
+  assert.match(helperSource, /core\.isMarkableElement\(node, configValue, \{/);
+  assert.match(helperSource, /core\.isImmutableExcludedElement\(node\)/);
+});
+
 test("capturePageSnapshot persists heavy snapshot evidence without returning it", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
