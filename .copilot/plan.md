@@ -81,6 +81,17 @@ Validation checkpoint after Round-7 authority slices:
 7. Remaining authority work should still avoid proxying large config, HTML, or
    AI request/response bodies through runtime messages; use storage keys,
    owner-context fetches, or a designed background/offscreen ownership path.
+8. AI recovery authority slice completed: popup now routes page-side compute
+   lock acquire/release and AI-run heartbeat refresh through background runtime
+   messages. Background owns the atomic heartbeat sequence: normalize and store
+   recovery metadata, ensure `content-main` is active, apply the page-side
+   compute lock, and clear recovery metadata if the lock cannot be applied.
+   Content acknowledges compute-lock acquisition before refreshing silent
+   highlighting so background callers do not hang on page-side rendering work.
+   Validation passed focused AI/broker tests, full `npm test`, and a reload-aware
+   repo-configured MCP smoke on `https://seo.se/` that verified extension load,
+   popup `debugTabId`, `resolvePopupTabContext`, and background-routed compute
+   lock on/off.
 
 ## Marking Reload Handoff
 

@@ -4059,7 +4059,7 @@ function scheduleAiComputeLockRelease(expiresAt) {
   }, Math.max(0, Math.ceil(expiresAt - Date.now())));
 }
 
-async function enterAiPreviewMode(options = {}) {
+function beginAiPreviewMode(options = {}) {
   const nextMode = typeof options.mode === "string" ? options.mode : "preview";
   if (!aiPreviewState.active) {
     const previousPageUrl = location.href;
@@ -4091,7 +4091,10 @@ async function enterAiPreviewMode(options = {}) {
   if (aiPreviewState.previousEnabled && state.enabled) {
     core.disable();
   }
+}
 
+async function enterAiPreviewMode(options = {}) {
+  beginAiPreviewMode(options);
   await refreshSilentHighlightings();
 }
 
@@ -7330,10 +7333,11 @@ export function main() {
     if (message.type === "setAiComputeLock") {
       (async () => {
         if (message.active) {
-          await enterAiPreviewMode({ mode: "compute_lock" });
+          beginAiPreviewMode({ mode: "compute_lock" });
           setAiPreviewItems([]);
           scheduleAiComputeLockRelease(Number(message.expiresAt) || 0);
           sendResponse({ ok: true, active: true });
+          refreshSilentHighlightings().then();
           return;
         }
         if (aiPreviewState.active && aiPreviewState.mode === "compute_lock") {

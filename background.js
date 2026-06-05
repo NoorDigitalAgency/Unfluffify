@@ -60,6 +60,7 @@ import {
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_PERSIST_KEY,
+  getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord
 } from "./popup/ai-run.js";
 
@@ -205,6 +206,136 @@ async function savePersistedAiRunRecord(record) {
 
 async function clearPersistedAiRunRecord() {
   await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
+}
+
+function sendContentMessageToTab(tabId, message, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const normalizedTabId = normalizeBrokerTabId(tabId);
+    if (!normalizedTabId) {
+      resolve({ ok: false, error: "Missing tab" });
+      return;
+    }
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(result);
+    };
+    const timeoutId = setTimeout(() => {
+      finish({ ok: false, error: "Content message timed out" });
+    }, Math.max(1, Number(timeoutMs) || 3000));
+    try {
+      chrome.tabs.sendMessage(normalizedTabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+          finish({
+            ok: false,
+            error: chrome.runtime.lastError.message || "Content message failed"
+          });
+          return;
+        }
+        finish(response && typeof response === "object" ? response : { ok: false });
+      });
+    } catch (error) {
+      finish({
+        ok: false,
+        error: (error && error.message) || "Content message failed"
+      });
+    }
+  });
+}
+
+function waitForBackgroundRetryDelay(delayMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+async function ensureContentMainForTab(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return { ok: false, error: "Missing tab" };
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await sendContentMessageToTab(normalizedTabId, {
+      type: "activateContentMain"
+    });
+    if (response && response.ok) {
+      return { ok: true, tabId: normalizedTabId };
+    }
+    if (attempt < 4) {
+      await waitForBackgroundRetryDelay(150 * (attempt + 1));
+    }
+  }
+  return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
+}
+
+async function setAiComputeLockForTab(tabId, active, expiresAt = 0) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return { ok: false, active: Boolean(active), error: "Missing tab" };
+  }
+  if (active) {
+    const activationResult = await ensureContentMainForTab(normalizedTabId);
+    if (!activationResult.ok) {
+      return {
+        ok: false,
+        active: true,
+        tabId: normalizedTabId,
+        error: activationResult.error || "Content activation failed"
+      };
+    }
+  }
+  const response = await sendContentMessageToTab(normalizedTabId, {
+    type: "setAiComputeLock",
+    active: Boolean(active),
+    expiresAt: Number(expiresAt) || 0
+  });
+  if (!active && (!response || !response.ok)) {
+    return { ok: true, active: false, tabId: normalizedTabId };
+  }
+  return response && response.ok
+    ? { ok: true, active: Boolean(active), tabId: normalizedTabId }
+    : {
+      ok: false,
+      active: Boolean(active),
+      tabId: normalizedTabId,
+      error: (response && response.error) || "AI compute lock failed"
+    };
+}
+
+async function refreshAiRunHeartbeat(options = {}) {
+  const tabId = normalizeBrokerTabId(options.tabId);
+  const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
+  const siteId = normalizeSiteIdValue(options.siteId);
+  const deadlineAt = Number(options.deadlineAt);
+  if (!tabId || !sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
+    return { ok: false, record: null, expiresAt: 0, lockApplied: false };
+  }
+  const expiresAt = getAiRunResumeExpiresAt();
+  const record = await savePersistedAiRunRecord({
+    sessionId,
+    siteId,
+    expiresAt,
+    deadlineAt
+  });
+  if (!record) {
+    return { ok: false, record: null, expiresAt: 0, lockApplied: false };
+  }
+  const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt);
+  if (!lockResult.ok) {
+    await clearPersistedAiRunRecord();
+    return {
+      ok: false,
+      record: null,
+      expiresAt: 0,
+      lockApplied: false,
+      error: lockResult.error || "AI compute lock failed"
+    };
+  }
+  return { ok: true, record, expiresAt, lockApplied: true };
 }
 
 function ensureTraceState(tabId) {
@@ -851,6 +982,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     clearPersistedAiRunRecord()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "setAiComputeLockForTab") {
+    setAiComputeLockForTab(
+      message.tabId || (sender.tab && sender.tab.id),
+      message.active,
+      message.expiresAt
+    )
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, error: "AI compute lock failed" }));
+    return true;
+  }
+
+  if (message.type === "refreshAiRunHeartbeat") {
+    refreshAiRunHeartbeat({
+      tabId: message.tabId || (sender.tab && sender.tab.id),
+      sessionId: message.sessionId,
+      siteId: message.siteId,
+      deadlineAt: message.deadlineAt
+    })
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, record: null, expiresAt: 0, lockApplied: false }));
     return true;
   }
 

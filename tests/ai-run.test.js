@@ -181,10 +181,56 @@ test("AI run recovery metadata is persisted through background", () => {
   assert.match(backgroundSource, /if \(message\.type === "getPersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "savePersistedAiRunRecord"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "clearPersistedAiRunRecord"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "setAiComputeLockForTab"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "refreshAiRunHeartbeat"\) \{/);
   assert.match(popupPersistenceBlock, /type: "getPersistedAiRunRecord"/);
   assert.match(popupPersistenceBlock, /type: "savePersistedAiRunRecord"/);
   assert.match(popupPersistenceBlock, /type: "clearPersistedAiRunRecord"/);
   assert.doesNotMatch(popupPersistenceBlock, /storageGet|storageSet|storageRemove|AI_RUN_PERSIST_KEY/);
+});
+
+test("AI run recovery heartbeat and page lock are coordinated by background", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const heartbeatStart = popupSource.indexOf("async function refreshAiRunHeartbeat(options = {}) {");
+  const heartbeatEnd = popupSource.indexOf("async function stopAiRun", heartbeatStart);
+  const computeLockStart = contentSource.indexOf('if (message.type === "setAiComputeLock") {');
+  const computeLockEnd = contentSource.indexOf('if (message.type === "closeAiPreview") {', computeLockStart);
+  assert.ok(heartbeatStart > -1);
+  assert.ok(heartbeatEnd > heartbeatStart);
+  assert.ok(computeLockStart > -1);
+  assert.ok(computeLockEnd > computeLockStart);
+  const popupHeartbeatBlock = popupSource.slice(heartbeatStart, heartbeatEnd);
+  const contentComputeLockBlock = contentSource.slice(computeLockStart, computeLockEnd);
+
+  assert.match(backgroundSource, /function sendContentMessageToTab\(tabId, message, timeoutMs = 3000\) \{/);
+  assert.match(backgroundSource, /Content message timed out/);
+  assert.match(backgroundSource, /if \(settled\) \{[\s\S]*?return;[\s\S]*?\}/);
+  assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
+  assert.match(backgroundSource, /type: "activateContentMain"/);
+  assert.match(backgroundSource, /async function setAiComputeLockForTab\(tabId, active, expiresAt = 0\) \{/);
+  assert.match(backgroundSource, /const activationResult = await ensureContentMainForTab\(normalizedTabId\);/);
+  assert.match(
+    backgroundSource,
+    /type: "setAiComputeLock",[\s\S]*?active: Boolean\(active\),[\s\S]*?expiresAt: Number\(expiresAt\) \|\| 0/
+  );
+  assert.match(backgroundSource, /if \(!active && \(!response \|\| !response\.ok\)\) \{/);
+  assert.match(backgroundSource, /async function refreshAiRunHeartbeat\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const expiresAt = getAiRunResumeExpiresAt\(\);/);
+  assert.match(
+    backgroundSource,
+    /const record = await savePersistedAiRunRecord\(\{[\s\S]*?sessionId,[\s\S]*?siteId,[\s\S]*?expiresAt,[\s\S]*?deadlineAt[\s\S]*?\}\);/
+  );
+  assert.match(backgroundSource, /const lockResult = await setAiComputeLockForTab\(tabId, true, expiresAt\);/);
+  assert.match(backgroundSource, /if \(!lockResult\.ok\) \{[\s\S]*?await clearPersistedAiRunRecord\(\);/);
+  assert.match(popupHeartbeatBlock, /type: "refreshAiRunHeartbeat"/);
+  assert.match(popupHeartbeatBlock, /state\.aiRunResumeExpiresAt = expiresAt;/);
+  assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);
+  assert.match(contentSource, /function beginAiPreviewMode\(options = \{\}\) \{/);
+  assert.match(contentSource, /async function enterAiPreviewMode\(options = \{\}\) \{[\s\S]*?beginAiPreviewMode\(options\);[\s\S]*?await refreshSilentHighlightings\(\);/);
+  assert.match(contentComputeLockBlock, /beginAiPreviewMode\(\{ mode: "compute_lock" \}\);/);
+  assert.match(contentComputeLockBlock, /sendResponse\(\{ ok: true, active: true \}\);[\s\S]*?refreshSilentHighlightings\(\)\.then\(\);/);
 });
 
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {

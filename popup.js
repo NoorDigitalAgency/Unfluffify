@@ -2289,8 +2289,9 @@ async function clearPersistedAiRunRecord() {
 }
 
 async function syncAiComputeLock(active, expiresAt = 0) {
-  const response = await messages.sendTabMessage({
-    type: "setAiComputeLock",
+  const response = await messages.sendRuntimeMessage({
+    type: "setAiComputeLockForTab",
+    tabId: getCurrentPopupTabId(),
     active: Boolean(active),
     expiresAt
   });
@@ -2308,19 +2309,22 @@ async function refreshAiRunHeartbeat(options = {}) {
   if (!sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
     return null;
   }
-  const expiresAt = getAiRunResumeExpiresAt();
-  state.aiRunResumeExpiresAt = expiresAt;
-  await savePersistedAiRunRecord({
-    sessionId,
-    siteId,
-    expiresAt,
-    deadlineAt
-  });
-  const lockApplied = await syncAiComputeLock(true, expiresAt);
-  if (!lockApplied) {
-    await clearPersistedAiRunRecord();
+  const tabId = getCurrentPopupTabId();
+  if (!tabId) {
     return null;
   }
+  const response = await messages.sendRuntimeMessage({
+    type: "refreshAiRunHeartbeat",
+    tabId,
+    sessionId,
+    siteId,
+    deadlineAt
+  });
+  if (!response || !response.ok || !Number.isFinite(Number(response.expiresAt))) {
+    return null;
+  }
+  const expiresAt = Number(response.expiresAt);
+  state.aiRunResumeExpiresAt = expiresAt;
   return expiresAt;
 }
 
