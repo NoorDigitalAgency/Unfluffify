@@ -9760,12 +9760,16 @@ export function isVisibleForSubmission(el) {
   if (isWithinExtensionUi(el)) {
     return false;
   }
+  let ambiguousHidden = false;
   let node = el;
   while (node && node.nodeType === 1) {
     const style = window.getComputedStyle(node);
     const state = getTheoreticalVisibilityState(node, style);
     if (state.definitiveHidden) {
       return false;
+    }
+    if (state.ambiguousHidden) {
+      ambiguousHidden = true;
     }
     node = node.parentElement;
   }
@@ -9774,6 +9778,17 @@ export function isVisibleForSubmission(el) {
     return false;
   }
   if (isClippedByOverflow(el)) {
+    return false;
+  }
+  if (ambiguousHidden && !isActuallyVisibleToUser(el)) {
+    // Shared user-visible contract: an ambiguous-hidden ancestor (aria-hidden,
+    // sr-only, visually-hidden) only counts as visible-for-submission when the
+    // element still survives a hit-test reality check. Otherwise the AI server
+    // would be told that pure accessibility / off-canvas labels are visible
+    // content the user accepted, polluting the inclusion set with text the
+    // user cannot review. This matches the marking-side `isVisible(...)`
+    // contract so submission, marking, and silent-highlight retention agree on
+    // what counts as user-visible.
     return false;
   }
   if (isActuallyVisibleInDocument(el)) {

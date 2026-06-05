@@ -376,18 +376,39 @@ test("theoretical hidden nodes are accepted when they are visibly rendered", () 
   });
 });
 
-test("submission visibility treats below-fold ambiguous nodes as potentially visible", () => {
+test("submission visibility rejects aria-hidden text the user cannot reach", () => {
+  // Shared user-visible contract: aria-hidden / sr-only ancestors must not
+  // upgrade off-viewport content into the AI inclusion set, because the
+  // submission row state treats `markableTextual && visibleToUser` as
+  // implicit included and the AI would otherwise see accessibility-only or
+  // off-canvas text as content the user reviewed.
   withVisibilityDom(({ body }) => {
     const element = createElement({
       parentElement: body,
       attrs: { "aria-hidden": "true" },
-      text: "Below fold but renderable",
+      text: "Screen-reader-only below the fold",
       rect: { top: 1200, right: 320, bottom: 1300, left: 20, width: 300, height: 100 }
     });
     body.children.push(element);
     body.childNodes.push(element);
     assert.equal(isVisible(element), false);
-    assert.equal(isVisibleForSubmission(element), true);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
+});
+
+test("submission visibility rejects sr-only labels even when laid out", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      tagName: "span",
+      classes: ["sr-only"],
+      text: "Skip to main content",
+      rect: { top: 20, right: 220, bottom: 60, left: 20, width: 200, height: 40 }
+    });
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisible(element), false);
+    assert.equal(isVisibleForSubmission(element), false);
   }, { scrollHeight: 1600 });
 });
 
