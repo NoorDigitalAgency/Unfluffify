@@ -1314,14 +1314,6 @@ function buildLoginEndpointFromStageBase(stageBase) {
   return `https://accounts.${normalized}/api/account/login`;
 }
 
-function buildValidateEndpointFromStageBase(stageBase) {
-  const normalized = normalizeStageBase(stageBase);
-  if (!normalized) {
-    return "";
-  }
-  return `https://accounts.${normalized}/api/account/validate`;
-}
-
 function buildPageMarkingKey(url, pageType) {
   const normalizedUrl = normalizeCandidatePageUrl(url);
   const normalizedPageType = normalizePageTypeKey(pageType);
@@ -3602,8 +3594,8 @@ async function validateStoredToken(options = {}) {
     return true;
   }
   const { tokenValue, stageBaseValue } = await helpers.loadGlobalAiSettings();
-  const validateUrl = buildValidateEndpointFromStageBase(stageBaseValue);
-  if (!tokenValue || !validateUrl) {
+  const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
+  if (!tokenValue || !normalizedStageBaseValue) {
     return Boolean(tokenValue);
   }
   const now = Date.now();
@@ -3613,17 +3605,17 @@ async function validateStoredToken(options = {}) {
   state.lastTokenValidationAt = now;
   state.tokenValidationInFlight = true;
   try {
-    const response = await fetch(validateUrl, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${tokenValue}` }
+    const response = await messages.sendRuntimeMessage({
+      type: "validateAuthToken",
+      stageBase: normalizedStageBaseValue,
+      tokenValue
     });
-    if (response.status === 401 || response.status === 403) {
+    if (response && response.ok && response.valid === false) {
       await invalidateTokenAndLockConfiguration(showToastOnInvalid);
       return false;
     }
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     return true;
-  } catch (error) {
+  } catch {
     return true;
   } finally {
     state.tokenValidationInFlight = false;

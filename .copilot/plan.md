@@ -104,6 +104,10 @@ Validation checkpoint after Round-7 authority slices:
    invalid URL pruning loop and successful-removal cache, but the small `/remove`
    POST now goes through background `removeRemotePageMarking`; no large config
    payloads are moved through runtime messages.
+12. Auth token validation transport slice completed: popup still owns auth UI
+   state, invalid-token UX, and validation throttling, but the small
+   `accounts.<stageBase>/api/account/validate` GET now goes through background
+   `validateAuthToken`; popup no longer fetches that auth endpoint directly.
 
 ## Marking Reload Handoff
 

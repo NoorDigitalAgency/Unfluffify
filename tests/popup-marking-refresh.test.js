@@ -309,6 +309,22 @@ test("invalid remote page pruning delegates the remove transport to background",
   assert.match(pruneBody, /state\.removedRemotePageKeys\.add\(removalKey\)/);
 });
 
+test("token validation delegates the auth transport to background", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const validateBody = popupSource.match(
+    /async function validateStoredToken\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function clearFocusedElement/
+  )[1];
+
+  assert.match(backgroundSource, /function buildValidateEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(backgroundSource, /async function validateAuthToken\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const validateUrl = buildValidateEndpointFromStageBase\(stageBase\);/);
+  assert.match(backgroundSource, /if \(message\.type === "validateAuthToken"\) \{/);
+  assert.match(validateBody, /type: "validateAuthToken"/);
+  assert.match(validateBody, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(validateBody, /fetch\(|buildValidateEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");

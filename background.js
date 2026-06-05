@@ -38,6 +38,7 @@ import {
   URL_SEARCH_INFO_QUERY,
   buildGraphqlEndpointFromStageBase,
   maybeUpdateStoredTokenFromResponse,
+  normalizeStageBase,
   normalizeSiteIdValue
 } from "./common/lynx-live-pages.js";
 import {
@@ -356,6 +357,14 @@ function createBackgroundJsonHeaders(tokenValue = "") {
   return headers;
 }
 
+function buildValidateEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBase(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://accounts.${normalized}/api/account/validate`;
+}
+
 async function requestAiRunStatus(options = {}) {
   const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
   const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
@@ -403,6 +412,28 @@ async function removeRemotePageMarking(options = {}) {
   });
   await maybeUpdateStoredTokenFromResponse(response, tokenValue);
   return { ok: response.ok, status: response.status || 0 };
+}
+
+async function validateAuthToken(options = {}) {
+  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const validateUrl = buildValidateEndpointFromStageBase(stageBase);
+  if (!validateUrl || !tokenValue.trim()) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(validateUrl, {
+      method: "GET",
+      headers: createBackgroundJsonHeaders(tokenValue)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 401 || response.status === 403) {
+      return { ok: true, valid: false, status: response.status || 0 };
+    }
+    return { ok: true, valid: true, status: response.status || 0 };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function ensureTraceState(tabId) {
@@ -1092,6 +1123,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       tokenValue: message.tokenValue,
       siteId: message.siteId,
       url: message.url
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "validateAuthToken") {
+    validateAuthToken({
+      stageBase: message.stageBase,
+      tokenValue: message.tokenValue
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));
