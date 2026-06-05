@@ -295,6 +295,31 @@ test("silent-highlight reposition reuses cached render targets between settle sa
   );
 });
 
+test("refreshSilentHighlightings yields to a paint frame before the overlay DOM write", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("\n}\n", fnStart);
+  const fnSource = source.slice(fnStart, fnEnd);
+
+  // The function packages the overlay write into an applyOverlayUpdate closure
+  // and yields to requestAnimationFrame before invoking it, so paint work that
+  // queued up during source collection can flush before the next DOM mutation.
+  assert.match(fnSource, /const applyOverlayUpdate = \(\) => \{/);
+  assert.match(fnSource, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*?applyOverlayUpdate\(\);[\s\S]*?resolve\(\);[\s\S]*?\}\);/);
+
+  // The applyOverlayUpdate closure checks the generation token before mutating
+  // overlay DOM, so a stale older refresh that was waiting in the rAF queue
+  // when a newer refresh started bails out instead of stomping new state.
+  const closureStart = fnSource.indexOf("const applyOverlayUpdate = () => {");
+  const closureEnd = fnSource.indexOf("};", closureStart);
+  const closureSource = fnSource.slice(closureStart, closureEnd);
+  assert.match(closureSource, /if \(refreshGeneration !== silentHighlightingRefreshGeneration\) \{\s*return;\s*\}/);
+
+  // The no-op fast path (no render, no change) skips the rAF round trip.
+  assert.match(fnSource, /if \(!shouldRenderOverlay && !renderChanged\) \{\s*applyOverlayUpdate\(\);\s*return;\s*\}/);
+});
+
 test("refreshSilentHighlightings bails out after each await when superseded by a newer call", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");

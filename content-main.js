@@ -5888,18 +5888,42 @@ async function refreshSilentHighlightings() {
     hasOverlay: Boolean(silentHighlightOverlay),
     isFullRefresh: true
   });
-  if (shouldRenderOverlay) {
-    renderSilentHighlightOverlay(renderCollections);
-  } else if (renderChanged) {
-    clearSilentHighlightOverlay();
+  // Yield to the browser before the overlay DOM write so paint/layout work that
+  // queued up during source collection can flush. The previous overlay stays in
+  // place during the yield, and a newer refresh that bumps the generation token
+  // mid-yield will cause this stale call to bail without mutating anything.
+  const applyOverlayUpdate = () => {
+    if (refreshGeneration !== silentHighlightingRefreshGeneration) {
+      return;
+    }
+    if (shouldRenderOverlay) {
+      renderSilentHighlightOverlay(renderCollections);
+    } else if (renderChanged) {
+      clearSilentHighlightOverlay();
+    }
+    if (renderChanged) {
+      lastSilentHighlightingRenderKey = renderKey;
+      lastSilentHighlightingsActive = shouldBeActive;
+    }
+    silentHighlightingPositionRefreshPending = false;
+    setSilentHighlightingsActive(shouldBeActive);
+    startSilentHighlightingObserver();
+  };
+  if (!shouldRenderOverlay && !renderChanged) {
+    applyOverlayUpdate();
+    return;
   }
-  if (renderChanged) {
-    lastSilentHighlightingRenderKey = renderKey;
-    lastSilentHighlightingsActive = shouldBeActive;
-  }
-  silentHighlightingPositionRefreshPending = false;
-  setSilentHighlightingsActive(shouldBeActive);
-  startSilentHighlightingObserver();
+  await new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame !== "function") {
+      applyOverlayUpdate();
+      resolve();
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      applyOverlayUpdate();
+      resolve();
+    });
+  });
 }
 
 /**

@@ -682,6 +682,59 @@ Validation checkpoint after Round-7 authority slices:
    page plus a selector-heavy page while watching mutation/scroll responsiveness
    and overlay correctness.
 
+50g. Silent-highlight overlay-write rAF yield completed:
+   `refreshSilentHighlightings()` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now packages the overlay DOM write into a local `applyOverlayUpdate`
+   closure and awaits a `requestAnimationFrame` round trip before invoking it
+   on the overlay-changing path. The previous overlay stays in place during
+   the yield (no immediate clear), so the page can flush queued paint/layout
+   work between source collection and the next DOM mutation; the closure
+   re-checks the generation token before mutating overlay state so a newer
+   refresh that bumped the token mid-yield wins. The no-op fast path
+   (`!shouldRenderOverlay && !renderChanged`) invokes the closure synchronously
+   to avoid an unnecessary frame delay. Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`461/461`)
+   stayed green and a repo-local Bonliva + prowork live smoke confirmed
+   identical AI-submission verdicts and zero console errors.
+53. Silent-highlight responsiveness rollup (status against item 50):
+   - **50 sub-1 (cancellable phases)**: partially landed as item 50d — a
+     generation token bails on stale calls after each `await`, but the function
+     body is not yet split into the four cancellable phases
+     (config/selector snapshot → source collection → render-target expansion →
+     overlay draw) recommended by item 50.
+   - **50 sub-2 (non-blocking UI / rAF yields, keep prior overlay)**:
+     partially landed as item 50g — one rAF yield separates source collection
+     from the overlay DOM write, and the previous overlay stays in place
+     during the yield. Splitting source collection itself into multiple
+     cancellable phases with intra-phase task breaks (e.g. between
+     `collectIncludedNodesFromSelectorSet` and
+     `buildSilentHighlightRenderableCollections`) is not yet landed and
+     remains an open follow-up if profiling shows source collection still
+     dominates the frame budget.
+   - **50 sub-3 (render-target caching)**: landed as item 50e.
+   - **50 sub-4 (tracked-node mutation index)**: landed as item 50f.
+   - **50 sub-5 (narrower mutation paths — position-only vs full vs
+     annotation-only)**: not started. Today every position-relevant attribute
+     mutation still funnels into
+     `scheduleSilentHighlightReposition({ waitForSettle: true })`.
+   - **50 sub-6 (per-generation memoization of visibility/textual checks)**:
+     not started; pending live profiling after the deeper phase split.
+   Item 52 live-smoke obligation: items 50d/50e/50f have full `npm test` and
+   focused-suite coverage. A headful repo-local smoke through
+   `scripts/smoke-ai-submission.mjs` against
+   `https://www.bonliva.no/artikler/barnehagevikar-lonn` and
+   `https://prowork.se/` after slices 50d/50e/50f ran cleanly: zero page
+   console errors, content-loader injection marker present, snapshot persisted,
+   and submission-xpath verdicts identical to the pre-Phase 51 baseline
+   (bonliva: 117/117 included visible, 2 default-excluded visible; prowork:
+   76/76 included visible, 15 default-excluded structural + 47 collapsed-FAQ
+   visible-excluded). The smoke does not actively exercise the
+   `refreshSilentHighlightings()` reposition/settle loop or mutation observer,
+   so a fully interactive live smoke that watches mutation/scroll
+   responsiveness on a selector-heavy page remains a follow-up validation step
+   for the deeper sub-2/sub-5/sub-6 work.
+
 ## Marking Reload Handoff
 
 Planning-only handoff prepared for the local Copilot agent:
