@@ -1,3 +1,7 @@
+import {
+  isAiSubmissionDocumentRootXpath
+} from "../content/submission-rules.js";
+
 export const AI_RUN_POLL_INTERVAL_MS = 5_000;
 export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;
 export const AI_RUN_RESUME_TTL_MS = 2 * 60 * 1000;
@@ -53,6 +57,32 @@ export function parseAiRunStatusResponse(payload) {
     return null;
   }
   return { sessionId, status };
+}
+
+export function buildAiSubmissionXpaths(entry) {
+  const explicitIncludeXpaths = new Set(
+    Array.isArray(entry && entry.includeXpaths)
+      ? entry.includeXpaths
+        .filter((xpath) => typeof xpath === "string" && xpath)
+        .map((xpath) => xpath.trim())
+        .filter(Boolean)
+      : []
+  );
+  return (Array.isArray(entry && entry.submissionXpaths) ? entry.submissionXpaths : [])
+    .filter((item) => item && typeof item.xpath === "string" && item.xpath)
+    .map((item) => {
+      const xpath = item.xpath.trim();
+      const excluded = Boolean(item.excluded);
+      if (excluded) {
+        return { xpath, excluded: true };
+      }
+      return {
+        xpath,
+        excluded: false,
+        explicit: explicitIncludeXpaths.has(xpath)
+      };
+    })
+    .filter((item) => item && !isAiSubmissionDocumentRootXpath(item.xpath));
 }
 
 export function normalizePersistedAiRunRecord(record) {

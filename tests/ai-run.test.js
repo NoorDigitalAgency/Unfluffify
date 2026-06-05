@@ -78,6 +78,7 @@ test("persisted AI run records normalize and validate the current site", () => {
 
 test("AI compute shows busy feedback and locks marking before payload work", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
   );
@@ -88,20 +89,23 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const lockIndex = body.indexOf("await syncAiComputeLock(true, initialLockExpiresAt);", firstPaintIndex);
   const secondPaintIndex = body.indexOf("await waitForPopupUiPaint();", lockIndex);
   const snapshotIndex = body.indexOf("type: \"capturePageSnapshot\"", secondPaintIndex);
-  const backfillIndex = body.indexOf("const rawHtmlBackfills = await backfillRawHtmlForPages", secondPaintIndex);
-  const refineIndex = body.indexOf("refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)", backfillIndex);
+  const prepareIndex = body.indexOf("type: \"prepareAiRunPayloadSnapshot\"", secondPaintIndex);
+  const refineIndex = body.indexOf("rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)", prepareIndex);
 
   assert.ok(activeIndex >= 0, "AI run state should be activated");
   assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
   assert.ok(lockIndex > firstPaintIndex, "marking should be locked after busy feedback is visible");
   assert.ok(secondPaintIndex > lockIndex, "popup should yield after marking is locked");
   assert.ok(snapshotIndex > secondPaintIndex, "current-page snapshot capture should wait for visible feedback");
-  assert.ok(backfillIndex > secondPaintIndex, "raw HTML backfill should wait for visible feedback");
-  assert.ok(refineIndex > backfillIndex, "XPath refinement should remain behind the busy feedback");
+  assert.ok(prepareIndex > secondPaintIndex, "AI payload preparation should wait for visible feedback");
+  assert.ok(refineIndex > prepareIndex, "XPath refinement should remain behind the busy feedback");
+  assert.match(backgroundSource, /async function prepareAiRunPayloadSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /fetchStaticPageHtmlForBackground/);
 });
 
 test("AI compute builds the request from stored local page snapshots only", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const match = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
   );
@@ -127,19 +131,39 @@ test("AI compute builds the request from stored local page snapshots only", () =
   );
   assert.match(
     body,
-    /const storedPageEntries = Object\.entries\(pageMarkings\)[\s\S]*?state\.currentBaseUrl[\s\S]*?entry\.renderedHtml[\s\S]*?entry\.submissionXpaths/
+    /type: "prepareAiRunPayloadSnapshot"[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?currentPageUrl,[\s\S]*?currentRenderMode/
   );
   assert.match(
     body,
-    /const rawHtmlBackfills = await backfillRawHtmlForPages\([\s\S]*?storedPageEntries\.map\(\(\[url\]\) => url\),[\s\S]*?pageMarkings/
+    /preparedPayload\.requiresRawXPathRefinement/
   );
   assert.match(
     body,
-    /const storedPages = storedPageEntries\.map\(\(\[url, entry\]\) => \{[\s\S]*?getStoredPageHtmlSnapshot\(entry, url, rawHtmlBackfills\)[\s\S]*?const renderedXPaths = toAiPayloadXpaths\(entry\);[\s\S]*?rawXPaths: isStatic \? refineXPathEntries\(renderedHtml, rawHtml, renderedXPaths\) : undefined/
+    /await utils\.storageGet\(chrome\.storage\.session, preparedPayload\.payloadKey\)/
   );
   assert.match(
     body,
-    /const payload = \{[\s\S]*?pages: storedPages[\s\S]*?\};/
+    /startPayloadKey = buildRemoteConfigTransferKey\("ai-run-start-refined"\)/
+  );
+  assert.match(
+    backgroundSource,
+    /const storedPageEntries = Object\.entries\(pageMarkings\)/
+  );
+  assert.match(
+    backgroundSource,
+    /const urlsMissingRawHtml = storedPageEntries/
+  );
+  assert.match(
+    backgroundSource,
+    /renderedXPaths: buildAiSubmissionXpaths\(entry\)/
+  );
+  assert.match(
+    backgroundSource,
+    /defaultExclusionSelectors: constants\.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS/
+  );
+  assert.doesNotMatch(
+    body,
+    /const storedPageEntries = Object\.entries\(pageMarkings\)|const rawHtmlBackfills = await backfillRawHtmlForPages|const payload = \{[\s\S]*?pages: storedPages/
   );
   assert.doesNotMatch(
     body,

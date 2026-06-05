@@ -178,6 +178,23 @@ Validation checkpoint after Round-7 authority slices:
    `chrome.storage.session`, and live repo-local validation confirmed the
    worker paths return structured start/result failures without blocking popup
    orchestration.
+22. Heavy marking/silent recalculation audit result: the actual marking and
+   silent-highlight recomputation loops stay content-owned for now. They depend
+   on live DOM access, geometry, mutation observers, overlay state, and
+   browser-only document APIs; the MV3 service worker does not expose
+   `document` or `DOMParser`, so moving those recalculations directly into
+   background would violate the authority boundary or require a dedicated
+   offscreen compute document. Keep investigating surrounding orchestration and
+   serialization work for offload, but keep the core render/rebuild passes in
+   `content-main.js` unless the architecture changes.
+23. AI corpus preparation offload slice completed: popup still owns AI-run UI,
+   page snapshot capture triggers, and the static-mode tail that refines
+   `rawXPaths`, but background now owns the expensive stored-page scan,
+   missing-raw-HTML backfills, and staged AI corpus assembly via
+   `prepareAiRunPayloadSnapshot`. Rendered-mode runs can now avoid popup-side
+   corpus assembly entirely, and static-mode runs only do the remaining
+   `refineXPathEntries(...)` pass locally because the worker lacks
+   document-parsing APIs.
 
 ## Marking Reload Handoff
 

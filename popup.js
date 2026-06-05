@@ -63,7 +63,6 @@ import {
   getAiRunRemainingMs,
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
-  parseAiRunStartResponse,
   shouldResumePersistedAiRun
 } from "./popup/ai-run.js";
 import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
@@ -76,9 +75,6 @@ import {
 import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
-import {
-  isAiSubmissionDocumentRootXpath
-} from "./content/submission-rules.js";
 import {
   normalizeAiSelectorSet,
   combineAiSelectorSet,
@@ -7579,12 +7575,22 @@ async function handlePageRevert() {
   });
 }
 
-async function requestAiRunStart({ endpointValue = "", tokenValue = "", payload = null } = {}) {
+async function requestAiRunStart({
+  endpointValue = "",
+  tokenValue = "",
+  payload = null,
+  payloadKey = ""
+} = {}) {
   if (!resolveRelativeEndpoint(endpointValue, "/get_selectors")) {
     return { ok: false };
   }
-  const requestPayloadKey = buildRemoteConfigTransferKey("ai-run-start-request");
-  await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload || {} });
+  const requestPayloadKey =
+    typeof payloadKey === "string" && payloadKey.trim()
+      ? payloadKey.trim()
+      : buildRemoteConfigTransferKey("ai-run-start-request");
+  if (!payloadKey) {
+    await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload || {} });
+  }
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunStartSnapshot",
     endpointValue,
@@ -7834,34 +7840,6 @@ async function handleComputeSelectors() {
     return;
   }
 
-  // Build the AI payload from stored page snapshots only. We intentionally avoid
-  // any compute-time DOM/HTML reclassification here to keep AI input consistent
-  // with the last saved page state.
-  const toAiPayloadXpaths = (entry) => {
-    const explicitIncludeXpaths = new Set(
-      Array.isArray(entry && entry.includeXpaths)
-        ? entry.includeXpaths
-          .filter((xpath) => typeof xpath === "string" && xpath)
-          .map((xpath) => xpath.trim())
-          .filter(Boolean)
-        : []
-    );
-    return (Array.isArray(entry && entry.submissionXpaths) ? entry.submissionXpaths : [])
-      .filter((item) => item && typeof item.xpath === "string" && item.xpath)
-      .map((item) => {
-        const xpath = item.xpath.trim();
-        const excluded = Boolean(item.excluded);
-        if (excluded) {
-          return { xpath, excluded: true };
-        }
-        return {
-          xpath,
-          excluded: false,
-          explicit: explicitIncludeXpaths.has(xpath)
-        };
-      })
-      .filter((item) => item && !isAiSubmissionDocumentRootXpath(item.xpath));
-  };
   const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
   const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
   setAiRunActiveState({
@@ -7908,62 +7886,54 @@ async function handleComputeSelectors() {
       }
     }
 
-    // Every AI run must reuse the stored local snapshots for all marked pages
-    // under the current base URL. Do not mix in live DOM re-collection here.
-    const storedPageEntries = Object.entries(pageMarkings)
-      .filter(([url, entry]) => {
-        if (!url || !entry || typeof entry !== "object") {
-          return false;
-        }
-        if (state.currentBaseUrl && !utils.isPageWithinBaseUrl(url, state.currentBaseUrl)) {
-          return false;
-        }
-        if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
-          return false;
-        }
-        if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
-          return false;
-        }
-        return true;
-      });
-    if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
-      await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-      return;
-    }
-    if (!storedPageEntries.length) {
-      await failAiRun(PopupText.ai.savePagesBeforeComputing);
-      return;
-    }
-
-    const rawHtmlBackfills = await backfillRawHtmlForPages(
-      state.currentBaseUrl,
-      storedPageEntries.map(([url]) => url),
-      pageMarkings
-    );
-
-    const storedPages = storedPageEntries.map(([url, entry]) => {
-      const { renderedHtml, rawHtml } = getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills);
-      const isStatic = currentRenderMode === "static";
-      const renderedXPaths = toAiPayloadXpaths(entry);
-      return {
-        url,
-        renderedHtml,
-        rawHtml: isStatic ? rawHtml : undefined,
-        renderedXPaths,
-        rawXPaths: isStatic ? refineXPathEntries(renderedHtml, rawHtml, renderedXPaths) : undefined
-      };
-    });
-
-    const payload = {
+    const preparedPayload = await messages.sendRuntimeMessage({
+      type: "prepareAiRunPayloadSnapshot",
       baseUrl: state.currentBaseUrl,
-      renderMode: currentRenderMode,
-      defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-      pages: storedPages
-    };
+      currentPageUrl,
+      currentRenderMode
+    });
+    if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
+      if (preparedPayload && preparedPayload.reason === "missing_current_page") {
+        await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+        return;
+      }
+      if (preparedPayload && preparedPayload.reason === "missing_saved_pages") {
+        await failAiRun(PopupText.ai.savePagesBeforeComputing);
+        return;
+      }
+      await failAiRun(PopupText.ai.runFailed);
+      return;
+    }
+    let startPayloadKey = preparedPayload.payloadKey;
+    if (preparedPayload.requiresRawXPathRefinement) {
+      const payloadStore = await utils.storageGet(chrome.storage.session, preparedPayload.payloadKey).catch(() => ({}));
+      const payload = payloadStore && typeof payloadStore === "object"
+        ? payloadStore[preparedPayload.payloadKey]
+        : null;
+      await utils.storageRemove(chrome.storage.session, preparedPayload.payloadKey).catch(() => null);
+      if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
+        await failAiRun(PopupText.ai.runFailed);
+        return;
+      }
+      const refinedPayload = {
+        ...payload,
+        pages: payload.pages.map((page) => {
+          const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
+          const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
+          const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
+          return {
+            ...page,
+            rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
+          };
+        })
+      };
+      startPayloadKey = buildRemoteConfigTransferKey("ai-run-start-refined");
+      await utils.storageSet(chrome.storage.session, { [startPayloadKey]: refinedPayload });
+    }
     const startResult = await requestAiRunStart({
       endpointValue,
       tokenValue,
-      payload
+      payloadKey: startPayloadKey
     });
     if (!startResult.ok || !startResult.sessionId) {
       await failAiRun(PopupText.ai.runFailed);

@@ -24,6 +24,7 @@
  */
 
 import * as utils from "./common/utilities.js";
+import * as configStore from "./common/config.js";
 import {
   clearDeviceEmulationAfterNavigation,
   ensureDefaultMobileDeviceEmulation,
@@ -32,6 +33,7 @@ import {
   updateDeviceEmulation
 } from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
+import * as constants from "./common/constants.js";
 import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
 import {
   PROPERTY_PAGE_TYPES_QUERY,
@@ -61,6 +63,7 @@ import {
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_PERSIST_KEY,
+  buildAiSubmissionXpaths,
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
   parseAiRunStartResponse,
@@ -771,6 +774,139 @@ async function requestAiRunResultSnapshot(options = {}) {
     const payloadKey = buildRemoteConfigPayloadKey("ai-run-result");
     await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
     return { ok: true, payloadKey };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function fetchStaticPageHtmlForBackground(url) {
+  const targetUrl = typeof url === "string" ? url.trim() : "";
+  let parsedUrl = null;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch {
+    return { ok: false, error: "Invalid URL" };
+  }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return { ok: false, error: "Unsupported URL" };
+  }
+  try {
+    const response = await fetch(parsedUrl.toString(), {
+      method: "GET",
+      credentials: "include",
+      redirect: "follow",
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status || 0,
+        error: "Static HTML request failed"
+      };
+    }
+    return {
+      ok: true,
+      status: response.status || 200,
+      url: response.url || parsedUrl.toString(),
+      html: await response.text()
+    };
+  } catch {
+    return { ok: false, error: "Static HTML request failed" };
+  }
+}
+
+async function prepareAiRunPayloadSnapshot(options = {}) {
+  const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl.trim() : "";
+  const currentPageUrl = typeof options.currentPageUrl === "string" ? options.currentPageUrl.trim() : "";
+  const currentRenderMode = typeof options.currentRenderMode === "string" ? options.currentRenderMode.trim() : "";
+  if (!baseUrl || !currentPageUrl) {
+    return { ok: false };
+  }
+  try {
+    const currentConfig = await configStore.ensureConfig(baseUrl);
+    const pageMarkings =
+      currentConfig && currentConfig.pageMarkings && typeof currentConfig.pageMarkings === "object"
+        ? currentConfig.pageMarkings
+        : {};
+    const storedPageEntries = Object.entries(pageMarkings)
+      .filter(([url, entry]) => {
+        if (!url || !entry || typeof entry !== "object") {
+          return false;
+        }
+        if (baseUrl && !utils.isPageWithinBaseUrl(url, baseUrl)) {
+          return false;
+        }
+        if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
+          return false;
+        }
+        if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
+          return false;
+        }
+        return true;
+      });
+    if (!storedPageEntries.some(([url]) => url === currentPageUrl)) {
+      return { ok: false, reason: "missing_current_page" };
+    }
+    if (!storedPageEntries.length) {
+      return { ok: false, reason: "missing_saved_pages" };
+    }
+    const urlsMissingRawHtml = storedPageEntries
+      .map(([url, entry]) => ({ url, entry }))
+      .filter(({ entry }) => typeof entry.rawHtml !== "string" || !entry.rawHtml);
+    const backfillResults = await Promise.all(
+      urlsMissingRawHtml.map(async ({ url }) => {
+        const response = await fetchStaticPageHtmlForBackground(url);
+        if (!response.ok || typeof response.html !== "string" || !response.html) {
+          return null;
+        }
+        return { url, rawHtml: response.html };
+      })
+    );
+    const successfulBackfills = backfillResults.filter(Boolean);
+    if (successfulBackfills.length) {
+      await configStore.updateConfig(baseUrl, (targetConfig) => {
+        if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+          return;
+        }
+        successfulBackfills.forEach((item) => {
+          const targetEntry = targetConfig.pageMarkings[item.url];
+          if (!targetEntry || typeof targetEntry !== "object") {
+            return;
+          }
+          targetEntry.rawHtml = item.rawHtml;
+        });
+      });
+    }
+    const rawHtmlBackfills = new Map();
+    successfulBackfills.forEach((item) => {
+      rawHtmlBackfills.set(item.url, item.rawHtml);
+    });
+    const pages = storedPageEntries.map(([url, entry]) => {
+      const rawHtml =
+        entry && typeof entry.rawHtml === "string" && entry.rawHtml
+          ? entry.rawHtml
+          : rawHtmlBackfills.get(url) || "";
+      return {
+        url,
+        renderedHtml: typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
+        rawHtml: currentRenderMode === "static" ? rawHtml : undefined,
+        renderedXPaths: buildAiSubmissionXpaths(entry)
+      };
+    });
+    const payloadKey = buildRemoteConfigPayloadKey("ai-run-prepare");
+    await utils.storageSet(chrome.storage.session, {
+      [payloadKey]: {
+        baseUrl,
+        renderMode: currentRenderMode,
+        defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+        pages
+      }
+    });
+    return {
+      ok: true,
+      payloadKey,
+      requiresRawXPathRefinement: currentRenderMode === "static"
+    };
   } catch {
     return { ok: false };
   }
@@ -1564,6 +1700,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       sessionId: message.sessionId
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "prepareAiRunPayloadSnapshot") {
+    prepareAiRunPayloadSnapshot({
+      baseUrl: message.baseUrl,
+      currentPageUrl: message.currentPageUrl,
+      currentRenderMode: message.currentRenderMode
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));
