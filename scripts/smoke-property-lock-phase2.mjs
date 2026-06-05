@@ -146,15 +146,32 @@ async function openPopupPage(context, extensionId, tabId) {
     waitUntil: "domcontentloaded",
     timeout: 30000
   });
+  // Wait for at least one meaningful UI element — not just any body text — so
+  // we can distinguish a loaded popup from a blank flash before the first render.
   await popup.waitForFunction(() => {
     return Boolean(
-      document.querySelector("#close-tab") ||
       document.querySelector("#toggle-enabled") ||
+      document.querySelector(".property-lock__status") ||
       document.querySelector(".property-lock") ||
-      (document.body && document.body.innerText && document.body.innerText.trim())
+      document.querySelector("#base-url-input") ||
+      document.querySelector("#close-tab")
     );
   }, { timeout: 30000 });
-  await popup.waitForTimeout(3500);
+  // Give the popup's async refreshUi() a chance to resolve property-lock state
+  // and initial-tab-state before we inspect it. Retry up to 3 times if the
+  // popup still looks unloaded.
+  let attempts = 0;
+  while (attempts < 3) {
+    await popup.waitForTimeout(2000);
+    const hasContent = await popup.evaluate(() => {
+      const body = document.body?.innerText?.trim() || "";
+      return body.length > 20;
+    });
+    if (hasContent) {
+      break;
+    }
+    attempts++;
+  }
   const popupBody = await popup.evaluate(() => document.body?.innerText?.trim() || "");
   logStep("popup-body", popupBody.slice(0, 500));
   if (popupConsole.length) {

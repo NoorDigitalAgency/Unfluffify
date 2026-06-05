@@ -1261,11 +1261,15 @@ Phase 2 drift audit and fixes (2026-06-06):
 
 Phase 2 remaining work:
    Remaining work is validation of the live flows. The repo-local smoke
-   harness in `scripts/smoke-property-lock-phase2.mjs` has known flakiness
-   around popup reopen/auth bootstrap after unpacked-extension reload. The
-   next work item is a same-property candidate→off-candidate→candidate pass
-   plus a cross-property return pass in a trustworthy live browser session.
-   Once those pass, Phase 2 can be declared fully closed.
+   harness `scripts/smoke-property-lock-phase2.mjs` was improved to wait
+   for meaningful popup UI content (not just body text) and to retry up to
+   3 times before giving up on auth/load, reducing flakiness around popup
+   reopen after unpacked-extension reload. The remaining validation pass
+   requires a real browser session with auth state; a same-property
+   candidate→off-candidate→candidate cycle plus a cross-property return
+   cycle should be run in a session with valid Bonliva or similar property
+   auth before declaring Phase 2 fully closed. Full `npm test` (532/532)
+   green after all Phase 2 drift fixes.
 
 Page interaction pass-through completed:
 
