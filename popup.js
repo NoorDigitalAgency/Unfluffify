@@ -2975,6 +2975,13 @@ function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
 }
 
+function buildRemoteConfigTransferKey(scope = "payload") {
+  const normalizedScope = typeof scope === "string" && scope.trim()
+    ? scope.trim()
+    : "payload";
+  return `remote-config-${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
   if (!targetConfig || typeof targetConfig !== "object") {
     return false;
@@ -3367,8 +3374,7 @@ async function syncBaseConfigToServer(options = {}) {
   if (!baseUrl || !pageUrl || !endpointValue) {
     return { ok: false, skipped: true };
   }
-  const saveUrl = resolveRelativeEndpoint(endpointValue, "/save");
-  if (!saveUrl) {
+  if (!resolveRelativeEndpoint(endpointValue, "/save")) {
     return { ok: false, skipped: true };
   }
   const attempts = Math.max(1, Number(maxAttempts) || 1);
@@ -3458,21 +3464,36 @@ async function syncBaseConfigToServer(options = {}) {
       filterPageMarking
     });
     try {
-      const response = await fetch(saveUrl, {
-        method: "POST",
-        headers: createConfigSyncHeaders(currentTokenValue),
-        body: JSON.stringify(payload)
+      const requestPayloadKey = buildRemoteConfigTransferKey("save-request");
+      await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload });
+      const response = await messages.sendRuntimeMessage({
+        type: "saveRemoteConfigSnapshot",
+        endpointValue,
+        tokenValue: currentTokenValue,
+        payloadKey: requestPayloadKey
       });
-      currentTokenValue = await maybeUpdateStoredTokenFromResponse(
-        response,
-        currentTokenValue
-      );
-      if (response.status === 401 || response.status === 403) {
-        await invalidateTokenAndLockConfiguration(true);
-        return { ok: false, status: response.status || 0, authExpired: true };
+      try {
+        const refreshedToken = await getStoredGlobalToken({ trim: true });
+        if (refreshedToken) {
+          currentTokenValue = refreshedToken;
+        }
+      } catch {
+        // Ignore token refresh read errors; continue with the current in-memory token.
       }
-      if (!response.ok) {
-        lastStatus = response.status || 0;
+      if (response && response.status === "auth_error") {
+        await invalidateTokenAndLockConfiguration(true);
+        return { ok: false, status: 401, authExpired: true };
+      }
+      if (!response || response.ok !== true) {
+        if (attempt + 1 < attempts) {
+          await waitForRetryDelay(retryDelayMs);
+          retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+          continue;
+        }
+        return { ok: false };
+      }
+      if (response.status === "error") {
+        lastStatus = Number(response.httpStatus) || 0;
         if (attempt + 1 < attempts && isRetryableHttpStatus(lastStatus)) {
           await waitForRetryDelay(retryDelayMs);
           retryDelayMs = Math.min(retryDelayMs * 2, 10000);
@@ -3480,12 +3501,23 @@ async function syncBaseConfigToServer(options = {}) {
         }
         return { ok: false, status: lastStatus };
       }
-
       let responseData = null;
-      try {
-        responseData = await response.json();
-      } catch (error) {
-        responseData = null;
+      const responsePayloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
+      if (response.status === "ok" && responsePayloadKey) {
+        try {
+          const responseStore = await utils.storageGet(chrome.storage.session, responsePayloadKey);
+          responseData =
+            responseStore &&
+            typeof responseStore === "object" &&
+            responseStore[responsePayloadKey] &&
+            typeof responseStore[responsePayloadKey] === "object"
+              ? responseStore[responsePayloadKey]
+              : null;
+        } catch {
+          responseData = null;
+        } finally {
+          await utils.storageRemove(chrome.storage.session, responsePayloadKey).catch(() => null);
+        }
       }
       if (!responseData || typeof responseData !== "object") {
         const mergeResult = await mergeServerConfigIntoLocal(

@@ -532,8 +532,11 @@ async function submitSelectorSetGraphqlUpdate(options = {}) {
   }
 }
 
-function buildRemoteConfigPayloadKey() {
-  return `remote-config-load:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+function buildRemoteConfigPayloadKey(scope = "load") {
+  const normalizedScope = typeof scope === "string" && scope.trim()
+    ? scope.trim()
+    : "payload";
+  return `remote-config-${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function loadRemoteConfigSnapshot(options = {}) {
@@ -571,6 +574,54 @@ async function loadRemoteConfigSnapshot(options = {}) {
     return { ok: true, status: "ok", payloadKey };
   } catch {
     return { ok: false };
+  }
+}
+
+async function saveRemoteConfigSnapshot(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
+  const saveUrl = resolveBackgroundEndpoint(endpointValue, "/save");
+  if (!saveUrl || !requestPayloadKey) {
+    return { ok: false, skipped: true };
+  }
+  let requestPayload = null;
+  try {
+    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
+    requestPayload = payloadStore && typeof payloadStore === "object"
+      ? payloadStore[requestPayloadKey]
+      : null;
+    if (!requestPayload || typeof requestPayload !== "object") {
+      return { ok: false, skipped: true };
+    }
+    const response = await fetch(saveUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify(requestPayload)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 401 || response.status === 403) {
+      return { ok: true, status: "auth_error", payloadKey: "" };
+    }
+    if (!response.ok) {
+      return { ok: true, status: "error", httpStatus: response.status || 0, payloadKey: "" };
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!payload || typeof payload !== "object") {
+      return { ok: true, status: "empty", payloadKey: "" };
+    }
+    const responsePayloadKey = buildRemoteConfigPayloadKey("save-response");
+    await utils.storageSet(chrome.storage.session, { [responsePayloadKey]: payload });
+    return { ok: true, status: "ok", payloadKey: responsePayloadKey };
+  } catch {
+    return { ok: false };
+  } finally {
+    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
   }
 }
 
@@ -1307,6 +1358,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       siteId: message.siteId
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "saveRemoteConfigSnapshot") {
+    saveRemoteConfigSnapshot({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      payloadKey: message.payloadKey
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

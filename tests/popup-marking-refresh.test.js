@@ -359,6 +359,25 @@ test("remote config load delegates transport to background and hydrates the payl
   assert.doesNotMatch(loadBody, /fetch\(loadUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 
+test("remote config save delegates transport to background and hydrates the response from session storage", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const saveBody = popupSource.match(
+    /async function syncBaseConfigToServer\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction updateLoginActionState/
+  )[1];
+
+  assert.match(backgroundSource, /async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
+  assert.match(backgroundSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
+  assert.match(backgroundSource, /await utils\.storageRemove\(chrome\.storage\.session, requestPayloadKey\)\.catch\(\(\) => null\);/);
+  assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);
+  assert.match(saveBody, /type: "saveRemoteConfigSnapshot"/);
+  assert.match(saveBody, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
+  assert.match(saveBody, /await utils\.storageGet\(chrome\.storage\.session, responsePayloadKey\)/);
+  assert.match(saveBody, /await utils\.storageRemove\(chrome\.storage\.session, responsePayloadKey\)/);
+  assert.doesNotMatch(saveBody, /fetch\(saveUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");

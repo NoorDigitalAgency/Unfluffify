@@ -146,6 +146,15 @@ Validation checkpoint after Round-7 authority slices:
    popup or content script awaits completion. Validate each slice with focused
    regression tests, full `npm test`, and repo-local headful Playwright live
    verification after reloading the unpacked extension worker.
+18. Remote config save transport slice completed: popup still owns config
+   normalization, site/page-type reconciliation, merge semantics, invalid-page
+   pruning, and UX/retry policy, but the `/save` POST now goes through
+   background `saveRemoteConfigSnapshot`. Popup stages the heavy request and
+   response bodies through `chrome.storage.session` keys so the runtime message
+   carries only control metadata. Repo-local headful validation confirmed the
+   live worker transport path and structured server error handling; the current
+   persistent profile did not contain a populated local config to exercise a
+   successful save response body.
 
 ## Marking Reload Handoff
 
