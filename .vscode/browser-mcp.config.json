@@ -1,7 +1,9 @@
 {
   "browser": {
+    "browserName": "chromium",
     "launchOptions": {
       "headless": false,
+      "executablePath": "/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome",
       "ignoreDefaultArgs": [
         "--disable-extensions"
       ],

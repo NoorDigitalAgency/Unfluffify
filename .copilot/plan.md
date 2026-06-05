@@ -33,10 +33,16 @@ Validation checkpoint after Round-7 authority slices:
    `browser` key (`browser.launchOptions`), not legacy top-level
    `launchOptions`. Keep `.vscode/browser-mcp.config.json` in that schema and
    keep `ignoreDefaultArgs: ["--disable-extensions"]` so the unpacked extension
-   is not suppressed by Playwright's default Chrome flags. The repo MCP server
-   entries pass absolute `--user-data-dir` and `--config` paths; relative paths
-   can resolve incorrectly depending on the MCP client process cwd and have
-   created stray `undefined/` browser profiles during manual terminal validation.
+   is not suppressed by Playwright's default Chrome flags. MCP's default Chrome
+   channel did not inject this unpacked extension even with the extension flags
+   resolved; using Playwright's bundled Chromium executable at
+   `/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome`
+   with `browser.browserName: "chromium"` matches the standalone working script
+   and makes the content-loader and `background.js` service worker appear. The
+   repo MCP server entries pass
+   absolute `--user-data-dir` and `--config` paths; relative paths can resolve
+   incorrectly depending on the MCP client process cwd and have created stray
+   `undefined/` browser profiles during manual terminal validation.
    Standalone Playwright scripts that do not use `.mcp.json` / `.vscode/mcp.json`
    must pass the persistent profile path themselves, e.g.
    `/home/rojan/Documents/Git/GitHub/Unfluffify/.mcp-browser-profile`.
@@ -54,13 +60,20 @@ Validation checkpoint after Round-7 authority slices:
 5. User-confirmed Playwright validation: launching Chromium with the resolved
    `browser.launchOptions` from `.vscode/browser-mcp.config.json` and the
    persistent `.mcp-browser-profile` loads the unpacked extension and preserves
-   the existing extension configuration. If `launchOptions.channel === ""` is
-   present in an ad-hoc script config, delete that property before calling the
-   core Playwright API; the MCP resolver tolerates it, but Playwright's
+   the existing extension configuration. A repo-configured MCP run using the
+   bundled Chromium executable showed `#unfluffify-page-motion-freeze-script`,
+   `data-uf-debug-tab-id`, and service worker
+   `chrome-extension://poibphcdecdbdcafahkacjbflalafmjh/background.js` on
+   `https://seo.se/`. If `launchOptions.channel === ""` is present in an ad-hoc
+   script config, delete that property before calling the core Playwright API;
+   the MCP resolver tolerates it, but Playwright's
    `chromium.launchPersistentContext` expects a valid channel or `undefined`.
-6. `https://seo.se/` live smoke status should now be rerun through the
-   repo-configured `playwright-local` MCP after restarting the MCP server/browser
-   so it picks up the current config. The previous `resolvePopupTabContext`
+6. `https://seo.se/` live smoke now passes through the repo-configured
+   `playwright-local` MCP after restarting the MCP server/browser with the
+   corrected config. The smoke verified content bootstrap injection,
+   `background.js` service worker registration, popup load through
+   `popup.html?debugTabId=...`, `resolvePopupTabContext`, `getTabState`, and
+   `getPersistedAiRunRecord`. The previous `resolvePopupTabContext`
    no-response result was captured before the confirmed working launch shape and
    should not block further authority work until reproduced with the corrected
    profile/config setup. The seo.se page itself logs an unrelated site script
