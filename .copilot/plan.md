@@ -37,6 +37,10 @@ Validation checkpoint after Round-7 authority slices:
    returned no response with `chrome.runtime.lastError` = `The message port
    closed before a response was received.` Treat this as a validation-blocking
    authority-refactor follow-up before moving more popup/background ownership.
+   A message-safe tab serialization attempt did not change the MCP failure, so
+   the next investigation should focus on whether the background listener is
+   receiving/keeping the popup-originated `resolvePopupTabContext` message alive
+   in the extension-page context, not on raw `chrome.tabs.Tab` serialization.
    The seo.se page itself also logs an unrelated site script `Failed to fetch`
    error from `seo-theme`.
 4. Remaining authority work should still avoid proxying large config, HTML, or
