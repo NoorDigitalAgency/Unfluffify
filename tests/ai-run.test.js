@@ -264,7 +264,7 @@ test("AI run status polling uses background transport while large payload flows 
   assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
 });
 
-test("selector submit GraphQL mutation uses background transport while page-type assignment stays popup-owned", () => {
+test("selector submit GraphQL mutation and page-type assignment both use background transport", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const submitStart = popupSource.indexOf("async function submitSelectorSetToServer(");
@@ -279,14 +279,19 @@ test("selector submit GraphQL mutation uses background transport while page-type
   const assignmentBlock = popupSource.slice(assignmentStart, assignmentEnd);
 
   assert.match(backgroundSource, /async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /async function submitPageTypeAssignments\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitSelectorSetGraphqlUpdate"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "submitPageTypeAssignments"\) \{/);
   assert.match(backgroundSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
   assert.match(submitBlock, /type: "submitSelectorSetGraphqlUpdate"/);
   assert.match(submitBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(submitBlock, /fetch\(graphqlEndpoint|UPDATE_SCRAPING_CONDITIONS_MUTATION|maybeUpdateStoredTokenFromResponse/);
-  assert.match(assignmentBlock, /fetch\(assignPageTypesUrl/);
+  assert.match(assignmentBlock, /type: "submitPageTypeAssignments"/);
+  assert.match(assignmentBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
+  assert.match(assignmentBlock, /messages\.sendRuntimeMessage/);
   assert.match(assignmentBlock, /rawHtml/);
   assert.match(assignmentBlock, /renderedHtml/);
+  assert.doesNotMatch(assignmentBlock, /fetch\(assignPageTypesUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {

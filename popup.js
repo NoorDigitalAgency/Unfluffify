@@ -8044,8 +8044,7 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
     checklistPageTypes = state.lynxChecklistPageTypes
   } = options;
   try {
-    const assignPageTypesUrl = resolveRelativeEndpoint(endpointValue, "/assign_page_types");
-    if (!assignPageTypesUrl) {
+    if (!resolveRelativeEndpoint(endpointValue, "/assign_page_types")) {
       return;
     }
     const storedPageMarkingItems = collectStoredPageMarkingItems(pageMarkings, baseUrl);
@@ -8075,14 +8074,16 @@ async function postPageTypeAssignmentsToAiServer(options = {}) {
         pageType: item.pageType
       };
     });
-    const response = await fetch(assignPageTypesUrl, {
-      method: "POST",
-      headers: createConfigSyncHeaders(tokenValue),
-      body: JSON.stringify(payload)
+    const requestPayloadKey = buildRemoteConfigTransferKey("assign-page-types-request");
+    await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload });
+    const response = await messages.sendRuntimeMessage({
+      type: "submitPageTypeAssignments",
+      endpointValue,
+      tokenValue,
+      payloadKey: requestPayloadKey
     });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+    if (!response || response.ok !== true || response.status !== "ok") {
+      throw new Error(`Request failed with status ${Number(response && response.httpStatus) || 0}`);
     }
   } catch (error) {
     console.warn("Unable to assign page types to AI server.", error);

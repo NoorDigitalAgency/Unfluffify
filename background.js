@@ -664,6 +664,39 @@ async function requestRenderModeDetection(options = {}) {
   }
 }
 
+async function submitPageTypeAssignments(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
+  const assignPageTypesUrl = resolveBackgroundEndpoint(endpointValue, "/assign_page_types");
+  if (!assignPageTypesUrl || !requestPayloadKey) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
+    const payload = payloadStore && typeof payloadStore === "object"
+      ? payloadStore[requestPayloadKey]
+      : null;
+    if (!Array.isArray(payload) || !payload.length) {
+      return { ok: false, skipped: true };
+    }
+    const response = await fetch(assignPageTypesUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify(payload)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      return { ok: true, status: "error", httpStatus: response.status || 0 };
+    }
+    return { ok: true, status: "ok" };
+  } catch {
+    return { ok: false };
+  } finally {
+    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+  }
+}
+
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -1416,6 +1449,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "requestRenderModeDetection") {
     requestRenderModeDetection({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      payloadKey: message.payloadKey
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "submitPageTypeAssignments") {
+    submitPageTypeAssignments({
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       payloadKey: message.payloadKey

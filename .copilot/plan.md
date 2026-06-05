@@ -162,6 +162,13 @@ Validation checkpoint after Round-7 authority slices:
    `chrome.storage.session`. Live repo-local validation confirmed the staged
    request reaches the worker and returns structured endpoint errors without
    blocking popup-side orchestration.
+20. Page-type assignment transport slice completed: popup still owns
+   assignment building, raw-HTML backfills, and selector-submit orchestration,
+   but the heavy `/assign_page_types` POST now goes through background
+   `submitPageTypeAssignments` with the raw/rendered HTML payload staged
+   through `chrome.storage.session`. Live repo-local validation confirmed the
+   worker path accepts the staged body and returns structured endpoint errors
+   without blocking the popup flow.
 
 ## Marking Reload Handoff
 
