@@ -59,7 +59,6 @@ import * as utils from "./common/utilities.js";
 import * as messages from "./popup/messages.js";
 import * as helpers from "./popup/helpers.js";
 import {
-  AI_RUN_PERSIST_KEY,
   AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_TIMEOUT_MS,
   formatAiRunCountdown,
@@ -2388,24 +2387,20 @@ function setAiRunActiveState({
 }
 
 async function loadPersistedAiRunRecord() {
-  const stored = await utils.storageGet(chrome.storage.session, AI_RUN_PERSIST_KEY);
-  return normalizePersistedAiRunRecord(stored && stored[AI_RUN_PERSIST_KEY]);
+  const response = await messages.sendRuntimeMessage({ type: "getPersistedAiRunRecord" });
+  return normalizePersistedAiRunRecord(response && response.record);
 }
 
 async function savePersistedAiRunRecord(record) {
-  const normalized = normalizePersistedAiRunRecord(record);
-  if (!normalized) {
-    await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
-    return null;
-  }
-  await utils.storageSet(chrome.storage.session, {
-    [AI_RUN_PERSIST_KEY]: normalized
+  const response = await messages.sendRuntimeMessage({
+    type: "savePersistedAiRunRecord",
+    record
   });
-  return normalized;
+  return normalizePersistedAiRunRecord(response && response.record);
 }
 
 async function clearPersistedAiRunRecord() {
-  await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
+  await messages.sendRuntimeMessage({ type: "clearPersistedAiRunRecord" });
 }
 
 async function syncAiComputeLock(active, expiresAt = 0) {

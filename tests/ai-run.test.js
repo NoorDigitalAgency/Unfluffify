@@ -167,6 +167,26 @@ test("AI compute reports specific snapshot preparation blockers", () => {
   assert.match(computeBody, /await failAiRun\(getAiSnapshotFailureMessage\(snapshotResponse\)\);/);
 });
 
+test("AI run recovery metadata is persisted through background", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const loadStart = popupSource.indexOf("async function loadPersistedAiRunRecord() {");
+  const loadEnd = popupSource.indexOf("async function syncAiComputeLock", loadStart);
+  assert.ok(loadStart > -1);
+  assert.ok(loadEnd > loadStart);
+  const popupPersistenceBlock = popupSource.slice(loadStart, loadEnd);
+
+  assert.match(backgroundSource, /AI_RUN_PERSIST_KEY/);
+  assert.match(backgroundSource, /function getPersistedAiRunRecord|async function getPersistedAiRunRecord/);
+  assert.match(backgroundSource, /if \(message\.type === "getPersistedAiRunRecord"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "savePersistedAiRunRecord"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "clearPersistedAiRunRecord"\) \{/);
+  assert.match(popupPersistenceBlock, /type: "getPersistedAiRunRecord"/);
+  assert.match(popupPersistenceBlock, /type: "savePersistedAiRunRecord"/);
+  assert.match(popupPersistenceBlock, /type: "clearPersistedAiRunRecord"/);
+  assert.doesNotMatch(popupPersistenceBlock, /storageGet|storageSet|storageRemove|AI_RUN_PERSIST_KEY/);
+});
+
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logicDoc = readFileSync(new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url), "utf8");

@@ -58,6 +58,10 @@ import {
   WORLD_PORTS,
   isLifecycleTerminalPhase
 } from "./common/world-messaging-contract.js";
+import {
+  AI_RUN_PERSIST_KEY,
+  normalizePersistedAiRunRecord
+} from "./popup/ai-run.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -152,6 +156,27 @@ function reloadTab(tabId) {
       });
     }
   });
+}
+
+async function getPersistedAiRunRecord() {
+  const stored = await utils.storageGet(chrome.storage.session, AI_RUN_PERSIST_KEY);
+  return normalizePersistedAiRunRecord(stored && stored[AI_RUN_PERSIST_KEY]);
+}
+
+async function savePersistedAiRunRecord(record) {
+  const normalized = normalizePersistedAiRunRecord(record);
+  if (!normalized) {
+    await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
+    return null;
+  }
+  await utils.storageSet(chrome.storage.session, {
+    [AI_RUN_PERSIST_KEY]: normalized
+  });
+  return normalized;
+}
+
+async function clearPersistedAiRunRecord() {
+  await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
 }
 
 function ensureTraceState(tabId) {
@@ -686,6 +711,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     reloadTab(message.tabId || (sender.tab && sender.tab.id))
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, error: "Unable to reload tab" }));
+    return true;
+  }
+
+  if (message.type === "getPersistedAiRunRecord") {
+    getPersistedAiRunRecord()
+      .then((record) => sendResponse({ ok: true, record }))
+      .catch(() => sendResponse({ ok: false, record: null }));
+    return true;
+  }
+
+  if (message.type === "savePersistedAiRunRecord") {
+    savePersistedAiRunRecord(message.record)
+      .then((record) => sendResponse({ ok: true, record }))
+      .catch(() => sendResponse({ ok: false, record: null }));
+    return true;
+  }
+
+  if (message.type === "clearPersistedAiRunRecord") {
+    clearPersistedAiRunRecord()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
