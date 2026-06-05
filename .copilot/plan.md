@@ -80,25 +80,28 @@ Planning-only follow-up from comparing the supplied final
 implementation:
 
 1. Treat the supplied final document as the marking/silent-highlighting contract
-   baseline. The current `MARKING_AND_HIGHLIGHTING_LOGIC.md` already contains
-   the supplied contract, but it also includes newer orchestration addenda for
-   Save Session gating, popup/content mode reconciliation, background spinner
-   brokerage, and Render Mode inspection. In the docs sync phase, reconcile
-   those additions deliberately: keep them only if they describe accepted
-   committed behavior and belong in this source-of-truth doc; otherwise move
-   them to `.copilot/plan.md`, `.copilot/knowledge.md`, `README.md`, or the
-   relevant workflow docs.
-2. Fix the concrete Preview Contents drift. The supplied/current contract says
-   Preview Contents and Send to Lynx live on the silent-highlighting surface
-   only and must stay hidden or disabled while marking mode is active. Current
-   implementation still exposes a marking-mode preview path via
-   `nextViewState.markingPreviewVisible`, `markingPreviewDisabled`,
-   `handleMarkingPreview`, `onMarkingPreview`, and the `#marking-preview` button
-   in `popup/ui.js`, and `tests/popup-ai-run-gating.test.js` locks that behavior.
-   Planned fix: remove the marking-mode preview state/handler/UI, update tests
-   to assert no marking-mode preview path exists, keep the silent-mode Preview
-   Contents and Send to Lynx handler-level `silentModeActive` guards, and verify
-   opening/closing preview does not dirty page drafts.
+   baseline, except for explicitly accepted later product decisions. The current
+   `MARKING_AND_HIGHLIGHTING_LOGIC.md` already contains the supplied contract,
+   but it also includes newer orchestration addenda for Save Session gating,
+   popup/content mode reconciliation, background spinner brokerage, and Render
+   Mode inspection. In the docs sync phase, reconcile those additions
+   deliberately: keep them only if they describe accepted committed behavior and
+   belong in this source-of-truth doc; otherwise move them to `.copilot/plan.md`,
+   `.copilot/knowledge.md`, `README.md`, or the relevant workflow docs.
+2. Reconcile the Preview Contents contract to the accepted later behavior:
+   preview mode intentionally exists in marking mode again. Keep the current
+   marking-mode preview path (`nextViewState.markingPreviewVisible`,
+   `markingPreviewDisabled`, `handleMarkingPreview`, `onMarkingPreview`, and the
+   `#marking-preview` button in `popup/ui.js`) and keep
+   `tests/popup-ai-run-gating.test.js` coverage that locks its existence and
+   AI-run freshness gating. Planned fix: update `MARKING_AND_HIGHLIGHTING_LOGIC.md`,
+   `.copilot/knowledge.md`, `.copilot/plan.md`, and `README.md` so they no
+   longer say Preview Contents is silent-highlighting-only. Distinguish Preview
+   Contents from Send to Lynx: Send to Lynx should remain silent-mode-only unless
+   the user explicitly approves changing that separately. Add/keep tests that
+   opening/closing preview from marking mode does not create or dirty page
+   drafts and that handler-level guards still prevent Send to Lynx outside the
+   accepted silent-mode surface.
 3. Add/strengthen a focused regression guard for the silent-highlight click
    pass-through contract. Implementation appears to set `pointer-events: none`
    on `#unfluffify-silent-highlight-overlay`, layers, and rects, but the supplied
@@ -110,9 +113,10 @@ implementation:
    omitted), ordinary exclude overlay projection, default-row submission,
    hidden textual submission, silent-highlight `immutable`/`content`/`excluded`
    layers, movement-settle redraws, page-motion pause ownership, Space-held page
-   interaction, and temporary disabled marking state. These are covered by the
-   focused marking/silent/submission suites and should not be refactored as part
-   of the Preview Contents drift fix.
+   interaction, temporary disabled marking state, and the intentionally restored
+   marking-mode Preview Contents path. These are covered by the focused
+   marking/silent/submission suites and should not be refactored as part of the
+   documentation reconciliation work.
 5. Validation for this reconciliation phase: run
    `node --test tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/core-scheduling.test.js tests/submission-rules.test.js`,
    then the full `npm test`. After each phase, run the repo-configured
