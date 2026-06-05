@@ -63,6 +63,7 @@ import {
   AI_RUN_PERSIST_KEY,
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
+  parseAiRunStartResponse,
   parseAiRunStatusResponse
 } from "./popup/ai-run.js";
 
@@ -694,6 +695,84 @@ async function submitPageTypeAssignments(options = {}) {
     return { ok: false };
   } finally {
     await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+  }
+}
+
+async function requestAiRunStartSnapshot(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
+  const computeSelectorsUrl = resolveBackgroundEndpoint(endpointValue, "/get_selectors");
+  if (!computeSelectorsUrl || !requestPayloadKey) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
+    const payload = payloadStore && typeof payloadStore === "object"
+      ? payloadStore[requestPayloadKey]
+      : null;
+    const response = await fetch(computeSelectorsUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify(payload || {})
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      return { ok: true, status: "error", httpStatus: response.status || 0 };
+    }
+    const sessionId = parseAiRunStartResponse(await response.json());
+    if (!sessionId) {
+      return { ok: false };
+    }
+    return { ok: true, status: "ok", sessionId };
+  } catch {
+    return { ok: false };
+  } finally {
+    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+  }
+}
+
+async function requestAiRunResultSnapshot(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
+  const resultUrl = sessionId
+    ? resolveBackgroundEndpoint(endpointValue, `/get_selectors/result/${encodeURIComponent(sessionId)}`)
+    : "";
+  if (!resultUrl) {
+    return { ok: false };
+  }
+  try {
+    const response = await fetch(resultUrl, {
+      method: "GET",
+      headers: createBackgroundJsonHeaders(tokenValue)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 404) {
+      return { ok: false, notFound: true };
+    }
+    if (!response.ok) {
+      return { ok: false };
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !Array.isArray(payload.exclusionSelectors) ||
+      !Array.isArray(payload.inclusionSelectors)
+    ) {
+      return { ok: false };
+    }
+    const payloadKey = buildRemoteConfigPayloadKey("ai-run-result");
+    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
+    return { ok: true, payloadKey };
+  } catch {
+    return { ok: false };
   }
 }
 
@@ -1463,6 +1542,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       payloadKey: message.payloadKey
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "requestAiRunStartSnapshot") {
+    requestAiRunStartSnapshot({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      payloadKey: message.payloadKey
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "requestAiRunResultSnapshot") {
+    requestAiRunResultSnapshot({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      sessionId: message.sessionId
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

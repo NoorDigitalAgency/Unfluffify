@@ -233,7 +233,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.match(contentComputeLockBlock, /sendResponse\(\{ ok: true, active: true \}\);[\s\S]*?refreshSilentHighlightings\(\)\.then\(\);/);
 });
 
-test("AI run status polling uses background transport while large payload flows stay popup-owned", () => {
+test("AI run start, status polling, and result transport use background messaging with staged heavy bodies", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const statusStart = popupSource.indexOf("async function requestAiRunStatus(");
@@ -252,15 +252,23 @@ test("AI run status polling uses background transport while large payload flows 
   const startBlock = popupSource.slice(startStart, startEnd);
   const resultBlock = popupSource.slice(resultStart, resultEnd);
 
+  assert.match(backgroundSource, /async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function requestAiRunStatus\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "requestAiRunStartSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunStatus"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "requestAiRunResultSnapshot"\) \{/);
   assert.match(backgroundSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
+  assert.match(startBlock, /type: "requestAiRunStartSnapshot"/);
+  assert.match(startBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \|\| \{\} \}\);/);
   assert.match(statusBlock, /type: "requestAiRunStatus"/);
   assert.match(statusBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(statusBlock, /fetch\(|parseAiRunStatusResponse|maybeUpdateStoredTokenFromResponse/);
-  assert.match(startBlock, /fetch\(computeSelectorsUrl/);
-  assert.match(startBlock, /body: JSON\.stringify\(payload \|\| \{\}\)/);
-  assert.match(resultBlock, /fetch\(resultUrl/);
+  assert.doesNotMatch(startBlock, /fetch\(computeSelectorsUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
+  assert.match(resultBlock, /type: "requestAiRunResultSnapshot"/);
+  assert.match(resultBlock, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
+  assert.match(resultBlock, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
+  assert.doesNotMatch(resultBlock, /fetch\(resultUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
   assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
 });
 

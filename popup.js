@@ -7580,24 +7580,24 @@ async function handlePageRevert() {
 }
 
 async function requestAiRunStart({ endpointValue = "", tokenValue = "", payload = null } = {}) {
-  const computeSelectorsUrl = resolveRelativeEndpoint(endpointValue, "/get_selectors");
-  if (!computeSelectorsUrl) {
+  if (!resolveRelativeEndpoint(endpointValue, "/get_selectors")) {
     return { ok: false };
   }
-  const response = await fetch(computeSelectorsUrl, {
-    method: "POST",
-    headers: createConfigSyncHeaders(tokenValue),
-    body: JSON.stringify(payload || {})
+  const requestPayloadKey = buildRemoteConfigTransferKey("ai-run-start-request");
+  await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload || {} });
+  const response = await messages.sendRuntimeMessage({
+    type: "requestAiRunStartSnapshot",
+    endpointValue,
+    tokenValue,
+    payloadKey: requestPayloadKey
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  if (!response.ok) {
+  if (!response || response.ok !== true || response.status !== "ok") {
     return { ok: false };
   }
-  const sessionId = parseAiRunStartResponse(await response.json());
-  if (!sessionId) {
+  if (typeof response.sessionId !== "string" || !response.sessionId.trim()) {
     return { ok: false };
   }
-  return { ok: true, sessionId };
+  return { ok: true, sessionId: response.sessionId.trim() };
 }
 
 async function requestAiRunStatus({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
@@ -7611,25 +7611,36 @@ async function requestAiRunStatus({ endpointValue = "", tokenValue = "", session
 }
 
 async function requestAiRunResult({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
-  const resultUrl = resolveRelativeEndpoint(
-    endpointValue,
-    `/get_selectors/result/${encodeURIComponent(sessionId)}`
-  );
-  if (!resultUrl) {
+  if (
+    !resolveRelativeEndpoint(
+      endpointValue,
+      `/get_selectors/result/${encodeURIComponent(sessionId)}`
+    )
+  ) {
     return { ok: false };
   }
-  const response = await fetch(resultUrl, {
-    method: "GET",
-    headers: createConfigSyncHeaders(tokenValue)
+  const response = await messages.sendRuntimeMessage({
+    type: "requestAiRunResultSnapshot",
+    endpointValue,
+    tokenValue,
+    sessionId
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  if (response.status === 404) {
+  if (response && response.notFound) {
     return { ok: false, notFound: true };
   }
-  if (!response.ok) {
+  if (!response || response.ok !== true) {
     return { ok: false };
   }
-  const data = await response.json();
+  const payloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
+  const payloadStore = payloadKey
+    ? await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}))
+    : {};
+  const data = payloadKey && payloadStore && typeof payloadStore === "object"
+    ? payloadStore[payloadKey]
+    : null;
+  if (payloadKey) {
+    await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
+  }
   if (
     !data ||
     typeof data !== "object" ||

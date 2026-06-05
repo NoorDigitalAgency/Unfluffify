@@ -169,6 +169,15 @@ Validation checkpoint after Round-7 authority slices:
    through `chrome.storage.session`. Live repo-local validation confirmed the
    worker path accepts the staged body and returns structured endpoint errors
    without blocking the popup flow.
+21. AI run start/result transport slice completed: popup still owns AI-run
+   orchestration, lifecycle gating, status polling, and selector application,
+   but the heavy `/get_selectors` start payload and `/get_selectors/result`
+   selector response now go through background
+   `requestAiRunStartSnapshot` / `requestAiRunResultSnapshot`. The start
+   request body and result selector payload are staged through
+   `chrome.storage.session`, and live repo-local validation confirmed the
+   worker paths return structured start/result failures without blocking popup
+   orchestration.
 
 ## Marking Reload Handoff
 
