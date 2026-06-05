@@ -490,6 +490,84 @@ Validation checkpoint after Round-7 authority slices:
    the canonical AI submission row builder, then re-run the payload/response
    repro against the provided case before continuing with the remaining
    responsiveness work.
+47. Silent-highlighting responsiveness investigation completed:
+   the current silent-highlighting pipeline still performs several large
+   synchronous DOM/data passes on the content-script UI thread. The main hot
+   path starts in [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   `refreshSilentHighlightings()`, which loads configs, derives the effective
+   selector set, runs `collectIncludedNodesFromSelectorSet(...)`, expands
+   sources through `buildSilentHighlightRenderableCollections(...)`, and then
+   rebuilds overlay DOM via `renderSilentHighlightOverlay(...)` in one turn.
+   This is structurally similar to the marking freeze that was already improved:
+   there is no cancellable generation boundary between source collection,
+   fallback target expansion, rect collection, and DOM writes.
+48. Silent-highlighting heavy-duty hotspots identified:
+   1. `collectIncludedNodesFromSelectorSet(...)` in
+      [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+      does a full-page selector + DOM traversal, repeatedly evaluating
+      `core.isVisible(...)`, `hasTextualDescendantForInclusion(...)`,
+      `hasRenderableTextOutsideExcludedNature(...)`, and multiple collapse
+      passes before producing the three source collections.
+   2. `buildSilentHighlightRenderableCollections(...)` immediately performs a
+      second expansion pass over those sources, including
+      `collectSilentHighlightRenderTargets(...)` descendant walks and
+      per-node XPath map construction.
+   3. `renderSilentHighlightOverlay(...)` then collects rects for every
+      renderable node and writes all overlay boxes in the same task, so large
+      selector/highlight pages can block paint during refresh.
+   4. `mutationTargetTouchesSilentCollections(...)` linearly scans every
+      tracked source/render node for each relevant mutation, which can make the
+      observer path expensive on animation-heavy or CMS-driven pages.
+   5. The settled reposition loop (`buildSilentHighlightPositionSignature(...)`
+      plus `runSilentHighlightSettledRepositionSample()`) repeatedly rescans
+      render targets and rects during layout shifts and scroll settling.
+49. Silent-highlighting feasibility boundary clarified:
+   most of this workload is live-DOM- and layout-dependent, so it is not a
+   direct MV3 background-worker offload candidate. The correct analogue to the
+   marking responsiveness work is page-side async chunking, generation-based
+   cancellation, and narrower recompute scope. Background/session-storage
+   staging remains useful only for non-DOM payload transport, not for the
+   selector/highlight collection itself.
+50. Robust fix plan for silent-highlighting responsiveness:
+   1. Split `refreshSilentHighlightings()` into cancellable phases with a
+      monotonic generation id:
+      config/selector snapshot -> source collection -> render-target expansion
+      -> overlay draw/annotation apply.
+      Abort stale generations before the next heavy phase starts.
+   2. Add an immediate non-blocking UI path similar to marking:
+      keep the prior silent overlay visible or hidden-in-place, set a pending
+      generation flag, yield with `requestAnimationFrame` / task breaks, and
+      only swap in the new collections after the final generation still matches.
+   3. Cache render-target expansion per source node for the current DOM epoch so
+      reposition and settled-layout sampling can reuse stable render targets
+      instead of repeatedly calling `collectSilentHighlightRenderTargets(...)`.
+   4. Replace the linear `mutationTargetTouchesSilentCollections(...)` scan with
+      a tracked-node index keyed by current source/render nodes so attribute
+      mutations can cheaply decide between reposition-only and full refresh.
+   5. Keep the existing full recompute for selector-set or structural DOM
+      changes, but add narrower paths for:
+      position-only tracked-node mutations,
+      layout-shift settle redraws,
+      and annotation-only reapplications.
+   6. If live profiling still shows source collection dominating after
+      chunking/cancellation, reuse the marking-side candidate-scan learnings:
+      instrument descendant-text checks, avoid redundant collapse passes, and
+      memoize visibility/textual-shape decisions per refresh generation.
+51. Silent-highlighting execution order:
+   after the AI payload correctness slice, the next responsiveness branch should
+   start with generation/cancellation boundaries around
+   `refreshSilentHighlightings()`, then land render-target caching for
+   reposition/settle, then optimize mutation-target indexing before attempting
+   deeper selector/content-collection micro-optimizations.
+52. Silent-highlighting validation expectations:
+   each phase should run the focused silent/visibility suite
+   (`tests/core-visibility.test.js`, `tests/core-motion-pause.test.js`,
+   `tests/core-scheduling.test.js`, `tests/selector-suppression.test.js`,
+   `tests/silent-highlight-annotations.test.js`,
+   `tests/silent-highlight-rules.test.js`, `tests/submission-rules.test.js`),
+   full `npm test`, and a headful live smoke on at least the Bonliva property
+   page plus a selector-heavy page while watching mutation/scroll responsiveness
+   and overlay correctness.
 
 ## Marking Reload Handoff
 
