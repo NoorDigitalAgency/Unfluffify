@@ -24,7 +24,6 @@ import * as constants from "./common/constants.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
-  buildLynxChecklistAssignments,
   buildLynxChecklistPromptState,
   buildLynxChecklistViewModel,
   createInitialLynxChecklistState,
@@ -2983,241 +2982,6 @@ function buildRemoteConfigTransferKey(scope = "payload") {
   return `remote-config-${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function mergeSelectorsIntoConfig(targetConfig, incomingConfig) {
-  if (!targetConfig || typeof targetConfig !== "object") {
-    return false;
-  }
-  const merged = config.mergeConfigSelectorStateByTimestamp(
-    targetConfig.selectors,
-    targetConfig.selectorsUpdatedAt,
-    targetConfig.submittedSelectorsFingerprint,
-    incomingConfig && typeof incomingConfig === "object" ? incomingConfig.selectors : null,
-    incomingConfig && typeof incomingConfig === "object"
-      ? incomingConfig.selectorsUpdatedAt
-      : null,
-    incomingConfig && typeof incomingConfig === "object"
-      ? incomingConfig.submittedSelectorsFingerprint
-      : ""
-  );
-  const currentSelectorSet = normalizeAiSelectorSet(targetConfig.selectors);
-  const currentUpdatedAt = config.normalizeEntryTimestamp(targetConfig.selectorsUpdatedAt);
-  const currentSubmittedFingerprint =
-    typeof targetConfig.submittedSelectorsFingerprint === "string"
-      ? targetConfig.submittedSelectorsFingerprint.trim()
-      : "";
-  const didChange =
-    !aiSelectorSetsEqual(currentSelectorSet, merged.selectorSet) ||
-    currentUpdatedAt !== merged.updatedAt ||
-    currentSubmittedFingerprint !== merged.submittedFingerprint;
-  if (didChange) {
-    targetConfig.selectors = merged.selectorSet;
-    targetConfig.selectorsUpdatedAt = merged.updatedAt;
-    targetConfig.submittedSelectorsFingerprint = merged.submittedFingerprint;
-  }
-  return didChange;
-}
-
-function getRemoteManagedConfigSignature(baseUrl, sourceConfig) {
-  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
-  if (!normalizedBaseUrl) {
-    return "";
-  }
-  const normalizedConfig = config.normalizeConfig(
-    normalizedBaseUrl,
-    sourceConfig || config.createDefaultConfig(normalizedBaseUrl)
-  ).config;
-  return JSON.stringify(config.createConfigSyncPayload(normalizedBaseUrl, normalizedConfig));
-}
-
-function getNormalizedPageEntrySignature(pageUrl, entry) {
-  if (!pageUrl) {
-    return "null";
-  }
-  const normalizedEntry = config.normalizePageMarkings({ [pageUrl]: entry }).normalized[pageUrl] || null;
-  return JSON.stringify(normalizedEntry);
-}
-
-async function replaceServerConfigIntoLocal(payload, currentPageUrl, options = {}) {
-  const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
-  if (!normalizedPayload.baseUrl) {
-    return {
-      ok: false,
-      changed: false,
-      replacedCurrentPage: false,
-      baseUrl: ""
-    };
-  }
-
-  const baseUrl = normalizedPayload.baseUrl;
-  const allConfigs = await config.getConfigs();
-  const existingRaw = allConfigs[baseUrl];
-  const existingConfig = config.normalizeConfig(baseUrl, existingRaw).config;
-  const normalizedIncomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
-  const fallbackSiteId = normalizeSiteIdValue(options.siteId);
-  const nextConfig = config.normalizeConfig(baseUrl, {
-    ...existingConfig,
-    ...normalizedPayload,
-    baseUrl,
-    siteId: normalizedIncomingSiteId || normalizeSiteIdValue(existingConfig.siteId) || fallbackSiteId || null,
-    pageMarkings: config.normalizePageMarkings(normalizedPayload.pageMarkings).normalized,
-    selectors: normalizeAiSelectorSet(normalizedPayload.selectors),
-    selectorsUpdatedAt: config.normalizeEntryTimestamp(normalizedPayload.selectorsUpdatedAt),
-    submittedSelectorsFingerprint:
-      typeof normalizedPayload.submittedSelectorsFingerprint === "string"
-        ? normalizedPayload.submittedSelectorsFingerprint
-        : ""
-  }).config;
-
-  const previousSignature = getRemoteManagedConfigSignature(baseUrl, existingConfig);
-  const nextSignature = getRemoteManagedConfigSignature(baseUrl, nextConfig);
-  const changed = previousSignature !== nextSignature;
-  const replacedCurrentPage = Boolean(
-    currentPageUrl &&
-      getNormalizedPageEntrySignature(currentPageUrl, existingConfig.pageMarkings?.[currentPageUrl]) !==
-        getNormalizedPageEntrySignature(currentPageUrl, nextConfig.pageMarkings?.[currentPageUrl])
-  );
-
-  if (!existingRaw || changed) {
-    allConfigs[baseUrl] = nextConfig;
-    await config.saveConfigs(allConfigs);
-  }
-  await config.setBackendSavedPageMarkings(baseUrl, nextConfig.pageMarkings);
-
-  return {
-    ok: true,
-    changed: Boolean(!existingRaw || changed),
-    replacedCurrentPage,
-    baseUrl
-  };
-}
-
-async function mergeServerConfigIntoLocal(payload, currentPageUrl, options = {}) {
-  const invalidLoadedUrls = config.collectInvalidPageMarkingUrls(
-    payload && typeof payload === "object" ? payload.pageMarkings : null
-  );
-  const confirmedPageMarkings = config.normalizePageMarkings(
-    options && options.confirmedPageMarkings
-  ).normalized;
-  const preferConfirmedPageMarkings = Boolean(options && options.preferConfirmedPageMarkings);
-  const applyConfirmedToBackendSaved = Boolean(options && options.applyConfirmedToBackendSaved);
-  const normalizedPayload = config.normalizeConfigSyncPayload(payload, "");
-  if (!normalizedPayload.baseUrl) {
-    return {
-      ok: false,
-      changed: false,
-      replacedCurrentPage: false,
-      baseUrl: "",
-      invalidLoadedUrls: []
-    };
-  }
-  const baseUrl = normalizedPayload.baseUrl;
-  const allConfigs = await config.getConfigs();
-  const existingRaw = allConfigs[baseUrl];
-  const normalizedLocal = config.normalizeConfig(baseUrl, existingRaw);
-  const localConfig = normalizedLocal.config;
-  const incomingSiteId = normalizeSiteIdValue(normalizedPayload.siteId);
-  const siteIdChanged =
-    Boolean(incomingSiteId) && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId;
-  if (incomingSiteId && normalizeSiteIdValue(localConfig.siteId) !== incomingSiteId) {
-    localConfig.siteId = incomingSiteId;
-  }
-  const mergedRenderMode = config.mergeRenderModeByTimestamp(
-    localConfig.renderMode,
-    localConfig.renderModeUpdatedAt,
-    normalizedPayload.renderMode,
-    normalizedPayload.renderModeUpdatedAt
-  );
-  const renderModeChanged =
-    config.getConfigRenderMode(localConfig) !== mergedRenderMode.renderMode ||
-    config.normalizeEntryTimestamp(localConfig.renderModeUpdatedAt) !== mergedRenderMode.updatedAt;
-  if (renderModeChanged) {
-    localConfig.renderMode = mergedRenderMode.renderMode;
-    localConfig.renderModeUpdatedAt = mergedRenderMode.updatedAt;
-  }
-  const incomingPageMarkings = config.normalizePageMarkings(normalizedPayload.pageMarkings).normalized;
-  const existingBackendSavedPageMarkings = await config.getBackendSavedPageMarkings(baseUrl);
-  let mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
-    existingBackendSavedPageMarkings,
-    incomingPageMarkings
-  ).pageMarkings;
-  if (applyConfirmedToBackendSaved) {
-    mergedBackendSavedPageMarkings = config.mergePageMarkingsByTimestamp(
-      mergedBackendSavedPageMarkings,
-      confirmedPageMarkings,
-      { preferIncomingOnTimestampTie: true }
-    ).pageMarkings;
-    if (preferConfirmedPageMarkings) {
-      Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
-        mergedBackendSavedPageMarkings[url] =
-          config.normalizePageMarkings({ [url]: entry }).normalized[url];
-      });
-    }
-  }
-  if (
-    Object.keys(incomingPageMarkings).length > 0 ||
-    (applyConfirmedToBackendSaved && Object.keys(confirmedPageMarkings).length > 0)
-  ) {
-    await config.setBackendSavedPageMarkings(baseUrl, mergedBackendSavedPageMarkings);
-  }
-  const previousPageMarkingsSignature = JSON.stringify(
-    config.normalizePageMarkings(localConfig.pageMarkings).normalized
-  );
-  const incomingPageMarkingsMergeResult = config.mergePageMarkingsByTimestamp(
-    localConfig.pageMarkings,
-    incomingPageMarkings
-  );
-  const confirmedPageMarkingsMergeResult = config.mergePageMarkingsByTimestamp(
-    incomingPageMarkingsMergeResult.pageMarkings,
-    confirmedPageMarkings,
-    { preferIncomingOnTimestampTie: true }
-  );
-  let mergedPageMarkings = confirmedPageMarkingsMergeResult.pageMarkings;
-  if (preferConfirmedPageMarkings) {
-    mergedPageMarkings = { ...mergedPageMarkings };
-    Object.entries(confirmedPageMarkings).forEach(([url, entry]) => {
-      mergedPageMarkings[url] = config.normalizePageMarkings({ [url]: entry }).normalized[url];
-    });
-  }
-  const mergedPageMarkingsSignature = JSON.stringify(mergedPageMarkings);
-  const pageMarkingsChanged = previousPageMarkingsSignature !== mergedPageMarkingsSignature;
-  const confirmedCurrentPageSignature = currentPageUrl && Object.prototype.hasOwnProperty.call(confirmedPageMarkings, currentPageUrl)
-    ? getNormalizedPageEntrySignature(currentPageUrl, confirmedPageMarkings[currentPageUrl])
-    : "";
-  const finalCurrentPageSignature = currentPageUrl
-    ? getNormalizedPageEntrySignature(currentPageUrl, mergedPageMarkings[currentPageUrl])
-    : "";
-  const replacedCurrentPage = Boolean(
-    currentPageUrl &&
-      (
-        confirmedCurrentPageSignature
-          ? finalCurrentPageSignature !== confirmedCurrentPageSignature
-          :
-        incomingPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl) ||
-        confirmedPageMarkingsMergeResult.replacedExistingUrls.includes(currentPageUrl)
-      )
-  );
-  localConfig.pageMarkings = mergedPageMarkings;
-  const selectorStateChanged = mergeSelectorsIntoConfig(localConfig, normalizedPayload);
-  const shouldSave =
-    !existingRaw ||
-    normalizedLocal.changed ||
-    siteIdChanged ||
-    renderModeChanged ||
-    selectorStateChanged ||
-    pageMarkingsChanged;
-  if (shouldSave) {
-    allConfigs[baseUrl] = localConfig;
-    await config.saveConfigs(allConfigs);
-  }
-  return {
-    ok: true,
-    changed: shouldSave,
-    replacedCurrentPage,
-    baseUrl,
-    invalidLoadedUrls
-  };
-}
-
 async function loadRemoteConfigForCurrentPage(options = {}) {
   const {
     tabId = null,
@@ -3282,17 +3046,12 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
       updateLastConfigLoadStatus(result);
       return result;
     }
-    const payloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
-    const payloadStore = payloadKey
-      ? await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}))
-      : {};
-    const payload = payloadKey && payloadStore && typeof payloadStore === "object"
-      ? payloadStore[payloadKey]
-      : null;
-    if (payloadKey) {
-      await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
-    }
-    const replaceResult = await replaceServerConfigIntoLocal(payload, pageUrl, { siteId });
+    const replaceResult = await messages.sendRuntimeMessage({
+      type: "replaceServerConfigIntoLocalSnapshot",
+      payloadKey: typeof response.payloadKey === "string" ? response.payloadKey : "",
+      currentPageUrl: pageUrl,
+      siteId
+    });
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
@@ -3502,40 +3261,25 @@ async function syncBaseConfigToServer(options = {}) {
         }
         return { ok: false, status: lastStatus };
       }
-      let responseData = null;
       const responsePayloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
-      if (response.status === "ok" && responsePayloadKey) {
-        try {
-          const responseStore = await utils.storageGet(chrome.storage.session, responsePayloadKey);
-          responseData =
-            responseStore &&
-            typeof responseStore === "object" &&
-            responseStore[responsePayloadKey] &&
-            typeof responseStore[responsePayloadKey] === "object"
-              ? responseStore[responsePayloadKey]
-              : null;
-        } catch {
-          responseData = null;
-        } finally {
-          await utils.storageRemove(chrome.storage.session, responsePayloadKey).catch(() => null);
-        }
-      }
-      if (!responseData || typeof responseData !== "object") {
-        const mergeResult = await mergeServerConfigIntoLocal(
-          {
+      if (response.status !== "ok" || !responsePayloadKey) {
+        const mergeResult = await messages.sendRuntimeMessage({
+          type: "mergeServerConfigIntoLocalSnapshot",
+          payload: {
             ...payload,
             pageMarkings: {}
           },
-          pageUrl,
-          {
-            confirmedPageMarkings: payload.pageMarkings,
-            preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
-          }
-        );
+          currentPageUrl: pageUrl,
+          confirmedPageMarkings: payload.pageMarkings,
+          preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
+        });
         return { ok: mergeResult.ok, replacedCurrentPage: false };
       }
 
-      const mergeResult = await mergeServerConfigIntoLocal(responseData, pageUrl, {
+      const mergeResult = await messages.sendRuntimeMessage({
+        type: "mergeServerConfigIntoLocalSnapshot",
+        payloadKey: responsePayloadKey,
+        currentPageUrl: pageUrl,
         confirmedPageMarkings: payload.pageMarkings,
         preferConfirmedPageMarkings: includeCurrentPageMarking || includeAllLocalPageMarkings
       });
@@ -7960,103 +7704,31 @@ async function handleComputeSelectors() {
   }
 }
 
-async function backfillRawHtmlForPages(baseUrl, urls, pageMarkings) {
-  const urlsMissingRawHtml = urls
-    .filter((url) => {
-      const entry = pageMarkings[url];
-      return !entry || typeof entry.rawHtml !== "string" || !entry.rawHtml;
-    });
-  if (!urlsMissingRawHtml.length) {
-    return new Map();
-  }
-  const backfillResults = await Promise.all(
-    urlsMissingRawHtml.map(async (url) => {
-      const response = await messages.sendRuntimeMessage({
-        type: "fetchStaticPageHtml",
-        url
-      });
-      if (!response || !response.ok || typeof response.html !== "string" || !response.html) {
-        return null;
-      }
-      return {
-        url,
-        rawHtml: response.html
-      };
-    })
-  );
-  const rawHtmlBackfills = new Map();
-  const successfulBackfills = backfillResults.filter(Boolean);
-  successfulBackfills.forEach((item) => {
-    rawHtmlBackfills.set(item.url, item.rawHtml);
-  });
-  if (successfulBackfills.length && baseUrl) {
-    state.currentConfig = await config.updateConfig(baseUrl, (targetConfig) => {
-      if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
-        return;
-      }
-      successfulBackfills.forEach((item) => {
-        const targetEntry = targetConfig.pageMarkings[item.url];
-        if (!targetEntry || typeof targetEntry !== "object") {
-          return;
-        }
-        targetEntry.rawHtml = item.rawHtml;
-      });
-    });
-  }
-  return rawHtmlBackfills;
-}
-
-function getStoredPageHtmlSnapshot(entry, url, rawHtmlBackfills) {
-  return {
-    renderedHtml: entry && typeof entry.renderedHtml === "string" ? entry.renderedHtml : "",
-    rawHtml:
-      entry && typeof entry.rawHtml === "string" && entry.rawHtml
-        ? entry.rawHtml
-        : rawHtmlBackfills.get(url) || ""
-  };
-}
-
 async function postPageTypeAssignmentsToAiServer(options = {}) {
   const {
     endpointValue = "",
     tokenValue = "",
     baseUrl = state.currentBaseUrl,
-    pageMarkings = {},
     checklistPageTypes = state.lynxChecklistPageTypes
   } = options;
   try {
     if (!resolveRelativeEndpoint(endpointValue, "/assign_page_types")) {
       return;
     }
-    const storedPageMarkingItems = collectStoredPageMarkingItems(pageMarkings, baseUrl);
-    const assignments = buildLynxChecklistAssignments({
-      pageTypes: checklistPageTypes,
-      markedPages: storedPageMarkingItems
+    const preparedPayload = await messages.sendRuntimeMessage({
+      type: "preparePageTypeAssignmentsSnapshot",
+      baseUrl,
+      checklistPageTypes
     });
-    if (!assignments.length) {
+    if (!preparedPayload || preparedPayload.ok !== true) {
+      throw new Error("Unable to prepare page-type assignment payload.");
+    }
+    const requestPayloadKey = typeof preparedPayload.payloadKey === "string"
+      ? preparedPayload.payloadKey
+      : "";
+    if (!requestPayloadKey) {
       return;
     }
-    const rawHtmlBackfills = await backfillRawHtmlForPages(
-      baseUrl,
-      assignments.map((item) => item.url),
-      pageMarkings
-    );
-    const payload = assignments.map((item) => {
-      const entry = pageMarkings[item.url];
-      const { rawHtml, renderedHtml } = getStoredPageHtmlSnapshot(
-        entry,
-        item.url,
-        rawHtmlBackfills
-      );
-      return {
-        url: item.url,
-        rawHtml,
-        renderedHtml,
-        pageType: item.pageType
-      };
-    });
-    const requestPayloadKey = buildRemoteConfigTransferKey("assign-page-types-request");
-    await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload });
     const response = await messages.sendRuntimeMessage({
       type: "submitPageTypeAssignments",
       endpointValue,

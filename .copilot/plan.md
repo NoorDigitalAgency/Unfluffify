@@ -195,6 +195,29 @@ Validation checkpoint after Round-7 authority slices:
    corpus assembly entirely, and static-mode runs only do the remaining
    `refineXPathEntries(...)` pass locally because the worker lacks
    document-parsing APIs.
+24. Remote config merge/replacement offload slice completed: popup still owns
+   remote-load/save orchestration, retry policy, invalid-page pruning, and tab
+   refresh notifications, but background now owns the pure-data config
+   replacement and merge/reconciliation passes via
+   `replaceServerConfigIntoLocalSnapshot` and
+   `mergeServerConfigIntoLocalSnapshot`. Both `/load` and `/save` response
+   payloads stay staged in `chrome.storage.session` until background consumes
+   them, so popup no longer hydrates or normalizes those heavy remote config
+   bodies on the UI thread. Live repo-local headful validation confirmed that
+   staged payload keys are cleared, current-page replacement detection still
+   works, confirmed local page markings can override remote data when requested,
+   and invalid remote page URLs are still surfaced for the follow-up prune
+   pass.
+25. Page-type assignment preparation offload slice completed: popup still owns
+   the AI/selector-submit orchestration and error reporting, but background now
+   owns the heavy stored-page scan, checklist assignment construction,
+   missing-raw-HTML backfills, and staged `/assign_page_types` payload assembly
+   via `preparePageTypeAssignmentsSnapshot`. The popup now sends only control
+   metadata for that preparation step and no longer builds or backfills the
+   assignment HTML payload on the UI thread. Live repo-local headful validation
+   confirmed the prepared payload includes the expected page types, clears the
+   staged payload after handoff, and persists raw-HTML backfills for reachable
+   stored pages.
 
 ## Marking Reload Handoff
 

@@ -369,16 +369,16 @@ test("property lock contract is documented with stable client and editor source-
   assert.match(propertyLockDoc, /periodic remote loads must not replace the editor's local draft/);
 });
 
-test("popup remote loads merge page markings by timestamp without wiping local saved pages", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const mergeStart = source.indexOf("async function mergeServerConfigIntoLocal");
-  const mergeEnd = source.indexOf("async function loadRemoteConfigForCurrentPage", mergeStart);
+test("background remote merges reconcile page markings by timestamp without wiping local saved pages", () => {
+  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const mergeStart = source.indexOf("async function mergeServerConfigIntoLocalSnapshot");
+  const mergeEnd = source.indexOf("async function loadRemoteConfigSnapshot", mergeStart);
   const mergeSource = source.slice(mergeStart, mergeEnd);
 
   assert.ok(mergeStart >= 0);
-  assert.match(mergeSource, /const incomingPageMarkings = config\.normalizePageMarkings\(normalizedPayload\.pageMarkings\)\.normalized;/);
-  assert.match(mergeSource, /const confirmedPageMarkings = config\.normalizePageMarkings/);
-  assert.match(mergeSource, /config\.mergePageMarkingsByTimestamp/);
+  assert.match(mergeSource, /const incomingPageMarkings = configStore\.normalizePageMarkings\(normalizedPayload\.pageMarkings\)\.normalized;/);
+  assert.match(mergeSource, /const confirmedPageMarkings = configStore\.normalizePageMarkings/);
+  assert.match(mergeSource, /configStore\.mergePageMarkingsByTimestamp/);
   assert.match(mergeSource, /localConfig\.pageMarkings = mergedPageMarkings;/);
 });
 

@@ -80,7 +80,7 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const match = source.match(
-    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
   assert.ok(match, "handleComputeSelectors body should be found");
   const body = match[1];
@@ -107,7 +107,7 @@ test("AI compute builds the request from stored local page snapshots only", () =
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const match = source.match(
-    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
 
   assert.ok(match, "handleComputeSelectors body should be found");
@@ -176,7 +176,7 @@ test("AI compute reports specific snapshot preparation blockers", () => {
   const failureStart = source.indexOf("function getAiSnapshotFailureMessage");
   const failureEnd = source.indexOf("async function continueAiRunPolling", failureStart);
   const computeMatch = source.match(
-    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function backfillRawHtmlForPages/
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   );
 
   assert.ok(failureStart > -1);
@@ -312,17 +312,23 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
 
   assert.match(backgroundSource, /async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function submitPageTypeAssignments\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitSelectorSetGraphqlUpdate"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitPageTypeAssignments"\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "preparePageTypeAssignmentsSnapshot"\) \{/);
   assert.match(backgroundSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
   assert.match(submitBlock, /type: "submitSelectorSetGraphqlUpdate"/);
   assert.match(submitBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(submitBlock, /fetch\(graphqlEndpoint|UPDATE_SCRAPING_CONDITIONS_MUTATION|maybeUpdateStoredTokenFromResponse/);
+  assert.match(assignmentBlock, /type: "preparePageTypeAssignmentsSnapshot"/);
   assert.match(assignmentBlock, /type: "submitPageTypeAssignments"/);
-  assert.match(assignmentBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
   assert.match(assignmentBlock, /messages\.sendRuntimeMessage/);
-  assert.match(assignmentBlock, /rawHtml/);
-  assert.match(assignmentBlock, /renderedHtml/);
+  assert.match(backgroundSource, /const urlsMissingRawHtml = assignments/);
+  assert.match(backgroundSource, /const payload = assignments\.map\(\(item\) => \{/);
+  assert.match(backgroundSource, /rawHtml:/);
+  assert.match(backgroundSource, /renderedHtml:/);
+  assert.doesNotMatch(assignmentBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
+  assert.doesNotMatch(assignmentBlock, /backfillRawHtmlForPages|getStoredPageHtmlSnapshot|buildLynxChecklistAssignments/);
   assert.doesNotMatch(assignmentBlock, /fetch\(assignPageTypesUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 

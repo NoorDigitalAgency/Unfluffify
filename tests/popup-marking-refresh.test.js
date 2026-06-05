@@ -273,18 +273,18 @@ test("session save uploads all local page markings while default sync stays back
 });
 
 test("todo completion backend cache ignores local confirmed page markings unless explicitly enabled", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const mergeBody = source.match(
-    /async function mergeServerConfigIntoLocal\(payload, currentPageUrl, options = \{\}\) \{([\s\S]*?)\n\}/
+    /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
   assert.match(mergeBody, /const applyConfirmedToBackendSaved = Boolean\(options && options\.applyConfirmedToBackendSaved\);/);
-  assert.match(mergeBody, /const existingBackendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(baseUrl\);/);
-  assert.match(mergeBody, /let mergedBackendSavedPageMarkings = config\.mergePageMarkingsByTimestamp\([\s\S]*?incomingPageMarkings/);
+  assert.match(mergeBody, /const existingBackendSavedPageMarkings = await configStore\.getBackendSavedPageMarkings\(baseUrl\);/);
+  assert.match(mergeBody, /let mergedBackendSavedPageMarkings = configStore\.mergePageMarkingsByTimestamp\([\s\S]*?incomingPageMarkings/);
   assert.match(mergeBody, /if \(applyConfirmedToBackendSaved\) \{[\s\S]*?confirmedPageMarkings/);
   assert.match(
     mergeBody,
-    /if \([\s\S]*?Object\.keys\(incomingPageMarkings\)\.length > 0[\s\S]*?\|\|[\s\S]*?\(applyConfirmedToBackendSaved && Object\.keys\(confirmedPageMarkings\)\.length > 0\)[\s\S]*?\) \{[\s\S]*?config\.setBackendSavedPageMarkings\(baseUrl, mergedBackendSavedPageMarkings\);/
+    /if \([\s\S]*?Object\.keys\(incomingPageMarkings\)\.length > 0[\s\S]*?\|\|[\s\S]*?\(applyConfirmedToBackendSaved && Object\.keys\(confirmedPageMarkings\)\.length > 0\)[\s\S]*?\) \{[\s\S]*?configStore\.setBackendSavedPageMarkings\(baseUrl, mergedBackendSavedPageMarkings\);/
   );
 });
 
@@ -352,10 +352,14 @@ test("remote config load delegates transport to background and hydrates the payl
   assert.match(backgroundSource, /async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
   assert.match(backgroundSource, /await utils\.storageSet\(chrome\.storage\.session, \{ \[payloadKey\]: payload \}\);/);
+  assert.match(backgroundSource, /async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "replaceServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
   assert.match(loadBody, /type: "loadRemoteConfigSnapshot"/);
-  assert.match(loadBody, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
-  assert.match(loadBody, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
+  assert.match(loadBody, /type: "replaceServerConfigIntoLocalSnapshot"/);
+  assert.match(loadBody, /payloadKey: typeof response\.payloadKey === "string" \? response\.payloadKey : ""/);
+  assert.doesNotMatch(loadBody, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
+  assert.doesNotMatch(loadBody, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
   assert.doesNotMatch(loadBody, /fetch\(loadUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 
@@ -370,11 +374,15 @@ test("remote config save delegates transport to background and hydrates the resp
   assert.match(backgroundSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
   assert.match(backgroundSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
   assert.match(backgroundSource, /await utils\.storageRemove\(chrome\.storage\.session, requestPayloadKey\)\.catch\(\(\) => null\);/);
+  assert.match(backgroundSource, /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "mergeServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);
   assert.match(saveBody, /type: "saveRemoteConfigSnapshot"/);
   assert.match(saveBody, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
-  assert.match(saveBody, /await utils\.storageGet\(chrome\.storage\.session, responsePayloadKey\)/);
-  assert.match(saveBody, /await utils\.storageRemove\(chrome\.storage\.session, responsePayloadKey\)/);
+  assert.match(saveBody, /type: "mergeServerConfigIntoLocalSnapshot"/);
+  assert.match(saveBody, /payloadKey: responsePayloadKey/);
+  assert.doesNotMatch(saveBody, /await utils\.storageGet\(chrome\.storage\.session, responsePayloadKey\)/);
+  assert.doesNotMatch(saveBody, /await utils\.storageRemove\(chrome\.storage\.session, responsePayloadKey\)/);
   assert.doesNotMatch(saveBody, /fetch\(saveUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 
@@ -678,7 +686,7 @@ test("popup scopes optimistic enabled state to the current tab page and base URL
 test("run ai refreshes page runtime status before honoring reconciliation gates", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const computeBody = source.match(
-    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nfunction getStoredPageHtmlSnapshot/
+    /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
   )[1];
 
   assert.match(computeBody, /await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?if \(state\.currentPageSaveReconciliationPending\) \{/);
