@@ -2297,7 +2297,7 @@ function renderConfigurationAppearanceSection(view, handlers) {
 function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
   const traceEvents = Array.isArray(view.traceEvents) ? view.traceEvents : [];
-  const traceItems = traceEvents
+  const traceLines = traceEvents
     .slice(-20)
     .reverse()
     .map((event) => {
@@ -2312,14 +2312,9 @@ function renderConfigurationExtrasSection(view, handlers) {
           .filter((value) => typeof value === "string" && value)
           .join(" | ")
         : "";
-      return h(
-        "li",
-        { class: "trace-events-list__item" },
-        h("span", { class: "trace-events-list__time" }, at),
-        h("span", { class: "trace-events-list__meta" }, `${channel} / ${name}`),
-        summary ? h("span", { class: "trace-events-list__summary" }, summary) : null
-      );
+      return `${at}  ${channel} / ${name}${summary ? `  ${summary}` : ""}`;
     });
+  const traceLogValue = traceLines.join("\n");
   const sections = [renderConfigurationAppearanceSection(view, handlers)];
 
   if (view.remoteSupportVisible) {
@@ -2347,9 +2342,15 @@ function renderConfigurationExtrasSection(view, handlers) {
         { class: "row-note" },
         `Trace events: ${Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length}`
       ),
-      traceItems.length > 0
-        ? h("ul", { class: "trace-events-list" }, traceItems)
-        : h("p", { class: "row-note" }, "No trace events captured yet.")
+      Boolean(view.traceModeEnabled)
+        ? h("textarea", {
+          id: "trace-events-output",
+          class: "trace-events-output",
+          readOnly: true,
+          value: traceLogValue,
+          rows: 8
+        })
+        : null
     )
   );
 
