@@ -365,6 +365,17 @@ Validation checkpoint after Round-7 authority slices:
    merge (`~0-0.1ms`), and overlay draw (`~2-3ms`) are comparatively small.
    That means the next real optimization target is narrowing or caching the two
    collection passes, not the later merge/draw phases.
+38. Single-pass reconcile scan completed:
+   the next safe reduction removed one full-document walk from each reconcile by
+   folding raw silent-whitespace candidate discovery into the main toggleable
+   target traversal, while keeping the existing exclusion/include filtering
+   semantics as a separate post-scan step. Focused guards and the full suite
+   stayed green, and the headful Bonliva run showed silent-whitespace
+   collection drop from the prior `~22-27ms` range to roughly `~0.2-0.5ms`.
+   On the same live toggle path, post-mutation `sync.total` settled around
+   `~58-79ms` with candidate collection at `~55-76ms`, which confirms the next
+   meaningful hotspot is the main candidate scan plus the pre-scan explicit
+   XPath/ancestor setup rather than the secondary whitespace pass.
 
 ## Marking Reload Handoff
 

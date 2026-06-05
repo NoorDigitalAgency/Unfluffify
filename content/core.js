@@ -2006,10 +2006,11 @@ function collectExcludedParentElements(items) {
   return parents;
 }
 
-function collectToggleableTargets(immutableExcluded, excludedParents) {
-  const results = [];
+function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
+  const toggleableCandidates = [];
+  const silentWhitespaceCandidates = [];
   if (!document.body) {
-    return results;
+    return { toggleableCandidates, silentWhitespaceCandidates };
   }
   const stack = [{ node: document.body, withinExcludedParent: false }];
   const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
@@ -2022,52 +2023,47 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (isWithinAiPopover(node)) {
       continue;
     }
-    if (isWithinConsentElement(node)) {
+    const withinConsent = isWithinConsentElement(node);
+    if (withinConsent) {
       continue;
     }
-    if (current.withinExcludedParent) {
-      continue;
-    }
+    const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
-    if (isExcludedParentBoundary) {
-      if (
-        !isWithinImmutableExcluded(node) &&
-        isTextualContainer(node) &&
-        (
-          matchesAutoToggleableDefaultExcluded(node) ||
-          isSelfMarkableWithoutParentMode(node)
-        )
-      ) {
-        results.push(node);
-      }
-      continue;
-    }
-    if (immutableExcluded && immutableExcluded.has(node)) {
-      continue;
-    }
     if (
-      !isWithinImmutableExcluded(node) &&
+      !current.withinExcludedParent &&
+      !withinImmutable &&
       (
         (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
         isSelfMarkableWithoutParentMode(node)
       )
     ) {
-      results.push(node);
+      toggleableCandidates.push(node);
+    }
+    if (
+      !withinImmutable &&
+      !isWithinExtensionUi(node) &&
+      isSilentWhitespaceExclusionCandidate(node)
+    ) {
+      silentWhitespaceCandidates.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
         node: node.children[i],
-        withinExcludedParent: isExcludedParentBoundary
+        withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
   }
-  return results;
+  return {
+    toggleableCandidates,
+    silentWhitespaceCandidates
+  };
 }
 
-async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
-  const results = [];
+async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options = {}) {
+  const toggleableCandidates = [];
+  const silentWhitespaceCandidates = [];
   if (!document.body) {
-    return results;
+    return { toggleableCandidates, silentWhitespaceCandidates };
   }
   const shouldAbort = typeof options.shouldAbort === "function"
     ? options.shouldAbort
@@ -2082,47 +2078,38 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
       continue;
     }
     if (shouldAbort && shouldAbort()) {
-      return results;
+      return { toggleableCandidates, silentWhitespaceCandidates };
     }
     if (isWithinAiPopover(node)) {
       continue;
     }
-    if (isWithinConsentElement(node)) {
+    const withinConsent = isWithinConsentElement(node);
+    if (withinConsent) {
       continue;
     }
-    if (current.withinExcludedParent) {
-      continue;
-    }
+    const withinImmutable = isWithinImmutableExcluded(node);
     const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
-    if (isExcludedParentBoundary) {
-      if (
-        !isWithinImmutableExcluded(node) &&
-        isTextualContainer(node) &&
-        (
-          matchesAutoToggleableDefaultExcluded(node) ||
-          isSelfMarkableWithoutParentMode(node)
-        )
-      ) {
-        results.push(node);
-      }
-      continue;
-    }
-    if (immutableExcluded && immutableExcluded.has(node)) {
-      continue;
-    }
     if (
-      !isWithinImmutableExcluded(node) &&
+      !current.withinExcludedParent &&
+      !withinImmutable &&
       (
         (matchesAutoToggleableDefaultExcluded(node) && isTextualContainer(node)) ||
         isSelfMarkableWithoutParentMode(node)
       )
     ) {
-      results.push(node);
+      toggleableCandidates.push(node);
+    }
+    if (
+      !withinImmutable &&
+      !isWithinExtensionUi(node) &&
+      isSilentWhitespaceExclusionCandidate(node)
+    ) {
+      silentWhitespaceCandidates.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
       stack.push({
         node: node.children[i],
-        withinExcludedParent: isExcludedParentBoundary
+        withinExcludedParent: current.withinExcludedParent || isExcludedParentBoundary
       });
     }
     processedCount += 1;
@@ -2131,7 +2118,19 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
       await yieldForToggleReconcileWork();
     }
   }
-  return results;
+  return {
+    toggleableCandidates,
+    silentWhitespaceCandidates
+  };
+}
+
+function collectToggleableTargets(immutableExcluded, excludedParents) {
+  return scanReconcileDocumentCandidates(immutableExcluded, excludedParents).toggleableCandidates;
+}
+
+async function collectToggleableTargetsAsync(immutableExcluded, excludedParents, options = {}) {
+  const scanned = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, options);
+  return scanned.toggleableCandidates;
 }
 
 function collectDefaultHighlightTargets(root, options) {
@@ -3351,12 +3350,42 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
   const excludedXpaths = options.excludedXpaths || new Set();
   const includeXpaths = options.includeXpaths || new Set();
   const results = [];
+  const prefetchedCandidates = Array.isArray(options.prefetchedCandidates)
+    ? options.prefetchedCandidates
+    : null;
   const excludedElements = new Set();
   for (const xpath of excludedXpaths) {
     const el = getElementFromXPath(xpath);
     if (el) {
       excludedElements.add(el);
     }
+  }
+  if (prefetchedCandidates) {
+    for (const node of prefetchedCandidates) {
+      if (!node || node.nodeType !== 1 || node.isConnected === false) {
+        continue;
+      }
+      if (isWithinAiPopover(node) || isWithinConsentElement(node) || isWithinExtensionUi(node)) {
+        continue;
+      }
+      if (isWithinImmutableExcluded(node)) {
+        continue;
+      }
+      if (isWithinElementSet(node, excludedElements)) {
+        continue;
+      }
+      const xpath = getXPath(node);
+      if (
+        xpath &&
+        !includeXpaths.has(xpath) &&
+        !excludedXpaths.has(xpath) &&
+        !results.some((resultEl) => resultEl !== node && resultEl.contains(node))
+      ) {
+        results.push(node);
+      }
+    }
+    results.sort(compareDocumentOrder);
+    return results;
   }
   const stack = [{ node: document.body, withinExcludedSubtree: false }];
   while (stack.length) {
@@ -10585,7 +10614,8 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
-  const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
+  const scannedCandidates = scanReconcileDocumentCandidates(immutableExcluded, excludedParents);
+  const candidates = scannedCandidates.toggleableCandidates;
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size
@@ -10620,7 +10650,8 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,
-    includeXpaths: explicitIncludeSet
+    includeXpaths: explicitIncludeSet,
+    prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
@@ -10889,9 +10920,10 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const seen = new Set();
   const generatedExcludedSet = new Set();
   const candidateCollectionStartedAt = nowMs();
-  const candidates = await collectToggleableTargetsAsync(immutableExcluded, excludedParents, {
+  const scannedCandidates = await scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedParents, {
     shouldAbort
   });
+  const candidates = scannedCandidates.toggleableCandidates;
   logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
     candidateCount: candidates.length,
     excludedParentCount: excludedParents.size,
@@ -10936,7 +10968,8 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,
-    includeXpaths: explicitIncludeSet
+    includeXpaths: explicitIncludeSet,
+    prefetchedCandidates: scannedCandidates.silentWhitespaceCandidates
   });
   logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,

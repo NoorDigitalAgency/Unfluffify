@@ -397,6 +397,8 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /function scheduleQueuedToggleMutation\(job\) \{/);
   assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
   assert.match(source, /async function syncPageMarkingsAsync\(config, pageUrl, immutableExcluded, options\) \{/);
+  assert.match(source, /function scanReconcileDocumentCandidates\(immutableExcluded, excludedParents\) \{/);
+  assert.match(source, /async function scanReconcileDocumentCandidatesAsync\(immutableExcluded, excludedParents, options = \{\}\) \{/);
   assert.match(source, /async function collectToggleableTargetsAsync\(immutableExcluded, excludedParents, options = \{\}\) \{/);
   assert.match(source, /async function appendSyncedCandidateItemsAsync\(candidates, context, options = \{\}\) \{/);
   assert.match(source, /async function refreshExplicitMarkingOverlayAsync\(entry, context = null\) \{/);
@@ -416,7 +418,8 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
   assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
   assert.match(source, /scheduleAsyncExplicitToggleReconcile\(entry, \{[\s\S]*?immediateFullRender/);
-  assert.match(source, /await collectToggleableTargetsAsync\(immutableExcluded, excludedParents, \{/);
+  assert.match(source, /const scannedCandidates = await scanReconcileDocumentCandidatesAsync\(immutableExcluded, excludedParents, \{/);
+  assert.match(source, /const candidates = scannedCandidates\.toggleableCandidates;/);
   assert.match(source, /const completedCandidates = await appendSyncedCandidateItemsAsync\(candidates,/);
   assert.match(source, /shouldAbort: \(\) => generation !== state\.toggleReconcileGeneration/);
   assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
