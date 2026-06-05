@@ -218,6 +218,84 @@ Validation checkpoint after Round-7 authority slices:
    confirmed the prepared payload includes the expected page types, clears the
    staged payload after handoff, and persists raw-HTML backfills for reachable
    stored pages.
+26. Marking-toggle responsiveness investigation completed:
+   the current unresponsive click path is not primarily popup-side. The heavy
+   synchronous work sits in `content/core.js` after the click acknowledgement:
+   `handleToggleEvent(...)` calls `toggleExplicitExclude(...)` /
+   `toggleExplicitInclude(...)`, which mutate the page entry synchronously and
+   then call `completeExplicitToggle(...)`. The immediate explicit-layer refresh
+   in `refreshExplicitMarkingOverlay(...)` still runs `syncPageMarkings(...)`
+   before drawing, and `syncPageMarkingsInner(...)` performs a DOM-heavy pass
+   that rebuilds default posture rows by scanning the live document with
+   `collectToggleableTargets(...)`, repeated XPath resolution, visibility/text
+   checks (`isVisible`, `isTextualContainer`, `hasTextualDescendant`), ancestor
+   bookkeeping, and explicit/default precedence reconciliation. Shift-parent
+   target resolution can add more synchronous ancestor work through
+   `resolveMarkableElement(...)`, but the post-click branch/default
+   reconciliation is the larger freeze source.
+27. Marking-toggle async design constraint:
+   a simple MV3 background-worker offload is not correct for this hotspot
+   because the expensive calculations depend on the live page DOM, computed
+   style, geometry, XPath resolution, and containment checks. The service
+   worker has no `document`, no layout tree, and no `getBoundingClientRect`.
+   An offscreen document would still not see the target page DOM. A true worker
+   offload is only feasible if the page first serializes a DOM snapshot or a
+   compact branch model for the worker, then validates/applies the result back
+   on the live page. That is a larger architectural step and should not be the
+   first move.
+28. Recommended responsiveness plan for marking toggles:
+   keep the current early acknowledgement, but split the expensive correctness
+   pass into an asynchronous page-side reconciliation pipeline. Phase A:
+   preserve a cheap optimistic UI update on the main thread that only records
+   the explicit user intent, updates the transient acknowledgement/highlight,
+   and stores a pending-operation token without immediately running
+   `syncPageMarkings(...)`. Phase B: queue a cancellable reconciliation job
+   with generation IDs so rapid repeated toggles coalesce and stale jobs are
+   discarded. Run that job on the page side in chunked slices using
+   `requestIdleCallback` with `requestAnimationFrame` / extension-timer
+   fallback so the event loop can repaint between slices. Phase C: apply the
+   final reconciled entry atomically, redraw the explicit layers from the
+   reconciled data, and then schedule the already-existing invalidating full
+   render path.
+29. Recommended scope reduction inside the async reconciliation job:
+   do not start with full worker serialization. First reduce the work that the
+   job performs per toggle. The current `syncPageMarkingsInner(...)` always
+   calls `collectToggleableTargets(...)`, which walks `document.body` and
+   recomputes self-markability/default posture globally. For ordinary leaf
+   explicit toggles, introduce a subtree-and-ancestor scoped reconciliation
+   mode: recompute only the toggled target, its ancestor chain, nested explicit
+   descendants, and the affected default-toggleable descendants/ancestors that
+   can change precedence. Fall back to the current full-page reconciliation for
+   structural cases that are unsafe to localize, such as broad parent
+   exclusions, target changes that cross saved-explicit boundaries, DOM
+   instability, or cache invalidation caused by visibility/layout churn.
+30. Recommended phased implementation order for the responsiveness work:
+   1. Add precise toggle-stage diagnostics around
+      `toggleExplicitExclude` / `toggleExplicitInclude`,
+      `refreshExplicitMarkingOverlay`, `syncPageMarkingsInner`, and
+      `collectToggleableTargets` so live profiling can distinguish target
+      resolution, entry mutation, subtree/default reconciliation, and redraw.
+   2. Introduce a page-side pending-toggle reconcile queue with operation IDs,
+      coalescing, cancellation, and a visible "pending" state for the toggled
+      node/branch.
+   3. Split `syncPageMarkingsInner(...)` into reusable phases so the queue can
+      run cheap explicit-row mutation synchronously and defer expensive default
+      posture recomputation into chunked slices.
+   4. Implement subtree-scoped reconciliation for leaf explicit toggles and
+      keep full-page fallback for structural/broad toggles until parity is
+      proven.
+   5. Only after that stabilization, evaluate whether a serialized branch model
+      can be shipped to a dedicated worker for the pure-data parts of the
+      branch/default merge, with the page retaining the final DOM validation and
+      overlay application.
+31. Validation contract for the responsiveness work:
+   each phase must preserve the locked marking rules in
+   `MARKING_AND_HIGHLIGHTING_LOGIC.md`, pass the focused marking guard suite,
+   and add at least one live headful pressure test that exercises rapid
+   include/exclude toggles on a deep page while the browser remains responsive.
+   When async reconciliation is introduced, tests must also prove operation
+   coalescing, stale-job cancellation, and that the final committed entry is
+   identical to the current synchronous result for the same DOM state.
 
 ## Marking Reload Handoff
 
