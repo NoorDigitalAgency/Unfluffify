@@ -32,13 +32,27 @@ Validation checkpoint after Round-7 authority slices:
 3. Validation-infra phase: `@playwright/mcp@0.0.75` expects config under the
    `browser` key (`browser.launchOptions`), not legacy top-level
    `launchOptions`. Keep `.vscode/browser-mcp.config.json` in that schema before
-   treating a fresh-profile MCP run as product validation. After the schema
-   update, `browser_get_config` resolves the extension launch args correctly,
-   but a fresh-profile MCP run on `https://seo.se/` still showed no
-   `content-loader` DOM bootstrap and no extension service worker. This remains
-   a validation-infra blocker to resolve before treating fresh-profile MCP as a
-   product-behavior signal.
-4. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
+   treating an MCP run as product validation. The repo MCP server entries should
+   also pass absolute `--user-data-dir` and `--config` paths; relative paths can
+   resolve incorrectly depending on the MCP client process cwd and have created
+   stray `undefined/` browser profiles during manual terminal validation.
+4. The Playwright-local MCP browser profile must have Chrome Extensions
+   Developer mode enabled before unpacked extension validation is considered
+   meaningful. The current persistent `.mcp-browser-profile` has
+   `extensions.ui.developer_mode: true` in `Default/Preferences`; fresh profiles
+   do not. Prefer the persistent repo profile for live validation, or ask the
+   user to open `chrome://extensions` in the MCP browser and enable Developer
+   mode before validating a new profile. Do not silently rely on a fresh profile
+   as product validation until this prerequisite is satisfied/automated.
+   Restart the `playwright-local` MCP server/browser after extension or config
+   changes; a long-lived MCP process can keep the persistent profile locked and
+   continue serving an older unpacked-extension instance.
+5. After the schema update, `browser_get_config` resolves the extension launch
+   args correctly, but a fresh-profile MCP run on `https://seo.se/` still showed
+   no `content-loader` DOM bootstrap and no extension service worker. This
+   remains a validation-infra blocker to resolve before treating fresh-profile
+   MCP as a product-behavior signal.
+6. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
    extension, exposed the target tab ID, and opened
    `popup.html?debugTabId=<seo-tab-id>`. The popup page had `chrome.runtime`
    available and no popup console errors, but a direct popup-context
@@ -52,7 +66,7 @@ Validation checkpoint after Round-7 authority slices:
    in the extension-page context, not on raw `chrome.tabs.Tab` serialization.
    The seo.se page itself also logs an unrelated site script `Failed to fetch`
    error from `seo-theme`.
-5. Remaining authority work should still avoid proxying large config, HTML, or
+7. Remaining authority work should still avoid proxying large config, HTML, or
    AI request/response bodies through runtime messages; use storage keys,
    owner-context fetches, or a designed background/offscreen ownership path.
 
