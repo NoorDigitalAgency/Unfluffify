@@ -901,6 +901,22 @@ Revised phase shape:
     editor tab. The new page-load starts with marking off.
 - Phase 3 — IDB-key heavy-payload handoff plus TTL/consume-purge cleanup;
   add source guards against accidental large-message paths.
+
+Phase 3 completed:
+   The IDB-key pattern was already in place for AI run payload staging and
+   all config sync payloads (background writes to session-storage, returns a
+   key, consumer reads and deletes in a finally block). The missing piece was
+   orphan-key cleanup for aborted flows. Added `sweepStaleTransferPayloads()`
+   in [background.js](/home/rojan/Documents/Git/GitHub/Unfluffify/background.js)
+   with a shared `TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-"` constant and
+   a `TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000` TTL. The function scans all
+   session-storage keys with that prefix, parses the embedded timestamp, and
+   removes keys older than 5 minutes. It is called once on service-worker
+   start (`sweepStaleTransferPayloads().then()` at module scope) so orphaned
+   keys from crashed/aborted AI runs and config syncs are cleaned up on the
+   next wake-up. Both the background and popup key builders use the same
+   prefix, so the sweep covers popup-originated keys too. Guard test added in
+   `tests/marking-no-auto-restore.test.js`; full `npm test` (483/483) green.
 - Phase 4 — AI lifecycle: only touch if Phase 2/3 expose stale stored
   snapshots, submissionXpaths, raw backfills, or compute-lock state.
 

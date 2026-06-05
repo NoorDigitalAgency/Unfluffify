@@ -542,11 +542,40 @@ async function submitSelectorSetGraphqlUpdate(options = {}) {
   }
 }
 
+// Prefix shared between background and popup so the sweep covers both sides.
+const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
+// Keys older than 5 minutes are orphaned (any live AI run/config flow finishes
+// well within that window). Sweep runs on service-worker initialisation only.
+const TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;
+
 function buildRemoteConfigPayloadKey(scope = "load") {
   const normalizedScope = typeof scope === "string" && scope.trim()
     ? scope.trim()
     : "payload";
-  return `remote-config-${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+  return `${TRANSFER_PAYLOAD_KEY_PREFIX}${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function sweepStaleTransferPayloads() {
+  try {
+    const allSession = await utils.storageGet(chrome.storage.session, null).catch(() => ({}));
+    if (!allSession || typeof allSession !== "object") {
+      return;
+    }
+    const staleKeys = Object.keys(allSession).filter((key) => {
+      if (!key.startsWith(TRANSFER_PAYLOAD_KEY_PREFIX)) {
+        return false;
+      }
+      // Key format: remote-config-<scope>:<timestamp>:<random>
+      const parts = key.split(":");
+      const ts = parts.length >= 2 ? Number(parts[1]) : NaN;
+      return Number.isFinite(ts) && Date.now() - ts > TRANSFER_PAYLOAD_MAX_AGE_MS;
+    });
+    if (staleKeys.length) {
+      await utils.storageRemove(chrome.storage.session, staleKeys).catch(() => null);
+    }
+  } catch {
+    // Best-effort sweep; ignore errors.
+  }
 }
 
 function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
@@ -2893,6 +2922,11 @@ chrome.action.onClicked.addListener((tab) => {
     chrome.sidePanel.open({ tabId: tab.id }).then();
   }
 });
+
+// Sweep orphaned transfer-payload keys on every service-worker start.
+// This keeps session storage tidy when an AI run or config sync was aborted
+// mid-flight and did not reach the consume-purge step.
+sweepStaleTransferPayloads().then();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "activateContentForTab") {

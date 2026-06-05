@@ -40,6 +40,24 @@ test("disableExtensionOnTopLevelNavigation clears the reload restore scope witho
   assert.doesNotMatch(block, /setReloadRestoreTabState\(tabId,/);
 });
 
+test("background sweeps stale transfer-payload keys on service-worker start", () => {
+  // sweepStaleTransferPayloads must be defined and called at module scope
+  // so orphaned session-storage keys from aborted AI runs are cleaned up.
+  assert.match(backgroundSource, /async function sweepStaleTransferPayloads\(\)/);
+  assert.match(backgroundSource, /TRANSFER_PAYLOAD_MAX_AGE_MS/);
+  assert.match(backgroundSource, /sweepStaleTransferPayloads\(\)\.then\(\)/);
+  // Both key builders use the same prefix so the sweep covers popup keys too.
+  const bgKeyBuilder = backgroundSource.match(
+    /function buildRemoteConfigPayloadKey[\s\S]{0,300}return `\${TRANSFER_PAYLOAD_KEY_PREFIX}/
+  );
+  assert.ok(bgKeyBuilder, "background key builder must use TRANSFER_PAYLOAD_KEY_PREFIX");
+  // Max age is generous enough for any live flow but short enough to clean up crashes.
+  const ageMatch = backgroundSource.match(/TRANSFER_PAYLOAD_MAX_AGE_MS = (\d+) \* 60_000/);
+  assert.ok(ageMatch, "TRANSFER_PAYLOAD_MAX_AGE_MS must be defined as N * 60_000");
+  const minutes = Number(ageMatch[1]);
+  assert.ok(minutes >= 2 && minutes <= 30, `max age should be 2-30 min; got ${minutes}`);
+});
+
 test("setReloadRestoreTabState has no callers in background.js (auto-restore writer is retired)", () => {
   // setReloadRestoreTabState used to mirror enabled state into a restore
   // scope so a navigation/reload could auto-resume marking. Phase 2.1 retires
