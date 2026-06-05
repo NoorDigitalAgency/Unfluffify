@@ -73,25 +73,34 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
 });
 
-test("popup prefers the side-panel-bound tab id before falling back to active-tab queries", () => {
-  const messageBlock = extractSourceBlock(
-    popupMessagesSource,
-    "async function getSidePanelBoundTab() {",
-    "export function sendRuntimeMessage"
+test("popup delegates active tab context resolution to the background", () => {
+  const backgroundResolveBlock = extractSourceBlock(
+    backgroundSource,
+    "async function resolvePopupTabContext(message = {}, sender = {}) {",
+    "function getSpinnerQueueForTab"
   );
   const loadActiveTabBlock = popupMessagesSource.match(
     /export async function loadActiveTab\(\) \{([\s\S]*?)\n\}/
   )[0];
 
-  assert.match(messageBlock, /chrome\.runtime\.getContexts/);
-  assert.match(messageBlock, /contextTypes: \["SIDE_PANEL"\]/);
-  assert.match(messageBlock, /documentUrls: \[chrome\.runtime\.getURL\("popup\.html"\)\]/);
-  assert.match(messageBlock, /chrome\.windows\.getCurrent/);
-  assert.match(messageBlock, /contextQuery\.windowIds = \[Math\.trunc\(currentWindow\.id\)\];/);
-  assert.match(messageBlock, /return await chrome\.tabs\.get\(Math\.trunc\(boundContext\.tabId\)\);/);
-  assert.match(loadActiveTabBlock, /const sidePanelBoundTab = await getSidePanelBoundTab\(\);/);
-  assert.match(loadActiveTabBlock, /if \(sidePanelBoundTab && sidePanelBoundTab\.id\) \{/);
-  assert.match(loadActiveTabBlock, /let tabs = await utils\.tabsQuery\(\{ active: true, currentWindow: true \}\);/);
+  assert.match(backgroundSource, /if \(message\.type === "resolvePopupTabContext"\) \{/);
+  assert.match(backgroundSource, /async function resolvePopupSidePanelBoundTab\(sender = \{\}\) \{/);
+  assert.match(backgroundSource, /chrome\.runtime\.getContexts/);
+  assert.match(backgroundSource, /contextTypes: \["SIDE_PANEL"\]/);
+  assert.match(backgroundSource, /documentUrls: \[chrome\.runtime\.getURL\("popup\.html"\)\]/);
+  assert.match(backgroundSource, /const senderDocumentId = typeof sender\.documentId === "string" \? sender\.documentId : "";/);
+  assert.match(backgroundSource, /context && context\.documentId === senderDocumentId/);
+  assert.match(backgroundSource, /getExtensionContextWindowId\(context\) === senderWindowId/);
+  assert.match(backgroundResolveBlock, /const debugTabId = normalizeBrokerTabId\(message\.debugTabId\);/);
+  assert.match(backgroundResolveBlock, /const tab = await chrome\.tabs\.get\(debugTabId\);/);
+  assert.match(backgroundResolveBlock, /const sidePanelBoundTab = await resolvePopupSidePanelBoundTab\(sender\);/);
+  assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, currentWindow: true \}\)/);
+  assert.match(backgroundResolveBlock, /chrome\.tabs\.query\(\{ active: true, lastFocusedWindow: true \}\)/);
+  assert.match(loadActiveTabBlock, /type: "resolvePopupTabContext"/);
+  assert.match(loadActiveTabBlock, /debugTabId: Number\.isFinite\(debugTabIdParam\)/);
+  assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab \? response\.tab : null;/);
+  assert.doesNotMatch(loadActiveTabBlock, /utils\.tabsQuery|chrome\.tabs\.get|chrome\.runtime\.getContexts|getSidePanelBoundTab/);
+  assert.doesNotMatch(popupMessagesSource, /async function getSidePanelBoundTab\(\)/);
 });
 
 test("shared tab state writes mirror enabled sessions into reload restore state", () => {

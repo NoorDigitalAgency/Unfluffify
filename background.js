@@ -200,6 +200,75 @@ function getMessageTabId(message, sender) {
     normalizeBrokerTabId(sender && sender.tab && sender.tab.id);
 }
 
+function getExtensionContextWindowId(context) {
+  return Number.isFinite(context && context.windowId) ? Math.trunc(context.windowId) : null;
+}
+
+async function resolvePopupSidePanelBoundTab(sender = {}) {
+  if (
+    !chrome.runtime ||
+    typeof chrome.runtime.getContexts !== "function" ||
+    !chrome.tabs ||
+    typeof chrome.tabs.get !== "function"
+  ) {
+    return null;
+  }
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["SIDE_PANEL"],
+      documentUrls: [chrome.runtime.getURL("popup.html")]
+    });
+    if (!Array.isArray(contexts)) {
+      return null;
+    }
+    const senderDocumentId = typeof sender.documentId === "string" ? sender.documentId : "";
+    const senderContext = senderDocumentId
+      ? contexts.find((context) => context && context.documentId === senderDocumentId)
+      : null;
+    const senderWindowId = getExtensionContextWindowId(senderContext);
+    const boundContext = contexts.find((context) => (
+      Number.isFinite(context && context.tabId) &&
+      (!senderWindowId || getExtensionContextWindowId(context) === senderWindowId)
+    ));
+    if (!boundContext) {
+      return null;
+    }
+    return await chrome.tabs.get(Math.trunc(boundContext.tabId));
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePopupTabContext(message = {}, sender = {}) {
+  const debugTabId = normalizeBrokerTabId(message.debugTabId);
+  if (debugTabId) {
+    try {
+      const tab = await chrome.tabs.get(debugTabId);
+      if (tab && tab.id) {
+        return { ok: true, tab, source: "debug" };
+      }
+    } catch {
+      // Fall through to normal tab resolution if the debug tab is gone.
+    }
+  }
+
+  const sidePanelBoundTab = await resolvePopupSidePanelBoundTab(sender);
+  if (sidePanelBoundTab && sidePanelBoundTab.id) {
+    return { ok: true, tab: sidePanelBoundTab, source: "sidePanel" };
+  }
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tabs.length) {
+      tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    }
+  } catch {
+    tabs = [];
+  }
+  return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
+}
+
 function getSpinnerQueueForTab(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -533,6 +602,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => {
         sendResponse({ ok: false });
       });
+    return true;
+  }
+
+  if (message.type === "resolvePopupTabContext") {
+    resolvePopupTabContext(message, sender)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, tab: null, source: "error" }));
     return true;
   }
 
