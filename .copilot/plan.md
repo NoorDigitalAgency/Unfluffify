@@ -1259,6 +1259,13 @@ Phase 2 drift audit and fixes (2026-06-06):
    `div.app` as the last child, directly after the view-conditional block,
    so it participates in the `u-gap-4` grid spacing like every other section.
 
+   Keyboard shortcut tooltip: `PopupText.tooltips.mobileSimulationHotkey`
+   was updated from `"CTRL/CMD+M"` to `"M"` (the key that now toggles
+   desktop preview) and restored to the desktop preview label row. The old
+   mobile-simulation toggle no longer exists in the popup, so the key name
+   is now repurposed for desktop preview. Full `npm test` (532/532) green;
+   Bonliva live smoke clean.
+
 Phase 2 remaining work:
    Remaining work is validation of the live flows. The repo-local smoke
    harness `scripts/smoke-property-lock-phase2.mjs` was improved to wait

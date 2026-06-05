@@ -172,10 +172,10 @@ test("desktop preview section has a section-divider and uses the correct icon an
 
   // Visual separation from surrounding sections
   assert.match(sectionBody, /section-divider/);
-  // Correct icon for desktop preview (not mobile hotkey tooltip)
+  // Correct icon for desktop preview
   assert.match(sectionBody, /monitor-eye/);
-  // No stale mobileSimulationHotkey tooltip (that belongs on the old mobile checkbox)
-  assert.doesNotMatch(sectionBody, /mobileSimulationHotkey/);
+  // Keyboard shortcut tooltip is present (mobileSimulationHotkey was repurposed for the M key)
+  assert.match(sectionBody, /mobileSimulationHotkey/);
 });
 
 test("content main registers general page activity listeners for 30-min inactivity reset", () => {

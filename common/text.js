@@ -203,7 +203,7 @@ export const PopupText = Object.freeze({
 
   tooltips: Object.freeze({
     basePageUrls: "Properties", // Tooltip on the base-page URL menu button.
-    mobileSimulationHotkey: "CTRL/CMD+M", // Shortcut hint for the mobile-simulation toggle row.
+    mobileSimulationHotkey: "M", // Shortcut hint for the desktop-preview toggle (was mobile-simulation).
     enableMarkingHotkey: "CTRL/CMD+E" // Shortcut hint for the marking toggle row.
   }),
 

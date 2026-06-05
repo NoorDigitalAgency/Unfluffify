@@ -1848,7 +1848,7 @@ function App({ state: view, actions: handlers }) {
               { class: "card" },
               h(
                 "label",
-                { class: "row" },
+                { class: "row", title: PopupText.tooltips.mobileSimulationHotkey },
                 h("span", { class: "row-label" }, icon("monitor-eye", "row-icon"), PopupText.device.desktopPreviewLabel),
                 h("input", {
                   id: "desktop-preview-enabled",
