@@ -2737,21 +2737,6 @@ async function clearReloadRestoreTabState(tabId) {
   await utils.storageRemove(chrome.storage.session, [getReloadRestoreTabStateKey(tabId)]);
 }
 
-async function setReloadRestoreTabState(tabId, state) {
-  if (!tabId) {
-    return;
-  }
-  if (!state || !state.enabled || !state.baseUrl) {
-    await clearReloadRestoreTabState(tabId);
-    return;
-  }
-  await utils.setTabState(tabId, {
-    enabled: true,
-    baseUrl: state.baseUrl,
-    pageType: typeof state.pageType === "string" ? state.pageType : ""
-  }, TAB_RESTORE_SCOPE);
-}
-
 async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
   if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
     return;

@@ -282,7 +282,9 @@ test("completed reload restores marking when the page stays within the saved bas
 
   assert.match(backgroundSource, /const TAB_RESTORE_SCOPE = "restore";/);
   assert.match(backgroundSource, /async function getReloadRestoreTabState\(tabId\) \{/);
-  assert.match(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
+  // setReloadRestoreTabState was removed in Phase 2 slice 1 (auto-restore retired);
+  // only the read path and clear path remain.
+  assert.doesNotMatch(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
   assert.match(backgroundSource, /async function clearReloadRestoreTabStateAfterActivation\(tabId, tabState\) \{/);
   assert.match(onUpdatedBlock, /const tabState = \(await utils\.getTabState\(tabId\)\) \|\| \(await getReloadRestoreTabState\(tabId\)\);/);
   assert.match(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);

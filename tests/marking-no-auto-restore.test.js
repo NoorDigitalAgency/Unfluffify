@@ -58,15 +58,14 @@ test("background sweeps stale transfer-payload keys on service-worker start", ()
   assert.ok(minutes >= 2 && minutes <= 30, `max age should be 2-30 min; got ${minutes}`);
 });
 
-test("setReloadRestoreTabState has no callers in background.js (auto-restore writer is retired)", () => {
+test("setReloadRestoreTabState is fully removed from background.js (auto-restore writer retired)", () => {
   // setReloadRestoreTabState used to mirror enabled state into a restore
   // scope so a navigation/reload could auto-resume marking. Phase 2.1 retires
-  // that auto-restore mechanism: there must be no callers left.
+  // that auto-restore mechanism; the function was also removed as dead code.
   const callMatches = backgroundSource.match(/setReloadRestoreTabState\(/g) || [];
-  // The function declaration itself counts once; nothing else may call it.
   assert.equal(
     callMatches.length,
-    1,
-    `expected only the function declaration to mention setReloadRestoreTabState; saw ${callMatches.length} occurrences`
+    0,
+    `expected setReloadRestoreTabState to be removed; saw ${callMatches.length} occurrences`
   );
 });
