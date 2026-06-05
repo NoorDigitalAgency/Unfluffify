@@ -1199,14 +1199,50 @@ Phase 2 live-validation follow-up status:
    Focused popup regression coverage was updated and full `npm test` is green
    (`47/47`).
 
+Phase 2 drift audit and fixes (2026-06-06):
+   After reviewing the agent commit `b41c50f`, two implementation gaps were
+   identified and fixed:
+
+   **Bug 1 — Desktop preview section trapped inside `renderMarkingView`**:
+   The agent placed the desktop preview section at the bottom of
+   `renderMarkingView`, making it invisible when the popup is in any view
+   other than `View.Marking` (e.g. Configuration view). The spec requires it
+   to be independent of current view. Fixed by moving the section to the
+   top-level render call site in `popup/ui.js`, rendered after the
+   view-conditional block and before the toast, wrapped in a
+   `section-divider` for visual separation. The incorrect
+   `tooltips.mobileSimulationHotkey` tooltip reference on the row was also
+   removed (the desktop preview row is not a hotkey action). The `hidden`
+   prop on the notice was replaced with a conditional render to match the
+   pattern used elsewhere.
+
+   **Bug 2 — Activity signals only fired on marking-specific actions**:
+   The spec requires "any input on the page or extension surface (mouse
+   move/click/keyboard/scroll)" to reset the 30-minute inactivity window.
+   Content-side `sendPropertyLockActivity()` was only called from marking
+   actions (page toggles, saves etc.). Fixed by adding debounced
+   `mousemove`/`keydown`/`pointerdown`/`scroll` listeners in `main()` that
+   fire `sendPropertyLockActivity()` at most once per 10 seconds via a
+   `propertyLockPageActivityTimer` debounce.
+
+   **Plan error — `47/47` test count**: The handoff docs stated
+   `` `npm test` passes (`47/47`) `` which was a partial focused run count.
+   The full suite at that point passed all tests. Current full suite:
+   444/444.
+
+   Three new guard tests in `tests/device-emulation-lifecycle.test.js`
+   lock: (1) desktop preview section renders outside `renderMarkingView`,
+   (2) section has a divider, correct `monitor-eye` icon, no stale
+   hotkey tooltip, (3) general activity listeners exist with debounce.
+   Full `npm test` (444/444) green; Bonliva live smoke clean.
+
 Phase 2 remaining work:
-   The remaining work is validation, not another known behavior slice. The
-   current repo-local smoke harness is still operationally flaky around popup
-   reopen/auth bootstrap after unpacked-extension reload in the persistent
-   browser profile. The next agent should stabilize or replace that smoke path
-   and then run one trustworthy same-property candidate/off-candidate live pass
-   plus one trustworthy cross-property return pass before declaring Phase 2
-   fully closed.
+   Remaining work is validation of the live flows. The repo-local smoke
+   harness in `scripts/smoke-property-lock-phase2.mjs` has known flakiness
+   around popup reopen/auth bootstrap after unpacked-extension reload. The
+   next work item is a same-property candidate→off-candidate→candidate pass
+   plus a cross-property return pass in a trustworthy live browser session.
+   Once those pass, Phase 2 can be declared fully closed.
 
 Page interaction pass-through completed:
 

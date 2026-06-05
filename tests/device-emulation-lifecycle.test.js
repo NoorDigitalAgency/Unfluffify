@@ -143,6 +143,58 @@ test("desktop preview persists on initial tab state and clears itself on debugge
   assert.match(detachBlock, /mode: "mobile"/);
 });
 
+test("desktop preview section is rendered outside renderMarkingView so it is view-independent", () => {
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+
+  // The section must be rendered at the top-level render call site, NOT inside
+  // renderMarkingView, so it appears regardless of the current popup view.
+  const markingViewStart = uiSource.indexOf("function renderMarkingView({state: view, actions: handlers})");
+  const markingViewEnd = uiSource.indexOf("\nfunction ", markingViewStart + 1);
+  const markingViewBody = uiSource.slice(markingViewStart, markingViewEnd);
+  assert.doesNotMatch(markingViewBody, /desktop-preview-section/,
+    "desktop preview must not be trapped inside renderMarkingView");
+  assert.doesNotMatch(markingViewBody, /desktopPreviewVisible/,
+    "desktop preview visibility check must not live inside renderMarkingView");
+
+  // It must appear after the view-conditional block (i.e. after renderMarkingView call site).
+  const viewConditionalIdx = uiSource.indexOf("view.currentView === View.Marking");
+  const desktopPreviewIdx = uiSource.indexOf("desktop-preview-section");
+  assert.ok(desktopPreviewIdx > viewConditionalIdx,
+    "desktop-preview-section must render after the view-conditional block");
+});
+
+test("desktop preview section has a section-divider and uses the correct icon and row structure", () => {
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const sectionStart = uiSource.indexOf("key: \"desktop-preview-section\"");
+  assert.ok(sectionStart > -1);
+  const sectionEnd = uiSource.indexOf(": null,", sectionStart);
+  const sectionBody = uiSource.slice(sectionStart, sectionEnd);
+
+  // Visual separation from surrounding sections
+  assert.match(sectionBody, /section-divider/);
+  // Correct icon for desktop preview (not mobile hotkey tooltip)
+  assert.match(sectionBody, /monitor-eye/);
+  // No stale mobileSimulationHotkey tooltip (that belongs on the old mobile checkbox)
+  assert.doesNotMatch(sectionBody, /mobileSimulationHotkey/);
+});
+
+test("content main registers general page activity listeners for 30-min inactivity reset", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const mainStart = source.indexOf("export function main()");
+  const mainEnd = source.lastIndexOf("}");
+  const mainBody = source.slice(mainStart, mainEnd);
+
+  // Activity debounce timer declared at module scope
+  assert.match(source, /let propertyLockPageActivityTimer = 0;/);
+  // General page inputs (not just marking actions) trigger the debounced ping
+  assert.match(mainBody, /addEventListener\("mousemove", handlePageActivity/);
+  assert.match(mainBody, /addEventListener\("keydown", handlePageActivity/);
+  assert.match(mainBody, /addEventListener\("pointerdown", handlePageActivity/);
+  assert.match(mainBody, /addEventListener\("scroll", handlePageActivity/);
+  // Activity is debounced — not fired on every event
+  assert.match(mainBody, /propertyLockPageActivityTimer = window\.setTimeout/);
+});
+
 test("popup delegates active tab context resolution to the background", () => {
   const backgroundResolveBlock = extractSourceBlock(
     backgroundSource,

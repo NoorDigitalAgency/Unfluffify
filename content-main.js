@@ -173,6 +173,9 @@ let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockConnectedSiteId = null;
 let propertyLockConnectedBaseUrl = "";
+// Debounce timer for page-level activity pings (mouse/keyboard/scroll).
+// General page interactions reset the 30-min inactivity window per spec.
+let propertyLockPageActivityTimer = 0;
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
@@ -8493,4 +8496,21 @@ export function main() {
     capture: true
   });
   window.addEventListener("beforeunload", core.handleBeforeUnload);
+
+  // Per-spec: any page input (mouse/keyboard/scroll) resets the 30-minute
+  // property-lock inactivity window. Debounce to at most once per 10 seconds
+  // so we don't flood the background on busy pages.
+  const handlePageActivity = () => {
+    if (!propertyLockPort || propertyLockPageActivityTimer) {
+      return;
+    }
+    propertyLockPageActivityTimer = window.setTimeout(() => {
+      propertyLockPageActivityTimer = 0;
+      sendPropertyLockActivity();
+    }, 10_000);
+  };
+  window.addEventListener("mousemove", handlePageActivity, { passive: true, capture: false });
+  window.addEventListener("keydown", handlePageActivity, { passive: true, capture: false });
+  window.addEventListener("pointerdown", handlePageActivity, { passive: true, capture: false });
+  window.addEventListener("scroll", handlePageActivity, { passive: true, capture: false });
 }
