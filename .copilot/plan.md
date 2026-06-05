@@ -639,6 +639,18 @@ Validation checkpoint after Round-7 authority slices:
    Source-level guard test added in
    `tests/content-activation-order.test.js`; full `npm test` (`450/450`)
    stayed green.
+50e. Silent-highlight reposition render-target caching completed:
+   `buildSilentHighlightPositionSignature(...)` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now consults a module-scoped `silentHighlightRenderTargetCache` (Map keyed
+   by source node) before calling `collectSilentHighlightRenderTargets(...)`,
+   so each settle sample reuses the BFS render-target walk computed on the
+   first sample for that source node. The cache is reset at both points where
+   `silentHighlightCollections` is replaced — the overlay tear-down path
+   (clear) and the overlay render path (rebuild) — so a fresh marking pass
+   always recomputes targets. Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`499/499`)
+   stayed green.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around

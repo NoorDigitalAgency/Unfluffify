@@ -247,6 +247,29 @@ test("capturePageSnapshot persists heavy snapshot evidence without returning it"
   assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
 });
 
+test("silent-highlight reposition reuses cached render targets between settle samples", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  // Cache state exists at module scope.
+  assert.match(source, /let silentHighlightRenderTargetCache = new Map\(\);/);
+
+  // Signature builder reads from the cache on hit, populates it on miss.
+  const sigStart = source.indexOf("function buildSilentHighlightPositionSignature");
+  assert.ok(sigStart > -1);
+  const sigEnd = source.indexOf("\n}\n", sigStart);
+  const sigSource = source.slice(sigStart, sigEnd);
+  assert.match(sigSource, /silentHighlightRenderTargetCache\.get\(node\)/);
+  assert.match(sigSource, /silentHighlightRenderTargetCache\.set\(node, targets\)/);
+
+  // Cache is reset at both lifecycle points that replace silentHighlightCollections:
+  // the overlay tear-down path and the overlay render path.
+  const resetMatches = source.match(/silentHighlightRenderTargetCache = new Map\(\);/g) || [];
+  assert.ok(
+    resetMatches.length >= 2,
+    `expected cache to be reset on both collections rebuild sites; saw ${resetMatches.length}`
+  );
+});
+
 test("refreshSilentHighlightings bails out after each await when superseded by a newer call", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");

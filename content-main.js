@@ -179,6 +179,7 @@ let silentHighlightOverlay = null;
 let silentHighlightLayers = {};
 let silentHighlightLayerBoxes = {};
 let silentHighlightCollections = null;
+let silentHighlightRenderTargetCache = new Map();
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
 let silentHighlightSettleTimer = 0;
@@ -3060,6 +3061,7 @@ function clearSilentHighlightOverlay() {
   silentHighlightLayers = {};
   silentHighlightLayerBoxes = {};
   silentHighlightCollections = null;
+  silentHighlightRenderTargetCache = new Map();
   clearSilentSelectorAnnotations();
 }
 
@@ -3355,6 +3357,9 @@ function renderSilentHighlightOverlay(collections) {
   finalizeSilentLayerRender(contentLayerState);
   finalizeSilentLayerRender(excludedLayerState);
   applySilentSelectorAnnotations(collections);
+  // Settle/reposition resamples the SAME source nodes many times per second; only
+  // the source-node → render-target map changes when collections are rebuilt.
+  silentHighlightRenderTargetCache = new Map();
   silentHighlightCollections = {
     immutableNodes,
     contentNodes,
@@ -3414,9 +3419,13 @@ function buildSilentHighlightPositionSignature(collections = silentHighlightColl
   const entries = [];
   const appendNodes = (nodes, prefix) => {
     (nodes || []).forEach((node, nodeIndex) => {
-      const targets = collectSilentHighlightRenderTargets(node, {
-        keepShallowestOnly: true
-      });
+      let targets = silentHighlightRenderTargetCache.get(node);
+      if (!targets) {
+        targets = collectSilentHighlightRenderTargets(node, {
+          keepShallowestOnly: true
+        });
+        silentHighlightRenderTargetCache.set(node, targets);
+      }
       const renderTargets = targets.length > 0 ? targets : [node];
       renderTargets.forEach((target, targetIndex) => {
         if (!target || target.nodeType !== 1) {
