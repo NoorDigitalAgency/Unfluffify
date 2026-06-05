@@ -3975,6 +3975,19 @@ function startSilentHighlightingObserver() {
         }
         continue;
       }
+      // Class mutations on nodes that don't touch the tracked subtree can only
+      // affect tracked overlays through far-reaching CSS cascade rules; the
+      // reposition path picks up any resulting layout shift. Keep the full
+      // refresh for tracked-touching targets where the change can flip
+      // selector-match membership.
+      if (attributeName === "class") {
+        if (mutationTargetTouchesSilentCollections(mutation.target)) {
+          needsFullRefresh = true;
+          break;
+        }
+        needsPositionRefresh = true;
+        continue;
+      }
       needsFullRefresh = true;
       break;
     }

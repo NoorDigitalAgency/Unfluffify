@@ -295,6 +295,20 @@ test("silent-highlight reposition reuses cached render targets between settle sa
   );
 });
 
+test("silent-highlight observer demotes class mutations on non-tracked targets to reposition", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const obsStart = source.indexOf("silentHighlightingObserver = new MutationObserver(");
+  assert.ok(obsStart > -1);
+  const obsEnd = source.indexOf("silentHighlightingObserver.observe(", obsStart);
+  const obsBody = source.slice(obsStart, obsEnd);
+
+  // Class mutation on a tracked-touching target → full refresh.
+  assert.match(
+    obsBody,
+    /if \(attributeName === "class"\) \{\s*if \(mutationTargetTouchesSilentCollections\(mutation\.target\)\) \{\s*needsFullRefresh = true;\s*break;\s*\}\s*needsPositionRefresh = true;/
+  );
+});
+
 test("silent-highlight observer routes inline style mutations through the reposition path", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 
