@@ -264,6 +264,31 @@ test("AI run status polling uses background transport while large payload flows 
   assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
 });
 
+test("selector submit GraphQL mutation uses background transport while page-type assignment stays popup-owned", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const submitStart = popupSource.indexOf("async function submitSelectorSetToServer(");
+  const submitEnd = popupSource.indexOf("async function handleSaveExcludes", submitStart);
+  const assignmentStart = popupSource.indexOf("async function postPageTypeAssignmentsToAiServer(");
+  const assignmentEnd = popupSource.indexOf("async function submitSelectorSetToServer(", assignmentStart);
+  assert.ok(submitStart > -1);
+  assert.ok(submitEnd > submitStart);
+  assert.ok(assignmentStart > -1);
+  assert.ok(assignmentEnd > assignmentStart);
+  const submitBlock = popupSource.slice(submitStart, submitEnd);
+  const assignmentBlock = popupSource.slice(assignmentStart, assignmentEnd);
+
+  assert.match(backgroundSource, /async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "submitSelectorSetGraphqlUpdate"\) \{/);
+  assert.match(backgroundSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
+  assert.match(submitBlock, /type: "submitSelectorSetGraphqlUpdate"/);
+  assert.match(submitBlock, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(submitBlock, /fetch\(graphqlEndpoint|UPDATE_SCRAPING_CONDITIONS_MUTATION|maybeUpdateStoredTokenFromResponse/);
+  assert.match(assignmentBlock, /fetch\(assignPageTypesUrl/);
+  assert.match(assignmentBlock, /rawHtml/);
+  assert.match(assignmentBlock, /renderedHtml/);
+});
+
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logicDoc = readFileSync(new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url), "utf8");

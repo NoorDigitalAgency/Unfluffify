@@ -97,6 +97,21 @@ const tabSpinnerQueueByTabId = new Map();
 const popupStatePortsByTabId = new Map();
 const tabWorldTraceStateByTabId = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
+const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
+mutation updateScrapingConditions(
+  $domainId: Int!,
+  $includeCss: String,
+  $excludeCss: String,
+  $renderingMode: DomainRenderMode
+) {
+  updateScrapingConditions(
+    domainId: $domainId,
+    includeCss: $includeCss,
+    excludeCss: $excludeCss,
+    renderingMode: $renderingMode
+  )
+}
+`;
 
 function clearBrowsingDataForOrigin(origin) {
   return new Promise((resolve) => {
@@ -459,6 +474,48 @@ async function requestAuthLogin(options = {}) {
       body: JSON.stringify({ email, password })
     });
     await maybeUpdateStoredTokenFromResponse(response, "");
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    return {
+      ok: response.ok,
+      status: response.status || 0,
+      payload: payload && typeof payload === "object" ? payload : null
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function submitSelectorSetGraphqlUpdate(options = {}) {
+  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const normalizedSiteId = normalizeSiteIdValue(options.siteId);
+  const includeCss = typeof options.includeCss === "string" ? options.includeCss : "";
+  const excludeCss = typeof options.excludeCss === "string" ? options.excludeCss : "";
+  const renderMode = typeof options.renderMode === "string" ? options.renderMode : "";
+  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
+  if (!graphqlEndpoint || !normalizedSiteId) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify({
+        query: UPDATE_SCRAPING_CONDITIONS_MUTATION,
+        variables: {
+          domainId: normalizedSiteId,
+          includeCss,
+          excludeCss,
+          renderingMode: renderMode || null
+        }
+      })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
     let payload = null;
     try {
       payload = await response.json();
@@ -1183,6 +1240,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       stageBase: message.stageBase,
       email: message.email,
       password: message.password
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "submitSelectorSetGraphqlUpdate") {
+    submitSelectorSetGraphqlUpdate({
+      stageBase: message.stageBase,
+      tokenValue: message.tokenValue,
+      siteId: message.siteId,
+      includeCss: message.includeCss,
+      excludeCss: message.excludeCss,
+      renderMode: message.renderMode
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

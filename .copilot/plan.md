@@ -123,6 +123,11 @@ Validation checkpoint after Round-7 authority slices:
    repo-local browser profile and browser config, and
    `.vscode/browser-mcp.config.json` explicitly keeps
    `browser.chromiumSandbox: false` plus `--no-sandbox` for this Linux host.
+15. Selector-submit GraphQL transport slice completed: popup still owns
+   selector preparation, page-type assignment, local selector-state updates,
+   and save UX, but the small `updateScrapingConditions` GraphQL mutation now
+   goes through background `submitSelectorSetGraphqlUpdate`; the large
+   page-type-assignment HTML payload stays popup-owned.
 
 ## Marking Reload Handoff
 

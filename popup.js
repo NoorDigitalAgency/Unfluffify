@@ -643,21 +643,6 @@ const THEME_OPTIONS = Object.freeze(
     })
     .map((theme) => ({ value: theme.value, label: theme.label }))
 );
-const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
-mutation updateScrapingConditions(
-  $domainId: Int!,
-  $includeCss: String,
-  $excludeCss: String,
-  $renderingMode: DomainRenderMode
-) {
-  updateScrapingConditions(
-    domainId: $domainId,
-    includeCss: $includeCss,
-    excludeCss: $excludeCss,
-    renderingMode: $renderingMode
-  )
-}
-`;
 const popupSpinnerQueue = new Map();
 const popupSpinnerKeyTabIds = new Map();
 let popupSpinnerVisible = false;
@@ -8124,27 +8109,20 @@ async function submitSelectorSetToServer(options = {}) {
       checklistPageTypes: state.lynxChecklistPageTypes
     });
     submitTokenValue = (await getStoredGlobalToken()) || submitTokenValue;
-    const response = await fetch(graphqlEndpoint, {
-      method: "POST",
-      headers: createConfigSyncHeaders(submitTokenValue),
-      body: JSON.stringify({
-        query: UPDATE_SCRAPING_CONDITIONS_MUTATION,
-        variables: {
-          domainId: siteIdResult.siteId,
-          includeCss,
-          excludeCss,
-          renderingMode: renderMode
-        }
-      })
+    const response = await messages.sendRuntimeMessage({
+      type: "submitSelectorSetGraphqlUpdate",
+      stageBase: stageBaseValue,
+      tokenValue: submitTokenValue,
+      siteId: siteIdResult.siteId,
+      includeCss,
+      excludeCss,
+      renderMode
     });
-    await maybeUpdateStoredTokenFromResponse(response, submitTokenValue);
     let payload = null;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      payload = null;
+    if (response && response.payload && typeof response.payload === "object") {
+      payload = response.payload;
     }
-    if (!response.ok) {
+    if (!response || response.ok !== true) {
       return { ok: false, reason: PopupText.ai.submitResponseError };
     }
     if (!payload || typeof payload !== "object") {
