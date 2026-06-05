@@ -1247,10 +1247,17 @@ Phase 2 drift audit and fixes (2026-06-06):
    444/444.
 
    Three new guard tests in `tests/device-emulation-lifecycle.test.js`
-   lock: (1) desktop preview section renders outside `renderMarkingView`,
-   (2) section has a divider, correct `monitor-eye` icon, no stale
-   hotkey tooltip, (3) general activity listeners exist with debounce.
-   Full `npm test` (444/444) green; Bonliva live smoke clean.
+   lock: (1) desktop preview section renders outside `renderMarkingView`
+   and inside `div.app` at the correct grid level, (2) section has a
+   divider, correct `monitor-eye` icon, no stale hotkey tooltip,
+   (3) general activity listeners exist with debounce.
+   Full `npm test` (484/484) green; Bonliva + prowork live smoke clean.
+
+   Additional layout fix: the desktop preview section was initially placed
+   outside the `div.app` grid container (as a sibling Fragment), meaning it
+   would render outside the popup's grid layout. Fixed by moving it inside
+   `div.app` as the last child, directly after the view-conditional block,
+   so it participates in the `u-gap-4` grid spacing like every other section.
 
 Phase 2 remaining work:
    Remaining work is validation of the live flows. The repo-local smoke

@@ -1837,43 +1837,43 @@ function App({ state: view, actions: handlers }) {
           ? renderMarkingView({ state: view, actions: handlers })
           : view.currentView === View.Configuration
             ? renderConfigurationView({ state: view, actions: handlers })
-            : null
-    ),
-    view.desktopPreviewVisible
-      ? h(
-          Fragment,
-          { key: "desktop-preview-section" },
-          h("div", { class: "section-divider", role: "separator" }),
-          h(
-            "section",
-            { class: "card" },
+            : null,
+      view.desktopPreviewVisible
+        ? h(
+            Fragment,
+            { key: "desktop-preview-section" },
+            h("div", { class: "section-divider", role: "separator" }),
             h(
-              "label",
-              { class: "row" },
-              h("span", { class: "row-label" }, icon("monitor-eye", "row-icon"), PopupText.device.desktopPreviewLabel),
-              h("input", {
-                id: "desktop-preview-enabled",
-                type: "checkbox",
-                checked: view.desktopPreviewEnabled,
-                disabled: view.desktopPreviewDisabled,
-                onChange: handlers.onDesktopPreviewEnabledChange
-              })
-            ),
-            view.desktopPreviewNoticeVisible
-              ? h(
-                  "div",
-                  {
-                    id: "desktop-preview-notice",
-                    class: warningNoticeClass(),
-                    role: "status",
-                    "aria-live": "polite"
-                  },
-                  view.desktopPreviewNoticeText
-                )
-              : null
+              "section",
+              { class: "card" },
+              h(
+                "label",
+                { class: "row" },
+                h("span", { class: "row-label" }, icon("monitor-eye", "row-icon"), PopupText.device.desktopPreviewLabel),
+                h("input", {
+                  id: "desktop-preview-enabled",
+                  type: "checkbox",
+                  checked: view.desktopPreviewEnabled,
+                  disabled: view.desktopPreviewDisabled,
+                  onChange: handlers.onDesktopPreviewEnabledChange
+                })
+              ),
+              view.desktopPreviewNoticeVisible
+                ? h(
+                    "div",
+                    {
+                      id: "desktop-preview-notice",
+                      class: warningNoticeClass(),
+                      role: "status",
+                      "aria-live": "polite"
+                    },
+                    view.desktopPreviewNoticeText
+                  )
+                : null
+            )
           )
-        )
-      : null,
+        : null
+    ),
     h(
       "div",
       {
