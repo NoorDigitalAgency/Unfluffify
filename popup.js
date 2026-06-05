@@ -827,13 +827,21 @@ function syncSpinnerEntryToBackground(key) {
   if (!entry) {
     return Promise.resolve(null);
   }
+  const shouldApplySnapshot = () => {
+    const currentEntry = popupSpinnerQueue.get(key);
+    if (!currentEntry) {
+      return false;
+    }
+    return currentEntry.message === entry.message &&
+      Boolean(currentEntry.persistent) === Boolean(entry.persistent);
+  };
   return sendSpinnerBrokerMessage({
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key,
     message: entry.message,
     persistent: entry.persistent
   }, {
-    shouldApplySnapshot: () => popupSpinnerQueue.get(key) === entry
+    shouldApplySnapshot
   });
 }
 

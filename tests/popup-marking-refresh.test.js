@@ -353,7 +353,11 @@ test("popup ignores stale spinner-set broker snapshots after local removal", () 
   assert.match(sendBody, /const shouldApplySnapshot = typeof options\.shouldApplySnapshot === "function"/);
   assert.match(sendBody, /response && response\.ok && shouldApplySnapshot\(response\)/);
   assert.match(setBody, /const entry = popupSpinnerQueue\.get\(key\);/);
-  assert.match(setBody, /shouldApplySnapshot: \(\) => popupSpinnerQueue\.get\(key\) === entry/);
+  assert.match(setBody, /const shouldApplySnapshot = \(\) => \{[\s\S]*?const currentEntry = popupSpinnerQueue\.get\(key\);/);
+  assert.match(setBody, /if \(!currentEntry\) \{[\s\S]*?return false;/);
+  assert.match(setBody, /currentEntry\.message === entry\.message/);
+  assert.match(setBody, /Boolean\(currentEntry\.persistent\) === Boolean\(entry\.persistent\)/);
+  assert.match(setBody, /shouldApplySnapshot/);
 });
 
 test("popup restores spinner state from background current state", () => {
