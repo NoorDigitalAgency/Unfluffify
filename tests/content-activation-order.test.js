@@ -295,6 +295,42 @@ test("silent-highlight reposition reuses cached render targets between settle sa
   );
 });
 
+test("refreshSilentHighlightings yields between source-set collection and renderable expansion", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("\n}\n", fnStart);
+  const fnSource = source.slice(fnStart, fnEnd);
+
+  // Between collectIncludedNodesFromSelectorSet and the renderable-collections
+  // build there is a setTimeout(0) task break that re-checks the generation
+  // token so a newer refresh that started during source collection wins.
+  const collectIdx = fnSource.indexOf("const contentMarking = collectIncludedNodesFromSelectorSet(");
+  assert.ok(collectIdx > -1);
+  const buildIdx = fnSource.indexOf("renderCollections = buildSilentHighlightRenderableCollections({", collectIdx);
+  assert.ok(buildIdx > collectIdx);
+  const between = fnSource.slice(collectIdx, buildIdx);
+  assert.match(between, /await new Promise\(\(resolve\) => \{[\s\S]*?window\.setTimeout\(resolve, 0\);[\s\S]*?\}\);/);
+  assert.match(between, /if \(refreshGeneration !== silentHighlightingRefreshGeneration\) \{\s*return;\s*\}/);
+});
+
+test("collectIncludedNodesFromSelectorSet memoizes core.isVisible per call", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const fnStart = source.indexOf("function collectIncludedNodesFromSelectorSet(");
+  assert.ok(fnStart > -1);
+  // Use the next top-level `let` declaration (silentRenderNodeIdCounter) as the
+  // function end boundary — it sits immediately after the function.
+  const fnEnd = source.indexOf("let silentRenderNodeIdCounter", fnStart);
+  assert.ok(fnEnd > fnStart);
+  const fnSource = source.slice(fnStart, fnEnd);
+
+  // Local WeakMap + memoized wrapper for repeated visibility lookups inside the
+  // explicit-include and final-include filters.
+  assert.match(fnSource, /const visibilityMemo = new WeakMap\(\);/);
+  assert.match(fnSource, /const memoIsVisible = \(node\) => \{/);
+  assert.match(fnSource, /isIncludedNodeAvailableForUser = \(node\) =>\s*memoIsVisible\(node\)/);
+});
+
 test("silent-highlight observer demotes class mutations on non-tracked targets to reposition", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const obsStart = source.indexOf("silentHighlightingObserver = new MutationObserver(");

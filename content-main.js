@@ -5242,8 +5242,22 @@ function collectIncludedNodesFromSelectorSet(selectorSet) {
     inclusionContextSet,
     inclusionSelectionOptions
   );
+  // Per-call visibility memo. `isIncludedNodeAvailableForUser` is invoked
+  // across the explicit-include filter, the final include filter, and inside
+  // `shouldRetainIncludedSource(...)`, so the same node can be queried several
+  // times in one collection pass. The WeakMap is scoped to this invocation
+  // and discarded with the closure, so there is no staleness window.
+  const visibilityMemo = new WeakMap();
+  const memoIsVisible = (node) => {
+    if (!node || node.nodeType !== 1) return false;
+    const cached = visibilityMemo.get(node);
+    if (cached !== undefined) return cached;
+    const visible = core.isVisible(node);
+    visibilityMemo.set(node, visible);
+    return visible;
+  };
   const isIncludedNodeAvailableForUser = (node) =>
-    core.isVisible(node) || !isDefinitelyHiddenSubtreeNode(node);
+    memoIsVisible(node) || !isDefinitelyHiddenSubtreeNode(node);
   const explicitIncludedSet = new Set(explicitIncluded);
   const hiddenExplicitIncluded = explicitIncluded.filter((node) =>
     !isIncludedNodeAvailableForUser(node)
@@ -5847,6 +5861,20 @@ async function refreshSilentHighlightings() {
       const contentMarking = collectIncludedNodesFromSelectorSet(
         effectiveSelectorSet
       );
+      // Yield to the event loop between source-set computation and renderable
+      // expansion so a long page can break up the synchronous work. The next
+      // task re-checks the generation token; a newer refresh that started
+      // while we were computing source nodes wins and this older call bails.
+      await new Promise((resolve) => {
+        if (typeof window.setTimeout !== "function") {
+          resolve();
+          return;
+        }
+        window.setTimeout(resolve, 0);
+      });
+      if (refreshGeneration !== silentHighlightingRefreshGeneration) {
+        return;
+      }
       const excludedSourcesForSilentOverlay = Array.isArray(contentMarking.excluded)
         ? contentMarking.excluded
         : [];

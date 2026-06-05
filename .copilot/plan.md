@@ -725,6 +725,41 @@ Validation checkpoint after Round-7 authority slices:
    `tests/content-activation-order.test.js`; full `npm test` (`456/456`)
    stayed green and a repo-local Bonliva + prowork live smoke confirmed
    identical AI-submission verdicts and zero console errors.
+50j. Silent-highlight source-collection task break completed:
+   `refreshSilentHighlightings()` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now `await`s a `setTimeout(0)` between the
+   `collectIncludedNodesFromSelectorSet(...)` source-set computation and the
+   subsequent `buildSilentHighlightRenderableCollections(...)` renderable
+   expansion, with a generation-token re-check after the task break. On long
+   selector-heavy pages this gives the event loop a chance to handle other
+   work between two heavy synchronous passes; on shorter pages the cost is a
+   single macrotask hop. Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`487/487`)
+   stayed green and a repo-local Bonliva + prowork live smoke confirmed
+   identical AI-submission verdicts and zero console errors.
+50k. Silent-highlight visibility memoization completed:
+   `collectIncludedNodesFromSelectorSet(...)` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now declares a local `WeakMap`-backed `memoIsVisible(...)` wrapper that
+   caches `core.isVisible(...)` results for the duration of a single
+   collection pass. The `isIncludedNodeAvailableForUser(...)` helper, which
+   runs once in the explicit-include filter and again in the final include
+   filter (and from `shouldRetainIncludedSource(...)`), now consults the memo
+   so the same node is not visibility-tested multiple times per pass. The
+   memo is scoped to the call closure, so it is discarded as soon as the
+   function returns — no staleness window. Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`487/487`)
+   stayed green and the same Bonliva + prowork live smoke remained clean.
+50l. Silent-highlight annotation-only reapply (sub-5 deeper) deferred:
+   the "apply selector titles/badges to an already-rendered overlay without
+   rebuilding source collections" path has no current call site that would
+   trigger it independently of a full refresh — settings/selector changes
+   already flow through `refreshSilentHighlightings()` which short-circuits
+   when the render key is unchanged. Implementing a standalone annotation
+   reapply entry point ahead of an actual caller would be speculative
+   architecture; revisit once a concrete trigger (e.g. a selector-name-only
+   settings change path) is identified.
 53. Silent-highlight responsiveness rollup (status against item 50):
    - **50 sub-1 (cancellable phases)**: partially landed as item 50d — a
      generation token bails on stale calls after each `await`, but the function
@@ -732,25 +767,27 @@ Validation checkpoint after Round-7 authority slices:
      (config/selector snapshot → source collection → render-target expansion →
      overlay draw) recommended by item 50.
    - **50 sub-2 (non-blocking UI / rAF yields, keep prior overlay)**:
-     partially landed as item 50g — one rAF yield separates source collection
-     from the overlay DOM write, and the previous overlay stays in place
-     during the yield. Splitting source collection itself into multiple
-     cancellable phases with intra-phase task breaks (e.g. between
-     `collectIncludedNodesFromSelectorSet` and
-     `buildSilentHighlightRenderableCollections`) is not yet landed and
-     remains an open follow-up if profiling shows source collection still
-     dominates the frame budget.
+     landed as items 50g (rAF yield before overlay DOM write, previous
+     overlay stays in place during the yield) and 50j (setTimeout(0) task
+     break between source-set collection and renderable-collections build,
+     with a generation re-check). Deeper subdivision of
+     `collectIncludedNodesFromSelectorSet` itself into multiple chunked
+     phases remains optional and gated on live profiling.
    - **50 sub-3 (render-target caching)**: landed as item 50e.
    - **50 sub-4 (tracked-node mutation index)**: landed as item 50f.
    - **50 sub-5 (narrower mutation paths — position-only vs full vs
-     annotation-only)**: partially landed as items 50h (inline-style → 
-     reposition) and 50i (class on non-tracked-touching → reposition;
-     class on tracked-touching stays full-refresh). The annotation-only
-     reapply path (apply selector titles/badges to an already-rendered
-     overlay without rebuilding source collections) remains an open
-     follow-up.
+     annotation-only)**: position-only narrowing landed as items 50h
+     (inline-style → reposition) and 50i (class on non-tracked-touching →
+     reposition; class on tracked-touching stays full-refresh). The
+     annotation-only reapply path is deferred (item 50l) until a concrete
+     standalone caller exists.
    - **50 sub-6 (per-generation memoization of visibility/textual checks)**:
-     not started; pending live profiling after the deeper phase split.
+     landed as item 50k for the direct `core.isVisible(...)` call inside
+     `collectIncludedNodesFromSelectorSet(...)`. Plumbing the same memo
+     through the deeper helper graph (e.g.
+     `collectImplicitIncludedNodesOutsideExplicit(...)`,
+     `hasRenderableTextForHighlight(...)`) remains optional and gated on
+     live profiling.
    Item 52 live-smoke obligation: items 50d/50e/50f have full `npm test` and
    focused-suite coverage. A headful repo-local smoke through
    `scripts/smoke-ai-submission.mjs` against
