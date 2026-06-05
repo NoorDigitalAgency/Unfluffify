@@ -597,18 +597,34 @@ Validation checkpoint after Round-7 authority slices:
    included rows are unaffected. Source-level guard test added in
    `tests/content-activation-order.test.js`; full `npm test` (`449/449`) stayed
    green.
-50c. Phase A+B multi-site live smoke completed:
-   Standalone `scripts/smoke-ai-submission.mjs` driven through `xvfb-run` with
-   the persistent `.mcp-browser-profile` and the loaded unpacked extension
-   confirmed that `capturePageSnapshot` (persist: true) round-trips through the
-   background service worker and the content script with `ok: true` and zero
-   page console errors on `https://www.bonliva.no/artikler/barnehagevikar-lonn`,
-   `https://prowork.se/`, and `https://www.vitec-pyramid.com/`. The
-   content-loader injection marker
-   (`#unfluffify-page-motion-freeze-script`) is present on all three sites
-   before the snapshot runs, so the Phase A partial-visibility bridge and the
-   Phase B ancestor guard execute against real DOMs without runtime regression.
-   Full `npm test` (`449/449`) stayed green alongside the live runs.
+50c. Phase A+B multi-site live smoke with DOM verification completed:
+   Standalone `scripts/smoke-ai-submission.mjs` (driven through `xvfb-run` with
+   the persistent `.mcp-browser-profile` and the loaded unpacked extension)
+   activates content-main on each target tab, drives `capturePageSnapshot`
+   (persist: true) with an explicit derived `baseUrl`, reads the persisted
+   `submissionXpaths` from the extension's IndexedDB (`unfluffify` db, `kv`
+   store, `configs` key) via the service worker, and reconciles each row
+   against the live DOM after temporarily detaching extension-owned nodes
+   (`[data-uf-extension-ui]`, `#unfluffify-page-motion-freeze-script`) so XPath
+   indices match the sanitized view used at capture time. Results:
+   - `https://www.bonliva.no/artikler/barnehagevikar-lonn`: 238 rows, 117
+     included / 121 excluded. 117/117 included rows resolve to visibly-painted
+     elements with text. Only 2 excluded rows are visible standalone — both
+     are default-excluded structural tags (`<nav>`, `<button>`).
+   - `https://prowork.se/`: 302 rows, 76 included / 226 excluded. 76/76
+     included rows resolve to visible text. Visible-but-excluded rows split
+     into 15 default-excluded structural ancestors (HEADER/FOOTER/BUTTON) and
+     47 collapsed-FAQ H4/P/H5/H3/STRONG content (Webflow accordion content
+     present in DOM but not painted in the rendered view — confirmed by full
+     page screenshot showing only FAQ section headers, not the Q&A bodies).
+   - `https://www.vitec-pyramid.com/`: 70 rows, 57 included / 13 excluded.
+     57/57 included rows visible. Only 2 excluded rows are visible standalone —
+     `<header>` and `<footer>` defaults.
+   No included row resolves to a hidden element on any site (Phase A's
+   partial-visibility bridge is not over-excluding visible content), and no
+   visible-excluded row breaks the default-exclusion taxonomy or the Phase B
+   ancestor guard. Full `npm test` (`449/449`) stayed green alongside the live
+   runs.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around
