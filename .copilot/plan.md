@@ -25,12 +25,21 @@ Validation checkpoint after Round-7 authority slices:
    authority/reload/popup/content/AI/GraphQL suites, static popup authority
    surface searches, diagnostics on touched entry points, and the extension
    package staging dry run.
-2. Live Playwright validation remains a separate gap: this workspace does not
-   include Playwright specs or scripts, and the exposed Playwright-local tool
-   currently only snapshots the active `about:blank` page. Do not treat this as
-   a product-behavior pass until a browser page/extension harness is available
-   and manually driven.
-3. Remaining authority work should still avoid proxying large config, HTML, or
+2. Repo-configured live Playwright MCP validation works when invoked with
+   absolute paths for `--user-data-dir` and `--config`:
+   `npx -y @playwright/mcp@latest --user-data-dir=<repo>/.mcp-browser-profile
+   --config=<repo>/.vscode/browser-mcp.config.json`.
+3. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
+   extension, exposed the target tab ID, and opened
+   `popup.html?debugTabId=<seo-tab-id>`. The popup page had `chrome.runtime`
+   available and no popup console errors, but a direct popup-context
+   `chrome.runtime.sendMessage({ type: "resolvePopupTabContext", debugTabId })`
+   returned no response with `chrome.runtime.lastError` = `The message port
+   closed before a response was received.` Treat this as a validation-blocking
+   authority-refactor follow-up before moving more popup/background ownership.
+   The seo.se page itself also logs an unrelated site script `Failed to fetch`
+   error from `seo-theme`.
+4. Remaining authority work should still avoid proxying large config, HTML, or
    AI request/response bodies through runtime messages; use storage keys,
    owner-context fetches, or a designed background/offscreen ownership path.
 
