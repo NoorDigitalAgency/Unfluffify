@@ -2864,14 +2864,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   {
     return;
   }
-  const tabState = (await utils.getTabState(tabId)) || (await getReloadRestoreTabState(tabId));
+  // Per the editor-mobile-only contract, marking does not auto-restore on
+  // page-load. The restore scope is never populated. We still read live tab
+  // state so that the content-activation path (requestContentActivation) can
+  // re-inject the content script for already-enabled tabs that navigated
+  // within the same base URL.
+  const tabState = await utils.getTabState(tabId);
   if (
     tabState &&
     tabState.enabled &&
     tabState.baseUrl &&
     !utils.isPageWithinBaseUrl(tab.url || "", tabState.baseUrl)
   ) {
-    await clearReloadRestoreTabState(tabId);
     await utils.disableExtensionForTab(tabId);
     return;
   }
@@ -2879,6 +2883,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await utils.setTabState(tabId, tabState);
   }
   requestContentActivation(tabId);
+  // restoreEnabledStateForTab is a no-op when tabState is null/disabled (the
+  // common case now that auto-restore is retired) but is kept to preserve the
+  // activation path for developer-console re-injection scenarios.
   restoreEnabledStateForTab(tabId, tabState);
 });
 
