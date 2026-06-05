@@ -860,6 +860,41 @@ Revised phase shape:
   - **Countdown UI**: both an in-page banner on the editor tab (similar
     to the existing property-lock disconnected banner) AND a mirror in
     the popup when it is open, so the user cannot miss the warning.
+  - **Editor = mobile-only**: the editor tab always runs in mobile
+    simulation while marking mode is active. The previous
+    mobile-simulation checkbox + label inside the marking-mode section
+    is removed; mobile sim is forced for every editor scenario. If the
+    user tries to disable mobile sim by any path (close affordance,
+    DevTools device-mode toggle), mobile sim is reapplied unless desktop
+    preview (see below) is explicitly enabled.
+  - **Desktop preview section** (new popup UI):
+    - Lives as a separate section directly on the popup interface, below
+      every other section, independent of the popup view / current mode.
+    - Only rendered when AI CSS selectors have been calculated for the
+      property.
+    - Contains a `Preview in desktop mode` checkbox plus an inline
+      notice explaining that marking mode is disabled while desktop
+      preview is on.
+    - Enabling the checkbox switches the page from forced mobile sim to
+      desktop sim AND disables the marking-mode toggle. Disabling the
+      checkbox returns the page to forced mobile sim and re-enables
+      marking-mode entry.
+    - Checkbox value persists for the tab lifecycle (survives navigation
+      and reload within the same tab; resets when the tab closes).
+    - The silent-highlighting matchings list is filtered by current sim
+      mode — it shows what is currently visible at the active mobile or
+      desktop layout.
+    - Styling stays in sync with the rest of the popup sections.
+    - DevTools kill switch: clicking the DevTools "stop debugging" /
+      device-mode-close path while desktop preview is on disables the
+      desktop-preview checkbox and resumes forced mobile sim, so the
+      user cannot get stuck in a stale desktop simulation when DevTools
+      tears down.
+  - **Silent highlighting on non-candidate same-property pages**:
+    silent highlighting renders on every page within the configured
+    property's base URL, including non-candidate pages, so the user can
+    preview how the current AI CSS selectors affect those pages.
+    Marking mode remains unavailable on non-candidate pages.
   - **Reset on accepted navigation**: when the editor tab commits a
     navigation/reload (whether unsaved-changes prompt was accepted or
     there was nothing to lose), the marking session resets for the
