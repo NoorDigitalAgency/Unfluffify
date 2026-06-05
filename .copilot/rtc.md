@@ -4,6 +4,10 @@ RTC = rolling task context.
 
 ## Current Status
 
+- Planning-only handoff for the authority refactor is in
+  `.copilot/authority-refactor-handoff.md`. The next local agent should start
+  there, treat marking/XPath inspection as an added preflight step, and keep
+  content scripts as the page/DOM authority.
 - Planning-only handoff for page/tab reload marking-state work is in
   `.copilot/marking-reload-handoff.md`. The next local agent should start there,
   run the Phase 0 Q&A sanity check, and only then implement one safe commit phase

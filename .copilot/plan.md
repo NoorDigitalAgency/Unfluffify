@@ -1,5 +1,24 @@
 # Unfluffify Plan
 
+## Authority Refactor Handoff
+
+Planning-only handoff prepared for the local Copilot agent:
+
+1. Start with `.copilot/authority-refactor-handoff.md`.
+2. The final concrete plan is the authority-boundary refactor: background worker
+   as durable runtime authority, popup/side panel as UI and user intent only,
+   content scripts as live DOM/page authority, and shared modules as pure logic.
+3. Treat marking/XPath inspection as an added preflight step in that process,
+   not as a replacement for the authority-refactor plan.
+4. Keep page marking, draft DOM logic, snapshots, overlays, XPath calculation,
+   and AI preview rendering in content scripts.
+5. Migrate in safe steps: tab state/background authority cleanup, popup
+   active-tab lifecycle delegation, spinner/navigation inspection delegation,
+   AI run orchestration migration, remote config/site discovery orchestration
+   cleanup, then removal of obsolete popup-side state mutations.
+6. Avoid moving large HTML/server/AI payloads through runtime messages; prefer
+   persisted keys/metadata or an owner-context fetch.
+
 ## Marking Reload Handoff
 
 Planning-only handoff prepared for the local Copilot agent:
