@@ -29,7 +29,16 @@ Validation checkpoint after Round-7 authority slices:
    absolute paths for `--user-data-dir` and `--config`:
    `npx -y @playwright/mcp@latest --user-data-dir=<repo>/.mcp-browser-profile
    --config=<repo>/.vscode/browser-mcp.config.json`.
-3. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
+3. Validation-infra phase: `@playwright/mcp@0.0.75` expects config under the
+   `browser` key (`browser.launchOptions`), not legacy top-level
+   `launchOptions`. Keep `.vscode/browser-mcp.config.json` in that schema before
+   treating a fresh-profile MCP run as product validation. After the schema
+   update, `browser_get_config` resolves the extension launch args correctly,
+   but a fresh-profile MCP run on `https://seo.se/` still showed no
+   `content-loader` DOM bootstrap and no extension service worker. This remains
+   a validation-infra blocker to resolve before treating fresh-profile MCP as a
+   product-behavior signal.
+4. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
    extension, exposed the target tab ID, and opened
    `popup.html?debugTabId=<seo-tab-id>`. The popup page had `chrome.runtime`
    available and no popup console errors, but a direct popup-context
@@ -43,7 +52,7 @@ Validation checkpoint after Round-7 authority slices:
    in the extension-page context, not on raw `chrome.tabs.Tab` serialization.
    The seo.se page itself also logs an unrelated site script `Failed to fetch`
    error from `seo-theme`.
-4. Remaining authority work should still avoid proxying large config, HTML, or
+5. Remaining authority work should still avoid proxying large config, HTML, or
    AI request/response bodies through runtime messages; use storage keys,
    owner-context fetches, or a designed background/offscreen ownership path.
 
