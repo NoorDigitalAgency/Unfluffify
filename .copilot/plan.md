@@ -118,6 +118,11 @@ Validation checkpoint after Round-7 authority slices:
    small `accounts.<stageBase>/api/account/login` POST now goes through
    background `requestAuthLogin`; popup no longer fetches that auth endpoint
    directly.
+14. Repo-local Playwright MCP spec alignment completed: `.vscode/mcp.json`,
+   `.mcp.json`, and `.codex/config.toml` now all point at the same absolute
+   repo-local browser profile and browser config, and
+   `.vscode/browser-mcp.config.json` explicitly keeps
+   `browser.chromiumSandbox: false` plus `--no-sandbox` for this Linux host.
 
 ## Marking Reload Handoff
 
