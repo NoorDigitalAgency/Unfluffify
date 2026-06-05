@@ -553,6 +553,20 @@ Validation checkpoint after Round-7 authority slices:
       chunking/cancellation, reuse the marking-side candidate-scan learnings:
       instrument descendant-text checks, avoid redundant collapse passes, and
       memoize visibility/textual-shape decisions per refresh generation.
+50a. Phase A AI submission visibility contract completed:
+   `isVisibleForSubmission(...)` in [content/core.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content/core.js)
+   now falls back to a partial-visibility bridge when the strict
+   `isActuallyVisibleInDocument(...)` path rejects an element. The bridge,
+   `anyClientRectIntersectsSubmissionArea(...)`, accepts any element whose
+   client-rect line boxes intersect the submission visual area (viewport width
+   x document height for static content, viewport bounds for fixed-position
+   content), matching the silent-highlight `shouldRetainIncludedSource(...)`
+   contract that already retains non-definitively-hidden sources by client-rect
+   reachability. This prevents wrapper/inline rows whose primary bounding rect
+   anchors out of bounds from being auto-promoted to `excluded: true` while
+   their visible content is still being submitted as included. Focused
+   visibility/silent/submission tests (`151/151`) and full `npm test`
+   (`443/443`) stayed green.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around

@@ -461,6 +461,49 @@ test("submission visibility rejects fixed boxes outside the viewport", () => {
   }, { scrollHeight: 1600 });
 });
 
+test("submission visibility honors partial client-rect intersection for wrapped inline content", () => {
+  withVisibilityDom(({ body }) => {
+    const element = createElement({
+      parentElement: body,
+      tagName: "span",
+      text: "Inline content whose bounding rect anchors off-bounds",
+      rect: { top: -2000, right: 1700, bottom: -1900, left: 1500, width: 200, height: 100 }
+    });
+    // Simulate a multi-line inline whose actual rendered line boxes still land
+    // inside the submission visual area even though `getBoundingClientRect()`
+    // anchors outside it (column layouts, wrapped flex children, etc.).
+    element.getClientRects = () => [
+      { top: 50, right: 200, bottom: 70, left: 100, width: 100, height: 20 }
+    ];
+    body.children.push(element);
+    body.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), true);
+  }, { scrollHeight: 1600 });
+});
+
+test("submission visibility partial bridge still rejects definitively hidden ancestors", () => {
+  withVisibilityDom(({ body }) => {
+    const wrapper = createElement({
+      parentElement: body,
+      style: { display: "none" }
+    });
+    body.children.push(wrapper);
+    body.childNodes.push(wrapper);
+    const element = createElement({
+      parentElement: wrapper,
+      tagName: "span",
+      text: "Inside display:none",
+      rect: { top: -2000, right: 1700, bottom: -1900, left: 1500, width: 200, height: 100 }
+    });
+    element.getClientRects = () => [
+      { top: 50, right: 200, bottom: 70, left: 100, width: 100, height: 20 }
+    ];
+    wrapper.children.push(element);
+    wrapper.childNodes.push(element);
+    assert.equal(isVisibleForSubmission(element), false);
+  }, { scrollHeight: 1600 });
+});
+
 test("snapshot xpaths ignore extension UI stripped from saved HTML", () => {
   withVisibilityDom(({ body }) => {
     const extensionRoot = createElement({

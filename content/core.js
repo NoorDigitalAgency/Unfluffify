@@ -1071,6 +1071,40 @@ function isActuallyVisibleInDocument(el) {
   return isReachableInDocumentVisualArea(visibleRect, getSubmissionVisualBounds());
 }
 
+function anyClientRectIntersectsSubmissionArea(el) {
+  if (!el || el.nodeType !== 1 || typeof el.getClientRects !== "function") {
+    return false;
+  }
+  let clientRects;
+  try {
+    clientRects = el.getClientRects();
+  } catch (_) {
+    return false;
+  }
+  if (!clientRects || clientRects.length === 0) {
+    return false;
+  }
+  const fixed = hasFixedPositionAncestor(el);
+  const viewportBounds = getViewportBounds();
+  const submissionBounds = getSubmissionVisualBounds();
+  for (const rect of clientRects) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      continue;
+    }
+    if (fixed) {
+      if (intersectRects(rect, viewportBounds)) {
+        return true;
+      }
+      continue;
+    }
+    const docRect = toDocumentCoordinateRect(rect);
+    if (intersectRects(docRect, submissionBounds)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getTheoreticalVisibilityState(node, style) {
   if (!node || node.nodeType !== 1) {
     return { definitiveHidden: true, ambiguousHidden: false };
@@ -9742,7 +9776,17 @@ export function isVisibleForSubmission(el) {
   if (isClippedByOverflow(el)) {
     return false;
   }
-  return isActuallyVisibleInDocument(el);
+  if (isActuallyVisibleInDocument(el)) {
+    return true;
+  }
+  // Partial-visibility contract bridge: align with the marking / silent-highlight
+  // retention path that treats a non-definitively-hidden element as visible to the
+  // user when any rendered client rect intersects the submission visual area. This
+  // prevents wrapper/ancestor rows whose primary bounding rect anchors out of
+  // bounds (column layouts, sticky containers, broad clipping ancestors) from
+  // being auto-promoted to `excluded: true` while their visible descendant
+  // content is still being submitted as included.
+  return anyClientRectIntersectsSubmissionArea(el);
 }
 
 export function getElementFromXPath(xpath) {
