@@ -92,6 +92,11 @@ Validation checkpoint after Round-7 authority slices:
    repo-configured MCP smoke on `https://seo.se/` that verified extension load,
    popup `debugTabId`, `resolvePopupTabContext`, and background-routed compute
    lock on/off.
+9. AI status transport slice completed: popup AI polling now routes the small
+   `/get_selectors/status/:sessionId` request through background
+   `requestAiRunStatus`, while the large AI start payload and result selector
+   response remain popup-owned for now to avoid moving heavy AI bodies through
+   runtime messages. Focused AI/broker tests lock this boundary.
 
 ## Marking Reload Handoff
 

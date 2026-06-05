@@ -64,7 +64,6 @@ import {
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
   parseAiRunStartResponse,
-  parseAiRunStatusResponse,
   shouldResumePersistedAiRun
 } from "./popup/ai-run.js";
 import { resolveRenderModeInspectionReloadOutcome } from "./popup/render-mode.js";
@@ -7608,29 +7607,13 @@ async function requestAiRunStart({ endpointValue = "", tokenValue = "", payload 
 }
 
 async function requestAiRunStatus({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
-  const statusUrl = resolveRelativeEndpoint(
+  const response = await messages.sendRuntimeMessage({
+    type: "requestAiRunStatus",
     endpointValue,
-    `/get_selectors/status/${encodeURIComponent(sessionId)}`
-  );
-  if (!statusUrl) {
-    return { ok: false };
-  }
-  const response = await fetch(statusUrl, {
-    method: "GET",
-    headers: createConfigSyncHeaders(tokenValue)
+    tokenValue,
+    sessionId
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  if (response.status === 404) {
-    return { ok: false, notFound: true };
-  }
-  if (!response.ok) {
-    return { ok: false };
-  }
-  const parsed = parseAiRunStatusResponse(await response.json());
-  if (!parsed || parsed.sessionId !== sessionId) {
-    return { ok: false };
-  }
-  return { ok: true, status: parsed.status };
+  return response && typeof response === "object" ? response : { ok: false };
 }
 
 async function requestAiRunResult({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {

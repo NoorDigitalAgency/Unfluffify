@@ -61,7 +61,8 @@ import {
 import {
   AI_RUN_PERSIST_KEY,
   getAiRunResumeExpiresAt,
-  normalizePersistedAiRunRecord
+  normalizePersistedAiRunRecord,
+  parseAiRunStatusResponse
 } from "./popup/ai-run.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
@@ -336,6 +337,51 @@ async function refreshAiRunHeartbeat(options = {}) {
     };
   }
   return { ok: true, record, expiresAt, lockApplied: true };
+}
+
+function resolveBackgroundEndpoint(baseUrl, path) {
+  try {
+    return new URL(path, baseUrl).toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+function createBackgroundJsonHeaders(tokenValue = "") {
+  const headers = { "Content-Type": "application/json" };
+  const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function requestAiRunStatus(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
+  const statusUrl = sessionId
+    ? resolveBackgroundEndpoint(endpointValue, `/get_selectors/status/${encodeURIComponent(sessionId)}`)
+    : "";
+  if (!statusUrl) {
+    return { ok: false };
+  }
+  const response = await fetch(statusUrl, {
+    method: "GET",
+    headers: createBackgroundJsonHeaders(tokenValue)
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  if (response.status === 404) {
+    return { ok: false, notFound: true };
+  }
+  if (!response.ok) {
+    return { ok: false };
+  }
+  const parsed = parseAiRunStatusResponse(await response.json());
+  if (!parsed || parsed.sessionId !== sessionId) {
+    return { ok: false };
+  }
+  return { ok: true, status: parsed.status };
 }
 
 function ensureTraceState(tabId) {
@@ -1005,6 +1051,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, record: null, expiresAt: 0, lockApplied: false }));
+    return true;
+  }
+
+  if (message.type === "requestAiRunStatus") {
+    requestAiRunStatus({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      sessionId: message.sessionId
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 

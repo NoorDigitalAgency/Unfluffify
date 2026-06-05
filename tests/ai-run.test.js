@@ -233,6 +233,37 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.match(contentComputeLockBlock, /sendResponse\(\{ ok: true, active: true \}\);[\s\S]*?refreshSilentHighlightings\(\)\.then\(\);/);
 });
 
+test("AI run status polling uses background transport while large payload flows stay popup-owned", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const statusStart = popupSource.indexOf("async function requestAiRunStatus(");
+  const statusEnd = popupSource.indexOf("async function requestAiRunResult", statusStart);
+  const startStart = popupSource.indexOf("async function requestAiRunStart(");
+  const startEnd = popupSource.indexOf("async function requestAiRunStatus", startStart);
+  const resultStart = popupSource.indexOf("async function requestAiRunResult(");
+  const resultEnd = popupSource.indexOf("async function applyComputedSelectorSet", resultStart);
+  assert.ok(statusStart > -1);
+  assert.ok(statusEnd > statusStart);
+  assert.ok(startStart > -1);
+  assert.ok(startEnd > startStart);
+  assert.ok(resultStart > -1);
+  assert.ok(resultEnd > resultStart);
+  const statusBlock = popupSource.slice(statusStart, statusEnd);
+  const startBlock = popupSource.slice(startStart, startEnd);
+  const resultBlock = popupSource.slice(resultStart, resultEnd);
+
+  assert.match(backgroundSource, /async function requestAiRunStatus\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /if \(message\.type === "requestAiRunStatus"\) \{/);
+  assert.match(backgroundSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
+  assert.match(statusBlock, /type: "requestAiRunStatus"/);
+  assert.match(statusBlock, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(statusBlock, /fetch\(|parseAiRunStatusResponse|maybeUpdateStoredTokenFromResponse/);
+  assert.match(startBlock, /fetch\(computeSelectorsUrl/);
+  assert.match(startBlock, /body: JSON\.stringify\(payload \|\| \{\}\)/);
+  assert.match(resultBlock, /fetch\(resultUrl/);
+  assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
+});
+
 test("AI corpus rule is documented as a stored multi-page snapshot contract", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logicDoc = readFileSync(new URL("../MARKING_AND_HIGHLIGHTING_LOGIC.md", import.meta.url), "utf8");
