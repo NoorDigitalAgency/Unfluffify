@@ -422,8 +422,12 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /const candidates = scannedCandidates\.toggleableCandidates;/);
   assert.match(source, /const completedCandidates = await appendSyncedCandidateItemsAsync\(candidates,/);
   assert.match(source, /logTogglePerf\("sync\.candidate-evaluation", candidateCollectionStartedAt, \{/);
+  assert.match(source, /logTogglePerf\("sync\.candidate-self-markable", candidateCollectionStartedAt, \{/);
   assert.match(source, /autoDefaultElapsedMs: Number\(scannedCandidates\.stats\.autoDefaultElapsedMs\.toFixed\(1\)\),/);
   assert.match(source, /selfMarkableElapsedMs: Number\(scannedCandidates\.stats\.selfMarkableElapsedMs\.toFixed\(1\)\),/);
+  assert.match(source, /textualContainerElapsedMs: Number\(scannedCandidates\.stats\.textualContainerElapsedMs\.toFixed\(1\)\),/);
+  assert.match(source, /paintReachableElapsedMs: Number\(scannedCandidates\.stats\.paintReachableElapsedMs\.toFixed\(1\)\),/);
+  assert.match(source, /textualDescendantElapsedMs: Number\(scannedCandidates\.stats\.textualDescendantElapsedMs\.toFixed\(1\)\),/);
   assert.match(source, /shouldAbort: \(\) => generation !== state\.toggleReconcileGeneration/);
   assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
 });

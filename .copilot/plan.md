@@ -397,6 +397,16 @@ Validation checkpoint after Round-7 authority slices:
    and the descendant/visibility/paint checks it triggers). The next phase
    should therefore target the self-markable branch specifically rather than
    spending more time on `matchesAutoToggleableDefaultExcluded(...)`.
+41. Self-markable branch split completed:
+   the next diagnostics step broke the self-markable path into its major
+   subchecks during the live Bonliva reconcile run. On the tested page, the
+   dominant contributor inside candidate evaluation was `hasTextualDescendant`
+   at roughly `~17-32ms` across the observed runs, followed by
+   `isTextualContainer` at about `~9-17ms`, while paint reachability was
+   materially smaller at roughly `~3-10ms` and immutable-descendant checks were
+   effectively `0ms` on the sampled path. That makes descendant-text discovery
+   the clearest next optimization target for toggle responsiveness, with text
+   container evaluation as the secondary follow-up.
 
 ## Marking Reload Handoff
 

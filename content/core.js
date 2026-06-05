@@ -1398,10 +1398,23 @@ function hasExplicitlyMarkedDescendant(el) {
 }
 
 function isSelfMarkableWithoutParentMode(el, options = {}) {
-  if (!isTextualContainer(el, options)) {
+  const diagnostics = options && options.__diagnostics ? options.__diagnostics : null;
+  const textualContainerStartedAt = diagnostics ? nowMs() : 0;
+  const textualContainer = isTextualContainer(el, options);
+  if (diagnostics) {
+    diagnostics.textualContainerCount += 1;
+    diagnostics.textualContainerElapsedMs += nowMs() - textualContainerStartedAt;
+  }
+  if (!textualContainer) {
     return false;
   }
-  if (!isPaintReachableInCurrentViewport(el)) {
+  const paintReachableStartedAt = diagnostics ? nowMs() : 0;
+  const paintReachable = isPaintReachableInCurrentViewport(el);
+  if (diagnostics) {
+    diagnostics.paintReachableCount += 1;
+    diagnostics.paintReachableElapsedMs += nowMs() - paintReachableStartedAt;
+  }
+  if (!paintReachable) {
     return false;
   }
   // Preserve the previous shallowest-ancestor behavior: hidden responsive
@@ -1414,7 +1427,12 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     }
     : options;
   const hasDirectOwnText = hasDirectText(el);
+  const textualDescendantStartedAt = diagnostics ? nowMs() : 0;
   const hasVisibleTextualDescendant = hasTextualDescendant(el, descendantShapeOptions);
+  if (diagnostics) {
+    diagnostics.textualDescendantCount += 1;
+    diagnostics.textualDescendantElapsedMs += nowMs() - textualDescendantStartedAt;
+  }
   if (!hasDirectOwnText && hasVisibleTextualDescendant) {
     return false;
   }
@@ -1422,15 +1440,31 @@ function isSelfMarkableWithoutParentMode(el, options = {}) {
     if (!hasDirectOwnText && !hasVisibleTextualDescendant) {
       return false;
     }
-    if (!hasDirectOwnText && hasTextualImmutableDescendant(el, descendantShapeOptions)) {
+    let hasImmutableTextualDescendant = false;
+    if (!hasDirectOwnText) {
+      const immutableDescendantStartedAt = diagnostics ? nowMs() : 0;
+      hasImmutableTextualDescendant = hasTextualImmutableDescendant(el, descendantShapeOptions);
+      if (diagnostics) {
+        diagnostics.immutableTextualDescendantCount += 1;
+        diagnostics.immutableTextualDescendantElapsedMs += nowMs() - immutableDescendantStartedAt;
+      }
+    }
+    if (!hasDirectOwnText && hasImmutableTextualDescendant) {
       return false;
     }
     return true;
   }
+  let hasMarkedDescendant = false;
+  const explicitMarkedDescendantStartedAt = diagnostics ? nowMs() : 0;
+  hasMarkedDescendant = hasExplicitlyMarkedDescendant(el);
+  if (diagnostics) {
+    diagnostics.explicitMarkedDescendantCount += 1;
+    diagnostics.explicitMarkedDescendantElapsedMs += nowMs() - explicitMarkedDescendantStartedAt;
+  }
   return shouldSelfMarkToggleableDefaultBoundary({
     hasDirectOwnText,
     hasVisibleTextualDescendant,
-    hasExplicitlyMarkedDescendant: hasExplicitlyMarkedDescendant(el)
+    hasExplicitlyMarkedDescendant: hasMarkedDescendant
   });
 }
 
@@ -2018,7 +2052,17 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
         autoDefaultCount: 0,
         autoDefaultElapsedMs: 0,
         selfMarkableCount: 0,
-        selfMarkableElapsedMs: 0
+        selfMarkableElapsedMs: 0,
+        textualContainerCount: 0,
+        textualContainerElapsedMs: 0,
+        paintReachableCount: 0,
+        paintReachableElapsedMs: 0,
+        textualDescendantCount: 0,
+        textualDescendantElapsedMs: 0,
+        immutableTextualDescendantCount: 0,
+        immutableTextualDescendantElapsedMs: 0,
+        explicitMarkedDescendantCount: 0,
+        explicitMarkedDescendantElapsedMs: 0
       }
     };
   }
@@ -2029,7 +2073,17 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
     autoDefaultCount: 0,
     autoDefaultElapsedMs: 0,
     selfMarkableCount: 0,
-    selfMarkableElapsedMs: 0
+    selfMarkableElapsedMs: 0,
+    textualContainerCount: 0,
+    textualContainerElapsedMs: 0,
+    paintReachableCount: 0,
+    paintReachableElapsedMs: 0,
+    textualDescendantCount: 0,
+    textualDescendantElapsedMs: 0,
+    immutableTextualDescendantCount: 0,
+    immutableTextualDescendantElapsedMs: 0,
+    explicitMarkedDescendantCount: 0,
+    explicitMarkedDescendantElapsedMs: 0
   };
   while (stack.length) {
     const current = stack.pop();
@@ -2060,7 +2114,7 @@ function scanReconcileDocumentCandidates(immutableExcluded, excludedParents) {
         toggleableCandidates.push(node);
       } else {
         const selfMarkableStartedAt = nowMs();
-        const selfMarkable = isSelfMarkableWithoutParentMode(node);
+        const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
         stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
         stats.selfMarkableCount += 1;
         if (selfMarkable) {
@@ -2101,7 +2155,17 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
         autoDefaultCount: 0,
         autoDefaultElapsedMs: 0,
         selfMarkableCount: 0,
-        selfMarkableElapsedMs: 0
+        selfMarkableElapsedMs: 0,
+        textualContainerCount: 0,
+        textualContainerElapsedMs: 0,
+        paintReachableCount: 0,
+        paintReachableElapsedMs: 0,
+        textualDescendantCount: 0,
+        textualDescendantElapsedMs: 0,
+        immutableTextualDescendantCount: 0,
+        immutableTextualDescendantElapsedMs: 0,
+        explicitMarkedDescendantCount: 0,
+        explicitMarkedDescendantElapsedMs: 0
       }
     };
   }
@@ -2115,7 +2179,17 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
     autoDefaultCount: 0,
     autoDefaultElapsedMs: 0,
     selfMarkableCount: 0,
-    selfMarkableElapsedMs: 0
+    selfMarkableElapsedMs: 0,
+    textualContainerCount: 0,
+    textualContainerElapsedMs: 0,
+    paintReachableCount: 0,
+    paintReachableElapsedMs: 0,
+    textualDescendantCount: 0,
+    textualDescendantElapsedMs: 0,
+    immutableTextualDescendantCount: 0,
+    immutableTextualDescendantElapsedMs: 0,
+    explicitMarkedDescendantCount: 0,
+    explicitMarkedDescendantElapsedMs: 0
   };
   let processedCount = 0;
   while (stack.length) {
@@ -2150,7 +2224,7 @@ async function scanReconcileDocumentCandidatesAsync(immutableExcluded, excludedP
         toggleableCandidates.push(node);
       } else {
         const selfMarkableStartedAt = nowMs();
-        const selfMarkable = isSelfMarkableWithoutParentMode(node);
+        const selfMarkable = isSelfMarkableWithoutParentMode(node, { __diagnostics: stats });
         stats.selfMarkableElapsedMs += nowMs() - selfMarkableStartedAt;
         stats.selfMarkableCount += 1;
         if (selfMarkable) {
@@ -10714,6 +10788,13 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1))
   });
+  logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
+    textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
+    paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
+    textualDescendantElapsedMs: Number(scannedCandidates.stats.textualDescendantElapsedMs.toFixed(1)),
+    immutableTextualDescendantElapsedMs: Number(scannedCandidates.stats.immutableTextualDescendantElapsedMs.toFixed(1)),
+    explicitMarkedDescendantElapsedMs: Number(scannedCandidates.stats.explicitMarkedDescendantElapsedMs.toFixed(1))
+  });
   const candidateMergeStartedAt = nowMs();
   appendSyncedCandidateItems(candidates, {
     seen,
@@ -11018,6 +11099,14 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     autoDefaultElapsedMs: Number(scannedCandidates.stats.autoDefaultElapsedMs.toFixed(1)),
     selfMarkableCount: scannedCandidates.stats.selfMarkableCount,
     selfMarkableElapsedMs: Number(scannedCandidates.stats.selfMarkableElapsedMs.toFixed(1)),
+    async: true
+  });
+  logTogglePerf("sync.candidate-self-markable", candidateCollectionStartedAt, {
+    textualContainerElapsedMs: Number(scannedCandidates.stats.textualContainerElapsedMs.toFixed(1)),
+    paintReachableElapsedMs: Number(scannedCandidates.stats.paintReachableElapsedMs.toFixed(1)),
+    textualDescendantElapsedMs: Number(scannedCandidates.stats.textualDescendantElapsedMs.toFixed(1)),
+    immutableTextualDescendantElapsedMs: Number(scannedCandidates.stats.immutableTextualDescendantElapsedMs.toFixed(1)),
+    explicitMarkedDescendantElapsedMs: Number(scannedCandidates.stats.explicitMarkedDescendantElapsedMs.toFixed(1)),
     async: true
   });
   if (shouldAbort && shouldAbort()) {
