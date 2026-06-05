@@ -1052,6 +1052,21 @@ async function setReloadRestoreTabState(tabId, state) {
   }, TAB_RESTORE_SCOPE);
 }
 
+async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
+  if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
+    return;
+  }
+  const restoreState = await getReloadRestoreTabState(tabId);
+  if (!restoreState || restoreState.baseUrl !== tabState.baseUrl) {
+    return;
+  }
+  const tabUrl = await getTabUrl(tabId);
+  if (tabUrl && !utils.isPageWithinBaseUrl(tabUrl, tabState.baseUrl)) {
+    return;
+  }
+  await clearReloadRestoreTabState(tabId);
+}
+
 function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
@@ -1103,6 +1118,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
         return;
       }
       void chrome.runtime.lastError;
+      clearReloadRestoreTabStateAfterActivation(tabId, tabState).catch(() => {});
     }
   );
 }

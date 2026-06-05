@@ -118,11 +118,33 @@ test("completed reload restores marking when the page stays within the saved bas
   assert.match(backgroundSource, /const TAB_RESTORE_SCOPE = "restore";/);
   assert.match(backgroundSource, /async function getReloadRestoreTabState\(tabId\) \{/);
   assert.match(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
+  assert.match(backgroundSource, /async function clearReloadRestoreTabStateAfterActivation\(tabId, tabState\) \{/);
   assert.match(onUpdatedBlock, /const tabState = \(await utils\.getTabState\(tabId\)\) \|\| \(await getReloadRestoreTabState\(tabId\)\);/);
   assert.match(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);
   assert.match(onUpdatedBlock, /requestContentActivation\(tabId\);/);
   assert.match(onUpdatedBlock, /restoreEnabledStateForTab\(tabId, tabState\);/);
   assert.match(backgroundSource, /performInitialReveal: true/);
+});
+
+test("successful same-base restore activation clears restore intent after content acknowledgement", () => {
+  const restoreBlock = extractSourceBlock(
+    backgroundSource,
+    "function restoreEnabledStateForTab",
+    "async function getTabUrl"
+  );
+  const clearBlock = extractSourceBlock(
+    backgroundSource,
+    "async function clearReloadRestoreTabStateAfterActivation",
+    "function requestContentActivation"
+  );
+
+  assert.match(restoreBlock, /if \(chrome\.runtime\.lastError \|\| !response \|\| response\.ok === false\) \{/);
+  assert.match(restoreBlock, /clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)\.catch\(\(\) => \{\}\);/);
+  assert.match(clearBlock, /const restoreState = await getReloadRestoreTabState\(tabId\);/);
+  assert.match(clearBlock, /restoreState\.baseUrl !== tabState\.baseUrl/);
+  assert.match(clearBlock, /const tabUrl = await getTabUrl\(tabId\);/);
+  assert.match(clearBlock, /!utils\.isPageWithinBaseUrl\(tabUrl, tabState\.baseUrl\)/);
+  assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
 });
 
 test("completed navigation clears marking when the new page leaves the saved base URL", () => {
