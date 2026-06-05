@@ -869,6 +869,19 @@ Revised phase shape:
 - Phase 4 — AI lifecycle: only touch if Phase 2/3 expose stale stored
   snapshots, submissionXpaths, raw backfills, or compute-lock state.
 
+Phase 1 slice 2 completed (verification):
+   Reviewed the AI-run completion path against the new baseline-based dirty
+   contract. AI run output stores to `config.selectors` (per-baseUrl) and
+   influences the per-page draft via the next `syncPageMarkings(...)` pass;
+   `setSavedPageEntry(...)` is NOT called during AI completion — only when
+   the user explicitly saves to the backend (the popup-side save flow at
+   `content-main.js:2745`). Therefore the dirty signal correctly flips to
+   `true` when AI run output reshapes the draft, and only resets to `false`
+   once the user saves (which goes through `setSavedPageEntry` and refreshes
+   the baseline). A regression test in `tests/dirty-baseline.test.js`
+   ("AI-run-driven draft changes flip dirty to true until a backend save
+   lands") locks this expectation. No production code change required.
+
 Phase 1 slice 1 completed:
    `isPageDraftDirty(...)` in
    [content/core.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content/core.js)

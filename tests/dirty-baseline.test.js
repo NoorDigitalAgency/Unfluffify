@@ -86,6 +86,39 @@ test("setSavedPageEntry with an empty entry does not erase the established basel
   assert.equal(after, before);
 });
 
+test("AI-run-driven draft changes flip dirty to true until a backend save lands", () => {
+  // Simulates the contract: AI run output mutates selectors which mutate the
+  // per-page draft via re-sync; the dirty signal must flip true. A subsequent
+  // user-triggered backend save (which calls setSavedPageEntry) refreshes the
+  // baseline so dirty returns to false.
+  resetState();
+  const initial = makeEntry(["/html/body/p[1]"]);
+  state.config.pageMarkings[PAGE_URL] = initial;
+  isPageDraftDirty(PAGE_URL); // establish baseline (defaults + initial selectors)
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+
+  // AI run completes: new selectors influence the draft, sync repopulates it
+  // with additional / changed rows.
+  const afterAi = makeEntry([
+    "/html/body/p[1]",
+    "/html/body/article[1]"
+  ]);
+  state.config.pageMarkings[PAGE_URL] = afterAi;
+  assert.equal(isPageDraftDirty(PAGE_URL), true);
+
+  // User triggers a backend save. The just-saved entry refreshes the baseline.
+  setSavedPageEntry(PAGE_URL, afterAi);
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+
+  // Subsequent user edit re-flips dirty.
+  state.config.pageMarkings[PAGE_URL] = makeEntry([
+    "/html/body/p[1]",
+    "/html/body/article[1]",
+    "/html/body/footer[1]"
+  ]);
+  assert.equal(isPageDraftDirty(PAGE_URL), true);
+});
+
 test("autoSeededPendingSavePageUrl overrides the baseline comparison and reports dirty", () => {
   resetState();
   state.config.pageMarkings[PAGE_URL] = makeEntry(["/html/body/p[1]"]);
