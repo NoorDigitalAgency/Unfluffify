@@ -597,6 +597,18 @@ Validation checkpoint after Round-7 authority slices:
    included rows are unaffected. Source-level guard test added in
    `tests/content-activation-order.test.js`; full `npm test` (`449/449`) stayed
    green.
+50c. Phase A+B multi-site live smoke completed:
+   Standalone `scripts/smoke-ai-submission.mjs` driven through `xvfb-run` with
+   the persistent `.mcp-browser-profile` and the loaded unpacked extension
+   confirmed that `capturePageSnapshot` (persist: true) round-trips through the
+   background service worker and the content script with `ok: true` and zero
+   page console errors on `https://www.bonliva.no/artikler/barnehagevikar-lonn`,
+   `https://prowork.se/`, and `https://www.vitec-pyramid.com/`. The
+   content-loader injection marker
+   (`#unfluffify-page-motion-freeze-script`) is present on all three sites
+   before the snapshot runs, so the Phase A partial-visibility bridge and the
+   Phase B ancestor guard execute against real DOMs without runtime regression.
+   Full `npm test` (`449/449`) stayed green alongside the live runs.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around
