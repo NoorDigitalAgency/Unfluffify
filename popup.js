@@ -798,15 +798,18 @@ function applyBackgroundStateSnapshot(snapshot) {
   });
 }
 
-function sendSpinnerBrokerMessage(message) {
+function sendSpinnerBrokerMessage(message, options = {}) {
   const tabId = getCurrentPopupTabId();
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
+  const shouldApplySnapshot = typeof options.shouldApplySnapshot === "function"
+    ? options.shouldApplySnapshot
+    : () => true;
   logWorldTrace("runtime-send", { tabId, type: message.type || "" });
   return messages.sendRuntimeMessage({ tabId, owner: SPINNER_OWNERS.POPUP, ...message })
     .then((response) => {
-      if (response && response.ok) {
+      if (response && response.ok && shouldApplySnapshot(response)) {
         applyBackgroundStateSnapshot(response);
       }
       logWorldTrace("runtime-response", {
@@ -829,6 +832,8 @@ function syncSpinnerEntryToBackground(key) {
     key,
     message: entry.message,
     persistent: entry.persistent
+  }, {
+    shouldApplySnapshot: () => popupSpinnerQueue.get(key) === entry
   });
 }
 

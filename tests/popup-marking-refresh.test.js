@@ -341,6 +341,21 @@ test("popup delegates spinner queue state to the background broker", () => {
   assert.doesNotMatch(source, /restoreSpinnerQueueFromStorage/);
 });
 
+test("popup ignores stale spinner-set broker snapshots after local removal", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const sendBody = source.match(
+    /function sendSpinnerBrokerMessage\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+  const setBody = source.match(
+    /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(sendBody, /const shouldApplySnapshot = typeof options\.shouldApplySnapshot === "function"/);
+  assert.match(sendBody, /response && response\.ok && shouldApplySnapshot\(response\)/);
+  assert.match(setBody, /const entry = popupSpinnerQueue\.get\(key\);/);
+  assert.match(setBody, /shouldApplySnapshot: \(\) => popupSpinnerQueue\.get\(key\) === entry/);
+});
+
 test("popup restores spinner state from background current state", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const restoreBody = source.match(
