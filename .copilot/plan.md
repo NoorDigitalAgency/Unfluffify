@@ -1266,6 +1266,16 @@ Phase 2 drift audit and fixes (2026-06-06):
    is now repurposed for desktop preview. Full `npm test` (532/532) green;
    Bonliva live smoke clean.
 
+Phase 2 deeper cleanup — restore-scope removal (2026-06-06):
+   `utils.setTabState(...)` in
+   [common/utilities.js](/home/rojan/Documents/Git/GitHub/Unfluffify/common/utilities.js)
+   was still writing/clearing a `tabState:restore:*` key in session storage
+   whenever marking state was set, as a utility-side remnant of the
+   retired auto-restore mechanism. Removed entirely. The redundant
+   `setTabState(tabId, tabState)` call in `tabs.onUpdated` (which could
+   trigger the utility's restore-scope write in a race) was also removed.
+   Guard tests updated. Full `npm test` (532/532) green.
+
 Phase 2 bug fix — beforeunload/onCommitted ordering (2026-06-06):
    `disableExtensionOnTopLevelNavigation` was wired to
    `chrome.webNavigation.onBeforeNavigate` which fires BEFORE the browser

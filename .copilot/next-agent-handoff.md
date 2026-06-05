@@ -20,7 +20,15 @@ are all implemented and validated. A full code-review pass of the agent commit
    the desktop preview label row.
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
-**Current test count: 493/493 passing. All syntax checks clean.**
+**Current test count: 532/532 passing. All syntax checks clean.**
+
+Additional fixes landed after the initial drift audit:
+- `onBeforeNavigate` → `onCommitted` for marking teardown (critical: prevents
+  "Stay" dialog rejections from destroying the session).
+- `setTabState` utility no longer writes to the restore scope.
+- Removed `setTabState(tabId, tabState)` race-prone call in `tabs.onUpdated`.
+- `setReloadRestoreTabState` dead function removed.
+- `getReloadRestoreTabState` fallback removed from `tabs.onUpdated`.
 
 ## What's Left
 
