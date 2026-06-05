@@ -2876,6 +2876,16 @@ function clearNavigationInspectionSettlePoll(tabId) {
   popupNavigationInspectionSettlePollByTabId.delete(tabId);
 }
 
+function clearNavigationInspectionSettlePollsExcept(tabIdToKeep = null) {
+  popupNavigationInspectionSettlePollByTabId.forEach((timer, tabId) => {
+    if (tabIdToKeep !== null && tabId === tabIdToKeep) {
+      return;
+    }
+    window.clearTimeout(timer);
+    popupNavigationInspectionSettlePollByTabId.delete(tabId);
+  });
+}
+
 function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   if (!tabId) {
     return;
@@ -2944,6 +2954,7 @@ function beginNavigationInspectionOverlay(tabId) {
   if (!tabId) {
     return false;
   }
+  clearNavigationInspectionSettlePollsExcept(tabId);
   popupNavigationInspectionOverlayTabId = tabId;
   clearNavigationInspectionSettlePoll(tabId);
   if (popupSpinnerQueue.has("navInspect")) {
@@ -8828,6 +8839,7 @@ async function init() {
     if (oldTabId) {
       clearSpinnerQueueInBackground(oldTabId, { transientOnly: true }).catch(() => {});
     }
+    clearNavigationInspectionSettlePollsExcept();
     popupSpinnerQueue.clear();
     if (popupSpinnerTimer) {
       window.clearTimeout(popupSpinnerTimer);
@@ -8923,6 +8935,7 @@ async function init() {
     if (tabId) {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});
     }
+    clearNavigationInspectionSettlePollsExcept();
     if (popupSpinnerTimer) {
       window.clearTimeout(popupSpinnerTimer);
       popupSpinnerTimer = 0;

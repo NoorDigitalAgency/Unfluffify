@@ -396,6 +396,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
   assert.match(source, /function scheduleNavigationInspectionSettlePoll\(tabId, baseUrl\) \{/);
+  assert.match(source, /function clearNavigationInspectionSettlePollsExcept\(tabIdToKeep = null\) \{/);
   assert.match(source, /const popupNavigationInspectionSettlePollByTabId = new Map\(\);/);
 
   const onUpdatedBlock = source.match(
@@ -411,6 +412,11 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);\s*await refreshUi\(\{ useBusyOverlay: false \}\);/);
   assert.match(onUpdatedBlock, /scheduleNavigationInspectionSettlePoll\(tabId, tabState\.baseUrl\);/);
   assert.doesNotMatch(onUpdatedBlock, /finally \{[\s\S]*?endNavigationInspectionOverlay\(tabId\);/);
+
+  const beginBody = source.match(
+    /function beginNavigationInspectionOverlay\(tabId\) \{([\s\S]*?)\n\}/
+  )[1];
+  assert.match(beginBody, /clearNavigationInspectionSettlePollsExcept\(tabId\);/);
 
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
@@ -438,8 +444,18 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
 
   assert.doesNotMatch(onActivatedBlock, /endNavigationInspectionOverlay\(/);
   assert.match(onActivatedBlock, /clearSpinnerQueueInBackground\(oldTabId, \{ transientOnly: true \}\)\.catch\(\(\) => \{\}\);/);
+  assert.match(onActivatedBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayStarted = false;/);
   assert.match(onActivatedBlock, /popupNavigationInspectionOverlayTabId = null;/);
+});
+
+test("popup unload clears navigation inspection settle polls", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const beforeUnloadBlock = source.match(
+    /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.storage\.onChanged/
+  )[1];
+
+  assert.match(beforeUnloadBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);
 });
 
 test("session pending is no longer tied to Lynx selector submission state", () => {
