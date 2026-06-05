@@ -19,6 +19,21 @@ Planning-only handoff prepared for the local Copilot agent:
 6. Avoid moving large HTML/server/AI payloads through runtime messages; prefer
    persisted keys/metadata or an owner-context fetch.
 
+Validation checkpoint after Round-7 authority slices:
+
+1. Current committed slices pass the full Node regression suite, focused
+   authority/reload/popup/content/AI/GraphQL suites, static popup authority
+   surface searches, diagnostics on touched entry points, and the extension
+   package staging dry run.
+2. Live Playwright validation remains a separate gap: this workspace does not
+   include Playwright specs or scripts, and the exposed Playwright-local tool
+   currently only snapshots the active `about:blank` page. Do not treat this as
+   a product-behavior pass until a browser page/extension harness is available
+   and manually driven.
+3. Remaining authority work should still avoid proxying large config, HTML, or
+   AI request/response bodies through runtime messages; use storage keys,
+   owner-context fetches, or a designed background/offscreen ownership path.
+
 ## Marking Reload Handoff
 
 Planning-only handoff prepared for the local Copilot agent:
