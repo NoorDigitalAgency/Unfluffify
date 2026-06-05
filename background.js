@@ -608,6 +608,23 @@ async function resolveLivePageSiteId(options = {}) {
   }
 }
 
+function buildPropertyPageTypesSignature(pageTypes) {
+  return JSON.stringify(
+    Array.isArray(pageTypes)
+      ? pageTypes.map((pageType) => [
+          pageType && typeof pageType.key === "string" ? pageType.key : "",
+          Array.isArray(pageType && pageType.candidates)
+            ? pageType.candidates.map((candidate) => [
+                candidate && typeof candidate.url === "string" ? candidate.url : "",
+                Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
+                Boolean(candidate && candidate.duplicate) ? 1 : 0
+              ])
+            : []
+        ])
+      : []
+  );
+}
+
 async function fetchLivePagePropertyPageTypes(options = {}) {
   const normalizedSiteId = normalizeSiteIdValue(options.siteId);
   const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
@@ -655,7 +672,9 @@ async function fetchLivePagePropertyPageTypes(options = {}) {
     );
     return {
       ok: true,
-      pageTypes: normalized.pageTypes || []
+      pageTypes: normalized.pageTypes || [],
+      duplicateUrls: normalized.duplicateUrls || [],
+      signature: buildPropertyPageTypesSignature(normalized.pageTypes)
     };
   } catch {
     return {

@@ -44,11 +44,22 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 
 test("background owns the live-page GraphQL transport handlers", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupFetchStart = popupSource.indexOf("async function fetchPropertyPageTypesFromGraphql(options = {}) {");
+  const popupFetchEnd = popupSource.indexOf("async function ensurePropertyPageTypes", popupFetchStart);
+  assert.ok(popupFetchStart > -1);
+  assert.ok(popupFetchEnd > popupFetchStart);
+  const popupFetchBlock = popupSource.slice(popupFetchStart, popupFetchEnd);
 
   assert.match(backgroundSource, /async function resolveLivePageSiteId\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function fetchLivePagePropertyPageTypes\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /function buildPropertyPageTypesSignature\(pageTypes\) \{/);
+  assert.match(backgroundSource, /duplicateUrls: normalized\.duplicateUrls \|\| \[\]/);
+  assert.match(backgroundSource, /signature: buildPropertyPageTypesSignature\(normalized\.pageTypes\)/);
   assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
+  assert.match(popupFetchBlock, /type: "fetchLivePagePropertyPageTypes"/);
+  assert.doesNotMatch(popupFetchBlock, /fetch\(|PROPERTY_PAGE_TYPES_QUERY|maybeUpdateStoredTokenFromResponse/);
 });
 
 test("marking mode keeps selector-matched elements off the default layer without suppressing their whole subtree", () => {

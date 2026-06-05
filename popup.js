@@ -36,7 +36,6 @@ import {
   buildPageSaveUiState
 } from "./common/page-save-state.js";
 import {
-  PROPERTY_PAGE_TYPES_QUERY,
   URL_SEARCH_INFO_QUERY,
   buildGraphqlEndpointFromStageBase,
   getCurrentPageCandidateState,
@@ -1420,54 +1419,33 @@ async function fetchPropertyPageTypesFromGraphql(options = {}) {
     tokenValue = ""
   } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
-  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
-  if (!normalizedSiteId || !graphqlEndpoint) {
+  const normalizedStageBase = normalizeStageBase(stageBase);
+  if (!normalizedSiteId || !normalizedStageBase) {
     return { ok: false, pageTypes: [], duplicateUrls: [], error: "" };
   }
-  const headers = { "Content-Type": "application/json" };
-  if (tokenValue) {
-    headers.Authorization = `Bearer ${tokenValue}`;
-  }
-  const response = await fetch(graphqlEndpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      query: PROPERTY_PAGE_TYPES_QUERY,
-      variables: {
-        domainId: normalizedSiteId
-      }
-    })
+  const response = await messages.sendRuntimeMessage({
+    type: "fetchLivePagePropertyPageTypes",
+    siteId: normalizedSiteId,
+    stageBase: normalizedStageBase,
+    tokenValue
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    payload = null;
-  }
-  if (!response.ok) {
-    return { ok: false, pageTypes: [], duplicateUrls: [], error: PopupText.pageTypes.refreshFailed };
-  }
-  if (payload && Array.isArray(payload.errors) && payload.errors.length > 0) {
+  if (!response || !response.ok) {
     return {
       ok: false,
       pageTypes: [],
       duplicateUrls: [],
-      error:
-        payload.errors[0] && typeof payload.errors[0].message === "string"
-          ? payload.errors[0].message
-          : PopupText.pageTypes.refreshFailed
+      error: response && typeof response.reason === "string" && response.reason
+        ? response.reason
+        : PopupText.pageTypes.refreshFailed
     };
   }
-  const rawPageTypes = payload && payload.data
-    ? payload.data.propertyPageTypes
-    : null;
-  const normalized = normalizePropertyPageTypes(rawPageTypes);
   return {
     ok: true,
-    pageTypes: normalized.pageTypes,
-    duplicateUrls: normalized.duplicateUrls,
-    signature: buildPropertyPageTypesSignature(normalized.pageTypes)
+    pageTypes: Array.isArray(response.pageTypes) ? response.pageTypes : [],
+    duplicateUrls: Array.isArray(response.duplicateUrls) ? response.duplicateUrls : [],
+    signature: typeof response.signature === "string"
+      ? response.signature
+      : buildPropertyPageTypesSignature(response.pageTypes)
   };
 }
 
