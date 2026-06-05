@@ -36,7 +36,7 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
-- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; Preview Contents and Send to Lynx live on this silent-highlighting surface, not inside marking mode
+- **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; silent Preview Contents and Send to Lynx live on this surface, while marking mode has its own AI-fresh Preview Contents check
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff, always from the stored raw/rendered HTML and XPath evidence for every marked page under the current property
 - **Device Simulation**: Opens tabs in mobile simulation by default, with a per-session toggle for disabling or adjusting the simulated viewport
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
@@ -173,7 +173,7 @@ When a tab acquires the editor role, Unfluffify runs one content-reveal sweep fo
 
 ### AI Selectors
 
-The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. If the current page has unsaved local marking changes, the run first captures that page into the local stored snapshot so the AI request still uses stored evidence only. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI. Preview Contents always reads the latest stored selector set for the property, and the Preview/Send to Lynx actions stay on the silent-highlighting surface even while marking stays focused on current-page editing.
+The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. If the current page has unsaved local marking changes, the run first captures that page into the local stored snapshot so the AI request still uses stored evidence only. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI. Silent Preview Contents always reads the latest stored selector set for the property; marking mode exposes its own Preview Contents action only after the AI run is fresh for the current markings. Send to Lynx stays on the silent-highlighting surface while marking stays focused on current-page editing.
 
 ### Base URLs
 

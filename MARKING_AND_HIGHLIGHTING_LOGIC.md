@@ -73,11 +73,15 @@ backend-save fact for passive observers, but the current editor's popup must use
 the local page-marking session as the source of truth for the Todo List,
 candidate `Marked` badges, marked-pages list, and Lynx checklist coverage while
 that editor remains on an eligible Live Page.
-Preview Contents and Send to Lynx belong to the silent-highlighting surface
-only. They must stay hidden or disabled while marking mode is active. Preview
-must read from the latest stored selector set in config storage, and Lynx send
-must read its marked-page coverage from that same editor-local storage view
-while the editor owns the property.
+Preview Contents has two accepted entry points. The silent-highlighting Preview
+button reads from the latest stored selector set in config storage and stays on
+the silent-highlighting surface. Marking mode also exposes Preview Contents as a
+current-page verification action after a successful AI run matches the live
+markings; opening or closing that preview must not create, mutate, or dirty page
+marking drafts. Send to Lynx remains silent-highlighting-only and must stay
+hidden, disabled, and handler-guarded while marking mode is active. Lynx send
+must read its marked-page coverage from the same editor-local storage view while
+the editor owns the property.
 When the current tab is a valid Live Page candidate, the Todo List must label
 both the candidate row and its parent page-type subsection as `Current` so the
 active page remains findable when subsections are collapsed.

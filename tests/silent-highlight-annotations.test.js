@@ -142,3 +142,27 @@ test("silent highlight annotated nodes are marked copyable and clicks copy the f
     /function handleSilentSelectorClickCopy\(event\) \{[\s\S]*?const annotated = target\.closest\(`\[\$\{SILENT_TITLE_COPY_ATTR\}\]`\);[\s\S]*?const title = annotated\.getAttribute\("title"\) \|\| "";[\s\S]*?copyTextToClipboard\(title\)\.then\(\);[\s\S]*?\}/
   );
 });
+
+test("silent highlight overlays never capture page clicks", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const stylesBody = source.match(
+    /function ensureSilentHighlightingStyles\(\) \{[\s\S]*?style\.textContent = `([\s\S]*?)`;[\s\S]*?\n\}/
+  )[1];
+
+  assert.match(
+    stylesBody,
+    /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \{[\s\S]*?pointer-events: none;[\s\S]*?\}/
+  );
+  assert.match(
+    stylesBody,
+    /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \.uf-silent-layer \{[\s\S]*?pointer-events: none;[\s\S]*?\}/
+  );
+  assert.match(
+    stylesBody,
+    /#\$\{SILENT_HIGHLIGHT_OVERLAY_ID\} \.uf-silent-rect \{[\s\S]*?pointer-events: none;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /document\.addEventListener\("click", \(event\) => \{[\s\S]*?handleSilentSelectorClickCopy\(event\);[\s\S]*?\}\);/
+  );
+});

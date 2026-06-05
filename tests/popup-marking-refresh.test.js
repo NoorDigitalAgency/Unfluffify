@@ -57,7 +57,7 @@ test("Todo List completion is sourced from backend-saved markings only", () => {
   assert.doesNotMatch(source, /useLocalMarkedPagesForCoverage/);
 });
 
-test("preview and Send to Lynx actions are exposed from silent mode only", () => {
+test("silent Preview Contents and Send to Lynx actions are exposed from silent mode only", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
   const previewBody = popupSource.match(
@@ -95,6 +95,31 @@ test("preview and Send to Lynx actions are exposed from silent mode only", () =>
   );
   assert.doesNotMatch(uiSource, /title: PopupText\.tooltips\.pageSaveHotkey/);
   assert.doesNotMatch(uiSource, /lynx-checklist-ai|PopupText\.lynxChecklist\.aiQuestion/);
+});
+
+test("marking-mode Preview Contents stays separate from silent Preview and Send to Lynx", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const markingPreviewBody = popupSource.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+
+  assert.match(popupSource, /nextViewState\.markingPreviewVisible = pageControlsVisible && Boolean\(isEnabled\);/);
+  assert.match(
+    popupSource,
+    /nextViewState\.markingPreviewDisabled =\s*aiBusy \|\|\s*pageSaveReconciliationPending \|\|\s*!aiRunUpToDate;/
+  );
+  assert.match(uiSource, /if \(markingMode && view\.markingPreviewVisible\) \{/);
+  assert.match(uiSource, /id: "marking-preview"/);
+  assert.match(uiSource, /onClick: handlers\.onMarkingPreview/);
+  assert.match(markingPreviewBody, /const view = uiModule\.getViewState\(\);/);
+  assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
+  assert.match(markingPreviewBody, /await refreshCurrentPageRuntimeStatus\(\);/);
+  assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
+  assert.match(markingPreviewBody, /type: "showAiPreview"/);
+  assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
+  assert.doesNotMatch(markingPreviewBody, /openLynxChecklistPopover|submitSelectorSetToServer|syncBaseConfigToServer/);
+  assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
 });
 
 test("Preview Contents uses the latest stored selector set and stays disabled without stored selectors", () => {

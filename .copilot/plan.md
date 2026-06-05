@@ -101,9 +101,12 @@ Planning-only handoff prepared for the local Copilot agent:
 
 ## Marking and Silent-Highlight Contract Reconciliation
 
-Planning-only follow-up from comparing the supplied final
+Completed follow-up from comparing the supplied final
 `MARKING_AND_HIGHLIGHTING_LOGIC.md` contract against the current docs and
-implementation:
+implementation. This phase reconciled docs/knowledge so marking-mode Preview
+Contents remains intentional, kept Send to Lynx silent-highlighting-only, added
+source-level guards for the separate marking Preview handler, and locked silent
+highlight overlay click pass-through.
 
 1. Treat the supplied final document as the marking/silent-highlighting contract
    baseline, except for explicitly accepted later product decisions. The current
@@ -114,26 +117,20 @@ implementation:
    deliberately: keep them only if they describe accepted committed behavior and
    belong in this source-of-truth doc; otherwise move them to `.copilot/plan.md`,
    `.copilot/knowledge.md`, `README.md`, or the relevant workflow docs.
-2. Reconcile the Preview Contents contract to the accepted later behavior:
-   preview mode intentionally exists in marking mode again. Keep the current
-   marking-mode preview path (`nextViewState.markingPreviewVisible`,
-   `markingPreviewDisabled`, `handleMarkingPreview`, `onMarkingPreview`, and the
-   `#marking-preview` button in `popup/ui.js`) and keep
-   `tests/popup-ai-run-gating.test.js` coverage that locks its existence and
-   AI-run freshness gating. Planned fix: update `MARKING_AND_HIGHLIGHTING_LOGIC.md`,
-   `.copilot/knowledge.md`, `.copilot/plan.md`, and `README.md` so they no
-   longer say Preview Contents is silent-highlighting-only. Distinguish Preview
-   Contents from Send to Lynx: Send to Lynx should remain silent-mode-only unless
-   the user explicitly approves changing that separately. Add/keep tests that
-   opening/closing preview from marking mode does not create or dirty page
-   drafts and that handler-level guards still prevent Send to Lynx outside the
-   accepted silent-mode surface.
-3. Add/strengthen a focused regression guard for the silent-highlight click
-   pass-through contract. Implementation appears to set `pointer-events: none`
-   on `#unfluffify-silent-highlight-overlay`, layers, and rects, but the supplied
-   contract explicitly states silent-highlighting overlays never capture page
-   clicks. Add a source-level or DOM-level test that locks this, while preserving
-   the existing title-copy behavior from annotated source nodes.
+2. Preview Contents contract reconciliation completed: preview mode intentionally
+   exists in marking mode again. The current marking-mode preview path
+   (`nextViewState.markingPreviewVisible`, `markingPreviewDisabled`,
+   `handleMarkingPreview`, `onMarkingPreview`, and the `#marking-preview` button
+   in `popup/ui.js`) remains in place, with coverage in
+   `tests/popup-ai-run-gating.test.js` and `tests/popup-marking-refresh.test.js`.
+   `MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`, and `README.md`
+   now distinguish marking Preview Contents from silent Preview Contents. Send
+   to Lynx remains silent-mode-only unless the user explicitly approves changing
+   that separately.
+3. Silent-highlight click pass-through guard completed: `tests/silent-highlight-annotations.test.js`
+   now locks `pointer-events: none` on `#unfluffify-silent-highlight-overlay`,
+   `.uf-silent-layer`, and `.uf-silent-rect`, while preserving the existing
+   title-copy behavior from annotated source nodes.
 4. Keep the already-verified contract surfaces unchanged while applying the
    above fixes: toggleable default taxonomy (`BUTTON` toggleable, `LINK`
    omitted), ordinary exclude overlay projection, default-row submission,
@@ -143,11 +140,12 @@ implementation:
    marking-mode Preview Contents path. These are covered by the focused
    marking/silent/submission suites and should not be refactored as part of the
    documentation reconciliation work.
-5. Validation for this reconciliation phase: run
-   `node --test tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/core-scheduling.test.js tests/submission-rules.test.js`,
-   then the full `npm test`. After each phase, run the repo-configured
-   `playwright-local` MCP validation when the validation-infra blocker is
-   resolved; if it finds additional issues, add them here before moving on.
+5. Validation for this reconciliation phase passed:
+   `node --test tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/core-scheduling.test.js tests/submission-rules.test.js`
+   passed `104/104`; full `npm test` passed `481/481`; repo-configured
+   `playwright-local` MCP validation on `https://seo.se/` passed content
+   bootstrap, `background.js` service worker, popup `debugTabId`,
+   `resolvePopupTabContext`, `getTabState`, and `getPersistedAiRunRecord`.
 
 ## Marking Logic Rewrite
 
