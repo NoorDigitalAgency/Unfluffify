@@ -436,7 +436,6 @@ export const PopupText = Object.freeze({
     appearanceSectionTitle: "Appearance", // Section title for popup theme controls.
     diagnosticsSectionTitle: "Diagnostics", // Section title for trace/debug controls.
     traceModeLabel: "Trace cross-world messaging", // Label for enabling world-messaging trace mode.
-    traceModeHint: "Logs popup/content/background world-contract events to DevTools and keeps a recent history in background state.", // Helper text shown under the trace mode toggle.
     themeFieldLabel: "Theme", // Label for selecting a popup theme.
     themePrevious: "Previous theme", // Accessibility label for cycling to the previous theme.
     themeNext: "Next theme", // Accessibility label for cycling to the next theme.

@@ -2320,8 +2320,13 @@ function renderConfigurationExtrasSection(view, handlers) {
         summary ? h("span", { class: "trace-events-list__summary" }, summary) : null
       );
     });
-  const sections = [
-    renderConfigurationAppearanceSection(view, handlers),
+  const sections = [renderConfigurationAppearanceSection(view, handlers)];
+
+  if (view.remoteSupportVisible) {
+    sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
+  }
+
+  sections.push(
     h(
       "section",
       { class: "config-extra-subsection" },
@@ -2337,7 +2342,6 @@ function renderConfigurationExtrasSection(view, handlers) {
           onChange: handlers.onTraceModeToggle
         })
       ),
-      h("p", { class: "row-note" }, PopupText.configuration.traceModeHint),
       h(
         "p",
         { class: "row-note" },
@@ -2347,11 +2351,7 @@ function renderConfigurationExtrasSection(view, handlers) {
         ? h("ul", { class: "trace-events-list" }, traceItems)
         : h("p", { class: "row-note" }, "No trace events captured yet.")
     )
-  ];
-
-  if (view.remoteSupportVisible) {
-    sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
-  }
+  );
 
   return h(
     "section",

@@ -603,6 +603,7 @@ const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
+const GLOBAL_TRACE_MODE_KEY = "globalTraceModeEnabled";
 const THEME_DEFAULT = "nordic";
 const THEME_MODE_DEFAULT = "system";
 const THEME_MODE_SYSTEM = "system";
@@ -900,6 +901,7 @@ async function handleTraceModeToggle(event) {
     return;
   }
   applyBackgroundStateSnapshot(response);
+  await persistTraceModeSetting(enabled).catch(() => null);
 }
 
 function connectBackgroundStatePort(tabId) {
@@ -1264,6 +1266,33 @@ async function ensureThemeSettings() {
   state.currentThemeMode = themeModeValue;
   applyPopupTheme(themeValue, themeModeValue);
   await persistThemeSettings(themeValue, themeModeValue);
+}
+
+async function loadTraceModeSetting() {
+  const stored = await utils.storageGet(chrome.storage.sync, [GLOBAL_TRACE_MODE_KEY]);
+  return Boolean(stored && stored[GLOBAL_TRACE_MODE_KEY]);
+}
+
+async function persistTraceModeSetting(enabled) {
+  await utils.storageSet(chrome.storage.sync, {
+    [GLOBAL_TRACE_MODE_KEY]: Boolean(enabled)
+  });
+}
+
+async function applyTraceModePreferenceToTab(tabId, enabled) {
+  if (!tabId) {
+    return null;
+  }
+  const response = await messages.sendRuntimeMessage({
+    type: WORLD_MESSAGE_TYPES.TRACE_SET,
+    tabId,
+    enabled: Boolean(enabled)
+  }).catch(() => null);
+  if (response && response.ok) {
+    applyBackgroundStateSnapshot(response);
+    return response;
+  }
+  return null;
 }
 
 function buildLoginEndpointFromStageBase(stageBase) {
@@ -8579,11 +8608,13 @@ function scheduleRefresh() {
 
 async function init() {
   state.traceEvents = [];
+  state.traceModeEnabled = await loadTraceModeSetting().catch(() => false);
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {
     connectBackgroundStatePort(initTabId);
     await restoreSpinnerQueueFromBackground(initTabId);
+    await applyTraceModePreferenceToTab(initTabId, state.traceModeEnabled).catch(() => null);
     if (popupSpinnerQueue.has("navInspect")) {
       popupNavigationInspectionOverlayStarted = true;
       popupNavigationInspectionOverlayTabId = initTabId;
@@ -8800,6 +8831,7 @@ async function init() {
       try {
         connectBackgroundStatePort(newTabId);
         await restoreSpinnerQueueFromBackground(newTabId);
+        await applyTraceModePreferenceToTab(newTabId, state.traceModeEnabled).catch(() => null);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.
       }
@@ -8893,7 +8925,7 @@ async function init() {
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "sync") {
-      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
+      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY] || changes[GLOBAL_TRACE_MODE_KEY]) {
         if (changes[GLOBAL_THEME_KEY]) {
           state.currentTheme = normalizeThemeValue(
             changes[GLOBAL_THEME_KEY].newValue
@@ -8903,6 +8935,14 @@ async function init() {
           state.currentThemeMode = normalizeThemeModeValue(
             changes[GLOBAL_THEME_MODE_KEY].newValue
           );
+        }
+        if (changes[GLOBAL_TRACE_MODE_KEY]) {
+          state.traceModeEnabled = Boolean(changes[GLOBAL_TRACE_MODE_KEY].newValue);
+          uiModule.setViewState({ traceModeEnabled: state.traceModeEnabled });
+          const tabId = state.currentTab && state.currentTab.id;
+          if (tabId) {
+            applyTraceModePreferenceToTab(tabId, state.traceModeEnabled).catch(() => null);
+          }
         }
         applyPopupTheme(state.currentTheme, state.currentThemeMode);
         scheduleRefresh();

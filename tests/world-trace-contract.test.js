@@ -30,7 +30,8 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.match(popupUiSource, /id: "trace-mode-enabled"/);
   assert.match(popupUiSource, /onChange: handlers\.onTraceModeToggle/);
   assert.match(textSource, /traceModeLabel:/);
-  assert.match(textSource, /traceModeHint:/);
+  assert.match(textSource, /diagnosticsSectionTitle:/);
+  assert.doesNotMatch(textSource, /traceModeHint:/);
 
   assert.match(popupSource, /async function handleTraceModeToggle\(event\) \{/);
   assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
@@ -39,8 +40,21 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.match(popupSource, /nextViewState\.traceEvents = Array\.isArray\(state\.traceEvents\) \? state\.traceEvents : \[\];/);
   assert.match(popupSource, /nextViewState\.traceEventCount = nextViewState\.traceEvents\.length;/);
   assert.match(popupSource, /nextViewState\.traceModeEnabled = Boolean\(state\.traceModeEnabled\);/);
+  assert.match(popupSource, /const GLOBAL_TRACE_MODE_KEY = "globalTraceModeEnabled";/);
+  assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);
+  assert.match(popupSource, /async function persistTraceModeSetting\(enabled\) \{/);
+  assert.match(popupSource, /await persistTraceModeSetting\(enabled\)\.catch\(\(\) => null\);/);
+  assert.match(popupSource, /state\.traceModeEnabled = await loadTraceModeSetting\(\)\.catch\(\(\) => false\);/);
+  assert.match(popupSource, /if \(changes\[GLOBAL_THEME_KEY\] \|\| changes\[GLOBAL_THEME_MODE_KEY\] \|\| changes\[GLOBAL_TRACE_MODE_KEY\]\)/);
   assert.match(popupUiSource, /Trace events:/);
   assert.match(popupUiSource, /trace-events-list/);
+});
+
+test("diagnostics section renders after optional remote support section", () => {
+  const diagnosticsIndex = popupUiSource.indexOf("diagnosticsSectionTitle");
+  const remoteSupportPushIndex = popupUiSource.indexOf("sections.push(renderRemoteSupportSection");
+  assert.ok(remoteSupportPushIndex > -1);
+  assert.ok(diagnosticsIndex > remoteSupportPushIndex);
 });
 
 test("popup message transport logs world traffic when trace mode is enabled", () => {
