@@ -205,6 +205,24 @@ test("capturePageSnapshot collects AI submission rows from the target config", (
   assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
 });
 
+test("capturePageSnapshot persists heavy snapshot evidence without returning it", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const captureStart = source.indexOf('if (message.type === "capturePageSnapshot") {');
+  const captureEnd = source.indexOf('if (message.type === "getPageDraftStatus") {', captureStart);
+
+  assert.ok(captureStart > -1);
+  assert.ok(captureEnd > captureStart);
+  const captureSource = source.slice(captureStart, captureEnd);
+  assert.match(captureSource, /entry\.renderedHtml = snapshot\.renderedHtml;/);
+  assert.match(captureSource, /entry\.rawHtml = typeof rawHtml === "string"/);
+  assert.match(captureSource, /entry\.submissionXpaths = collectAiSubmissionXpathsForCurrentPage\(config\);/);
+  assert.match(captureSource, /await core\.saveConfig\(targetBaseUrl, config\);/);
+  assert.match(captureSource, /sendResponse\(\{ ok: true \}\);/);
+  const successResponseStart = captureSource.lastIndexOf("sendResponse({ ok: true });");
+  const successResponse = captureSource.slice(successResponseStart);
+  assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
+});
+
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const watcherStart = source.indexOf("function startUrlWatcher() {");

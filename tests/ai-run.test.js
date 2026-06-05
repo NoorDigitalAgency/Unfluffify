@@ -121,6 +121,10 @@ test("AI compute builds the request from stored local page snapshots only", () =
     body,
     /type: "capturePageSnapshot"[\s\S]*?persist: true/
   );
+  assert.doesNotMatch(
+    body,
+    /snapshotResponse\.(renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths)/
+  );
   assert.match(
     body,
     /const storedPageEntries = Object\.entries\(pageMarkings\)[\s\S]*?state\.currentBaseUrl[\s\S]*?entry\.renderedHtml[\s\S]*?entry\.submissionXpaths/
