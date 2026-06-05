@@ -46,19 +46,38 @@ the editor session while discarding the previous tab's unsaved local draft.
   is expected to lose the lock after the server's warning window.
 - If the editor loses connectivity, the editor sees a 70 second countdown saying
   that the editor role will be lost unless the connection recovers.
+- If the editor stays on a same-property page that is no longer a current Live
+  Page candidate, the editor sees a 70 second countdown saying that the editor
+  role will be lost unless they return to a candidate page. When that timer
+  expires, the extension sends `release_lock` for the current editor session.
+- If the editor navigates to a different property's page, the current tab keeps
+  the previous property's editor session in a 30 second recovery window. The
+  new page and the popup both warn that the editor must return to the previous
+  property before the cooldown expires, or the extension sends `release_lock`
+  for that previous property session by stored `siteId` + `clientId`.
 - Render Mode inspection reloads are expected, short-lived page reloads. During
   that inspection window the editor should see a reconnecting-after-inspection
   status instead of the 70 second connection-loss countdown. After the page is
   re-injected, the popup explicitly re-claims the property lock, then polls the
   lock snapshot until the connection returns to connected/inactive.
-- If the editor navigates away from the property or closes the editor tab, the
-  client runtime remains in the background grace window for 70 seconds.
+- If the editor tab closes, the background immediately sends `release_lock`
+  for that tab's editor runtime and disposes the connection instead of waiting
+  for the ordinary 70 second port-disconnect grace window.
 - During the last 60 seconds before release, passive subscribers see a countdown
   saying that the property will be released for editing. If the editor recovers,
   the passive UI returns to the ordinary locked banner.
 
 The extension checks connectivity through the WebSocket and independent stable
 HTTP endpoints. WebSocket state alone is not the sole network signal.
+
+When the popup is open during the off-candidate warning, it mirrors the same
+countdown from tab-scoped initial state so reopening the popup during the
+warning still shows the remaining time.
+
+The same tab-scoped initial state also carries the cross-property recovery
+session metadata (`siteId`, `baseUrl`, `clientId`, and cooldown deadline), so a
+return to the original property within the 30 second window can restore the
+same editor session instead of creating a new one.
 
 ## Takeover Flow
 

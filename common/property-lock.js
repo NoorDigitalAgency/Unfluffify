@@ -56,6 +56,8 @@ export const PROPERTY_LOCK_RECONNECT_DELAY_MS = 2_000; // 2 seconds
 export const PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS = 30 * 60_000; // 30 minutes without interaction
 export const PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS = 70_000; // 70 seconds before lock loss is assumed
 export const PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS = 70_000; // 70 seconds before closing a client runtime
+export const PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS = PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS; // 70 seconds off-candidate before the editor role is released
+export const PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS = 30_000; // 30 seconds to recover the previous property after cross-property navigation
 export const PROPERTY_LOCK_NETWORK_CHECK_TIMEOUT_MS = 5_000;
 export const PROPERTY_LOCK_NETWORK_CHECK_URLS = Object.freeze([
   "https://www.gstatic.com/generate_204",

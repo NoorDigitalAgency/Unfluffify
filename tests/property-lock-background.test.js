@@ -31,6 +31,13 @@ test("property lock background consumes port disconnect lastError", () => {
   assert.match(source, /function onPortDisconnect\(\) \{[\s\S]*?consumeRuntimeLastErrorMessage\(\);[\s\S]*?detachPortFromConnection/);
 });
 
+test("background tab removal immediately delegates property lock runtime disposal", () => {
+  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(source, /handlePropertyLockBackgroundTabRemoved,\s*initPropertyLockBackground/);
+  assert.match(source, /chrome\.tabs\.onRemoved\.addListener\(\(tabId\) => \{[\s\S]*?handlePropertyLockBackgroundTabRemoved\(tabId\);/);
+});
+
 function resolveStorageValues(keys, storageItems) {
   if (typeof keys === "string") {
     return { [keys]: storageItems[keys] };
@@ -302,6 +309,68 @@ test("property lock keeps a same-site runtime alive when a new port reconnects w
     assert.equal(afterReconnect.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
   } finally {
     timerController.restore();
+    globalThis.chrome = originalChrome;
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("property lock releases the editor immediately when the tab is removed", async () => {
+  const originalChrome = globalThis.chrome;
+  const originalWebSocket = globalThis.WebSocket;
+  const FakeWebSocket = createFakeWebSocketClass();
+  const { chromeMock, connectPort } = createChromeMock({
+    globalStageBase: "stage.example.test",
+    globalToken: "secret-token"
+  });
+
+  globalThis.chrome = chromeMock;
+  globalThis.WebSocket = FakeWebSocket;
+
+  try {
+    const {
+      initPropertyLockBackground,
+      handleGetPropertyLockState,
+      handlePropertyLockBackgroundTabRemoved
+    } = await loadPropertyLockBackgroundModule();
+    initPropertyLockBackground();
+
+    const port = connectPort({ tabId: 77 });
+    port.emitMessage({
+      type: PROPERTY_LOCK_CONTENT_CONNECT,
+      siteId: 707,
+      clientId: "client-a",
+      pageUrl: "https://example.test/a",
+      hasUnsavedChanges: false
+    });
+    await flushAsyncWork();
+
+    FakeWebSocket.instances[0].onopen();
+    FakeWebSocket.instances[0].emitMessage({
+      type: PROPERTY_LOCK_WS_SUBSCRIBED,
+      identity: "editor@example.test",
+      name: "Editor"
+    });
+    FakeWebSocket.instances[0].emitMessage({
+      type: PROPERTY_LOCK_WS_LOCK_STATE,
+      state: PROPERTY_LOCK_STATE_LOCKED,
+      editorIdentity: "editor@example.test",
+      editorClientId: "client-a",
+      editorName: "Editor",
+      isEditor: true,
+      isRecentEditor: false,
+      expiresAtUtc: "",
+      secondsRemaining: null
+    });
+
+    handlePropertyLockBackgroundTabRemoved(77);
+
+    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).type, "release_lock");
+    assert.deepEqual(FakeWebSocket.instances[0].closeCalls, [1000]);
+
+    const state = await handleGetPropertyLockState({ siteId: 707, tabId: 77 }, {});
+    assert.equal(state.state.state, PROPERTY_LOCK_STATE_UNLOCKED);
+    assert.equal(state.connectionStatus, PROPERTY_LOCK_CONNECTION_INACTIVE);
+  } finally {
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;
   }

@@ -87,14 +87,93 @@ test("silent Preview Contents and Send to Lynx actions are exposed from silent m
   assert.match(saveExcludesBody, /if \(!uiModule\.getViewState\(\)\.silentModeActive\) \{\s*return;\s*\}/);
   assert.match(
     uiSource,
-    /if \(showDeviceSection\) \{[\s\S]*?device-emulation-enabled/
-  );
-  assert.match(
-    uiSource,
     /const mergedControlsSection = mergedControlsSectionChildren\.length/
   );
   assert.doesNotMatch(uiSource, /title: PopupText\.tooltips\.pageSaveHotkey/);
   assert.doesNotMatch(uiSource, /lynx-checklist-ai|PopupText\.lynxChecklist\.aiQuestion/);
+});
+
+test("same-property non-candidate pages keep silent mode and property-lock scope while marking stays blocked", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(
+    popupSource,
+    /const propertyLockScopeSiteId =\s*state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId\s*\?\s*state\.propertyLockRecoverySiteId\s*:\s*liveSiteId;/
+  );
+  assert.match(popupSource, /if \(propertyLockScopeSiteId && state\.currentBaseUrl && tokenValue\) \{/);
+  assert.match(popupSource, /state\.propertyLockSiteId === propertyLockScopeSiteId/);
+  assert.match(popupSource, /const pageScopedUiDisabled =[\s\S]*?remoteConfigRetryBlocked[\s\S]*?isPropertyLockBlockingEditing\(\)/);
+  assert.doesNotMatch(
+    popupSource,
+    /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/
+  );
+  assert.match(popupSource, /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/);
+  assert.match(
+    popupSource,
+    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
+  );
+});
+
+test("popup mirrors the off-candidate editor countdown from initial tab state", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(popupSource, /function syncPropertyLockOffCandidateRefreshTimer\(active\) \{/);
+  assert.match(popupSource, /state\.propertyLockOffCandidateRefreshTimer = window\.setInterval\(\(\) => \{/);
+  assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
+  assert.match(
+    popupSource,
+    /syncPropertyLockOffCandidateRefreshTimer\(\s*Boolean\([\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\)\s*\);/
+  );
+  assert.match(popupSource, /if \(offCandidateSecondsRemaining > 0\) \{/);
+  assert.match(popupSource, /propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockOffCandidateDeadlineAt = Number\.isFinite\(message\.state\.propertyLockOffCandidateDeadlineAt\)/);
+});
+
+test("popup mirrors the cross-property editor cooldown from initial tab state and recovery scope", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(popupSource, /const persistedRecoveryState = \{\s*siteId: state\.propertyLockRecoverySiteId,\s*baseUrl: state\.propertyLockRecoveryBaseUrl,\s*clientId: state\.propertyLockRecoveryClientId,\s*deadlineAt: state\.propertyLockRecoveryDeadlineAt\s*\};/);
+  assert.match(popupSource, /const recoverySiteId = normalizeSiteIdValue\(\s*state\.propertyLockRecoverySiteId \|\| persistedRecoveryState\.siteId\s*\);/);
+  assert.match(popupSource, /const recoveryBaseUrl =\s*state\.propertyLockRecoveryBaseUrl \|\| persistedRecoveryState\.baseUrl \|\| "";/);
+  assert.match(popupSource, /const recoveryClientId =\s*state\.propertyLockRecoveryClientId \|\| persistedRecoveryState\.clientId \|\| "";/);
+  assert.match(popupSource, /const hasPersistedRecoverySession = Boolean\(\s*recoverySiteId &&\s*recoveryBaseUrl &&\s*recoveryClientId\s*\);/);
+  assert.match(popupSource, /const isOutsideRecoveryBaseUrl = Boolean\(\s*hasPersistedRecoverySession &&\s*pageUrl &&\s*!utils\.isPageWithinBaseUrl\(pageUrl, recoveryBaseUrl\)\s*\);/);
+  assert.match(popupSource, /state\.propertyLockRecoverySiteId =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoverySiteId\)/);
+  assert.match(popupSource, /state\.propertyLockRecoveryClientId =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryClientId === "string"/);
+  assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoveryDeadlineAt\)/);
+  assert.match(popupSource, /const propertyLockScopeSiteId =\s*state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId\s*\?\s*state\.propertyLockRecoverySiteId\s*:\s*liveSiteId;/);
+  assert.match(popupSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
+  assert.match(popupSource, /if \(hasPersistedRecoverySession && isOutsideRecoveryBaseUrl\) \{\s*const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date\.now\(\)\s*\?\s*recoveryDeadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
+  assert.match(popupSource, /if \(crossPropertySecondsRemaining > 0\) \{/);
+  assert.match(popupSource, /propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoverySiteId = Number\.isFinite\(message\.state\.propertyLockRecoverySiteId\)/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoveryClientId = typeof message\.state\.propertyLockRecoveryClientId === "string"/);
+  assert.match(backgroundSource, /nextState\.propertyLockRecoveryDeadlineAt = Number\.isFinite\(message\.state\.propertyLockRecoveryDeadlineAt\)/);
+});
+
+test("desktop preview is a separate popup section that disables marking entry while active", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
+  const desktopToggleBody = popupSource.match(
+    /async function handleDesktopPreviewEnabledToggle\(event\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(popupSource, /state\.currentDesktopPreviewEnabled = Boolean\(\s*initialTabState && initialTabState\.desktopPreviewEnabled\s*\);/);
+  assert.match(popupSource, /const desktopPreviewVisible = Boolean\(/);
+  assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
+  assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
+  assert.match(popupSource, /nextViewState\.toggleEnabledDisabled =[\s\S]*desktopPreviewActive;/);
+  assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
+  assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
+  assert.match(desktopToggleBody, /const targetMode = desiredEnabled \? "desktop" : "mobile";/);
+  assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
+  assert.match(uiSource, /view\.desktopPreviewVisible/);
+  assert.match(uiSource, /id: "desktop-preview-enabled"/);
+  assert.match(uiSource, /PopupText\.device\.desktopPreviewLabel/);
+  assert.match(uiSource, /view\.desktopPreviewNoticeVisible/);
 });
 
 test("marking-mode Preview Contents stays separate from silent Preview and Send to Lynx", () => {
@@ -574,6 +653,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(refreshBody, /if \(latestRuntimeResponseObserved\) \{\s*restoreInspectionPending = false;/);
   assert.match(refreshBody, /inspectionStatus = latestRuntimeStatus\.inspectionStatus;/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
+  assert.doesNotMatch(refreshBody, /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/);
   assert.match(refreshBody, /nextViewState\.mainUiHidden =[\s\S]*?!isEnabled[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady\)\)/);
 });
 

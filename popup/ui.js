@@ -73,6 +73,11 @@ const initialViewState = {
   deviceMode: "mobile",
   deviceScale: 0.85,
   deviceScaleValue: formatScalePercent(0.85),
+  desktopPreviewVisible: false,
+  desktopPreviewEnabled: false,
+  desktopPreviewDisabled: false,
+  desktopPreviewNoticeVisible: false,
+  desktopPreviewNoticeText: "",
   deviceControlsDisabled: false,
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
@@ -2069,7 +2074,6 @@ function renderLynxChecklistPopover(view, handlers) {
 
 function renderMarkingView({state: view, actions: handlers}) {
   const postRenderModeControlsVisible = view.renderModeReady;
-  const showDeviceSection = !view.mainUiHidden;
   const markingMode = !view.mainUiHidden;
   const pageSaveNotice = view.pageSessionNoticeVisible
     ? h(
@@ -2084,23 +2088,6 @@ function renderMarkingView({state: view, actions: handlers}) {
       )
     : null;
   const mergedControlsSectionChildren = [];
-
-  if (showDeviceSection) {
-    mergedControlsSectionChildren.push(
-      h(
-        "label",
-        {key: "device-row", class: "row", title: PopupText.tooltips.mobileSimulationHotkey},
-        h("span", {class: "row-label"}, icon("cellphone", "row-icon"), PopupText.device.enableLabel),
-        h("input", {
-          id: "device-emulation-enabled",
-          type: "checkbox",
-          checked: view.deviceEmulationEnabled,
-          disabled: view.deviceControlsDisabled,
-          onChange: handlers.onDeviceEmulationEnabledChange
-        })
-      )
-    );
-  }
 
   if (markingMode) {
     mergedControlsSectionChildren.push(
@@ -2233,6 +2220,39 @@ function renderMarkingView({state: view, actions: handlers}) {
       : null,
     postRenderModeControlsVisible && mergedControlsSection
       ? h(Fragment, { key: "merged-controls" }, mergedControlsSection)
+      : null,
+    view.desktopPreviewVisible
+      ? h(
+          Fragment,
+          { key: "desktop-preview-section" },
+          h(
+            "section",
+            { class: "card" },
+            h(
+              "label",
+              { class: "row", title: PopupText.tooltips.mobileSimulationHotkey },
+              h("span", { class: "row-label" }, icon("monitor-eye", "row-icon"), PopupText.device.desktopPreviewLabel),
+              h("input", {
+                id: "desktop-preview-enabled",
+                type: "checkbox",
+                checked: view.desktopPreviewEnabled,
+                disabled: view.desktopPreviewDisabled,
+                onChange: handlers.onDesktopPreviewEnabledChange
+              })
+            ),
+            h(
+              "div",
+              {
+                id: "desktop-preview-notice",
+                class: warningNoticeClass(),
+                role: "status",
+                "aria-live": "polite",
+                hidden: !view.desktopPreviewNoticeVisible
+              },
+              view.desktopPreviewNoticeText
+            )
+          )
+        )
       : null,
     h(Fragment, { key: "lynx-popover" }, lynxChecklistPopover)
   );

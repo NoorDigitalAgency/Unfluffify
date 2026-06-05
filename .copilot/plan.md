@@ -1115,8 +1115,98 @@ Motion stability pass completed:
 Mobile simulation default completed:
 
 1. Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session.
-2. Disabling mobile simulation from the popup is preserved as a per-session tab choice, including across navigation/reload cleanup, and must not be silently auto-enabled again.
+2. Disabling mobile simulation from the popup is preserved as a per-session tab choice, including across navigation/reload cleanup, and must not be silently auto-enabled again while marking is off. Active marking sessions on the editor tab force mobile simulation back on until marking is disabled.
 3. AI-submission visibility continues to use mobile simulation geometry when classifying visible versus invisible textual content.
+
+Phase 2 slice 2 completed:
+   Editor-mobile-only enforcement now runs through the existing device
+   emulation paths. Popup marking enable forces mobile simulation before
+   `setEnabled`, the popup hides/disables the device toggle while marking is
+   active, and `chrome.debugger.onDetach` re-applies mobile emulation instead
+   of leaving the editor tab in desktop mode if DevTools tears the override
+   down mid-session. This preserves the per-session device-emulation choice
+   when marking is off, while enforcing the editor-mobile-only contract during
+   active marking.
+
+Phase 2 slice 3 completed:
+   Desktop preview now uses the existing initial per-tab state as its
+   tab-lifecycle owner. When AI selectors exist for the current property, the
+   popup renders a separate `Preview in desktop mode` checkbox below the other
+   sections. Turning it on disables active marking if needed, persists the
+   checkbox state on the tab, switches emulation to desktop, and disables
+   marking re-entry until turned off. Turning it off returns the tab to mobile
+   emulation. `chrome.debugger.onDetach` now also clears desktop preview back
+   to forced mobile emulation so DevTools device-mode teardown cannot leave the
+   tab stuck in stale desktop preview state.
+
+Phase 2 slice 4 completed:
+   Same-property off-candidate pages no longer collapse the popup into a fully
+   blocked state. Popup property-lock scope now follows the resolved property
+   site ID for the page's base URL, not only current candidates, so the user
+   still sees editor/passive state and any off-candidate countdowns. The popup
+   keeps silent mode available on those pages for selector previewing while
+   still auto-disabling marking entry whenever the page is not a current Live
+   Page candidate.
+
+Phase 2 slice 5 completed:
+   Same-property off-candidate editor countdowns now have real release
+   behavior. Content starts a 70 second local warning when the current editor
+   remains on an off-candidate page within the same property, persists the
+   deadline in initial tab state so the popup can mirror it across reopen, and
+   sends `release_lock` when the timer expires unless the user has returned to
+   a candidate page first. Candidate re-entry or any non-editor lock state
+   clears the warning.
+
+Phase 2 slice 6 completed:
+   Cross-property editor recovery now uses a separate 30 second cool-off. When
+   the editor tab lands on a different property's page, content disconnects
+   from the old property port, persists the previous editor session
+   (`siteId`, `baseUrl`, `clientId`) plus cooldown deadline in initial tab
+   state, and shows a mirrored countdown on both the page and popup. Returning
+   to the original property within that window restores the same client session;
+   expiry sends `release_lock` for the old property runtime and clears the
+   recovery state.
+
+Phase 2 slice 7 completed:
+   Tab-removal release now matches the hardened navigation spec. Ordinary
+   property-lock port disconnects still keep the 70 second reconnect grace for
+   same-tab reload/navigation recovery, but `chrome.tabs.onRemoved` now
+   delegates to the property-lock background to immediately send `release_lock`
+   for any editor runtime owned by the removed tab and dispose that runtime
+   without waiting for the grace window.
+
+Phase 2 slice 8 completed:
+   The remaining teardown ownership splits were collapsed into the shared tab-
+   state cleanup paths. `common/utilities.clearTabState(...)` now removes both
+   live and `initial` tab state, `background.js` routes unregister/reload and
+   tab-removal cleanup through shared helpers instead of hand-deleting keys,
+   and the final audit locked that contract with additional lifecycle
+   regression coverage. This closes the last obvious Phase 2 state-drift risk
+   around desktop-preview and property-lock recovery metadata.
+
+Phase 2 live-validation follow-up status:
+   Repo-local smoke diagnostics through
+   `scripts/smoke-property-lock-phase2.mjs` found and fixed a real popup-side
+   cross-property recovery bug. The page banner and content-side cooldown were
+   correct, but the popup could lose or hide the mirrored cooldown because it
+   refreshed into the new property's lock snapshot before honoring the
+   persisted recovery session from `tabState:initial:<tabId>`. Popup now:
+   (1) preserves the pre-refresh recovery session snapshot, (2) gives the
+   persisted cross-property recovery session precedence while the page is
+   outside that base URL, and (3) renders cross-property / off-candidate
+   warning UI from mirrored initial-tab-state countdowns even if the freshly
+   fetched live lock snapshot is inactive or no longer reports `isEditor`.
+   Focused popup regression coverage was updated and full `npm test` is green
+   (`47/47`).
+
+Phase 2 remaining work:
+   The remaining work is validation, not another known behavior slice. The
+   current repo-local smoke harness is still operationally flaky around popup
+   reopen/auth bootstrap after unpacked-extension reload in the persistent
+   browser profile. The next agent should stabilize or replace that smoke path
+   and then run one trustworthy same-property candidate/off-candidate live pass
+   plus one trustworthy cross-property return pass before declaring Phase 2
+   fully closed.
 
 Page interaction pass-through completed:
 

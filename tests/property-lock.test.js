@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 
 import {
   PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
   PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS,
   PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
   PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS,
   PROPERTY_LOCK_STATE_UNLOCKED,
   buildPropertyLockWssUrl,
@@ -91,7 +93,9 @@ test("property lock timing constants preserve the editor warning windows", () =>
   assert.equal(PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS, 30_000);
   assert.equal(PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS, 30 * 60_000);
   assert.equal(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS, 70_000);
+  assert.equal(PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS, 30_000);
   assert.equal(PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS, 70_000);
+  assert.equal(PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS, 70_000);
 });
 
 test("createInactiveLockState returns an unlocked non-editor snapshot", () => {
@@ -200,6 +204,38 @@ test("property lock text includes disconnected interaction blocked message", () 
   const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
   assert.match(textSource, /disconnectedInteractionBlockedToast:\s*"Editing is temporarily blocked while the property lock reconnects\."/);
   assert.match(textSource, /inactivityInteractionBlockedToast:\s*"Editing is temporarily blocked due to inactivity\. Continue editing from the warning banner\."/);
+  assert.match(textSource, /editorOffCandidateCountdownMessage:\s*\(secondsRemaining\) => `This page is not a current Live Page candidate\./);
+  assert.match(textSource, /editorCrossPropertyCountdownMessage:\s*\(secondsRemaining\) => `You left the previous property\./);
+  assert.match(textSource, /popupOffCandidateWarning:\s*\(secondsRemaining\) => `Off candidate page • editor role ends in \$\{secondsRemaining\}s`/);
+  assert.match(textSource, /popupCrossPropertyWarning:\s*\(secondsRemaining\) => `Previous property held • editor role ends in \$\{secondsRemaining\}s`/);
+});
+
+test("content-main starts and persists an off-candidate editor countdown before releasing the lock", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /function persistPropertyLockOffCandidateDeadline\(deadlineAt\) \{/);
+  assert.match(source, /propertyLockOffCandidateDeadlineAt: Number\.isFinite\(deadlineAt\)/);
+  assert.match(source, /function startPropertyLockOffCandidateWarning\(\) \{/);
+  assert.match(source, /propertyLockOffCandidateDeadlineAt = Date\.now\(\) \+ PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS;/);
+  assert.match(source, /propertyLockBannerMode = "editor_off_candidate_countdown";/);
+  assert.match(source, /window\.setTimeout\(\(\) => \{[\s\S]*?sendPropertyLockMessage\(PROPERTY_LOCK_CONTENT_RELEASE\);[\s\S]*?\}, PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS \+ 100\);/);
+  assert.match(source, /async function syncPropertyLockOffCandidateWarning\(baseUrl, pageUrl = location\.href\) \{/);
+  assert.match(source, /if \(propertyLockState && propertyLockState\.isEditor\) \{\s*startPropertyLockOffCandidateWarning\(\);/);
+  assert.match(source, /case "editor_off_candidate_countdown":/);
+  assert.match(source, /propertyLockText\.editorOffCandidateCountdownMessage\(propertyLockBannerCountdownValue\)/);
+});
+
+test("content-main starts and persists a cross-property editor cooldown before releasing the old lock", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /function normalizePropertyLockRecoveryTabState\(tabState\) \{/);
+  assert.match(source, /function persistPropertyLockRecoveryState\(\{ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 \} = \{\}\) \{/);
+  assert.match(source, /function startPropertyLockCrossPropertyWarning\(recoveryState\) \{/);
+  assert.match(source, /propertyLockRecoveryDeadlineAt = recoveryState\.deadlineAt > Date\.now\(\)\s*\?\s*recoveryState\.deadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
+  assert.match(source, /type: PROPERTY_LOCK_CONTENT_RELEASE,\s*siteId: recoverySiteId,\s*clientId: recoveryClientId/);
+  assert.match(source, /if \(propertyLockRecoveryDeadlineAt > Date\.now\(\)\) \{\s*propertyLockBannerMode = "editor_cross_property_countdown";/);
+  assert.match(source, /case "editor_cross_property_countdown":/);
+  assert.match(source, /propertyLockText\.editorCrossPropertyCountdownMessage\(propertyLockBannerCountdownValue\)/);
 });
 
 test("content-main does not reset disconnect countdown on repeated unavailable status updates", () => {

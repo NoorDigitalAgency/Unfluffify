@@ -52,6 +52,7 @@ import {
 import { installExtensionTelemetry } from "./common/extension-telemetry.js";
 import {
   handlePropertyLockBackgroundMessage,
+  handlePropertyLockBackgroundTabRemoved,
   initPropertyLockBackground
 } from "./common/property-lock-background.js";
 import {
@@ -2228,6 +2229,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (Object.prototype.hasOwnProperty.call(message.state, "pageType")) {
             nextState.pageType = typeof message.state.pageType === "string" ? message.state.pageType : "";
           }
+          if (Object.prototype.hasOwnProperty.call(message.state, "desktopPreviewEnabled")) {
+            nextState.desktopPreviewEnabled = Boolean(message.state.desktopPreviewEnabled);
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockOffCandidateDeadlineAt")) {
+            nextState.propertyLockOffCandidateDeadlineAt = Number.isFinite(message.state.propertyLockOffCandidateDeadlineAt)
+              ? Number(message.state.propertyLockOffCandidateDeadlineAt)
+              : 0;
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoverySiteId")) {
+            nextState.propertyLockRecoverySiteId = Number.isFinite(message.state.propertyLockRecoverySiteId)
+              ? Number(message.state.propertyLockRecoverySiteId)
+              : null;
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryBaseUrl")) {
+            nextState.propertyLockRecoveryBaseUrl = typeof message.state.propertyLockRecoveryBaseUrl === "string"
+              ? message.state.propertyLockRecoveryBaseUrl
+              : "";
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryClientId")) {
+            nextState.propertyLockRecoveryClientId = typeof message.state.propertyLockRecoveryClientId === "string"
+              ? message.state.propertyLockRecoveryClientId
+              : "";
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryDeadlineAt")) {
+            nextState.propertyLockRecoveryDeadlineAt = Number.isFinite(message.state.propertyLockRecoveryDeadlineAt)
+              ? Number(message.state.propertyLockRecoveryDeadlineAt)
+              : 0;
+          }
         } else {
           nextState = {
             ...existing,
@@ -2348,21 +2377,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     (async () => {
-      const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
-      const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
-      const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-
       try {
         await utils.disableExtensionForTab(tabId);
       } catch (error) {
         // Continue with hard state cleanup below.
       }
-      await clearReloadRestoreTabState(tabId);
-      await utils.storageRemove(chrome.storage.session, [
-        tabKey,
-        initialKey,
-        scriptKey
-      ]);
+      await clearTrackedTabSessionState(tabId);
       await utils.updateActionForTab(tabId);
       try {
         await chrome.sidePanel.setOptions({
@@ -2542,12 +2562,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  const key = `${TAB_STATE_PREFIX}${tabId}`;
-  const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
-  const restoreKey = getReloadRestoreTabStateKey(tabId);
-  const deviceKey = `${DEVICE_EMULATION_PREFIX}${tabId}`;
-  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  utils.storageRemove(chrome.storage.session, [key, initialKey, restoreKey, deviceKey, scriptKey]).then();
+  clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
+  handlePropertyLockBackgroundTabRemoved(tabId);
   handleRemoteSupportTabRemoved(tabId).then();
   tabLifecycleStateByTabId.delete(tabId);
   tabSpinnerQueueByTabId.delete(tabId);
@@ -2598,6 +2614,29 @@ chrome.debugger.onDetach.addListener(async (source) => {
   if (!source || !source.tabId) {
     return;
   }
+  const tabState = await utils.getTabState(source.tabId);
+  if (tabState && tabState.enabled) {
+    updateDeviceEmulation(source.tabId, {
+      enabled: true,
+      mode: "mobile",
+      recalculateScale: true
+    }).catch(() => {});
+    return;
+  }
+  const initialState = await utils.getTabState(source.tabId, "initial");
+  if (initialState && initialState.desktopPreviewEnabled) {
+    await utils.setTabState(source.tabId, {
+      ...initialState,
+      active: Boolean(initialState.active),
+      desktopPreviewEnabled: false
+    }, "initial");
+    updateDeviceEmulation(source.tabId, {
+      enabled: true,
+      mode: "mobile",
+      recalculateScale: true
+    }).catch(() => {});
+    return;
+  }
   const state = await getDeviceEmulationState(source.tabId);
   if (!state.enabled) {
     return;
@@ -2633,6 +2672,22 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 });
 
 const TAB_RESTORE_SCOPE = "restore";
+
+async function clearTrackedTabSessionState(tabId, options = {}) {
+  if (!tabId) {
+    return;
+  }
+  const { includeDeviceState = false } = options;
+  await utils.clearTabState(tabId);
+  await clearReloadRestoreTabState(tabId);
+  const keysToRemove = [
+    `${SCRIPT_INJECTED_PREFIX}${tabId}`
+  ];
+  if (includeDeviceState) {
+    keysToRemove.push(`${DEVICE_EMULATION_PREFIX}${tabId}`);
+  }
+  await utils.storageRemove(chrome.storage.session, keysToRemove);
+}
 
 function getReloadRestoreTabStateKey(tabId) {
   return `${TAB_STATE_PREFIX}${TAB_RESTORE_SCOPE}:${tabId}`;

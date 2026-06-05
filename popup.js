@@ -110,6 +110,7 @@ import {
   PROPERTY_LOCK_CONNECTION_CONNECTED,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_CONNECTION_INACTIVE,
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
   PROPERTY_LOCK_STATE_UNLOCKED,
   PROPERTY_LOCK_STATE_LOCKED,
   PROPERTY_LOCK_STATE_EXPIRY_WARNING,
@@ -153,6 +154,11 @@ function resetPropertyLockState() {
   state.propertyLockInactivityWarningVisible = false;
   state.propertyLockDisconnectCountdown = null;
   state.propertyLockTransferCountdown = null;
+  state.propertyLockOffCandidateDeadlineAt = 0;
+  state.propertyLockRecoverySiteId = null;
+  state.propertyLockRecoveryBaseUrl = "";
+  state.propertyLockRecoveryClientId = "";
+  state.propertyLockRecoveryDeadlineAt = 0;
 }
 
 function clearPropertyLockTransientState() {
@@ -165,6 +171,61 @@ function clearPropertyLockTransientState() {
   state.propertyLockInactivityWarningVisible = false;
   state.propertyLockDisconnectCountdown = null;
   state.propertyLockTransferCountdown = null;
+  state.propertyLockOffCandidateDeadlineAt = 0;
+}
+
+function clearPropertyLockOffCandidateRefreshTimer() {
+  if (!state.propertyLockOffCandidateRefreshTimer) {
+    return;
+  }
+  window.clearInterval(state.propertyLockOffCandidateRefreshTimer);
+  state.propertyLockOffCandidateRefreshTimer = 0;
+}
+
+function syncPropertyLockOffCandidateRefreshTimer(active) {
+  if (!active) {
+    clearPropertyLockOffCandidateRefreshTimer();
+    return;
+  }
+  if (state.propertyLockOffCandidateRefreshTimer) {
+    return;
+  }
+  state.propertyLockOffCandidateRefreshTimer = window.setInterval(() => {
+    if (
+      (
+        !state.propertyLockOffCandidateDeadlineAt ||
+        state.propertyLockOffCandidateDeadlineAt <= Date.now()
+      ) &&
+      (
+        !state.propertyLockRecoveryDeadlineAt ||
+        state.propertyLockRecoveryDeadlineAt <= Date.now()
+      )
+    ) {
+      clearPropertyLockOffCandidateRefreshTimer();
+    }
+    refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true }).catch(() => {});
+  }, 1000);
+}
+
+async function persistPropertyLockRecoveryMetadata(tabId, recoveryState = {}) {
+  if (!Number.isFinite(tabId)) {
+    return;
+  }
+  await messages.setTabState(tabId, {
+    active: true,
+    propertyLockRecoverySiteId: Number.isFinite(recoveryState.siteId)
+      ? Number(recoveryState.siteId)
+      : null,
+    propertyLockRecoveryBaseUrl: typeof recoveryState.baseUrl === "string"
+      ? recoveryState.baseUrl
+      : "",
+    propertyLockRecoveryClientId: typeof recoveryState.clientId === "string"
+      ? recoveryState.clientId
+      : "",
+    propertyLockRecoveryDeadlineAt: Number.isFinite(recoveryState.deadlineAt)
+      ? Number(recoveryState.deadlineAt)
+      : 0
+  }, "initial");
 }
 
 function applyPropertyLockState(lockStateLike) {
@@ -297,6 +358,12 @@ function buildPropertyLockViewState() {
   const sameUserEditor = Boolean(lockState.isSameUserEditor);
   const otherTabHasUnsavedChanges = Boolean(lockState.otherTabHasUnsavedChanges);
   const secondsRemaining = state.propertyLockSecondsRemaining;
+  const offCandidateSecondsRemaining = state.propertyLockOffCandidateDeadlineAt > Date.now()
+    ? Math.max(0, Math.ceil((state.propertyLockOffCandidateDeadlineAt - Date.now()) / 1000))
+    : 0;
+  const crossPropertySecondsRemaining = state.propertyLockRecoveryDeadlineAt > Date.now()
+    ? Math.max(0, Math.ceil((state.propertyLockRecoveryDeadlineAt - Date.now()) / 1000))
+    : 0;
   const visible = Boolean(state.propertyLockSiteId);
   const viewState = {
     propertyLockVisible: visible,
@@ -376,6 +443,22 @@ function buildPropertyLockViewState() {
     viewState.propertyLockIcon = "timer-alert-outline";
     viewState.propertyLockStatusText = propertyLockText.editorInactivityWarningMessage(secondsRemaining || 0);
     viewState.propertyLockContinueVisible = true;
+    return viewState;
+  }
+
+  if (crossPropertySecondsRemaining > 0) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "home-export-outline";
+    viewState.propertyLockStatusText = propertyLockText.popupCrossPropertyWarning(crossPropertySecondsRemaining);
+    viewState.propertyLockDetailText = propertyLockText.editorCrossPropertyCountdownMessage(crossPropertySecondsRemaining);
+    return viewState;
+  }
+
+  if (offCandidateSecondsRemaining > 0) {
+    viewState.propertyLockTone = "warning";
+    viewState.propertyLockIcon = "map-marker-alert-outline";
+    viewState.propertyLockStatusText = propertyLockText.popupOffCandidateWarning(offCandidateSecondsRemaining);
+    viewState.propertyLockDetailText = propertyLockText.editorOffCandidateCountdownMessage(offCandidateSecondsRemaining);
     return viewState;
   }
 
@@ -475,7 +558,11 @@ async function fetchPropertyLockState(siteId) {
   }
   const clientIdHint = state.propertyLockSiteId === normalizedSiteId
     ? state.propertyLockClientId
-    : "";
+    : (
+      state.propertyLockRecoverySiteId === normalizedSiteId
+        ? state.propertyLockRecoveryClientId
+        : ""
+    );
 
   try {
     return await chrome.runtime.sendMessage({
@@ -1184,6 +1271,35 @@ function ensureMobileSimulationForSave() {
   }
   uiModule.showToast(PopupText.page.mobileSimulationRequired);
   return false;
+}
+
+async function ensureEditorMobileSimulation() {
+  if (isMobileSimulationActive({
+    enabled: state.currentDeviceEmulationEnabled,
+    mode: state.currentDeviceMode
+  })) {
+    return true;
+  }
+  const normalized = await helpers.updateDeviceEmulation({
+    enabled: true,
+    mode: "mobile",
+    scale: state.currentDeviceScale,
+    recalculateScale:
+      !state.currentDeviceEmulationEnabled ||
+      state.currentDeviceMode !== "mobile"
+  });
+  return Boolean(normalized && normalized.enabled && normalized.mode === "mobile");
+}
+
+async function persistDesktopPreviewEnabled(tabId, enabled) {
+  if (!tabId) {
+    return;
+  }
+  await messages.setTabState(tabId, {
+    active: true,
+    desktopPreviewEnabled: Boolean(enabled)
+  }, "initial");
+  state.currentDesktopPreviewEnabled = Boolean(enabled);
 }
 
 function resolveRelativeEndpoint(baseUrl, path) {
@@ -3843,6 +3959,35 @@ async function refreshUiInner(options = {}) {
     (initialTabState && initialTabState.active) ||
       utils.getOriginFromUrl(pageUrl)
   );
+  state.currentDesktopPreviewEnabled = Boolean(
+    initialTabState && initialTabState.desktopPreviewEnabled
+  );
+  state.propertyLockOffCandidateDeadlineAt =
+    initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
+      ? Number(initialTabState.propertyLockOffCandidateDeadlineAt)
+      : 0;
+  state.propertyLockRecoverySiteId =
+    initialTabState && Number.isFinite(initialTabState.propertyLockRecoverySiteId)
+      ? Number(initialTabState.propertyLockRecoverySiteId)
+      : null;
+  state.propertyLockRecoveryBaseUrl =
+    initialTabState && typeof initialTabState.propertyLockRecoveryBaseUrl === "string"
+      ? initialTabState.propertyLockRecoveryBaseUrl
+      : "";
+  state.propertyLockRecoveryClientId =
+    initialTabState && typeof initialTabState.propertyLockRecoveryClientId === "string"
+      ? initialTabState.propertyLockRecoveryClientId
+      : "";
+  state.propertyLockRecoveryDeadlineAt =
+    initialTabState && Number.isFinite(initialTabState.propertyLockRecoveryDeadlineAt)
+      ? Number(initialTabState.propertyLockRecoveryDeadlineAt)
+      : 0;
+  const persistedRecoveryState = {
+    siteId: state.propertyLockRecoverySiteId,
+    baseUrl: state.propertyLockRecoveryBaseUrl,
+    clientId: state.propertyLockRecoveryClientId,
+    deadlineAt: state.propertyLockRecoveryDeadlineAt
+  };
   const previewState = tabInScope
     ? await messages.sendTabMessage({ type: "getAiPreviewState" })
     : null;
@@ -4385,15 +4530,83 @@ async function refreshUiInner(options = {}) {
     pageUrl,
     propertyPageTypes
   );
-  const propertyLockCandidateSiteId = currentPageCandidateState.status === "candidate"
-    ? liveSiteId
-    : null;
-  if (propertyLockCandidateSiteId && state.currentBaseUrl && tokenValue) {
-    await refreshPropertyLockSnapshot(propertyLockCandidateSiteId, {
+  const propertyLockScopeSiteId =
+    state.propertyLockRecoveryDeadlineAt > Date.now() && state.propertyLockRecoverySiteId
+      ? state.propertyLockRecoverySiteId
+      : liveSiteId;
+  if (propertyLockScopeSiteId && state.currentBaseUrl && tokenValue) {
+    await refreshPropertyLockSnapshot(propertyLockScopeSiteId, {
+      skipFetch: skipPropertyLockFetch
+    });
+  } else if (propertyLockScopeSiteId && state.propertyLockRecoveryDeadlineAt > Date.now()) {
+    await refreshPropertyLockSnapshot(propertyLockScopeSiteId, {
       skipFetch: skipPropertyLockFetch
     });
   } else {
     resetPropertyLockState();
+  }
+  if (currentTabId) {
+    const activeEditorSiteId = normalizeSiteIdValue(liveSiteId || state.propertyLockSiteId);
+    const recoverySiteId = normalizeSiteIdValue(
+      state.propertyLockRecoverySiteId || persistedRecoveryState.siteId
+    );
+    const recoveryBaseUrl =
+      state.propertyLockRecoveryBaseUrl || persistedRecoveryState.baseUrl || "";
+    const recoveryClientId =
+      state.propertyLockRecoveryClientId || persistedRecoveryState.clientId || "";
+    const recoveryDeadlineAt = Number.isFinite(state.propertyLockRecoveryDeadlineAt) &&
+      state.propertyLockRecoveryDeadlineAt > 0
+      ? state.propertyLockRecoveryDeadlineAt
+      : (
+        Number.isFinite(persistedRecoveryState.deadlineAt) && persistedRecoveryState.deadlineAt > 0
+          ? persistedRecoveryState.deadlineAt
+          : 0
+      );
+    const hasPersistedRecoverySession = Boolean(
+      recoverySiteId &&
+      recoveryBaseUrl &&
+      recoveryClientId
+    );
+    const isOutsideRecoveryBaseUrl = Boolean(
+      hasPersistedRecoverySession &&
+      pageUrl &&
+      !utils.isPageWithinBaseUrl(pageUrl, recoveryBaseUrl)
+    );
+    if (hasPersistedRecoverySession && isOutsideRecoveryBaseUrl) {
+      const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date.now()
+        ? recoveryDeadlineAt
+        : Date.now() + PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;
+      state.propertyLockRecoverySiteId = recoverySiteId;
+      state.propertyLockRecoveryBaseUrl = recoveryBaseUrl;
+      state.propertyLockRecoveryClientId = recoveryClientId;
+      state.propertyLockRecoveryDeadlineAt = nextRecoveryDeadlineAt;
+      await persistPropertyLockRecoveryMetadata(currentTabId, {
+        siteId: recoverySiteId,
+        baseUrl: recoveryBaseUrl,
+        clientId: recoveryClientId,
+        deadlineAt: nextRecoveryDeadlineAt
+      });
+    } else if (
+      state.propertyLockState &&
+      state.propertyLockState.isEditor &&
+      activeEditorSiteId &&
+      state.currentBaseUrl &&
+      state.propertyLockClientId
+    ) {
+      await persistPropertyLockRecoveryMetadata(currentTabId, {
+        siteId: activeEditorSiteId,
+        baseUrl: state.currentBaseUrl,
+        clientId: state.propertyLockClientId,
+        deadlineAt: 0
+      });
+    } else if (!state.propertyLockRecoveryDeadlineAt || state.propertyLockRecoveryDeadlineAt <= Date.now()) {
+      await persistPropertyLockRecoveryMetadata(currentTabId, {
+        siteId: null,
+        baseUrl: "",
+        clientId: "",
+        deadlineAt: 0
+      });
+    }
   }
   if (propertyPageTypes.length && state.currentBaseUrl) {
     let coverageModel = buildLynxChecklistViewModel({
@@ -4482,13 +4695,19 @@ async function refreshUiInner(options = {}) {
   );
   syncObserverRemoteConfigRefreshTimer(
     Boolean(
-      propertyLockCandidateSiteId &&
+      propertyLockScopeSiteId &&
         state.currentBaseUrl &&
         configEndpointValue &&
         tokenValue &&
-        state.propertyLockSiteId === propertyLockCandidateSiteId &&
+        state.propertyLockSiteId === propertyLockScopeSiteId &&
         state.propertyLockState &&
         !state.propertyLockState.isEditor
+    )
+  );
+  syncPropertyLockOffCandidateRefreshTimer(
+    Boolean(
+      (state.propertyLockOffCandidateDeadlineAt && state.propertyLockOffCandidateDeadlineAt > Date.now()) ||
+      (state.propertyLockRecoveryDeadlineAt && state.propertyLockRecoveryDeadlineAt > Date.now())
     )
   );
   Object.assign(nextViewState, buildPropertyLockViewState());
@@ -4790,7 +5009,6 @@ async function refreshUiInner(options = {}) {
     unsupportedByGraphql ||
     !tabInScope ||
     remoteConfigRetryBlocked ||
-    (pageTypeUiBlocked && !navigationInspectionPending) ||
     isPropertyLockBlockingEditing() ||
     remoteSupportMode === REMOTE_SUPPORT_MODE_SUPPORTING;
   if (pageScopedUiDisabled) {
@@ -4802,12 +5020,22 @@ async function refreshUiInner(options = {}) {
     resolvedView === uiModule.View.Marking &&
     renderModeReady &&
     !isEnabled;
+  const desktopPreviewVisible = Boolean(
+    currentTabId &&
+    tabInScope &&
+    state.currentConfig &&
+    hasStoredSelectors
+  );
+  const desktopPreviewActive = Boolean(
+    desktopPreviewVisible && state.currentDesktopPreviewEnabled
+  );
   nextViewState.toggleEnabled = pageScopedUiDisabled ? false : isEnabled;
   nextViewState.toggleEnabledDisabled =
     pageScopedUiDisabled ||
     pageSaveReconciliationPending ||
     !baseUrlReady ||
-    (!navigationInspectionPending && (!siteIdReady || !renderModeReady));
+    (!navigationInspectionPending && (!siteIdReady || !renderModeReady)) ||
+    desktopPreviewActive;
   nextViewState.mainUiHidden =
     pageScopedUiDisabled ||
     !isEnabled ||
@@ -5026,7 +5254,17 @@ async function refreshUiInner(options = {}) {
   nextViewState.deviceMode = normalizedDeviceState.mode;
   nextViewState.deviceScale = normalizedDeviceState.scale.toFixed(2);
   nextViewState.deviceScaleValue = formatScalePercent(normalizedDeviceState.scale);
-  nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled);
+  nextViewState.deviceControlsDisabled = Boolean(state.deviceControlsDisabled || isEnabled);
+  nextViewState.desktopPreviewVisible = desktopPreviewVisible;
+  nextViewState.desktopPreviewEnabled = desktopPreviewActive;
+  nextViewState.desktopPreviewDisabled =
+    aiBusy ||
+    !currentTabId ||
+    !renderModeReady ||
+    pageInspectionBusy ||
+    state.deviceControlsDisabled;
+  nextViewState.desktopPreviewNoticeVisible = desktopPreviewActive;
+  nextViewState.desktopPreviewNoticeText = PopupText.device.desktopPreviewNotice;
   nextViewState.pageTypeGroups = pageTypeCoverageModel.pageTypes.map((pageType) => {
     const groupCurrent =
       currentPageMarkingAllowed &&
@@ -6752,6 +6990,13 @@ async function handleEnableToggle(event) {
         const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
         state.currentBaseUrl = effectiveBaseUrl;
         state.currentConfig = siteIdResult.config || state.currentConfig;
+        if (uiModule.getViewState().desktopPreviewEnabled) {
+          uiModule.showToast(PopupText.device.desktopPreviewDisableMarkingToast);
+          uiModule.setViewState({ toggleEnabled: false });
+          clearLastPopupEnabled();
+          await refreshUi();
+          return;
+        }
         const injectResult = await helpers.injectContentScriptIfNeeded();
         if (!injectResult.ok) {
           uiModule.showToast(injectResult.error || PopupText.helper.activateFailedOnPage);
@@ -6761,6 +7006,14 @@ async function handleEnableToggle(event) {
           return;
         }
         await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
+        setSpinnerMessage(spinnerKey, PopupText.overlay.applyingDeviceEmulation);
+        const mobileSimulationReady = await ensureEditorMobileSimulation();
+        if (!mobileSimulationReady) {
+          uiModule.setViewState({ toggleEnabled: false });
+          clearLastPopupEnabled();
+          await refreshUi();
+          return;
+        }
         await messages.setTabState(tab.id, {
           enabled: true,
           baseUrl: effectiveBaseUrl,
@@ -6809,6 +7062,9 @@ async function handleEnableToggle(event) {
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {
+  if (uiModule.getViewState().toggleEnabled) {
+    return;
+  }
   const desiredEnabled = event && event.currentTarget
     ? Boolean(event.currentTarget.checked)
     : uiModule.getViewState().deviceEmulationEnabled;
@@ -6824,6 +7080,55 @@ async function handleDeviceEmulationEnabledToggle(event) {
     mode: "mobile",
     scale: state.currentDeviceScale
   });
+}
+
+async function handleDesktopPreviewEnabledToggle(event) {
+  const desiredEnabled = event && event.currentTarget
+    ? Boolean(event.currentTarget.checked)
+    : uiModule.getViewState().desktopPreviewEnabled;
+  if (!await helpers.ensureActiveTab({ requireId: true })) {
+    return;
+  }
+  const tab = state.currentTab;
+  if (!tab || !tab.id) {
+    return;
+  }
+  if (desiredEnabled === state.currentDesktopPreviewEnabled) {
+    return;
+  }
+  if (desiredEnabled && !hasCalculatedSelectorsFromConfig(state.currentConfig)) {
+    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+    return;
+  }
+  if (desiredEnabled && uiModule.getViewState().toggleEnabled) {
+    await handleEnableToggle({ currentTarget: { checked: false } });
+    if (uiModule.getViewState().toggleEnabled) {
+      await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+      return;
+    }
+  }
+  await runWithSpinner(
+    null,
+    PopupText.overlay.applyingDeviceEmulation,
+    async () => {
+      const targetMode = desiredEnabled ? "desktop" : "mobile";
+      const normalized = await helpers.updateDeviceEmulation({
+        enabled: true,
+        mode: targetMode,
+        scale: state.currentDeviceScale,
+        recalculateScale:
+          !state.currentDeviceEmulationEnabled ||
+          state.currentDeviceMode !== targetMode
+      });
+      if (!normalized || !normalized.enabled || normalized.mode !== targetMode) {
+        await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+        return;
+      }
+      await persistDesktopPreviewEnabled(tab.id, desiredEnabled);
+      await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+    },
+    { delayMs: POPUP_BUSY_OVERLAY_DELAY_MS }
+  );
 }
 
 
@@ -8162,6 +8467,7 @@ async function init() {
   uiModule.initUi({
     onToggleEnabled: handleEnableToggle,
     onDeviceEmulationEnabledChange: handleDeviceEmulationEnabledToggle,
+    onDesktopPreviewEnabledChange: handleDesktopPreviewEnabledToggle,
     onDeviceScaleInput: handleDeviceScaleInput,
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
@@ -8314,19 +8620,10 @@ async function init() {
       return;
     }
     if (key === "m") {
-      if (!view.deviceControlsDisabled) {
-        const nextEnabled = !view.deviceEmulationEnabled;
-        if (nextEnabled) {
-          helpers.updateDeviceEmulation({
-            enabled: true,
-            mode: "mobile",
-            scale: state.currentDeviceScale
-          }).then();
-        } else {
-          handleDeviceEmulationEnabledToggle({
-            currentTarget: { checked: false }
-          }).then();
-        }
+      if (view.desktopPreviewVisible && !view.desktopPreviewDisabled) {
+        handleDesktopPreviewEnabledToggle({
+          currentTarget: { checked: !view.desktopPreviewEnabled }
+        }).then();
       }
       return;
     }
@@ -8441,6 +8738,7 @@ async function init() {
   });
   window.addEventListener("beforeunload", () => {
     clearObserverRemoteConfigRefreshTimer();
+    clearPropertyLockOffCandidateRefreshTimer();
     const tabId = state.currentTab && state.currentTab.id;
     if (tabId) {
       clearSpinnerQueueInBackground(tabId, { transientOnly: true }).catch(() => {});

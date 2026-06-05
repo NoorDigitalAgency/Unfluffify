@@ -43,8 +43,33 @@ test("unregister-and-reload preserves user-controlled device emulation state", (
   );
 
   assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
+  assert.match(block, /await clearTrackedTabSessionState\(tabId\);/);
+  assert.doesNotMatch(block, /const tabKey = `\$\{TAB_STATE_PREFIX\}\$\{tabId\}`;/);
+  assert.doesNotMatch(block, /const initialKey = `\$\{TAB_STATE_PREFIX\}initial:\$\{tabId\}`;/);
+  assert.doesNotMatch(block, /const scriptKey = `\$\{SCRIPT_INJECTED_PREFIX\}\$\{tabId\}`;/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);
   assert.doesNotMatch(block, /DEVICE_EMULATION_PREFIX/);
+});
+
+test("background centralizes tracked tab-session cleanup with optional device-state removal", () => {
+  const helperBlock = extractSourceBlock(
+    backgroundSource,
+    "async function clearTrackedTabSessionState(tabId, options = {}) {",
+    "function getReloadRestoreTabStateKey"
+  );
+  const onRemovedBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.tabs.onRemoved.addListener((tabId) => {",
+    "async function disableExtensionOnTopLevelNavigation"
+  );
+
+  assert.match(helperBlock, /const \{ includeDeviceState = false \} = options;/);
+  assert.match(helperBlock, /await utils\.clearTabState\(tabId\);/);
+  assert.match(helperBlock, /await clearReloadRestoreTabState\(tabId\);/);
+  assert.match(helperBlock, /const keysToRemove = \[\s*`\$\{SCRIPT_INJECTED_PREFIX\}\$\{tabId\}`\s*\];/);
+  assert.match(helperBlock, /if \(includeDeviceState\) \{\s*keysToRemove\.push\(`\$\{DEVICE_EMULATION_PREFIX\}\$\{tabId\}`\);\s*\}/);
+  assert.match(helperBlock, /await utils\.storageRemove\(chrome\.storage\.session, keysToRemove\);/);
+  assert.match(onRemovedBlock, /clearTrackedTabSessionState\(tabId, \{ includeDeviceState: true \}\)\.then\(\);/);
 });
 
 test("extension activation enables default mobile emulation for fresh tab sessions", () => {
@@ -76,6 +101,46 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(activateBlock, /await activateExtensionForTab\(/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+});
+
+test("marking enable forces mobile simulation before content activation and locks the popup device toggle", () => {
+  const enableBlock = extractSourceBlock(
+    popupSource,
+    "async function handleEnableToggle(event) {",
+    "async function handleDeviceEmulationEnabledToggle"
+  );
+  const uiBlock = extractSourceBlock(
+    readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8"),
+    "function renderMarkingView({state: view, actions: handlers}) {",
+    "function renderConfigurationView"
+  );
+
+  assert.match(popupSource, /async function ensureEditorMobileSimulation\(\) \{/);
+  assert.match(enableBlock, /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.applyingDeviceEmulation\);/);
+  assert.match(enableBlock, /const mobileSimulationReady = await ensureEditorMobileSimulation\(\);/);
+  assert.match(enableBlock, /if \(!mobileSimulationReady\) \{/);
+  assert.match(enableBlock, /await messages\.setTabState\(tab\.id, \{\s*enabled: true,/);
+  assert.match(popupSource, /nextViewState\.deviceControlsDisabled = Boolean\(state\.deviceControlsDisabled \|\| isEnabled\);/);
+});
+
+test("desktop preview persists on initial tab state and clears itself on debugger detach", () => {
+  const setTabStateBlock = extractSourceBlock(
+    backgroundSource,
+    'if (message.type === "setTabState") {',
+    'if (message.type === "setDeviceEmulation") {'
+  );
+  const detachBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.debugger.onDetach.addListener(async (source) => {",
+    "async function refreshActionIconsForWindow"
+  );
+
+  assert.match(setTabStateBlock, /if \(Object\.prototype\.hasOwnProperty\.call\(message\.state, "desktopPreviewEnabled"\)\) \{/);
+  assert.match(setTabStateBlock, /nextState\.desktopPreviewEnabled = Boolean\(message\.state\.desktopPreviewEnabled\);/);
+  assert.match(detachBlock, /const initialState = await utils\.getTabState\(source\.tabId, "initial"\);/);
+  assert.match(detachBlock, /if \(initialState && initialState\.desktopPreviewEnabled\) \{/);
+  assert.match(detachBlock, /desktopPreviewEnabled: false/);
+  assert.match(detachBlock, /mode: "mobile"/);
 });
 
 test("popup delegates active tab context resolution to the background", () => {
@@ -135,6 +200,25 @@ test("shared tab state writes mirror enabled sessions into reload restore state"
   assert.match(setTabStateBlock, /if \(nextState && nextState\.enabled && nextState\.baseUrl\) \{/);
   assert.match(setTabStateBlock, /await storageSet\(chrome\.storage\.session, \{/);
   assert.match(setTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[restoreKey\]\);/);
+});
+
+test("shared clearTabState removes initial tab lifecycle state as well as live tab state", () => {
+  const clearTabStateBlock = extractSourceBlock(
+    utilitiesSource,
+    "export async function clearTabState(tabId) {",
+    "// Action icon utilities"
+  );
+  const clearMessageBlock = extractSourceBlock(
+    backgroundSource,
+    'if (message.type === "clearTabState") {',
+    'if (message.type === "unregisterTabAndReload") {'
+  );
+
+  assert.match(clearTabStateBlock, /const key = `\$\{TAB_STATE_PREFIX\}\$\{tabId\}`;/);
+  assert.match(clearTabStateBlock, /const initialKey = `\$\{TAB_STATE_PREFIX\}initial:\$\{tabId\}`;/);
+  assert.match(clearTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[key, initialKey\]\);/);
+  assert.match(clearMessageBlock, /utils\.clearTabState\(message\.tabId\)/);
+  assert.match(clearMessageBlock, /clearReloadRestoreTabState\(message\.tabId\)/);
 });
 
 test("completed reload restores marking when the page stays within the saved base URL", () => {
@@ -251,4 +335,16 @@ test("disabled mobile emulation remains a per-session choice after navigation cl
   assert.match(cleanupBlock, /Emulation\.clearDeviceMetricsOverride/);
   assert.doesNotMatch(cleanupBlock, /storageRemove/);
   assert.doesNotMatch(cleanupBlock, /DEVICE_EMULATION_PREFIX/);
+});
+
+test("debugger detach reapplies mobile emulation while marking stays enabled", () => {
+  const detachBlock = extractSourceBlock(
+    backgroundSource,
+    "chrome.debugger.onDetach.addListener(async (source) => {",
+    "async function refreshActionIconsForWindow"
+  );
+
+  assert.match(detachBlock, /const tabState = await utils\.getTabState\(source\.tabId\);/);
+  assert.match(detachBlock, /if \(tabState && tabState\.enabled\) \{/);
+  assert.match(detachBlock, /updateDeviceEmulation\(source\.tabId,\s*\{\s*enabled:\s*true,\s*mode:\s*"mobile",\s*recalculateScale:\s*true\s*\}\)\.catch\(\(\) => \{\}\);/);
 });

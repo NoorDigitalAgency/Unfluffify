@@ -206,6 +206,22 @@ function detachPortFromConnection(portId, portEntry) {
   return currentConnectionKey;
 }
 
+function releaseAndDisposeConnection(connectionKey, options = {}) {
+  const { releaseLock = false } = options;
+  if (!connectionKey) {
+    return;
+  }
+  const runtime = lockConnections.get(connectionKey);
+  if (!runtime) {
+    return;
+  }
+  if (releaseLock && runtime.isConnected && runtime.socket && runtime.state && runtime.state.isEditor) {
+    sendToServer(runtime, createClientPayload(runtime, PROPERTY_LOCK_WS_RELEASE_LOCK));
+  }
+  runtime.dispose();
+  lockConnections.delete(connectionKey);
+}
+
 /**
  * Initialize property lock background module.
  * Sets up port listener for content script connections.
@@ -388,6 +404,26 @@ function handlePropertyLockPortConnect(port) {
 
   port.onMessage.addListener(onPortMessage);
   port.onDisconnect.addListener(onPortDisconnect);
+}
+
+export function handlePropertyLockBackgroundTabRemoved(tabId) {
+  const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId) : null;
+  if (normalizedTabId === null) {
+    return;
+  }
+  const connectionKeysToDispose = new Set();
+  for (const [portId, portEntry] of contentScriptPorts.entries()) {
+    if (!portEntry || portEntry.tabId !== normalizedTabId) {
+      continue;
+    }
+    const connectionKey = detachPortFromConnection(portId, portEntry);
+    if (connectionKey) {
+      connectionKeysToDispose.add(connectionKey);
+    }
+  }
+  connectionKeysToDispose.forEach((connectionKey) => {
+    releaseAndDisposeConnection(connectionKey, { releaseLock: true });
+  });
 }
 
 function createClientPayload(runtime, type) {
@@ -897,11 +933,7 @@ function scheduleDisconnectCheck(connectionKey) {
     );
 
     if (portsForConnection.length === 0) {
-      const runtime = lockConnections.get(connectionKey);
-      if (runtime) {
-        runtime.dispose();
-        lockConnections.delete(connectionKey);
-      }
+      releaseAndDisposeConnection(connectionKey);
     }
   }, PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS);
 }

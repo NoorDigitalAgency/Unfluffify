@@ -117,6 +117,8 @@ export const propertyLockText = Object.freeze({
   startEditingAgainButton: "Start editing again",
   editorDisconnectCountdownMessage: (secondsRemaining) => `Connection lost. You will lose the editor role in ${secondsRemaining}s unless the connection recovers.`,
   editorInactivityWarningMessage: (secondsRemaining) => `No recent page interaction. You will lose the editor role in ${secondsRemaining}s unless you continue editing.`,
+  editorOffCandidateCountdownMessage: (secondsRemaining) => `This page is not a current Live Page candidate. Return to a candidate page within ${secondsRemaining}s or you will lose the editor role.`,
+  editorCrossPropertyCountdownMessage: (secondsRemaining) => `You left the previous property. Return to it within ${secondsRemaining}s or you will lose the editor role.`,
   continueEditingButton: "Continue editing",
   continueEditingHereButton: "Continue editing here",
   continueEditingHereAnywayButton: "Continue editing here anyway",
@@ -136,6 +138,8 @@ export const propertyLockText = Object.freeze({
   popupUnavailableDetail: "Marking controls are paused until coordination reconnects.",
   popupInspectionReconnecting: "Reconnecting after inspection...",
   editorInspectionReconnectingMessage: "Reconnecting after inspection...",
+  popupOffCandidateWarning: (secondsRemaining) => `Off candidate page • editor role ends in ${secondsRemaining}s`,
+  popupCrossPropertyWarning: (secondsRemaining) => `Previous property held • editor role ends in ${secondsRemaining}s`,
   popupEditorActive: "You are editing this property",
   popupEditorDetail: "Changes are reserved to your session.",
   popupPassiveDetail: "Marking controls are paused until you take over or the lock is released.",
@@ -374,6 +378,9 @@ export const PopupText = Object.freeze({
 
   device: Object.freeze({
     enableLabel: "Enable mobile simulation", // Toggle label for mobile emulation.
+    desktopPreviewLabel: "Preview in desktop mode", // Separate checkbox label for desktop preview outside active marking.
+    desktopPreviewNotice: "Marking mode is disabled while desktop preview is on.", // Inline notice shown beneath the desktop preview toggle.
+    desktopPreviewDisableMarkingToast: "Turn off desktop preview before enabling marking.", // Toast shown when marking is requested while desktop preview is active.
     unsupportedToast: "Device simulation is only available on http(s) pages", // Toast shown when emulation is requested on unsupported URLs.
     emulationFailed: "Device emulation failed" // Fallback toast when emulation could not be applied.
   }),

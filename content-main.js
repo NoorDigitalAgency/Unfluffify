@@ -71,6 +71,8 @@ import {
   PROPERTY_LOCK_CONNECTION_CONNECTED,
   PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
   PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
   PROPERTY_LOCK_WS_LOCK_STATE,
   PROPERTY_LOCK_WS_DISCONNECT_WARNING,
   PROPERTY_LOCK_WS_INACTIVITY_WARNING,
@@ -158,12 +160,19 @@ let propertyLockState = null;
 let propertyLockBannerMode = "no_banner";
 let propertyLockBannerCountdownTimer = 0;
 let propertyLockBannerCountdownValue = 0;
+let propertyLockOffCandidateDeadlineAt = 0;
+let propertyLockRecoverySiteId = null;
+let propertyLockRecoveryBaseUrl = "";
+let propertyLockRecoveryClientId = "";
+let propertyLockRecoveryDeadlineAt = 0;
+let propertyLockRecoveryReleaseTimer = 0;
 let propertyLockBannerElement = null;
 let propertyLockBannerVisible = false;
 let propertyLockSuggestionId = "";
 let propertyLockSuggestionFromName = "";
 let propertyLockLastBlockedToastAt = 0;
 let propertyLockConnectedSiteId = null;
+let propertyLockConnectedBaseUrl = "";
 let propertyLockEditorClaimPending = false;
 let propertyLockSyncToken = 0;
 let propertyLockSyncInFlight = false;
@@ -1980,6 +1989,23 @@ async function resolveCurrentPageTypeForMarking(baseUrl, pageUrl = location.href
     return { ok: false, reason: target.reason || "This page is not a current Live Page candidate." };
   }
   return { ok: true, pageType: target.pageType };
+}
+
+async function syncPropertyLockOffCandidateWarning(baseUrl, pageUrl = location.href) {
+  if (!baseUrl || !pageUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
+    clearPropertyLockOffCandidateWarning();
+    return;
+  }
+  const pageTypeResult = await resolveCurrentPageTypeForMarking(baseUrl, pageUrl);
+  if (pageTypeResult.ok && pageTypeResult.pageType) {
+    clearPropertyLockOffCandidateWarning();
+    return;
+  }
+  if (propertyLockState && propertyLockState.isEditor) {
+    startPropertyLockOffCandidateWarning();
+    return;
+  }
+  clearPropertyLockOffCandidateWarning();
 }
 
 function normalizeAiPreviewItems(items) {
@@ -6117,9 +6143,192 @@ function resetPropertyLockUiState() {
   propertyLockState = null;
   propertyLockSuggestionId = "";
   propertyLockSuggestionFromName = "";
+  propertyLockOffCandidateDeadlineAt = 0;
   propertyLockBannerCountdownValue = 0;
+  void utils.sendRuntimeMessage({
+    type: "setTabState",
+    scope: "initial",
+    state: {
+      active: true,
+      propertyLockOffCandidateDeadlineAt: 0
+    }
+  }).catch(() => null);
   updatePropertyLockBannerMode();
   renderPropertyLockBanner();
+}
+
+function normalizePropertyLockRecoveryTabState(tabState) {
+  const nextSiteId = Number.isFinite(tabState && tabState.propertyLockRecoverySiteId)
+    ? Math.trunc(tabState.propertyLockRecoverySiteId)
+    : null;
+  return {
+    siteId: nextSiteId && nextSiteId > 0 ? nextSiteId : null,
+    baseUrl: typeof (tabState && tabState.propertyLockRecoveryBaseUrl) === "string"
+      ? tabState.propertyLockRecoveryBaseUrl
+      : "",
+    clientId: normalizePropertyLockClientId(tabState && tabState.propertyLockRecoveryClientId),
+    deadlineAt: Number.isFinite(tabState && tabState.propertyLockRecoveryDeadlineAt)
+      ? Math.max(0, Math.trunc(tabState.propertyLockRecoveryDeadlineAt))
+      : 0,
+    offCandidateDeadlineAt: Number.isFinite(tabState && tabState.propertyLockOffCandidateDeadlineAt)
+      ? Math.max(0, Math.trunc(tabState.propertyLockOffCandidateDeadlineAt))
+      : 0
+  };
+}
+
+function loadPropertyLockRecoveryTabState() {
+  return utils.sendRuntimeMessage({
+    type: "getTabState",
+    scope: "initial",
+    nullIfMissing: true
+  }).then((tabState) => normalizePropertyLockRecoveryTabState(tabState)).catch(() =>
+    normalizePropertyLockRecoveryTabState(null)
+  );
+}
+
+function persistPropertyLockRecoveryState({ siteId = null, baseUrl = "", clientId = "", deadlineAt = 0 } = {}) {
+  return utils.sendRuntimeMessage({
+    type: "setTabState",
+    scope: "initial",
+    state: {
+      active: true,
+      propertyLockRecoverySiteId: Number.isFinite(siteId) ? Math.trunc(siteId) : null,
+      propertyLockRecoveryBaseUrl: typeof baseUrl === "string" ? baseUrl : "",
+      propertyLockRecoveryClientId: normalizePropertyLockClientId(clientId),
+      propertyLockRecoveryDeadlineAt: Number.isFinite(deadlineAt) ? Math.max(0, Math.trunc(deadlineAt)) : 0
+    }
+  }).catch(() => null);
+}
+
+function persistPropertyLockOffCandidateDeadline(deadlineAt) {
+  return utils.sendRuntimeMessage({
+    type: "setTabState",
+    scope: "initial",
+    state: {
+      active: true,
+      propertyLockOffCandidateDeadlineAt: Number.isFinite(deadlineAt) ? Math.max(0, Math.trunc(deadlineAt)) : 0
+    }
+  }).catch(() => null);
+}
+
+function clearPropertyLockOffCandidateWarning() {
+  propertyLockOffCandidateDeadlineAt = 0;
+  if (propertyLockBannerMode === "editor_off_candidate_countdown") {
+    propertyLockBannerCountdownValue = 0;
+    clearPropertyLockBannerCountdown();
+  }
+  persistPropertyLockOffCandidateDeadline(0);
+}
+
+function clearPropertyLockRecoveryReleaseTimer() {
+  if (!propertyLockRecoveryReleaseTimer) {
+    return;
+  }
+  window.clearTimeout(propertyLockRecoveryReleaseTimer);
+  propertyLockRecoveryReleaseTimer = 0;
+}
+
+function clearPropertyLockCrossPropertyWarning(options = {}) {
+  const { preserveSession = false } = options || {};
+  propertyLockRecoveryDeadlineAt = 0;
+  clearPropertyLockRecoveryReleaseTimer();
+  if (propertyLockBannerMode === "editor_cross_property_countdown") {
+    propertyLockBannerCountdownValue = 0;
+    clearPropertyLockBannerCountdown();
+  }
+  if (!preserveSession) {
+    propertyLockRecoverySiteId = null;
+    propertyLockRecoveryBaseUrl = "";
+    propertyLockRecoveryClientId = "";
+  }
+  persistPropertyLockRecoveryState({
+    siteId: propertyLockRecoverySiteId,
+    baseUrl: propertyLockRecoveryBaseUrl,
+    clientId: propertyLockRecoveryClientId,
+    deadlineAt: 0
+  });
+}
+
+function armPropertyLockCrossPropertyRelease() {
+  clearPropertyLockRecoveryReleaseTimer();
+  if (
+    !propertyLockRecoverySiteId ||
+    !propertyLockRecoveryClientId ||
+    propertyLockRecoveryDeadlineAt <= Date.now()
+  ) {
+    return;
+  }
+  propertyLockRecoveryReleaseTimer = window.setTimeout(() => {
+    propertyLockRecoveryReleaseTimer = 0;
+    if (
+      !propertyLockRecoverySiteId ||
+      !propertyLockRecoveryClientId ||
+      propertyLockRecoveryDeadlineAt <= 0 ||
+      propertyLockRecoveryDeadlineAt > Date.now()
+    ) {
+      return;
+    }
+    const recoverySiteId = propertyLockRecoverySiteId;
+    const recoveryClientId = propertyLockRecoveryClientId;
+    clearPropertyLockCrossPropertyWarning();
+    void utils.sendRuntimeMessage({
+      type: PROPERTY_LOCK_CONTENT_RELEASE,
+      siteId: recoverySiteId,
+      clientId: recoveryClientId
+    }).catch(() => null);
+    runPropertyLockSync({ forceSiteIdRefresh: true });
+  }, Math.max(1, propertyLockRecoveryDeadlineAt - Date.now() + 100));
+}
+
+function startPropertyLockCrossPropertyWarning(recoveryState) {
+  if (!recoveryState || !recoveryState.siteId || !recoveryState.clientId) {
+    return;
+  }
+  propertyLockRecoverySiteId = recoveryState.siteId;
+  propertyLockRecoveryBaseUrl = recoveryState.baseUrl || "";
+  propertyLockRecoveryClientId = recoveryState.clientId;
+  propertyLockRecoveryDeadlineAt = recoveryState.deadlineAt > Date.now()
+    ? recoveryState.deadlineAt
+    : Date.now() + PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;
+  propertyLockBannerMode = "editor_cross_property_countdown";
+  propertyLockBannerCountdownValue = Math.max(
+    1,
+    Math.ceil((propertyLockRecoveryDeadlineAt - Date.now()) / 1000)
+  );
+  restartPropertyLockBannerCountdown();
+  renderPropertyLockBanner();
+  persistPropertyLockRecoveryState({
+    siteId: propertyLockRecoverySiteId,
+    baseUrl: propertyLockRecoveryBaseUrl,
+    clientId: propertyLockRecoveryClientId,
+    deadlineAt: propertyLockRecoveryDeadlineAt
+  });
+  armPropertyLockCrossPropertyRelease();
+}
+
+function startPropertyLockOffCandidateWarning() {
+  if (propertyLockOffCandidateDeadlineAt > Date.now()) {
+    return;
+  }
+  propertyLockOffCandidateDeadlineAt = Date.now() + PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS;
+  propertyLockBannerMode = "editor_off_candidate_countdown";
+  propertyLockBannerCountdownValue = Math.max(
+    1,
+    Math.ceil((propertyLockOffCandidateDeadlineAt - Date.now()) / 1000)
+  );
+  restartPropertyLockBannerCountdown();
+  renderPropertyLockBanner();
+  persistPropertyLockOffCandidateDeadline(propertyLockOffCandidateDeadlineAt);
+  window.setTimeout(() => {
+    if (propertyLockOffCandidateDeadlineAt <= 0 || propertyLockOffCandidateDeadlineAt > Date.now()) {
+      return;
+    }
+    propertyLockOffCandidateDeadlineAt = 0;
+    propertyLockBannerCountdownValue = 0;
+    clearPropertyLockBannerCountdown();
+    persistPropertyLockOffCandidateDeadline(0);
+    sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RELEASE);
+  }, PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS + 100);
 }
 
 function clearPropertyLockReconnectTimer() {
@@ -6163,6 +6372,7 @@ function disconnectPropertyLockPort(options = {}) {
   const currentSiteId = propertyLockConnectedSiteId;
   propertyLockPort = null;
   propertyLockConnectedSiteId = null;
+  propertyLockConnectedBaseUrl = "";
   propertyLockEditorClaimPending = false;
 
   if (currentPort) {
@@ -6299,6 +6509,31 @@ async function syncPropertyLockConnection(options = {}) {
     ? options.pageUrl
     : location.href;
   const forceSiteIdRefresh = Boolean(options.forceSiteIdRefresh);
+  const recoveryState = await loadPropertyLockRecoveryTabState();
+  if (recoveryState.clientId && recoveryState.baseUrl && utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)) {
+    setPropertyLockClientId(recoveryState.clientId);
+    propertyLockRecoverySiteId = recoveryState.siteId;
+    propertyLockRecoveryBaseUrl = recoveryState.baseUrl;
+    propertyLockRecoveryClientId = recoveryState.clientId;
+    propertyLockRecoveryDeadlineAt = recoveryState.deadlineAt;
+    clearPropertyLockCrossPropertyWarning({ preserveSession: true });
+  } else if (recoveryState.offCandidateDeadlineAt > Date.now()) {
+    propertyLockOffCandidateDeadlineAt = recoveryState.offCandidateDeadlineAt;
+  }
+
+  if (
+    recoveryState.siteId &&
+    recoveryState.baseUrl &&
+    recoveryState.clientId &&
+    !utils.isPageWithinBaseUrl(pageUrl, recoveryState.baseUrl)
+  ) {
+    if (propertyLockPort) {
+      disconnectPropertyLockPort();
+    }
+    startPropertyLockCrossPropertyWarning(recoveryState);
+    return;
+  }
+
   let target = null;
   try {
     target = await resolveCurrentPropertyLockConnectionTarget({
@@ -6330,12 +6565,14 @@ async function syncPropertyLockConnection(options = {}) {
   }
 
   const siteId = target.siteId;
+  propertyLockConnectedBaseUrl = target.baseUrl || "";
   if (!(propertyLockPort && propertyLockConnectedSiteId === siteId)) {
     if (propertyLockPort) {
       disconnectPropertyLockPort();
     }
 
     propertyLockConnectedSiteId = siteId;
+    propertyLockConnectedBaseUrl = target.baseUrl || "";
 
     try {
       const nextPort = chrome.runtime.connect({ name: PROPERTY_LOCK_PORT_NAME });
@@ -6348,6 +6585,7 @@ async function syncPropertyLockConnection(options = {}) {
         }
         propertyLockPort = null;
         propertyLockConnectedSiteId = null;
+        propertyLockConnectedBaseUrl = "";
         resetPropertyLockUiState();
         if (markExtensionContextInvalidated(disconnectReason)) {
           return;
@@ -6375,6 +6613,7 @@ async function syncPropertyLockConnection(options = {}) {
 
   // Same-property navigations can keep the existing lock connection alive.
   // Re-run activation/refresh so reveal+freeze still executes per visited page.
+  clearPropertyLockCrossPropertyWarning({ preserveSession: true });
   sendPropertyLockActivity();
   let shouldRunEditorActivation = Boolean(propertyLockState && propertyLockState.isEditor);
   if (!shouldRunEditorActivation) {
@@ -6397,11 +6636,13 @@ async function syncPropertyLockConnection(options = {}) {
     }
   }
   if (shouldRunEditorActivation) {
+    await syncPropertyLockOffCandidateWarning(target.baseUrl || "", pageUrl);
     runEditorSilentHighlightingActivation().catch(() => {
       // Best-effort activation refresh for same-site navigation sync.
     });
     return;
   }
+  await syncPropertyLockOffCandidateWarning(target.baseUrl || "", pageUrl);
   refreshSilentHighlightings().then();
 }
 
@@ -6452,6 +6693,7 @@ function sendPropertyLockActivity() {
     }
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
+    propertyLockConnectedBaseUrl = "";
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
   }
@@ -6477,6 +6719,7 @@ function sendPropertyLockMessage(type, payload = {}) {
     }
     propertyLockPort = null;
     propertyLockConnectedSiteId = null;
+    propertyLockConnectedBaseUrl = "";
     resetPropertyLockUiState();
     schedulePropertyLockReconnect();
   }
@@ -6574,6 +6817,20 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockSuggestionId = "";
     propertyLockSuggestionFromName = "";
     const becameEditor = (!previousState || !previousState.isEditor) && serverMessage.isEditor;
+    if (serverMessage.isEditor && propertyLockConnectedSiteId) {
+      propertyLockRecoverySiteId = propertyLockConnectedSiteId;
+      propertyLockRecoveryBaseUrl = propertyLockConnectedBaseUrl || state.baseUrl || "";
+      propertyLockRecoveryClientId = getPropertyLockClientId();
+      clearPropertyLockCrossPropertyWarning({ preserveSession: true });
+      persistPropertyLockRecoveryState({
+        siteId: propertyLockRecoverySiteId,
+        baseUrl: propertyLockRecoveryBaseUrl,
+        clientId: propertyLockRecoveryClientId,
+        deadlineAt: 0
+      });
+    } else if (!serverMessage.isEditor) {
+      clearPropertyLockCrossPropertyWarning();
+    }
     if (!serverMessage.isEditor && !serverMessage.isSameUserEditor) {
       silentHighlightEditorRevealKey = "";
     }
@@ -6596,6 +6853,7 @@ function applyPropertyLockServerMessage(serverMessage) {
     }
     updatePropertyLockBannerMode();
     renderPropertyLockBanner();
+    syncPropertyLockOffCandidateWarning(state.baseUrl || "", location.href).catch(() => {});
     if (!becameEditor) {
       refreshSilentHighlightings().then();
     }
@@ -6617,6 +6875,8 @@ function applyPropertyLockServerMessage(serverMessage) {
   }
 
   if (type === PROPERTY_LOCK_WS_INACTIVITY_WARNING) {
+    clearPropertyLockCrossPropertyWarning({ preserveSession: true });
+    clearPropertyLockOffCandidateWarning();
     const defaultInactivityCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
     propertyLockBannerMode = "editor_inactivity_warning";
     if (secondsRemaining !== null) {
@@ -6656,6 +6916,8 @@ function applyPropertyLockServerMessage(serverMessage) {
   }
 
   if (type === PROPERTY_LOCK_WS_SUGGESTION_ACCEPTED || type === PROPERTY_LOCK_WS_TRANSFER_COUNTDOWN) {
+    clearPropertyLockCrossPropertyWarning();
+    clearPropertyLockOffCandidateWarning();
     propertyLockBannerMode = "editor_transfer_countdown";
     propertyLockState = {
       ...(propertyLockState || {}),
@@ -6679,6 +6941,8 @@ function applyPropertyLockServerMessage(serverMessage) {
     propertyLockState &&
     propertyLockState.isEditor
   ) {
+    clearPropertyLockCrossPropertyWarning({ preserveSession: true });
+    clearPropertyLockOffCandidateWarning();
     if (isRenderModeInspectionActive()) {
       propertyLockBannerMode = "editor_inspection_reconnecting";
       clearPropertyLockBannerCountdown();
@@ -6699,6 +6963,15 @@ function applyPropertyLockServerMessage(serverMessage) {
 
 function updatePropertyLockBannerMode() {
   const previousBannerMode = propertyLockBannerMode;
+  if (propertyLockRecoveryDeadlineAt > Date.now()) {
+    propertyLockBannerMode = "editor_cross_property_countdown";
+    propertyLockBannerCountdownValue = Math.max(
+      1,
+      Math.ceil((propertyLockRecoveryDeadlineAt - Date.now()) / 1000)
+    );
+    restartPropertyLockBannerCountdown();
+    return;
+  }
   if (!propertyLockState) {
     propertyLockBannerMode = "no_banner";
     clearPropertyLockBannerCountdown();
@@ -6719,6 +6992,8 @@ function updatePropertyLockBannerMode() {
   }
 
   if (lockState === PROPERTY_LOCK_STATE_TRANSFER) {
+    clearPropertyLockCrossPropertyWarning();
+    clearPropertyLockOffCandidateWarning();
     propertyLockBannerMode = "editor_transfer_countdown";
     propertyLockBannerCountdownValue = secondsRemaining || 10;
     restartPropertyLockBannerCountdown();
@@ -6726,6 +7001,8 @@ function updatePropertyLockBannerMode() {
   }
 
   if (isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
+    clearPropertyLockCrossPropertyWarning({ preserveSession: true });
+    clearPropertyLockOffCandidateWarning();
     const defaultInactivityCountdownSeconds = Math.ceil(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS / 1000);
     propertyLockBannerMode = "editor_inactivity_warning";
     if (secondsRemaining !== null && secondsRemaining > 0) {
@@ -6738,8 +7015,20 @@ function updatePropertyLockBannerMode() {
   }
 
   if (!isEditor && lockState === PROPERTY_LOCK_STATE_EXPIRY_WARNING) {
+    clearPropertyLockCrossPropertyWarning();
+    clearPropertyLockOffCandidateWarning();
     propertyLockBannerMode = "passive_expiry_countdown";
     propertyLockBannerCountdownValue = secondsRemaining || 60;
+    restartPropertyLockBannerCountdown();
+    return;
+  }
+
+  if (isEditor && propertyLockOffCandidateDeadlineAt > Date.now()) {
+    propertyLockBannerMode = "editor_off_candidate_countdown";
+    propertyLockBannerCountdownValue = Math.max(
+      1,
+      Math.ceil((propertyLockOffCandidateDeadlineAt - Date.now()) / 1000)
+    );
     restartPropertyLockBannerCountdown();
     return;
   }
@@ -6984,6 +7273,12 @@ function renderPropertyLockBanner() {
       actions.appendChild(createPropertyLockBannerButton(propertyLockText.continueEditingButton, "uf-lock-banner-continue-editing", () => {
         sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_CONTINUE);
       }));
+      break;
+    case "editor_cross_property_countdown":
+      content.textContent = propertyLockText.editorCrossPropertyCountdownMessage(propertyLockBannerCountdownValue);
+      break;
+    case "editor_off_candidate_countdown":
+      content.textContent = propertyLockText.editorOffCandidateCountdownMessage(propertyLockBannerCountdownValue);
       break;
     case "editor_takeover_suggestion":
       content.textContent = propertyLockText.takeoverSuggestionMessage(propertyLockSuggestionFromName || "Someone");

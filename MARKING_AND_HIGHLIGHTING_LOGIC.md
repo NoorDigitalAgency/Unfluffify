@@ -555,10 +555,22 @@ Rules:
   visible because the submission viewport is treated as page-height, while
   content outside the mobile viewport width or document height is invisible,
 - opening Unfluffify enables mobile simulation by default for each fresh tab
-  session, including when an already-open side panel moves to a new tab, but a
-  user-disabled simulation state is preserved for that session and must not be
-  auto-enabled again, and Render Mode inspection must not clear an existing
-  session simulation choice,
+  session, including when an already-open side panel moves to a new tab; a
+  user-disabled simulation state is preserved for that session while marking is
+  off, but the active marking editor tab forces mobile simulation back on until
+  marking is disabled again, and Render Mode inspection must not clear an
+  existing session simulation choice,
+- when the property already has AI selectors, the popup exposes a separate
+  desktop-preview checkbox that persists for the tab lifecycle, switches the
+  page to desktop emulation, disables marking entry while it is on, and falls
+  back to mobile emulation if DevTools tears the emulation debugger down,
+- same-property pages that are outside the current Live Page candidate list
+  still keep silent highlighting and property-lock status for that property;
+  only marking entry is blocked there,
+- if the editor tab navigates to a different property, the previous property's
+  editor session stays recoverable for 30 seconds through initial tab state;
+  the page and popup mirror that cooldown, returning to the original property
+  restores the same client session, and expiry releases the old property lock,
 - Render Mode detection uses the explicit inspection snapshot: sanitized
   rendered HTML captured after reveal/freeze and before highlighting, paired
   with static/raw HTML from the background `fetchStaticPageHtml` path,

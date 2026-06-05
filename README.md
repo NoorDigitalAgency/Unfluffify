@@ -38,10 +38,15 @@ npm run package:extension -- --stage-dir .tmp/extension-package
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
 - **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; silent Preview Contents and Send to Lynx live on this surface, while marking mode has its own AI-fresh Preview Contents check
 - **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff, always from the stored raw/rendered HTML and XPath evidence for every marked page under the current property
-- **Device Simulation**: Opens tabs in mobile simulation by default, with a per-session toggle for disabling or adjusting the simulated viewport
+- **Device Simulation**: Opens tabs in mobile simulation by default, preserves per-session choices outside marking, and forces mobile simulation while active marking is running
+- **Desktop Preview**: When a property already has AI selectors, a separate popup toggle can switch the current tab into desktop preview while keeping marking disabled
+- **Off-Candidate Previewing**: Same-property pages that are not current Live Page candidates still keep silent highlighting and property-lock visibility, while marking remains unavailable
+- **Off-Candidate Lock Warning**: Editors who remain on a same-property off-candidate page see a 70 second warning before the extension releases the editor role
+- **Cross-Property Cool-Off**: Editors who navigate to a different property keep a 30 second recovery window, with mirrored page/popup warnings, before the previous property's editor role is released
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
 - **Data Persistence**: Marking edits stay session-local until users run AI and explicitly Save Session or Discard Session; passive observers use backend-saved page data while the active editor uses the local session data, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, immediate eligible-page editor claiming for the current extension session, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
+- **Immediate Close Release**: Closing the editor tab releases that property's lock immediately instead of waiting for the normal port-disconnect grace window
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
 - **Remote Support**: WebRTC-based, view-only session allowing a supporter to open the dedicated support page, enter a support code, view the supportee's shared Chrome window, use two-way camera/microphone guidance through standard browser prompts, and stream labeled console/network telemetry
 - **Remote Support Isolation**: Multiple support sessions can run concurrently in one profile as long as each requester/supporter flow stays in its own tab
@@ -184,7 +189,9 @@ A base URL defines the scope for pattern inference. For example:
 
 ### Device Simulation
 
-Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. Every fresh tab session opened through the extension starts in that mobile simulation mode, including when the side panel is already open and you switch to a new tab. The simulation choice is stored per tab session: users can disable it from the popup for that session, and the extension will not re-enable it until the tab session state is cleared. Navigation, reload, unregister/reload cleanup, and Render Mode inspection must preserve the user's current simulation choice.
+Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. Every fresh tab session opened through the extension starts in that mobile simulation mode, including when the side panel is already open and you switch to a new tab. Outside active marking, the simulation choice remains a per-session setting that users can disable from the popup and that the extension will not silently re-enable until the tab session state is cleared. During an active marking session, the editor tab forces mobile simulation back on and keeps the popup device toggle unavailable until marking is disabled. Navigation, reload, unregister/reload cleanup, and Render Mode inspection must preserve the current session choice when marking is not active.
+
+When AI selectors already exist for the current property, the popup also shows a separate `Preview in desktop mode` checkbox. That choice persists for the tab lifecycle, switches the page into desktop emulation, keeps silent previewing available, and disables marking entry until the checkbox is turned off again. If DevTools tears down emulation while desktop preview is on, the extension clears desktop preview and restores mobile emulation for the tab.
 
 ## Architecture Notes
 

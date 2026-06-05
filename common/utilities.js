@@ -688,7 +688,8 @@ export async function setTabState(tabId, state, scope = null) {
 
 export async function clearTabState(tabId) {
   const key = `${TAB_STATE_PREFIX}${tabId}`;
-  await storageRemove(chrome.storage.session, key);
+  const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
+  await storageRemove(chrome.storage.session, [key, initialKey]);
 }
 
 // Action icon utilities
