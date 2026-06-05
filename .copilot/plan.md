@@ -128,6 +128,14 @@ Validation checkpoint after Round-7 authority slices:
    and save UX, but the small `updateScrapingConditions` GraphQL mutation now
    goes through background `submitSelectorSetGraphqlUpdate`; the large
    page-type-assignment HTML payload stays popup-owned.
+16. Remote config load transport slice completed: popup still owns local
+   config replacement, change notifications, and invalid-page cache cleanup,
+   but the small `/load` POST now goes through background
+   `loadRemoteConfigSnapshot`; popup hydrates any returned payload through a
+   staged storage key instead of fetching that endpoint directly. The shared
+   runtime helper now prefers Chrome's Promise-based `runtime.sendMessage`
+   path, which matches the repo's MV3 service-worker messaging behavior during
+   live browser validation.
 
 ## Marking Reload Handoff
 

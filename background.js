@@ -532,6 +532,48 @@ async function submitSelectorSetGraphqlUpdate(options = {}) {
   }
 }
 
+function buildRemoteConfigPayloadKey() {
+  return `remote-config-load:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function loadRemoteConfigSnapshot(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const normalizedSiteId = normalizeSiteIdValue(options.siteId);
+  const loadUrl = resolveBackgroundEndpoint(endpointValue, "/load");
+  if (!loadUrl || !normalizedSiteId) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(loadUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify({ siteId: normalizedSiteId })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (response.status === 401 || response.status === 403) {
+      return { ok: true, status: "auth_error", payloadKey: "" };
+    }
+    if (response.status === 404) {
+      return { ok: true, status: "not_found", payloadKey: "" };
+    }
+    if (!response.ok) {
+      return { ok: true, status: "error", payloadKey: "" };
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const payloadKey = buildRemoteConfigPayloadKey();
+    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
+    return { ok: true, status: "ok", payloadKey };
+  } catch {
+    return { ok: false };
+  }
+}
+
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -1254,6 +1296,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       includeCss: message.includeCss,
       excludeCss: message.excludeCss,
       renderMode: message.renderMode
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "loadRemoteConfigSnapshot") {
+    loadRemoteConfigSnapshot({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      siteId: message.siteId
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

@@ -342,6 +342,23 @@ test("login delegates the auth transport to background while popup keeps token p
   assert.doesNotMatch(loginBody, /fetch\(|buildLoginEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
 });
 
+test("remote config load delegates transport to background and hydrates the payload from session storage", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const loadBody = popupSource.match(
+    /async function loadRemoteConfigForCurrentPage\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction clearObserverRemoteConfigRefreshTimer/
+  )[1];
+
+  assert.match(backgroundSource, /async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
+  assert.match(backgroundSource, /await utils\.storageSet\(chrome\.storage\.session, \{ \[payloadKey\]: payload \}\);/);
+  assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
+  assert.match(loadBody, /type: "loadRemoteConfigSnapshot"/);
+  assert.match(loadBody, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
+  assert.match(loadBody, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
+  assert.doesNotMatch(loadBody, /fetch\(loadUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");

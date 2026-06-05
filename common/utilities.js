@@ -113,6 +113,22 @@ function makeInvalidatedRuntimeResponse(error) {
 }
 
 export function sendRuntimeMessage(message) {
+  try {
+    const promise = chrome.runtime.sendMessage(message);
+    if (promise && typeof promise.then === "function") {
+      return promise.catch((error) => {
+        if (isExtensionContextInvalidatedError(error)) {
+          return makeInvalidatedRuntimeResponse(error);
+        }
+        throw error;
+      });
+    }
+  } catch (error) {
+    if (isExtensionContextInvalidatedError(error)) {
+      return Promise.resolve(makeInvalidatedRuntimeResponse(error));
+    }
+    return Promise.reject(error);
+  }
   return new Promise((resolve, reject) => {
     try {
       chrome.runtime.sendMessage(message, (response) => {

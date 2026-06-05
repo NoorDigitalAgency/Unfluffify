@@ -3248,33 +3248,42 @@ async function loadRemoteConfigForCurrentPage(options = {}) {
     return result;
   }
   try {
-    const response = await fetch(loadUrl, {
-      method: "POST",
-      headers: createConfigSyncHeaders(tokenValue),
-      body: JSON.stringify({ siteId })
+    const response = await messages.sendRuntimeMessage({
+      type: "loadRemoteConfigSnapshot",
+      endpointValue,
+      tokenValue,
+      siteId
     });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    if (response.status === 401 || response.status === 403) {
+    if (response && response.status === "auth_error") {
       await invalidateTokenAndLockConfiguration(true);
       const result = { status: "auth_error", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
       return result;
     }
-    if (response.status === 404) {
+    if (response && response.status === "not_found") {
       await config.clearBackendSavedPageMarkings(baseUrl || state.currentBaseUrl);
       const result = { status: "not_found", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
       return result;
     }
-    if (!response.ok) {
+    if (!response || response.ok !== true || response.status !== "ok") {
       const result = { status: "error", baseUrl: "" };
       state.remoteConfigLoadResult = result;
       updateLastConfigLoadStatus(result);
       return result;
     }
-    const payload = await response.json();
+    const payloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
+    const payloadStore = payloadKey
+      ? await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}))
+      : {};
+    const payload = payloadKey && payloadStore && typeof payloadStore === "object"
+      ? payloadStore[payloadKey]
+      : null;
+    if (payloadKey) {
+      await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
+    }
     const replaceResult = await replaceServerConfigIntoLocal(payload, pageUrl, { siteId });
     if (!replaceResult.ok) {
       const result = { status: "not_found", baseUrl: "" };

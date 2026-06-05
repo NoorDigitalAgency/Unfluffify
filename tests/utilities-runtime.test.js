@@ -51,6 +51,26 @@ test("sendRuntimeMessage reports invalidated extension context without throwing"
   });
 });
 
+test("sendRuntimeMessage prefers the runtime Promise result when available", async () => {
+  const calls = [];
+  await withChrome({
+    runtime: {
+      sendMessage(message) {
+        calls.push(message);
+        return Promise.resolve({ ok: true, echoedType: message.type });
+      }
+    }
+  }, async () => {
+    const response = await sendRuntimeMessage({ type: "ping" });
+
+    assert.deepEqual(response, {
+      ok: true,
+      echoedType: "ping"
+    });
+    assert.equal(calls.length, 1);
+  });
+});
+
 test("storageGet rejects when Chrome storage reports invalidated extension context", async () => {
   await withChrome({
     runtime: {
