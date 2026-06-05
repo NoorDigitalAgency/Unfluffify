@@ -984,9 +984,19 @@ Todo current subsection indicator completed:
 
 ## Post-Run Follow-up
 
-1. Fix `tests/page-telemetry.test.js` payload-control failure.
-2. Update `tests/property-lock.test.js` or `content-main.js` for the live-page site-id resolver expectation drift.
-3. Fix `tests/theme-colors.test.js` popup `color-mix(..., var(--card))` violations.
+Resolved (verified during the Phase 51 audit at commit `d1d9eb4`):
+
+1. `tests/page-telemetry.test.js` — payload-control test now passes (2/2);
+   the failure noted earlier was incidental and was resolved by intervening
+   commits on the branch.
+2. `tests/property-lock.test.js` — the live-page site-id resolver
+   expectation now passes alongside the other property-lock cases (27/27).
+3. `tests/theme-colors.test.js` — popup `color-mix(..., var(--card))`
+   violations now pass (5/5).
+
+Full `npm test` runs green from end to end (latest run: 487/487). If any of
+these regress in a future change, treat them as standalone fixes rather than
+re-opening this rollup.
 
 ## Remote Support Follow-up
 
