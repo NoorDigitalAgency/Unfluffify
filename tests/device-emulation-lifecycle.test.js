@@ -24,11 +24,15 @@ test("top-level navigation preserves user-controlled device emulation", () => {
     "chrome.webNavigation.onBeforeNavigate"
   );
 
-  assert.match(block, /const scriptKey = `\$\{SCRIPT_INJECTED_PREFIX\}\$\{tabId\}`;/);
-  assert.match(block, /await utils\.storageRemove\(chrome\.storage\.session, \[scriptKey\]\);/);
-  assert.match(block, /await chrome\.tabs\.sendMessage\(tabId, \{ type: "setEnabled", enabled: false \}\);/);
-  assert.doesNotMatch(block, /await utils\.disableExtensionForTab\(tabId\);/);
+  // Marking does not survive a navigation/reload in the editor-mobile-only
+  // contract, so the navigation hook fully tears down the marking-active tab
+  // state. utils.disableExtensionForTab clears tab state, the script-injected
+  // flag, sends setEnabled:false to the content script, and refreshes the
+  // toolbar action; crucially it does NOT touch device emulation.
+  assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);
+  assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
   assert.doesNotMatch(block, /updateDeviceEmulation\(tabId,\s*\{\s*enabled:\s*false\s*\}\)/);
+  assert.doesNotMatch(block, /DEVICE_EMULATION_PREFIX/);
 });
 
 test("unregister-and-reload preserves user-controlled device emulation state", () => {

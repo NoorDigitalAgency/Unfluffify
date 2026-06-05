@@ -2243,9 +2243,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (scope) {
               return;
             }
-            if (nextState.enabled && nextState.baseUrl) {
-              return setReloadRestoreTabState(tabId, nextState);
-            }
+            // Per the editor-mobile-only contract, marking enabled state does
+            // not survive a navigation/refresh. Skip mirroring into the reload
+            // restore scope; always clear any stale restore entry instead.
             return clearReloadRestoreTabState(tabId);
           });
       })
@@ -2566,15 +2566,13 @@ async function disableExtensionOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  await setReloadRestoreTabState(tabId, state);
-  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  await utils.storageRemove(chrome.storage.session, [scriptKey]);
-  await utils.updateActionForTab(tabId);
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
-  } catch (error) {
-    // Content script may not be loaded during navigation.
-  }
+  // Per the editor-mobile-only contract, marking does NOT survive a
+  // navigation/refresh. Clear the active tab state so the post-load handler
+  // does not auto-restore enabled marking, and explicitly clear any
+  // previously-saved reload restore state so legacy entries cannot leak
+  // through on subsequent navigations.
+  await clearReloadRestoreTabState(tabId);
+  await utils.disableExtensionForTab(tabId);
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener(disableExtensionOnTopLevelNavigation);

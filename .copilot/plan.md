@@ -904,6 +904,25 @@ Revised phase shape:
 - Phase 4 — AI lifecycle: only touch if Phase 2/3 expose stale stored
   snapshots, submissionXpaths, raw backfills, or compute-lock state.
 
+Phase 2 slice 1 completed:
+   Background-side auto-restore of marking across navigation/reload is
+   retired. `disableExtensionOnTopLevelNavigation(...)` in
+   [background.js](/home/rojan/Documents/Git/GitHub/Unfluffify/background.js)
+   now calls `clearReloadRestoreTabState(tabId)` followed by
+   `utils.disableExtensionForTab(tabId)`, fully tearing down the marking-
+   active tab state on every top-level navigation/reload without saving a
+   restore-scoped copy. The `setTabState` message handler likewise no
+   longer mirrors `enabled: true` into the restore scope; it always clears
+   any stale restore entry. `setReloadRestoreTabState(...)` is now a
+   declared-but-uncalled helper retained only to keep the diff narrow,
+   guarded by a regression test that asserts no remaining callers.
+   `disableExtensionForTab(...)` does not touch device emulation, so the
+   existing user-controlled device-emulation invariants still hold (test
+   `device-emulation-lifecycle.test.js` updated to match the new
+   structural shape). Three new guard tests in
+   `tests/marking-no-auto-restore.test.js` lock the retired auto-restore
+   contract. Full `npm test` (`466/466`) green; live Bonliva smoke clean.
+
 Phase 1 slice 2 completed (verification):
    Reviewed the AI-run completion path against the new baseline-based dirty
    contract. AI run output stores to `config.selectors` (per-baseUrl) and
