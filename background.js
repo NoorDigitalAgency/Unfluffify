@@ -625,6 +625,45 @@ async function saveRemoteConfigSnapshot(options = {}) {
   }
 }
 
+async function requestRenderModeDetection(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const requestPayloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
+  const detectUrl = resolveBackgroundEndpoint(endpointValue, "/is_js_rendered");
+  if (!detectUrl || !requestPayloadKey) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
+    const payload = payloadStore && typeof payloadStore === "object"
+      ? payloadStore[requestPayloadKey]
+      : null;
+    if (!payload || typeof payload !== "object") {
+      return { ok: false, skipped: true };
+    }
+    const response = await fetch(detectUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(tokenValue),
+      body: JSON.stringify(payload)
+    });
+    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+    if (!response.ok) {
+      return { ok: true, status: "error", httpStatus: response.status || 0, payload: null };
+    }
+    let payloadResponse = null;
+    try {
+      payloadResponse = await response.json();
+    } catch {
+      payloadResponse = null;
+    }
+    return { ok: true, status: "ok", payload: payloadResponse };
+  } catch {
+    return { ok: false };
+  } finally {
+    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+  }
+}
+
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -1366,6 +1405,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "saveRemoteConfigSnapshot") {
     saveRemoteConfigSnapshot({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      payloadKey: message.payloadKey
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "requestRenderModeDetection") {
+    requestRenderModeDetection({
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       payloadKey: message.payloadKey

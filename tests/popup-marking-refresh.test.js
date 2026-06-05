@@ -378,6 +378,24 @@ test("remote config save delegates transport to background and hydrates the resp
   assert.doesNotMatch(saveBody, /fetch\(saveUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 
+test("render-mode detection delegates the heavy html transport to background", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const detectBody = popupSource.match(
+    /async function detectRenderModeViaEndpoint\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction buildRemoteConfigLoadKey/
+  )[1];
+
+  assert.match(backgroundSource, /async function requestRenderModeDetection\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
+  assert.match(backgroundSource, /if \(message\.type === "requestRenderModeDetection"\) \{/);
+  assert.match(detectBody, /type: "requestRenderModeDetection"/);
+  assert.match(detectBody, /await utils\.storageSet\(chrome\.storage\.session, \{/);
+  assert.match(detectBody, /rawHtml,/);
+  assert.match(detectBody, /renderedHtml/);
+  assert.match(detectBody, /normalizeRenderModeDetectionResult\(response\.payload\)/);
+  assert.doesNotMatch(detectBody, /fetch\(detectUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");

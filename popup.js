@@ -2930,32 +2930,37 @@ async function detectRenderModeViaEndpoint(options = {}) {
   }
   for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetch(detectUrl, {
-        method: "POST",
-        headers: createConfigSyncHeaders(tokenValue),
-        body: JSON.stringify({
+      const requestPayloadKey = buildRemoteConfigTransferKey("render-mode-request");
+      await utils.storageSet(chrome.storage.session, {
+        [requestPayloadKey]: {
           rawHtml,
           renderedHtml
-        })
+        }
       });
-      await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-      if (!response.ok) {
+      const response = await messages.sendRuntimeMessage({
+        type: "requestRenderModeDetection",
+        endpointValue,
+        tokenValue,
+        payloadKey: requestPayloadKey
+      });
+      if (!response || response.ok !== true) {
+        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
+          await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
+          continue;
+        }
+        return { ok: false, result: "", accuracy: Number.NaN };
+      }
+      if (response.status === "error") {
         if (
           attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS &&
-          isRetryableHttpStatus(response.status)
+          isRetryableHttpStatus(response.httpStatus)
         ) {
           await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
           continue;
         }
         return { ok: false, result: "", accuracy: Number.NaN };
       }
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        payload = null;
-      }
-      const normalizedResult = normalizeRenderModeDetectionResult(payload);
+      const normalizedResult = normalizeRenderModeDetectionResult(response.payload);
       if (!normalizedResult.result) {
         return { ok: false, result: "", accuracy: Number.NaN };
       }

@@ -155,6 +155,13 @@ Validation checkpoint after Round-7 authority slices:
    live worker transport path and structured server error handling; the current
    persistent profile did not contain a populated local config to exercise a
    successful save response body.
+19. Render-mode detection transport slice completed: popup still owns retry
+   policy and result normalization, but the heavy `rawHtml` / `renderedHtml`
+   request body for `/is_js_rendered` now goes through background
+   `requestRenderModeDetection` with the HTML staged through
+   `chrome.storage.session`. Live repo-local validation confirmed the staged
+   request reaches the worker and returns structured endpoint errors without
+   blocking popup-side orchestration.
 
 ## Marking Reload Handoff
 
