@@ -45,19 +45,29 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 test("background owns the live-page GraphQL transport handlers", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupResolveStart = popupSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
+  const popupResolveEnd = popupSource.indexOf("function mergeSelectorSetForBaseUrlMigration", popupResolveStart);
   const popupFetchStart = popupSource.indexOf("async function fetchPropertyPageTypesFromGraphql(options = {}) {");
   const popupFetchEnd = popupSource.indexOf("async function ensurePropertyPageTypes", popupFetchStart);
+  assert.ok(popupResolveStart > -1);
+  assert.ok(popupResolveEnd > popupResolveStart);
   assert.ok(popupFetchStart > -1);
   assert.ok(popupFetchEnd > popupFetchStart);
+  const popupResolveBlock = popupSource.slice(popupResolveStart, popupResolveEnd);
   const popupFetchBlock = popupSource.slice(popupFetchStart, popupFetchEnd);
 
   assert.match(backgroundSource, /async function resolveLivePageSiteId\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /function normalizeBaseUrlFromDomainName\(domainName, pageUrl = ""\) \{/);
+  assert.match(backgroundSource, /baseUrl,\s*\n\s*notFound: false/);
   assert.match(backgroundSource, /async function fetchLivePagePropertyPageTypes\(options = \{\}\) \{/);
   assert.match(backgroundSource, /function buildPropertyPageTypesSignature\(pageTypes\) \{/);
   assert.match(backgroundSource, /duplicateUrls: normalized\.duplicateUrls \|\| \[\]/);
   assert.match(backgroundSource, /signature: buildPropertyPageTypesSignature\(normalized\.pageTypes\)/);
   assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
+  assert.match(popupResolveBlock, /type: "resolveLivePageSiteId"/);
+  assert.doesNotMatch(popupResolveBlock, /fetch\(|URL_SEARCH_INFO_QUERY|maybeUpdateStoredTokenFromResponse/);
+  assert.doesNotMatch(popupSource, /function normalizeBaseUrlFromDomainName/);
   assert.match(popupFetchBlock, /type: "fetchLivePagePropertyPageTypes"/);
   assert.doesNotMatch(popupFetchBlock, /fetch\(|PROPERTY_PAGE_TYPES_QUERY|maybeUpdateStoredTokenFromResponse/);
 });

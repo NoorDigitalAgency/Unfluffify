@@ -36,7 +36,6 @@ import {
   buildPageSaveUiState
 } from "./common/page-save-state.js";
 import {
-  URL_SEARCH_INFO_QUERY,
   buildGraphqlEndpointFromStageBase,
   getCurrentPageCandidateState,
   maybeUpdateStoredTokenFromResponse,
@@ -1324,47 +1323,6 @@ function buildValidateEndpointFromStageBase(stageBase) {
   return `https://accounts.${normalized}/api/account/validate`;
 }
 
-function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
-  if (typeof domainName !== "string") {
-    return "";
-  }
-  const raw = domainName.trim();
-  if (!raw) {
-    return "";
-  }
-  let protocol = "https:";
-  try {
-    const page = new URL(pageUrl);
-    if (page.protocol === "http:" || page.protocol === "https:") {
-      protocol = page.protocol;
-    }
-  } catch (error) {
-    // Use HTTPS default.
-  }
-  let parsed = null;
-  try {
-    parsed = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-      ? new URL(raw)
-      : new URL(`${protocol}//${raw.replace(/^\/+/, "")}`);
-  } catch (error) {
-    return "";
-  }
-  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
-    return "";
-  }
-  const hostname = (parsed.hostname || "").trim().toLowerCase();
-  if (!hostname) {
-    return "";
-  }
-  let pathname = parsed.pathname || "/";
-  pathname = pathname.replace(/\/+$/, "");
-  if (!pathname) {
-    pathname = "/";
-  }
-  const normalized = `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
-  return utils.normalizeCanonicalBaseUrl(normalized) || normalized;
-}
-
 function buildPageMarkingKey(url, pageType) {
   const normalizedUrl = normalizeCandidatePageUrl(url);
   const normalizedPageType = normalizePageTypeKey(pageType);
@@ -1741,79 +1699,28 @@ async function resolveSiteIdFromGraphql(options = {}) {
     lookupUrl = "",
     tokenValue = ""
   } = options;
-  const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
-  if (!graphqlEndpoint || !lookupUrl) {
+  const normalizedStageBase = normalizeStageBase(stageBase);
+  if (!normalizedStageBase || !lookupUrl) {
     return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }
-  const headers = { "Content-Type": "application/json" };
-  if (tokenValue) {
-    headers.Authorization = `Bearer ${tokenValue}`;
-  }
   try {
-    const response = await fetch(graphqlEndpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: URL_SEARCH_INFO_QUERY,
-        variables: {
-          url: lookupUrl,
-          includePageInfo: false
-        }
-      })
+    const response = await messages.sendRuntimeMessage({
+      type: "resolveLivePageSiteId",
+      stageBase: normalizedStageBase,
+      pageUrl: lookupUrl,
+      tokenValue
     });
-    await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-    let data = null;
-    try {
-      data = await response.json();
-    } catch (error) {
-      data = null;
-    }
-    const hasPayload = Boolean(data && typeof data === "object");
-    if (hasPayload && Array.isArray(data.errors) && data.errors.length > 0) {
-      const notFound = data.errors.some((item) => {
-        const code =
-          item &&
-          item.extensions &&
-          typeof item.extensions.code === "string"
-            ? item.extensions.code
-            : "";
-        return code === "NotFound";
-      });
-      if (notFound) {
-        return {
-          ok: true,
-          siteId: null,
-          baseUrl: "",
-          notFound: true
-        };
-      }
+    if (!response || !response.ok) {
       return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
-    if (!response.ok) {
-      return { ok: false, siteId: null, baseUrl: "", notFound: false };
-    }
-    if (!hasPayload) {
-      return { ok: false, siteId: null, baseUrl: "", notFound: false };
-    }
-    const candidate = normalizeSiteIdValue(
-      data &&
-        data.data &&
-        data.data.urlSearchInfo &&
-        data.data.urlSearchInfo.domainId
-    );
-    const baseUrl = normalizeBaseUrlFromDomainName(
-      data &&
-        data.data &&
-        data.data.urlSearchInfo &&
-        data.data.urlSearchInfo.domainName,
-      lookupUrl
-    );
+    const candidate = normalizeSiteIdValue(response.siteId);
+    const baseUrl = typeof response.baseUrl === "string" ? response.baseUrl : "";
     if (!candidate) {
       return {
         ok: true,
         siteId: null,
         baseUrl,
-        notFound: true
+        notFound: Boolean(response.notFound)
       };
     }
     if (!baseUrl) {

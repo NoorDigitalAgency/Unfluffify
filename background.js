@@ -591,21 +591,86 @@ async function resolveLivePageSiteId(options = {}) {
     } catch {
       payload = null;
     }
-    if (!response.ok || !payload || Array.isArray(payload.errors)) {
-      return { ok: false, siteId: null };
+    if (payload && Array.isArray(payload.errors) && payload.errors.length > 0) {
+      const notFound = payload.errors.some((item) => {
+        const code =
+          item &&
+          item.extensions &&
+          typeof item.extensions.code === "string"
+            ? item.extensions.code
+            : "";
+        return code === "NotFound";
+      });
+      if (notFound) {
+        return { ok: true, siteId: null, baseUrl: "", notFound: true };
+      }
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
+    }
+    if (!response.ok || !payload) {
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
+    }
+    const urlSearchInfo = payload && payload.data ? payload.data.urlSearchInfo : null;
+    const siteId = normalizeSiteIdValue(urlSearchInfo && urlSearchInfo.domainId);
+    const baseUrl = normalizeBaseUrlFromDomainName(
+      urlSearchInfo && urlSearchInfo.domainName,
+      pageUrl
+    );
+    if (!siteId) {
+      return { ok: true, siteId: null, baseUrl, notFound: true };
+    }
+    if (!baseUrl) {
+      return { ok: false, siteId: null, baseUrl: "", notFound: false };
     }
     return {
       ok: true,
-      siteId: normalizeSiteIdValue(
-        payload &&
-          payload.data &&
-          payload.data.urlSearchInfo &&
-          payload.data.urlSearchInfo.domainId
-      )
+      siteId,
+      baseUrl,
+      notFound: false
     };
   } catch {
-    return { ok: false, siteId: null };
+    return { ok: false, siteId: null, baseUrl: "", notFound: false };
   }
+}
+
+function normalizeBaseUrlFromDomainName(domainName, pageUrl = "") {
+  if (typeof domainName !== "string") {
+    return "";
+  }
+  const raw = domainName.trim();
+  if (!raw) {
+    return "";
+  }
+  let protocol = "https:";
+  try {
+    const page = new URL(pageUrl);
+    if (page.protocol === "http:" || page.protocol === "https:") {
+      protocol = page.protocol;
+    }
+  } catch {
+    // Use HTTPS default.
+  }
+  let parsed = null;
+  try {
+    parsed = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+      ? new URL(raw)
+      : new URL(`${protocol}//${raw.replace(/^\/+/, "")}`);
+  } catch {
+    return "";
+  }
+  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+    return "";
+  }
+  const hostname = (parsed.hostname || "").trim().toLowerCase();
+  if (!hostname) {
+    return "";
+  }
+  let pathname = parsed.pathname || "/";
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname) {
+    pathname = "/";
+  }
+  const normalized = `${parsed.protocol}//${hostname}${pathname === "/" ? "" : pathname}`;
+  return utils.normalizeCanonicalBaseUrl(normalized) || normalized;
 }
 
 function buildPropertyPageTypesSignature(pageTypes) {
