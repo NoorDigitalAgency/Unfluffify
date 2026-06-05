@@ -567,6 +567,26 @@ Validation checkpoint after Round-7 authority slices:
    their visible content is still being submitted as included. Focused
    visibility/silent/submission tests (`151/151`) and full `npm test`
    (`443/443`) stayed green.
+50a-live. Phase A+B live smoke on Bonliva article completed:
+   Headful repo-local `playwright-local` MCP smoke against
+   `https://www.bonliva.no/artikler/barnehagevikar-lonn` confirmed the deployed
+   `content/core.js` carries the Phase A `anyClientRectIntersectsSubmissionArea(...)`
+   bridge in `isVisibleForSubmission(...)` and the deployed
+   `content-main.js` carries the Phase B
+   `hasVisibleMarkableTextualSubmissionDescendant(...)` guard wired at the
+   collector's implicit-excluded-ancestor branch. Driving a real
+   `capturePageSnapshot` (persist: true) through `chrome.tabs.sendMessage`
+   from the popup context successfully ran `syncPageMarkings(...)` and
+   `collectAiSubmissionXpathsForCurrentPage(...)` end-to-end with `ok: true`
+   and zero console errors. The captured `entry.submissionXpaths` shape on
+   that article changed from the handoff baseline of `192` rows / `130`
+   excluded to `190` rows / `122` excluded / `68` included, i.e. eight fewer
+   broad implicit-ancestor over-exclusions and six more visible content rows
+   submitted as included. The deployed `isVisibleForSubmission(...)`
+   predicate also runs cleanly across the full `1202`-element live DOM
+   sample (`354` visible, `127` visible+markable, `217`
+   markable-but-invisible all in genuinely hidden subtrees so the Phase B
+   guard correctly no-ops for them). Phase A and Phase B are confirmed live.
 50b. Phase B AI submission ancestor guard completed:
    `collectAiSubmissionXpathsForCurrentPage(...)` in [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
    now omits an implicit `markableTextual && !visibleToUser` ancestor row when
