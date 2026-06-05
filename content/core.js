@@ -100,6 +100,10 @@ export const state = {
   autoSeedSuppressedPageUrl: "",
   toggleAckTimer: 0,
   toggleInFlightKey: "",
+  toggleQueuedActionKey: "",
+  toggleMutationQueue: [],
+  toggleMutationHandle: 0,
+  toggleMutationHandleType: "",
   lastToggleActionKey: "",
   lastToggleActionAt: 0,
   explicitOverlayRefreshScheduled: false,
@@ -7446,36 +7450,25 @@ function handleToggleEvent(event) {
   if (target) {
     const xpath = getXPath(target);
     const interactionNow = nowMs();
+    const toggleActionKey = xpath ? `${mode}:${xpath}` : "";
     if (shouldIgnoreDuplicateUserToggle({
       targetXpath: xpath,
       mode,
       now: interactionNow,
-      inFlightKey: state.toggleInFlightKey,
+      inFlightKey: state.toggleInFlightKey || state.toggleQueuedActionKey,
       lastActionKey: state.lastToggleActionKey,
       lastActionAt: state.lastToggleActionAt
     })) {
       logTogglePerf("toggle.duplicate-click-suppressed", toggleStartedAt, { mode });
       return;
     }
-    if (xpath) {
-      state.toggleInFlightKey = `${mode}:${xpath}`;
-    }
     showImmediateToggleAcknowledgement(target, mode);
-    const applyStartedAt = nowMs();
-    try {
-      if (mode === "include") {
-        toggleExplicitInclude(target);
-      } else {
-        toggleExplicitExclude(target);
-      }
-      if (state.toggleInFlightKey) {
-        state.lastToggleActionKey = state.toggleInFlightKey;
-        state.lastToggleActionAt = interactionNow;
-      }
-    } finally {
-      state.toggleInFlightKey = "";
-      logTogglePerf("toggle.apply", applyStartedAt, { mode });
-    }
+    scheduleQueuedToggleMutation({
+      target,
+      mode,
+      key: toggleActionKey,
+      interactionNow
+    });
   }
   logTogglePerf("toggle.total", toggleStartedAt, {
     mode,
@@ -8287,6 +8280,90 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);
+}
+
+function scheduleQueuedToggleMutationDrain() {
+  if (state.toggleMutationHandle) {
+    return;
+  }
+  const runDrain = () => {
+    state.toggleMutationHandle = 0;
+    state.toggleMutationHandleType = "";
+    const nextJob = Array.isArray(state.toggleMutationQueue) && state.toggleMutationQueue.length
+      ? state.toggleMutationQueue.shift()
+      : null;
+    if (!nextJob) {
+      state.toggleQueuedActionKey = "";
+      return;
+    }
+    const applyStartedAt = nowMs();
+    state.toggleInFlightKey = nextJob.key || "";
+    try {
+      if (!nextJob.target || nextJob.target.nodeType !== 1 || nextJob.target.isConnected === false) {
+        return;
+      }
+      if (nextJob.mode === "include") {
+        toggleExplicitInclude(nextJob.target);
+      } else {
+        toggleExplicitExclude(nextJob.target);
+      }
+      if (state.toggleInFlightKey) {
+        state.lastToggleActionKey = state.toggleInFlightKey;
+        state.lastToggleActionAt = Number(nextJob.interactionNow) || nowMs();
+      }
+    } finally {
+      state.toggleInFlightKey = "";
+      logTogglePerf("toggle.apply", applyStartedAt, {
+        mode: nextJob.mode,
+        queued: true,
+        remainingQueue: Array.isArray(state.toggleMutationQueue) ? state.toggleMutationQueue.length : 0
+      });
+      if (Array.isArray(state.toggleMutationQueue) && state.toggleMutationQueue.length) {
+        const pendingJob = state.toggleMutationQueue[state.toggleMutationQueue.length - 1];
+        state.toggleQueuedActionKey = pendingJob && pendingJob.key ? pendingJob.key : "";
+        scheduleQueuedToggleMutationDrain();
+      } else {
+        state.toggleQueuedActionKey = "";
+      }
+    }
+  };
+  if (getExtensionRequestAnimationFrame()) {
+    state.toggleMutationHandle = extensionRequestAnimationFrame(runDrain);
+    state.toggleMutationHandleType = "raf";
+    return;
+  }
+  if (getExtensionTimer("setTimeout")) {
+    state.toggleMutationHandle = extensionSetTimeout(runDrain, 0);
+    state.toggleMutationHandleType = "timeout";
+    return;
+  }
+  runDrain();
+}
+
+function scheduleQueuedToggleMutation(job) {
+  if (!job || !job.target || (job.mode !== "include" && job.mode !== "exclude")) {
+    return;
+  }
+  if (!Array.isArray(state.toggleMutationQueue)) {
+    state.toggleMutationQueue = [];
+  }
+  state.toggleMutationQueue.push(job);
+  state.toggleQueuedActionKey = job.key || state.toggleQueuedActionKey;
+  scheduleQueuedToggleMutationDrain();
+}
+
+function cancelQueuedToggleMutations() {
+  if (state.toggleMutationHandle) {
+    if (state.toggleMutationHandleType === "raf") {
+      extensionCancelAnimationFrame(state.toggleMutationHandle);
+    } else if (state.toggleMutationHandleType === "timeout") {
+      extensionClearTimeout(state.toggleMutationHandle);
+    }
+  }
+  state.toggleMutationQueue = [];
+  state.toggleMutationHandle = 0;
+  state.toggleMutationHandleType = "";
+  state.toggleQueuedActionKey = "";
 }
 
 function invalidateCachedCollections() {
@@ -9547,6 +9624,7 @@ export function disable(options = {}) {
   state.autoSeededPendingSavePageUrl = "";
   state.autoSeedSuppressedPageUrl = "";
   state.toggleInFlightKey = "";
+  state.toggleQueuedActionKey = "";
   state.lastToggleActionKey = "";
   state.lastToggleActionAt = 0;
   state.pageSaveReconciliation = null;
@@ -9562,6 +9640,7 @@ export function disable(options = {}) {
     extensionClearTimeout(state.explicitFullRenderTimer);
     state.explicitFullRenderTimer = 0;
   }
+  cancelQueuedToggleMutations();
   cancelExplicitOverlayRefresh();
   if (state.renderRaf) {
     extensionCancelAnimationFrame(state.renderRaf);

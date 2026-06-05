@@ -386,6 +386,31 @@ test("marking mode uses Space-held page interaction without changing Alt include
   );
 });
 
+test("explicit toggles yield after the immediate acknowledgement before running the heavy mutation", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const handleToggleEventBody = source.match(
+    /function handleToggleEvent\(event\) \{([\s\S]*?)\n\}\n\nfunction handleClick/
+  )[1];
+
+  assert.match(source, /toggleQueuedActionKey: "",[\s\S]*?toggleMutationQueue: \[\],[\s\S]*?toggleMutationHandle: 0/);
+  assert.match(source, /function scheduleQueuedToggleMutationDrain\(\) \{/);
+  assert.match(source, /function scheduleQueuedToggleMutation\(job\) \{/);
+  assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
+  assert.match(
+    handleToggleEventBody,
+    /showImmediateToggleAcknowledgement\(target, mode\);[\s\S]*?scheduleQueuedToggleMutation\(\{[\s\S]*?target,[\s\S]*?mode,[\s\S]*?key: toggleActionKey,[\s\S]*?interactionNow/
+  );
+  assert.doesNotMatch(
+    handleToggleEventBody,
+    /showImmediateToggleAcknowledgement\(target, mode\);[\s\S]*?toggleExplicitInclude\(target\)|showImmediateToggleAcknowledgement\(target, mode\);[\s\S]*?toggleExplicitExclude\(target\)/
+  );
+  assert.match(
+    source,
+    /if \(getExtensionRequestAnimationFrame\(\)\) \{[\s\S]*?state\.toggleMutationHandle = extensionRequestAnimationFrame\(runDrain\);[\s\S]*?state\.toggleMutationHandleType = "raf";/
+  );
+  assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
+});
+
 test("marking mode surfaces temporary disabled state while save sync blocks editing", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");

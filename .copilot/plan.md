@@ -296,6 +296,17 @@ Validation checkpoint after Round-7 authority slices:
    When async reconciliation is introduced, tests must also prove operation
    coalescing, stale-job cancellation, and that the final committed entry is
    identical to the current synchronous result for the same DOM state.
+32. Marking-toggle responsiveness slice 1 completed:
+   the click handler now keeps the immediate interaction acknowledgement on the
+   synchronous path but defers the heavy explicit toggle mutation behind a
+   queued page-side task boundary. `handleToggleEvent(...)` no longer runs
+   `toggleExplicitExclude(...)` / `toggleExplicitInclude(...)` inline after the
+   acknowledgement; it enqueues the work so the browser gets a chance to paint
+   before the expensive branch/default reconciliation starts. This is not the
+   full async chunked reconciliation design yet; `syncPageMarkings(...)` is
+   still monolithic once the queued task begins. The landed value is a safer
+   first seam for later chunking/cancellation work and an immediate best-effort
+   reduction in perceived click jank.
 
 ## Marking Reload Handoff
 
