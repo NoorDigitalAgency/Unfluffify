@@ -2275,14 +2275,6 @@ async function loadPersistedAiRunRecord() {
   return normalizePersistedAiRunRecord(response && response.record);
 }
 
-async function savePersistedAiRunRecord(record) {
-  const response = await messages.sendRuntimeMessage({
-    type: "savePersistedAiRunRecord",
-    record
-  });
-  return normalizePersistedAiRunRecord(response && response.record);
-}
-
 async function clearPersistedAiRunRecord() {
   await messages.sendRuntimeMessage({ type: "clearPersistedAiRunRecord" });
 }

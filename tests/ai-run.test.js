@@ -184,8 +184,8 @@ test("AI run recovery metadata is persisted through background", () => {
   assert.match(backgroundSource, /if \(message\.type === "setAiComputeLockForTab"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "refreshAiRunHeartbeat"\) \{/);
   assert.match(popupPersistenceBlock, /type: "getPersistedAiRunRecord"/);
-  assert.match(popupPersistenceBlock, /type: "savePersistedAiRunRecord"/);
   assert.match(popupPersistenceBlock, /type: "clearPersistedAiRunRecord"/);
+  assert.doesNotMatch(popupPersistenceBlock, /type: "savePersistedAiRunRecord"/);
   assert.doesNotMatch(popupPersistenceBlock, /storageGet|storageSet|storageRemove|AI_RUN_PERSIST_KEY/);
 });
 

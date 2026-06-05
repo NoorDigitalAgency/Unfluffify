@@ -97,6 +97,9 @@ Validation checkpoint after Round-7 authority slices:
    `requestAiRunStatus`, while the large AI start payload and result selector
    response remain popup-owned for now to avoid moving heavy AI bodies through
    runtime messages. Focused AI/broker tests lock this boundary.
+10. Obsolete popup AI persistence cleanup completed: popup now only loads and
+   clears persisted AI-run metadata directly; background-owned heartbeat refresh
+   is the only path that saves recovery metadata.
 
 ## Marking Reload Handoff
 
