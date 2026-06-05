@@ -827,19 +827,21 @@ function syncSpinnerEntryToBackground(key) {
   if (!entry) {
     return Promise.resolve(null);
   }
+  const expectedMessage = entry.message;
+  const expectedPersistent = entry.persistent;
   const shouldApplySnapshot = () => {
     const currentEntry = popupSpinnerQueue.get(key);
     if (!currentEntry) {
       return false;
     }
-    return currentEntry.message === entry.message &&
-      Boolean(currentEntry.persistent) === Boolean(entry.persistent);
+    return currentEntry.message === expectedMessage &&
+      Boolean(currentEntry.persistent) === Boolean(expectedPersistent);
   };
   return sendSpinnerBrokerMessage({
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key,
-    message: entry.message,
-    persistent: entry.persistent
+    message: expectedMessage,
+    persistent: expectedPersistent
   }, {
     shouldApplySnapshot
   });
