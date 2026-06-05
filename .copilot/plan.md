@@ -651,6 +651,21 @@ Validation checkpoint after Round-7 authority slices:
    always recomputes targets. Source-level guard test added in
    `tests/content-activation-order.test.js`; full `npm test` (`499/499`)
    stayed green.
+50f. Silent-highlight mutation-target index completed:
+   `mutationTargetTouchesSilentCollections(...)` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   no longer rebuilds a spread array of every tracked collection on each
+   mutation. Instead a module-scoped `silentHighlightTrackedNodeIndex` is
+   lazily built once per collections rebuild and exposes a `tracked` Set plus
+   an `ancestors` Set (every ancestor of every tracked node). The predicate
+   answers each mutation in O(target-depth) Set lookups: direct hit, ancestor
+   hit, or walk parent chain for a tracked container. The index is reset at
+   both `silentHighlightCollections` rebuild sites alongside the render-target
+   cache. The existing source-shape test was updated to assert on the new
+   `buildSilentHighlightTrackedNodeIndex` helper; a new guard test in
+   `tests/content-activation-order.test.js` locks the Set-lookup structure
+   and forbids the old spread/contains scan. Full `npm test` (`451/451`)
+   stayed green.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around

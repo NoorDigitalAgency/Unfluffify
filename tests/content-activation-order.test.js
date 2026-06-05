@@ -247,6 +247,31 @@ test("capturePageSnapshot persists heavy snapshot evidence without returning it"
   assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
 });
 
+test("silent-highlight mutation observer uses an O(1) tracked-node index instead of a per-call scan", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  // Module-scope index, reset alongside the render-target cache.
+  assert.match(source, /let silentHighlightTrackedNodeIndex = null;/);
+  const indexResetMatches = source.match(/silentHighlightTrackedNodeIndex = null;/g) || [];
+  assert.ok(
+    indexResetMatches.length >= 3, // declaration + 2 collection-rebuild reset sites
+    `expected the tracked-node index to be cleared at every collections-rebuild site; saw ${indexResetMatches.length}`
+  );
+
+  // The mutation predicate uses Set.has lookups (tracked + ancestors) and walks
+  // the target's ancestor chain at most once — no spread reconstruction of all
+  // tracked arrays per call.
+  const fnStart = source.indexOf("function mutationTargetTouchesSilentCollections");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("\n}\n", fnStart);
+  const fnSource = source.slice(fnStart, fnEnd);
+  assert.match(fnSource, /tracked\.has\(target\)/);
+  assert.match(fnSource, /ancestors\.has\(target\)/);
+  assert.match(fnSource, /tracked\.has\(cursor\)/);
+  assert.doesNotMatch(fnSource, /\.\.\.\(silentHighlightCollections\./);
+  assert.doesNotMatch(fnSource, /\.contains\(target\)/);
+});
+
 test("silent-highlight reposition reuses cached render targets between settle samples", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

@@ -180,6 +180,7 @@ let silentHighlightLayers = {};
 let silentHighlightLayerBoxes = {};
 let silentHighlightCollections = null;
 let silentHighlightRenderTargetCache = new Map();
+let silentHighlightTrackedNodeIndex = null;
 let silentHighlightScrollTimer = 0;
 let silentHighlightRepositionRaf = 0;
 let silentHighlightSettleTimer = 0;
@@ -3062,6 +3063,7 @@ function clearSilentHighlightOverlay() {
   silentHighlightLayerBoxes = {};
   silentHighlightCollections = null;
   silentHighlightRenderTargetCache = new Map();
+  silentHighlightTrackedNodeIndex = null;
   clearSilentSelectorAnnotations();
 }
 
@@ -3360,6 +3362,7 @@ function renderSilentHighlightOverlay(collections) {
   // Settle/reposition resamples the SAME source nodes many times per second; only
   // the source-node → render-target map changes when collections are rebuilt.
   silentHighlightRenderTargetCache = new Map();
+  silentHighlightTrackedNodeIndex = null;
   silentHighlightCollections = {
     immutableNodes,
     contentNodes,
@@ -3879,26 +3882,61 @@ function shouldRefreshForSilentMutation(mutation) {
   return false;
 }
 
+function buildSilentHighlightTrackedNodeIndex() {
+  // tracked: every node the silent overlay cares about, by reference.
+  // ancestors: every ancestor of any tracked node, so we can detect a mutation
+  //   whose target is an ancestor of a tracked node (target.contains(tracked))
+  //   in O(1) instead of O(N).
+  const tracked = new Set();
+  const ancestors = new Set();
+  if (!silentHighlightCollections) {
+    return { tracked, ancestors };
+  }
+  const groups = [
+    silentHighlightCollections.sourceImmutableNodes,
+    silentHighlightCollections.sourceContentNodes,
+    silentHighlightCollections.sourceExcludedNodes,
+    silentHighlightCollections.sourceExplicitIncludeNodes,
+    silentHighlightCollections.immutableNodes,
+    silentHighlightCollections.contentNodes,
+    silentHighlightCollections.excludedNodes
+  ];
+  for (const group of groups) {
+    if (!group) continue;
+    for (const node of group) {
+      if (!node || node.nodeType !== 1 || tracked.has(node)) {
+        continue;
+      }
+      tracked.add(node);
+      let cursor = node.parentNode;
+      while (cursor && cursor.nodeType === 1) {
+        if (ancestors.has(cursor)) break;
+        ancestors.add(cursor);
+        cursor = cursor.parentNode;
+      }
+    }
+  }
+  return { tracked, ancestors };
+}
+
 function mutationTargetTouchesSilentCollections(target) {
   if (!target || target.nodeType !== 1 || !silentHighlightCollections) {
     return false;
   }
-  const trackedNodes = [
-    ...(silentHighlightCollections.sourceImmutableNodes || []),
-    ...(silentHighlightCollections.sourceContentNodes || []),
-    ...(silentHighlightCollections.sourceExcludedNodes || []),
-    ...(silentHighlightCollections.sourceExplicitIncludeNodes || []),
-    ...(silentHighlightCollections.immutableNodes || []),
-    ...(silentHighlightCollections.contentNodes || []),
-    ...(silentHighlightCollections.excludedNodes || [])
-  ];
-  for (const tracked of trackedNodes) {
-    if (!tracked || tracked.nodeType !== 1) {
-      continue;
-    }
-    if (tracked === target || tracked.contains(target) || target.contains(tracked)) {
-      return true;
-    }
+  if (!silentHighlightTrackedNodeIndex) {
+    silentHighlightTrackedNodeIndex = buildSilentHighlightTrackedNodeIndex();
+  }
+  const { tracked, ancestors } = silentHighlightTrackedNodeIndex;
+  // Case A: mutation target is itself tracked.
+  if (tracked.has(target)) return true;
+  // Case B: mutation target is an ancestor of a tracked node.
+  if (ancestors.has(target)) return true;
+  // Case C: mutation target sits inside a tracked subtree — walk its ancestor
+  //   chain and look for a tracked node above it. O(depth), no N scan.
+  let cursor = target.parentNode;
+  while (cursor && cursor.nodeType === 1) {
+    if (tracked.has(cursor)) return true;
+    cursor = cursor.parentNode;
   }
   return false;
 }

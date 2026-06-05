@@ -115,9 +115,12 @@ test("silent highlight reposition and mutation tracking use source collections i
     source,
     /function repositionSilentHighlightOverlay\(\) \{[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections\);[\s\S]*?\}/
   );
+  // The tracked-node index that backs mutationTargetTouchesSilentCollections
+  // must still draw from every source AND projected collection so a mutation
+  // anywhere in the tracked subtree triggers a refresh.
   assert.match(
     source,
-    /function mutationTargetTouchesSilentCollections\(target\) \{[\s\S]*?silentHighlightCollections\.sourceContentNodes[\s\S]*?silentHighlightCollections\.sourceExcludedNodes[\s\S]*?silentHighlightCollections\.sourceExplicitIncludeNodes[\s\S]*?silentHighlightCollections\.contentNodes[\s\S]*?silentHighlightCollections\.excludedNodes[\s\S]*?\];/
+    /function buildSilentHighlightTrackedNodeIndex\(\) \{[\s\S]*?silentHighlightCollections\.sourceContentNodes[\s\S]*?silentHighlightCollections\.sourceExcludedNodes[\s\S]*?silentHighlightCollections\.sourceExplicitIncludeNodes[\s\S]*?silentHighlightCollections\.contentNodes[\s\S]*?silentHighlightCollections\.excludedNodes[\s\S]*?\];/
   );
 });
 
