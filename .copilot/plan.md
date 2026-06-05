@@ -407,6 +407,89 @@ Validation checkpoint after Round-7 authority slices:
    effectively `0ms` on the sampled path. That makes descendant-text discovery
    the clearest next optimization target for toggle responsiveness, with text
    container evaluation as the secondary follow-up.
+42. AI payload / response translation investigation completed:
+   the current payload-generation path for AI submission is not derived from a
+   single canonical marking collection. In [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js),
+   `collectAiSubmissionXpathsForCurrentPage(...)` recomputes submission rows by
+   walking the whole DOM, converting each live node to snapshot XPath, then
+   classifying it with `resolveAiSubmissionRowState(...)`. That path can diverge
+   from the already-synced marking entry and from the visible overlay state. In
+   particular, a broad ancestor such as an `article` can be marked as
+   `markableTextual` even when the user-visible intent is carried by descendants,
+   and if `isVisibleForSubmission(...)` returns false for that ancestor the
+   submission collector will emit `{ xpath, excluded: true }` for the ancestor
+   even without an explicit user exclusion row. The supplied repro payload at
+   `/home/rojan/Desktop/inspection/payload.json` for
+   `https://www.bonliva.no/artikler/barnehagevikar-lonn` contains a single page
+   with `192` rendered XPath rows, `130` of which are submitted as excluded, and
+   the supplied `/home/rojan/Desktop/inspection/response.json` contains `27`
+   exclusion selectors with no inclusion selectors. That matches the observed
+   symptom where article-body structure is being sent to the AI server as
+   excluded even though the intended content paragraphs remain submitted as
+   included.
+43. Visibility-policy drift identified:
+   marking/silent-highlighting and AI submission do not use the same visibility
+   contract. The submission collector in [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   relies on `core.isVisibleForSubmission(...)`, while marking and silent
+   highlighting rely on `core.isVisible(...)`, `getVisibleRects(...)`, and
+   `shouldRetainIncludedSource(...)`. The collector for silent highlighting also
+   retains sources using `visibleToUser: isVisible(el) || !isDefinitelyHiddenSubtreeElement(el)`,
+   which is more permissive than AI submission. This split makes partially
+   visible or edge-clipped elements especially fragile: they can remain visible
+   enough to the user for markings/highlights while still being classified as
+   invisible in AI submission, which then flips them into excluded rows. The
+   repro payload is consistent with that drift: content descendants under the
+   article remain submitted as included while nearby broad structural rows are
+   simultaneously emitted as excluded.
+44. Snapshot-XPath translation drift identified:
+   `collectAiSubmissionXpathsForCurrentPage(...)` remaps explicit rows and
+   include rows through `getCurrentPageSnapshotXPath(element)` and separately
+   remaps every traversed live DOM node the same way. Because this happens on a
+   node-by-node traversal after snapshot stripping, the submission rows can
+   represent a different ancestor/descendant shape than the synced marking entry
+   that users actually edited. That creates room for ancestor promotion or
+   ancestor-only excluded rows that do not correspond to an on-page explicit
+   marking, especially when stripped nodes or hidden descendants change the
+   apparent shallowest surviving snapshot ancestor.
+45. Robust fix plan for payload/response correctness:
+   1. Introduce a single shared visibility policy for marking, silent
+      highlighting, and AI submission that explicitly treats partially visible
+      elements as visible whenever any renderable client rect intersects the
+      relevant viewport/document visual area. Use that shared predicate instead
+      of letting `isVisible(...)`, `isVisibleForSubmission(...)`, and the
+      `shouldRetainIncludedSource(...)` caller drift independently.
+   2. Stop recomputing AI submission rows from an unconstrained full DOM walk as
+      the primary source of truth. Build AI submission rows from the synced page
+      entry plus a canonical resolved collection of included/excluded elements
+      that already matches the marking/highlighting contract, then translate
+      that resolved collection to snapshot XPath once. The AI payload should be
+      a projection of the synced marking model, not an alternate classifier.
+   3. Add an explicit ancestor/descendant guard in AI submission so a broad
+      ancestor cannot be emitted as `excluded: true` unless it is actually
+      explicit/generated in the synced marking entry or is the canonical
+      excluded representative after resolved collection collapse. A merely
+      `markableTextual && invisible` ancestor must not be auto-promoted over the
+      user-visible descendant marking shape.
+   4. Split the snapshot remapping into two audited stages:
+      live resolved elements -> canonical live XPath rows -> snapshot XPath rows.
+      Add validation that the remapped snapshot rows still preserve include /
+      exclude precedence and do not introduce new excluded ancestors that were
+      absent from the canonical live rows.
+   5. Add focused regression fixtures for:
+      partially visible content blocks,
+      broad textual ancestors with visible descendants,
+      article/body-like wrappers where a descendant is the intended content
+      carrier,
+      snapshot stripping that removes intermediate wrappers,
+      and payload/response round-trips using the Bonliva article repro where
+      the AI response would otherwise exclude the whole article body.
+46. Recommended execution order:
+   land the submission-correctness work before or alongside any deeper
+   descendant-text optimization in the candidate scan. The next implementation
+   slice should therefore start with the shared partial-visibility contract and
+   the canonical AI submission row builder, then re-run the payload/response
+   repro against the provided case before continuing with the remaining
+   responsiveness work.
 
 ## Marking Reload Handoff
 
