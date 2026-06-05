@@ -831,9 +831,39 @@ Revised phase shape:
 
 - Phase 1 — Navigation/reload guard UX: beforeunload-based confirmation
   when there is unsaved work; block navigation on rejection.
-- Phase 2 — Global disable on accepted navigation/reload: reset session
-  state and disable marking across every page in the session; remove any
-  auto-restore code paths that conflict.
+- Phase 2 — Editor-tab marking lifecycle + property-lock transitions on
+  navigation. Spec (hardened in Phase 0 follow-up Q&A):
+  - **Scope of "every page"**: the editor tab's own page-loads (current
+    URL, reload, next URL) — NOT other tabs in any browser.
+  - **Property lock invariant** (existing): exactly one editor tab per
+    property across all tabs/browsers/users. Other same-property tabs are
+    locked read-only. Tabs on other properties are independent.
+  - **Auto-enable**: marking NEVER auto-enables on any page-load of the
+    editor tab. The user must explicitly re-enable marking on each new
+    page-load (even a same-URL reload).
+  - **Lock lifecycle on navigation**:
+    - Same property, candidate → candidate: lock stays with this tab. No
+      warning. The editor of one candidate is very likely the editor of
+      the others.
+    - Same property, candidate → non-candidate: lock stays with this tab
+      but a countdown UI (60–120s) warns the user they will lose the
+      editor role if they remain off-candidate when the timer expires.
+    - Cross-property: lock releases with a short cool-off (~30s) so a
+      mistaken navigation can be undone by navigating back into the
+      original property before the cool-off completes.
+    - Tab close / crash: lock releases immediately (existing behavior).
+  - **Inactivity**: the lock is held as long as the user interacts with
+    the page or the extension. After a 30-minute inactivity window the
+    lock releases. Activity = any input on the page or extension surface
+    (mouse move/click/keyboard/scroll on the page, plus any popup or
+    sidebar interaction). Background tabs naturally idle out.
+  - **Countdown UI**: both an in-page banner on the editor tab (similar
+    to the existing property-lock disconnected banner) AND a mirror in
+    the popup when it is open, so the user cannot miss the warning.
+  - **Reset on accepted navigation**: when the editor tab commits a
+    navigation/reload (whether unsaved-changes prompt was accepted or
+    there was nothing to lose), the marking session resets for the
+    editor tab. The new page-load starts with marking off.
 - Phase 3 — IDB-key heavy-payload handoff plus TTL/consume-purge cleanup;
   add source guards against accidental large-message paths.
 - Phase 4 — AI lifecycle: only touch if Phase 2/3 expose stale stored
