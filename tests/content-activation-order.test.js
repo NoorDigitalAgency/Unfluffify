@@ -247,6 +247,28 @@ test("capturePageSnapshot persists heavy snapshot evidence without returning it"
   assert.doesNotMatch(successResponse, /renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths/);
 });
 
+test("refreshSilentHighlightings bails out after each await when superseded by a newer call", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const fnStart = source.indexOf("async function refreshSilentHighlightings() {");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("\n}\n", fnStart);
+  assert.ok(fnEnd > fnStart);
+  const fnSource = source.slice(fnStart, fnEnd);
+
+  // Generation token is captured at entry, bumped on every call.
+  assert.match(fnSource, /const refreshGeneration = \+\+silentHighlightingRefreshGeneration;/);
+
+  // Each await is followed by a generation check that returns early if a newer
+  // refresh has started, so the older call cannot stomp observer/overlay state.
+  const awaitMatches = fnSource.match(/await /g) || [];
+  assert.ok(awaitMatches.length >= 2, `expected at least 2 awaits, saw ${awaitMatches.length}`);
+  const guardCount = (fnSource.match(/if \(refreshGeneration !== silentHighlightingRefreshGeneration\) \{\s*return;\s*\}/g) || []).length;
+  assert.ok(
+    guardCount >= awaitMatches.length,
+    `expected a generation guard after every await; awaits=${awaitMatches.length} guards=${guardCount}`
+  );
+});
+
 test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const watcherStart = source.indexOf("function startUrlWatcher() {");

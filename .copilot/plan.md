@@ -625,6 +625,20 @@ Validation checkpoint after Round-7 authority slices:
    visible-excluded row breaks the default-exclusion taxonomy or the Phase B
    ancestor guard. Full `npm test` (`449/449`) stayed green alongside the live
    runs.
+50d. Silent-highlight refresh generation token completed:
+   `refreshSilentHighlightings()` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now captures a `refreshGeneration` token from
+   `silentHighlightingRefreshGeneration` at entry and checks after each `await`
+   (`config.getConfigs()` and the conditional `config.saveConfigs(configs)`)
+   that the captured token still matches the live counter; if a newer call has
+   bumped the counter, the older call returns before touching observer state,
+   overlay rendering, or `lastSilentHighlightingRenderKey`. This protects
+   against stale older refreshes overwriting newer state when call sites fire
+   `refreshSilentHighlightings().then()` overlapping with another refresh.
+   Source-level guard test added in
+   `tests/content-activation-order.test.js`; full `npm test` (`450/450`)
+   stayed green.
 51. Silent-highlighting execution order:
    after the AI payload correctness slice, the next responsiveness branch should
    start with generation/cancellation boundaries around

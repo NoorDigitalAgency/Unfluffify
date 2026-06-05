@@ -170,6 +170,7 @@ let silentHighlightingObserver = null;
 let silentHighlightingLayoutShiftObserver = null;
 let silentHighlightingRefreshTimer = 0;
 let silentHighlightingRefreshDueAt = 0;
+let silentHighlightingRefreshGeneration = 0;
 let lastSilentHighlightingRefreshAt = 0;
 let lastSilentHighlightingRenderKey = "";
 let lastSilentHighlightingsActive = false;
@@ -5695,6 +5696,10 @@ async function refreshSilentHighlightings() {
   }
   silentHighlightingRefreshDueAt = 0;
   lastSilentHighlightingRefreshAt = Date.now();
+  // Bump the generation token so any older refresh that is still awaiting an
+  // async step can detect it has been superseded and bail out before mutating
+  // observers, overlays, or render-key state with stale data.
+  const refreshGeneration = ++silentHighlightingRefreshGeneration;
   if (state.enabled) {
     setSilentHighlightingPageMotionPaused(false);
     stopSilentHighlightingObserver();
@@ -5705,6 +5710,9 @@ async function refreshSilentHighlightings() {
   }
   const pageUrl = location.href;
   const configs = await config.getConfigs();
+  if (refreshGeneration !== silentHighlightingRefreshGeneration) {
+    return;
+  }
   const baseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   if (!baseUrl) {
     silentHighlightEditorRevealKey = "";
@@ -5725,6 +5733,9 @@ async function refreshSilentHighlightings() {
   if (normalized.changed) {
     configs[baseUrl] = baseConfig;
     await config.saveConfigs(configs);
+    if (refreshGeneration !== silentHighlightingRefreshGeneration) {
+      return;
+    }
   }
   const pageMarkings = baseConfig.pageMarkings || {};
   const storedSelectors = getStoredAiSelectorSet(baseConfig);
