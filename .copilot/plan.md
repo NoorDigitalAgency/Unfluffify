@@ -31,11 +31,15 @@ Validation checkpoint after Round-7 authority slices:
    --config=<repo>/.vscode/browser-mcp.config.json`.
 3. Validation-infra phase: `@playwright/mcp@0.0.75` expects config under the
    `browser` key (`browser.launchOptions`), not legacy top-level
-   `launchOptions`. Keep `.vscode/browser-mcp.config.json` in that schema before
-   treating an MCP run as product validation. The repo MCP server entries should
-   also pass absolute `--user-data-dir` and `--config` paths; relative paths can
-   resolve incorrectly depending on the MCP client process cwd and have created
-   stray `undefined/` browser profiles during manual terminal validation.
+   `launchOptions`. Keep `.vscode/browser-mcp.config.json` in that schema and
+   keep `ignoreDefaultArgs: ["--disable-extensions"]` so the unpacked extension
+   is not suppressed by Playwright's default Chrome flags. The repo MCP server
+   entries pass absolute `--user-data-dir` and `--config` paths; relative paths
+   can resolve incorrectly depending on the MCP client process cwd and have
+   created stray `undefined/` browser profiles during manual terminal validation.
+   Standalone Playwright scripts that do not use `.mcp.json` / `.vscode/mcp.json`
+   must pass the persistent profile path themselves, e.g.
+   `/home/rojan/Documents/Git/GitHub/Unfluffify/.mcp-browser-profile`.
 4. The Playwright-local MCP browser profile must have Chrome Extensions
    Developer mode enabled before unpacked extension validation is considered
    meaningful. The current persistent `.mcp-browser-profile` has
@@ -47,25 +51,20 @@ Validation checkpoint after Round-7 authority slices:
    Restart the `playwright-local` MCP server/browser after extension or config
    changes; a long-lived MCP process can keep the persistent profile locked and
    continue serving an older unpacked-extension instance.
-5. After the schema update, `browser_get_config` resolves the extension launch
-   args correctly, but a fresh-profile MCP run on `https://seo.se/` still showed
-   no `content-loader` DOM bootstrap and no extension service worker. This
-   remains a validation-infra blocker to resolve before treating fresh-profile
-   MCP as a product-behavior signal.
-6. `https://seo.se/` live smoke status: the MCP loaded the page, loaded the
-   extension, exposed the target tab ID, and opened
-   `popup.html?debugTabId=<seo-tab-id>`. The popup page had `chrome.runtime`
-   available and no popup console errors, but a direct popup-context
-   `chrome.runtime.sendMessage({ type: "resolvePopupTabContext", debugTabId })`
-   returned no response with `chrome.runtime.lastError` = `The message port
-   closed before a response was received.` Treat this as a validation-blocking
-   authority-refactor follow-up before moving more popup/background ownership.
-   A message-safe tab serialization attempt did not change the MCP failure, so
-   the next investigation should focus on whether the background listener is
-   receiving/keeping the popup-originated `resolvePopupTabContext` message alive
-   in the extension-page context, not on raw `chrome.tabs.Tab` serialization.
-   The seo.se page itself also logs an unrelated site script `Failed to fetch`
-   error from `seo-theme`.
+5. User-confirmed Playwright validation: launching Chromium with the resolved
+   `browser.launchOptions` from `.vscode/browser-mcp.config.json` and the
+   persistent `.mcp-browser-profile` loads the unpacked extension and preserves
+   the existing extension configuration. If `launchOptions.channel === ""` is
+   present in an ad-hoc script config, delete that property before calling the
+   core Playwright API; the MCP resolver tolerates it, but Playwright's
+   `chromium.launchPersistentContext` expects a valid channel or `undefined`.
+6. `https://seo.se/` live smoke status should now be rerun through the
+   repo-configured `playwright-local` MCP after restarting the MCP server/browser
+   so it picks up the current config. The previous `resolvePopupTabContext`
+   no-response result was captured before the confirmed working launch shape and
+   should not block further authority work until reproduced with the corrected
+   profile/config setup. The seo.se page itself logs an unrelated site script
+   `Failed to fetch` error from `seo-theme`.
 7. Remaining authority work should still avoid proxying large config, HTML, or
    AI request/response bodies through runtime messages; use storage keys,
    owner-context fetches, or a designed background/offscreen ownership path.

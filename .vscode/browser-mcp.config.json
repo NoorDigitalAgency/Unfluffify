@@ -2,6 +2,9 @@
   "browser": {
     "launchOptions": {
       "headless": false,
+      "ignoreDefaultArgs": [
+        "--disable-extensions"
+      ],
       "args": [
         "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify",
         "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify"
