@@ -196,7 +196,7 @@ test("popup refresh routes fresh active tabs through background activation befor
   );
   assert.match(
     refreshBlock,
-    /if \(!activationResponse \|\| activationResponse\.ok === false\) \{\s*await utils\.setTabState\(currentTabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\);\s*\}/
+    /if \(!activationResponse \|\| activationResponse\.ok === false\) \{\s*await messages\.setTabState\(currentTabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\);\s*\}/
   );
 });
 

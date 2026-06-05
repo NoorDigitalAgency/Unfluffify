@@ -742,13 +742,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "getTabState") {
-    const tabId = sender.tab && sender.tab.id;
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
     if (!tabId) {
       sendResponse({ enabled: false, baseUrl: "" });
       return;
     }
-    utils.getTabState(tabId)
+    const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
+    utils.getTabState(tabId, scope)
       .then((state) => {
+        if (!state && message.nullIfMissing) {
+          sendResponse(null);
+          return;
+        }
         sendResponse(state ? { ...state, tabId } : { enabled: false, baseUrl: "", tabId });
       })
       .catch(() => {
@@ -763,21 +768,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false });
       return;
     }
-    utils.getTabState(tabId)
+    const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
+    utils.getTabState(tabId, scope)
       .then((existingState) => {
         const existing = existingState && typeof existingState === "object"
           ? existingState
           : {};
-        const nextState = {
-          ...existing,
-          enabled: Boolean(message.enabled),
-          baseUrl: message.baseUrl || ""
-        };
-        if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
-          nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
+        let nextState;
+        if (message.state && typeof message.state === "object") {
+          nextState = { ...existing };
+          if (Object.prototype.hasOwnProperty.call(message.state, "active")) {
+            nextState.active = Boolean(message.state.active);
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "enabled")) {
+            nextState.enabled = Boolean(message.state.enabled);
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "baseUrl")) {
+            nextState.baseUrl = typeof message.state.baseUrl === "string" ? message.state.baseUrl : "";
+          }
+          if (Object.prototype.hasOwnProperty.call(message.state, "pageType")) {
+            nextState.pageType = typeof message.state.pageType === "string" ? message.state.pageType : "";
+          }
+        } else {
+          nextState = {
+            ...existing,
+            enabled: Boolean(message.enabled),
+            baseUrl: message.baseUrl || ""
+          };
+          if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
+            nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
+          }
         }
-        return utils.setTabState(tabId, nextState)
+        return utils.setTabState(tabId, nextState, scope)
           .then(() => {
+            if (scope) {
+              return;
+            }
             if (nextState.enabled && nextState.baseUrl) {
               return setReloadRestoreTabState(tabId, nextState);
             }

@@ -404,7 +404,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   )[1];
 
   assert.match(onUpdatedBlock, /changeInfo\.status === "loading"/);
-  assert.match(onUpdatedBlock, /await utils\.getTabState\(tabId, "restore"\)/);
+  assert.match(onUpdatedBlock, /await messages\.getTabState\(tabId, "restore"\)/);
   assert.match(onUpdatedBlock, /beginNavigationInspectionOverlay\(tabId\);/);
   assert.match(onUpdatedBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
   assert.match(onUpdatedBlock, /const settleResult = await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
@@ -421,8 +421,8 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   const refreshBody = source.match(
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
-  assert.match(refreshBody, /const persistedTabState = await utils\.getTabState\(state\.currentTab\.id\);/);
-  assert.match(refreshBody, /await utils\.getTabState\(state\.currentTab\.id, "restore"\)/);
+  assert.match(refreshBody, /const persistedTabState = await messages\.getTabState\(state\.currentTab\.id\);/);
+  assert.match(refreshBody, /await messages\.getTabState\(state\.currentTab\.id, "restore"\)/);
   assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
   assert.match(refreshBody, /restoreInspectionPending \|\|\s*contentInspectionPending/);
   // After a tab reload, the latest runtime status response is authoritative:

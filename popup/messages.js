@@ -46,6 +46,30 @@ export function sendRuntimeMessage(message) {
   });
 }
 
+export function getTabState(tabId, scope = null) {
+  if (!tabId) {
+    return Promise.resolve(null);
+  }
+  return sendRuntimeMessage({
+    type: "getTabState",
+    tabId,
+    scope,
+    nullIfMissing: true
+  }).then((response) => (response && typeof response === "object" ? response : null));
+}
+
+export function setTabState(tabId, tabState, scope = null) {
+  if (!tabId) {
+    return Promise.resolve({ ok: false });
+  }
+  return sendRuntimeMessage({
+    type: "setTabState",
+    tabId,
+    scope,
+    state: tabState && typeof tabState === "object" ? tabState : {}
+  });
+}
+
 export function sendTabMessage(message) {
   return new Promise((resolve) => {
     if (!state.currentTab || !state.currentTab.id) {

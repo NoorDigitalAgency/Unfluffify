@@ -4190,13 +4190,13 @@ async function refreshUiInner(options = {}) {
   } = await helpers.loadGlobalAiSettings();
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
-  const persistedTabState = await utils.getTabState(state.currentTab.id);
+  const persistedTabState = await messages.getTabState(state.currentTab.id);
   const restoreTabState = persistedTabState
     ? null
-    : await utils.getTabState(state.currentTab.id, "restore");
+    : await messages.getTabState(state.currentTab.id, "restore");
   const tabState = persistedTabState || restoreTabState || { enabled: false, baseUrl: "" };
   let initialTabState = currentTabId
-    ? (await utils.getTabState(currentTabId, "initial")) || { active: false }
+    ? (await messages.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
   if (
     currentTabId &&
@@ -4209,7 +4209,7 @@ async function refreshUiInner(options = {}) {
       url: pageUrl
     });
     if (!activationResponse || activationResponse.ok === false) {
-      await utils.setTabState(currentTabId, { active: true }, "initial");
+      await messages.setTabState(currentTabId, { active: true }, "initial");
     }
     initialTabState = { active: true };
   }
@@ -4244,7 +4244,7 @@ async function refreshUiInner(options = {}) {
     !utils.isPageWithinBaseUrl(pageUrl, tabState.baseUrl)
   ) {
     effectiveTabState = { enabled: false, baseUrl: "" };
-    await utils.setTabState(state.currentTab.id, effectiveTabState);
+    await messages.setTabState(state.currentTab.id, effectiveTabState);
   }
   if (
     tabInScope &&
@@ -4304,7 +4304,7 @@ async function refreshUiInner(options = {}) {
         state.currentBaseUrl = resolvedBaseUrl;
         if (currentTabId) {
           effectiveTabState = { ...effectiveTabState, baseUrl: resolvedBaseUrl };
-          await utils.setTabState(currentTabId, effectiveTabState);
+          await messages.setTabState(currentTabId, effectiveTabState);
           if (effectiveTabState.enabled) {
             await messages.sendTabMessageWithRetry({
               type: "setEnabled",
@@ -4415,7 +4415,7 @@ async function refreshUiInner(options = {}) {
   ) {
     const wasEnabled = Boolean(effectiveTabState.enabled);
     effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
-    await utils.setTabState(state.currentTab.id, effectiveTabState);
+    await messages.setTabState(state.currentTab.id, effectiveTabState);
     if (wasEnabled) {
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
@@ -4427,7 +4427,7 @@ async function refreshUiInner(options = {}) {
   if (unsupportedByGraphql) {
     if (effectiveTabState.enabled) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
-      await utils.setTabState(state.currentTab.id, effectiveTabState);
+      await messages.setTabState(state.currentTab.id, effectiveTabState);
       await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
     }
     state.currentBaseUrl = "";
@@ -4617,7 +4617,7 @@ async function refreshUiInner(options = {}) {
           ? state.currentBaseUrl || effectiveTabState.baseUrl || ""
           : effectiveTabState.baseUrl || state.currentBaseUrl || ""
       };
-      await utils.setTabState(currentTabId, effectiveTabState);
+      await messages.setTabState(currentTabId, effectiveTabState);
       clearLastPopupEnabled();
     }
     toggleEnabled = contentMarkingEnabled;
@@ -5010,7 +5010,7 @@ async function refreshUiInner(options = {}) {
     isEnabled = false;
     clearLastPopupEnabled();
     effectiveTabState = { ...effectiveTabState, enabled: false };
-    await utils.setTabState(currentTabId, {
+    await messages.setTabState(currentTabId, {
       enabled: false,
       baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
     });
@@ -7133,7 +7133,7 @@ async function handleEnableToggle(event) {
           return;
         }
         await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
-        await utils.setTabState(tab.id, {
+        await messages.setTabState(tab.id, {
           enabled: true,
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey
@@ -7147,7 +7147,7 @@ async function handleEnableToggle(event) {
           performInitialReveal: true
         });
         if (!enableResponse || !enableResponse.ok) {
-          await utils.setTabState(tab.id, {
+          await messages.setTabState(tab.id, {
             enabled: false,
             baseUrl: effectiveBaseUrl,
             pageType: ""
@@ -7167,7 +7167,7 @@ async function handleEnableToggle(event) {
         // run yet for the current markings), Save/Preview start disabled.
         resetAiRunMarkingsFingerprint();
       } else {
-        await utils.setTabState(tab.id, {
+        await messages.setTabState(tab.id, {
           enabled: false,
           baseUrl: baseUrlValue,
           pageType: ""
@@ -7541,7 +7541,7 @@ async function alignPopupToSilentMode() {
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
-    await utils.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
+    await messages.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
   }
   clearLastPopupEnabled();
   uiModule.setViewState({ toggleEnabled: false });
@@ -8878,10 +8878,10 @@ async function init() {
       return;
     }
     state.currentTab = tab;
-    const persistedTabState = await utils.getTabState(tabId);
+    const persistedTabState = await messages.getTabState(tabId);
     const tabState =
       persistedTabState ||
-      (await utils.getTabState(tabId, "restore"));
+      (await messages.getTabState(tabId, "restore"));
     const candidateUrl = typeof changeInfo.url === "string" && changeInfo.url
       ? changeInfo.url
       : ((tab && typeof tab.url === "string") ? tab.url : "");
@@ -8892,7 +8892,7 @@ async function init() {
         (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, tabState.baseUrl))
     );
     if (!persistedTabState && inspectionExpected) {
-      await utils.setTabState(tabId, tabState);
+      await messages.setTabState(tabId, tabState);
     }
     if (!inspectionExpected) {
       if (popupNavigationInspectionOverlayTabId === tabId) {
