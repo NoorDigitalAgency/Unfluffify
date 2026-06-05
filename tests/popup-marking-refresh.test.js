@@ -334,11 +334,32 @@ test("popup delegates spinner queue state to the background broker", () => {
   )[1];
 
   assert.match(setBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_SET/);
-  assert.match(setBody, /persistent: entry\.persistent/);
+  assert.match(setBody, /persistent: expectedPersistent/);
   assert.match(clearBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_CLEAR/);
   assert.match(clearBody, /transientOnly: Boolean\(options\.transientOnly\)/);
   assert.doesNotMatch(source, /spinnerQueue:<tabId>/);
   assert.doesNotMatch(source, /restoreSpinnerQueueFromStorage/);
+});
+
+test("popup ignores stale spinner-set broker snapshots after local removal", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const sendBody = source.match(
+    /function sendSpinnerBrokerMessage\(message, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+  const setBody = source.match(
+    /function syncSpinnerEntryToBackground\(key\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(sendBody, /const shouldApplySnapshot = typeof options\.shouldApplySnapshot === "function"/);
+  assert.match(sendBody, /response && response\.ok && shouldApplySnapshot\(response\)/);
+  assert.match(setBody, /const entry = popupSpinnerQueue\.get\(key\);/);
+  assert.match(setBody, /const expectedMessage = entry\.message;/);
+  assert.match(setBody, /const expectedPersistent = entry\.persistent;/);
+  assert.match(setBody, /const shouldApplySnapshot = \(\) => \{[\s\S]*?const currentEntry = popupSpinnerQueue\.get\(key\);/);
+  assert.match(setBody, /if \(!currentEntry\) \{[\s\S]*?return false;/);
+  assert.match(setBody, /currentEntry\.message === expectedMessage/);
+  assert.match(setBody, /Boolean\(currentEntry\.persistent\) === Boolean\(expectedPersistent\)/);
+  assert.match(setBody, /shouldApplySnapshot/);
 });
 
 test("popup restores spinner state from background current state", () => {

@@ -798,15 +798,18 @@ function applyBackgroundStateSnapshot(snapshot) {
   });
 }
 
-function sendSpinnerBrokerMessage(message) {
+function sendSpinnerBrokerMessage(message, options = {}) {
   const tabId = getCurrentPopupTabId();
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
+  const shouldApplySnapshot = typeof options.shouldApplySnapshot === "function"
+    ? options.shouldApplySnapshot
+    : () => true;
   logWorldTrace("runtime-send", { tabId, type: message.type || "" });
   return messages.sendRuntimeMessage({ tabId, owner: SPINNER_OWNERS.POPUP, ...message })
     .then((response) => {
-      if (response && response.ok) {
+      if (response && response.ok && shouldApplySnapshot(response)) {
         applyBackgroundStateSnapshot(response);
       }
       logWorldTrace("runtime-response", {
@@ -824,11 +827,23 @@ function syncSpinnerEntryToBackground(key) {
   if (!entry) {
     return Promise.resolve(null);
   }
+  const expectedMessage = entry.message;
+  const expectedPersistent = entry.persistent;
+  const shouldApplySnapshot = () => {
+    const currentEntry = popupSpinnerQueue.get(key);
+    if (!currentEntry) {
+      return false;
+    }
+    return currentEntry.message === expectedMessage &&
+      Boolean(currentEntry.persistent) === Boolean(expectedPersistent);
+  };
   return sendSpinnerBrokerMessage({
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key,
-    message: entry.message,
-    persistent: entry.persistent
+    message: expectedMessage,
+    persistent: expectedPersistent
+  }, {
+    shouldApplySnapshot
   });
 }
 
