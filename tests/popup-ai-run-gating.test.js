@@ -139,6 +139,8 @@ test("navigating away from a pending marking session prompts to discard first", 
     popupSource,
     /async function navigateActiveTabToUrlWithTodoCollapse\(url\) \{\s*if \(!\(await confirmNavigationAwayFromMarking\(\)\)\) \{/
   );
+  assert.match(popupSource, /type: "navigateTabToUrl"/);
+  assert.doesNotMatch(popupSource, /chrome\.tabs\.update/);
 });
 
 test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {

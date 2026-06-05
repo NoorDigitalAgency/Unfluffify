@@ -158,6 +158,34 @@ function reloadTab(tabId) {
   });
 }
 
+function navigateTabToUrl(tabId, url) {
+  return new Promise((resolve) => {
+    const normalizedTabId = normalizeBrokerTabId(tabId);
+    const targetUrl = typeof url === "string" ? url.trim() : "";
+    if (!normalizedTabId || !targetUrl) {
+      resolve({ ok: false, error: "Missing tab or URL" });
+      return;
+    }
+    try {
+      chrome.tabs.update(normalizedTabId, { url: targetUrl }, () => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            ok: false,
+            error: chrome.runtime.lastError.message || "Unable to navigate tab"
+          });
+          return;
+        }
+        resolve({ ok: true });
+      });
+    } catch (error) {
+      resolve({
+        ok: false,
+        error: (error && error.message) || "Unable to navigate tab"
+      });
+    }
+  });
+}
+
 async function getPersistedAiRunRecord() {
   const stored = await utils.storageGet(chrome.storage.session, AI_RUN_PERSIST_KEY);
   return normalizePersistedAiRunRecord(stored && stored[AI_RUN_PERSIST_KEY]);
@@ -795,6 +823,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     reloadTab(message.tabId || (sender.tab && sender.tab.id))
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, error: "Unable to reload tab" }));
+    return true;
+  }
+
+  if (message.type === "navigateTabToUrl") {
+    navigateTabToUrl(message.tabId || (sender.tab && sender.tab.id), message.url)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, error: "Unable to navigate tab" }));
     return true;
   }
 

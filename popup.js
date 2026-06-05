@@ -6824,10 +6824,12 @@ async function navigateActiveTabToUrl(url) {
   if (!tab) {
     return false;
   }
-  chrome.tabs.update(tab.id, { url }, () => {
-    void chrome.runtime.lastError;
+  const response = await messages.sendRuntimeMessage({
+    type: "navigateTabToUrl",
+    tabId: tab.id,
+    url
   });
-  return true;
+  return Boolean(response && response.ok);
 }
 
 async function confirmNavigationAwayFromMarking() {
