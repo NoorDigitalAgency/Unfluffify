@@ -307,6 +307,30 @@ Validation checkpoint after Round-7 authority slices:
    still monolithic once the queued task begins. The landed value is a safer
    first seam for later chunking/cancellation work and an immediate best-effort
    reduction in perceived click jank.
+33. Marking-toggle responsiveness slice 2 completed:
+   explicit-toggle reconciliation is now generation-scoped, cancellable, and
+   chunked across extension-owned async yields instead of forcing the whole
+   `syncPageMarkings(...)` pass through one uninterrupted task. The landed
+   seam adds `syncPageMarkingsAsync(...)`, `collectToggleableTargetsAsync(...)`,
+   `appendSyncedCandidateItemsAsync(...)`, and
+   `refreshExplicitMarkingOverlayAsync(...)`, with
+   `scheduleAsyncExplicitToggleReconcile(...)` discarding stale jobs when rapid
+   repeated toggles supersede older work. Focused tests lock the async path,
+   stale-generation cancellation, and deferred toggle mutation contract.
+34. Live Bonliva pressure result and next hotspot:
+   on `https://www.bonliva.no/vikar/oppvekst/barnehage`, a clean headful
+   Playwright run with the unpacked extension enabled confirmed that the
+   overlay activates, the immediate toggle acknowledgement appears, and page
+   `requestAnimationFrame` ticks continue to advance during rapid Shift-parent
+   toggle bursts on the hero text branch. Two consecutive parent toggles
+   completed with ticks still advancing during the post-click sample window,
+   but a later broad-branch toggle still stretched to roughly `1.7s`. That
+   means the new async queue/yield seam improves paintability and prevents the
+   worst all-or-nothing freeze, but some structural toggles still spend too
+   long in one reconcile window. The next phase should reduce the remaining
+   broad-toggle cost by scoping candidate collection/reprocessing to the
+   affected subtree and ancestor/default boundary graph where correctness
+   allows, while preserving the full-page fallback for unsafe structural cases.
 
 ## Marking Reload Handoff
 

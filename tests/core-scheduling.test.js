@@ -292,13 +292,13 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
 
 test("explicit exclude no longer forces immediate full rebuild prechecks", () => {
   const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target)");
-  const includeStart = coreSource.indexOf("function toggleExplicitInclude(target)", excludeStart);
+  const excludeStart = coreSource.indexOf("function toggleExplicitExclude(target, options = {})");
+  const includeStart = coreSource.indexOf("function toggleExplicitInclude(target, options = {})", excludeStart);
   const excludeSource = coreSource.slice(excludeStart, includeStart);
 
   assert.doesNotMatch(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
   assert.doesNotMatch(excludeSource, /const immediateFullRender =/);
-  assert.match(excludeSource, /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt\);/);
+  assert.match(excludeSource, /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt, options\);/);
 });
 
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
@@ -396,6 +396,11 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /function scheduleQueuedToggleMutationDrain\(\) \{/);
   assert.match(source, /function scheduleQueuedToggleMutation\(job\) \{/);
   assert.match(source, /function cancelQueuedToggleMutations\(\) \{/);
+  assert.match(source, /async function syncPageMarkingsAsync\(config, pageUrl, immutableExcluded, options\) \{/);
+  assert.match(source, /async function collectToggleableTargetsAsync\(immutableExcluded, excludedParents, options = \{\}\) \{/);
+  assert.match(source, /async function appendSyncedCandidateItemsAsync\(candidates, context, options = \{\}\) \{/);
+  assert.match(source, /async function refreshExplicitMarkingOverlayAsync\(entry, context = null\) \{/);
+  assert.match(source, /function scheduleAsyncExplicitToggleReconcile\(entry, context = null\) \{/);
   assert.match(
     handleToggleEventBody,
     /showImmediateToggleAcknowledgement\(target, mode\);[\s\S]*?scheduleQueuedToggleMutation\(\{[\s\S]*?target,[\s\S]*?mode,[\s\S]*?key: toggleActionKey,[\s\S]*?interactionNow/
@@ -408,6 +413,12 @@ test("explicit toggles yield after the immediate acknowledgement before running 
     source,
     /if \(getExtensionRequestAnimationFrame\(\)\) \{[\s\S]*?state\.toggleMutationHandle = extensionRequestAnimationFrame\(runDrain\);[\s\S]*?state\.toggleMutationHandleType = "raf";/
   );
+  assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
+  assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
+  assert.match(source, /scheduleAsyncExplicitToggleReconcile\(entry, \{[\s\S]*?immediateFullRender/);
+  assert.match(source, /await collectToggleableTargetsAsync\(immutableExcluded, excludedParents, \{/);
+  assert.match(source, /const completedCandidates = await appendSyncedCandidateItemsAsync\(candidates,/);
+  assert.match(source, /shouldAbort: \(\) => generation !== state\.toggleReconcileGeneration/);
   assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
 });
 
