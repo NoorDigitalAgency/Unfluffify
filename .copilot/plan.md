@@ -354,6 +354,17 @@ Validation checkpoint after Round-7 authority slices:
    substantially reduces the need for an immediate risky subtree-only reconcile
    path; the next work can focus on remaining structural hotspots with better
    live instrumentation instead of forcing premature partial-scope semantics.
+37. Stage-level toggle instrumentation completed:
+   the reconcile path now logs candidate collection, candidate merge,
+   silent-whitespace collection, and silent-whitespace merge timing in both the
+   synchronous and async sync paths when `unfluffify:toggle-perf=1` is active.
+   A headful Bonliva run with perf enabled confirmed that after the traversal
+   optimization the remaining parent-toggle cost is dominated by candidate
+   collection (`~35-50ms` on the tested branch) and silent-whitespace
+   collection (`~22-27ms`), while candidate merge (`~1.7ms`), silent-whitespace
+   merge (`~0-0.1ms`), and overlay draw (`~2-3ms`) are comparatively small.
+   That means the next real optimization target is narrowing or caching the two
+   collection passes, not the later merge/draw phases.
 
 ## Marking Reload Handoff
 

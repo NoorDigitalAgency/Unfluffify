@@ -10584,7 +10584,13 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
+  const candidateCollectionStartedAt = nowMs();
   const candidates = collectToggleableTargets(immutableExcluded, excludedParents);
+  logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
+    candidateCount: candidates.length,
+    excludedParentCount: excludedParents.size
+  });
+  const candidateMergeStartedAt = nowMs();
   appendSyncedCandidateItems(candidates, {
     seen,
     generatedExcludedSet,
@@ -10601,16 +10607,26 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     isWithinExplicitInclude,
     isWithinExplicitIncludeXpath
   });
+  logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
+    candidateCount: candidates.length,
+    itemCount: items.length
+  });
   const currentExcludedXpaths = new Set(
     items
       .filter((item) => item && item.xpath && item.excluded)
       .map((item) => item.xpath)
   );
   const silentWhitespaceExcludedXpaths = [];
+  const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,
     includeXpaths: explicitIncludeSet
   });
+  logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
+    candidateCount: silentWhitespaceCandidates.length,
+    excludedCount: currentExcludedXpaths.size
+  });
+  const silentWhitespaceMergeStartedAt = nowMs();
   for (const el of silentWhitespaceCandidates) {
     const xpath = getXPath(el);
     if (!xpath || seen.has(xpath)) {
@@ -10624,6 +10640,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
   }
+  logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
+    candidateCount: silentWhitespaceCandidates.length,
+    addedCount: silentWhitespaceExcludedXpaths.length
+  });
   for (const item of previousItems) {
     if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
       continue;
@@ -10868,12 +10888,19 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
+  const candidateCollectionStartedAt = nowMs();
   const candidates = await collectToggleableTargetsAsync(immutableExcluded, excludedParents, {
     shouldAbort
+  });
+  logTogglePerf("sync.candidate-collection", candidateCollectionStartedAt, {
+    candidateCount: candidates.length,
+    excludedParentCount: excludedParents.size,
+    async: true
   });
   if (shouldAbort && shouldAbort()) {
     return { changed: false, entry, persisted: false, hadEntry, aborted: true };
   }
+  const candidateMergeStartedAt = nowMs();
   const completedCandidates = await appendSyncedCandidateItemsAsync(candidates, {
     seen,
     generatedExcludedSet,
@@ -10892,6 +10919,11 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   }, {
     shouldAbort
   });
+  logTogglePerf("sync.candidate-merge", candidateMergeStartedAt, {
+    candidateCount: candidates.length,
+    itemCount: items.length,
+    async: true
+  });
   if (!completedCandidates || (shouldAbort && shouldAbort())) {
     return { changed: false, entry, persisted: false, hadEntry, aborted: true };
   }
@@ -10901,10 +10933,17 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
       .map((item) => item.xpath)
   );
   const silentWhitespaceExcludedXpaths = [];
+  const silentWhitespaceCollectionStartedAt = nowMs();
   const silentWhitespaceCandidates = collectSilentWhitespaceExclusionCandidates({
     excludedXpaths: currentExcludedXpaths,
     includeXpaths: explicitIncludeSet
   });
+  logTogglePerf("sync.silent-whitespace-collection", silentWhitespaceCollectionStartedAt, {
+    candidateCount: silentWhitespaceCandidates.length,
+    excludedCount: currentExcludedXpaths.size,
+    async: true
+  });
+  const silentWhitespaceMergeStartedAt = nowMs();
   for (const el of silentWhitespaceCandidates) {
     const xpath = getXPath(el);
     if (!xpath || seen.has(xpath)) {
@@ -10918,6 +10957,11 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
   }
+  logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
+    candidateCount: silentWhitespaceCandidates.length,
+    addedCount: silentWhitespaceExcludedXpaths.length,
+    async: true
+  });
   for (const item of previousItems) {
     if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
       continue;
