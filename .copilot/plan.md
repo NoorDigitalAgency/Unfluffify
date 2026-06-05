@@ -1266,17 +1266,29 @@ Phase 2 drift audit and fixes (2026-06-06):
    is now repurposed for desktop preview. Full `npm test` (532/532) green;
    Bonliva live smoke clean.
 
+Phase 2 code-review pass (2026-06-06, automated):
+   Additional cleanup and correctness improvements after the drift audit:
+   - Removed dead `setReloadRestoreTabState` function body (had no callers
+     since Phase 2 slice 1).
+   - `tabs.onUpdated` handler no longer falls back to `getReloadRestoreTabState`
+     (restore scope is never written since Phase 2.1); one fewer async
+     session-storage read per page-load.
+   - `tabs.onUpdated` also no longer calls `clearReloadRestoreTabState` on
+     the out-of-scope branch (always a no-op now).
+   - `PopupText.tooltips.mobileSimulationHotkey` renamed from `"CTRL/CMD+M"`
+     to `"M"` and restored to the desktop preview label row; the `m` key now
+     toggles desktop preview.
+   All guard tests updated to match. Full `npm test` (`518/518`) green;
+   Bonliva live smoke clean.
+
 Phase 2 remaining work:
-   Remaining work is validation of the live flows. The repo-local smoke
-   harness `scripts/smoke-property-lock-phase2.mjs` was improved to wait
-   for meaningful popup UI content (not just body text) and to retry up to
-   3 times before giving up on auth/load, reducing flakiness around popup
-   reopen after unpacked-extension reload. The remaining validation pass
-   requires a real browser session with auth state; a same-property
-   candidate→off-candidate→candidate cycle plus a cross-property return
-   cycle should be run in a session with valid Bonliva or similar property
-   auth before declaring Phase 2 fully closed. Full `npm test` (532/532)
-   green after all Phase 2 drift fixes.
+   Remaining work is live validation of the property-lock lifecycle flows.
+   The repo-local smoke harness `scripts/smoke-property-lock-phase2.mjs`
+   was improved to wait for meaningful popup UI content and retry up to 3
+   times, reducing flakiness around popup reopen after unpacked-extension
+   reload. A same-property candidate→off-candidate→candidate cycle plus a
+   cross-property return cycle should be run in a session with valid
+   Bonliva or similar property auth before declaring Phase 2 fully closed.
 
 Page interaction pass-through completed:
 
