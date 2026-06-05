@@ -2336,22 +2336,18 @@ async function removePageMarkingFromRemote(options = {}) {
     siteId = null,
     url = ""
   } = options;
-  const normalizedSiteId = normalizeSiteIdValue(siteId);
   const pageUrl = typeof url === "string" ? url.trim() : "";
-  const removeUrl = resolveRelativeEndpoint(endpointValue, "/remove");
-  if (!removeUrl || !normalizedSiteId || !pageUrl) {
+  if (!endpointValue || !normalizeSiteIdValue(siteId) || !pageUrl) {
     return { ok: false, skipped: true };
   }
-  const response = await fetch(removeUrl, {
-    method: "POST",
-    headers: createConfigSyncHeaders(tokenValue),
-    body: JSON.stringify({
-      siteId: normalizedSiteId,
-      url: pageUrl
-    })
+  const response = await messages.sendRuntimeMessage({
+    type: "removeRemotePageMarking",
+    endpointValue,
+    tokenValue,
+    siteId,
+    url: pageUrl
   });
-  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
-  return { ok: response.ok };
+  return response && typeof response === "object" ? response : { ok: false };
 }
 
 async function pruneRemoteInvalidPageMarkings(options = {}) {

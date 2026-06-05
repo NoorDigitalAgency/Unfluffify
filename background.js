@@ -384,6 +384,27 @@ async function requestAiRunStatus(options = {}) {
   return { ok: true, status: parsed.status };
 }
 
+async function removeRemotePageMarking(options = {}) {
+  const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const normalizedSiteId = normalizeSiteIdValue(options.siteId);
+  const pageUrl = typeof options.url === "string" ? options.url.trim() : "";
+  const removeUrl = resolveBackgroundEndpoint(endpointValue, "/remove");
+  if (!removeUrl || !normalizedSiteId || !pageUrl) {
+    return { ok: false, skipped: true };
+  }
+  const response = await fetch(removeUrl, {
+    method: "POST",
+    headers: createBackgroundJsonHeaders(tokenValue),
+    body: JSON.stringify({
+      siteId: normalizedSiteId,
+      url: pageUrl
+    })
+  });
+  await maybeUpdateStoredTokenFromResponse(response, tokenValue);
+  return { ok: response.ok, status: response.status || 0 };
+}
+
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -1059,6 +1080,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
       sessionId: message.sessionId
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "removeRemotePageMarking") {
+    removeRemotePageMarking({
+      endpointValue: message.endpointValue,
+      tokenValue: message.tokenValue,
+      siteId: message.siteId,
+      url: message.url
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

@@ -288,6 +288,27 @@ test("todo completion backend cache ignores local confirmed page markings unless
   );
 });
 
+test("invalid remote page pruning delegates the remove transport to background", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const removeBody = popupSource.match(
+    /async function removePageMarkingFromRemote\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
+  )[1];
+  const pruneBody = popupSource.match(
+    /async function pruneRemoteInvalidPageMarkings\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneLocalInvalidPageMarkings/
+  )[1];
+
+  assert.match(backgroundSource, /async function removeRemotePageMarking\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const removeUrl = resolveBackgroundEndpoint\(endpointValue, "\/remove"\);/);
+  assert.match(backgroundSource, /body: JSON\.stringify\(\{[\s\S]*?siteId: normalizedSiteId,[\s\S]*?url: pageUrl[\s\S]*?\}\)/);
+  assert.match(backgroundSource, /if \(message\.type === "removeRemotePageMarking"\) \{/);
+  assert.match(removeBody, /type: "removeRemotePageMarking"/);
+  assert.match(removeBody, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(removeBody, /fetch\(|maybeUpdateStoredTokenFromResponse|createConfigSyncHeaders/);
+  assert.match(pruneBody, /state\.removedRemotePageKeys\.has\(removalKey\)/);
+  assert.match(pruneBody, /state\.removedRemotePageKeys\.add\(removalKey\)/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");

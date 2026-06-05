@@ -100,6 +100,10 @@ Validation checkpoint after Round-7 authority slices:
 10. Obsolete popup AI persistence cleanup completed: popup now only loads and
    clears persisted AI-run metadata directly; background-owned heartbeat refresh
    is the only path that saves recovery metadata.
+11. Remote invalid-page cleanup transport slice completed: popup still owns the
+   invalid URL pruning loop and successful-removal cache, but the small `/remove`
+   POST now goes through background `removeRemotePageMarking`; no large config
+   payloads are moved through runtime messages.
 
 ## Marking Reload Handoff
 
