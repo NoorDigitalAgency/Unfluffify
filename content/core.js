@@ -70,6 +70,10 @@ export const state = {
   mutationObserver: null,
   savedPageEntry: null,
   savedPageUrl: "",
+  // Per-page fingerprint of the last clean state. Lazy-initialised on the
+  // first dirty check after sync populates the draft, and refreshed when a
+  // backend-confirmed entry lands via setSavedPageEntry. Cleared in disable().
+  cleanBaselineFingerprintByPageUrl: new Map(),
   pageSaveReconciliation: null,
   disabledUnsavedDraft: null,
   consentSyncedPageUrl: "",
@@ -9402,8 +9406,21 @@ export function isPageDraftDirty(pageUrl) {
     return true;
   }
   const draft = getDraftPageEntry(pageUrl);
-  const saved = getSavedPageEntry(pageUrl);
-  return !areEntriesEquivalent(draft, saved);
+  const draftFingerprint = getEntryFingerprint(draft).join("\n");
+  const baseline = pageUrl
+    ? state.cleanBaselineFingerprintByPageUrl.get(pageUrl)
+    : undefined;
+  if (baseline === undefined) {
+    // No baseline yet. If the draft has been populated by the initial sync
+    // (defaults + AI CSS selectors), snapshot it as the implicit clean
+    // baseline so subsequent user/AI changes are detected. If the draft is
+    // still empty (sync hasn't run), there is nothing to lose yet.
+    if (pageUrl && draft && Array.isArray(draft.xpaths) && draft.xpaths.length > 0) {
+      state.cleanBaselineFingerprintByPageUrl.set(pageUrl, draftFingerprint);
+    }
+    return false;
+  }
+  return draftFingerprint !== baseline;
 }
 
 export function getPageSaveReconciliationState(pageUrl = location.href) {
@@ -9500,6 +9517,16 @@ export function setSavedPageEntry(pageUrl, entry) {
   state.savedPageEntry = clonePageEntry(entry);
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     state.autoSeededPendingSavePageUrl = "";
+  }
+  // A backend-confirmed entry refreshes the clean baseline for that page so
+  // subsequent edits or AI runs flip the dirty signal back on. Skip empty
+  // entries (null / reset) so we do not erase an established baseline mid
+  // session.
+  if (pageUrl && entry && Array.isArray(entry.xpaths) && entry.xpaths.length > 0) {
+    state.cleanBaselineFingerprintByPageUrl.set(
+      pageUrl,
+      getEntryFingerprint(entry).join("\n")
+    );
   }
 }
 
@@ -10154,6 +10181,7 @@ export function disable(options = {}) {
   clearMarkingSettleRenders();
   state.savedPageEntry = null;
   state.savedPageUrl = "";
+  state.cleanBaselineFingerprintByPageUrl.clear();
   removeOverlay();
   closeAiPopover();
   removeConsentBypassStyle();

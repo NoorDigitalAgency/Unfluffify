@@ -805,6 +805,62 @@ Validation checkpoint after Round-7 authority slices:
 
 ## Marking Reload Handoff
 
+Phase 0 Q&A captured (2026-06-05):
+
+1. **Reload scope** — Marking does NOT auto-restore across reload/navigation.
+   Instead, the navigation/refresh path shows an "unsaved changes will be
+   lost" confirmation when there is unsaved work; on rejection the
+   navigation/refresh is blocked, on acceptance the session resets and
+   marking is disabled on every page including the current one.
+2. **Offscreen role** — Keep remote-support-only. Heavy payloads stay in
+   IndexedDB with lightweight keys passed by message.
+3. **Heavy payload handoff** — IndexedDB key + read-in-owner, with a
+   cleanup mechanism (TTL or purge-on-consume) to bound DB growth.
+4. **Contract changes** — None during the reload work. The locked marking
+   contract is preserved exactly.
+5. **Dirty signal definition** — Backend-saved markings are NOT the
+   baseline for "dirty"; they are only used for AI payload construction
+   and the current page's fresh data + latest AI CSS selectors for Lynx
+   submission. The dirty span starts right after the initial fresh
+   marking calculation (defaults + AI CSS selectors influence) and ends
+   when a successful backend save lands (after the AI run completes).
+6. **Guard owner** — A content-side `beforeunload` listener on each
+   enabled page, returning a non-empty string when the dirty signal fires.
+
+Revised phase shape:
+
+- Phase 1 — Navigation/reload guard UX: beforeunload-based confirmation
+  when there is unsaved work; block navigation on rejection.
+- Phase 2 — Global disable on accepted navigation/reload: reset session
+  state and disable marking across every page in the session; remove any
+  auto-restore code paths that conflict.
+- Phase 3 — IDB-key heavy-payload handoff plus TTL/consume-purge cleanup;
+  add source guards against accidental large-message paths.
+- Phase 4 — AI lifecycle: only touch if Phase 2/3 expose stale stored
+  snapshots, submissionXpaths, raw backfills, or compute-lock state.
+
+Phase 1 slice 1 completed:
+   `isPageDraftDirty(...)` in
+   [content/core.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content/core.js)
+   no longer compares the draft directly against the backend-saved entry.
+   Instead it consults a per-page `state.cleanBaselineFingerprintByPageUrl`
+   Map: the first dirty check after sync populates the draft snapshots the
+   current draft fingerprint as the implicit clean baseline and returns
+   `false`; subsequent checks compare the live draft fingerprint against
+   the recorded baseline, so user edits and AI-driven changes flip the
+   signal to `true` while a freshly-synced never-saved page stays clean.
+   `setSavedPageEntry(...)` refreshes the baseline whenever a substantive
+   backend-confirmed entry lands, so a completed save resets dirty back to
+   `false`. The baseline is cleared in `disable(...)` so the next enable
+   re-establishes a fresh baseline. Empty `setSavedPageEntry(null)` /
+   reset calls do not erase an established baseline mid session.
+   `getEntryFingerprint(...)` results are now joined with `"\n"` (a
+   character that cannot appear inside any fingerprint segment) so the
+   stored baseline strings stay unambiguous. New behavior test in
+   `tests/dirty-baseline.test.js` (6/6); full `npm test` (`490/490`)
+   stayed green and a Bonliva live smoke still resolved 117/117 included
+   rows visible with zero console errors.
+
 Planning-only handoff prepared for the local Copilot agent:
 
 1. Start with `.copilot/marking-reload-handoff.md`.
