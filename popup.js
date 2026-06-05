@@ -769,6 +769,7 @@ function applyBackgroundStateSnapshot(snapshot) {
   }
   popupBackgroundLifecycle = snapshot.lifecycle || null;
   state.traceModeEnabled = Boolean(snapshot.traceEnabled);
+  state.traceEvents = Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
   (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
@@ -877,10 +878,14 @@ async function restoreSpinnerQueueFromBackground(tabId) {
 
 async function handleTraceModeToggle(event) {
   const enabled = Boolean(event && event.currentTarget && event.currentTarget.checked);
+  const previousEnabled = Boolean(state.traceModeEnabled);
   state.traceModeEnabled = enabled;
   uiModule.setViewState({ traceModeEnabled: enabled });
   const tabId = state.currentTab && state.currentTab.id;
   if (!tabId) {
+    state.traceModeEnabled = previousEnabled;
+    uiModule.setViewState({ traceModeEnabled: previousEnabled });
+    uiModule.showToast("Trace Mode requires an active tab.");
     return;
   }
   const response = await messages.sendRuntimeMessage({
@@ -888,9 +893,13 @@ async function handleTraceModeToggle(event) {
     tabId,
     enabled
   }).catch(() => null);
-  if (response && response.ok) {
-    applyBackgroundStateSnapshot(response);
+  if (!response || !response.ok) {
+    state.traceModeEnabled = previousEnabled;
+    uiModule.setViewState({ traceModeEnabled: previousEnabled });
+    uiModule.showToast("Unable to update Trace Mode.");
+    return;
   }
+  applyBackgroundStateSnapshot(response);
 }
 
 function connectBackgroundStatePort(tabId) {
@@ -5092,6 +5101,8 @@ async function refreshUiInner(options = {}) {
       ? ""
       : PopupText.configuration.continueSetupNotice;
   nextViewState.traceModeEnabled = Boolean(state.traceModeEnabled);
+  nextViewState.traceEvents = Array.isArray(state.traceEvents) ? state.traceEvents : [];
+  nextViewState.traceEventCount = nextViewState.traceEvents.length;
   nextViewState.remoteSupportAutoFocus = remoteSupportViewLocked;
 
   const pageScopedUiDisabled =
@@ -8567,6 +8578,7 @@ function scheduleRefresh() {
 }
 
 async function init() {
+  state.traceEvents = [];
   await helpers.ensureActiveTab();
   const initTabId = state.currentTab && state.currentTab.id;
   if (initTabId) {

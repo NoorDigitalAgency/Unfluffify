@@ -149,9 +149,28 @@ function setWorldTraceEnabled(tabId, enabled) {
   }
   const traceState = ensureTraceState(normalizedTabId);
   traceState.enabled = Boolean(enabled);
+  traceState.events = [];
+  const recordTraceEvent = (channel, event, payload) => {
+    traceState.events.push({
+      at: Date.now(),
+      channel,
+      event,
+      payload: payload && typeof payload === "object" ? payload : null
+    });
+    if (traceState.events.length > WORLD_TRACE_EVENT_LIMIT) {
+      traceState.events.splice(0, traceState.events.length - WORLD_TRACE_EVENT_LIMIT);
+    }
+  };
   if (!traceState.enabled) {
-    traceState.events = [];
+    recordTraceEvent("trace", "disabled", {
+      type: WORLD_MESSAGE_TYPES.TRACE_SET,
+      message: "Trace Mode disabled"
+    });
   } else {
+    recordTraceEvent("trace", "enabled", {
+      type: WORLD_MESSAGE_TYPES.TRACE_SET,
+      message: "Trace Mode enabled"
+    });
     appendWorldTraceEvent(normalizedTabId, "trace", "enabled", {
       type: WORLD_MESSAGE_TYPES.TRACE_SET,
       message: "Trace Mode enabled"
@@ -525,7 +544,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE) {
-    sendResponse(buildBrokerState(getMessageTabId(message, sender)));
+    const tabId = getMessageTabId(message, sender);
+    appendWorldTraceEvent(tabId, "broker", "snapshot-requested", {
+      type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
+      message: "Popup requested background state"
+    });
+    sendResponse(buildBrokerState(tabId));
     return;
   }
 
@@ -556,6 +580,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === WORLD_MESSAGE_TYPES.TRACE_SET) {
     const tabId = getMessageTabId(message, sender);
+    appendWorldTraceEvent(tabId, "trace", "set-requested", {
+      type: WORLD_MESSAGE_TYPES.TRACE_SET,
+      message: Boolean(message.enabled) ? "enable" : "disable"
+    });
     sendResponse(setWorldTraceEnabled(tabId, Boolean(message.enabled)));
     return;
   }

@@ -43,6 +43,8 @@ const initialViewState = {
   configurationNoticeText: "",
   configurationNoticeVisible: false,
   traceModeEnabled: false,
+  traceEvents: [],
+  traceEventCount: 0,
   currentPageUrl: ViewText.unavailable,
   currentBaseUrl: "",
   baseUrlInputValue: "",
@@ -2294,6 +2296,30 @@ function renderConfigurationAppearanceSection(view, handlers) {
 
 function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
+  const traceEvents = Array.isArray(view.traceEvents) ? view.traceEvents : [];
+  const traceItems = traceEvents
+    .slice(-20)
+    .reverse()
+    .map((event) => {
+      const at = Number.isFinite(event && event.at) ? new Date(event.at).toLocaleTimeString() : "--:--:--";
+      const channel = event && typeof event.channel === "string" ? event.channel : "broker";
+      const name = event && typeof event.event === "string" ? event.event : "event";
+      const payload = event && event.payload && typeof event.payload === "object"
+        ? event.payload
+        : null;
+      const summary = payload
+        ? [payload.type, payload.kind, payload.phase, payload.message]
+          .filter((value) => typeof value === "string" && value)
+          .join(" | ")
+        : "";
+      return h(
+        "li",
+        { class: "trace-events-list__item" },
+        h("span", { class: "trace-events-list__time" }, at),
+        h("span", { class: "trace-events-list__meta" }, `${channel} / ${name}`),
+        summary ? h("span", { class: "trace-events-list__summary" }, summary) : null
+      );
+    });
   const sections = [
     renderConfigurationAppearanceSection(view, handlers),
     h(
@@ -2311,7 +2337,15 @@ function renderConfigurationExtrasSection(view, handlers) {
           onChange: handlers.onTraceModeToggle
         })
       ),
-      h("p", { class: "row-note" }, PopupText.configuration.traceModeHint)
+      h("p", { class: "row-note" }, PopupText.configuration.traceModeHint),
+      h(
+        "p",
+        { class: "row-note" },
+        `Trace events: ${Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length}`
+      ),
+      traceItems.length > 0
+        ? h("ul", { class: "trace-events-list" }, traceItems)
+        : h("p", { class: "row-note" }, "No trace events captured yet.")
     )
   ];
 

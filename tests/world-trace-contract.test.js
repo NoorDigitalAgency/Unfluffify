@@ -20,6 +20,8 @@ test("background persists per-tab trace state and propagates trace enablement to
   assert.match(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
   assert.match(backgroundSource, /type: WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET,/);
   assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{/);
+  assert.match(backgroundSource, /snapshot-requested/);
+  assert.match(backgroundSource, /set-requested/);
   assert.match(backgroundSource, /traceEnabled: Boolean\(traceState && traceState\.enabled\),/);
   assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
@@ -33,7 +35,12 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.match(popupSource, /async function handleTraceModeToggle\(event\) \{/);
   assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
   assert.match(popupSource, /state\.traceModeEnabled = Boolean\(snapshot\.traceEnabled\);/);
+  assert.match(popupSource, /state\.traceEvents = Array\.isArray\(snapshot\.traceEvents\) \? \[\.\.\.snapshot\.traceEvents\] : \[\];/);
+  assert.match(popupSource, /nextViewState\.traceEvents = Array\.isArray\(state\.traceEvents\) \? state\.traceEvents : \[\];/);
+  assert.match(popupSource, /nextViewState\.traceEventCount = nextViewState\.traceEvents\.length;/);
   assert.match(popupSource, /nextViewState\.traceModeEnabled = Boolean\(state\.traceModeEnabled\);/);
+  assert.match(popupUiSource, /Trace events:/);
+  assert.match(popupUiSource, /trace-events-list/);
 });
 
 test("popup message transport logs world traffic when trace mode is enabled", () => {

@@ -106,6 +106,7 @@ export const state = {
   propertyPageTypesInvalidAlertPending: false,
   propertyPageTypesChangeForceTodoOpen: false,
   traceModeEnabled: false,
+  traceEvents: [],
   removedRemotePageKeys: new Set(),
   propertyLockSiteId: null,
   propertyLockState: null,
