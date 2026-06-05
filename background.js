@@ -2883,9 +2883,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await utils.disableExtensionForTab(tabId);
     return;
   }
-  if (tabState && tabState.enabled && tabState.baseUrl) {
-    await utils.setTabState(tabId, tabState);
-  }
   requestContentActivation(tabId);
   // restoreEnabledStateForTab is a no-op when tabState is null/disabled (the
   // common case now that auto-restore is retired) but is kept to preserve the

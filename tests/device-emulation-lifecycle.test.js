@@ -241,18 +241,19 @@ test("popup chrome helpers route privileged tab and browsing-data APIs through b
   assert.doesNotMatch(popupChromeHelpersSource, /chrome\.tabs\.reload/);
 });
 
-test("shared tab state writes mirror enabled sessions into reload restore state", () => {
+test("setTabState no longer mirrors enabled sessions into reload restore state", () => {
+  // Phase 2 retired auto-restore. setTabState now just writes the key and
+  // returns; it does not populate or clear the restore scope.
   const setTabStateBlock = extractSourceBlock(
     utilitiesSource,
     "export async function setTabState(tabId, state, scope = null) {",
     "export async function clearTabState"
   );
 
-  assert.match(setTabStateBlock, /if \(scope\) \{\s*return;\s*\}/);
-  assert.match(setTabStateBlock, /const restoreKey = `\$\{TAB_STATE_PREFIX\}restore:\$\{tabId\}`;/);
-  assert.match(setTabStateBlock, /if \(nextState && nextState\.enabled && nextState\.baseUrl\) \{/);
-  assert.match(setTabStateBlock, /await storageSet\(chrome\.storage\.session, \{/);
-  assert.match(setTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[restoreKey\]\);/);
+  assert.match(setTabStateBlock, /await storageSet\(chrome\.storage\.session, \{\[key\]: nextState\}\);/);
+  // No restore-scope write or clear
+  assert.doesNotMatch(setTabStateBlock, /restoreKey/);
+  assert.doesNotMatch(setTabStateBlock, /TAB_STATE_PREFIX.*restore/);
 });
 
 test("shared clearTabState removes initial tab lifecycle state as well as live tab state", () => {
@@ -290,7 +291,9 @@ test("completed reload restores marking when the page stays within the saved bas
   // Restore scope is no longer consulted (auto-restore retired in Phase 2.1)
   assert.match(onUpdatedBlock, /const tabState = await utils\.getTabState\(tabId\);/);
   assert.doesNotMatch(onUpdatedBlock, /getReloadRestoreTabState/);
-  assert.match(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);
+  // The redundant setTabState(tabId, tabState) was removed (navigation clears
+  // live state, so tabState is null/disabled when onUpdated fires).
+  assert.doesNotMatch(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);
   assert.match(onUpdatedBlock, /requestContentActivation\(tabId\);/);
   assert.match(onUpdatedBlock, /restoreEnabledStateForTab\(tabId, tabState\);/);
   assert.match(backgroundSource, /performInitialReveal: true/);
