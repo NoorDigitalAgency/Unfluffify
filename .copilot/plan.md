@@ -73,6 +73,52 @@ Planning-only handoff prepared for the local Copilot agent:
    owner than popup/background, and avoid moving large HTML/server/AI payloads
    through runtime messaging.
 
+## Marking and Silent-Highlight Contract Reconciliation
+
+Planning-only follow-up from comparing the supplied final
+`MARKING_AND_HIGHLIGHTING_LOGIC.md` contract against the current docs and
+implementation:
+
+1. Treat the supplied final document as the marking/silent-highlighting contract
+   baseline. The current `MARKING_AND_HIGHLIGHTING_LOGIC.md` already contains
+   the supplied contract, but it also includes newer orchestration addenda for
+   Save Session gating, popup/content mode reconciliation, background spinner
+   brokerage, and Render Mode inspection. In the docs sync phase, reconcile
+   those additions deliberately: keep them only if they describe accepted
+   committed behavior and belong in this source-of-truth doc; otherwise move
+   them to `.copilot/plan.md`, `.copilot/knowledge.md`, `README.md`, or the
+   relevant workflow docs.
+2. Fix the concrete Preview Contents drift. The supplied/current contract says
+   Preview Contents and Send to Lynx live on the silent-highlighting surface
+   only and must stay hidden or disabled while marking mode is active. Current
+   implementation still exposes a marking-mode preview path via
+   `nextViewState.markingPreviewVisible`, `markingPreviewDisabled`,
+   `handleMarkingPreview`, `onMarkingPreview`, and the `#marking-preview` button
+   in `popup/ui.js`, and `tests/popup-ai-run-gating.test.js` locks that behavior.
+   Planned fix: remove the marking-mode preview state/handler/UI, update tests
+   to assert no marking-mode preview path exists, keep the silent-mode Preview
+   Contents and Send to Lynx handler-level `silentModeActive` guards, and verify
+   opening/closing preview does not dirty page drafts.
+3. Add/strengthen a focused regression guard for the silent-highlight click
+   pass-through contract. Implementation appears to set `pointer-events: none`
+   on `#unfluffify-silent-highlight-overlay`, layers, and rects, but the supplied
+   contract explicitly states silent-highlighting overlays never capture page
+   clicks. Add a source-level or DOM-level test that locks this, while preserving
+   the existing title-copy behavior from annotated source nodes.
+4. Keep the already-verified contract surfaces unchanged while applying the
+   above fixes: toggleable default taxonomy (`BUTTON` toggleable, `LINK`
+   omitted), ordinary exclude overlay projection, default-row submission,
+   hidden textual submission, silent-highlight `immutable`/`content`/`excluded`
+   layers, movement-settle redraws, page-motion pause ownership, Space-held page
+   interaction, and temporary disabled marking state. These are covered by the
+   focused marking/silent/submission suites and should not be refactored as part
+   of the Preview Contents drift fix.
+5. Validation for this reconciliation phase: run
+   `node --test tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/core-scheduling.test.js tests/submission-rules.test.js`,
+   then the full `npm test`. After each phase, run the repo-configured
+   `playwright-local` MCP validation when the validation-infra blocker is
+   resolved; if it finds additional issues, add them here before moving on.
+
 ## Marking Logic Rewrite
 
 First pass completed:
