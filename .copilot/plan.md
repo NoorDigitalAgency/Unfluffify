@@ -331,6 +331,16 @@ Validation checkpoint after Round-7 authority slices:
    broad-toggle cost by scoping candidate collection/reprocessing to the
    affected subtree and ancestor/default boundary graph where correctness
    allows, while preserving the full-page fallback for unsafe structural cases.
+35. Yield-cadence follow-up completed:
+   the cooperative reconcile slice length was tightened from `140` processed
+   nodes/items per yield to `40`, then revalidated with the focused guard
+   suite, full `npm test`, and the same headful Bonliva Shift-parent burst.
+   The live burst still showed page paints advancing during reconciliation and
+   shaved the slow broad-toggle sample from roughly `1.68s` to `1.57s`, which
+   confirms the current bottleneck is no longer just missing yields. Further
+   responsiveness gains now depend more on reducing how much of the page gets
+   reconsidered for broad parent toggles than on slicing the same full-page
+   workload into even smaller chunks.
 
 ## Marking Reload Handoff
 
