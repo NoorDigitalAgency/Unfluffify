@@ -697,6 +697,18 @@ Validation checkpoint after Round-7 authority slices:
    `tests/content-activation-order.test.js`; full `npm test` (`461/461`)
    stayed green and a repo-local Bonliva + prowork live smoke confirmed
    identical AI-submission verdicts and zero console errors.
+50h. Silent-highlight observer style-mutation narrowing completed:
+   `SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS` in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   now includes `"style"` alongside `hidden`/`aria-hidden`/`open`. The mutation
+   observer therefore routes inline-style mutations through the cheap
+   `scheduleSilentHighlightReposition({ waitForSettle: true })` path instead of
+   the full-refresh stampede, since inline style affects rects but not
+   selector matches. The relevant-mutation attribute filter still lists
+   `"style"` so the observer continues to receive these mutations. Source-level
+   guard test added in `tests/content-activation-order.test.js`; full
+   `npm test` (`454/454`) stayed green and a repo-local Bonliva + prowork live
+   smoke confirmed identical AI-submission verdicts and zero console errors.
 53. Silent-highlight responsiveness rollup (status against item 50):
    - **50 sub-1 (cancellable phases)**: partially landed as item 50d — a
      generation token bails on stale calls after each `await`, but the function
@@ -715,9 +727,12 @@ Validation checkpoint after Round-7 authority slices:
    - **50 sub-3 (render-target caching)**: landed as item 50e.
    - **50 sub-4 (tracked-node mutation index)**: landed as item 50f.
    - **50 sub-5 (narrower mutation paths — position-only vs full vs
-     annotation-only)**: not started. Today every position-relevant attribute
-     mutation still funnels into
-     `scheduleSilentHighlightReposition({ waitForSettle: true })`.
+     annotation-only)**: partially landed as item 50h — inline-style
+     mutations are now routed through the reposition path instead of full
+     refresh. The annotation-only reapply path (apply selector titles/badges
+     to an already-rendered overlay without rebuilding source collections)
+     and a narrower path for `class` mutations on non-tracked-touching nodes
+     remain open follow-ups.
    - **50 sub-6 (per-generation memoization of visibility/textual checks)**:
      not started; pending live profiling after the deeper phase split.
    Item 52 live-smoke obligation: items 50d/50e/50f have full `npm test` and

@@ -295,6 +295,31 @@ test("silent-highlight reposition reuses cached render targets between settle sa
   );
 });
 
+test("silent-highlight observer routes inline style mutations through the reposition path", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  // Inline style mutations are in the position-refresh attribute set so a
+  // transform/visibility tweak on a tracked-touching node reposition-refreshes
+  // instead of triggering a full-refresh stampede.
+  const positionSetMatch = source.match(
+    /const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set\(\[([\s\S]*?)\]\);/
+  );
+  assert.ok(positionSetMatch);
+  const positionSetBody = positionSetMatch[1];
+  assert.match(positionSetBody, /"hidden"/);
+  assert.match(positionSetBody, /"aria-hidden"/);
+  assert.match(positionSetBody, /"open"/);
+  assert.match(positionSetBody, /"style"/);
+
+  // The relevant-mutation set still includes "style" so the observer still
+  // receives the mutation in the first place.
+  const relevantSetMatch = source.match(
+    /const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set\(\[([\s\S]*?)\]\);/
+  );
+  assert.ok(relevantSetMatch);
+  assert.match(relevantSetMatch[1], /"style"/);
+});
+
 test("refreshSilentHighlightings yields to a paint frame before the overlay DOM write", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const fnStart = source.indexOf("async function refreshSilentHighlightings() {");

@@ -136,7 +136,12 @@ const SILENT_HIGHLIGHTING_RELEVANT_MUTATION_ATTRS = new Set([
 const SILENT_HIGHLIGHTING_POSITION_REFRESH_ATTRS = new Set([
   "hidden",
   "aria-hidden",
-  "open"
+  "open",
+  // Inline style mutations are typically transform/visibility updates from
+  // animations or layout-driven JS. They affect rects, not selector matches,
+  // so the reposition path is sufficient and avoids a full-refresh stampede
+  // on animation-heavy pages.
+  "style"
 ]);
 // Record Separator keeps the composite suppression fingerprint separate from
 // the selector fingerprint's Unit Separator without colliding with selector text.
