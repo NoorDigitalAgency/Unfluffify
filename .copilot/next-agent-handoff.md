@@ -3,122 +3,59 @@
 Read this after `.copilot/plan.md`, `.copilot/knowledge.md`, and
 `PROPERTY_LOCK.md`.
 
-## Current Status
+## Current Status (2026-06-06)
 
-The repo is past the main Phase 2 implementation work for editor-tab marking
-lifecycle and property-lock navigation behavior.
+Phase 1 (dirty signal / beforeunload guard), Phase 2 (editor-mobile-only,
+desktop preview, property-lock lifecycle), and Phase 3 (orphan payload sweep)
+are all implemented and validated. A full code-review pass of the agent commit
+`b41c50f` was completed and all drifts were fixed:
 
-Implemented and validated locally:
+1. Desktop preview section placement — moved inside `div.app` grid, outside
+   `renderMarkingView`, so it's view-independent.
+2. Activity signals — general page input now triggers debounced
+   `sendPropertyLockActivity()` (not just marking-specific actions).
+3. Dead code — `setReloadRestoreTabState` removed; `tabs.onUpdated` no longer
+   reads the restore scope.
+4. Tooltip — `mobileSimulationHotkey` text updated to `"M"` and restored to
+   the desktop preview label row.
+5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
-- Marking no longer auto-restores across reload/navigation.
-- Active marking forces mobile emulation on the editor tab.
-- Desktop preview is a separate tab-lifecycle popup section.
-- Same-property off-candidate pages keep silent-highlighting/property-lock UI.
-- Same-property off-candidate warning persists through initial tab state and
-  releases the editor role on expiry.
-- Cross-property recovery cooldown persists through initial tab state and can
-  restore the original editor session.
-- Tab removal immediately releases/disposes the property-lock runtime.
-- Shared tab-state teardown now consistently clears live, initial, restore, and
-  related tab-scoped session state through the common cleanup paths.
+**Current test count: 493/493 passing. All syntax checks clean.**
 
-Latest local validation:
+## What's Left
 
-- `npm test` passes (`47/47`).
-- Recent focused checks passed repeatedly:
-  - `node --check popup.js`
-  - `node --check background.js`
-  - `node --check content-main.js`
-  - `node --test tests/popup-marking-refresh.test.js`
+1. **Phase 2 live validation** — requires a real browser session with
+   property auth (Bonliva or similar). Run
+   `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs <candidate-url> <cross-property-url>`
+   with a session that has a valid auth token. The smoke harness is more
+   reliable than before (retries up to 3× on popup load). Watch for:
+   - `checks.initialEditor === true`
+   - `checks.crossPropertyCountdown === true` (popup shows "Return to it
+     within N seconds")
+   - `checks.returnRecovered === true` (popup shows "You are editing")
 
-## Important Recent Finding
+2. **Remote Support Follow-up** (manual, 2-profile) — see plan.md.
 
-The popup-side cross-property mirror had a real bug that is now fixed in
-`popup.js`.
+3. **Silent-highlight sub-2/sub-6 deeper** — optional, profiling-gated.
 
-The failure mode was:
+## What NOT To Do
 
-1. Popup loaded recovery metadata from `tabState:initial:<tabId>`.
-2. Popup refreshed a live lock snapshot for the new property page.
-3. That refresh reset popup-side recovery fields before the mirror logic ran.
-4. The popup either cleared the stored recovery state or rendered `No active
-   editor` even while the content-page banner correctly showed the countdown.
+- Do not invent new Phase 2 behavior slices unless you find a real bug.
+- Do not change the marking-rules contract.
+- Do not touch IDB payload handling beyond what's already in place.
 
-The fix that landed:
+## Files Most Relevant To Remaining Work
 
-- Preserve a snapshot of the pre-refresh recovery session from initial tab
-  state.
-- Give the persisted recovery session precedence when the current page is
-  outside the recovery base URL.
-- Render popup cross-property/off-candidate countdown warnings from mirrored
-  initial-tab-state deadlines directly, without requiring the fetched live lock
-  snapshot to still say `isEditor`.
-
-This is a real product fix, not just a smoke-test workaround.
-
-## Live Validation Status
-
-Repo-local live validation used:
-
-```sh
-xvfb-run -a node scripts/smoke-property-lock-phase2.mjs
-```
-
-Key current facts:
-
-- The smoke script can launch the unpacked extension in the persistent repo
-  profile, reload the extension worker, open `popup.html?debugTabId=...`, and
-  inspect page banner + popup + `chrome.storage.session`.
-- Cross-property page-banner validation is real and currently good:
-  the page banner shows the expected `Return to it within ...` cooldown text,
-  and `tabState:initial:<tabId>` persists the old property `siteId`, `baseUrl`,
-  `clientId`, and a real `deadlineAt`.
-- Popup cross-property countdown rendering on the active cross-property page was
-  the bug described above and is now fixed in code/tests.
-
-Remaining live-validation caveat:
-
-- The smoke harness is still somewhat flaky when the extension is reloaded and
-  the popup is reopened repeatedly. Sometimes the popup lands on the unauth /
-  endpoint-setup view even though sync storage is populated. When that happens,
-  treat the result as a harness/profile/bootstrap issue unless the page banner
-  and `tabState:initial:*` also show broken state.
-
-## Highest-Value Next Step
-
-Do not invent another Phase 2 behavior slice unless you find a real bug.
-
-The next high-value task is a cleaner live validation pass, not more speculative
-refactoring.
-
-Recommended next work:
-
-1. Stabilize `scripts/smoke-property-lock-phase2.mjs` or replace it with a more
-   deterministic repo-local browser validation path.
-2. Run one real same-property candidate -> off-candidate -> candidate scenario
-   on a property that actually exposes Live Page candidates and AI selectors.
-3. Re-run the cross-property return flow after the smoke harness is stable
-   enough to trust reopened-popup observations.
-4. Only after that, decide whether Phase 2 can be closed as fully validated.
-
-## Files Most Relevant To The Next Task
-
-- `popup.js`
-- `content-main.js`
-- `background.js`
-- `common/property-lock-background.js`
-- `common/utilities.js`
-- `tests/popup-marking-refresh.test.js`
-- `tests/property-lock.test.js`
-- `tests/property-lock-background.test.js`
-- `tests/device-emulation-lifecycle.test.js`
-- `scripts/smoke-property-lock-phase2.mjs`
+- `scripts/smoke-property-lock-phase2.mjs` — for live Phase 2 validation
+- `popup.js`, `content-main.js`, `background.js` — core logic
+- `common/property-lock-background.js` — WS runtime
+- `tests/device-emulation-lifecycle.test.js` — Phase 2 guard tests
+- `tests/popup-marking-refresh.test.js`, `tests/property-lock*.test.js`
 
 ## Practical Notes
 
-- Use `apply_patch` for edits.
-- The worktree is intentionally dirty from the full Phase 2 stream; do not
-  revert unrelated changes.
-- For live browser validation, expect to need the persistent repo browser
-  profile rather than a fresh one because the fresh profile lacks meaningful
-  extension configuration/auth state.
+- Full suite: `npm test`
+- Syntax check: `node --check popup.js && node --check background.js && node --check content-main.js`
+- AI-submission live smoke: `xvfb-run -a -s "-screen 0 1280x1024x24" node scripts/smoke-ai-submission.mjs <url>`
+- Phase 2 property-lock smoke: `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs <candidate-url> <cross-property-url>`
+- Use the persistent repo browser profile (`.mcp-browser-profile`) for live validation, not a fresh profile — it has auth state and Developer Mode enabled.
