@@ -376,6 +376,16 @@ Validation checkpoint after Round-7 authority slices:
    `~58-79ms` with candidate collection at `~55-76ms`, which confirms the next
    meaningful hotspot is the main candidate scan plus the pre-scan explicit
    XPath/ancestor setup rather than the secondary whitespace pass.
+39. Reconcile setup timing split completed:
+   the next investigation consolidated previous-item XPath preparation into one
+   cached pass and split that work into a dedicated `sync.entry-setup` perf
+   stage so it is no longer conflated with the rest of reconcile timing. A
+   headful Bonliva run showed that setup block at only `~0-0.1ms` on the live
+   toggle path with `xpathLookupCount: 0` for the tested branch target, while
+   candidate collection still dominated at roughly `~60-88ms`. That rules out
+   pre-scan entry metadata as the remaining UI-freeze cause on this page and
+   narrows the next optimization target to the main candidate traversal and, in
+   parallel, the post-sync render rebuild cost.
 
 ## Marking Reload Handoff
 

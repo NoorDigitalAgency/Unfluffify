@@ -10461,6 +10461,49 @@ async function appendSyncedCandidateItemsAsync(candidates, context, options = {}
   return true;
 }
 
+function collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath) {
+  const excludedLookup = new Map();
+  const explicitXpathSet = new Set();
+  const explicitExcludeSet = new Set();
+  const explicitUserExcludeSet = new Set();
+  const excludedParents = new Set();
+  for (const item of previousItems) {
+    const xpath = item && item.xpath;
+    if (typeof xpath !== "string" || !xpath) {
+      continue;
+    }
+    excludedLookup.set(xpath, Boolean(item.excluded));
+    if (item.explicit === true) {
+      explicitXpathSet.add(xpath);
+    }
+    if (!item.excluded) {
+      continue;
+    }
+    explicitExcludeSet.add(xpath);
+    if (item.explicit === true) {
+      explicitUserExcludeSet.add(xpath);
+    }
+    const el = getCachedElementFromXPath(xpath);
+    if (!el) {
+      continue;
+    }
+    if (isWithinConsentElement(el)) {
+      continue;
+    }
+    if (isWithinImmutableExcluded(el)) {
+      continue;
+    }
+    excludedParents.add(el);
+  }
+  return {
+    excludedLookup,
+    explicitXpathSet,
+    explicitExcludeSet,
+    explicitUserExcludeSet,
+    excludedParents
+  };
+}
+
 function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   const syncStartedAt = nowMs();
   if (!config || !pageUrl) {
@@ -10477,7 +10520,7 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     persist: shouldPersist
   });
   normalizePageEntryXpaths(entry);
-  const xpathLookupStartedAt = nowMs();
+  const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
   const getCachedElementFromXPath = (value) => {
@@ -10492,35 +10535,17 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-  const excludedLookup = new Map();
-  const explicitXpathSet = new Set();
-  for (const item of entry.xpaths || []) {
-    if (item && item.xpath) {
-      excludedLookup.set(item.xpath, Boolean(item.excluded));
-      if (item.explicit === true) {
-        explicitXpathSet.add(item.xpath);
-      }
-    }
-  }
+  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const {
+    excludedLookup,
+    explicitXpathSet,
+    explicitExcludeSet,
+    explicitUserExcludeSet,
+    excludedParents
+  } = collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath);
   const previousSilentWhitespaceExcludedSet = new Set(
     collectSilentWhitespaceExcludedXPaths(entry)
   );
-  const explicitExcludeSet = new Set();
-  const explicitUserExcludeSet = new Set();
-  for (const item of entry.xpaths || []) {
-    const xpath = item && item.xpath;
-    if (
-      item &&
-      item.excluded &&
-      typeof xpath === "string" &&
-      xpath
-    ) {
-      explicitExcludeSet.add(xpath);
-      if (item.explicit === true) {
-        explicitUserExcludeSet.add(xpath);
-      }
-    }
-  }
   const explicitExcludeAncestorSet = new Set();
   for (const xpath of explicitExcludeSet) {
     const explicitExcludedEl = getCachedElementFromXPath(xpath);
@@ -10608,8 +10633,10 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
     }
     return false;
   };
-  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  const excludedParents = collectExcludedParentElements(previousItems);
+  logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
+    previousItemCount: previousItems.length,
+    xpathLookupCount
+  });
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
@@ -10764,7 +10791,6 @@ function syncPageMarkingsInner(config, pageUrl, immutableExcluded, options) {
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-  logTogglePerf("sync.xpath-lookups", xpathLookupStartedAt, { xpathLookupCount });
   logTogglePerf("sync.total", syncStartedAt, { pageUrl });
   return { changed, entry, persisted: shouldPersist, hadEntry };
 }
@@ -10788,7 +10814,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     persist: shouldPersist
   });
   normalizePageEntryXpaths(entry);
-  const xpathLookupStartedAt = nowMs();
+  const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
   let xpathLookupCount = 0;
   const getCachedElementFromXPath = (value) => {
@@ -10803,30 +10829,17 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     xpathElementCache.set(value, resolved);
     return resolved;
   };
-  const excludedLookup = new Map();
-  const explicitXpathSet = new Set();
-  for (const item of entry.xpaths || []) {
-    if (item && item.xpath) {
-      excludedLookup.set(item.xpath, Boolean(item.excluded));
-      if (item.explicit === true) {
-        explicitXpathSet.add(item.xpath);
-      }
-    }
-  }
+  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
+  const {
+    excludedLookup,
+    explicitXpathSet,
+    explicitExcludeSet,
+    explicitUserExcludeSet,
+    excludedParents
+  } = collectReconcilePreviousItemState(previousItems, getCachedElementFromXPath);
   const previousSilentWhitespaceExcludedSet = new Set(
     collectSilentWhitespaceExcludedXPaths(entry)
   );
-  const explicitExcludeSet = new Set();
-  const explicitUserExcludeSet = new Set();
-  for (const item of entry.xpaths || []) {
-    const xpath = item && item.xpath;
-    if (item && item.excluded && typeof xpath === "string" && xpath) {
-      explicitExcludeSet.add(xpath);
-      if (item.explicit === true) {
-        explicitUserExcludeSet.add(xpath);
-      }
-    }
-  }
   const explicitExcludeAncestorSet = new Set();
   for (const xpath of explicitExcludeSet) {
     const explicitExcludedEl = getCachedElementFromXPath(xpath);
@@ -10914,8 +10927,11 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     }
     return false;
   };
-  const previousItems = Array.isArray(entry.xpaths) ? entry.xpaths : [];
-  const excludedParents = collectExcludedParentElements(previousItems);
+  logTogglePerf("sync.entry-setup", entrySetupStartedAt, {
+    previousItemCount: previousItems.length,
+    xpathLookupCount,
+    async: true
+  });
   const items = [];
   const seen = new Set();
   const generatedExcludedSet = new Set();
@@ -11083,7 +11099,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   if (shouldPersist) {
     setPageMarkingEntry(config.pageMarkings, pageUrl, entry);
   }
-  logTogglePerf("sync.xpath-lookups", xpathLookupStartedAt, { xpathLookupCount, async: true });
   logTogglePerf("sync.total", syncStartedAt, { pageUrl, async: true });
   return { changed, entry, persisted: shouldPersist, hadEntry, aborted: false };
 }
