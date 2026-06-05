@@ -341,6 +341,19 @@ Validation checkpoint after Round-7 authority slices:
    responsiveness gains now depend more on reducing how much of the page gets
    reconsidered for broad parent toggles than on slicing the same full-page
    workload into even smaller chunks.
+36. Traversal-state optimization completed:
+   the next broad-toggle bottleneck was not the async queue itself but the
+   repeated ancestor coverage checks inside the main DOM walks. The toggleable
+   target collection and silent-whitespace candidate scans now propagate
+   excluded-subtree state through their traversal stacks instead of repeatedly
+   calling `contains(...)` against every excluded ancestor/result boundary for
+   each visited node. Focused guards and full suite validation stayed green,
+   and the same clean headful Bonliva Shift-parent burst dropped from the prior
+   `~1.57s` worst-case sample to roughly `0.43s`, while page
+   `requestAnimationFrame` ticks continued advancing during the burst. This
+   substantially reduces the need for an immediate risky subtree-only reconcile
+   path; the next work can focus on remaining structural hotspots with better
+   live instrumentation instead of forcing premature partial-scope semantics.
 
 ## Marking Reload Handoff
 

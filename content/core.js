@@ -2011,10 +2011,11 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
   if (!document.body) {
     return results;
   }
-  const stack = [document.body];
+  const stack = [{ node: document.body, withinExcludedParent: false }];
   const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
   while (stack.length) {
-    const node = stack.pop();
+    const current = stack.pop();
+    const node = current && current.node;
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -2024,7 +2025,11 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
     if (isWithinConsentElement(node)) {
       continue;
     }
-    if (hasExcludedParents && excludedParents.has(node)) {
+    if (current.withinExcludedParent) {
+      continue;
+    }
+    const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    if (isExcludedParentBoundary) {
       if (
         !isWithinImmutableExcluded(node) &&
         isTextualContainer(node) &&
@@ -2035,9 +2040,6 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
       ) {
         results.push(node);
       }
-      continue;
-    }
-    if (hasExcludedParents && isWithinExcludedParents(node, excludedParents)) {
       continue;
     }
     if (immutableExcluded && immutableExcluded.has(node)) {
@@ -2053,7 +2055,10 @@ function collectToggleableTargets(immutableExcluded, excludedParents) {
       results.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
+      stack.push({
+        node: node.children[i],
+        withinExcludedParent: isExcludedParentBoundary
+      });
     }
   }
   return results;
@@ -2067,11 +2072,12 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
   const shouldAbort = typeof options.shouldAbort === "function"
     ? options.shouldAbort
     : null;
-  const stack = [document.body];
+  const stack = [{ node: document.body, withinExcludedParent: false }];
   const hasExcludedParents = Boolean(excludedParents && excludedParents.size);
   let processedCount = 0;
   while (stack.length) {
-    const node = stack.pop();
+    const current = stack.pop();
+    const node = current && current.node;
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -2084,7 +2090,11 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
     if (isWithinConsentElement(node)) {
       continue;
     }
-    if (hasExcludedParents && excludedParents.has(node)) {
+    if (current.withinExcludedParent) {
+      continue;
+    }
+    const isExcludedParentBoundary = hasExcludedParents && excludedParents.has(node);
+    if (isExcludedParentBoundary) {
       if (
         !isWithinImmutableExcluded(node) &&
         isTextualContainer(node) &&
@@ -2095,9 +2105,6 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
       ) {
         results.push(node);
       }
-      continue;
-    }
-    if (hasExcludedParents && isWithinExcludedParents(node, excludedParents)) {
       continue;
     }
     if (immutableExcluded && immutableExcluded.has(node)) {
@@ -2113,7 +2120,10 @@ async function collectToggleableTargetsAsync(immutableExcluded, excludedParents,
       results.push(node);
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
+      stack.push({
+        node: node.children[i],
+        withinExcludedParent: isExcludedParentBoundary
+      });
     }
     processedCount += 1;
     if (processedCount >= TOGGLE_RECONCILE_YIELD_INTERVAL) {
@@ -3348,10 +3358,10 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       excludedElements.add(el);
     }
   }
-  const resultElements = new Set();
-  const stack = [document.body];
+  const stack = [{ node: document.body, withinExcludedSubtree: false }];
   while (stack.length) {
-    const node = stack.pop();
+    const current = stack.pop();
+    const node = current && current.node;
     if (!node || node.nodeType !== 1) {
       continue;
     }
@@ -3361,29 +3371,16 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
     if (isWithinImmutableExcluded(node)) {
       continue;
     }
-    let coveredByExcluded = false;
-    for (const excludedEl of excludedElements) {
-      if (excludedEl.contains(node)) {
-        coveredByExcluded = true;
-        break;
-      }
-    }
-    if (coveredByExcluded) {
-      continue;
-    }
-    let coveredByResult = false;
-    for (const resultEl of resultElements) {
-      if (resultEl !== node && resultEl.contains(node)) {
-        coveredByResult = true;
-        break;
-      }
-    }
-    if (coveredByResult) {
+    const isExcludedBoundary = excludedElements.has(node);
+    if (current.withinExcludedSubtree || isExcludedBoundary) {
       continue;
     }
     if (!isSilentWhitespaceExclusionCandidate(node)) {
       for (let i = node.children.length - 1; i >= 0; i -= 1) {
-        stack.push(node.children[i]);
+        stack.push({
+          node: node.children[i],
+          withinExcludedSubtree: isExcludedBoundary
+        });
       }
       continue;
     }
@@ -3394,11 +3391,13 @@ function collectSilentWhitespaceExclusionCandidates(options = {}) {
       !excludedXpaths.has(xpath)
     ) {
       results.push(node);
-      resultElements.add(node);
       continue;
     }
     for (let i = node.children.length - 1; i >= 0; i -= 1) {
-      stack.push(node.children[i]);
+      stack.push({
+        node: node.children[i],
+        withinExcludedSubtree: isExcludedBoundary
+      });
     }
   }
   results.sort(compareDocumentOrder);
