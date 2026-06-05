@@ -365,6 +365,14 @@ function buildValidateEndpointFromStageBase(stageBase) {
   return `https://accounts.${normalized}/api/account/validate`;
 }
 
+function buildLoginEndpointFromStageBase(stageBase) {
+  const normalized = normalizeStageBase(stageBase);
+  if (!normalized) {
+    return "";
+  }
+  return `https://accounts.${normalized}/api/account/login`;
+}
+
 async function requestAiRunStatus(options = {}) {
   const endpointValue = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
   const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue : "";
@@ -431,6 +439,37 @@ async function validateAuthToken(options = {}) {
       return { ok: true, valid: false, status: response.status || 0 };
     }
     return { ok: true, valid: true, status: response.status || 0 };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function requestAuthLogin(options = {}) {
+  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const email = typeof options.email === "string" ? options.email.trim() : "";
+  const password = typeof options.password === "string" ? options.password : "";
+  const loginUrl = buildLoginEndpointFromStageBase(stageBase);
+  if (!loginUrl || !email || !password.trim()) {
+    return { ok: false, skipped: true };
+  }
+  try {
+    const response = await fetch(loginUrl, {
+      method: "POST",
+      headers: createBackgroundJsonHeaders(""),
+      body: JSON.stringify({ email, password })
+    });
+    await maybeUpdateStoredTokenFromResponse(response, "");
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    return {
+      ok: response.ok,
+      status: response.status || 0,
+      payload: payload && typeof payload === "object" ? payload : null
+    };
   } catch {
     return { ok: false };
   }
@@ -1133,6 +1172,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     validateAuthToken({
       stageBase: message.stageBase,
       tokenValue: message.tokenValue
+    })
+      .then((result) => sendResponse(result || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "requestAuthLogin") {
+    requestAuthLogin({
+      stageBase: message.stageBase,
+      email: message.email,
+      password: message.password
     })
       .then((result) => sendResponse(result || { ok: false }))
       .catch(() => sendResponse({ ok: false }));

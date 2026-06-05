@@ -46,6 +46,11 @@ Validation checkpoint after Round-7 authority slices:
    Standalone Playwright scripts that do not use `.mcp.json` / `.vscode/mcp.json`
    must pass the persistent profile path themselves, e.g.
    `/home/rojan/Documents/Git/GitHub/Unfluffify/.mcp-browser-profile`.
+   On this Linux host, Chromium sandboxing is unavailable for the repo browser
+   validation path; keep `browser.chromiumSandbox: false` and
+   `launchOptions.args` including `--no-sandbox` in
+   `.vscode/browser-mcp.config.json` so repo-local Playwright validation can
+   launch the unpacked extension at all.
 4. The Playwright-local MCP browser profile must have Chrome Extensions
    Developer mode enabled before unpacked extension validation is considered
    meaningful. The current persistent `.mcp-browser-profile` has
@@ -108,6 +113,11 @@ Validation checkpoint after Round-7 authority slices:
    state, invalid-token UX, and validation throttling, but the small
    `accounts.<stageBase>/api/account/validate` GET now goes through background
    `validateAuthToken`; popup no longer fetches that auth endpoint directly.
+13. Auth login transport slice completed: popup still owns login form gating,
+   token persistence, success/failure toasts, and view transitions, but the
+   small `accounts.<stageBase>/api/account/login` POST now goes through
+   background `requestAuthLogin`; popup no longer fetches that auth endpoint
+   directly.
 
 ## Marking Reload Handoff
 

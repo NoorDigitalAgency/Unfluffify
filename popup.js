@@ -1306,14 +1306,6 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
   return null;
 }
 
-function buildLoginEndpointFromStageBase(stageBase) {
-  const normalized = normalizeStageBase(stageBase);
-  if (!normalized) {
-    return "";
-  }
-  return `https://accounts.${normalized}/api/account/login`;
-}
-
 function buildPageMarkingKey(url, pageType) {
   const normalizedUrl = normalizeCandidatePageUrl(url);
   const normalizedPageType = normalizePageTypeKey(pageType);
@@ -7343,42 +7335,33 @@ async function handleLoginAction() {
   let loginSucceeded = false;
   let loginFailureMessage = "";
   try {
-    const loginUrl = buildLoginEndpointFromStageBase(stageBase);
-    if (!loginUrl) {
-      loginFailureMessage = PopupText.authentication.toastSetValidStageBaseFirst;
-    } else {
-      const response = await fetch(loginUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ email, password })
-      });
-      await maybeUpdateStoredTokenFromResponse(response, "");
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        payload = null;
-      }
+    const response = await messages.sendRuntimeMessage({
+      type: "requestAuthLogin",
+      stageBase,
+      email,
+      password
+    });
+    const payload = response && response.payload && typeof response.payload === "object"
+      ? response.payload
+      : null;
 
-      if (!response.ok) {
-        loginFailureMessage =
-          (payload && typeof payload.error === "string" && payload.error) ||
-          (payload && typeof payload.message === "string" && payload.message) ||
-          formatLoginFailedStatus(response.status);
+    if (!response || response.ok !== true) {
+      const status = response && Number.isFinite(response.status) ? response.status : 0;
+      loginFailureMessage =
+        (payload && typeof payload.error === "string" && payload.error) ||
+        (payload && typeof payload.message === "string" && payload.message) ||
+        formatLoginFailedStatus(status);
+    } else {
+      const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
+      if (!token) {
+        loginFailureMessage = PopupText.authentication.toastResponseMissingToken;
       } else {
-        const token = payload && typeof payload.token === "string" ? payload.token.trim() : "";
-        if (!token) {
-          loginFailureMessage = PopupText.authentication.toastResponseMissingToken;
-        } else {
-          await utils.storageSet(chrome.storage.sync, {
-            globalStageBase: stageBase,
-            globalToken: token
-          });
-          uiModule.setViewState({ loginPasswordValue: "" });
-          loginSucceeded = true;
-        }
+        await utils.storageSet(chrome.storage.sync, {
+          globalStageBase: stageBase,
+          globalToken: token
+        });
+        uiModule.setViewState({ loginPasswordValue: "" });
+        loginSucceeded = true;
       }
     }
   } catch (error) {

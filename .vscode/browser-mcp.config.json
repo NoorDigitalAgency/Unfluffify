@@ -1,6 +1,7 @@
 {
   "browser": {
     "browserName": "chromium",
+    "chromiumSandbox": false,
     "launchOptions": {
       "headless": false,
       "executablePath": "/home/rojan/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome",
@@ -8,6 +9,7 @@
         "--disable-extensions"
       ],
       "args": [
+        "--no-sandbox",
         "--load-extension=/home/rojan/Documents/Git/GitHub/Unfluffify",
         "--disable-extensions-except=/home/rojan/Documents/Git/GitHub/Unfluffify"
       ]

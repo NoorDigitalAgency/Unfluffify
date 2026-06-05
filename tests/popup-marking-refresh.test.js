@@ -325,6 +325,23 @@ test("token validation delegates the auth transport to background", () => {
   assert.doesNotMatch(validateBody, /fetch\(|buildValidateEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
 });
 
+test("login delegates the auth transport to background while popup keeps token persistence", () => {
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const loginBody = popupSource.match(
+    /async function handleLoginAction\(\) \{([\s\S]*?)\n\}\n\nasync function alignPopupToSilentMode/
+  )[1];
+
+  assert.match(backgroundSource, /function buildLoginEndpointFromStageBase\(stageBase\) \{/);
+  assert.match(backgroundSource, /async function requestAuthLogin\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /const loginUrl = buildLoginEndpointFromStageBase\(stageBase\);/);
+  assert.match(backgroundSource, /if \(message\.type === "requestAuthLogin"\) \{/);
+  assert.match(loginBody, /type: "requestAuthLogin"/);
+  assert.match(loginBody, /messages\.sendRuntimeMessage/);
+  assert.match(loginBody, /await utils\.storageSet\(chrome\.storage\.sync, \{[\s\S]*?globalStageBase: stageBase,[\s\S]*?globalToken: token[\s\S]*?\}\);/);
+  assert.doesNotMatch(loginBody, /fetch\(|buildLoginEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
+});
+
 test("popup blocks the interface with a spinner while page inspection is running", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
