@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const emulationSource = readFileSync(new URL("../common/emulation.js", import.meta.url), "utf8");
 const utilitiesSource = readFileSync(new URL("../common/utilities.js", import.meta.url), "utf8");
+const popupChromeHelpersSource = readFileSync(new URL("../popup/chrome-helpers.js", import.meta.url), "utf8");
 const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
@@ -101,6 +102,21 @@ test("popup delegates active tab context resolution to the background", () => {
   assert.match(loadActiveTabBlock, /state\.currentTab = response && response\.ok && response\.tab \? response\.tab : null;/);
   assert.doesNotMatch(loadActiveTabBlock, /utils\.tabsQuery|chrome\.tabs\.get|chrome\.runtime\.getContexts|getSidePanelBoundTab/);
   assert.doesNotMatch(popupMessagesSource, /async function getSidePanelBoundTab\(\)/);
+});
+
+test("popup chrome helpers route privileged tab and browsing-data APIs through background", () => {
+  assert.match(backgroundSource, /function clearBrowsingDataForOrigin\(origin\) \{/);
+  assert.match(backgroundSource, /chrome\.browsingData\.remove/);
+  assert.match(backgroundSource, /if \(message\.type === "clearBrowsingDataForOrigin"\) \{/);
+  assert.match(backgroundSource, /function reloadTab\(tabId\) \{/);
+  assert.match(backgroundSource, /chrome\.tabs\.reload\(normalizedTabId/);
+  assert.match(backgroundSource, /if \(message\.type === "reloadTab"\) \{/);
+
+  assert.match(popupChromeHelpersSource, /utils\.sendRuntimeMessage\(message\)/);
+  assert.match(popupChromeHelpersSource, /type: "clearBrowsingDataForOrigin"/);
+  assert.match(popupChromeHelpersSource, /type: "reloadTab"/);
+  assert.doesNotMatch(popupChromeHelpersSource, /chrome\.browsingData\.remove/);
+  assert.doesNotMatch(popupChromeHelpersSource, /chrome\.tabs\.reload/);
 });
 
 test("shared tab state writes mirror enabled sessions into reload restore state", () => {

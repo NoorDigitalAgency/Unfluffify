@@ -91,6 +91,69 @@ const popupStatePortsByTabId = new Map();
 const tabWorldTraceStateByTabId = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
 
+function clearBrowsingDataForOrigin(origin) {
+  return new Promise((resolve) => {
+    if (!origin || typeof origin !== "string") {
+      resolve({ ok: false, error: "Missing origin" });
+      return;
+    }
+    try {
+      chrome.browsingData.remove(
+        { origins: [origin] },
+        {
+          cookies: true,
+          cacheStorage: true,
+          localStorage: true,
+          indexedDB: true,
+          serviceWorkers: true
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            resolve({
+              ok: false,
+              error: chrome.runtime.lastError.message || "Unable to clear cache"
+            });
+            return;
+          }
+          resolve({ ok: true });
+        }
+      );
+    } catch (error) {
+      resolve({
+        ok: false,
+        error: (error && error.message) || "Unable to clear cache"
+      });
+    }
+  });
+}
+
+function reloadTab(tabId) {
+  return new Promise((resolve) => {
+    const normalizedTabId = normalizeBrokerTabId(tabId);
+    if (!normalizedTabId) {
+      resolve({ ok: false, error: "Missing tab" });
+      return;
+    }
+    try {
+      chrome.tabs.reload(normalizedTabId, () => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            ok: false,
+            error: chrome.runtime.lastError.message || "Unable to reload tab"
+          });
+          return;
+        }
+        resolve({ ok: true });
+      });
+    } catch (error) {
+      resolve({
+        ok: false,
+        error: (error && error.message) || "Unable to reload tab"
+      });
+    }
+  });
+}
+
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
@@ -609,6 +672,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     resolvePopupTabContext(message, sender)
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, tab: null, source: "error" }));
+    return true;
+  }
+
+  if (message.type === "clearBrowsingDataForOrigin") {
+    clearBrowsingDataForOrigin(message.origin)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, error: "Unable to clear cache" }));
+    return true;
+  }
+
+  if (message.type === "reloadTab") {
+    reloadTab(message.tabId || (sender.tab && sender.tab.id))
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, error: "Unable to reload tab" }));
     return true;
   }
 
