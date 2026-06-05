@@ -48,7 +48,7 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.match(popupSource, /await applyTraceModePreferenceToTab\(initTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
   assert.match(popupSource, /await applyTraceModePreferenceToTab\(newTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
   assert.match(popupSource, /if \(changes\[GLOBAL_THEME_KEY\] \|\| changes\[GLOBAL_THEME_MODE_KEY\] \|\| changes\[GLOBAL_TRACE_MODE_KEY\]\)/);
-  assert.match(popupUiSource, /Trace events:/);
+  assert.match(popupUiSource, /trace-events-panel/);
   assert.match(popupUiSource, /id: "trace-events-output"/);
   assert.match(popupUiSource, /Boolean\(view\.traceModeEnabled\)/);
   assert.doesNotMatch(popupUiSource, /trace-events-list/);

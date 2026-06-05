@@ -2337,19 +2337,25 @@ function renderConfigurationExtrasSection(view, handlers) {
           onChange: handlers.onTraceModeToggle
         })
       ),
-      h(
-        "p",
-        { class: "row-note" },
-        `Trace events: ${Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length}`
-      ),
       Boolean(view.traceModeEnabled)
-        ? h("textarea", {
-          id: "trace-events-output",
-          class: "trace-events-output",
-          readOnly: true,
-          value: traceLogValue,
-          rows: 8
-        })
+        ? h(
+            "div",
+            { class: "trace-events-panel" },
+            h(
+              "div",
+              { class: "trace-events-panel__header" },
+              icon("format-list-bulleted", "trace-events-panel__icon"),
+              h("span", { class: "trace-events-panel__label" }, "Trace events"),
+              h("span", { class: "trace-events-panel__badge" }, String(Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length))
+            ),
+            h("textarea", {
+              id: "trace-events-output",
+              class: "trace-events-output",
+              readOnly: true,
+              value: traceLogValue,
+              rows: 8
+            })
+          )
         : null
     )
   );

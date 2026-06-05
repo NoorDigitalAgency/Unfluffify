@@ -82,19 +82,62 @@ body.is-busy {
   color: var(--accent-dark);
 }
 
+.trace-events-panel {
+  margin-top: 10px;
+  padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius: 10px;
+}
+
+.trace-events-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.trace-events-panel__icon {
+  font-size: 14px;
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.trace-events-panel__label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.trace-events-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent-light) 50%, transparent);
+  border-radius: 9px;
+}
+
 .trace-events-output {
   width: 100%;
-  height: 160px;
-  min-height: 160px;
-  max-height: 160px;
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
   resize: none;
-  margin-top: 6px;
+  margin: 0;
   font-family: var(--mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 10.5px;
+  line-height: 1.4;
   color: var(--ink-soft);
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
-  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-2) 8%);
+  border: 1px solid color-mix(in srgb, var(--line) 56%, transparent);
+  border-radius: 8px;
   padding: 8px 10px;
 }
