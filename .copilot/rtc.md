@@ -4,6 +4,10 @@ RTC = rolling task context.
 
 ## Current Status
 
+- Planning-only handoff for page/tab reload marking-state work is in
+  `.copilot/marking-reload-handoff.md`. The next local agent should start there,
+  run the Phase 0 Q&A sanity check, and only then implement one safe commit phase
+  at a time.
 - Navigation rehydration for remote support is in place in `content-main.js`.
 - Support-page pointer mapping remains available for visual cursor positioning only; supporter input is not forwarded to the supportee.
 - Popup remote-support view removed stale remote-control handlers and control-owner copy to align with enforced view-only behavior.
@@ -17,4 +21,7 @@ RTC = rolling task context.
 
 ## Remaining Gaps
 
+- Page/tab reload marking-state reliability is the next priority. AI lifecycle
+  work should stay minimal unless directly required by reload, XPath, snapshot,
+  or payload ownership fixes.
 - Live browser validation is still needed for permission prompts, real Chrome-window selection, camera/microphone playback, navigation, page telemetry, and teardown.
