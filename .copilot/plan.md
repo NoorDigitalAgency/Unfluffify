@@ -136,6 +136,16 @@ Validation checkpoint after Round-7 authority slices:
    runtime helper now prefers Chrome's Promise-based `runtime.sendMessage`
    path, which matches the repo's MV3 service-worker messaging behavior during
    live browser validation.
+17. Responsiveness delegation audit phase added: inspect popup and content
+   entry points for heavy, thread-blocking work that can freeze interaction
+   (large config syncs, payload assembly, parsing/normalization passes, and
+   other long-running orchestration helpers), then move feasible slices behind
+   asynchronous background-owned workflows. Use runtime messaging only for
+   control metadata and stage heavy request/response bodies through
+   `chrome.storage.session` keys so the UI thread stays responsive while the
+   popup or content script awaits completion. Validate each slice with focused
+   regression tests, full `npm test`, and repo-local headful Playwright live
+   verification after reloading the unpacked extension worker.
 
 ## Marking Reload Handoff
 
