@@ -744,6 +744,21 @@ function syncUiBusyFromBrokerState() {
   uiModule.setUiBusy(false);
 }
 
+function isWorldTraceEnabled() {
+  return Boolean(state.traceModeEnabled);
+}
+
+function logWorldTrace(eventName, details = {}) {
+  if (!isWorldTraceEnabled()) {
+    return;
+  }
+  try {
+    console.debug("[world-trace][popup]", eventName, details);
+  } catch {
+    // Trace logging must never break popup behavior.
+  }
+}
+
 function applyBackgroundStateSnapshot(snapshot) {
   if (!snapshot || !snapshot.ok) {
     return;
@@ -753,6 +768,7 @@ function applyBackgroundStateSnapshot(snapshot) {
     return;
   }
   popupBackgroundLifecycle = snapshot.lifecycle || null;
+  state.traceModeEnabled = Boolean(snapshot.traceEnabled);
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
   (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
@@ -770,6 +786,14 @@ function applyBackgroundStateSnapshot(snapshot) {
   popupNavigationInspectionOverlayStarted = popupSpinnerQueue.has("navInspect");
   popupNavigationInspectionOverlayTabId = popupNavigationInspectionOverlayStarted ? tabId : null;
   syncUiBusyFromBrokerState();
+  logWorldTrace("background-state", {
+    tabId,
+    traceEnabled: Boolean(snapshot.traceEnabled),
+    lifecycleKind: popupBackgroundLifecycle && popupBackgroundLifecycle.kind,
+    lifecyclePhase: popupBackgroundLifecycle && popupBackgroundLifecycle.phase,
+    spinnerCount: popupSpinnerQueue.size,
+    traceEvents: Array.isArray(snapshot.traceEvents) ? snapshot.traceEvents.length : 0
+  });
 }
 
 function sendSpinnerBrokerMessage(message) {
@@ -777,11 +801,17 @@ function sendSpinnerBrokerMessage(message) {
   if (!tabId || !message || typeof message !== "object") {
     return Promise.resolve(null);
   }
+  logWorldTrace("runtime-send", { tabId, type: message.type || "" });
   return messages.sendRuntimeMessage({ tabId, owner: SPINNER_OWNERS.POPUP, ...message })
     .then((response) => {
       if (response && response.ok) {
         applyBackgroundStateSnapshot(response);
       }
+      logWorldTrace("runtime-response", {
+        tabId,
+        type: message.type || "",
+        ok: Boolean(response && response.ok)
+      });
       return response;
     })
     .catch(() => null);
@@ -839,6 +869,24 @@ async function restoreSpinnerQueueFromBackground(tabId) {
   const response = await messages.sendRuntimeMessage({
     type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
     tabId
+  }).catch(() => null);
+  if (response && response.ok) {
+    applyBackgroundStateSnapshot(response);
+  }
+}
+
+async function handleTraceModeToggle(event) {
+  const enabled = Boolean(event && event.currentTarget && event.currentTarget.checked);
+  state.traceModeEnabled = enabled;
+  uiModule.setViewState({ traceModeEnabled: enabled });
+  const tabId = state.currentTab && state.currentTab.id;
+  if (!tabId) {
+    return;
+  }
+  const response = await messages.sendRuntimeMessage({
+    type: WORLD_MESSAGE_TYPES.TRACE_SET,
+    tabId,
+    enabled
   }).catch(() => null);
   if (response && response.ok) {
     applyBackgroundStateSnapshot(response);
@@ -5043,6 +5091,7 @@ async function refreshUiInner(options = {}) {
     : configurationComplete
       ? ""
       : PopupText.configuration.continueSetupNotice;
+  nextViewState.traceModeEnabled = Boolean(state.traceModeEnabled);
   nextViewState.remoteSupportAutoFocus = remoteSupportViewLocked;
 
   const pageScopedUiDisabled =
@@ -8547,6 +8596,7 @@ async function init() {
     onTodoExpandAll: handleTodoExpandAll,
     onTodoCollapseAll: handleTodoCollapseAll,
     onTodoAutoCollapseToggle: handleTodoAutoCollapseToggle,
+    onTraceModeToggle: handleTraceModeToggle,
     onConfigurationExtrasToggle: handleConfigurationExtrasToggle,
     onOpenConfiguration: handleOpenConfigurationView,
     onConfigurationContinue: handleConfigurationContinue,

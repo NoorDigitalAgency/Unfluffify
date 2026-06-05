@@ -195,6 +195,7 @@ let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
 let lifecycleOperationCounter = 0;
+let worldTraceEnabled = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
 let aiComputeLockReleaseTimer = 0;
@@ -730,8 +731,29 @@ function sendRuntimeMessageSafely(message) {
   }
 
   return Promise.resolve()
+    .then(() => {
+      if (worldTraceEnabled) {
+        try {
+          console.debug("[world-trace][content] runtime:send", {
+            type: message && message.type ? message.type : ""
+          });
+        } catch {
+          // Ignore trace logging failures.
+        }
+      }
+    })
     .then(() => utils.sendRuntimeMessage(message))
     .then((response) => {
+      if (worldTraceEnabled) {
+        try {
+          console.debug("[world-trace][content] runtime:response", {
+            type: message && message.type ? message.type : "",
+            ok: Boolean(response && response.ok)
+          });
+        } catch {
+          // Ignore trace logging failures.
+        }
+      }
       if (response && response.contextInvalidated) {
         markExtensionContextInvalidated(
           response.error || "Extension context invalidated."
@@ -754,6 +776,20 @@ function createLifecycleOperationId(kind) {
 }
 
 function emitLifecycleEvent(event = {}) {
+  if (worldTraceEnabled) {
+    try {
+      console.debug("[world-trace][content] lifecycle:emit", {
+        kind: event && event.kind ? event.kind : "",
+        phase: event && event.phase ? event.phase : "",
+        operationId: event && event.operationId ? event.operationId : "",
+        busy: Object.prototype.hasOwnProperty.call(event || {}, "busy")
+          ? Boolean(event.busy)
+          : undefined
+      });
+    } catch {
+      // Ignore trace logging failures.
+    }
+  }
   void sendRuntimeMessageSafely({
     type: WORLD_MESSAGE_TYPES.LIFECYCLE_EVENT,
     event: {
@@ -6904,6 +6940,32 @@ export function main() {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || !message.type) {
       return;
+    }
+    if (message.type === WORLD_MESSAGE_TYPES.CONTENT_TRACE_SET) {
+      worldTraceEnabled = Boolean(message.enabled);
+      if (worldTraceEnabled) {
+        try {
+          console.debug("[world-trace][content] trace:set", {
+            enabled: true,
+            pageUrl: location.href
+          });
+        } catch {
+          // Ignore trace logging failures.
+        }
+      }
+      sendResponse({ ok: true, enabled: worldTraceEnabled });
+      return;
+    }
+
+    if (worldTraceEnabled) {
+      try {
+        console.debug("[world-trace][content] runtime:inbound", {
+          type: message.type,
+          pageUrl: location.href
+        });
+      } catch {
+        // Ignore trace logging failures.
+      }
     }
 
     if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportStart") {

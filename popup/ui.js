@@ -42,6 +42,7 @@ const initialViewState = {
   configurationExtrasExpanded: false,
   configurationNoticeText: "",
   configurationNoticeVisible: false,
+  traceModeEnabled: false,
   currentPageUrl: ViewText.unavailable,
   currentBaseUrl: "",
   baseUrlInputValue: "",
@@ -2293,7 +2294,26 @@ function renderConfigurationAppearanceSection(view, handlers) {
 
 function renderConfigurationExtrasSection(view, handlers) {
   const expanded = Boolean(view.configurationExtrasExpanded || view.remoteSupportAutoFocus);
-  const sections = [renderConfigurationAppearanceSection(view, handlers)];
+  const sections = [
+    renderConfigurationAppearanceSection(view, handlers),
+    h(
+      "section",
+      { class: "config-extra-subsection" },
+      h("div", { class: "section-title" }, icon("timeline-text-outline", "field-icon"), PopupText.configuration.diagnosticsSectionTitle),
+      h(
+        "label",
+        { class: "row" },
+        h("span", { class: "row-label" }, icon("bug-outline", "row-icon"), PopupText.configuration.traceModeLabel),
+        h("input", {
+          id: "trace-mode-enabled",
+          type: "checkbox",
+          checked: Boolean(view.traceModeEnabled),
+          onChange: handlers.onTraceModeToggle
+        })
+      ),
+      h("p", { class: "row-note" }, PopupText.configuration.traceModeHint)
+    )
+  ];
 
   if (view.remoteSupportVisible) {
     sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));

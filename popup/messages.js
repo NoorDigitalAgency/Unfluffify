@@ -1,9 +1,25 @@
 import * as utils from "../common/utilities.js";
 import * as stateModule from "./state.js";
+import { WORLD_MESSAGE_TYPES } from "../common/world-messaging-contract.js";
 
 const { state } = stateModule;
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function shouldTraceWorldMessaging() {
+  return Boolean(state.traceModeEnabled);
+}
+
+function logPopupMessageTrace(direction, details = {}) {
+  if (!shouldTraceWorldMessaging()) {
+    return;
+  }
+  try {
+    console.debug("[world-trace][popup:messages]", direction, details);
+  } catch {
+    // Trace logging must never break popup message flow.
+  }
+}
 
 async function getSidePanelBoundTab() {
   if (
@@ -45,7 +61,28 @@ async function getSidePanelBoundTab() {
 }
 
 export function sendRuntimeMessage(message) {
-  return utils.sendRuntimeMessage(message);
+  logPopupMessageTrace("runtime:send", {
+    type: message && message.type ? message.type : "",
+    tabId: message && Number.isFinite(message.tabId) ? Math.trunc(message.tabId) : null
+  });
+  return utils.sendRuntimeMessage(message).then((response) => {
+    logPopupMessageTrace("runtime:response", {
+      type: message && message.type ? message.type : "",
+      ok: Boolean(response && response.ok),
+      responseType: response && response.type ? response.type : ""
+    });
+    if (
+      message &&
+      message.type === WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE &&
+      response &&
+      response.ok &&
+      Array.isArray(response.traceEvents)
+    ) {
+      const tail = response.traceEvents.slice(-5);
+      logPopupMessageTrace("runtime:trace-tail", { count: tail.length, tail });
+    }
+    return response;
+  });
 }
 
 export function sendTabMessage(message) {
@@ -56,9 +93,19 @@ export function sendTabMessage(message) {
     }
     chrome.tabs.sendMessage(state.currentTab.id, message, (response) => {
       if (chrome.runtime.lastError) {
+        logPopupMessageTrace("tab:error", {
+          tabId: state.currentTab.id,
+          type: message && message.type ? message.type : "",
+          error: chrome.runtime.lastError.message || ""
+        });
         resolve(null);
         return;
       }
+      logPopupMessageTrace("tab:response", {
+        tabId: state.currentTab.id,
+        type: message && message.type ? message.type : "",
+        ok: Boolean(response && response.ok)
+      });
       resolve(response);
     });
   });
@@ -70,11 +117,25 @@ export function sendTabMessageToTab(tabId, message) {
       resolve(null);
       return;
     }
+    logPopupMessageTrace("tab:send", {
+      tabId,
+      type: message && message.type ? message.type : ""
+    });
     chrome.tabs.sendMessage(tabId, message, (response) => {
       if (chrome.runtime.lastError) {
+        logPopupMessageTrace("tab:error", {
+          tabId,
+          type: message && message.type ? message.type : "",
+          error: chrome.runtime.lastError.message || ""
+        });
         resolve(null);
         return;
       }
+      logPopupMessageTrace("tab:response", {
+        tabId,
+        type: message && message.type ? message.type : "",
+        ok: Boolean(response && response.ok)
+      });
       resolve(response);
     });
   });

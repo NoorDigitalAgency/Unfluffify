@@ -88,6 +88,88 @@ const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
 const tabLifecycleStateByTabId = new Map();
 const tabSpinnerQueueByTabId = new Map();
 const popupStatePortsByTabId = new Map();
+const tabWorldTraceStateByTabId = new Map();
+const WORLD_TRACE_EVENT_LIMIT = 160;
+
+function ensureTraceState(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return { enabled: false, events: [] };
+  }
+  if (!tabWorldTraceStateByTabId.has(normalizedTabId)) {
+    tabWorldTraceStateByTabId.set(normalizedTabId, {
+      enabled: false,
+      events: []
+    });
+  }
+  return tabWorldTraceStateByTabId.get(normalizedTabId);
+}
+
+function isWorldTraceEnabled(tabId) {
+  const traceState = ensureTraceState(tabId);
+  return Boolean(traceState && traceState.enabled);
+}
+
+function appendWorldTraceEvent(tabId, channel, event, payload = null) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId || !isWorldTraceEnabled(normalizedTabId)) {
+    return;
+  }
+  const traceState = ensureTraceState(normalizedTabId);
+  const traceEvent = {
+    at: Date.now(),
+    channel: typeof channel === "string" ? channel : "broker",
+    event: typeof event === "string" ? event : "event",
+    payload: payload && typeof payload === "object"
+      ? {
+        type: payload.type || "",
+        kind: payload.kind || "",
+        phase: payload.phase || "",
+        operationId: payload.operationId || "",
+        busy: Object.prototype.hasOwnProperty.call(payload, "busy") ? Boolean(payload.busy) : undefined,
+        message: typeof payload.message === "string" ? payload.message : ""
+      }
+      : null
+  };
+  traceState.events.push(traceEvent);
+  if (traceState.events.length > WORLD_TRACE_EVENT_LIMIT) {
+    traceState.events.splice(0, traceState.events.length - WORLD_TRACE_EVENT_LIMIT);
+  }
+  try {
+    console.debug("[world-trace][background]", normalizedTabId, traceEvent.channel, traceEvent.event, traceEvent.payload || {});
+  } catch {
+    // Trace logging must never break runtime behavior.
+  }
+}
+
+function setWorldTraceEnabled(tabId, enabled) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return buildBrokerState(normalizedTabId);
+  }
+  const traceState = ensureTraceState(normalizedTabId);
+  traceState.enabled = Boolean(enabled);
+  if (!traceState.enabled) {
+    traceState.events = [];
+  } else {
+    appendWorldTraceEvent(normalizedTabId, "trace", "enabled", {
+      type: WORLD_MESSAGE_TYPES.TRACE_SET,
+      message: "Trace Mode enabled"
+    });
+  }
+  chrome.tabs.sendMessage(
+    normalizedTabId,
+    {
+      type: WORLD_MESSAGE_TYPES.CONTENT_TRACE_SET,
+      enabled: traceState.enabled
+    },
+    () => {
+      void chrome.runtime.lastError;
+    }
+  );
+  broadcastBrokerState(normalizedTabId);
+  return buildBrokerState(normalizedTabId);
+}
 
 function normalizeBrokerTabId(value) {
   const numeric = Number(value);
@@ -125,11 +207,14 @@ function serializeSpinnerQueue(tabId) {
 
 function buildBrokerState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
+  const traceState = ensureTraceState(normalizedTabId);
   return {
     ok: Boolean(normalizedTabId),
     tabId: normalizedTabId,
     lifecycle: normalizedTabId ? (tabLifecycleStateByTabId.get(normalizedTabId) || null) : null,
-    spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : []
+    spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : [],
+    traceEnabled: Boolean(traceState && traceState.enabled),
+    traceEvents: traceState && Array.isArray(traceState.events) ? [...traceState.events] : []
   };
 }
 
@@ -186,6 +271,7 @@ function updateLifecycleState(tabId, event = {}) {
     updatedAt: Date.now()
   };
   tabLifecycleStateByTabId.set(normalizedTabId, next);
+  appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", next);
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
 }
@@ -201,6 +287,10 @@ function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
     persistent: Boolean(entry.persistent),
     owner: typeof entry.owner === "string" ? entry.owner : SPINNER_OWNERS.POPUP
   });
+  appendWorldTraceEvent(normalizedTabId, "spinner", "set", {
+    type: WORLD_MESSAGE_TYPES.SPINNER_SET,
+    message: typeof entry.message === "string" ? entry.message : ""
+  });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
 }
@@ -215,6 +305,10 @@ function removeBackgroundSpinnerEntry(tabId, key) {
   if (queue.size === 0) {
     tabSpinnerQueueByTabId.delete(normalizedTabId);
   }
+  appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
+    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
+    message: String(key)
+  });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
 }
@@ -241,6 +335,10 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
   } else {
     tabSpinnerQueueByTabId.delete(normalizedTabId);
   }
+  appendWorldTraceEvent(normalizedTabId, "spinner", "clear", {
+    type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
+    message: transientOnly ? "transient-only" : "all"
+  });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
 }
@@ -453,6 +551,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(clearBackgroundSpinnerQueue(getMessageTabId(message, sender), {
       transientOnly: Boolean(message.transientOnly)
     }));
+    return;
+  }
+
+  if (message.type === WORLD_MESSAGE_TYPES.TRACE_SET) {
+    const tabId = getMessageTabId(message, sender);
+    sendResponse(setWorldTraceEnabled(tabId, Boolean(message.enabled)));
     return;
   }
 
@@ -799,6 +903,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
   utils.storageRemove(chrome.storage.session, [key, initialKey, restoreKey, deviceKey, scriptKey]).then();
   handleRemoteSupportTabRemoved(tabId).then();
+  tabLifecycleStateByTabId.delete(tabId);
+  tabSpinnerQueueByTabId.delete(tabId);
+  tabWorldTraceStateByTabId.delete(tabId);
 });
 
 async function disableExtensionOnTopLevelNavigation(details) {
