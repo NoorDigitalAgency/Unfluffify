@@ -417,7 +417,7 @@ test("refreshSilentHighlightings bails out after each await when superseded by a
   );
 });
 
-test("URL watcher disable discards temporary unsaved draft cache on navigation", () => {
+test("URL watcher preserves only dirty same-base temporary draft cache on navigation", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const watcherStart = source.indexOf("function startUrlWatcher() {");
   const watcherEnd = source.indexOf("function stopUrlWatcher()", watcherStart);
@@ -425,6 +425,16 @@ test("URL watcher disable discards temporary unsaved draft cache on navigation",
   assert.ok(watcherStart > -1);
   assert.ok(watcherEnd > watcherStart);
   const watcherSource = source.slice(watcherStart, watcherEnd);
-  assert.match(watcherSource, /disable\(\{ preserveUnsavedDraftCache: false \}\);/);
+  assert.match(source, /function shouldPreserveDraftCacheForUrlChange\(previousUrl, nextUrl\) \{/);
+  assert.match(source, /utils\.isPageWithinBaseUrl\(previousUrl, state\.baseUrl\)/);
+  assert.match(source, /utils\.isPageWithinBaseUrl\(nextUrl, state\.baseUrl\)/);
+  assert.match(source, /return isPageDraftDirty\(previousUrl\);/);
+  assert.match(
+    source,
+    /disable\(\{[\s\S]*?preserveUnsavedDraftCache,[\s\S]*?pageUrl: previousUrl[\s\S]*?\}\);/
+  );
+  assert.match(watcherSource, /const previousUrl = lastUrl;/);
+  assert.match(watcherSource, /const nextUrl = location\.href;/);
+  assert.match(watcherSource, /handleUrlWatcherTransition\(previousUrl, nextUrl\);/);
   assert.match(watcherSource, /window\.dispatchEvent\(new Event\("unfluffify:url-changed"\)\);/);
 });

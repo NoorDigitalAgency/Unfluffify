@@ -8,6 +8,7 @@ import {
   scheduleDraftPersist,
   scheduleExplicitOverlayRefresh,
   scheduleSnapshotSave,
+  startUrlWatcher,
   state
 } from "../content/core.js";
 
@@ -137,6 +138,9 @@ async function withDisableFlushHarness(callback) {
   const baseUrl = "https://example.com";
   const scheduled = [];
   const cleared = [];
+  const intervals = [];
+  const clearedIntervals = [];
+  const dispatchedEvents = [];
   const runtimeMessages = [];
   let nextId = 1;
   const classList = {
@@ -181,8 +185,21 @@ async function withDisableFlushHarness(callback) {
     clearTimeout(id) {
       cleared.push(id);
     },
+    setInterval(fn, delay) {
+      const id = nextId;
+      nextId += 1;
+      intervals.push({ id, fn, delay });
+      return id;
+    },
+    clearInterval(id) {
+      clearedIntervals.push(id);
+    },
     addEventListener() {},
     removeEventListener() {},
+    dispatchEvent(event) {
+      dispatchedEvents.push(event && event.type);
+      return true;
+    },
     postMessage() {}
   };
   globalThis.document = {
@@ -284,7 +301,16 @@ async function withDisableFlushHarness(callback) {
   });
 
   try {
-    await callback({ baseUrl, pageUrl, scheduled, cleared, runtimeMessages });
+    await callback({
+      baseUrl,
+      pageUrl,
+      scheduled,
+      cleared,
+      intervals,
+      clearedIntervals,
+      dispatchedEvents,
+      runtimeMessages
+    });
   } finally {
     globalThis.window = originalWindow;
     globalThis.document = originalDocument;
@@ -441,6 +467,74 @@ test("disable does not persist when no draft or snapshot timer is pending", asyn
 
     assert.equal(runtimeMessages.some((message) => message.type === "idbSet"), false);
   });
+});
+
+test("URL watcher preserves dirty drafts across same-base same-document URL changes", async () => {
+  const cases = [
+    ["pushState", "https://example.com/page/details"],
+    ["replaceState", "https://example.com/page?step=2"],
+    ["hash", "https://example.com/page#details"]
+  ];
+
+  for (const [label, nextUrl] of cases) {
+    await withDisableFlushHarness(async ({
+      pageUrl,
+      intervals,
+      clearedIntervals,
+      dispatchedEvents
+    }) => {
+      const draftEntry = state.config.pageMarkings[pageUrl];
+      state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
+
+      startUrlWatcher();
+      assert.equal(intervals.length, 1, label);
+      globalThis.location.href = nextUrl;
+      intervals[0].fn();
+
+      assert.equal(state.enabled, false, label);
+      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.pageUrl, pageUrl, label);
+      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.baseUrl, "https://example.com", label);
+      assert.deepEqual(
+        state.disabledUnsavedDraft && state.disabledUnsavedDraft.draftEntry.xpaths,
+        draftEntry.xpaths,
+        label
+      );
+      assert.deepEqual(clearedIntervals, [intervals[0].id], label);
+      assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
+    });
+  }
+});
+
+test("URL watcher discards temporary draft cache for clean or cross-base URL changes", async () => {
+  const cases = [
+    {
+      label: "clean same-base",
+      nextUrl: "https://example.com/page#clean",
+      dirty: false
+    },
+    {
+      label: "dirty cross-base",
+      nextUrl: "https://other.example/page",
+      dirty: true
+    }
+  ];
+
+  for (const { label, nextUrl, dirty } of cases) {
+    await withDisableFlushHarness(async ({ pageUrl, intervals, dispatchedEvents }) => {
+      if (dirty) {
+        state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
+      }
+
+      startUrlWatcher();
+      assert.equal(intervals.length, 1, label);
+      globalThis.location.href = nextUrl;
+      intervals[0].fn();
+
+      assert.equal(state.enabled, false, label);
+      assert.equal(state.disabledUnsavedDraft, null, label);
+      assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
+    });
+  }
 });
 
 test("disable teardown persistence captures state before clearing it", () => {

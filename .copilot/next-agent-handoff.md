@@ -64,6 +64,19 @@ Additional fixes landed after the initial drift audit:
     (`# pass 521`, `# fail 0` in the latest run); syntax checks clean; live
     AI-submission smoke passed on Bonliva and Prowork with `snapshot.ok=true`,
     `errs=0`, and `hasFreezeNode=false` at startup.
+- Remediation Phase 2.2 is complete:
+  - F5 URL watcher teardown now uses the previous page URL for pending draft
+    persistence and temporary disabled-draft caching.
+  - Dirty same-base same-document URL changes preserve the temporary draft
+    cache; clean same-base and dirty cross-base transitions keep the discard
+    behavior.
+  - Regression coverage simulates pushState-style, replaceState-style, hash,
+    clean same-base, and dirty cross-base transitions.
+  - Latest Phase 2.2 validation: focused URL/disable tests green (`46` pass);
+    marking/navigation guard suite green (`243` pass); full `npm test` green
+    (`# pass 505`, `# fail 0` in the latest run); syntax checks clean; live
+    AI-submission smoke passed on Bonliva and Prowork with `snapshot.ok=true`,
+    `errs=0`, and `hasFreezeNode=false` at startup.
 
 ## What's Left
 
@@ -77,11 +90,9 @@ criteria and per-item test plans is in
 Phase order (severity-first):
 - **Phase 1 (High): complete.** F3 disable() draft flush → F2 popup stale
   restore-scope resurrection → F1 page-motion bridge public control surface.
-- **Phase 2 (Medium): in progress.** F4 async reconcile abort coverage complete
-  → F5 SPA/hash nav
-  silently discarding a dirty session (needs a product decision — captured in
-  the plan, default recommendation given).
-- **Phase 3 (Medium-low):** F7 Save Session infinite retry → F6 non-
+- **Phase 2 (Medium): complete.** F4 async reconcile abort coverage → F5
+  SPA/hash nav silently discarding a dirty session.
+- **Phase 3 (Medium-low): next.** F7 Save Session infinite retry → F6 non-
   deterministic test count (root cause: `--test-force-exit`).
 - **Phase 4 (Low):** F8 stale names/comments + F9 content-script console logs
   (safe to batch).

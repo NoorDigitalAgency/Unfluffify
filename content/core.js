@@ -9179,16 +9179,38 @@ function stopObservers() {
   }
 }
 
-function startUrlWatcher() {
+function shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl) {
+  if (!state.enabled || !state.baseUrl || !previousUrl || !nextUrl) {
+    return false;
+  }
+  if (!utils.isPageWithinBaseUrl(previousUrl, state.baseUrl)) {
+    return false;
+  }
+  if (!utils.isPageWithinBaseUrl(nextUrl, state.baseUrl)) {
+    return false;
+  }
+  return isPageDraftDirty(previousUrl);
+}
+
+export function handleUrlWatcherTransition(previousUrl, nextUrl) {
+  const preserveUnsavedDraftCache = shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl);
+  disable({
+    preserveUnsavedDraftCache,
+    pageUrl: previousUrl
+  });
+}
+
+export function startUrlWatcher() {
   if (state.urlCheckTimer) {
     return;
   }
   let lastUrl = location.href;
   state.urlCheckTimer = extensionSetInterval(() => {
     if (location.href !== lastUrl) {
+      const previousUrl = lastUrl;
+      const nextUrl = location.href;
       lastUrl = location.href;
-      // URL transitions must not carry temporary draft cache to the next page.
-      disable({ preserveUnsavedDraftCache: false });
+      handleUrlWatcherTransition(previousUrl, nextUrl);
       window.dispatchEvent(new Event("unfluffify:url-changed"));
     }
   }, 800);
@@ -10023,11 +10045,10 @@ function scheduleMarkingSettleRenders() {
   state.markingSettleTimers = timers;
 }
 
-function cacheUnsavedDraftBeforeDisable() {
+function cacheUnsavedDraftBeforeDisable(pageUrl = location.href) {
   if (!state.enabled || !state.baseUrl || !state.config) {
     return;
   }
-  const pageUrl = location.href;
   const draftEntry = getDraftPageEntry(pageUrl);
   const savedEntry = getSavedPageEntry(pageUrl);
   if (!draftEntry || areEntriesEquivalent(draftEntry, savedEntry)) {
@@ -10043,16 +10064,21 @@ function cacheUnsavedDraftBeforeDisable() {
 }
 
 export function disable(options = {}) {
+  const optionPageUrl =
+    typeof options.pageUrl === "string" && options.pageUrl
+      ? options.pageUrl
+      : "";
   const teardownBaseUrl = state.baseUrl;
   const teardownConfig = state.config;
   const teardownPageUrl =
-    typeof location !== "undefined" && location.href
+    optionPageUrl ||
+    (typeof location !== "undefined" && location.href
       ? location.href
-      : state.currentPageUrl;
+      : state.currentPageUrl);
   flushPendingTeardownPersistence(teardownBaseUrl, teardownConfig, teardownPageUrl);
   const preserveUnsavedDraftCache = options.preserveUnsavedDraftCache !== false;
   if (preserveUnsavedDraftCache) {
-    cacheUnsavedDraftBeforeDisable();
+    cacheUnsavedDraftBeforeDisable(teardownPageUrl);
   } else {
     state.disabledUnsavedDraft = null;
   }

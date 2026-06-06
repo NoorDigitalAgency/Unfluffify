@@ -259,6 +259,13 @@ note approved before coding.
 Order rationale: needs a product decision before coding (what should happen to
 a dirty session on same-document nav), so it follows 2.1.
 
+- **Status (2026-06-06): complete.** The core URL watcher now passes the
+  previous page URL into `disable()` so teardown persistence and draft caching
+  operate on the page that owned the draft, not the already-mutated
+  `location.href`. Dirty same-base same-document transitions preserve the
+  temporary disabled draft cache; clean transitions and cross-base transitions
+  keep the prior discard behavior. Regression tests cover hash, pushState-style,
+  replaceState-style, clean same-base, and dirty cross-base transitions.
 - **Root cause:** `content/core.js:9289-9296` URL watcher calls
   `disable({ preserveUnsavedDraftCache: false })` on ANY `location.href`
   change including `history.pushState`/`replaceState`/hash. `handleBeforeUnload`
