@@ -192,31 +192,42 @@ function createPayloadFromFetch(options, requestBody, responseBody = "") {
   return request || response ? { request, response } : null;
 }
 
-function installConsoleTelemetry(target, options) {
+function installConsoleTelemetry(target, options, cleanupCallbacks) {
   const consoleObject = target.console;
   if (!consoleObject || consoleObject.__unfluffifyExtensionTelemetryInstalled) {
     return;
   }
 
+  const wrappedMethods = new Map();
   CONSOLE_LEVELS.forEach((level) => {
     const original = consoleObject[level];
     if (typeof original !== "function") {
       return;
     }
 
-    consoleObject[level] = function(...args) {
+    const wrapped = function(...args) {
       postTelemetryMessage(options, "console", {
         level,
         message: formatConsoleMessage(args)
       });
       return original.apply(this, args);
     };
+    wrappedMethods.set(level, { original, wrapped });
+    consoleObject[level] = wrapped;
   });
 
   consoleObject.__unfluffifyExtensionTelemetryInstalled = true;
+  cleanupCallbacks.push(() => {
+    for (const [level, methods] of wrappedMethods.entries()) {
+      if (consoleObject[level] === methods.wrapped) {
+        consoleObject[level] = methods.original;
+      }
+    }
+    delete consoleObject.__unfluffifyExtensionTelemetryInstalled;
+  });
 }
 
-function installFetchTelemetry(target, options) {
+function installFetchTelemetry(target, options, cleanupCallbacks) {
   const originalFetch = target.fetch;
   if (typeof originalFetch !== "function" || originalFetch.__unfluffifyExtensionTelemetryInstalled) {
     return;
@@ -292,6 +303,11 @@ function installFetchTelemetry(target, options) {
 
   wrappedFetch.__unfluffifyExtensionTelemetryInstalled = true;
   target.fetch = wrappedFetch;
+  cleanupCallbacks.push(() => {
+    if (target.fetch === wrappedFetch) {
+      target.fetch = originalFetch;
+    }
+  });
 }
 
 
@@ -313,7 +329,7 @@ function countRawResponseHeaders(rawHeaders) {
   return count;
 }
 
-function installXhrTelemetry(target, options) {
+function installXhrTelemetry(target, options, cleanupCallbacks) {
   const XhrConstructor = target.XMLHttpRequest;
   const prototype = XhrConstructor && XhrConstructor.prototype;
   if (!prototype || prototype.__unfluffifyExtensionTelemetryInstalled) {
@@ -326,7 +342,7 @@ function installXhrTelemetry(target, options) {
     return;
   }
 
-  prototype.open = function(method, url, ...rest) {
+  const wrappedOpen = function(method, url, ...rest) {
     this.__unfluffifyExtensionTelemetryRequest = {
       method: String(method || "GET").toUpperCase(),
       url: String(url || ""),
@@ -336,7 +352,7 @@ function installXhrTelemetry(target, options) {
     return originalOpen.call(this, method, url, ...rest);
   };
 
-  prototype.send = function(body) {
+  const wrappedSend = function(body) {
     const meta = this.__unfluffifyExtensionTelemetryRequest || {
       method: "GET",
       url: "",
@@ -373,17 +389,54 @@ function installXhrTelemetry(target, options) {
     return originalSend.call(this, body);
   };
 
+  prototype.open = wrappedOpen;
+  prototype.send = wrappedSend;
   prototype.__unfluffifyExtensionTelemetryInstalled = true;
+  cleanupCallbacks.push(() => {
+    if (prototype.open === wrappedOpen) {
+      prototype.open = originalOpen;
+    }
+    if (prototype.send === wrappedSend) {
+      prototype.send = originalSend;
+    }
+    delete prototype.__unfluffifyExtensionTelemetryInstalled;
+  });
 }
 
 export function installExtensionTelemetry(options = {}) {
   const target = options.target || globalThis;
-  if (!target || target.__unfluffifyExtensionTelemetryInstalled) {
-    return;
+  if (!target) {
+    return { uninstall() {} };
+  }
+  if (target.__unfluffifyExtensionTelemetryInstalled) {
+    return target.__unfluffifyExtensionTelemetryController || { uninstall() {} };
   }
 
-  installConsoleTelemetry(target, options);
-  installFetchTelemetry(target, options);
-  installXhrTelemetry(target, options);
+  const cleanupCallbacks = [];
+  let uninstalled = false;
+  const controller = {
+    uninstall() {
+      if (uninstalled) {
+        return;
+      }
+      uninstalled = true;
+      while (cleanupCallbacks.length) {
+        const cleanup = cleanupCallbacks.pop();
+        try {
+          cleanup();
+        } catch (error) {
+          // Telemetry teardown must not affect product behavior.
+        }
+      }
+      delete target.__unfluffifyExtensionTelemetryInstalled;
+      delete target.__unfluffifyExtensionTelemetryController;
+    }
+  };
+
+  installConsoleTelemetry(target, options, cleanupCallbacks);
+  installFetchTelemetry(target, options, cleanupCallbacks);
+  installXhrTelemetry(target, options, cleanupCallbacks);
   target.__unfluffifyExtensionTelemetryInstalled = true;
+  target.__unfluffifyExtensionTelemetryController = controller;
+  return controller;
 }

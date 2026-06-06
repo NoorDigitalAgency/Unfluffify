@@ -21,8 +21,8 @@ are all implemented and validated. A full code-review pass of the agent commit
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
 **Test status: all green. Finding 6 removed `--test-force-exit` from
-`package.json`; after backlog B guard tests, the latest full `npm test`
-reports `# tests 551`, `# pass 551`, `# fail 0`. All syntax checks clean.**
+`package.json`; after backlog C guard tests, the latest full `npm test`
+reports `# tests 553`, `# pass 553`, `# fail 0`. All syntax checks clean.**
 
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
@@ -135,11 +135,21 @@ Additional fixes landed after the initial drift audit:
   lifecycle suite green (`23` pass), full `npm test` green (`# tests 551`,
   `# pass 551`, `# fail 0`), and `node --check` clean for
   `common/emulation.js` plus the lifecycle guard test.
+- **Backlog C T3-a page-telemetry bridge hardening: COMPLETE.**
+  `content-main.js` no longer installs the MAIN-world page bridge at startup.
+  The bridge is installed only while the tab is in an active
+  `being_supported` remote-support session, control/telemetry messages carry a
+  per-session nonce, page-supplied `tabId` is dropped before forwarding, and
+  `common/extension-telemetry.js` can restore page `console` / `fetch` / XHR
+  wrappers on teardown. Validation: focused telemetry/remote-support suites
+  green (`45` pass), full `npm test` green (`# tests 553`, `# pass 553`,
+  `# fail 0`), syntax checks clean, and Bonliva AI-submission smoke passed
+  (`snapshot.ok=true`, `errs=0`, `hasFreezeNode=false`).
 
 ## What's Left — actionable backlog
 
 Nothing here is an active bug; the branch is shippable as-is. These are the
-remaining OPTIONAL improvements + the human-gated validations. Each item below
+remaining human-gated validations plus optional inspections. Each item below
 has its own pointers and acceptance criteria so it can be executed directly.
 Full rationale for every finding is in
 `.copilot/subsystem-inspection.md` ("Improvement-plan assessment" table).
@@ -200,22 +210,25 @@ Source-guard/runtime coverage was added for each item.
   coverage locks the queue mechanics and call sites. Automated acceptance
   passed; manual rapid toggle+navigate remains optional live UX validation.
 
-### C. T3-a — page telemetry bridge (do as part of the remote-support rework)
+### C. T3-a — page telemetry bridge — COMPLETE
 
-- Medium finding, parked with remote-support (deprioritized). Full remediation
-  sketch in `.copilot/subsystem-inspection.md` (T3-a section).
+- Medium finding completed during the autonomous backlog run. Full remediation
+  notes are in `.copilot/subsystem-inspection.md` (T3-a section).
 - Files: `common/page-telemetry.js`, `common/extension-telemetry.js`,
   `content-main.js` (`ensurePageTelemetryBridge`,
   `handlePageTelemetryWindowMessage`).
-- Three required changes: (1) install the page telemetry bridge just-in-time
+- Required changes completed: (1) install the page telemetry bridge just-in-time
   while a support session needs it, tear down on session end (F1 lifecycle
   model); (2) gate `console`/`fetch`/`XHR` wrapping behind an `isEnabled` tied
   to an active support session; (3) authenticate the telemetry channel
   (nonce/handshake) so arbitrary page scripts cannot inject entries via the
   static `window.postMessage` marker.
-- Acceptance: no MAIN-world API wrapping or telemetry forwarding on an
-  activated tab when no support session is active; a page posting the static
-  marker cannot inject telemetry into the supporter mirror.
+- Status: complete. Page telemetry is inert until authenticated enable control
+  for the active `being_supported` session; authenticated disable restores the
+  original page APIs; content accepts page telemetry only while that nonce is
+  current and strips any page-provided tab routing before forwarding. Source
+  guards and page-module tests lock the lifecycle, nonce, and teardown
+  contracts.
 
 ### D. Human-gated validations (cannot be fully automated here)
 

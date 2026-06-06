@@ -1,9 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
 const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
+const PAGE_TELEMETRY_TEST_NONCE = "1234567890abcdef1234567890abcdef";
 const CONSOLE_LEVELS = ["log", "info", "warn", "error", "debug"];
+
+const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+const pageTelemetrySource = readFileSync(new URL("../common/page-telemetry.js", import.meta.url), "utf8");
+
+function extractSourceBlock(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  assert.ok(start >= 0, `Missing source block start: ${startNeedle}`);
+  const end = source.indexOf(endNeedle, start);
+  assert.ok(end > start, `Missing source block end: ${endNeedle}`);
+  return source.slice(start, end);
+}
 
 function createWindowHarness() {
   const messageListeners = [];
@@ -22,12 +35,12 @@ function createWindowHarness() {
   return {
     windowObject,
     postedMessages,
-    dispatchControl(includePayloads) {
+    dispatchControl(control = {}) {
       const event = {
         source: windowObject,
         data: {
           __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
-          includePayloads
+          ...control
         }
       };
 
@@ -101,9 +114,22 @@ async function withPageTelemetryEnvironment(callback) {
   }
 }
 
-test("page telemetry forwards console entries with source page", async () => {
-  await withPageTelemetryEnvironment(async ({ postedMessages }) => {
+test("page telemetry stays inert until authenticated support control enables it", async () => {
+  await withPageTelemetryEnvironment(async ({ postedMessages, dispatchControl }) => {
     await import(`../common/page-telemetry.js?case=${Date.now()}-console`);
+
+    globalThis.console.info("page bridge ready");
+    assert.equal(postedMessages.length, 0, "page telemetry should not wrap console before support enable");
+
+    dispatchControl({ enabled: true, includePayloads: false });
+    globalThis.console.info("static marker only");
+    assert.equal(postedMessages.length, 0, "static control marker without nonce should not enable telemetry");
+
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: true,
+      includePayloads: false
+    });
 
     globalThis.console.info("page bridge ready");
 
@@ -111,6 +137,7 @@ test("page telemetry forwards console entries with source page", async () => {
       (message) =>
         message &&
         message.__unfluffifyTelemetry === PAGE_TELEMETRY_MESSAGE_MARKER &&
+        message.nonce === PAGE_TELEMETRY_TEST_NONCE &&
         message.message &&
         message.message.channel === "console"
     );
@@ -127,6 +154,12 @@ test("page telemetry includes fetch payloads only after the control message enab
   await withPageTelemetryEnvironment(async ({ postedMessages, dispatchControl }) => {
     await import(`../common/page-telemetry.js?case=${Date.now()}-payloads`);
 
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: true,
+      includePayloads: false
+    });
+
     await globalThis.fetch("https://example.com/save", {
       method: "POST",
       body: "request-body"
@@ -142,10 +175,38 @@ test("page telemetry includes fetch payloads only after the control message enab
     );
 
     assert.ok(firstNetworkMessage);
+    assert.equal(firstNetworkMessage.nonce, PAGE_TELEMETRY_TEST_NONCE);
     assert.equal(firstNetworkMessage.message.entry.source, "page");
     assert.equal(firstNetworkMessage.message.entry.payload, null);
 
-    dispatchControl(true);
+    dispatchControl({
+      nonce: "wrong-wrong-wrong-wrong",
+      enabled: true,
+      includePayloads: true
+    });
+
+    await globalThis.fetch("https://example.com/save", {
+      method: "POST",
+      body: "request-body"
+    });
+    await flushTelemetryTasks();
+
+    const wrongNonceMessage = postedMessages
+      .filter(
+        (message) =>
+          message &&
+          message.__unfluffifyTelemetry === PAGE_TELEMETRY_MESSAGE_MARKER &&
+          message.message &&
+          message.message.channel === "network"
+      )
+      .at(-1);
+    assert.equal(wrongNonceMessage.message.entry.payload, null);
+
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: true,
+      includePayloads: true
+    });
 
     await globalThis.fetch("https://example.com/save", {
       method: "POST",
@@ -175,4 +236,76 @@ test("page telemetry includes fetch payloads only after the control message enab
       })
     });
   });
+});
+
+test("page telemetry authenticated disable restores wrapped page APIs", async () => {
+  await withPageTelemetryEnvironment(async ({ postedMessages, dispatchControl }) => {
+    const originalInfo = globalThis.console.info;
+    const originalFetch = globalThis.fetch;
+    await import(`../common/page-telemetry.js?case=${Date.now()}-teardown`);
+
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: true,
+      includePayloads: false
+    });
+
+    assert.notEqual(globalThis.console.info, originalInfo);
+    assert.notEqual(globalThis.fetch, originalFetch);
+
+    globalThis.console.info("before disable");
+    assert.equal(postedMessages.length, 1);
+
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: false,
+      includePayloads: false
+    });
+
+    assert.equal(globalThis.console.info, originalInfo);
+    assert.equal(globalThis.fetch, originalFetch);
+
+    globalThis.console.info("after disable");
+    assert.equal(postedMessages.length, 1);
+  });
+});
+
+test("content page telemetry bridge is active-session and nonce gated", () => {
+  const mainBlock = extractSourceBlock(
+    contentMainSource,
+    "export function main()",
+    "core.refreshFromTabState().then"
+  );
+  const applyStateBlock = extractSourceBlock(
+    contentMainSource,
+    "function applyRemoteSupportSessionState",
+    "function sendRuntimeMessageSafely"
+  );
+  const messageBlock = extractSourceBlock(
+    contentMainSource,
+    "function handlePageTelemetryWindowMessage",
+    "function createPageTelemetryBridgeNonce"
+  );
+  const forwardBlock = extractSourceBlock(
+    contentMainSource,
+    "function forwardPageTelemetryMessage",
+    "function handlePageTelemetryWindowMessage"
+  );
+  const ensureBlock = extractSourceBlock(
+    contentMainSource,
+    "function ensurePageTelemetryBridge",
+    "function syncPageTelemetryBridgeLifecycle"
+  );
+
+  assert.doesNotMatch(mainBlock, /ensurePageTelemetryBridge\(\)/);
+  assert.match(applyStateBlock, /syncPageTelemetryBridgeLifecycle\(\);/);
+  assert.match(messageBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(messageBlock, /!pageTelemetryBridgeNonce/);
+  assert.match(messageBlock, /data\.nonce !== pageTelemetryBridgeNonce/);
+  assert.match(forwardBlock, /type: "remoteSupportExtensionTelemetry"/);
+  assert.doesNotMatch(forwardBlock, /sendRuntimeMessageSafely\(message\)/);
+  assert.doesNotMatch(forwardBlock, /tabId/);
+  assert.match(ensureBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(pageTelemetrySource, /isEnabled: \(\) => enabled && Boolean\(telemetryNonce\)/);
+  assert.match(pageTelemetrySource, /telemetryController\.uninstall\(\)/);
 });

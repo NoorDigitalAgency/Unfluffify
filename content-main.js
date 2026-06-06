@@ -266,6 +266,7 @@ const REMOTE_SUPPORT_SUPPORT_PAGE_VIEWER_REQUEST_TIMEOUT_MS = 10000;
 const PAGE_TELEMETRY_SCRIPT_ID = "unfluffify-page-telemetry-script";
 const PAGE_TELEMETRY_MESSAGE_MARKER = "unfluffify-page-telemetry";
 const PAGE_TELEMETRY_CONTROL_MARKER = "unfluffify-page-telemetry-control";
+const PAGE_TELEMETRY_NONCE_BYTES = 16;
 
 let remoteSupportMode = "inactive";
 let remoteSupportRole = "";
@@ -289,6 +290,7 @@ let remoteSupportMediaQuietingActive = false;
 let remoteSupportMediaQuietObserver = null;
 const remoteSupportQuietedMediaElements = new Map();
 let pageTelemetryBridgeListenerBound = false;
+let pageTelemetryBridgeNonce = "";
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
@@ -734,7 +736,7 @@ function applyRemoteSupportSessionState(remoteSupportStateLike) {
     stopRemoteSupportMediaQuieting();
   }
 
-  syncPageTelemetryControl();
+  syncPageTelemetryBridgeLifecycle();
   syncRemoteSupportTerminateButton();
 }
 
@@ -826,16 +828,40 @@ function forwardPageTelemetryMessage(message) {
     return;
   }
 
-  void sendRuntimeMessageSafely(message);
+  const channel = message.channel === "network"
+    ? "network"
+    : message.channel === "console"
+      ? "console"
+      : "";
+  if (!channel) {
+    return;
+  }
+
+  void sendRuntimeMessageSafely({
+    type: "remoteSupportExtensionTelemetry",
+    channel,
+    entry: message.entry && typeof message.entry === "object" && !Array.isArray(message.entry)
+      ? { ...message.entry }
+      : {}
+  });
 }
 
 function handlePageTelemetryWindowMessage(event) {
-  if (extensionContextInvalidated || !event || event.source !== window) {
+  if (
+    extensionContextInvalidated ||
+    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED ||
+    !pageTelemetryBridgeNonce ||
+    !event ||
+    event.source !== window
+  ) {
     return;
   }
 
   const data = event.data && typeof event.data === "object" ? event.data : null;
   if (!data || data.__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER) {
+    return;
+  }
+  if (data.nonce !== pageTelemetryBridgeNonce) {
     return;
   }
 
@@ -847,24 +873,85 @@ function handlePageTelemetryWindowMessage(event) {
   forwardPageTelemetryMessage(message);
 }
 
+function createPageTelemetryBridgeNonce() {
+  const cryptoObject = globalThis.crypto;
+  if (cryptoObject && typeof cryptoObject.getRandomValues === "function") {
+    const bytes = new Uint8Array(PAGE_TELEMETRY_NONCE_BYTES);
+    cryptoObject.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+function getPageTelemetryBridgeNonce() {
+  if (!pageTelemetryBridgeNonce) {
+    pageTelemetryBridgeNonce = createPageTelemetryBridgeNonce();
+  }
+  return pageTelemetryBridgeNonce;
+}
+
 function syncPageTelemetryControl() {
   if (
-    extensionContextInvalidated ||
     typeof window === "undefined" ||
     typeof window.postMessage !== "function"
   ) {
     return;
   }
 
+  const enabled = remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED;
+  const nonce = enabled ? getPageTelemetryBridgeNonce() : pageTelemetryBridgeNonce;
+  if (!nonce) {
+    return;
+  }
+
   window.postMessage({
     __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
-    includePayloads: remoteSupportIncludePayloads
+    nonce,
+    enabled,
+    includePayloads: enabled && remoteSupportIncludePayloads
   }, "*");
+}
+
+function teardownPageTelemetryBridge() {
+  if (
+    pageTelemetryBridgeNonce &&
+    typeof window !== "undefined" &&
+    typeof window.postMessage === "function"
+  ) {
+    window.postMessage({
+      __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
+      nonce: pageTelemetryBridgeNonce,
+      enabled: false,
+      includePayloads: false
+    }, "*");
+  }
+
+  if (
+    pageTelemetryBridgeListenerBound &&
+    typeof window !== "undefined" &&
+    typeof window.removeEventListener === "function"
+  ) {
+    window.removeEventListener("message", handlePageTelemetryWindowMessage);
+    pageTelemetryBridgeListenerBound = false;
+  }
+
+  const existingScript = typeof document === "object"
+    ? document.getElementById(PAGE_TELEMETRY_SCRIPT_ID)
+    : null;
+  if (existingScript && typeof existingScript.remove === "function") {
+    existingScript.remove();
+  } else if (existingScript && existingScript.parentNode) {
+    existingScript.parentNode.removeChild(existingScript);
+  }
+
+  pageTelemetryBridgeNonce = "";
 }
 
 function ensurePageTelemetryBridge() {
   if (
     extensionContextInvalidated ||
+    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED ||
     typeof window === "undefined" ||
     typeof document !== "object" ||
     !globalThis.chrome ||
@@ -898,6 +985,14 @@ function ensurePageTelemetryBridge() {
     syncPageTelemetryControl();
   }, { once: true });
   parent.appendChild(script);
+}
+
+function syncPageTelemetryBridgeLifecycle() {
+  if (remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED) {
+    ensurePageTelemetryBridge();
+  } else {
+    teardownPageTelemetryBridge();
+  }
 }
 
 async function syncRemoteSupportSessionStateFromBackground() {
@@ -6405,14 +6500,7 @@ function markExtensionContextInvalidated(error) {
     return false;
   }
   extensionContextInvalidated = true;
-  if (
-    pageTelemetryBridgeListenerBound &&
-    typeof window !== "undefined" &&
-    typeof window.removeEventListener === "function"
-  ) {
-    window.removeEventListener("message", handlePageTelemetryWindowMessage);
-    pageTelemetryBridgeListenerBound = false;
-  }
+  teardownPageTelemetryBridge();
   propertyLockSyncToken += 1;
   disconnectPropertyLockPort({ notifyBackground: false });
   return true;
@@ -7336,7 +7424,6 @@ export function main() {
     source: "content",
     getIncludePayloads: () => remoteSupportIncludePayloads
   });
-  ensurePageTelemetryBridge();
 
   initializeRemoteSupportSupportPage();
   syncRemoteSupportSessionStateFromBackground().then();

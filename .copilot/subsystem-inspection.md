@@ -232,7 +232,7 @@ Read in full for correctness:
 - `scripts/package-extension.mjs` (422) — packaging (dev-only, test-covered by
   `tests/package-extension.test.js`).
 
-### Verdict: one Medium finding (T3-a). Everything else clean.
+### Verdict: one Medium finding (T3-a), now fixed. Everything else clean.
 
 Cross-checks that passed:
 - **constants** match the locked taxonomy (`DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS`
@@ -247,44 +247,45 @@ Cross-checks that passed:
   the background import.
 
 ### T3-a (Medium / security+privacy): page telemetry bridge re-introduces the Finding 1 pattern
-- `common/page-telemetry.js` is injected as a persistent MAIN-world `<script>`
-  by `ensurePageTelemetryBridge()` in `content-main.js` `main()` — on EVERY
-  activated tab, regardless of whether a remote-support session is active.
-- It calls `installExtensionTelemetry` with NO `isEnabled` gate, so the page's
-  `console` / `fetch` / `XMLHttpRequest.prototype` are wrapped and network +
-  console METADATA are forwarded to the background on every activated page.
+- **Status 2026-06-06: FIXED.** `content-main.js` now installs the page
+  telemetry bridge only while the tab is in an active `being_supported`
+  remote-support session. `common/page-telemetry.js` stays inert until it
+  receives authenticated enable control, includes the active nonce on outbound
+  telemetry, and uninstalls telemetry wrappers on authenticated disable.
+  `content-main.handlePageTelemetryWindowMessage` requires the current nonce,
+  requires active support mode, sanitizes the message, and drops any
+  page-supplied `tabId` before forwarding to background.
+- Before the fix, `common/page-telemetry.js` was injected as a persistent
+  MAIN-world `<script>` by `ensurePageTelemetryBridge()` in `content-main.js`
+  `main()` — on EVERY activated tab, regardless of whether a remote-support
+  session was active.
+- It called `installExtensionTelemetry` with NO `isEnabled` gate, so the page's
+  `console` / `fetch` / `XMLHttpRequest.prototype` were wrapped and network +
+  console METADATA were forwarded to the background on every activated page.
   (Request/response BODIES are gated on remote-support `includePayloads`, but
-  the wrapping + metadata forwarding are not.)
-- It installs a persistent `window` "message" listener gated only on a static
-  marker (`unfluffify-page-telemetry-control`); any page script can post that
+  the wrapping + metadata forwarding were not.)
+- It installed a persistent `window` "message" listener gated only on a static
+  marker (`unfluffify-page-telemetry-control`); any page script could post that
   marker to flip `includePayloads`.
-- `content-main.handlePageTelemetryWindowMessage` forwards ANY page
+- `content-main.handlePageTelemetryWindowMessage` forwarded ANY page
   `window.postMessage` carrying the static `PAGE_TELEMETRY_MESSAGE_MARKER` +
   `message.type === "remoteSupportExtensionTelemetry"` straight to the
-  background with NO origin/shape validation → a page can **inject fabricated
+  background with NO origin/shape validation → a page could **inject fabricated
   telemetry entries** (including an attacker-chosen `tabId`) into the
   supporter's console/network mirror.
-- This is the same class of issue Finding 1 fixed for the page-motion bridge:
+- This was the same class of issue Finding 1 fixed for the page-motion bridge:
   persistent page-world script, static-marker control surface, page-API
   wrapping, page-spoofable.
-- **Why it is not catastrophic today:** only on activated tabs; metadata-only
+- **Why it was not catastrophic:** only on activated tabs; metadata-only
   outside an active support session; the spoofed/forwarded telemetry pollutes
   the supporter's own mirror during a support session rather than exfiltrating
   to the page. Still a fingerprint + perf + privacy concern on every activated
   page, and a spoofing vector into the supporter view.
-- **Scope:** feeds the remote-support DevTools mirroring, which the user has
-  deprioritized — so this finding is parked with that subsystem. The
-  always-on API wrapping is broader than remote-support and is the part most
-  worth revisiting first.
-- **Suggested remediation (when remote-support is reprioritized):**
-  1. Install the page telemetry bridge just-in-time (only while a support
-     session that needs it is active) and tear it down on session end — the
-     F1 lifecycle model.
-  2. Gate the `console`/`fetch`/`XHR` wrapping behind `isEnabled` tied to an
-     active support session.
-  3. Stop trusting a page `window.postMessage` marker for forwarding —
-     authenticate the channel (nonce/handshake) or capture via a mechanism the
-     page cannot post into, so arbitrary page scripts cannot inject telemetry.
+- **Implemented remediation:** just-in-time bridge install/teardown follows the
+  remote-support content state; `installExtensionTelemetry` now returns an
+  uninstall controller so MAIN-world page API wrappers are restored on disable;
+  page control and telemetry forwarding are nonce-gated, and content forwards a
+  sanitized telemetry message without trusting page-provided tab routing.
 
 ---
 
@@ -358,12 +359,11 @@ All findings to date, with status:
 | T1-b | Low | selector-cache filter key | No (safe today) | FIXED |
 | T2-a | Low | device-emulation debugger race | No (self-heals) | FIXED |
 | T2-b | Low | duplicated reconcile-reason list | No (identical now) | FIXED |
-| T3-a | Medium | page telemetry F1-pattern | No (metadata-only outside support; pollution-not-RCE) | Parked w/ remote-support |
+| T3-a | Medium | page telemetry F1-pattern | No (metadata-only outside support; pollution-not-RCE) | FIXED |
 
-**Do we need a fix plan? Conclusion: no URGENT plan; one OPTIONAL low-effort
-hardening pass is reasonable, and T3-a should ride the eventual
-remote-support rework.** None of the open findings is an active bug; every one
-is "safe today." There is no correctness or security regression to chase.
+**Do we need a fix plan? Conclusion: no open code-remediation plan remains.**
+The identified optional hardening items are fixed. The only remaining work is
+human-gated live validation plus optional deeper inspections listed below.
 
 Recommended (optional) groupings if/when capacity allows:
 
@@ -383,11 +383,10 @@ Recommended (optional) groupings if/when capacity allows:
    debugger path now uses a per-tab queue, keyed by tabId, to serialize
    concurrent attach / metrics override / clear / detach operations.
 
-3. **T3-a:** fold into the remote-support rework when that subsystem is
-   reprioritized — remediation sketch already recorded above (just-in-time
-   install, `isEnabled` gate, authenticated telemetry channel). The
-   always-on MAIN-world API wrapping is the part to address first even if the
-   rest of remote-support stays parked.
+3. **T3-a:** completed in the autonomous backlog run. The page-telemetry bridge
+   now uses just-in-time active-session install, `isEnabled`/teardown-backed
+   page API wrapping, nonce-gated control/forwarding, and sanitized forwarding
+   without page-provided tab routing.
 
 Remaining pure-inspection gap (optional): the `content/core.js`
 rendering/scheduling internals and the remote-support reliability internals —

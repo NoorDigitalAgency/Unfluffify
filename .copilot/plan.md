@@ -15,9 +15,10 @@ Current state:
   paths + a targeted remote-support/DevTools security pass — all recorded in
   `.copilot/subsystem-inspection.md` with an "Improvement-plan assessment".
 - **Open items are all OPTIONAL hardening + human-gated validations** (no active
-  bugs). Backlog A (cheap hardening: T2-b/T1-a/T1-b) and backlog B (T2-a
-  device-emulation debugger serialization) are complete and validated; remaining
-  executable backlog is C–E in the handoff.
+  bugs). Backlog A (cheap hardening: T2-b/T1-a/T1-b), backlog B (T2-a
+  device-emulation debugger serialization), and backlog C (T3-a page-telemetry
+  bridge hardening) are complete and validated; remaining backlog is D–E in the
+  handoff.
 
 Note: older validation notes below that mention
 `#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix
