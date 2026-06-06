@@ -7457,7 +7457,7 @@ async function alignPopupToSilentMode() {
 }
 
 async function applyPostSaveSilentTransition() {
-  // Post-save contract (recovery-plan B2): the current page render resets from
+  // Post-save contract: the current page render resets from
   // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
   // explicit deltas are dropped from the overlay), the mode switches marking ->
   // silent highlighting, and the user stays in silent until Enable Marking

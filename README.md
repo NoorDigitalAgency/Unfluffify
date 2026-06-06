@@ -66,7 +66,7 @@ Run the regression suite from the repository root:
 npm test
 ```
 
-The script uses Node's built-in test runner with `--test-force-exit` so mocked extension transports cannot keep CI open after assertions finish.
+The script uses Node's built-in test runner (`node --test`) with clean teardown so full subtest counts remain meaningful and deterministic.
 
 The tests cover the pure marking/highlighting and remote-support rules that have caused regressions during recent logic changes.
 Run this command before opening or updating a pull request to catch regressions early.

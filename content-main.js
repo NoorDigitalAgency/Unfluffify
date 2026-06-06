@@ -5902,7 +5902,7 @@ function collectAiSubmissionXpathsForCurrentPage(sourceConfig = state.config) {
     // sticky columns, multi-line inlines whose primary bounding rect anchors
     // off-bounds) would be sent as `excluded: true` while their visible
     // descendant rows remain included, which is the failure shape observed in
-    // the Bonliva article repro at .copilot/round7-responsiveness-handoff.md.
+    // field reproduction on long-form article layouts.
     if (
       submissionRow.excluded &&
       !explicitlyExcluded &&
