@@ -86,6 +86,23 @@ this repo, set either `playwrightModulePath` in `config.json` or
 Each runner writes `runner.log` and `state-latest.json` under
 `orchestration/runs/<timestamp>-<role>-<side>/`.
 
+## Auth seeding
+
+After filling `orchestration/config.json` and `orchestration/.secrets.json`,
+seed a persistent profile for a side/account:
+
+```bash
+node orchestration/setup-auth.mjs --role director --side A --account A
+node orchestration/setup-auth.mjs --role follower --side B --account B
+```
+
+The script launches the unpacked extension, opens the popup configuration view,
+sets Configuration Endpoint, AI Endpoint, and Stage Base from
+`.secrets.json`, submits the selected account credentials, and verifies that
+Chrome sync storage has a token. It never prints the token or password.
+
+If `.secrets.json` is absent, the script exits before launching a browser.
+
 ## Two-machine bring-up
 
 1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,

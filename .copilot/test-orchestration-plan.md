@@ -169,7 +169,7 @@ Debug channel: `note{text}`.
   fake-media/auto-capture args; `readState` helpers; deterministic results.
   Acceptance: a runner launches the extension, opens the popup, reads
   banner/storage state, and reports over the bus on one machine.
-- **Phase 3 — auth seeding.** `setup-auth.mjs` from `.secrets.json`,
+- **Phase 3 — auth seeding. CODE COMPLETE 2026-06-06; LIVE VALIDATION BLOCKED.** `setup-auth.mjs` from `.secrets.json`,
   configurable account per side. Acceptance: a fresh profile reaches
   authenticated state non-interactively for a given account.
 - **Phase 4 — property-lock E2E on ONE machine (first green).** Two profiles,
@@ -222,9 +222,25 @@ Debug channel: `note{text}`.
 - Validation completed:
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js`
   -> `7/7` pass.
-- Phase 3 is the next repo-local implementation slice. Phase 3 live validation
-  needs real gitignored staging credentials in `orchestration/.secrets.json`;
-  Phase 6 needs two real hosts for media-connected assertions.
+- Phase 3 code is complete:
+  `orchestration/lib/secrets.mjs`, `orchestration/setup-auth.mjs`, and
+  `tests/orchestration-auth.test.js`. The script validates gitignored secrets,
+  opens the popup configuration view, fills Configuration Endpoint / AI
+  Endpoint / Stage Base, submits the selected account credentials, and verifies
+  token presence without printing secret values.
+- Phase 3 live validation is BLOCKED in this checkout because
+  `orchestration/.secrets.json` is intentionally absent. Confirmed command:
+  `node orchestration/setup-auth.mjs` exits with
+  `Missing orchestration secrets: .../orchestration/.secrets.json`.
+- Validation completed:
+  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
+  -> `12/12` pass.
+- Full validation completed:
+  `npm test` -> `579/579` pass, `# fail 0`; `node --check` also passes for the
+  Phase 3 entry/test files.
+- Phase 4 is the next implementation slice after credentials are installed and
+  Phase 3 live auth seeding has passed. Phase 6 still needs two real hosts for
+  media-connected assertions.
 
 ## Open items to confirm before Phase 3+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,

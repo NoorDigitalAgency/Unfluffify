@@ -4,15 +4,18 @@
 
 - Engineering backlog items are complete and shipped to `main`.
 - CR-1 and CR-2 cleanup follow-ups are complete.
-- Test orchestration Phase 0, Phase 1, and Phase 2 are implemented in
+- Test orchestration Phase 0, Phase 1, Phase 2, and Phase 3 code are implemented in
   `orchestration/`: secret-safe templates/setup docs, a dependency-free
   scenario-bus WebSocket server, protocol validation, mock client, transcript
   logging, runner config loading, runner bus client, deterministic browser step
-  registry, artifact logging, and unit coverage.
+  registry, artifact logging, auth secret validation, UI-driven auth seeding,
+  and unit coverage.
 - Remaining non-code work is human-gated two-profile remote-support validation.
-- Remaining orchestration implementation starts at Phase 3 in
-  `.copilot/test-orchestration-plan.md`; Phase 3+ still requires local
-  gitignored staging credentials, and Phase 6 requires two real hosts.
+- Phase 3 live validation is BLOCKED until local gitignored staging credentials
+  exist in `orchestration/.secrets.json`; Phase 4+ depends on that auth seed,
+  and Phase 6 requires two real hosts.
+- Latest validation for the Phase 3 code slice: `npm test` passes (`579/579`,
+  `# fail 0`).
 
 ## Marking Contract Lock
 

@@ -5,9 +5,9 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 "where we are / what to do next" note.
 
 ## State
-- **Planning complete. Phase 0, Phase 1, and Phase 2 are implemented.** All
-  Q&A decisions and open items are resolved (see the plan's Decisions table +
-  Open items).
+- **Planning complete. Phase 0, Phase 1, Phase 2, and Phase 3 code are
+  implemented.** All Q&A decisions and open items are resolved (see the plan's
+  Decisions table + Open items).
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
   - `orchestration/config.example.json`
@@ -18,17 +18,27 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   - `orchestration/lib/config.mjs`
   - `orchestration/lib/artifacts.mjs`
   - `orchestration/lib/bus-client.mjs`
+  - `orchestration/lib/secrets.mjs`
   - `orchestration/bus-server.mjs`
   - `orchestration/mock-client.mjs`
   - `orchestration/runner.mjs`
+  - `orchestration/setup-auth.mjs`
   - `orchestration/steps/browser.mjs`
   - `tests/orchestration-bus.test.js`
   - `tests/orchestration-runner.test.js`
+  - `tests/orchestration-auth.test.js`
 - `.gitignore` protects `orchestration/.secrets.json`,
   `orchestration/config.json`, `orchestration/runs/`, and profile dirs.
 - Validation:
-  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js`
-  passes (`7/7`).
+  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
+  passes (`12/12`).
+- Full validation: `npm test` passes (`579/579`, `# fail 0`), and
+  `node --check` passes for `orchestration/setup-auth.mjs`,
+  `orchestration/lib/secrets.mjs`, and `tests/orchestration-auth.test.js`.
+- Live Phase 3 auth seeding is BLOCKED in this checkout because
+  `orchestration/.secrets.json` is intentionally absent. The script exits with
+  `Missing orchestration secrets: .../orchestration/.secrets.json` before
+  launching a browser.
 
 ## Decisions locked (don't re-litigate without the user)
 - Two-machine-ready, **validate on one machine first**.
@@ -58,19 +68,20 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 - Observability: `popup.html?debugTabId=`, `chrome.storage.session`
   (`tabState:*`, `deviceEmulation:*`), property-lock banner text, RS state.
 
-## Next step: Phase 3
-Build `orchestration/setup-auth.mjs` from gitignored
-`orchestration/.secrets.json`, using the Phase 2 browser launch/config helpers.
-It should seed the extension configuration view and authenticate the selected
-account into the configured persistent profile.
+## Next step: Phase 3 live validation, then Phase 4
+Create local `orchestration/config.json` and `orchestration/.secrets.json`
+from the examples, then run:
 
-Phase 3 cannot be fully live-validated without real local
-`orchestration/.secrets.json` values. Implement source/shape validation and
-unit coverage without committing secrets, then mark live auth seeding BLOCKED
-until credentials are available on the host.
+`node orchestration/setup-auth.mjs --role director --side A --account A`
 
-Then Phases 4→7 per the plan (property-lock E2E on one machine → RS handshake
-one machine → two-machine media → LLM roles).
+and repeat for the follower account/profile. Once both profiles are seeded,
+start Phase 4: property-lock E2E on one machine with two profiles. Phase 4
+should reuse the Phase 2 runner/browser steps and add scenario definitions for
+single-editor lock, read-only second tab, take-over, off-candidate countdown,
+cross-property countdown, and release.
+
+Then Phases 5→7 per the plan (RS handshake one machine → two-machine media →
+LLM roles).
 
 ## Watch-outs
 - **Never commit** `orchestration/.secrets.json`, `config.json`, or any profile
