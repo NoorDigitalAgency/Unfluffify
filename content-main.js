@@ -291,6 +291,11 @@ let remoteSupportMediaQuietObserver = null;
 const remoteSupportQuietedMediaElements = new Map();
 let pageTelemetryBridgeListenerBound = false;
 let pageTelemetryBridgeNonce = "";
+// Private MessageChannel port for the page-world telemetry stream. When
+// available, steady-state telemetry travels over this port instead of being
+// broadcast on window.postMessage, so other page scripts cannot passively
+// observe (or, without racing the one-time port handshake, forge) the stream.
+let pageTelemetryBridgePort = null;
 
 function createRemoteSupportSupportPageState(tabId = null) {
   return {
@@ -873,6 +878,43 @@ function handlePageTelemetryWindowMessage(event) {
   forwardPageTelemetryMessage(message);
 }
 
+// Telemetry delivered over the private MessageChannel port. The port itself is
+// the capability — only a holder of the transferred port can post here — so no
+// per-message nonce is required, but the marker/shape are still validated and
+// the active-session guard still applies.
+function handlePageTelemetryPortMessage(event) {
+  if (
+    extensionContextInvalidated ||
+    remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED
+  ) {
+    return;
+  }
+
+  const data = event && event.data && typeof event.data === "object" ? event.data : null;
+  if (!data || data.__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER) {
+    return;
+  }
+
+  const message = data.message && typeof data.message === "object" ? data.message : null;
+  if (!message || message.type !== "remoteSupportExtensionTelemetry") {
+    return;
+  }
+
+  forwardPageTelemetryMessage(message);
+}
+
+function closePageTelemetryBridgePort() {
+  if (pageTelemetryBridgePort) {
+    try {
+      pageTelemetryBridgePort.onmessage = null;
+      pageTelemetryBridgePort.close();
+    } catch (error) {
+      // Best-effort teardown; never block disable on a failed port close.
+    }
+    pageTelemetryBridgePort = null;
+  }
+}
+
 function createPageTelemetryBridgeNonce() {
   const cryptoObject = globalThis.crypto;
   if (cryptoObject && typeof cryptoObject.getRandomValues === "function") {
@@ -905,12 +947,34 @@ function syncPageTelemetryControl() {
     return;
   }
 
-  window.postMessage({
+  const control = {
     __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
     nonce,
     enabled,
     includePayloads: enabled && remoteSupportIncludePayloads
-  }, "*");
+  };
+
+  // On the enable handshake, set up a private MessageChannel and transfer one
+  // end to the page-world script so the steady-state telemetry stream is not
+  // broadcast on window.postMessage. Only transfer once; later control updates
+  // (e.g. includePayloads toggles) reuse the established port.
+  const transfer = [];
+  if (
+    enabled &&
+    !pageTelemetryBridgePort &&
+    typeof MessageChannel === "function"
+  ) {
+    const channel = new MessageChannel();
+    pageTelemetryBridgePort = channel.port1;
+    pageTelemetryBridgePort.onmessage = handlePageTelemetryPortMessage;
+    transfer.push(channel.port2);
+  }
+
+  if (transfer.length) {
+    window.postMessage(control, "*", transfer);
+  } else {
+    window.postMessage(control, "*");
+  }
 }
 
 function teardownPageTelemetryBridge() {
@@ -935,6 +999,8 @@ function teardownPageTelemetryBridge() {
     window.removeEventListener("message", handlePageTelemetryWindowMessage);
     pageTelemetryBridgeListenerBound = false;
   }
+
+  closePageTelemetryBridgePort();
 
   const existingScript = typeof document === "object"
     ? document.getElementById(PAGE_TELEMETRY_SCRIPT_ID)

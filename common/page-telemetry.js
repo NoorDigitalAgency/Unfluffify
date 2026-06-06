@@ -9,15 +9,28 @@ if (!globalThis.__unfluffifyPageTelemetryInstalled) {
   let includePayloads = false;
   let telemetryNonce = "";
   let telemetryController = null;
+  let telemetryPort = null;
 
   function isValidTelemetryNonce(value) {
     return typeof value === "string" && value.length >= PAGE_TELEMETRY_MIN_NONCE_LENGTH;
+  }
+
+  function closeTelemetryPort() {
+    if (telemetryPort) {
+      try {
+        telemetryPort.close();
+      } catch (error) {
+        // Best-effort; never let port teardown break the page.
+      }
+      telemetryPort = null;
+    }
   }
 
   function uninstallTelemetry() {
     enabled = false;
     includePayloads = false;
     telemetryNonce = "";
+    closeTelemetryPort();
     if (telemetryController && typeof telemetryController.uninstall === "function") {
       telemetryController.uninstall();
     }
@@ -35,9 +48,24 @@ if (!globalThis.__unfluffifyPageTelemetryInstalled) {
       isEnabled: () => enabled && Boolean(telemetryNonce),
       getIncludePayloads: () => enabled && includePayloads,
       sendTelemetry(message) {
+        if (!enabled || !telemetryNonce) {
+          return;
+        }
+        // Prefer the private MessageChannel port when the handshake provided
+        // one — that stream is not observable by other page scripts. Fall back
+        // to the nonce'd window broadcast only when no port was transferred.
+        if (telemetryPort) {
+          try {
+            telemetryPort.postMessage({
+              __unfluffifyTelemetry: PAGE_TELEMETRY_MESSAGE_MARKER,
+              message
+            });
+            return;
+          } catch (error) {
+            // If the port is dead, fall through to the window path below.
+          }
+        }
         if (
-          !enabled ||
-          !telemetryNonce ||
           typeof window === "undefined" ||
           typeof window.postMessage !== "function"
         ) {
@@ -80,6 +108,13 @@ if (!globalThis.__unfluffifyPageTelemetryInstalled) {
       telemetryNonce = data.nonce;
       enabled = Boolean(data.enabled);
       includePayloads = enabled && Boolean(data.includePayloads);
+      // Adopt the private telemetry port if this handshake transferred one.
+      if (enabled && event.ports && event.ports.length > 0 && !telemetryPort) {
+        telemetryPort = event.ports[0];
+        if (typeof telemetryPort.start === "function") {
+          telemetryPort.start();
+        }
+      }
       if (enabled) {
         ensureTelemetryInstalled();
       } else {

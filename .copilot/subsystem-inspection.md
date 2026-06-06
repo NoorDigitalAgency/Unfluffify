@@ -264,16 +264,29 @@ Cross-checks that passed:
   against clobbering re-wraps), so teardown genuinely unwraps. Full
   `npm test` 553/553; AI-submission smoke clean (`errs=0`,
   `snapshot.ok=true`, `hasFreezeNode=false`).
-- **Residual (Low, inherent to MAIN↔ISOLATED): nonce is observable.** The
-  per-session nonce is delivered to the MAIN-world script via
-  `window.postMessage`, which a page script in the same window can read. So
-  during an ACTIVE support session a page that actively eavesdrops on window
-  `message` events could still capture the nonce and inject fabricated
-  telemetry. Because the DevTools panels render via `textContent`, this is
-  pollution-not-RCE, and the exposure window is now only an active support
-  session (was: every activated tab, blind static-marker injection). Fully
-  closing it would need a transferred `MessagePort`/handshake the page cannot
-  intercept; acceptable to leave as-is for now.
+- **Residual hardening 2026-06-06 (reviewer): private MessagePort transport
+  added.** The steady-state page-world telemetry stream now travels over a
+  `MessageChannel` port transferred once during the enable handshake
+  (`syncPageTelemetryControl` creates the channel and transfers `port2`;
+  `common/page-telemetry.js` adopts `event.ports[0]` and posts telemetry over
+  it; content-main reads it via `handlePageTelemetryPortMessage`). Effects:
+  (1) telemetry is no longer broadcast on `window.postMessage`, so other page
+  scripts cannot passively observe the captured console/network stream;
+  (2) forging an entry now requires racing the one-time port handshake rather
+  than knowing the broadcast nonce. The nonce'd `window.postMessage` path
+  remains as a graceful fallback when `MessageChannel` is unavailable. Teardown
+  closes the port. New tests in `tests/page-telemetry.test.js` cover the port
+  path (telemetry over port, no window broadcast, port closed on disable) and
+  the content-main handshake/teardown source guards.
+- **Irreducible residual (Low, accepted): handshake-time port interception.**
+  The single control message that transfers the port still goes through
+  `window.postMessage`, so a page script that actively races that one message
+  could grab the port. This cannot be fully closed while telemetry capture must
+  run in the page's own MAIN world (where any page script shares the global).
+  Threat is bounded: only during an ACTIVE support session, the captured data
+  is the page's OWN console/network, and the DevTools panels render via
+  `textContent` (pollution-not-RCE). Accepted as the floor for cross-world
+  telemetry.
 - Before the fix, `common/page-telemetry.js` was injected as a persistent
   MAIN-world `<script>` by `ensurePageTelemetryBridge()` in `content-main.js`
   `main()` — on EVERY activated tab, regardless of whether a remote-support

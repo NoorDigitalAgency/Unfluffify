@@ -35,18 +35,38 @@ function createWindowHarness() {
   return {
     windowObject,
     postedMessages,
-    dispatchControl(control = {}) {
+    dispatchControl(control = {}, ports = null) {
       const event = {
         source: windowObject,
         data: {
           __unfluffifyTelemetry: PAGE_TELEMETRY_CONTROL_MARKER,
           ...control
-        }
+        },
+        ports: ports || []
       };
 
       messageListeners.forEach((listener) => {
         listener(event);
       });
+    }
+  };
+}
+
+function createStubPort() {
+  const messages = [];
+  let closed = false;
+  return {
+    messages,
+    isClosed: () => closed,
+    start() {},
+    close() {
+      closed = true;
+    },
+    postMessage(message) {
+      if (closed) {
+        throw new Error("port closed");
+      }
+      messages.push(message);
     }
   };
 }
@@ -268,6 +288,79 @@ test("page telemetry authenticated disable restores wrapped page APIs", async ()
     globalThis.console.info("after disable");
     assert.equal(postedMessages.length, 1);
   });
+});
+
+test("page telemetry uses the private port and stops broadcasting when one is transferred", async () => {
+  await withPageTelemetryEnvironment(async ({ postedMessages, dispatchControl }) => {
+    await import(`../common/page-telemetry.js?case=${Date.now()}-port`);
+
+    const port = createStubPort();
+    dispatchControl(
+      {
+        nonce: PAGE_TELEMETRY_TEST_NONCE,
+        enabled: true,
+        includePayloads: false
+      },
+      [port]
+    );
+
+    const beforeWindowCount = postedMessages.length;
+    globalThis.console.info("over the private port");
+
+    // Telemetry must travel over the port, not the window broadcast.
+    const portMessage = port.messages.find(
+      (message) =>
+        message &&
+        message.__unfluffifyTelemetry === PAGE_TELEMETRY_MESSAGE_MARKER &&
+        message.message &&
+        message.message.channel === "console"
+    );
+    assert.ok(portMessage, "telemetry should be delivered over the private port");
+    assert.equal(portMessage.message.entry.message, "over the private port");
+    // No nonce is needed over the port (the port is the capability).
+    assert.equal(portMessage.nonce, undefined);
+    // Nothing new should be broadcast on the window once a port exists.
+    assert.equal(postedMessages.length, beforeWindowCount,
+      "no telemetry should be broadcast on window.postMessage when a port is active");
+
+    // Authenticated disable closes the port.
+    dispatchControl({
+      nonce: PAGE_TELEMETRY_TEST_NONCE,
+      enabled: false,
+      includePayloads: false
+    });
+    assert.equal(port.isClosed(), true, "disable should close the private telemetry port");
+  });
+});
+
+test("content page telemetry bridge transfers and tears down a private port", () => {
+  const syncControlBlock = extractSourceBlock(
+    contentMainSource,
+    "function syncPageTelemetryControl",
+    "function teardownPageTelemetryBridge"
+  );
+  const teardownBlock = extractSourceBlock(
+    contentMainSource,
+    "function teardownPageTelemetryBridge",
+    "function ensurePageTelemetryBridge"
+  );
+  const portHandlerBlock = extractSourceBlock(
+    contentMainSource,
+    "function handlePageTelemetryPortMessage",
+    "function closePageTelemetryBridgePort"
+  );
+
+  // Handshake creates a MessageChannel and transfers one end (once).
+  assert.match(syncControlBlock, /new MessageChannel\(\)/);
+  assert.match(syncControlBlock, /!pageTelemetryBridgePort/);
+  assert.match(syncControlBlock, /transfer\.push\(channel\.port2\)/);
+  assert.match(syncControlBlock, /window\.postMessage\(control, "\*", transfer\)/);
+  // Teardown closes the port.
+  assert.match(teardownBlock, /closePageTelemetryBridgePort\(\)/);
+  // Port message handler still enforces the active-session + marker/shape guards.
+  assert.match(portHandlerBlock, /remoteSupportMode !== REMOTE_SUPPORT_MODE_BEING_SUPPORTED/);
+  assert.match(portHandlerBlock, /__unfluffifyTelemetry !== PAGE_TELEMETRY_MESSAGE_MARKER/);
+  assert.match(portHandlerBlock, /forwardPageTelemetryMessage\(message\)/);
 });
 
 test("content page telemetry bridge is active-session and nonce gated", () => {
