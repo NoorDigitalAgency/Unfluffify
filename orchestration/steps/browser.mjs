@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 1024 };
+const CHROME_PROFILE_PREFERENCES_PATH = path.join("Default", "Preferences");
 
 async function resolvePlaywright(config) {
   const candidates = [
@@ -64,9 +65,88 @@ async function getExtensionServiceWorker(browserContext) {
   return worker;
 }
 
-async function reloadExtension(browserContext, worker) {
+function hasDisableReasons(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "number") {
+    return value > 0;
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return Boolean(value);
+}
+
+function isDisabledUnpackedExtensionSetting(setting, extensionPath) {
+  if (!setting || typeof setting !== "object" || typeof setting.path !== "string") {
+    return false;
+  }
+  if (path.resolve(setting.path) !== extensionPath) {
+    return false;
+  }
+  return setting.state === 0 || hasDisableReasons(setting.disable_reasons);
+}
+
+export async function clearDisabledUnpackedExtensionPreference(config = {}) {
+  const profileDir = config.profileDir;
+  if (!profileDir) {
+    return { ok: true, cleared: 0, reason: "missingProfileDir" };
+  }
+
+  const extensionPath = path.resolve(config.extensionPath || process.cwd());
+  const preferencesPath = path.join(profileDir, CHROME_PROFILE_PREFERENCES_PATH);
+  let rawPreferences;
+  try {
+    rawPreferences = await fs.readFile(preferencesPath, "utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { ok: true, cleared: 0, reason: "missingPreferences" };
+    }
+    throw error;
+  }
+
+  const preferences = JSON.parse(rawPreferences);
+  const settings = preferences.extensions && preferences.extensions.settings;
+  if (!settings || typeof settings !== "object") {
+    return { ok: true, cleared: 0, reason: "missingExtensionSettings" };
+  }
+
+  const disabledExtensionIds = Object.entries(settings)
+    .filter(([, setting]) => isDisabledUnpackedExtensionSetting(setting, extensionPath))
+    .map(([extensionId]) => extensionId);
+
+  for (const extensionId of disabledExtensionIds) {
+    delete settings[extensionId];
+  }
+
+  if (!disabledExtensionIds.length) {
+    return { ok: true, cleared: 0, preferencesPath };
+  }
+
+  await fs.writeFile(preferencesPath, JSON.stringify(preferences));
+  return {
+    ok: true,
+    cleared: disabledExtensionIds.length,
+    extensionIds: disabledExtensionIds,
+    preferencesPath
+  };
+}
+
+export async function reloadExtension(browserContext, worker) {
+  const nextWorkerPromise = browserContext
+    .waitForEvent("serviceworker", { timeout: 15000 })
+    .catch(() => null);
   await worker.evaluate(() => chrome.runtime.reload());
-  return browserContext.waitForEvent("serviceworker", { timeout: 15000 });
+  const nextWorker = await nextWorkerPromise;
+  if (nextWorker) {
+    return nextWorker;
+  }
+  const [activeWorker] = browserContext.serviceWorkers();
+  if (activeWorker) {
+    return activeWorker;
+  }
+  return browserContext.waitForEvent("serviceworker", { timeout: 5000 });
 }
 
 async function getTargetTabId(worker, url) {
@@ -202,12 +282,12 @@ export async function launchBrowser(context) {
   }
 
   await fs.mkdir(context.config.profileDir, { recursive: true });
+  await clearDisabledUnpackedExtensionPreference(context.config);
   context.browserContext = await playwright.chromium.launchPersistentContext(
     context.config.profileDir,
     launchOptions
   );
   context.worker = await getExtensionServiceWorker(context.browserContext);
-  context.worker = await reloadExtension(context.browserContext, context.worker);
   context.extensionId = context.worker.url().split("/")[2] || "";
 
   return {

@@ -9,12 +9,18 @@
   scenario-bus WebSocket server, protocol validation, mock client, transcript
   logging, runner config loading, runner bus client, deterministic browser step
   registry, artifact logging, JSONC config/secrets parsing, auth secret
-  validation, UI-driven auth seeding, and unit coverage.
-- Remaining non-code work is human-gated two-profile remote-support validation.
-- Phase 3 live validation is BLOCKED until local gitignored staging credentials
-  exist in `orchestration/.secrets.jsonc` and headed Chrome has a display;
-  Phase 4+ depends on that auth seed, and Phase 6 requires two real hosts.
-- Latest validation for the Phase 3 code slice: `npm test` passes (`582/582`,
+  validation, UI-driven auth seeding, disabled-profile recovery, profile-target
+  guards, stale-token clearing, and unit coverage.
+- Phase 3 live validation is PARTIAL: local gitignored `config.jsonc` and
+  `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, and account B
+  seeded successfully into `orchestration/profiles/follower`.
+- Phase 3 remains BLOCKED for the director side: account A login reaches the
+  staging auth service but returns `Login failed (400)` before a token is saved.
+  Phase 4+ depends on a valid director profile; Phase 6 still requires two real
+  hosts.
+- Latest focused validation for the Phase 3 code slice:
+  `node --test tests/orchestration-auth.test.js tests/orchestration-runner.test.js`
+  passes (`20/20`, `# fail 0`). Full-suite validation passes (`591/591`,
   `# fail 0`).
 
 ## Marking Contract Lock
@@ -33,7 +39,9 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 - Prefer targeted follow-up notes in code comments/tests over long standalone
   migration diaries.
 
-## Remaining Item (Human-Gated)
+## Remaining Items (Human-Gated)
 
+- Fix or replace account A in `orchestration/.secrets.jsonc`, then rerun:
+  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director`.
 - Validate remote support end-to-end with two real Chrome profiles (permission
   prompts, viewer transport, telemetry mirrors, and teardown behavior).

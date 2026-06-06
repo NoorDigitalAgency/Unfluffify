@@ -92,8 +92,8 @@ After filling `orchestration/config.jsonc` and `orchestration/.secrets.jsonc`,
 seed a persistent profile for a side/account:
 
 ```bash
-node orchestration/setup-auth.mjs --role director --side A --account A
-node orchestration/setup-auth.mjs --role follower --side B --account B
+node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director
+node orchestration/setup-auth.mjs --role follower --side B --account B --profile-dir orchestration/profiles/follower
 ```
 
 The script launches the unpacked extension, opens the popup configuration view,
@@ -101,8 +101,23 @@ sets Configuration Endpoint, AI Endpoint, and Stage Base from
 `.secrets.jsonc`, submits the selected account credentials, and verifies that
 Chrome sync storage has a token. It never prints the token or password.
 
+Use a different `--profile-dir` for each side/account. The script refuses
+obvious director/follower profile mismatches and clears stale tokens before
+login so a previous account cannot make a failed login look seeded.
+
 If `.secrets.jsonc` and legacy `.secrets.json` are both absent, the script exits
 before launching a browser.
+
+If headed Chrome is not running on a real display, wrap the command with xvfb:
+
+```bash
+xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director
+```
+
+`Authentication failed before token was saved ... Login failed (400)` means the
+staging auth service rejected that account/request. Verify the account's
+email/password and staging permission in `orchestration/.secrets.jsonc`, then
+rerun the same command; do not fake a token in profile storage.
 
 ## Two-machine bring-up
 

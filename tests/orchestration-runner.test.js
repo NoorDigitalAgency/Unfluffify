@@ -7,7 +7,11 @@ import { test } from "node:test";
 import { createScenarioBusServer } from "../orchestration/bus-server.mjs";
 import { createRunner } from "../orchestration/runner.mjs";
 import { loadOrchestrationConfig } from "../orchestration/lib/config.mjs";
-import { buildChromeLaunchArgs } from "../orchestration/steps/browser.mjs";
+import {
+  buildChromeLaunchArgs,
+  clearDisabledUnpackedExtensionPreference,
+  reloadExtension
+} from "../orchestration/steps/browser.mjs";
 
 function waitForOpen(socket) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -121,6 +125,112 @@ test("browser launch args load only the unpacked extension and enable media auto
   assert.ok(args.includes("--use-fake-ui-for-media-stream"));
   assert.ok(args.includes("--use-fake-device-for-media-stream"));
   assert.ok(args.includes("--auto-select-desktop-capture-source=Entire screen"));
+});
+
+test("extension reload starts waiting for the replacement worker before reloading", async () => {
+  const calls = [];
+  let resolveReplacementWorker;
+  const replacementWorker = {
+    url: () => "chrome-extension://replacement/background.js"
+  };
+  const browserContext = {
+    waitForEvent(eventName, options) {
+      assert.equal(eventName, "serviceworker");
+      assert.deepEqual(options, { timeout: 15000 });
+      calls.push("wait");
+      return new Promise((resolve) => {
+        resolveReplacementWorker = resolve;
+      });
+    },
+    serviceWorkers() {
+      return [];
+    }
+  };
+  const worker = {
+    async evaluate() {
+      calls.push("evaluate");
+      resolveReplacementWorker(replacementWorker);
+    }
+  };
+
+  const workerAfterReload = await reloadExtension(browserContext, worker);
+
+  assert.deepEqual(calls, ["wait", "evaluate"]);
+  assert.equal(workerAfterReload, replacementWorker);
+});
+
+test("extension reload falls back to the active worker when Chrome emits no replacement event", async () => {
+  const calls = [];
+  const activeWorker = {
+    url: () => "chrome-extension://active/background.js"
+  };
+  const browserContext = {
+    waitForEvent(eventName) {
+      assert.equal(eventName, "serviceworker");
+      calls.push("wait");
+      return Promise.reject(new Error("timeout"));
+    },
+    serviceWorkers() {
+      calls.push("workers");
+      return [activeWorker];
+    }
+  };
+  const worker = {
+    async evaluate() {
+      calls.push("evaluate");
+    }
+  };
+
+  const workerAfterReload = await reloadExtension(browserContext, worker);
+
+  assert.deepEqual(calls, ["wait", "evaluate", "workers"]);
+  assert.equal(workerAfterReload, activeWorker);
+});
+
+test("browser launch clears disabled metadata for the current unpacked extension only", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "unfluffify-profile-preferences-test-"));
+  const extensionPath = path.join(tmp, "extension");
+  const defaultProfilePath = path.join(tmp, "profile", "Default");
+  const preferencesPath = path.join(defaultProfilePath, "Preferences");
+  await mkdir(defaultProfilePath, { recursive: true });
+  await writeFile(preferencesPath, JSON.stringify({
+    extensions: {
+      settings: {
+        disabledCurrent: {
+          path: extensionPath,
+          location: 8,
+          disable_reasons: [16777216]
+        },
+        enabledCurrent: {
+          path: extensionPath,
+          location: 8,
+          state: 1
+        },
+        disabledOther: {
+          path: path.join(tmp, "other-extension"),
+          location: 8,
+          disable_reasons: [1]
+        }
+      }
+    }
+  }));
+
+  try {
+    const result = await clearDisabledUnpackedExtensionPreference({
+      extensionPath,
+      profileDir: path.join(tmp, "profile")
+    });
+    const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.cleared, 1);
+    assert.deepEqual(result.extensionIds, ["disabledCurrent"]);
+    assert.equal(preferences.extensions.settings.disabledCurrent, undefined);
+    assert.equal(preferences.extensions.settings.enabledCurrent.state, 1);
+    assert.deepEqual(preferences.extensions.settings.disabledOther.disable_reasons, [1]);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 });
 
 test("runner executes bus step messages and reports structured results", async () => {
