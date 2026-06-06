@@ -37,6 +37,18 @@ test("main restores tab state then refreshes highlight state without an initial 
   assert.ok(silentIndex > refreshIndex);
 });
 
+test("content loader and consent scroll restore avoid production page-console logs", () => {
+  const loaderSource = readFileSync(new URL("../content-loader.js", import.meta.url), "utf8");
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const restoreStart = coreSource.indexOf("function restorePageScrolling() {");
+  const restoreEnd = coreSource.indexOf("function hideConsentOnEnable(pageUrl)", restoreStart);
+
+  assert.ok(restoreStart > -1);
+  assert.ok(restoreEnd > restoreStart);
+  assert.doesNotMatch(loaderSource, /console\.(log|info|warn|error|debug)\(/);
+  assert.doesNotMatch(coreSource.slice(restoreStart, restoreEnd), /console\.(log|info|warn|error|debug)\(/);
+});
+
 test("manual page enable waits for activation reveal before refreshing highlight state", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const toggleStart = source.indexOf("async function toggleEnabledFromPage(options = {})");

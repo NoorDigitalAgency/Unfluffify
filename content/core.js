@@ -9277,10 +9277,6 @@ function restorePageScrolling() {
     if ((overflowBlocked || positionBlocked) && style.height !== "auto") {
       setStyle(element, "height", "auto");
     }
-
-    if (overflowBlocked || overflowXBlocked || overflowYBlocked || positionBlocked) {
-      console.log("Restored scrolling on", element.tagName);
-    }
   });
 }
 

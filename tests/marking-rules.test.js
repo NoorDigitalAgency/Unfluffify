@@ -175,7 +175,7 @@ test("parent marking accepts a wrapper with one markable descendant", () => {
   );
 });
 
-test("locked default-exclusion taxonomy keeps buttons toggleable and links immutable", () => {
+test("locked default-exclusion taxonomy keeps buttons toggleable and links omitted", () => {
   assert.deepEqual(DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS, [
     "FOOTER",
     "FORM",

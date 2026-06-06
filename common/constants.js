@@ -24,7 +24,8 @@ export const DEVICE_EMULATION_PRESETS = {
 };
 
 /**
- * Tags that are excluded by default and cannot be toggled by users.
+ * Tags that are excluded by default. Some are immutable; others are user-
+ * toggleable default boundaries.
  * @private
  */
 const DEFAULT_EXCLUDED_TAG_SELECTORS = [

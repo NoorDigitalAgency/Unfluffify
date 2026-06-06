@@ -21,8 +21,8 @@ are all implemented and validated. A full code-review pass of the agent commit
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
 **Test status: all green. Finding 6 removed `--test-force-exit` from
-`package.json`, and five consecutive full `npm test` runs now report a stable
-`# tests 546`, `# pass 546`, `# fail 0`. All syntax checks clean.**
+`package.json`; after the Phase 4 guard test, the latest full `npm test`
+reports `# tests 547`, `# pass 547`, `# fail 0`. All syntax checks clean.**
 
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
@@ -96,6 +96,19 @@ Additional fixes landed after the initial drift audit:
   - Latest Phase 3.2 validation: focused package tests green (`3` pass); five
     consecutive full `npm test` runs all reported `# tests 546`, `# pass 546`,
     `# fail 0`.
+- Remediation Phase 4 is complete:
+  - F8 stale taxonomy wording/test naming is corrected without changing marking
+    behavior.
+  - F9 content-loader activation logs and consent scroll-restore logs are
+    removed from production page consoles; opt-in trace/toggle-perf diagnostics
+    remain available.
+  - New source guard coverage rejects bare production content-loader and
+    consent scroll-restore `console.*` calls.
+  - Latest Phase 4 validation: focused content/marking/trace tests green
+    (`55` pass); broader content/marking guard green (`325` pass); full
+    `npm test` green (`# tests 547`, `# pass 547`, `# fail 0`); syntax checks
+    clean; live AI-submission smoke passed on Bonliva and Prowork with
+    `snapshot.ok=true`, `errs=0`, and `hasFreezeNode=false` at startup.
 
 ## What's Left
 
@@ -113,11 +126,12 @@ Phase order (severity-first):
   SPA/hash nav silently discarding a dirty session.
 - **Phase 3 (Medium-low): complete.** F7 Save Session infinite retry → F6
   deterministic test count.
-- **Phase 4 (Low): next.** F8 stale names/comments + F9 content-script console
-  logs (safe to batch).
+- **Phase 4 (Low): complete.** F8 stale names/comments + F9 content-script
+  console logs.
 
-Suggested commit sequence and standing validation rules are in the plan.
-**Do not change the locked marking contract to make a fix easier.**
+All 9 code-inspection remediation findings are complete. Keep the standing
+validation rules in the plan for future marking/content changes. **Do not
+change the locked marking contract to make a fix easier.**
 
 ### Other open items (lower priority than the 9 findings)
 

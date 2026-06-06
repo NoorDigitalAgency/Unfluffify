@@ -360,6 +360,11 @@ These are safe to batch into a single commit if desired.
 
 ### 4.1 Finding 8 — stale names/comments
 
+- **Status (2026-06-06): complete.** The default-excluded selector comment now
+  accurately distinguishes immutable defaults from user-toggleable default
+  boundaries, and the marking taxonomy test name now describes `LINK` as
+  omitted rather than immutable. The reload test name was already aligned with
+  the retired restore fallback.
 - **Root cause:** `common/constants.js:27` comment says default-excluded tags
   "cannot be toggled" though the list includes toggleable defaults;
   `tests/marking-rules.test.js:178` test name says "links immutable" while the
@@ -377,6 +382,15 @@ These are safe to batch into a single commit if desired.
 
 ### 4.2 Finding 9 — content scripts log to every page console
 
+- **Status (2026-06-06): complete.** Unconditional activation logs were removed
+  from `content-loader.js`, and the consent scroll-restore `console.log` was
+  removed from `content/core.js`. A source guard now rejects bare production
+  `console.*` calls in the content-loader activation path and consent scroll
+  restore path while the existing opt-in trace/toggle-perf diagnostics remain.
+  Validation passed focused content/marking/trace tests (`55` pass), the broader
+  marking/content guard (`325` pass), full `npm test` (`# tests 547`,
+  `# pass 547`, `# fail 0`), syntax checks, and live AI-submission smoke on
+  Bonliva + Prowork (`snapshot.ok=true`, `errs=0` for both).
 - **Root cause:** Unconditional logs at `content-loader.js:73/77/89/102` and
   `content/core.js:9362` run on `<all_urls>` pages.
 - **Fix approach:** Remove production content-script logs entirely unless they

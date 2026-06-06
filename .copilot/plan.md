@@ -6,12 +6,12 @@ A two-reviewer code inspection (`CODE_INSPECTION_TODO.md`) found 9 verified
 issues. The ordered, phased remediation plan with acceptance criteria and
 per-item test plans lives in
 `.copilot/code-inspection-remediation-plan.md`. This is the current top
-priority, ahead of the remaining authority/live-validation work below. Phase 1
+priority, ahead of the remaining authority/live-validation work below. All
+code-inspection remediation phases are complete and validated: Phase 1
 (F3 → F2 → F1), Phase 2 (F4 async reconcile abort coverage → F5 dirty
-same-document navigation preservation), and Phase 3 (F7 Save Session bounded
-retries + F6 deterministic full-suite count) are complete and validated;
-continue with Phase 4 (F8 stale names/comments + F9 content-script console
-logs).
+same-document navigation preservation), Phase 3 (F7 Save Session bounded
+retries + F6 deterministic full-suite count), and Phase 4 (F8 stale
+names/comments + F9 content-script console logs).
 The pre-implementation Q&A is complete; the chosen decisions are recorded in
 the remediation plan and should be treated as binding implementation guidance.
 Older validation notes below that mention `#unfluffify-page-motion-freeze-script`
