@@ -188,10 +188,16 @@ Debug channel: `note{text}`.
   BLOCKED because tested same-origin URLs stayed in editor state and exposed no
   popup candidate list / off-candidate deadline. Re-run with a known current
   Live Page candidate plus a known same-base non-candidate URL.
-- **Phase 5 — remote-support handshake on one machine.** request_code → bus
+- **Phase 5 — remote-support handshake on one machine. CODE COMPLETE / LIVE BLOCKED 2026-06-06.** request_code → bus
   `code` → join → assert signaling/up-to-connect. Media-connected asserts marked
   `two-machine-gated` and skipped with a clear reason on a single host.
   Acceptance: handshake + signaling validated; media asserts reported as gated.
+  Current live status: run
+  `orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5`
+  confirmed the director token and runtime request path, then failed with
+  `Screen sharing was cancelled or unavailable` before a support code was
+  issued. Tried `captureSourceTitle` values `Entire screen` and `Screen 1`.
+  Re-run on a real display or with the exact host capture-source title.
 - **Phase 6 — two-machine bring-up.** Point the follower at machine B over LAN.
   Validate RS media: screen-share visible, view-only, DevTools console/network
   mirror labels, camera/mic via fake media, teardown clears media/telemetry.
@@ -253,10 +259,10 @@ Debug channel: `note{text}`.
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
   -> pass; latest focused auth/runner validation is `20/20`, `# fail 0`.
 - Full validation completed:
-  `npm test` -> `595/595` pass, `# fail 0`; focused orchestration validation
-  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
-  -> `28/28`, `# fail 0`; `node --check` passes for the Phase 4 scenario and
-  test files.
+  `npm test` -> `598/598` pass, `# fail 0`; focused orchestration validation
+  `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  -> `31/31`, `# fail 0`; `node --check` passes for the Phase 4 and Phase 5
+  scenario/test files.
 - Phase 4 code is complete:
   `orchestration/scenarios/property-lock-one-machine.mjs` and
   `tests/orchestration-property-lock-scenario.test.js`. The scenario uses the
@@ -269,8 +275,22 @@ Debug channel: `note{text}`.
   -> `ok:false`, `singleEditorLock:true`, `readOnlySecondProfile:true`,
   `takeover:true`, `offCandidateCountdown:false`,
   `crossPropertyCountdown:true`, `release:true`.
-- Phase 5 is the next implementation slice. Phase 6 still needs two real hosts
-  for media-connected assertions.
+- Phase 5 code is complete:
+  `orchestration/scenarios/remote-support-one-machine.mjs` and
+  `tests/orchestration-remote-support-scenario.test.js`. The scenario opens the
+  seeded director profile on a property, invokes the remote-support
+  request-code runtime contract with the stored token, opens the follower on
+  the configured `/support` page, invokes the join runtime contract when a code
+  exists, records requester/supporter state snapshots, and explicitly records
+  same-host media assertions as gated/skipped.
+- Phase 5 live validation is blocked by desktop capture in the current Xvfb
+  environment. Latest run:
+  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"`
+  -> `ok:false`, `directorTokenAvailable:true`,
+  `requestRuntimeAvailable:true`, error `Screen sharing was cancelled or
+  unavailable`. The default configured `Entire screen` token failed the same
+  way.
+- Phase 6 still needs two real hosts for media-connected assertions.
 
 ## Open items to confirm before Phase 4+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,

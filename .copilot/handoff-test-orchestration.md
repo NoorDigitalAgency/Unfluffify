@@ -5,10 +5,11 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 "where we are / what to do next" note.
 
 ## State
-- **Planning complete. Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 code are
+- **Planning complete. Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 code are
   implemented.** All Q&A decisions are resolved (see the plan's Decisions
   table). Phase 3 live auth validation is complete; Phase 4 is partially
-  live-validated with one blocked sub-check.
+  live-validated with one blocked sub-check; Phase 5 is live-blocked by desktop
+  capture in the current Xvfb environment.
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
   - `orchestration/config.example.jsonc`
@@ -27,19 +28,20 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   - `orchestration/setup-auth.mjs`
   - `orchestration/steps/browser.mjs`
   - `orchestration/scenarios/property-lock-one-machine.mjs`
+  - `orchestration/scenarios/remote-support-one-machine.mjs`
   - `tests/orchestration-bus.test.js`
   - `tests/orchestration-runner.test.js`
   - `tests/orchestration-auth.test.js`
   - `tests/orchestration-property-lock-scenario.test.js`
+  - `tests/orchestration-remote-support-scenario.test.js`
 - `.gitignore` protects `orchestration/.secrets.jsonc`,
   `orchestration/config.jsonc`, legacy `.json` variants,
   `orchestration/runs/`, and profile dirs.
 - Focused validation:
-  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
-  passes (`28/28`, `# fail 0`).
-- Full validation: `npm test` passes (`595/595`, `# fail 0`), and
-  `node --check` passes for `orchestration/scenarios/property-lock-one-machine.mjs`
-  and `tests/orchestration-property-lock-scenario.test.js`.
+  `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  passes (`31/31`, `# fail 0`).
+- Full validation: `npm test` passes (`598/598`, `# fail 0`), and
+  `node --check` passes for the Phase 4 and Phase 5 scenario/test files.
 - Live Phase 3 auth seeding passed on 2026-06-06 with local gitignored
   `config.jsonc` / `.secrets.jsonc` and xvfb. Extension startup works after
   disabled-profile recovery and normal launch no longer forces
@@ -104,9 +106,22 @@ deadline, and the popup exposed no candidate URLs to derive a known valid
 candidate/non-candidate pair. Re-run this sub-check when staging has a known
 same-base non-candidate URL for the chosen property.
 
-Next step: Phase 5 remote-support handshake on one machine. Media-connected
-assertions remain two-machine-gated and must be reported as skipped/blocked on
-a single host, not faked.
+Phase 5 now has a direct scenario:
+
+`xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"`
+
+Latest live result:
+`orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5` returned
+`ok:false`. It confirmed `directorTokenAvailable:true` and
+`requestRuntimeAvailable:true`, then `remoteSupportRequestCode` failed with
+`Screen sharing was cancelled or unavailable` before a support code was issued.
+Also tried the configured `captureSourceTitle` value `Entire screen`; it failed
+the same way. Re-run on a real display or after pinning the exact capture source
+title for the host. Media-connected assertions remain two-machine-gated and are
+recorded as skipped by the scenario, not faked.
+
+Next step: Phase 6 two-host bring-up once a host can grant/auto-select desktop
+capture.
 
 ## Watch-outs
 - **Never commit** `orchestration/.secrets.jsonc`, `config.jsonc`, legacy

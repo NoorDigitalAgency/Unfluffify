@@ -142,6 +142,27 @@ non-candidate URL. Do not mark that sub-check green from an arbitrary generated
 same-origin URL; those can remain in editor state without an off-candidate
 deadline.
 
+## Remote-support one-machine handshake
+
+After seeding both profiles, run the Phase 5 remote-support handshake harness:
+
+```bash
+xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"
+```
+
+The scenario opens the director profile on the property, calls the extension's
+remote-support request-code runtime contract with the stored token, opens the
+follower profile on the configured `/support` page, joins with the generated
+code when available, writes state snapshots, and marks same-host media assertions
+as gated/skipped.
+
+Current live status as of 2026-06-06: the harness reaches the runtime request
+path with a seeded token, but this Xvfb environment returns `Screen sharing was
+cancelled or unavailable` before a support code is issued. The configured
+`captureSourceTitle` value `Entire screen` and the Linux-style `Screen 1` value
+both failed. Re-run on a real display or after verifying the exact capture source
+title for the host.
+
 ## Two-machine bring-up
 
 1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,

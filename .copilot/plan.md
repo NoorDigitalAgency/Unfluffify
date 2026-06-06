@@ -4,14 +4,14 @@
 
 - Engineering backlog items are complete and shipped to `main`.
 - CR-1 and CR-2 cleanup follow-ups are complete.
-- Test orchestration Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 code are implemented in
+- Test orchestration Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 code are implemented in
   `orchestration/`: secret-safe JSONC templates/setup docs, a dependency-free
   scenario-bus WebSocket server, protocol validation, mock client, transcript
   logging, runner config loading, runner bus client, deterministic browser step
   registry, artifact logging, JSONC config/secrets parsing, auth secret
   validation, UI-driven auth seeding, disabled-profile recovery, profile-target
   guards, stale-token clearing, one-machine property-lock scenario coverage,
-  and unit coverage.
+  one-machine remote-support handshake harnessing, and unit coverage.
 - Phase 3 live validation is COMPLETE: local gitignored `config.jsonc` and
   `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, account A
   seeded successfully into `orchestration/profiles/director`, and account B
@@ -24,10 +24,18 @@
   tested same-origin non-candidate URLs stayed in editor state with no popup
   candidate list / off-candidate deadline. Re-run after a staging property has a
   known current Live Page candidate plus a known same-base non-candidate URL.
-- Phase 5 is next; Phase 6 still requires two real hosts.
+- Phase 5 is code-complete and live-blocked by the current Xvfb desktop-capture
+  environment. Latest run
+  `orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5` confirmed
+  the director profile has a stored token and can reach the runtime request
+  path, then failed with `Screen sharing was cancelled or unavailable` before a
+  support code was issued. Tried `captureSourceTitle` values `Entire screen`
+  and `Screen 1`. Re-run on a real display or with the exact host capture-source
+  title.
+- Phase 6 still requires two real hosts.
 - Latest focused validation for the orchestration slice:
-  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
-  passes (`28/28`, `# fail 0`). Full-suite validation passes (`595/595`,
+  `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  passes (`31/31`, `# fail 0`). Full-suite validation passes (`598/598`,
   `# fail 0`).
 
 ## Marking Contract Lock
@@ -48,8 +56,9 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 
 ## Remaining Items
 
-- Build Phase 5 remote-support handshake validation on one machine; skip or mark
-  media-connected assertions as two-machine-gated.
+- Re-run Phase 5 remote-support request/join validation on a real display or
+  with a verified `captureSourceTitle`; media-connected assertions remain
+  two-machine-gated.
 - Re-run the Phase 4 off-candidate countdown sub-check when a known same-base
   non-candidate URL is available for the staging property.
 - Validate remote support end-to-end with two real Chrome profiles (permission
