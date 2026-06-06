@@ -4,7 +4,14 @@
 
 - Engineering backlog items are complete and shipped to `main`.
 - CR-1 and CR-2 cleanup follow-ups are complete.
+- Test orchestration Phase 0 and Phase 1 are implemented in `orchestration/`:
+  secret-safe templates/setup docs plus a dependency-free scenario-bus
+  WebSocket server, protocol validation, mock client, transcript logging, and
+  unit coverage.
 - Remaining non-code work is human-gated two-profile remote-support validation.
+- Remaining orchestration implementation starts at Phase 2 in
+  `.copilot/test-orchestration-plan.md`; Phase 3+ still requires local
+  gitignored staging credentials, and Phase 6 requires two real hosts.
 
 ## Marking Contract Lock
 

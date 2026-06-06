@@ -1,0 +1,82 @@
+# Two-host orchestration setup
+
+This folder is repo-local test infrastructure for coordinated property-lock and
+remote-support validation. It is not referenced by `manifest.json` and must not
+ship in the extension package.
+
+## Files
+
+- `config.example.json` - copy to `orchestration/config.json` on each host.
+- `secrets.example.json` - copy to `orchestration/.secrets.json` and fill with
+  staging values and the two test accounts.
+- `bus-server.mjs` - LAN coordination server for director/follower agents.
+- `mock-client.mjs` - small smoke client for checking bus connectivity.
+- `runs/` - generated bus transcripts and future scenario artifacts.
+- `profiles/` - generated persistent Chrome profiles.
+
+`config.json`, `.secrets.json`, `runs/`, and profile folders are gitignored.
+Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
+
+## Initial one-machine bring-up
+
+1. From the repo root, copy the templates:
+
+   ```bash
+   cp orchestration/config.example.json orchestration/config.json
+   cp orchestration/secrets.example.json orchestration/.secrets.json
+   ```
+
+2. Edit `orchestration/.secrets.json` with:
+
+   - Configuration Endpoint
+   - AI Endpoint
+   - Stage Base
+   - account A email/password
+   - account B email/password
+
+3. Edit `orchestration/config.json` for the local side:
+
+   - `role`: `director` for the human-interactive side, `follower` for the
+     autonomous side.
+   - `side`: `A` or `B`.
+   - `account`: `A` or `B`.
+   - `chromePath`: leave empty to use Playwright's bundled Chromium, or set an
+     absolute Chrome path.
+   - `playwrightModulePath`: optional absolute path to `playwright/index.mjs`
+     if Playwright is not installed in this repo.
+   - `profileDir`: unique per side, for example
+     `orchestration/profiles/director`.
+   - `testPropertyUrl`: one staging-backed property from the handoff list.
+
+4. Start the bus:
+
+   ```bash
+   node orchestration/bus-server.mjs --host 127.0.0.1 --port 8765
+   ```
+
+5. In two other terminals, smoke the bus:
+
+   ```bash
+   node orchestration/mock-client.mjs --role director --side A --note "director online"
+   node orchestration/mock-client.mjs --role follower --side B --note "follower online"
+   ```
+
+6. Confirm a transcript appeared in `orchestration/runs/<timestamp>/bus.log`.
+
+## Two-machine bring-up
+
+1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,
+   for example `--host 0.0.0.0 --port 8765`.
+2. Set the follower host's `busHost` to the director LAN IP.
+3. Validate the bus with `mock-client.mjs` from both machines before running
+   browser scenarios.
+
+Remote-support media assertions remain two-machine-gated. Same-host WebRTC is
+expected to validate only request/join/signaling up to the media connection.
+
+## Capture source token
+
+`captureSourceTitle` is matched by Chrome against the available screen-share
+source title. It is locale and host dependent. Use straight quotes in JSON. If
+the token does not match, Chrome silently selects nothing and remote-support
+media assertions will hang or fail.

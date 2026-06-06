@@ -157,11 +157,11 @@ Debug channel: `note{text}`.
 
 ## Phased implementation
 
-- **Phase 0 — scaffolding contract.** `orchestration/` dir, `config.json` +
+- **Phase 0 — scaffolding contract. COMPLETE 2026-06-06.** `orchestration/` dir, `config.json` +
   `.secrets.json` templates, `.gitignore` entries, a `setup.md` (clone, chromium
   install/path, secrets, run). Acceptance: both hosts can be brought to a known
   state from the README with no committed secrets.
-- **Phase 1 — scenario bus.** WS server + schema + two channels + transcript
+- **Phase 1 — scenario bus. COMPLETE 2026-06-06.** WS server + schema + two channels + transcript
   logging. Acceptance: two mock clients (director/follower) exchange a full
   control sequence + a debug note; unknown types rejected; transcript written.
   Unit tests with in-process clients.
@@ -193,6 +193,28 @@ Debug channel: `note{text}`.
   artifacts, drive debug). Acceptance: a human at the director kicks off a
   scenario and gets a pass/fail + artifacts with no manual action on the
   follower for the happy path.
+
+## Implementation status (2026-06-06)
+
+- Phase 0 is complete:
+  `orchestration/config.example.json`, `orchestration/secrets.example.json`,
+  `orchestration/setup.md`, and gitignore protection for local secrets,
+  run artifacts, and profiles.
+- Phase 1 is complete:
+  `orchestration/bus-server.mjs`, `orchestration/mock-client.mjs`,
+  `orchestration/lib/protocol.mjs`, `orchestration/lib/websocket.mjs`, and
+  `tests/orchestration-bus.test.js`.
+- The bus is dependency-free: it uses Node's HTTP upgrade path and a minimal
+  server-side text-frame WebSocket implementation. Clients can use Node 22's
+  built-in `WebSocket`.
+- `hello` is registration-only and receives a typed
+  `report{stepId:"bus:hello"}` ack. Runners should wait for that ack before
+  sending scenario `step` traffic.
+- Validation completed:
+  `node --test tests/orchestration-bus.test.js` -> `4/4` pass.
+- Phase 2 is the next repo-local implementation slice. Phase 3 needs real
+  gitignored staging credentials in `orchestration/.secrets.json`; Phase 6
+  needs two real hosts for media-connected assertions.
 
 ## Open items to confirm before Phase 3+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,

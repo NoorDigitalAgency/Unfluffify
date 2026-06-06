@@ -1,0 +1,15 @@
+{
+  "role": "director",
+  "side": "A",
+  "account": "A",
+  "busHost": "127.0.0.1",
+  "busPort": 8765,
+  "displayMode": "real",
+  "chromePath": "",
+  "playwrightModulePath": "",
+  "extensionPath": "..",
+  "profileDir": "orchestration/profiles/director",
+  "stageBase": "noorlynx.com",
+  "testPropertyUrl": "https://www.bonliva.no/",
+  "captureSourceTitle": "Entire screen"
+}

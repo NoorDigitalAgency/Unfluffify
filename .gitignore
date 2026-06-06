@@ -355,3 +355,10 @@ MigrationBackup/
 # Playwright profile
 .mcp-browser-profile/
 .playwright-mcp/
+
+# Local two-host orchestration secrets and artifacts
+orchestration/.secrets.json
+orchestration/config.json
+orchestration/runs/
+orchestration/profiles/
+orchestration/.profiles/
