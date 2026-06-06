@@ -119,6 +119,29 @@ staging auth service rejected that account/request. Verify the account's
 email/password and staging permission in `orchestration/.secrets.jsonc`, then
 rerun the same command; do not fake a token in profile storage.
 
+## Property-lock one-machine scenario
+
+After seeding the director and follower profiles, run the Phase 4 property-lock
+scenario with explicit profile dirs:
+
+```bash
+xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/property-lock-one-machine.mjs --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower
+```
+
+The scenario writes `summary.json` and `scenario.log` under
+`orchestration/runs/<timestamp>-property-lock-phase4/`. It performs preflight
+lock release for both profiles, then checks single-editor lock, read-only
+second profile, take-over, off-candidate countdown, cross-property countdown,
+and release.
+
+Current live status as of 2026-06-06: the scenario code is in place and the
+latest run passed single-editor/read-only/takeover/cross-property/release, but
+the off-candidate countdown sub-check is blocked until a chosen staging property
+has both a known current Live Page candidate and a known same-base
+non-candidate URL. Do not mark that sub-check green from an arbitrary generated
+same-origin URL; those can remain in editor state without an off-candidate
+deadline.
+
 ## Two-machine bring-up
 
 1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,

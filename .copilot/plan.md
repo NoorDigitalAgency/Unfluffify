@@ -4,22 +4,30 @@
 
 - Engineering backlog items are complete and shipped to `main`.
 - CR-1 and CR-2 cleanup follow-ups are complete.
-- Test orchestration Phase 0, Phase 1, Phase 2, and Phase 3 code are implemented in
+- Test orchestration Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 code are implemented in
   `orchestration/`: secret-safe JSONC templates/setup docs, a dependency-free
   scenario-bus WebSocket server, protocol validation, mock client, transcript
   logging, runner config loading, runner bus client, deterministic browser step
   registry, artifact logging, JSONC config/secrets parsing, auth secret
   validation, UI-driven auth seeding, disabled-profile recovery, profile-target
-  guards, stale-token clearing, and unit coverage.
+  guards, stale-token clearing, one-machine property-lock scenario coverage,
+  and unit coverage.
 - Phase 3 live validation is COMPLETE: local gitignored `config.jsonc` and
   `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, account A
   seeded successfully into `orchestration/profiles/director`, and account B
   seeded successfully into `orchestration/profiles/follower`.
-- Phase 4 is now unblocked for one-machine property-lock E2E with two seeded
-  profiles. Phase 6 still requires two real hosts.
-- Latest focused validation for the Phase 3 code slice:
-  `node --test tests/orchestration-auth.test.js tests/orchestration-runner.test.js`
-  passes (`20/20`, `# fail 0`). Full-suite validation passes (`591/591`,
+- Phase 4 is code-complete and partially live-validated with the two seeded
+  profiles. Live run
+  `orchestration/runs/2026-06-06T21-28-48-445Z-property-lock-phase4` passed
+  single-editor lock, read-only second profile, takeover, cross-property
+  countdown, and release. The off-candidate countdown sub-check remains BLOCKED:
+  tested same-origin non-candidate URLs stayed in editor state with no popup
+  candidate list / off-candidate deadline. Re-run after a staging property has a
+  known current Live Page candidate plus a known same-base non-candidate URL.
+- Phase 5 is next; Phase 6 still requires two real hosts.
+- Latest focused validation for the orchestration slice:
+  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  passes (`28/28`, `# fail 0`). Full-suite validation passes (`595/595`,
   `# fail 0`).
 
 ## Marking Contract Lock
@@ -40,7 +48,9 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 
 ## Remaining Items
 
-- Build and run Phase 4 property-lock E2E on one machine with the seeded
-  director/follower profiles.
+- Build Phase 5 remote-support handshake validation on one machine; skip or mark
+  media-connected assertions as two-machine-gated.
+- Re-run the Phase 4 off-candidate countdown sub-check when a known same-base
+  non-candidate URL is available for the staging property.
 - Validate remote support end-to-end with two real Chrome profiles (permission
   prompts, viewer transport, telemetry mirrors, and teardown behavior).

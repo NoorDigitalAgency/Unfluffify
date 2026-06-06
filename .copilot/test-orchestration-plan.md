@@ -177,11 +177,17 @@ Debug channel: `note{text}`.
   reaches authenticated state non-interactively for a given account. Current
   live status: account A seeds into `orchestration/profiles/director`; account B
   seeds into `orchestration/profiles/follower`.
-- **Phase 4 — property-lock E2E on ONE machine (first green).** Two profiles,
+- **Phase 4 — property-lock E2E on ONE machine. CODE COMPLETE / PARTIAL LIVE 2026-06-06.** Two profiles,
   configurable accounts. Assert: single-editor lock, read-only second tab,
   take-over, off-candidate (70s) + cross-property (30s) countdowns, release.
   Acceptance: scenario passes end-to-end on one host with a real staging
-  test property.
+  test property. Current live status: run
+  `orchestration/runs/2026-06-06T21-28-48-445Z-property-lock-phase4` passed
+  single-editor lock, read-only second profile, take-over, cross-property
+  countdown, and release. The off-candidate countdown sub-check remains
+  BLOCKED because tested same-origin URLs stayed in editor state and exposed no
+  popup candidate list / off-candidate deadline. Re-run with a known current
+  Live Page candidate plus a known same-base non-candidate URL.
 - **Phase 5 — remote-support handshake on one machine.** request_code → bus
   `code` → join → assert signaling/up-to-connect. Media-connected asserts marked
   `two-machine-gated` and skipped with a clear reason on a single host.
@@ -247,10 +253,24 @@ Debug channel: `note{text}`.
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
   -> pass; latest focused auth/runner validation is `20/20`, `# fail 0`.
 - Full validation completed:
-  `npm test` -> `591/591` pass, `# fail 0`; `node --check` also passes for the
-  Phase 3 entry/test files.
-- Phase 4 is the next implementation slice. Both director/follower profiles are
-  seeded. Phase 6 still needs two real hosts for media-connected assertions.
+  `npm test` -> `595/595` pass, `# fail 0`; focused orchestration validation
+  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  -> `28/28`, `# fail 0`; `node --check` passes for the Phase 4 scenario and
+  test files.
+- Phase 4 code is complete:
+  `orchestration/scenarios/property-lock-one-machine.mjs` and
+  `tests/orchestration-property-lock-scenario.test.js`. The scenario uses the
+  seeded director/follower profiles, performs preflight lock release, validates
+  single-editor/read-only/takeover/cross-property/release behavior, writes
+  structured `summary.json`, and emits duplicate-editor diagnostics when live
+  locking allows both distinct client IDs to edit the same site.
+- Phase 4 live validation is partial. Latest run:
+  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/property-lock-one-machine.mjs --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower`
+  -> `ok:false`, `singleEditorLock:true`, `readOnlySecondProfile:true`,
+  `takeover:true`, `offCandidateCountdown:false`,
+  `crossPropertyCountdown:true`, `release:true`.
+- Phase 5 is the next implementation slice. Phase 6 still needs two real hosts
+  for media-connected assertions.
 
 ## Open items to confirm before Phase 4+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,

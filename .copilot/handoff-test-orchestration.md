@@ -5,9 +5,10 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 "where we are / what to do next" note.
 
 ## State
-- **Planning complete. Phase 0, Phase 1, Phase 2, and Phase 3 code are
+- **Planning complete. Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 code are
   implemented.** All Q&A decisions are resolved (see the plan's Decisions
-  table). Phase 3 live auth validation is complete.
+  table). Phase 3 live auth validation is complete; Phase 4 is partially
+  live-validated with one blocked sub-check.
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
   - `orchestration/config.example.jsonc`
@@ -25,21 +26,20 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   - `orchestration/runner.mjs`
   - `orchestration/setup-auth.mjs`
   - `orchestration/steps/browser.mjs`
+  - `orchestration/scenarios/property-lock-one-machine.mjs`
   - `tests/orchestration-bus.test.js`
   - `tests/orchestration-runner.test.js`
   - `tests/orchestration-auth.test.js`
+  - `tests/orchestration-property-lock-scenario.test.js`
 - `.gitignore` protects `orchestration/.secrets.jsonc`,
   `orchestration/config.jsonc`, legacy `.json` variants,
   `orchestration/runs/`, and profile dirs.
 - Focused validation:
-  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
-  passes for the committed Phase 0-3 test files; the latest focused auth/runner
-  slice passes (`20/20`, `# fail 0`).
-- Full validation: `npm test` passes (`591/591`, `# fail 0`), and
-  `node --check` passes for `orchestration/setup-auth.mjs`,
-  `orchestration/lib/jsonc.mjs`, `orchestration/lib/config.mjs`,
-  `orchestration/lib/secrets.mjs`, `tests/orchestration-runner.test.js`, and
-  `tests/orchestration-auth.test.js`.
+  `node --test tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+  passes (`28/28`, `# fail 0`).
+- Full validation: `npm test` passes (`595/595`, `# fail 0`), and
+  `node --check` passes for `orchestration/scenarios/property-lock-one-machine.mjs`
+  and `tests/orchestration-property-lock-scenario.test.js`.
 - Live Phase 3 auth seeding passed on 2026-06-06 with local gitignored
   `config.jsonc` / `.secrets.jsonc` and xvfb. Extension startup works after
   disabled-profile recovery and normal launch no longer forces
@@ -91,13 +91,22 @@ and:
 
 `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role follower --side B --account B --profile-dir orchestration/profiles/follower`
 
-Both profiles are currently seeded. Start Phase 4: property-lock E2E on one
-machine with two profiles. Phase 4 should reuse the Phase 2 runner/browser
-steps and add scenario definitions for single-editor lock, read-only second
-tab, take-over, off-candidate countdown, cross-property countdown, and release.
+Both profiles are currently seeded. Phase 4 now has a direct scenario:
 
-Then Phases 5→7 per the plan (RS handshake one machine → two-machine media →
-LLM roles).
+`xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/property-lock-one-machine.mjs --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower`
+
+Latest live result:
+`orchestration/runs/2026-06-06T21-28-48-445Z-property-lock-phase4` returned
+`ok:false`, but passed `singleEditorLock`, `readOnlySecondProfile`, `takeover`,
+`crossPropertyCountdown`, and `release`. `offCandidateCountdown` is BLOCKED:
+the generated same-origin URL stayed in editor state with no off-candidate
+deadline, and the popup exposed no candidate URLs to derive a known valid
+candidate/non-candidate pair. Re-run this sub-check when staging has a known
+same-base non-candidate URL for the chosen property.
+
+Next step: Phase 5 remote-support handshake on one machine. Media-connected
+assertions remain two-machine-gated and must be reported as skipped/blocked on
+a single host, not faked.
 
 ## Watch-outs
 - **Never commit** `orchestration/.secrets.jsonc`, `config.jsonc`, legacy
