@@ -9142,6 +9142,9 @@ function startObservers() {
           return;
         }
       }
+      if (mutations.some((mutation) => mutation.type === "childList")) {
+        hideConsentElements();
+      }
       const renderMode = getMutationRenderMode(mutations);
       if (renderMode === "none") {
         return;

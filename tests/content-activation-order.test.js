@@ -49,6 +49,18 @@ test("content loader and consent scroll restore avoid production page-console lo
   assert.doesNotMatch(coreSource.slice(restoreStart, restoreEnd), /console\.(log|info|warn|error|debug)\(/);
 });
 
+test("mutation observer rescans consent widgets when late DOM insertions arrive", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf("function startObservers() {");
+  const end = source.indexOf("function stopObservers()", start);
+
+  assert.ok(start > -1);
+  assert.ok(end > start);
+  const observerSource = source.slice(start, end);
+  assert.match(observerSource, /mutation\.type === "childList"/);
+  assert.match(observerSource, /hideConsentElements\(\);/);
+});
+
 test("content-main warn/error diagnostics are trace-gated", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

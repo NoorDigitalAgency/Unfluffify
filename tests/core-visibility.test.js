@@ -8,6 +8,7 @@ import {
   collectStoredUnexcludedToggleableDefaultElements,
   collectToggleableDefaultExcludedElements,
   canApplyExplicitInclude,
+  hideConsentElements,
   getMarkableTarget,
   getSnapshotXPath,
   getXPath,
@@ -75,6 +76,12 @@ function createElement(options = {}) {
     hasAttribute(name) {
       return attrs.has(name);
     },
+    setAttribute(name, value) {
+      attrs.set(name, String(value));
+    },
+    removeAttribute(name) {
+      attrs.delete(name);
+    },
     contains(target) {
       if (!target) {
         return false;
@@ -94,6 +101,24 @@ function createElement(options = {}) {
     querySelector() {
       return null;
     },
+    querySelectorAll(selector) {
+      if (selector !== "*") {
+        return [];
+      }
+      const descendants = [];
+      const stack = [...this.children];
+      while (stack.length) {
+        const current = stack.shift();
+        if (!current) {
+          continue;
+        }
+        descendants.push(current);
+        if (Array.isArray(current.children) && current.children.length) {
+          stack.unshift(...current.children);
+        }
+      }
+      return descendants;
+    },
     getBoundingClientRect() {
       return options.rect || { top: 0, right: 100, bottom: 20, left: 0, width: 100, height: 20 };
     },
@@ -104,8 +129,15 @@ function createElement(options = {}) {
       ...defaultStyle,
       ...(options.style || {})
     },
+    style: null,
     textContent: "",
     innerText: ""
+  };
+  element.style = {
+    setProperty(name, value) {
+      const normalizedName = String(name).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      element.__style[normalizedName] = String(value);
+    }
   };
   Object.defineProperty(element, "previousElementSibling", {
     get() {
@@ -159,14 +191,29 @@ function installVisibilityDom(options = {}) {
   globalThis.document = {
     documentElement,
     body,
+    head: {
+      appendChild() {}
+    },
     elementFromPoint() {
       return null;
     },
     elementsFromPoint() {
       return [];
     },
+    getElementById() {
+      return null;
+    },
     querySelectorAll() {
       return [];
+    },
+    createElement(tagName) {
+      return {
+        tagName: String(tagName || "").toUpperCase(),
+        style: {
+          setProperty() {}
+        },
+        remove() {}
+      };
     },
     evaluate(xpath) {
       return { singleNodeValue: xpathMap.get(xpath) || null };
@@ -502,6 +549,33 @@ test("submission visibility rejects fixed boxes outside the viewport", () => {
     body.childNodes.push(element);
     assert.equal(isVisibleForSubmission(element), false);
   }, { scrollHeight: 1600 });
+});
+
+test("late-fixed iframe widgets are hidden by the consent cleanup pass", () => {
+  withVisibilityDom(({ body }) => {
+    const iframe = createElement({
+      parentElement: null,
+      tagName: "iframe",
+      attrs: { title: "Registrer deg" }
+    });
+    const widget = createElement({
+      parentElement: body,
+      classes: ["tally-popup"],
+      children: [iframe],
+      style: { position: "fixed" }
+    });
+    iframe.parentElement = widget;
+    body.children.push(widget);
+    body.childNodes.push(widget);
+    globalThis.document.querySelectorAll = (selector) =>
+      typeof selector === "string" && selector.includes("popup") ? [widget] : [];
+
+    assert.equal(widget.__style.visibility, "visible");
+    hideConsentElements();
+    assert.equal(widget.__style.visibility, "hidden");
+    assert.equal(widget.__style.pointerEvents, "none");
+    assert.equal(iframe.__style.visibility, "hidden");
+  });
 });
 
 test("submission visibility honors partial client-rect intersection for wrapped inline content", () => {
