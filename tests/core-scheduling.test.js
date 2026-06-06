@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  disable,
   handleScroll,
   scheduleDraftPersist,
   scheduleExplicitOverlayRefresh,
@@ -123,6 +124,188 @@ function withFakeTimers(callback, options = {}) {
   }
 }
 
+async function withDisableFlushHarness(callback) {
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalChrome = globalThis.chrome;
+  const originalLocationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
+  const originalState = {};
+  Object.keys(state).forEach((key) => {
+    originalState[key] = state[key];
+  });
+  const pageUrl = "https://example.com/page";
+  const baseUrl = "https://example.com";
+  const scheduled = [];
+  const cleared = [];
+  const runtimeMessages = [];
+  let nextId = 1;
+  const classList = {
+    add() {},
+    remove() {},
+    toggle() {}
+  };
+  const fakeElement = {
+    nodeType: 1,
+    tagName: "HTML",
+    classList,
+    style: {
+      length: 0,
+      setProperty() {},
+      removeProperty() {}
+    },
+    attributes: [],
+    appendChild() {},
+    remove() {},
+    removeAttribute() {},
+    getAttribute() {
+      return null;
+    },
+    hasAttribute() {
+      return false;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    cloneNode() {
+      return this;
+    }
+  };
+
+  globalThis.window = {
+    setTimeout(fn, delay) {
+      const id = nextId;
+      nextId += 1;
+      scheduled.push({ id, fn, delay });
+      return id;
+    },
+    clearTimeout(id) {
+      cleared.push(id);
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    postMessage() {}
+  };
+  globalThis.document = {
+    title: "Example Page",
+    documentElement: fakeElement,
+    body: fakeElement,
+    head: fakeElement,
+    addEventListener() {},
+    removeEventListener() {},
+    getElementById() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    createElement() {
+      return { ...fakeElement };
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      lastError: null,
+      getURL(path = "") {
+        return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        runtimeMessages.push(message);
+        if (message && message.type === "idbGet") {
+          return Promise.resolve({ ok: true, result: { configs: {} } });
+        }
+        if (message && message.type === "idbSet") {
+          return Promise.resolve({ ok: true });
+        }
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: {
+      href: pageUrl,
+      origin: baseUrl
+    }
+  });
+  Object.assign(state, {
+    enabled: true,
+    baseUrl,
+    currentPageType: "",
+    config: {
+      pageMarkings: {
+        [pageUrl]: {
+          title: "Example Page",
+          timestamp: "2026-06-06T00:00:00.000Z",
+          xpaths: [{ xpath: "/html/body/main", excluded: true, explicit: true }],
+          includeXpaths: [],
+          selectorSuppressedXpaths: [],
+          silentWhitespaceExcludedXpaths: [],
+          submissionXpaths: [],
+          renderedHtml: "",
+          rawHtml: ""
+        }
+      }
+    },
+    overlay: null,
+    layers: {},
+    aiPopover: null,
+    renderRaf: 0,
+    renderTimer: 0,
+    explicitFullRenderTimer: 0,
+    pendingRenderInvalidate: false,
+    scrollHideTimer: 0,
+    snapshotTimer: 0,
+    draftPersistTimer: 0,
+    urlCheckTimer: 0,
+    mutationObserver: null,
+    savedPageEntry: null,
+    savedPageUrl: "",
+    cleanBaselineFingerprintByPageUrl: new Map(),
+    pageSaveReconciliation: null,
+    disabledUnsavedDraft: null,
+    consentRootElements: new Set(),
+    layerBoxes: new WeakMap(),
+    cachedCollections: null,
+    markingSettleTimers: [],
+    hoverRaf: 0,
+    currentPageUrl: pageUrl,
+    currentPageEntry: null,
+    toggleAckTimer: 0,
+    toggleMutationQueue: [],
+    toggleMutationHandle: 0,
+    toggleMutationHandleType: "",
+    explicitOverlayRefreshScheduled: false,
+    explicitOverlayRefreshHandle: 0,
+    explicitOverlayRefreshHandleType: "",
+    explicitOverlayRefreshEntry: null,
+    explicitOverlayRefreshContext: null,
+    pageMotionPause: null,
+    lazyLoadSuppressRestorer: null
+  });
+
+  try {
+    await callback({ baseUrl, pageUrl, scheduled, cleared, runtimeMessages });
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
+    globalThis.chrome = originalChrome;
+    if (originalLocationDescriptor) {
+      Object.defineProperty(globalThis, "location", originalLocationDescriptor);
+    } else {
+      delete globalThis.location;
+    }
+    Object.keys(originalState).forEach((key) => {
+      state[key] = originalState[key];
+    });
+  }
+}
+
+async function flushPendingPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 test("snapshot saves are debounced so only the latest timer remains pending", () => {
   withFakeTimers(({ scheduled, cleared }) => {
     scheduleSnapshotSave(100);
@@ -229,6 +412,56 @@ test("nested scroll containers still schedule a redraw without hiding the overla
     assert.equal(state.isScrolling, false);
     assert.equal(addCount, 0);
   });
+});
+
+test("disable flushes a pending draft persist using the pre-clear base URL and config", async () => {
+  await withDisableFlushHarness(async ({ baseUrl, pageUrl, cleared, runtimeMessages }) => {
+    state.draftPersistTimer = 77;
+
+    disable();
+    await flushPendingPromises();
+
+    assert.equal(state.draftPersistTimer, 0);
+    assert.deepEqual(cleared, [77]);
+    const saveMessage = runtimeMessages.find((message) => message.type === "idbSet");
+    assert.ok(saveMessage, "disable should persist the pending draft before teardown completes");
+    assert.ok(saveMessage.items.configs[baseUrl], "save should use the captured base URL");
+    assert.equal(saveMessage.items.configs[""], undefined);
+    assert.equal(
+      saveMessage.items.configs[baseUrl].pageMarkings[pageUrl].xpaths[0].xpath,
+      "/html/body/main"
+    );
+  });
+});
+
+test("disable does not persist when no draft or snapshot timer is pending", async () => {
+  await withDisableFlushHarness(async ({ runtimeMessages }) => {
+    disable();
+    await flushPendingPromises();
+
+    assert.equal(runtimeMessages.some((message) => message.type === "idbSet"), false);
+  });
+});
+
+test("disable teardown persistence captures state before clearing it", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const disableBody = source.match(
+    /export function disable\(options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function enableForBaseUrl/
+  )[1];
+  const flushBody = source.match(
+    /function flushPendingTeardownPersistence\(baseUrl, configValue, pageUrl\) \{([\s\S]*?)\n\}\n\nfunction setAltPassThrough/
+  )[1];
+
+  assert.match(disableBody, /const teardownBaseUrl = state\.baseUrl;/);
+  assert.match(disableBody, /const teardownConfig = state\.config;/);
+  assert.match(disableBody, /const teardownPageUrl =/);
+  assert.match(disableBody, /flushPendingTeardownPersistence\(teardownBaseUrl, teardownConfig, teardownPageUrl\);/);
+  assert.ok(
+    disableBody.indexOf("flushPendingTeardownPersistence") < disableBody.indexOf('state.baseUrl = ""')
+  );
+  assert.match(flushBody, /flushPendingSnapshotSave\(configValue, pageUrl\)/);
+  assert.match(flushBody, /persistTeardownConfig\(baseUrl, configValue\);/);
+  assert.doesNotMatch(disableBody, /saveConfig\(state\.baseUrl, state\.config\)/);
 });
 
 test("explicit overlay refresh updates explicit layers before scheduling full rebuild", () => {

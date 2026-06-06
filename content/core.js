@@ -9599,6 +9599,44 @@ export function scheduleDraftPersist(baseUrl = state.baseUrl, delayMs = 220) {
   }, Math.max(0, Math.trunc(delayMs)));
 }
 
+function flushPendingSnapshotSave(configValue, pageUrl) {
+  if (!configValue || !pageUrl) {
+    return false;
+  }
+  try {
+    recordPageSnapshot(configValue, pageUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function persistTeardownConfig(baseUrl, configValue) {
+  if (!baseUrl || !configValue) {
+    return;
+  }
+  saveConfig(baseUrl, configValue).catch(() => {
+    // Ignore best-effort persistence failures during teardown.
+  });
+}
+
+function flushPendingTeardownPersistence(baseUrl, configValue, pageUrl) {
+  let shouldPersist = false;
+  if (state.snapshotTimer) {
+    extensionClearTimeout(state.snapshotTimer);
+    state.snapshotTimer = 0;
+    shouldPersist = flushPendingSnapshotSave(configValue, pageUrl) || shouldPersist;
+  }
+  if (state.draftPersistTimer) {
+    extensionClearTimeout(state.draftPersistTimer);
+    state.draftPersistTimer = 0;
+    shouldPersist = true;
+  }
+  if (shouldPersist) {
+    persistTeardownConfig(baseUrl, configValue);
+  }
+}
+
 function setAltPassThrough(enabled) {
   const changed = state.altPassThrough !== enabled;
   state.altPassThrough = enabled;
@@ -10107,6 +10145,13 @@ function cacheUnsavedDraftBeforeDisable() {
 }
 
 export function disable(options = {}) {
+  const teardownBaseUrl = state.baseUrl;
+  const teardownConfig = state.config;
+  const teardownPageUrl =
+    typeof location !== "undefined" && location.href
+      ? location.href
+      : state.currentPageUrl;
+  flushPendingTeardownPersistence(teardownBaseUrl, teardownConfig, teardownPageUrl);
   const preserveUnsavedDraftCache = options.preserveUnsavedDraftCache !== false;
   if (preserveUnsavedDraftCache) {
     cacheUnsavedDraftBeforeDisable();
@@ -10151,19 +10196,6 @@ export function disable(options = {}) {
   if (state.scrollHideTimer) {
     extensionClearTimeout(state.scrollHideTimer);
     state.scrollHideTimer = 0;
-  }
-  if (state.snapshotTimer) {
-    extensionClearTimeout(state.snapshotTimer);
-    state.snapshotTimer = 0;
-  }
-  if (state.draftPersistTimer) {
-    extensionClearTimeout(state.draftPersistTimer);
-    state.draftPersistTimer = 0;
-    if (state.baseUrl && state.config) {
-      saveConfig(state.baseUrl, state.config).catch(() => {
-        // Ignore best-effort persistence failures during teardown.
-      });
-    }
   }
   if (state.hoverRaf) {
     extensionCancelAnimationFrame(state.hoverRaf);
