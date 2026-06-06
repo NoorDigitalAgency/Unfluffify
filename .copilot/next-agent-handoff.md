@@ -51,6 +51,19 @@ Additional fixes landed after the initial drift audit:
   latest run); syntax checks clean; live AI-submission smoke passed on
   Bonliva and Prowork with `snapshot.ok=true`, `errs=0`, and
   `hasFreezeNode=false` at startup.
+- Remediation Phase 2.1 is complete:
+  - F4 async marking reconcile now honors aborts after candidate merge, during
+    late silent-whitespace/previous-item loops, and immediately before entry
+    mutation/persistence.
+  - New regression coverage verifies late aborts do not mutate an existing
+    entry and do not insert a newly-created entry into `pageMarkings`; a source
+    guard locks the final abort check before `entry.includeXpaths`/`entry.xpaths`
+    commit.
+  - Latest Phase 2.1 validation: focused scheduling/visibility tests green
+    (`86` pass); marking guard suite green (`193` pass); full `npm test` green
+    (`# pass 521`, `# fail 0` in the latest run); syntax checks clean; live
+    AI-submission smoke passed on Bonliva and Prowork with `snapshot.ok=true`,
+    `errs=0`, and `hasFreezeNode=false` at startup.
 
 ## What's Left
 
@@ -64,7 +77,8 @@ criteria and per-item test plans is in
 Phase order (severity-first):
 - **Phase 1 (High): complete.** F3 disable() draft flush → F2 popup stale
   restore-scope resurrection → F1 page-motion bridge public control surface.
-- **Phase 2 (Medium): next.** F4 async reconcile abort coverage → F5 SPA/hash nav
+- **Phase 2 (Medium): in progress.** F4 async reconcile abort coverage complete
+  → F5 SPA/hash nav
   silently discarding a dirty session (needs a product decision — captured in
   the plan, default recommendation given).
 - **Phase 3 (Medium-low):** F7 Save Session infinite retry → F6 non-

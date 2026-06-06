@@ -16,7 +16,8 @@ import {
   isVisible,
   isVisibleForSubmission,
   state,
-  syncPageMarkings
+  syncPageMarkings,
+  syncPageMarkingsAsync
 } from "../content/core.js";
 
 const defaultStyle = {
@@ -134,7 +135,7 @@ function createElement(options = {}) {
   return element;
 }
 
-function withVisibilityDom(callback, options = {}) {
+function installVisibilityDom(options = {}) {
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const originalNode = globalThis.Node;
@@ -184,15 +185,36 @@ function withVisibilityDom(callback, options = {}) {
   globalThis.XPathResult = { FIRST_ORDERED_NODE_TYPE: 9 };
   globalThis.location = { href: "https://example.test/" };
   state.visibilityCache = null;
+  return {
+    documentElement,
+    body,
+    xpathMap,
+    restore() {
+      globalThis.document = originalDocument;
+      globalThis.window = originalWindow;
+      globalThis.Node = originalNode;
+      globalThis.XPathResult = originalXPathResult;
+      globalThis.location = originalLocation;
+      state.visibilityCache = null;
+    }
+  };
+}
+
+function withVisibilityDom(callback, options = {}) {
+  const context = installVisibilityDom(options);
   try {
-    callback({ documentElement, body, xpathMap });
+    return callback(context);
   } finally {
-    globalThis.document = originalDocument;
-    globalThis.window = originalWindow;
-    globalThis.Node = originalNode;
-    globalThis.XPathResult = originalXPathResult;
-    globalThis.location = originalLocation;
-    state.visibilityCache = null;
+    context.restore();
+  }
+}
+
+async function withVisibilityDomAsync(callback, options = {}) {
+  const context = installVisibilityDom(options);
+  try {
+    return await callback(context);
+  } finally {
+    context.restore();
   }
 }
 
@@ -1312,6 +1334,71 @@ test("sync represents default exclusions as ordinary excluded rows", () => {
 
     assert.equal(lookup.get(headerXpath), true);
     assert.equal(lookup.get(footerXpath), true);
+  });
+});
+
+test("async sync abort after candidate merge leaves an existing entry untouched", async () => {
+  await withVisibilityDomAsync(async ({ body, xpathMap }) => {
+    const hiddenXpath = "/html[1]/body[1]/div[1]";
+    const hiddenPanel = createElement({
+      parentElement: body,
+      text: "Hidden saved include",
+      style: { display: "none" },
+      rect: { top: 10, right: 220, bottom: 40, left: 20, width: 200, height: 30 }
+    });
+    body.children.push(hiddenPanel);
+    body.childNodes.push(hiddenPanel);
+    xpathMap.set(hiddenXpath, hiddenPanel);
+    const pageUrl = "https://example.test/async-abort-existing";
+    const entry = {
+      title: "Existing",
+      timestamp: "2026-06-06T00:00:00.000Z",
+      xpaths: [{ xpath: hiddenXpath, excluded: false }],
+      includeXpaths: [],
+      silentWhitespaceExcludedXpaths: ["/html[1]/body[1]/aside[1]"],
+      renderedHtml: "old-rendered",
+      rawHtml: "old-raw"
+    };
+    const configValue = { pageMarkings: { [pageUrl]: entry } };
+    const previousXpaths = entry.xpaths.map((item) => ({ ...item }));
+    const previousSilentWhitespace = [...entry.silentWhitespaceExcludedXpaths];
+    let abortChecks = 0;
+
+    const result = await syncPageMarkingsAsync(configValue, pageUrl, new Set(), {
+      allowCreate: true,
+      persist: true,
+      shouldAbort() {
+        abortChecks += 1;
+        return abortChecks >= 4;
+      }
+    });
+
+    assert.equal(result.aborted, true);
+    assert.equal(result.persisted, false);
+    assert.deepEqual(entry.xpaths, previousXpaths);
+    assert.deepEqual(entry.silentWhitespaceExcludedXpaths, previousSilentWhitespace);
+    assert.equal(configValue.pageMarkings[pageUrl], entry);
+  });
+});
+
+test("async sync abort does not persist a newly created entry", async () => {
+  await withVisibilityDomAsync(async () => {
+    const pageUrl = "https://example.test/async-abort-new";
+    const configValue = { pageMarkings: {} };
+    let abortChecks = 0;
+
+    const result = await syncPageMarkingsAsync(configValue, pageUrl, new Set(), {
+      allowCreate: true,
+      persist: true,
+      shouldAbort() {
+        abortChecks += 1;
+        return abortChecks >= 2;
+      }
+    });
+
+    assert.equal(result.aborted, true);
+    assert.equal(result.persisted, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(configValue.pageMarkings, pageUrl), false);
   });
 });
 

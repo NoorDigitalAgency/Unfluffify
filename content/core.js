@@ -10502,7 +10502,7 @@ export function syncPageMarkings(config, pageUrl, immutableExcluded, options) {
   );
 }
 
-async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
+export async function syncPageMarkingsAsync(config, pageUrl, immutableExcluded, options) {
   return withElementComputationCacheAsync(() =>
     syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, options)
   );
@@ -10963,6 +10963,7 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const shouldAbort = options && typeof options.shouldAbort === "function"
     ? options.shouldAbort
     : null;
+  const isAbortRequested = () => Boolean(shouldAbort && shouldAbort());
   if (!config || !pageUrl) {
     return { changed: false, entry: null, persisted: false, hadEntry: false, aborted: false };
   }
@@ -10974,8 +10975,9 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
   const shouldPersist = persist && (allowCreate || hadEntry);
   const entry = getPageMarkingEntry(config, pageUrl, {
     create: allowCreate || hadEntry,
-    persist: shouldPersist
+    persist: false
   });
+  const abortResult = () => ({ changed: false, entry, persisted: false, hadEntry, aborted: true });
   normalizePageEntryXpaths(entry);
   const entrySetupStartedAt = nowMs();
   const xpathElementCache = new Map();
@@ -11033,7 +11035,6 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     filteredIncludeXpaths.push(xpath);
   }
   const explicitIncludeSet = new Set(filteredIncludeXpaths);
-  entry.includeXpaths = filteredIncludeXpaths;
   const explicitMarkedAncestorSet = new Set();
   const explicitMarkedXpaths = new Set([
     ...Array.from(excludedLookup.keys()),
@@ -11124,8 +11125,8 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     explicitMarkedDescendantElapsedMs: Number(scannedCandidates.stats.explicitMarkedDescendantElapsedMs.toFixed(1)),
     async: true
   });
-  if (shouldAbort && shouldAbort()) {
-    return { changed: false, entry, persisted: false, hadEntry, aborted: true };
+  if (isAbortRequested()) {
+    return abortResult();
   }
   const candidateMergeStartedAt = nowMs();
   const completedCandidates = await appendSyncedCandidateItemsAsync(candidates, {
@@ -11151,8 +11152,8 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     itemCount: items.length,
     async: true
   });
-  if (!completedCandidates || (shouldAbort && shouldAbort())) {
-    return { changed: false, entry, persisted: false, hadEntry, aborted: true };
+  if (!completedCandidates || isAbortRequested()) {
+    return abortResult();
   }
   const currentExcludedXpaths = new Set(
     items
@@ -11172,18 +11173,40 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     async: true
   });
   const silentWhitespaceMergeStartedAt = nowMs();
+  let lateLoopProcessedCount = 0;
+  const maybeYieldLateReconcileLoop = async () => {
+    lateLoopProcessedCount += 1;
+    if (lateLoopProcessedCount < TOGGLE_RECONCILE_YIELD_INTERVAL) {
+      return false;
+    }
+    lateLoopProcessedCount = 0;
+    await yieldForToggleReconcileWork();
+    return isAbortRequested();
+  };
   for (const el of silentWhitespaceCandidates) {
+    if (isAbortRequested()) {
+      return abortResult();
+    }
     const xpath = getXPath(el);
     if (!xpath || seen.has(xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isWithinExplicitExcludedXpath(xpath, currentExcludedXpaths)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     items.push({ xpath, excluded: true, explicit: true });
     seen.add(xpath);
     currentExcludedXpaths.add(xpath);
     silentWhitespaceExcludedXpaths.push(xpath);
+    if (await maybeYieldLateReconcileLoop()) {
+      return abortResult();
+    }
   }
   logTogglePerf("sync.silent-whitespace-merge", silentWhitespaceMergeStartedAt, {
     candidateCount: silentWhitespaceCandidates.length,
@@ -11191,62 +11214,122 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
     async: true
   });
   for (const item of previousItems) {
+    if (isAbortRequested()) {
+      return abortResult();
+    }
     if (!item || !item.xpath || !item.excluded || item.explicit !== true) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (previousSilentWhitespaceExcludedSet.has(item.xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (explicitIncludeSet.has(item.xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (seen.has(item.xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isWithinExplicitExcludedXpath(item.xpath, explicitUserExcludeSet)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     const explicitEl = getCachedElementFromXPath(item.xpath);
     if (!explicitEl) {
       if (isWithinExplicitIncludeXpath(item.xpath)) {
+        if (await maybeYieldLateReconcileLoop()) {
+          return abortResult();
+        }
         continue;
+      }
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
       }
       continue;
     }
     if (isWithinImmutableExcluded(explicitEl)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isWithinExplicitInclude(explicitEl)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     items.push({ xpath: item.xpath, excluded: true, explicit: true });
     seen.add(item.xpath);
+    if (await maybeYieldLateReconcileLoop()) {
+      return abortResult();
+    }
   }
   for (const item of previousItems) {
+    if (isAbortRequested()) {
+      return abortResult();
+    }
     if (!item || !item.xpath || item.excluded) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (explicitIncludeSet.has(item.xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (seen.has(item.xpath)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     const explicitEl = getCachedElementFromXPath(item.xpath);
     if (!explicitEl) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isWithinConsentElement(explicitEl)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isWithinImmutableExcluded(explicitEl)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     if (isVisible(explicitEl)) {
+      if (await maybeYieldLateReconcileLoop()) {
+        return abortResult();
+      }
       continue;
     }
     items.push({ xpath: item.xpath, excluded: false });
     seen.add(item.xpath);
+    if (await maybeYieldLateReconcileLoop()) {
+      return abortResult();
+    }
   }
   const changed =
     items.length !== previousItems.length ||
@@ -11261,6 +11344,10 @@ async function syncPageMarkingsInnerAsync(config, pageUrl, immutableExcluded, op
         (previous.explicit === true) !== (item.explicit === true)
       );
     });
+  if (isAbortRequested()) {
+    return abortResult();
+  }
+  entry.includeXpaths = filteredIncludeXpaths;
   entry.xpaths = items;
   setEntrySilentWhitespaceExcludedXpaths(entry, silentWhitespaceExcludedXpaths);
   entry.title = normalizePageEntryTitle(document.title, pageUrl);

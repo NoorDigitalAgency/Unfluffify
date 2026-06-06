@@ -665,6 +665,32 @@ test("explicit toggles yield after the immediate acknowledgement before running 
   assert.match(source, /cancelQueuedToggleMutations\(\);[\s\S]*?cancelExplicitOverlayRefresh\(\);/);
 });
 
+test("async sync checks aborts through late reconcile before committing entry state", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function syncPageMarkingsInnerAsync");
+  assert.notEqual(start, -1);
+  const syncBody = source.slice(start);
+
+  assert.match(syncBody, /const isAbortRequested = \(\) => Boolean\(shouldAbort && shouldAbort\(\)\);/);
+  assert.match(syncBody, /getPageMarkingEntry\(config, pageUrl, \{[\s\S]*?persist: false[\s\S]*?\}\);/);
+  assert.match(
+    syncBody,
+    /const abortResult = \(\) => \(\{ changed: false, entry, persisted: false, hadEntry, aborted: true \}\);/
+  );
+  assert.match(syncBody, /const maybeYieldLateReconcileLoop = async \(\) => \{/);
+  assert.match(syncBody, /for \(const el of silentWhitespaceCandidates\) \{[\s\S]*?if \(isAbortRequested\(\)\) \{/);
+  assert.match(syncBody, /for \(const item of previousItems\) \{[\s\S]*?if \(isAbortRequested\(\)\) \{/);
+
+  const changedIndex = syncBody.indexOf("const changed =");
+  const finalAbortIndex = syncBody.indexOf("if (isAbortRequested()) {", changedIndex);
+  const includeCommitIndex = syncBody.indexOf("entry.includeXpaths = filteredIncludeXpaths;", finalAbortIndex);
+  const xpathCommitIndex = syncBody.indexOf("entry.xpaths = items;", includeCommitIndex);
+  assert.ok(changedIndex > -1);
+  assert.ok(finalAbortIndex > changedIndex);
+  assert.ok(includeCommitIndex > finalAbortIndex);
+  assert.ok(xpathCommitIndex > includeCommitIndex);
+});
+
 test("marking mode surfaces temporary disabled state while save sync blocks editing", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");

@@ -220,6 +220,14 @@ note approved before coding.
 
 ### 2.1 Finding 4 — async reconcile ignores aborts after candidate merge
 
+- **Status (2026-06-06): complete.** The async reconcile path now defers
+  newly-created entry persistence until the final commit point, checks aborts
+  after candidate merge, through the silent-whitespace/previous-item loops,
+  and immediately before assigning `entry.includeXpaths`, `entry.xpaths`, and
+  `silentWhitespaceExcludedXpaths`. Late loops also yield through the existing
+  toggle reconcile slice interval. Regression tests cover both an existing
+  entry left untouched after a late abort and a newly-created entry that is not
+  inserted into `pageMarkings` when aborted.
 - **Root cause:** In `content/core.js`, the last `shouldAbort` check is at
   `:11226`. The silent-whitespace merge loop (`:11247`), both previous-item
   loops (`:11265`, `:11297`), the `changed` computation, the
