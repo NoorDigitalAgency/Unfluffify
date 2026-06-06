@@ -36,7 +36,7 @@ property-lock smokes pass.
   debugger/scripting ops (F1 page-motion control + T2-a device emulation);
   per-pass element-computation caching across marking and silent-highlight.
 
-## Consolidated risk register (all open items Low; none active bugs)
+## Consolidated risk register (no active bugs)
 
 | ID | Area | Status |
 |----|------|--------|
@@ -46,12 +46,12 @@ property-lock smokes pass.
 | T3-a | page telemetry bridge | Fixed (private port); irreducible handshake residual accepted |
 | 50m (sub-2/sub-6) | silent-highlight collection computation cache | Fixed |
 | UI fonts / `--mono` | injected-UI font uniformity + popup mono var | Fixed |
-| **CR-1** | over-broad `web_accessible_resources` | **Open (Low, backlog)** |
-| **CR-2** | content-main page-console warn/error | **Open (Low, backlog)** |
+| **CR-1** | over-broad `web_accessible_resources` | **Fixed (2026-06-06)** |
+| **CR-2** | content-main page-console warn/error | **Fixed (2026-06-06)** |
 
 ## New codebase-level findings
 
-### CR-1 (Low / hardening): over-broad `web_accessible_resources`
+### CR-1 (Low / hardening): over-broad `web_accessible_resources` — FIXED
 `manifest.json` exposes `common/*.js` and `content/*.js` as web-accessible to
 `<all_urls>`. Only a subset is actually injected into the page world
 (`content-main.js` + its import graph). The rest — background-only modules such
@@ -68,10 +68,13 @@ as `common/remote-support-background.js`, `common/config.js`,
   and the MDI font). Under-scoping breaks a dynamic `import()`, so verify with
   the live AI-submission smoke (`hasFreezeNode`/`snapshot.ok`) and a
   remote-support load after tightening.
-- **Acceptance:** background-only modules are no longer fetchable from a page
-  origin; content activation + remote-support viewer still load; smokes green.
+- **Resolution (2026-06-06):** `manifest.json` now enumerates the exact
+  page-world module graph instead of exposing `common/*.js` and `content/*.js`.
+  Background-only modules are no longer web-accessible.
+- **Validation:** focused manifest/source tests green; full `npm test` green
+  (`# tests 561`, `# pass 561`, `# fail 0`).
 
-### CR-2 (Low / consistency): page-context console warn/error in content-main
+### CR-2 (Low / consistency): page-context console warn/error in content-main — FIXED
 `content-main.js` has three `console.warn/error` calls that print to the
 customer page console by default (it runs in the ISOLATED world of the page):
 - `~2930` `console.warn("Failed to clear page-save reconciliation after save failure", …)`
@@ -87,8 +90,11 @@ mode or routed to extension telemetry.
   page consoles.
 - **Fix approach:** wrap these three in the existing trace/diagnostic gate (the
   same mechanism F9 used) or forward via the telemetry path.
-- **Acceptance:** a normal page with trace off shows no Unfluffify content-main
-  console output; the existing F9 source-guard test extended to cover these.
+- **Resolution (2026-06-06):** the three warn/error diagnostics now route
+  through a shared `logContentDiagnostic` helper gated by `worldTraceEnabled`,
+  so normal trace-off pages stay quiet.
+- **Validation:** focused source-guard tests green; full `npm test` green
+  (`# tests 561`, `# pass 561`, `# fail 0`).
 
 ## Noted, not a defect: pervasive error-swallowing
 ~302 empty / error-swallowing `catch` blocks across source. This is a
@@ -98,8 +104,5 @@ action recommended — but it is a large surface where a genuine error could be
 silently masked, so keep it in mind when debugging field issues.
 
 ## Recommendation
-Ship as-is. The only cheap, defensible follow-ups are **CR-1** and **CR-2** —
-both Low, both fit in one small PR with the standard validation (full `npm test`
-+ AI-submission live smoke; for CR-1 also a remote-support viewer load). All
-other outstanding work is human-gated (2-profile remote-support validation) or
-optional deeper audits.
+Ship as-is. CR-1 and CR-2 are now closed; remaining outstanding work is
+human-gated (2-profile remote-support validation) or optional deeper audits.

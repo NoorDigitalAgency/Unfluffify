@@ -293,22 +293,24 @@ clearly problematic code issue was found. Validation:
 `node --test tests/remote-support*.test.js tests/background-remote-support-routing.test.js tests/core-scheduling.test.js tests/core-motion-pause.test.js tests/core-visibility.test.js`
 passed (`208` pass), followed by full `npm test` (`553/553`, `# fail 0`).
 
-### F. Full codebase review follow-ups (Low — open, optional)
+### F. Full codebase review follow-ups (Low) — COMPLETE
 
 A holistic codebase-level review (2026-06-06) found the codebase healthy /
 shippable with no High/Medium issues. Full write-up:
-**`.copilot/codebase-review.md`**. Two new Low items, both fit one small PR:
+**`.copilot/codebase-review.md`**.
 
-1. **CR-1 — narrow `web_accessible_resources`.** `manifest.json` exposes
-   `common/*.js` + `content/*.js` to `<all_urls>`; background-only modules are
-   fetchable by any page (source-disclosure + install fingerprint, no code
-   exec). Scope to the actual page-world import graph; verify with the
-   AI-submission smoke + a remote-support viewer load (under-scoping breaks a
-   dynamic `import()`).
-2. **CR-2 — gate three content-main page-console warn/error** (~lines 2930,
-   3006, 6590) behind trace mode or route to telemetry, per the F9
-   "quiet on customer pages" principle. Background-SW and popup console calls
-   are fine as-is.
+Status update (2026-06-06): both Low follow-ups are now complete.
+
+1. **CR-1 — `web_accessible_resources` narrowing: COMPLETE.** `manifest.json`
+   now enumerates the explicit content/viewer module graph and no longer
+   exposes wildcard `common/*.js` or `content/*.js`.
+2. **CR-2 — content-main warn/error gating: COMPLETE.** The three
+   page-context warn/error diagnostics (~2930, 3006, 6590) now go through a
+   shared trace-gated helper, preserving quiet customer-page consoles by
+   default.
+
+Validation: focused guards for CR-1/CR-2 green, full `npm test` green
+(`561/561`, `# fail 0`).
 
 Noted (not a defect): ~302 error-swallowing `catch` blocks — deliberate
 "never break the host page" pattern; keep in mind when debugging field issues.

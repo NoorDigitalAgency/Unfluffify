@@ -829,6 +829,18 @@ function emitLifecycleEvent(event = {}) {
   });
 }
 
+function logContentDiagnostic(level, ...args) {
+  if (!worldTraceEnabled) {
+    return;
+  }
+  try {
+    const logger = level === "error" ? console.error : console.warn;
+    logger(...args);
+  } catch {
+    // Ignore logging failures.
+  }
+}
+
 function forwardPageTelemetryMessage(message) {
   if (!message || typeof message !== "object") {
     return;
@@ -2927,7 +2939,11 @@ async function saveCurrentPageDraft(options) {
       try {
         await core.clearPageSaveReconciliation(targetBaseUrl, pageUrl);
       } catch (clearError) {
-        console.warn("Failed to clear page-save reconciliation after save failure", clearError);
+        logContentDiagnostic(
+          "warn",
+          "Failed to clear page-save reconciliation after save failure",
+          clearError
+        );
       }
     }
     if (showToast) {
@@ -3003,7 +3019,7 @@ async function toggleEnabledFromPage(options = {}) {
   try {
     await core.enableForBaseUrl(baseUrl, { skipInitialReveal: true });
   } catch (error) {
-    console.error("Failed to enable marking from page:", error);
+    logContentDiagnostic("error", "Failed to enable marking from page:", error);
     state.currentPageType = "";
     core.disable();
     await utils.sendRuntimeMessage({
@@ -6586,11 +6602,7 @@ function handlePropertyLockSyncError(error, options = {}) {
   if (markExtensionContextInvalidated(error)) {
     return;
   }
-  try {
-    console.warn("[Unfluffify] Property lock sync failed; retrying.", error);
-  } catch {
-    // Ignore logging failures.
-  }
+  logContentDiagnostic("warn", "[Unfluffify] Property lock sync failed; retrying.", error);
   disconnectPropertyLockPort({ notifyBackground: false });
   schedulePropertyLockReconnect(options);
 }

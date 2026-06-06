@@ -49,6 +49,17 @@ test("content loader and consent scroll restore avoid production page-console lo
   assert.doesNotMatch(coreSource.slice(restoreStart, restoreEnd), /console\.(log|info|warn|error|debug)\(/);
 });
 
+test("content-main warn/error diagnostics are trace-gated", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /function logContentDiagnostic\(level, \.\.\.args\) \{/);
+  assert.match(source, /if \(!worldTraceEnabled\) \{\s*return;\s*\}/);
+  assert.match(source, /const logger = level === "error" \? console\.error : console\.warn;/);
+  assert.match(source, /logContentDiagnostic\(\s*"warn",\s*"Failed to clear page-save reconciliation after save failure"/);
+  assert.match(source, /logContentDiagnostic\("error", "Failed to enable marking from page:", error\);/);
+  assert.match(source, /logContentDiagnostic\("warn", "\[Unfluffify\] Property lock sync failed; retrying\.", error\);/);
+});
+
 test("manual page enable waits for activation reveal before refreshing highlight state", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const toggleStart = source.indexOf("async function toggleEnabledFromPage(options = {})");

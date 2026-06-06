@@ -18,3 +18,16 @@ test("manifest exposes the content UI icon font without the global icon styleshe
   assert.ok(resources.includes("assets/materialdesignicons-webfont.woff2"));
   assert.equal(resources.includes("assets/materialdesignicons.min.css"), false);
 });
+
+test("manifest web-accessible resources avoid broad common/content wildcards", async () => {
+  const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+  const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
+
+  assert.equal(resources.includes("content/*.js"), false);
+  assert.equal(resources.includes("common/*.js"), false);
+  assert.ok(resources.includes("content-main.js"));
+  assert.ok(resources.includes("content/core.js"));
+  assert.ok(resources.includes("common/config.js"));
+  assert.ok(resources.includes("remote-support-viewer.html"));
+  assert.ok(resources.includes("remote-support-viewer.js"));
+});
