@@ -160,8 +160,21 @@ not cover is tracked in **`.copilot/subsystem-inspection.md`**.
   (a page can inject fabricated telemetry). Parked with remote-support
   (deprioritized); remediation sketch in `subsystem-inspection.md`. The
   always-on API wrapping is the part broader than remote-support.
-- **DevTools + remote-support: BACKLOG (user-deprioritized).** Note T3-a lives
-  at the boundary of this area.
+- **DevTools + remote-support: TARGETED SECURITY PASS done.** Locked
+  contracts verified enforced (no remote-control replay; ICE config fails
+  closed at both background + offscreen, no public fallback); DevTools mirror
+  is `textContent`-only so T3-a is pollution-not-RCE. Full line-by-line audit
+  of the WebRTC signaling/reconnect/media internals remains optional backlog.
+
+### Improvement-plan assessment
+
+See the "Improvement-plan assessment" section in
+`.copilot/subsystem-inspection.md`. **Conclusion: no urgent fix plan needed —
+all open findings (T1-a, T1-b, T2-a, T2-b Low; T3-a Medium) are "safe today,"
+not active bugs.** Optional groupings: (1) a cheap hardening batch (T2-b dedup,
+T1-a timestamp types, T1-b cache-contract doc); (2) T2-a device-emulation
+serialization only if flakiness is observed (reuse the F1 queue pattern);
+(3) T3-a folded into the eventual remote-support rework.
 
 ### Other open items (lower priority than the 9 findings)
 

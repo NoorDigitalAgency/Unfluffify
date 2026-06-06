@@ -282,11 +282,102 @@ Ordered by risk. Pick up when prioritized.
   scheduling, reveal/warmup mechanics. Visual/perf surfaces, not
   data-integrity; covered by focused suites. Optional full line-by-line audit.
 
-### Deferred with remote-support (user-deprioritized)
-- `remote-support-offscreen.js`, `remote-support-viewer.js`,
-  `common/remote-support.js`, `common/remote-support-background.js`.
-- DevTools mirroring: `devtools/devtools.js`, `devtools/remote-console.js`,
-  `devtools/remote-network.js`, `common/devtools-helpers.js`.
+_(none — all subsystems have had at least a targeted pass; see below.)_
+
+---
+
+## Remote-support + DevTools: TARGETED SECURITY PASS 2026-06-06 (HEAD `510d5db`)
+
+6,396 lines of WebRTC/signaling — too large for a full line-by-line audit in
+one pass. This was a TARGETED pass on the locked-contract constraints and the
+injection-prone surfaces (not a complete audit of the signaling state machine,
+reconnect logic, media-track management, or viewer UI).
+
+Files touched:
+- `common/remote-support.js` (238), `common/devtools-helpers.js` (72),
+  `devtools/remote-console.js` (129), `devtools/remote-network.js` (192) —
+  read in full.
+- `remote-support-offscreen.js` (1876), `common/remote-support-background.js`
+  (2153), `remote-support-viewer.js` (1725) — targeted reads of the
+  contract/security surfaces only.
+
+### Verdict: locked contracts enforced; no new High/Medium findings.
+
+- **No remote-control replay (contract):** `remoteSupportSendCommand` and
+  `remoteSupportSetControlOwner` both hard-return
+  `{ ok:false, error:"Remote control is not available in support sessions" }`.
+  The offscreen data-channel `onmessage` only forwards inbound payloads as
+  `incoming-message` transport events (no page interaction / no synthetic
+  input). No `dispatchEvent`/synthetic `MouseEvent`/`KeyboardEvent`/`.click()`
+  applied to the supportee page from peer input.
+- **Fail-closed on missing ICE config (contract):** enforced at TWO layers —
+  background (`"...missing ICE configuration"` → `ok:false`) and offscreen
+  (`throw new Error("Missing remote support ICE servers")`). ICE servers come
+  only from the server payload (`normalizeRemoteSupportIceServers`); no
+  hardcoded public STUN/TURN fallback is injected anywhere.
+- **DevTools mirror is XSS-safe:** `remote-console.js` and `remote-network.js`
+  render every field via `textContent` (never `innerHTML`). This bounds T3-a:
+  fabricated telemetry can POLLUTE the supporter's panels but cannot execute
+  script there — T3-a is spoofing/pollution, not RCE.
+- **Message hygiene:** `parseRemoteSupportMessage` validates JSON shape;
+  payload size caps (`REMOTE_SUPPORT_PAYLOAD_MAX_BYTES`,
+  `..._TOTAL_..._BYTES`, data-channel buffer limit) are defined and
+  `clampPayloadSize` enforces UTF-8-correct truncation.
+
+### Not covered (remains backlog, lower risk)
+A full line-by-line audit of the WebRTC signaling state machine, reconnect /
+backoff, chunked-message reassembly (`consumeChunkedDataChannelMessage`),
+media-track lifecycle, and the 1.7k-line viewer UI. These are reliability/UX
+surfaces, not contract or injection surfaces.
+
+---
+
+## Improvement-plan assessment (2026-06-06)
+
+All findings to date, with status:
+
+| ID  | Sev | Area | Active bug? | Status |
+|-----|-----|------|-------------|--------|
+| F1-F9 | — | (original) | — | FIXED |
+| T1-a | Low | config timestamp JSDoc/type | No (safe today) | Open, hardening |
+| T1-b | Low | selector-cache filter key | No (safe today) | Open, hardening |
+| T2-a | Low | device-emulation debugger race | No (self-heals) | Open, hardening |
+| T2-b | Low | duplicated reconcile-reason list | No (identical now) | Open, hardening |
+| T3-a | Medium | page telemetry F1-pattern | No (metadata-only outside support; pollution-not-RCE) | Parked w/ remote-support |
+
+**Do we need a fix plan? Conclusion: no URGENT plan; one OPTIONAL low-effort
+hardening pass is reasonable, and T3-a should ride the eventual
+remote-support rework.** None of the open findings is an active bug; every one
+is "safe today." There is no correctness or security regression to chase.
+
+Recommended (optional) groupings if/when capacity allows:
+
+1. **Cheap hardening batch (1 small PR, ~Low effort):**
+   - T2-b: export the non-blocking reconcile-reason set from `common/config.js`
+     and import it in `common/page-save-state.js` (kill the duplicate).
+   - T1-a: make `parseTimestampMillis` accept `number`/`Date`, or fix the
+     JSDoc to say "string only" + normalize at the boundary.
+   - T1-b: add a doc-comment contract on `collectCachedSelectorMatches` that
+     any `shouldIncludeNode` dependency MUST be reflected in
+     `suppressionFingerprint` or a generation bump (or add a filter
+     fingerprint to the key).
+   These are doc/dedup/guard changes with negligible risk; add a source-guard
+   test for each.
+
+2. **T2-a (only if device-emulation flakiness is observed):** reuse the F1
+   per-target serialization queue (`pageMotionFreezeControlQueueByTarget`)
+   for the device-emulation debugger path keyed by tabId. Slightly larger;
+   only worth it if a real symptom appears, since it self-heals.
+
+3. **T3-a:** fold into the remote-support rework when that subsystem is
+   reprioritized — remediation sketch already recorded above (just-in-time
+   install, `isEnabled` gate, authenticated telemetry channel). The
+   always-on MAIN-world API wrapping is the part to address first even if the
+   rest of remote-support stays parked.
+
+Remaining pure-inspection gap (optional): the `content/core.js`
+rendering/scheduling internals and the remote-support reliability internals —
+both lower-risk and test-covered.
 
 ---
 
