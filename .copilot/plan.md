@@ -17,8 +17,10 @@ Current state:
 - **Open items are all OPTIONAL hardening + human-gated validations** (no active
   bugs). Backlog A (cheap hardening: T2-b/T1-a/T1-b), backlog B (T2-a
   device-emulation debugger serialization), and backlog C (T3-a page-telemetry
-  bridge hardening) are complete and validated; remaining backlog is D–E in the
-  handoff.
+  bridge hardening) are complete and validated. Backlog D Phase 2 live
+  property-lock validation passed; remote-support two-profile validation is
+  BLOCKED for a human with two real browser profiles. Remaining autonomous work
+  is optional deeper audit E in the handoff.
 
 Note: older validation notes below that mention
 `#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix
@@ -1226,6 +1228,12 @@ Phase 2 slice 8 completed:
    around desktop-preview and property-lock recovery metadata.
 
 Phase 2 live-validation follow-up status:
+   2026-06-06 autonomous validation passed with the persistent repo profile:
+   `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs https://seo.se/ https://www.bonliva.no/artikler/barnehagevikar-lonn`.
+   The profile had `globalConfigEndpoint`, `globalStageBase`, and
+   `globalToken`; final checks were `initialEditor:true`,
+   `crossPropertyCountdown:true`, and `returnRecovered:true`.
+
    Repo-local smoke diagnostics through
    `scripts/smoke-property-lock-phase2.mjs` found and fixed a real popup-side
    cross-property recovery bug. The page banner and content-side cooldown were
@@ -1373,6 +1381,11 @@ these regress in a future change, treat them as standalone fixes rather than
 re-opening this rollup.
 
 ## Remote Support Follow-up
+
+2026-06-06 status: BLOCKED for human validation. There is no automated
+two-profile remote-support smoke harness in this repo. Validation requires two
+real Chrome profiles with the unpacked extension loaded, valid support/auth
+configuration, and real browser screen/camera/microphone permission prompts.
 
 1. Validate Chrome-window display sharing and camera/microphone permission prompts in two real Chrome profiles.
 2. Verify view-only supporter sessions keep supportee marking, highlighting, popup, and sidebar workflows usable.

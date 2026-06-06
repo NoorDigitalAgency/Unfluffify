@@ -145,6 +145,10 @@ Additional fixes landed after the initial drift audit:
   green (`45` pass), full `npm test` green (`# tests 553`, `# pass 553`,
   `# fail 0`), syntax checks clean, and Bonliva AI-submission smoke passed
   (`snapshot.ok=true`, `errs=0`, `hasFreezeNode=false`).
+- **Backlog D human-gated validations: PARTIAL.** Phase 2 live property-lock
+  validation passed with the persistent repo profile and real auth/config.
+  Remote-support two-profile validation remains BLOCKED for a human with two
+  real Chrome profiles plus screen/camera/microphone permission prompts.
 
 ## What's Left — actionable backlog
 
@@ -230,17 +234,31 @@ Source-guard/runtime coverage was added for each item.
   guards and page-module tests lock the lifecycle, nonce, and teardown
   contracts.
 
-### D. Human-gated validations (cannot be fully automated here)
+### D. Human-gated validations — PARTIAL
 
-1. **Phase 2 live validation** — needs a real browser session with property
-   auth (Bonliva or similar). Run
-   `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs <candidate-url> <cross-property-url>`
-   in a session with a valid auth token. Pass when:
+1. **Phase 2 live validation — COMPLETE 2026-06-06.**
+   Command run:
+   `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs https://seo.se/ https://www.bonliva.no/artikler/barnehagevikar-lonn`
+   using the persistent repo profile. The profile had config endpoint, stage
+   base, and token present. Final checks:
    - `checks.initialEditor === true`
    - `checks.crossPropertyCountdown === true` (popup shows "Return to it within N seconds")
    - `checks.returnRecovered === true` (popup shows "You are editing")
-2. **Remote Support Follow-up** — manual 2-profile validation; see plan.md
-   "Remote Support Follow-up".
+2. **Remote Support Follow-up — BLOCKED for human validation.** No automated
+   two-profile harness exists in this repo. A human must run two real Chrome
+   profiles with the unpacked extension loaded and valid support/auth config,
+   then verify:
+   - supportee requests a code from a normal property page and supporter joins
+     from the `/support` page or extension popup;
+   - screen-share plus camera/microphone permission prompts work in the real
+     browser UI;
+   - supporter view is view-only while supportee marking/highlighting/sidebar
+     workflows remain usable;
+   - navigation and sidebar/popup state stay synced across both profiles;
+   - DevTools console/network mirrors label page, content script, popup, and
+     background worker sources correctly with payload capture both off and on;
+   - teardown from either side clears remote-support UI and does not leave
+     media tracks, telemetry wrapping, or session state active.
 
 ### E. Optional deeper inspection (lower-risk, test-covered — only if desired)
 

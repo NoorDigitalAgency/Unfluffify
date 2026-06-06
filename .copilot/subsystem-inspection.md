@@ -392,6 +392,16 @@ Remaining pure-inspection gap (optional): the `content/core.js`
 rendering/scheduling internals and the remote-support reliability internals —
 both lower-risk and test-covered.
 
+Validation follow-up (2026-06-06):
+- Phase 2 property-lock live smoke passed with the persistent repo profile:
+  `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs https://seo.se/ https://www.bonliva.no/artikler/barnehagevikar-lonn`
+  reported `initialEditor:true`, `crossPropertyCountdown:true`, and
+  `returnRecovered:true`.
+- Remote-support two-profile validation remains BLOCKED for human execution:
+  no automated two-profile harness exists here, and the required screen share,
+  camera, microphone, navigation, telemetry, and teardown checks need two real
+  Chrome profiles with valid support/auth configuration.
+
 ---
 
 ## How to run validation during any future inspection
