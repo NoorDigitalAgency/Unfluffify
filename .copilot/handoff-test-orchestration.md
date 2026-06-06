@@ -5,8 +5,9 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 "where we are / what to do next" note.
 
 ## State
-- **Planning complete. Phase 0 and Phase 1 are implemented.** All Q&A decisions
-  and open items are resolved (see the plan's Decisions table + Open items).
+- **Planning complete. Phase 0, Phase 1, and Phase 2 are implemented.** All
+  Q&A decisions and open items are resolved (see the plan's Decisions table +
+  Open items).
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
   - `orchestration/config.example.json`
@@ -14,12 +15,20 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   - `orchestration/setup.md`
   - `orchestration/lib/protocol.mjs`
   - `orchestration/lib/websocket.mjs`
+  - `orchestration/lib/config.mjs`
+  - `orchestration/lib/artifacts.mjs`
+  - `orchestration/lib/bus-client.mjs`
   - `orchestration/bus-server.mjs`
   - `orchestration/mock-client.mjs`
+  - `orchestration/runner.mjs`
+  - `orchestration/steps/browser.mjs`
   - `tests/orchestration-bus.test.js`
+  - `tests/orchestration-runner.test.js`
 - `.gitignore` protects `orchestration/.secrets.json`,
   `orchestration/config.json`, `orchestration/runs/`, and profile dirs.
-- Validation: `node --test tests/orchestration-bus.test.js` passes (`4/4`).
+- Validation:
+  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js`
+  passes (`7/7`).
 
 ## Decisions locked (don't re-litigate without the user)
 - Two-machine-ready, **validate on one machine first**.
@@ -49,22 +58,19 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 - Observability: `popup.html?debugTabId=`, `chrome.storage.session`
   (`tabState:*`, `deviceEmulation:*`), property-lock banner text, RS state.
 
-## Next step: Phase 2
-Build the per-machine runner and deterministic step-script library:
-- Config loader for gitignored `orchestration/config.json` plus optional CLI
-  overrides.
-- Browser launch helpers generalized from
-  `scripts/smoke-property-lock-phase2.mjs`.
-- Step modules for `launchBrowser`, `readState`, `openProperty`, popup debug
-  URL loading, banner/state reads, and idempotent teardown.
-- Runner that connects to `bus-server.mjs`, waits for `bus:hello`, executes
-  typed `step` messages, returns `report` messages, and writes per-side
-  artifacts under `orchestration/runs/<timestamp>/`.
-Acceptance: on one machine, a runner can launch the unpacked extension, open a
-property URL, read popup/banner/session state, and report it over the bus.
+## Next step: Phase 3
+Build `orchestration/setup-auth.mjs` from gitignored
+`orchestration/.secrets.json`, using the Phase 2 browser launch/config helpers.
+It should seed the extension configuration view and authenticate the selected
+account into the configured persistent profile.
 
-Then Phases 3→7 per the plan (auth seed → property-lock E2E on one machine →
-RS handshake one machine → two-machine media → LLM roles).
+Phase 3 cannot be fully live-validated without real local
+`orchestration/.secrets.json` values. Implement source/shape validation and
+unit coverage without committing secrets, then mark live auth seeding BLOCKED
+until credentials are available on the host.
+
+Then Phases 4→7 per the plan (property-lock E2E on one machine → RS handshake
+one machine → two-machine media → LLM roles).
 
 ## Watch-outs
 - **Never commit** `orchestration/.secrets.json`, `config.json`, or any profile

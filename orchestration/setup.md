@@ -63,6 +63,29 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
 
 6. Confirm a transcript appeared in `orchestration/runs/<timestamp>/bus.log`.
 
+## Runner smoke
+
+After the bus is running, start a follower runner:
+
+```bash
+node orchestration/runner.mjs --role follower --side B --bus-host 127.0.0.1 --bus-port 8765
+```
+
+The runner waits for typed `step` messages. For Phase 2 it supports:
+
+- `launchBrowser`
+- `openProperty`
+- `openPopup`
+- `readState`
+- `teardown`
+
+The default browser steps require Playwright. If Playwright is not installed in
+this repo, set either `playwrightModulePath` in `config.json` or
+`UNFLUFFIFY_PLAYWRIGHT_PATH` to a `playwright/index.mjs` file.
+
+Each runner writes `runner.log` and `state-latest.json` under
+`orchestration/runs/<timestamp>-<role>-<side>/`.
+
 ## Two-machine bring-up
 
 1. Start `bus-server.mjs` on the director machine using a LAN-reachable host,

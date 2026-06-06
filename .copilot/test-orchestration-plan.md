@@ -165,7 +165,7 @@ Debug channel: `note{text}`.
   logging. Acceptance: two mock clients (director/follower) exchange a full
   control sequence + a debug note; unknown types rejected; transcript written.
   Unit tests with in-process clients.
-- **Phase 2 — runner + step-script library.** Generalize the smokes; launch with
+- **Phase 2 — runner + step-script library. COMPLETE 2026-06-06.** Generalize the smokes; launch with
   fake-media/auto-capture args; `readState` helpers; deterministic results.
   Acceptance: a runner launches the extension, opens the popup, reads
   banner/storage state, and reports over the bus on one machine.
@@ -212,9 +212,19 @@ Debug channel: `note{text}`.
   sending scenario `step` traffic.
 - Validation completed:
   `node --test tests/orchestration-bus.test.js` -> `4/4` pass.
-- Phase 2 is the next repo-local implementation slice. Phase 3 needs real
-  gitignored staging credentials in `orchestration/.secrets.json`; Phase 6
-  needs two real hosts for media-connected assertions.
+- Phase 2 is complete:
+  `orchestration/runner.mjs`, `orchestration/lib/config.mjs`,
+  `orchestration/lib/bus-client.mjs`, `orchestration/lib/artifacts.mjs`,
+  `orchestration/steps/browser.mjs`, and `tests/orchestration-runner.test.js`.
+  The runner waits for `bus:hello`, executes typed `step` messages, returns
+  structured `report` messages, and logs artifacts under
+  `orchestration/runs/<timestamp>-<role>-<side>/`.
+- Validation completed:
+  `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js`
+  -> `7/7` pass.
+- Phase 3 is the next repo-local implementation slice. Phase 3 live validation
+  needs real gitignored staging credentials in `orchestration/.secrets.json`;
+  Phase 6 needs two real hosts for media-connected assertions.
 
 ## Open items to confirm before Phase 3+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,
