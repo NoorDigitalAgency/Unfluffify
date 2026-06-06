@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -76,6 +76,35 @@ test("orchestration config loader merges local config with CLI overrides", async
     assert.equal(config.busUrl, "ws://10.0.0.2:9010");
     assert.equal(config.testPropertyUrl, "https://prowork.se/");
     assert.equal(config.captureSourceTitle, "Screen 1");
+    assert.equal(config.profileDir, path.join(tmp, "profiles/follower"));
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("orchestration config loader reads commented default JSONC config", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "unfluffify-config-jsonc-test-"));
+  const orchestrationDir = path.join(tmp, "orchestration");
+  const configPath = path.join(orchestrationDir, "config.jsonc");
+  await mkdir(orchestrationDir, { recursive: true });
+  await writeFile(configPath, `{
+    // Runner role for this host.
+    "role": "follower",
+    // Scenario side label.
+    "side": "B",
+    // Trailing commas are accepted for hand-edited files.
+    "profileDir": "profiles/follower",
+  }`);
+
+  try {
+    const config = await loadOrchestrationConfig({
+      cwd: tmp,
+      argv: [],
+      env: {}
+    });
+    assert.equal(config.configPath, configPath);
+    assert.equal(config.role, "follower");
+    assert.equal(config.side, "B");
     assert.equal(config.profileDir, path.join(tmp, "profiles/follower"));
   } finally {
     await rm(tmp, { recursive: true, force: true });

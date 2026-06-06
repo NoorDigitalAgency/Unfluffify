@@ -358,7 +358,9 @@ MigrationBackup/
 
 # Local two-host orchestration secrets and artifacts
 orchestration/.secrets.json
+orchestration/.secrets.jsonc
 orchestration/config.json
+orchestration/config.jsonc
 orchestration/runs/
 orchestration/profiles/
 orchestration/.profiles/

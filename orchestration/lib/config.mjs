@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseJsonc } from "./jsonc.mjs";
 
-const DEFAULT_CONFIG_PATH = "orchestration/config.json";
+const DEFAULT_CONFIG_PATHS = [
+  "orchestration/config.jsonc",
+  "orchestration/config.json"
+];
 const DEFAULT_PROFILE_DIR = "orchestration/profiles/director";
 const DEFAULT_TEST_PROPERTY_URL = "https://www.bonliva.no/";
 
@@ -56,29 +60,41 @@ function resolveMaybeRelativePath(value, cwd) {
   return path.isAbsolute(normalized) ? normalized : path.resolve(cwd, normalized);
 }
 
-async function readJsonIfExists(filePath) {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
-      return null;
+async function readJsoncIfExists(filePaths) {
+  for (const filePath of filePaths) {
+    try {
+      const raw = await fs.readFile(filePath, "utf8");
+      return {
+        configPath: filePath,
+        config: parseJsonc(raw, filePath)
+      };
+    } catch (error) {
+      if (error && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
     }
-    throw error;
   }
+  return null;
 }
 
 export async function loadOrchestrationConfig(options = {}) {
   const cwd = options.cwd || process.cwd();
   const env = options.env || process.env;
   const cli = options.cli || parseCliArgs(options.argv || []);
-  const configPath = resolveMaybeRelativePath(
-    cli.config || env.UNFLUFFIFY_ORCHESTRATION_CONFIG || DEFAULT_CONFIG_PATH,
-    cwd
-  );
-  const fileConfig = await readJsonIfExists(configPath);
+  const configuredPath =
+    (typeof cli.config === "string" ? cli.config : "") ||
+    (typeof env.UNFLUFFIFY_ORCHESTRATION_CONFIG === "string"
+      ? env.UNFLUFFIFY_ORCHESTRATION_CONFIG
+      : "");
+  const configPathCandidates = configuredPath
+    ? [resolveMaybeRelativePath(configuredPath, cwd)]
+    : DEFAULT_CONFIG_PATHS.map((candidate) => resolveMaybeRelativePath(candidate, cwd));
+  const fileResult = await readJsoncIfExists(configPathCandidates);
+  const configPath = fileResult ? fileResult.configPath : configPathCandidates[0];
+  const fileConfig = fileResult ? fileResult.config : null;
   if (!fileConfig && options.requireConfig) {
-    throw new Error(`Missing orchestration config: ${configPath}`);
+    throw new Error(`Missing orchestration config: ${configPathCandidates.join(" or ")}`);
   }
 
   const merged = {

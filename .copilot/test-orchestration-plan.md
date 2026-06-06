@@ -98,7 +98,8 @@ scenarios with a human in the loop on one side. Uses local Playwright.
   follower waits for `code` from director). Two families: `property-lock.*`,
   `remote-support.*`.
 - **Auth seeding** (`orchestration/setup-auth.mjs`): reads
-  `orchestration/.secrets.json` (gitignored) → drives Playwright to fill the
+  `orchestration/.secrets.jsonc` (gitignored JSONC; legacy `.json` fallback)
+  → drives Playwright to fill the
   extension **configuration view** (the 3 staging values) and then the
   **authentication view** (email + password) per account, into the persistent
   profile. Secrets file shape:
@@ -119,7 +120,8 @@ scenarios with a human in the loop on one side. Uses local Playwright.
   ```
   Director uses account A, follower account B (configurable per scenario; a
   single-account scenario can point both sides at the same account).
-- **Config** (`orchestration/config.json`, gitignored or templated):
+- **Config** (`orchestration/config.jsonc`, gitignored JSONC or templated;
+  legacy `.json` fallback):
   `{ role, busHost, busPort, side, account, displayMode: "real"|"xvfb",
   chromePath, extensionPath, profileDir, stageBase, testPropertyUrl }`.
 
@@ -149,7 +151,8 @@ Debug channel: `note{text}`.
 - Each run produces a reproducible artifact: bus transcript + per-side
   screenshots + console/network dumps + the resolved scenario/params.
 - **Never commit secrets or profiles.** Add to `.gitignore`:
-  `orchestration/.secrets.json`, `orchestration/config.json`,
+  `orchestration/.secrets.jsonc`, `orchestration/config.jsonc`,
+  legacy `.json` variants,
   `orchestration/runs/`, and any orchestration profile dirs. The extension
   packager is reachability-based (manifest-driven), so `orchestration/` is
   already excluded from the shipped zip — keep it that way (do not reference it
@@ -157,8 +160,8 @@ Debug channel: `note{text}`.
 
 ## Phased implementation
 
-- **Phase 0 — scaffolding contract. COMPLETE 2026-06-06.** `orchestration/` dir, `config.json` +
-  `.secrets.json` templates, `.gitignore` entries, a `setup.md` (clone, chromium
+- **Phase 0 — scaffolding contract. COMPLETE 2026-06-06.** `orchestration/` dir, `config.jsonc` +
+  `.secrets.jsonc` templates, `.gitignore` entries, a `setup.md` (clone, chromium
   install/path, secrets, run). Acceptance: both hosts can be brought to a known
   state from the README with no committed secrets.
 - **Phase 1 — scenario bus. COMPLETE 2026-06-06.** WS server + schema + two channels + transcript
@@ -169,7 +172,7 @@ Debug channel: `note{text}`.
   fake-media/auto-capture args; `readState` helpers; deterministic results.
   Acceptance: a runner launches the extension, opens the popup, reads
   banner/storage state, and reports over the bus on one machine.
-- **Phase 3 — auth seeding. CODE COMPLETE 2026-06-06; LIVE VALIDATION BLOCKED.** `setup-auth.mjs` from `.secrets.json`,
+- **Phase 3 — auth seeding. CODE COMPLETE 2026-06-06; LIVE VALIDATION BLOCKED.** `setup-auth.mjs` from `.secrets.jsonc`,
   configurable account per side. Acceptance: a fresh profile reaches
   authenticated state non-interactively for a given account.
 - **Phase 4 — property-lock E2E on ONE machine (first green).** Two profiles,
@@ -197,9 +200,9 @@ Debug channel: `note{text}`.
 ## Implementation status (2026-06-06)
 
 - Phase 0 is complete:
-  `orchestration/config.example.json`, `orchestration/secrets.example.json`,
-  `orchestration/setup.md`, and gitignore protection for local secrets,
-  run artifacts, and profiles.
+  `orchestration/config.example.jsonc`, `orchestration/secrets.example.jsonc`,
+  `orchestration/setup.md`, JSONC loader support, and gitignore protection for
+  local secrets, run artifacts, and profiles.
 - Phase 1 is complete:
   `orchestration/bus-server.mjs`, `orchestration/mock-client.mjs`,
   `orchestration/lib/protocol.mjs`, `orchestration/lib/websocket.mjs`, and
@@ -223,20 +226,22 @@ Debug channel: `note{text}`.
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js`
   -> `7/7` pass.
 - Phase 3 code is complete:
-  `orchestration/lib/secrets.mjs`, `orchestration/setup-auth.mjs`, and
-  `tests/orchestration-auth.test.js`. The script validates gitignored secrets,
-  opens the popup configuration view, fills Configuration Endpoint / AI
-  Endpoint / Stage Base, submits the selected account credentials, and verifies
-  token presence without printing secret values.
-- Phase 3 live validation is BLOCKED in this checkout because
-  `orchestration/.secrets.json` is intentionally absent. Confirmed command:
-  `node orchestration/setup-auth.mjs` exits with
-  `Missing orchestration secrets: .../orchestration/.secrets.json`.
+  `orchestration/lib/jsonc.mjs`, `orchestration/lib/secrets.mjs`,
+  `orchestration/setup-auth.mjs`, and `tests/orchestration-auth.test.js`. The
+  script validates gitignored JSONC secrets, opens the popup configuration view,
+  fills Configuration Endpoint / AI Endpoint / Stage Base, submits the selected
+  account credentials, and verifies token presence without printing secret
+  values.
+- Phase 3 live validation is BLOCKED until gitignored `.secrets.jsonc`
+  credentials exist and headed Chrome has a real display or xvfb. Confirmed
+  boundary command:
+  `node orchestration/setup-auth.mjs --secrets /tmp/unfluffify-missing-secrets-for-jsonc-check.jsonc`
+  exits before browser launch with `Missing orchestration secrets: ...`.
 - Validation completed:
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
   -> `12/12` pass.
 - Full validation completed:
-  `npm test` -> `579/579` pass, `# fail 0`; `node --check` also passes for the
+  `npm test` -> `582/582` pass, `# fail 0`; `node --check` also passes for the
   Phase 3 entry/test files.
 - Phase 4 is the next implementation slice after credentials are installed and
   Phase 3 live auth seeding has passed. Phase 6 still needs two real hosts for
@@ -244,7 +249,7 @@ Debug channel: `note{text}`.
 
 ## Open items to confirm before Phase 3+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,
-  Stage Base) + the two account credentials → go in `.secrets.json` (above).
+  Stage Base) + the two account credentials → go in `.secrets.jsonc` (above).
 - Test properties (resolved 2026-06-06) — use any of these; candidate pages are
   discovered at run time per property: `https://prowork.se/`,
   `https://renewed.se/`, `https://www.vitec-pyramid.com/`,
@@ -269,4 +274,4 @@ varies per host, so it cannot be hardcoded blindly:
 - **Failure mode is silent** — a non-matching token auto-selects nothing, so the
   follower's screen-share never starts and the RS media asserts hang.
 Bring-up step: enumerate the offered source titles on each host and pin the
-correct substring in that host's `config.json` (straight quotes only).
+correct substring in that host's `config.jsonc` (straight quotes only).

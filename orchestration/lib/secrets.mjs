@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseJsonc } from "./jsonc.mjs";
 
-const DEFAULT_SECRETS_PATH = "orchestration/.secrets.json";
+const DEFAULT_SECRETS_PATHS = [
+  "orchestration/.secrets.jsonc",
+  "orchestration/.secrets.json"
+];
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -89,22 +93,32 @@ export function validateOrchestrationSecrets(candidate) {
 
 export async function loadOrchestrationSecrets(options = {}) {
   const cwd = options.cwd || process.cwd();
-  const secretsPath = path.resolve(cwd, options.secretsPath || DEFAULT_SECRETS_PATH);
+  const secretsPathCandidates = options.secretsPath
+    ? [path.resolve(cwd, options.secretsPath)]
+    : DEFAULT_SECRETS_PATHS.map((candidate) => path.resolve(cwd, candidate));
   let raw = "";
-  try {
-    raw = await fs.readFile(secretsPath, "utf8");
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
-      throw new Error(`Missing orchestration secrets: ${secretsPath}`);
+  let secretsPath = "";
+  for (const candidate of secretsPathCandidates) {
+    try {
+      raw = await fs.readFile(candidate, "utf8");
+      secretsPath = candidate;
+      break;
+    } catch (error) {
+      if (error && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
     }
-    throw error;
+  }
+  if (!secretsPath) {
+    throw new Error(`Missing orchestration secrets: ${secretsPathCandidates.join(" or ")}`);
   }
 
   let parsed = null;
   try {
-    parsed = JSON.parse(raw);
+    parsed = parseJsonc(raw, secretsPath);
   } catch {
-    throw new Error(`Invalid JSON in orchestration secrets: ${secretsPath}`);
+    throw new Error(`Invalid JSONC in orchestration secrets: ${secretsPath}`);
   }
 
   return {

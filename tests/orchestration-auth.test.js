@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -10,6 +10,7 @@ import {
   resolveSecretAccount,
   validateOrchestrationSecrets
 } from "../orchestration/lib/secrets.mjs";
+import { parseJsonc } from "../orchestration/lib/jsonc.mjs";
 import { AUTH_SETUP_SELECTORS } from "../orchestration/setup-auth.mjs";
 
 test("orchestration secrets validation normalizes config and selected accounts", () => {
@@ -87,6 +88,93 @@ test("orchestration secrets loader reads gitignored secret files explicitly", as
     assert.equal(result.secrets.config.stageBase, "noorlynx.com");
   } finally {
     await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("orchestration secrets loader reads commented default JSONC secrets", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "unfluffify-secrets-jsonc-test-"));
+  const orchestrationDir = path.join(tmp, "orchestration");
+  const secretsPath = path.join(orchestrationDir, ".secrets.jsonc");
+  await mkdir(orchestrationDir, { recursive: true });
+  await writeFile(secretsPath, `{
+    // Shared staging endpoint values.
+    "config": {
+      // Configuration endpoint URL.
+      "configurationEndpoint": "https://config.example.test",
+      // AI endpoint URL.
+      "aiEndpoint": "https://ai.example.test",
+      // Stage host.
+      "stageBase": "noorlynx.com",
+    },
+    // Accounts available to the runner.
+    "accounts": {
+      // Director account.
+      "A": {
+        // Login email.
+        "email": "a@example.test",
+        // Login password.
+        "password": "secret-a",
+      },
+    },
+  }`);
+
+  try {
+    const result = await loadOrchestrationSecrets({ cwd: tmp });
+    assert.equal(result.secretsPath, secretsPath);
+    assert.equal(result.secrets.config.stageBase, "noorlynx.com");
+    assert.equal(resolveSecretAccount(result.secrets, "A").email, "a@example.test");
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("user-fillable orchestration examples are commented JSONC", async () => {
+  const examples = [
+    {
+      filePath: path.join(process.cwd(), "orchestration/config.example.jsonc"),
+      fields: [
+        "role",
+        "side",
+        "account",
+        "busHost",
+        "busPort",
+        "displayMode",
+        "chromePath",
+        "playwrightModulePath",
+        "extensionPath",
+        "profileDir",
+        "stageBase",
+        "testPropertyUrl",
+        "captureSourceTitle"
+      ]
+    },
+    {
+      filePath: path.join(process.cwd(), "orchestration/secrets.example.jsonc"),
+      fields: [
+        "config",
+        "configurationEndpoint",
+        "aiEndpoint",
+        "stageBase",
+        "accounts",
+        "A",
+        "email",
+        "password",
+        "B"
+      ]
+    }
+  ];
+
+  for (const example of examples) {
+    const source = await readFile(example.filePath, "utf8");
+    assert.match(source, /\/\//, `${example.filePath} should use JSONC comments`);
+    assert.doesNotThrow(() => parseJsonc(source, example.filePath));
+    for (const field of example.fields) {
+      assert.match(
+        source,
+        new RegExp(`//[^\\n]*(?:\\n\\s*//[^\\n]*)*\\n\\s*"${field}"`),
+        `${example.filePath} should comment ${field}`
+      );
+    }
   }
 });
 

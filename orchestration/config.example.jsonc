@@ -1,0 +1,52 @@
+{
+  // Which logical runner this host should act as. Use "director" for the
+  // human-controlled side and "follower" for the autonomous side.
+  "role": "director",
+
+  // Stable side label used on the scenario bus. Keep director as "A" and
+  // follower as "B" unless a specific scenario says otherwise.
+  "side": "A",
+
+  // Account key to read from `.secrets.jsonc > accounts`.
+  "account": "A",
+
+  // Hostname or IP where `orchestration/bus-server.mjs` is listening.
+  // Use "127.0.0.1" for single-machine validation; use the director
+  // machine's LAN IP for two-machine runs.
+  "busHost": "127.0.0.1",
+
+  // TCP port for the scenario bus.
+  "busPort": 8765,
+
+  // Browser display mode expected by the runner. Use "real" for a visible
+  // local desktop session or "xvfb" when launching under xvfb-run.
+  "displayMode": "real",
+
+  // Optional absolute Chrome/Chromium executable path. Leave blank to let
+  // Playwright choose its bundled browser.
+  "chromePath": "",
+
+  // Optional absolute path to Playwright's index.mjs when Playwright is not
+  // installed in this repo. Leave blank to use normal module resolution.
+  "playwrightModulePath": "",
+
+  // Path to the unpacked extension root. When running commands from the repo
+  // root, "." is this extension checkout.
+  "extensionPath": ".",
+
+  // Persistent Chrome profile directory for this side. Use a different
+  // directory per side/account so auth and extension state do not collide.
+  "profileDir": "orchestration/profiles/director",
+
+  // Staging/base host used by scenario code. This should normally match
+  // `.secrets.jsonc > config.stageBase`.
+  "stageBase": "noorlynx.com",
+
+  // Property URL both sides should use for the first property-lock scenario.
+  // It must be a real page on a property that exists in the staging backend.
+  "testPropertyUrl": "https://www.bonliva.no/",
+
+  // Optional desktop-capture source title substring for automated screen
+  // sharing. This is locale/case-sensitive; verify the exact value per host.
+  "captureSourceTitle": "Entire screen"
+}

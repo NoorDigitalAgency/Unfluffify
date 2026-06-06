@@ -10,14 +10,15 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   Decisions table + Open items).
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
-  - `orchestration/config.example.json`
-  - `orchestration/secrets.example.json`
+  - `orchestration/config.example.jsonc`
+  - `orchestration/secrets.example.jsonc`
   - `orchestration/setup.md`
   - `orchestration/lib/protocol.mjs`
   - `orchestration/lib/websocket.mjs`
   - `orchestration/lib/config.mjs`
   - `orchestration/lib/artifacts.mjs`
   - `orchestration/lib/bus-client.mjs`
+  - `orchestration/lib/jsonc.mjs`
   - `orchestration/lib/secrets.mjs`
   - `orchestration/bus-server.mjs`
   - `orchestration/mock-client.mjs`
@@ -27,18 +28,21 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   - `tests/orchestration-bus.test.js`
   - `tests/orchestration-runner.test.js`
   - `tests/orchestration-auth.test.js`
-- `.gitignore` protects `orchestration/.secrets.json`,
-  `orchestration/config.json`, `orchestration/runs/`, and profile dirs.
+- `.gitignore` protects `orchestration/.secrets.jsonc`,
+  `orchestration/config.jsonc`, legacy `.json` variants,
+  `orchestration/runs/`, and profile dirs.
 - Validation:
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
-  passes (`12/12`).
-- Full validation: `npm test` passes (`579/579`, `# fail 0`), and
+  passes (`15/15`).
+- Full validation: `npm test` passes (`582/582`, `# fail 0`), and
   `node --check` passes for `orchestration/setup-auth.mjs`,
-  `orchestration/lib/secrets.mjs`, and `tests/orchestration-auth.test.js`.
-- Live Phase 3 auth seeding is BLOCKED in this checkout because
-  `orchestration/.secrets.json` is intentionally absent. The script exits with
-  `Missing orchestration secrets: .../orchestration/.secrets.json` before
-  launching a browser.
+  `orchestration/lib/jsonc.mjs`, `orchestration/lib/config.mjs`,
+  `orchestration/lib/secrets.mjs`, `tests/orchestration-runner.test.js`, and
+  `tests/orchestration-auth.test.js`.
+- Live Phase 3 auth seeding remains human/display-gated: the script needs
+  gitignored `.secrets.jsonc` credentials and headed Chrome needs a real
+  display or xvfb. The missing-secret boundary was validated with an explicit
+  nonexistent `--secrets` path before browser launch.
 
 ## Decisions locked (don't re-litigate without the user)
 - Two-machine-ready, **validate on one machine first**.
@@ -50,11 +54,11 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 - Cover **both** property-lock and remote-support from the start.
 - **Director** = human-interactive side (account A); **Follower** = autonomous
   (account B), bound to the step protocol.
-- Auth: **automated**, from gitignored `orchestration/.secrets.json`.
+- Auth: **automated**, from gitignored `orchestration/.secrets.jsonc`.
 - Backend: dedicated staging; **full flexibility like prod** (no concurrency cap).
 
 ## Inputs already provided by the user
-- Config view values for `.secrets.json`: **Configuration Endpoint** (URL),
+- Config view values for `.secrets.jsonc`: **Configuration Endpoint** (URL),
   **AI Endpoint** (URL), **Stage Base** (host, e.g. `noorlynx.com`) + two
   account email/password pairs. Shape is in the plan.
 - Test properties (pick any; candidate pages discovered at run time):
@@ -69,8 +73,8 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   (`tabState:*`, `deviceEmulation:*`), property-lock banner text, RS state.
 
 ## Next step: Phase 3 live validation, then Phase 4
-Create local `orchestration/config.json` and `orchestration/.secrets.json`
-from the examples, then run:
+Create local `orchestration/config.jsonc` and `orchestration/.secrets.jsonc`
+from the commented JSONC examples, then run with a real display or xvfb:
 
 `node orchestration/setup-auth.mjs --role director --side A --account A`
 
@@ -84,9 +88,10 @@ Then Phases 5→7 per the plan (RS handshake one machine → two-machine media �
 LLM roles).
 
 ## Watch-outs
-- **Never commit** `orchestration/.secrets.json`, `config.json`, or any profile
-  dir. Packager is reachability-based, so `orchestration/` stays out of the
-  shipped zip — do not reference it from `manifest.json`.
+- **Never commit** `orchestration/.secrets.jsonc`, `config.jsonc`, legacy
+  `.json` variants, or any profile dir. Packager is reachability-based, so
+  `orchestration/` stays out of the shipped zip — do not reference it from
+  `manifest.json`.
 - Same-host WebRTC won't connect → RS **media** asserts are two-machine-gated;
   property-lock validates fully on one machine.
 - `--auto-select-desktop-capture-source` token is locale/case-dependent and

@@ -6,15 +6,15 @@ ship in the extension package.
 
 ## Files
 
-- `config.example.json` - copy to `orchestration/config.json` on each host.
-- `secrets.example.json` - copy to `orchestration/.secrets.json` and fill with
+- `config.example.jsonc` - copy to `orchestration/config.jsonc` on each host.
+- `secrets.example.jsonc` - copy to `orchestration/.secrets.jsonc` and fill with
   staging values and the two test accounts.
 - `bus-server.mjs` - LAN coordination server for director/follower agents.
 - `mock-client.mjs` - small smoke client for checking bus connectivity.
 - `runs/` - generated bus transcripts and future scenario artifacts.
 - `profiles/` - generated persistent Chrome profiles.
 
-`config.json`, `.secrets.json`, `runs/`, and profile folders are gitignored.
+`config.jsonc`, `.secrets.jsonc`, legacy `.json` variants, `runs/`, and profile folders are gitignored.
 Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
 
 ## Initial one-machine bring-up
@@ -22,11 +22,11 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
 1. From the repo root, copy the templates:
 
    ```bash
-   cp orchestration/config.example.json orchestration/config.json
-   cp orchestration/secrets.example.json orchestration/.secrets.json
+   cp orchestration/config.example.jsonc orchestration/config.jsonc
+   cp orchestration/secrets.example.jsonc orchestration/.secrets.jsonc
    ```
 
-2. Edit `orchestration/.secrets.json` with:
+2. Edit `orchestration/.secrets.jsonc` with:
 
    - Configuration Endpoint
    - AI Endpoint
@@ -34,7 +34,7 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
    - account A email/password
    - account B email/password
 
-3. Edit `orchestration/config.json` for the local side:
+3. Edit `orchestration/config.jsonc` for the local side:
 
    - `role`: `director` for the human-interactive side, `follower` for the
      autonomous side.
@@ -80,7 +80,7 @@ The runner waits for typed `step` messages. For Phase 2 it supports:
 - `teardown`
 
 The default browser steps require Playwright. If Playwright is not installed in
-this repo, set either `playwrightModulePath` in `config.json` or
+this repo, set either `playwrightModulePath` in `config.jsonc` or
 `UNFLUFFIFY_PLAYWRIGHT_PATH` to a `playwright/index.mjs` file.
 
 Each runner writes `runner.log` and `state-latest.json` under
@@ -88,7 +88,7 @@ Each runner writes `runner.log` and `state-latest.json` under
 
 ## Auth seeding
 
-After filling `orchestration/config.json` and `orchestration/.secrets.json`,
+After filling `orchestration/config.jsonc` and `orchestration/.secrets.jsonc`,
 seed a persistent profile for a side/account:
 
 ```bash
@@ -98,10 +98,11 @@ node orchestration/setup-auth.mjs --role follower --side B --account B
 
 The script launches the unpacked extension, opens the popup configuration view,
 sets Configuration Endpoint, AI Endpoint, and Stage Base from
-`.secrets.json`, submits the selected account credentials, and verifies that
+`.secrets.jsonc`, submits the selected account credentials, and verifies that
 Chrome sync storage has a token. It never prints the token or password.
 
-If `.secrets.json` is absent, the script exits before launching a browser.
+If `.secrets.jsonc` and legacy `.secrets.json` are both absent, the script exits
+before launching a browser.
 
 ## Two-machine bring-up
 
@@ -117,6 +118,6 @@ expected to validate only request/join/signaling up to the media connection.
 ## Capture source token
 
 `captureSourceTitle` is matched by Chrome against the available screen-share
-source title. It is locale and host dependent. Use straight quotes in JSON. If
+source title. It is locale and host dependent. Use straight quotes in JSONC. If
 the token does not match, Chrome silently selects nothing and remote-support
 media assertions will hang or fail.
