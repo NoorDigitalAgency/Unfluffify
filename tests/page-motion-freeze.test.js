@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
+import { runPageMotionFreezeControl } from "../common/page-motion-freeze-control.js";
 
-let importCounter = 0;
+const STATE_KEY = "__unfluffifyPageMotionFreezeState";
 
 function createTimerWindowHarness() {
   let nextTimeoutId = 1;
@@ -12,7 +12,6 @@ function createTimerWindowHarness() {
   const timeouts = new Map();
   const intervals = new Map();
   const frames = new Map();
-  const messageListeners = [];
   const listenerTargets = new Map();
 
   function createEventTarget(name) {
@@ -20,15 +19,12 @@ function createTimerWindowHarness() {
     listenerTargets.set(name, listeners);
     return {
       addEventListener(type, listener, options) {
-        if (typeof listener !== "function") {
+        if (typeof listener !== "function" && !(listener && typeof listener.handleEvent === "function")) {
           return;
         }
         const entries = listeners.get(type) || [];
         entries.push({ listener, capture: Boolean(options === true || (options && options.capture)) });
         listeners.set(type, entries);
-        if (name === "window" && type === "message") {
-          messageListeners.push(listener);
-        }
       },
       removeEventListener(type, listener, options) {
         const entries = listeners.get(type) || [];
@@ -108,6 +104,20 @@ function createTimerWindowHarness() {
     IntersectionObserver: FakeIntersectionObserver,
     ResizeObserver: FakeResizeObserver
   };
+  const originalApis = {
+    setTimeout: windowObject.setTimeout,
+    clearTimeout: windowObject.clearTimeout,
+    setInterval: windowObject.setInterval,
+    clearInterval: windowObject.clearInterval,
+    requestAnimationFrame: windowObject.requestAnimationFrame,
+    cancelAnimationFrame: windowObject.cancelAnimationFrame,
+    addEventListener: windowObject.addEventListener,
+    removeEventListener: windowObject.removeEventListener,
+    documentAddEventListener: documentObject.addEventListener,
+    documentRemoveEventListener: documentObject.removeEventListener,
+    IntersectionObserver: windowObject.IntersectionObserver,
+    ResizeObserver: windowObject.ResizeObserver
+  };
 
   function dispatchEvent(targetName, type) {
     const listeners = Array.from(listenerTargets.get(targetName)?.get(type) || []);
@@ -122,7 +132,13 @@ function createTimerWindowHarness() {
         this.stopPropagationCalls += 1;
       }
     };
-    listeners.forEach((entry) => entry.listener.call(targetName === "window" ? windowObject : documentObject, event));
+    listeners.forEach((entry) => {
+      if (typeof entry.listener === "function") {
+        entry.listener.call(targetName === "window" ? windowObject : documentObject, event);
+      } else {
+        entry.listener.handleEvent(event);
+      }
+    });
     return event;
   }
 
@@ -136,27 +152,28 @@ function createTimerWindowHarness() {
   return {
     windowObject,
     documentObject,
+    originalApis,
     get timeoutCount() {
       return timeouts.size;
     },
     get frameCount() {
       return frames.size;
     },
-    dispatchControl(controlOrPaused) {
+    runControl(controlOrPaused) {
       const control = typeof controlOrPaused === "object" && controlOrPaused !== null
         ? controlOrPaused
         : { command: "setPaused", paused: controlOrPaused };
-      const event = {
-        source: windowObject,
-        data: {
-          __unfluffifyPageMotionFreeze: CONTROL_MARKER,
-          command: typeof control.command === "string" ? control.command : "setPaused",
-          ...(Object.prototype.hasOwnProperty.call(control, "paused")
-            ? { paused: control.paused }
-            : {})
-        }
-      };
-      messageListeners.forEach((listener) => listener(event));
+      const details = {};
+      if (Object.prototype.hasOwnProperty.call(control, "paused")) {
+        details.paused = control.paused;
+      }
+      if (Object.prototype.hasOwnProperty.call(control, "suppressed")) {
+        details.suppressed = control.suppressed;
+      }
+      return runPageMotionFreezeControl(
+        typeof control.command === "string" ? control.command : "setPaused",
+        details
+      );
     },
     runTimeout,
     runNextTimeout() {
@@ -182,82 +199,71 @@ function createTimerWindowHarness() {
   };
 }
 
-async function withTimerWindow(callback, { init = true } = {}) {
+async function withTimerWindow(callback) {
   const originalWindow = globalThis.window;
   const originalDocument = globalThis.document;
   const harness = createTimerWindowHarness();
   globalThis.window = harness.windowObject;
   globalThis.document = harness.documentObject;
   try {
-    importCounter += 1;
-    await import(`../common/page-motion-freeze.js?case=${importCounter}`);
-    if (init) {
-      harness.dispatchControl({ command: "init" });
-    }
     await callback(harness);
   } finally {
+    delete harness.windowObject[STATE_KEY];
     globalThis.window = originalWindow;
     globalThis.document = originalDocument;
   }
 }
 
-test("page motion freeze ignores setPaused commands before init", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout }) => {
+test("page motion freeze leaves inactive pages untouched", async () => {
+  await withTimerWindow(async ({ windowObject, originalApis, runControl, runTimeout }) => {
     const calls = [];
     const timerId = windowObject.setTimeout(() => calls.push("timeout"), 25);
 
-    dispatchControl(true);
+    const result = runControl({ command: "setPaused", paused: false });
     runTimeout(timerId);
 
-    assert.deepEqual(calls, ["timeout"]);
-  }, { init: false });
-});
-
-test("page motion freeze defers timeout callbacks that become due while paused", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchControl, runTimeout, runNextTimeout }) => {
-    const calls = [];
-    const timerId = windowObject.setTimeout(() => calls.push("timeout"), 25);
-
-    dispatchControl(true);
-    runTimeout(timerId);
-
-    assert.deepEqual(calls, []);
-
-    dispatchControl(false);
-    runNextTimeout();
-
+    assert.equal(result.ok, true);
+    assert.equal(result.active, false);
+    assert.equal(windowObject[STATE_KEY], undefined);
+    assert.equal(windowObject.setTimeout, originalApis.setTimeout);
+    assert.equal(windowObject.requestAnimationFrame, originalApis.requestAnimationFrame);
+    assert.equal(windowObject.IntersectionObserver, originalApis.IntersectionObserver);
+    assert.equal(windowObject.addEventListener, originalApis.addEventListener);
     assert.deepEqual(calls, ["timeout"]);
   });
 });
 
 test("page motion freeze defers newly scheduled timeouts and animation frames while paused", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchControl, runNextTimeout, runNextFrame }) => {
+  await withTimerWindow(async ({ windowObject, runControl, runNextTimeout, runNextFrame }) => {
     const calls = [];
-    dispatchControl(true);
+    const pauseResult = runControl(true);
 
     windowObject.setTimeout(() => calls.push("timeout"), 25);
     windowObject.requestAnimationFrame((timestamp) => calls.push(`frame:${timestamp}`));
 
+    assert.equal(pauseResult.active, true);
+    assert.equal(pauseResult.paused, true);
     assert.deepEqual(calls, []);
 
-    dispatchControl(false);
+    const resumeResult = runControl(false);
     runNextTimeout();
     runNextFrame(456);
 
+    assert.equal(resumeResult.active, false);
     assert.deepEqual(calls, ["timeout", "frame:456"]);
   });
 });
 
 test("page motion freeze lets deferred timer and frame callbacks be cancelled", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchControl, timeoutCount, frameCount }) => {
+  await withTimerWindow(async ({ windowObject, runControl, timeoutCount, frameCount }) => {
     const calls = [];
-    dispatchControl(true);
+    runControl(true);
 
     const timeoutId = windowObject.setTimeout(() => calls.push("timeout"), 25);
     const frameId = windowObject.requestAnimationFrame(() => calls.push("frame"));
     windowObject.clearTimeout(timeoutId);
     windowObject.cancelAnimationFrame(frameId);
-    dispatchControl(false);
+    runControl(false);
 
     assert.equal(timeoutCount, 0);
     assert.equal(frameCount, 0);
@@ -266,47 +272,81 @@ test("page motion freeze lets deferred timer and frame callbacks be cancelled", 
 });
 
 test("page motion freeze skips interval ticks only while paused", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchControl, runInterval }) => {
+  await withTimerWindow(async ({ windowObject, runControl, runInterval }) => {
     const calls = [];
+    runControl(true);
     const intervalId = windowObject.setInterval(() => calls.push("interval"), 50);
 
-    dispatchControl(true);
     runInterval(intervalId);
     assert.deepEqual(calls, []);
 
-    dispatchControl(false);
+    runControl(false);
     runInterval(intervalId);
     assert.deepEqual(calls, ["interval"]);
   });
 });
 
 test("page motion freeze can suppress and restore lazy-load listeners and future observers", async () => {
-  await withTimerWindow(async ({ windowObject, dispatchEvent }) => {
-    const freezeState = windowObject.__unfluffifyPageMotionFreezeState;
+  await withTimerWindow(async ({ windowObject, originalApis, runControl, dispatchEvent }) => {
     const calls = [];
+    const suppressResult = runControl({ command: "setLazyLoadingSuppressed", suppressed: true });
     const observer = new windowObject.IntersectionObserver(() => calls.push("intersection"));
     const resizeObserver = new windowObject.ResizeObserver(() => calls.push("resize"));
     windowObject.addEventListener("scroll", () => calls.push("scroll"));
     windowObject.addEventListener("wheel", () => calls.push("wheel"));
 
-    freezeState.setLazyLoadingSuppressed(true);
-
     observer.__trigger();
     resizeObserver.__trigger();
     dispatchEvent("window", "scroll");
     dispatchEvent("window", "wheel");
 
-    assert.equal(freezeState.isLazyLoadingSuppressed(), true);
+    assert.equal(suppressResult.active, true);
+    assert.equal(suppressResult.lazyLoadingSuppressed, true);
     assert.deepEqual(calls, []);
 
-    freezeState.setLazyLoadingSuppressed(false);
+    const restoreResult = runControl({ command: "setLazyLoadingSuppressed", suppressed: false });
 
     observer.__trigger();
     resizeObserver.__trigger();
     dispatchEvent("window", "scroll");
     dispatchEvent("window", "wheel");
 
-    assert.equal(freezeState.isLazyLoadingSuppressed(), false);
+    assert.equal(restoreResult.active, false);
+    assert.equal(windowObject[STATE_KEY], undefined);
+    assert.equal(windowObject.IntersectionObserver, originalApis.IntersectionObserver);
+    assert.equal(windowObject.ResizeObserver, originalApis.ResizeObserver);
+    assert.equal(windowObject.addEventListener, originalApis.addEventListener);
+    assert.equal(windowObject.removeEventListener, originalApis.removeEventListener);
     assert.deepEqual(calls, ["intersection", "resize", "scroll", "wheel"]);
+  });
+});
+
+test("page motion freeze restores all wrapped APIs when pause and lazy suppression are off", async () => {
+  await withTimerWindow(async ({ windowObject, documentObject, originalApis, runControl }) => {
+    runControl(true);
+    runControl({ command: "setLazyLoadingSuppressed", suppressed: true });
+
+    assert.notEqual(windowObject.setTimeout, originalApis.setTimeout);
+    assert.notEqual(windowObject.IntersectionObserver, originalApis.IntersectionObserver);
+
+    runControl(false);
+    assert.notEqual(windowObject.setTimeout, originalApis.setTimeout);
+
+    const result = runControl({ command: "setLazyLoadingSuppressed", suppressed: false });
+
+    assert.equal(result.active, false);
+    assert.equal(windowObject[STATE_KEY], undefined);
+    assert.equal(windowObject.setTimeout, originalApis.setTimeout);
+    assert.equal(windowObject.clearTimeout, originalApis.clearTimeout);
+    assert.equal(windowObject.setInterval, originalApis.setInterval);
+    assert.equal(windowObject.clearInterval, originalApis.clearInterval);
+    assert.equal(windowObject.requestAnimationFrame, originalApis.requestAnimationFrame);
+    assert.equal(windowObject.cancelAnimationFrame, originalApis.cancelAnimationFrame);
+    assert.equal(windowObject.IntersectionObserver, originalApis.IntersectionObserver);
+    assert.equal(windowObject.ResizeObserver, originalApis.ResizeObserver);
+    assert.equal(windowObject.addEventListener, originalApis.addEventListener);
+    assert.equal(windowObject.removeEventListener, originalApis.removeEventListener);
+    assert.equal(documentObject.addEventListener, originalApis.documentAddEventListener);
+    assert.equal(documentObject.removeEventListener, originalApis.documentRemoveEventListener);
   });
 });

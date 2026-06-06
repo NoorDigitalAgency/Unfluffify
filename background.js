@@ -25,6 +25,7 @@
 
 import * as utils from "./common/utilities.js";
 import * as configStore from "./common/config.js";
+import { runPageMotionFreezeControl } from "./common/page-motion-freeze-control.js";
 import {
   clearDeviceEmulationAfterNavigation,
   ensureDefaultMobileDeviceEmulation,
@@ -106,6 +107,7 @@ const tabLifecycleStateByTabId = new Map();
 const tabSpinnerQueueByTabId = new Map();
 const popupStatePortsByTabId = new Map();
 const tabWorldTraceStateByTabId = new Map();
+const pageMotionFreezeControlQueueByTarget = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
@@ -1426,6 +1428,64 @@ function getMessageTabId(message, sender) {
     normalizeBrokerTabId(sender && sender.tab && sender.tab.id);
 }
 
+function getPageMotionFreezeControlTarget(message, sender) {
+  const tabId = getMessageTabId(message, sender);
+  if (!tabId) {
+    return null;
+  }
+  const target = { tabId };
+  if (Number.isInteger(sender && sender.frameId) && sender.frameId >= 0) {
+    target.frameIds = [sender.frameId];
+  }
+  return target;
+}
+
+function getPageMotionFreezeControlTargetKey(target) {
+  const frameId = Array.isArray(target.frameIds) && target.frameIds.length
+    ? target.frameIds[0]
+    : "all";
+  return `${target.tabId}:${frameId}`;
+}
+
+async function executePageMotionFreezeControlNow(target, command, details) {
+  if (!chrome.scripting || typeof chrome.scripting.executeScript !== "function") {
+    return { ok: false, error: "Scripting API unavailable" };
+  }
+  await chrome.scripting.executeScript({
+    target,
+    world: "MAIN",
+    func: runPageMotionFreezeControl,
+    args: [command, details]
+  });
+  return { ok: true };
+}
+
+async function executePageMotionFreezeControl(message, sender) {
+  const target = getPageMotionFreezeControlTarget(message, sender);
+  if (!target) {
+    return { ok: false, error: "Missing tab" };
+  }
+  const command = typeof message.command === "string" && message.command
+    ? message.command
+    : "setPaused";
+  const details = message.details && typeof message.details === "object"
+    ? message.details
+    : null;
+  const queueKey = getPageMotionFreezeControlTargetKey(target);
+  const previous = pageMotionFreezeControlQueueByTarget.get(queueKey) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(() => executePageMotionFreezeControlNow(target, command, details));
+  pageMotionFreezeControlQueueByTarget.set(queueKey, next);
+  try {
+    return await next;
+  } finally {
+    if (pageMotionFreezeControlQueueByTarget.get(queueKey) === next) {
+      pageMotionFreezeControlQueueByTarget.delete(queueKey);
+    }
+  }
+}
+
 function getExtensionContextWindowId(context) {
   return Number.isFinite(context && context.windowId) ? Math.trunc(context.windowId) : null;
 }
@@ -2208,6 +2268,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     sendResponse(setWorldTraceEnabled(tabId, Boolean(message.enabled)));
     return;
+  }
+
+  if (message.type === "pageMotionFreezeControl") {
+    executePageMotionFreezeControl(message, sender)
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: (error && error.message) || "Page motion control failed"
+        });
+      });
+    return true;
   }
 
   if (message.type === "getTabState") {

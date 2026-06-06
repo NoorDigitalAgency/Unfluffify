@@ -463,6 +463,11 @@ function installMotionDom() {
   return {
     ...dom,
     restore() {
+      if (typeof state.lazyLoadSuppressRestorer === "function") {
+        const restoreLazyLoadSuppression = state.lazyLoadSuppressRestorer;
+        state.lazyLoadSuppressRestorer = null;
+        restoreLazyLoadSuppression();
+      }
       resumePageMotion("marking");
       resumePageMotion("silent-highlighting");
       state.pageMotionPause = null;
@@ -742,7 +747,7 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
   const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
-  const postedMessages = [];
+  const runtimeMessages = [];
   dom.html.clientHeight = 500;
   dom.html.scrollHeight = 3000;
   dom.body.clientHeight = 500;
@@ -762,13 +767,14 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
       dom.body.scrollHeight += 1500;
     }
   };
-  dom.window.postMessage = (message) => {
-    postedMessages.push(message);
-  };
   globalThis.chrome = {
     runtime: {
       getURL(path) {
         return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        runtimeMessages.push(message);
+        return Promise.resolve({ ok: true });
       }
     }
   };
@@ -786,20 +792,16 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
 
     assert.equal(inspected, true);
 
-    const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
-    assert.ok(script);
-    assert.equal(postedMessages.length, 0);
-
-    script.dispatchEvent(new Event("load"));
-
-    assert.equal(postedMessages.at(-2).command, "init");
-    assert.equal(postedMessages.at(-1).command, "setLazyLoadingSuppressed");
-    assert.equal(postedMessages.at(-1).suppressed, true);
+    const bridgeMessages = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
+    assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
+    assert.equal(bridgeMessages.at(-1).command, "setLazyLoadingSuppressed");
+    assert.deepEqual(bridgeMessages.at(-1).details, { suppressed: true });
 
     disable();
 
-    assert.equal(postedMessages.at(-1).command, "setPaused");
-    assert.equal(postedMessages.at(-1).paused, false);
+    const bridgeMessagesAfterDisable = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
+    assert.equal(bridgeMessagesAfterDisable.at(-1).command, "setLazyLoadingSuppressed");
+    assert.deepEqual(bridgeMessagesAfterDisable.at(-1).details, { suppressed: false });
     assert.equal(state.lazyLoadSuppressRestorer, null);
   } finally {
     state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
@@ -962,17 +964,18 @@ test("page motion pause is held until every lifecycle reason is released", () =>
 test("page motion pause controls the page-world timer freeze bridge", () => {
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
-  const postedMessages = [];
+  const runtimeMessages = [];
   const movingElement = new FakeElement("div", { class: "motion-strip" });
   movingElement.computedStyle = createComputedStyle({ transform: "matrix(1, 0, 0, 1, 3, 0)" });
   dom.body.appendChild(movingElement);
-  dom.window.postMessage = (message) => {
-    postedMessages.push(message);
-  };
   globalThis.chrome = {
     runtime: {
       getURL(path) {
         return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        runtimeMessages.push(message);
+        return Promise.resolve({ ok: true });
       }
     }
   };
@@ -982,7 +985,6 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
 
     const pauseStyle = dom.document.getElementById(PAGE_MOTION_PAUSE_STYLE_ID);
     const pauseIndicator = dom.document.getElementById(PAGE_MOTION_PAUSE_INDICATOR_ID);
-    const script = dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID);
     assert.ok(pauseStyle);
     assert.match(pauseStyle.textContent, /@font-face/);
     assert.match(pauseStyle.textContent, /Unfluffify Material Design Icons/);
@@ -992,29 +994,26 @@ test("page motion pause controls the page-world timer freeze bridge", () => {
     assert.doesNotMatch(pauseStyle.textContent, /\.mdi(?:\W|$)/);
     assert.ok(pauseIndicator);
     assert.equal(pauseIndicator.getAttribute("class"), "uf-page-motion-pause-indicator");
-    assert.ok(script);
-    assert.equal(script.src, "chrome-extension://unfluffify/common/page-motion-freeze.js");
-    assert.equal(script.getAttribute("data-uf-extension-ui"), "true");
-    assert.equal(script.getAttribute("data-uf-loaded"), "false");
-    assert.equal(postedMessages.length, 0);
+    assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
+    const bridgeMessages = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
+    assert.equal(bridgeMessages.at(-1).command, "setPaused");
+    assert.deepEqual(bridgeMessages.at(-1).details, { paused: true });
 
-    script.dispatchEvent(new Event("load"));
-
-    assert.equal(script.getAttribute("data-uf-loaded"), "true");
-    assert.equal(postedMessages.at(-2).command, "init");
-    assert.equal(postedMessages.at(-1).command, "setPaused");
-    assert.equal(postedMessages.at(-1).paused, true);
-    assert.equal(
-      postedMessages.at(-1).__unfluffifyPageMotionFreeze,
-      "unfluffify:page-motion-freeze-control:v1"
-    );
+    const staleScript = new FakeElement("script", {
+      id: PAGE_MOTION_PAUSE_SCRIPT_ID,
+      "data-uf-extension-ui": "true"
+    });
+    dom.head.appendChild(staleScript);
     const snapshot = createSanitizedPageSnapshot();
     assert.doesNotMatch(snapshot.renderedHtml, /unfluffify-page-motion-freeze-script/);
+    staleScript.remove();
 
     resumePageMotion("marking");
 
-    assert.equal(postedMessages.at(-1).paused, false);
-    assert.ok(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID));
+    const bridgeMessagesAfterResume = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
+    assert.equal(bridgeMessagesAfterResume.at(-1).command, "setPaused");
+    assert.deepEqual(bridgeMessagesAfterResume.at(-1).details, { paused: false });
+    assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
   } finally {
     if (typeof originalChrome === "undefined") {
       delete globalThis.chrome;

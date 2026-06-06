@@ -178,10 +178,7 @@ const PAGE_INTERACTION_LEGACY_KEY = "Spacebar";
 const PAGE_MOTION_PAUSE_STYLE_ID = "unfluffify-page-motion-pause-style";
 const PAGE_MOTION_PAUSE_INDICATOR_ID = "unfluffify-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator";
-const PAGE_MOTION_PAUSE_SCRIPT_ID = "unfluffify-page-motion-freeze-script";
-const PAGE_MOTION_PAUSE_CONTROL_MARKER = "unfluffify:page-motion-freeze-control:v1";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
-const PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT = "init";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED = "setPaused";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "setLazyLoadingSuppressed";
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
@@ -236,10 +233,8 @@ const PAGE_MOTION_REVEAL_DESCRIPTOR_RE = /(^|[-_\s:])(aos|appear|appearance|anim
 const PAGE_MOTION_REVEAL_EXCLUDED_DESCRIPTOR_RE = /accordion|backdrop|carousel|collapse|dialog|drawer|dropdown|lightbox|marquee|menu|modal|offcanvas|overlay|popover|slider|slideshow|tab|tabpanel|ticker|toast|tooltip/i;
 const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data-w-id"]);
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
-let pageMotionFreezeScriptLoaded = false;
-let pageMotionFreezeBridgeInitialized = false;
-let pageMotionFreezePendingPaused = null;
-let pageMotionFreezePendingLazyLoadingSuppressed = null;
+let pageMotionFreezeTimersPaused = false;
+let pageMotionFreezeLazyLoadingSuppressed = false;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -4094,7 +4089,14 @@ function getPageInspectionScrollTarget(target) {
 
 function suppressPageInspectionLazyLoading() {
   setPageMotionFreezeLazyLoadingSuppressed(true);
-  return () => {};
+  let restored = false;
+  return () => {
+    if (restored) {
+      return;
+    }
+    restored = true;
+    setPageMotionFreezeLazyLoadingSuppressed(false);
+  };
 }
 
 async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
@@ -4376,168 +4378,66 @@ function removePageMotionPauseIndicator() {
   }
 }
 
-function postPageMotionFreezeControl(command, details) {
-  if (typeof window === "undefined" || typeof window.postMessage !== "function") {
-    return;
-  }
-  if (typeof command !== "string" || !command) {
-    return;
-  }
-  try {
-    const payload = {
-      __unfluffifyPageMotionFreeze: PAGE_MOTION_PAUSE_CONTROL_MARKER,
-      command
-    };
-    if (typeof details === "boolean") {
-      payload.paused = details;
-    } else if (details && typeof details === "object") {
-      Object.assign(payload, details);
-    }
-    window.postMessage(payload, "*");
-  } catch (error) {
-    // Ignore pages that reject cross-world control messages.
-  }
-}
-
-function ensurePageMotionFreezeBridgeInitialized() {
-  if (pageMotionFreezeBridgeInitialized || !pageMotionFreezeScriptLoaded) {
-    return;
-  }
-  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_INIT);
-  pageMotionFreezeBridgeInitialized = true;
-}
-
-function markPageMotionFreezeScriptLoaded(script) {
-  pageMotionFreezeScriptLoaded = true;
-  if (script && typeof script.setAttribute === "function") {
-    script.setAttribute("data-uf-loaded", "true");
-  }
-  ensurePageMotionFreezeBridgeInitialized();
-  if (typeof pageMotionFreezePendingPaused === "boolean") {
-    postPageMotionFreezeControl(
-      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
-      pageMotionFreezePendingPaused
-    );
-    pageMotionFreezePendingPaused = null;
-  }
-  if (typeof pageMotionFreezePendingLazyLoadingSuppressed === "boolean") {
-    postPageMotionFreezeControl(
-      PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
-      { suppressed: pageMotionFreezePendingLazyLoadingSuppressed }
-    );
-    pageMotionFreezePendingLazyLoadingSuppressed = null;
-  }
-}
-
-function ensurePageMotionFreezeScriptLoadListener(script) {
-  if (!script || typeof script.addEventListener !== "function") {
-    return;
-  }
-  if (typeof script.getAttribute === "function" && script.getAttribute("data-uf-load-listener") === "true") {
-    return;
-  }
-  if (typeof script.setAttribute === "function") {
-    script.setAttribute("data-uf-load-listener", "true");
-  }
-  script.addEventListener("load", () => {
-    if (typeof script.setAttribute === "function") {
-      script.setAttribute("data-uf-load-listener", "false");
-    }
-    markPageMotionFreezeScriptLoaded(script);
-  }, { once: true });
-}
-
-function ensurePageMotionFreezeScript() {
+function sendPageMotionFreezeControl(command, details = null) {
   if (
-    typeof document === "undefined" ||
     !globalThis.chrome ||
     !chrome.runtime ||
-    typeof chrome.runtime.getURL !== "function"
+    typeof chrome.runtime.sendMessage !== "function" ||
+    typeof command !== "string" ||
+    !command
   ) {
-    return false;
+    return;
   }
-  const existingScript = typeof document.getElementById === "function"
-    ? document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID)
-    : null;
-  if (existingScript) {
-    const scriptReady = typeof existingScript.getAttribute === "function"
-      ? existingScript.getAttribute("data-uf-loaded") === "true"
-      : false;
-    pageMotionFreezeScriptLoaded = scriptReady;
-    pageMotionFreezeBridgeInitialized = scriptReady;
-    if (scriptReady) {
-      ensurePageMotionFreezeBridgeInitialized();
-    } else {
-      ensurePageMotionFreezeScriptLoadListener(existingScript);
-    }
-    return true;
+  const message = {
+    type: "pageMotionFreezeControl",
+    command
+  };
+  if (details && typeof details === "object") {
+    message.details = details;
   }
-  const parent = document.head || document.documentElement;
-  if (!parent || typeof document.createElement !== "function" || typeof parent.appendChild !== "function") {
-    return false;
-  }
-  const script = document.createElement("script");
-  script.id = PAGE_MOTION_PAUSE_SCRIPT_ID;
-  script.type = "text/javascript";
-  script.src = chrome.runtime.getURL("common/page-motion-freeze.js");
-  pageMotionFreezeScriptLoaded = false;
-  pageMotionFreezeBridgeInitialized = false;
-  if (typeof script.setAttribute === "function") {
-    script.setAttribute("data-uf-extension-ui", "true");
-    script.setAttribute("data-uf-loaded", "false");
-  }
-  ensurePageMotionFreezeScriptLoadListener(script);
   try {
-    parent.appendChild(script);
-    return true;
+    utils.sendRuntimeMessage(message).catch(() => {});
   } catch (error) {
-    return false;
+    // Best-effort page-world motion control; CSS/Web Animations freezing still applies.
   }
 }
 
 function setPageMotionFreezeTimersPaused(paused) {
   const shouldPause = Boolean(paused);
-  if (
-    !shouldPause &&
-    !pageMotionFreezeBridgeInitialized &&
-    pageMotionFreezePendingPaused === null
-  ) {
+  if (pageMotionFreezeTimersPaused === shouldPause) {
     return;
   }
-  if (!ensurePageMotionFreezeScript()) {
-    return;
-  }
-  if (!pageMotionFreezeScriptLoaded) {
-    pageMotionFreezePendingPaused = shouldPause;
-    return;
-  }
-  ensurePageMotionFreezeBridgeInitialized();
-  postPageMotionFreezeControl(PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED, shouldPause);
-  pageMotionFreezePendingPaused = null;
+  pageMotionFreezeTimersPaused = shouldPause;
+  sendPageMotionFreezeControl(
+    PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED,
+    { paused: shouldPause }
+  );
 }
 
 function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   const shouldSuppress = Boolean(suppressed);
-  if (
-    !shouldSuppress &&
-    !pageMotionFreezeBridgeInitialized &&
-    pageMotionFreezePendingLazyLoadingSuppressed === null
-  ) {
+  if (pageMotionFreezeLazyLoadingSuppressed === shouldSuppress) {
     return;
   }
-  if (!ensurePageMotionFreezeScript()) {
-    return;
-  }
-  if (!pageMotionFreezeScriptLoaded) {
-    pageMotionFreezePendingLazyLoadingSuppressed = shouldSuppress;
-    return;
-  }
-  ensurePageMotionFreezeBridgeInitialized();
-  postPageMotionFreezeControl(
+  pageMotionFreezeLazyLoadingSuppressed = shouldSuppress;
+  sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
     { suppressed: shouldSuppress }
   );
-  pageMotionFreezePendingLazyLoadingSuppressed = null;
+}
+
+function restorePageInspectionLazyLoadingSuppression() {
+  const restorer = state.lazyLoadSuppressRestorer;
+  state.lazyLoadSuppressRestorer = null;
+  if (typeof restorer === "function") {
+    try {
+      restorer();
+      return;
+    } catch (error) {
+      // Fall through to direct cleanup below.
+    }
+  }
+  setPageMotionFreezeLazyLoadingSuppressed(false);
 }
 
 function getDocumentAnimations() {
@@ -6160,9 +6060,7 @@ export function finishPageInspectionUiAfterRender() {
 
 function removeOverlay() {
   setPageInspectionUiActive(false);
-  if (state.lazyLoadSuppressRestorer) {
-    state.lazyLoadSuppressRestorer = null;
-  }
+  restorePageInspectionLazyLoadingSuppression();
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
     state.overlay.removeEventListener("click", handleClick, true);
@@ -10158,9 +10056,7 @@ export function disable(options = {}) {
   } else {
     state.disabledUnsavedDraft = null;
   }
-  if (state.lazyLoadSuppressRestorer) {
-    state.lazyLoadSuppressRestorer = null;
-  }
+  restorePageInspectionLazyLoadingSuppression();
   state.enabled = false;
   state.baseUrl = "";
   state.currentPageType = "";

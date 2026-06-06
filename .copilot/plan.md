@@ -6,10 +6,14 @@ A two-reviewer code inspection (`CODE_INSPECTION_TODO.md`) found 9 verified
 issues. The ordered, phased remediation plan with acceptance criteria and
 per-item test plans lives in
 `.copilot/code-inspection-remediation-plan.md`. This is the current top
-priority, ahead of the remaining authority/live-validation work below. Start
-with Phase 1 (F3 → F2 → F1). The pre-implementation Q&A is complete; the
-chosen decisions are recorded in the remediation plan and should be treated as
-binding implementation guidance.
+priority, ahead of the remaining authority/live-validation work below. Phase 1
+(F3 → F2 → F1) is complete and validated; continue with Phase 2 (F4 async
+reconcile abort coverage → F5 dirty same-document navigation preservation).
+The pre-implementation Q&A is complete; the chosen decisions are recorded in
+the remediation plan and should be treated as binding implementation guidance.
+Older validation notes below that mention `#unfluffify-page-motion-freeze-script`
+are historical; the current Phase 1 fix intentionally leaves no freeze node at
+content-loader startup.
 
 ## Authority Refactor Handoff
 

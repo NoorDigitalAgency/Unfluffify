@@ -39,6 +39,18 @@ Additional fixes landed after the initial drift audit:
 - Removed `setTabState(tabId, tabState)` race-prone call in `tabs.onUpdated`.
 - `setReloadRestoreTabState` dead function removed.
 - `getReloadRestoreTabState` fallback removed from `tabs.onUpdated`.
+- Remediation Phase 1 is complete:
+  - F3 `disable()` now flushes pending draft/snapshot persistence using
+    captured pre-clear state.
+  - F2 popup/background no longer resurrect marking from stale `restore` scope.
+  - F1 page-motion bridge is loaded just-in-time through background
+    `chrome.scripting.executeScript({ world: "MAIN" })`; the old startup
+    `common/page-motion-freeze.js` bridge and public marker listener are gone.
+- Latest Phase 1 validation: focused motion tests green; marking guard suite
+  green (`190` pass); full `npm test` green (`# pass 530`, `# fail 0` in the
+  latest run); syntax checks clean; live AI-submission smoke passed on
+  Bonliva and Prowork with `snapshot.ok=true`, `errs=0`, and
+  `hasFreezeNode=false` at startup.
 
 ## What's Left
 
@@ -50,11 +62,9 @@ criteria and per-item test plans is in
 **`.copilot/code-inspection-remediation-plan.md`** — start there.
 
 Phase order (severity-first):
-- **Phase 1 (High):** F3 disable() draft flush (data loss, smallest fix, do
-  first) → F2 popup stale restore-scope resurrection → F1 page-motion bridge
-  injected on every page + public control surface (security; largest, needs a
-  short design note before coding).
-- **Phase 2 (Medium):** F4 async reconcile abort coverage → F5 SPA/hash nav
+- **Phase 1 (High): complete.** F3 disable() draft flush → F2 popup stale
+  restore-scope resurrection → F1 page-motion bridge public control surface.
+- **Phase 2 (Medium): next.** F4 async reconcile abort coverage → F5 SPA/hash nav
   silently discarding a dirty session (needs a product decision — captured in
   the plan, default recommendation given).
 - **Phase 3 (Medium-low):** F7 Save Session infinite retry → F6 non-

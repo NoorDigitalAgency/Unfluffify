@@ -65,6 +65,15 @@ lists:
 
 These three are the highest-impact. Land them first, each as its own commit.
 
+**Status 2026-06-06:** Phase 1 is complete. Finding 3 flushes pending
+draft/snapshot work before `disable()` clears state; Finding 2 removes stale
+restore-scope resurrection; Finding 1 removes startup page-motion bridge
+injection and the public marker listener, replacing it with one-shot
+MAIN-world execution via background `chrome.scripting.executeScript`. Phase-end
+validation passed focused motion tests, the marking guard suite, syntax checks,
+full `npm test` (`# pass 530`, `# fail 0` in this run), and live AI-submission
+smoke on Bonliva + Prowork (`snapshot.ok=true`, `errs=0` for both).
+
 ### 1.1 Finding 3 — `disable()` drops the pending draft (data loss)
 
 Order rationale: smallest, most surgical High fix; pure data-loss prevention;
@@ -154,6 +163,15 @@ note approved before coding.
   gated only on the static `CONTROL_MARKER` (`:11`), so any same-window page
   script can drive pause/suppress.
 - **Fix approach (design-first):**
+  - **Design note recorded 2026-06-06:** The accepted Option A approach is to
+    remove content-loader bootstrap injection and the persistent page-world
+    `postMessage` listener entirely. Content code will request pause/unpause
+    or lazy-load suppression through the background service worker, which will
+    run one-shot `chrome.scripting.executeScript({ world: "MAIN" })` commands
+    using a self-contained control function. The MAIN-world state may exist
+    only while pause or lazy-load suppression is active, and the control
+    function must restore native timer/observer/listener APIs and delete its
+    global state when both controls are off.
   - Do not install the page-world bridge at content-loader startup.
   - Remove the long-lived public `postMessage` command surface.
   - Use one-shot MAIN-world script execution (`chrome.scripting.executeScript`
@@ -189,6 +207,12 @@ note approved before coding.
   - Full suite + `tests/page-motion-freeze.test.js` +
     `tests/core-motion-pause.test.js` green.
   - Re-run the marking guard suite (motion pause is part of the contract).
+- **Implementation status:** Complete. `content-loader.js` no longer injects a
+  page-world script, `common/page-motion-freeze.js` was removed, content sends
+  `pageMotionFreezeControl` messages to background, and background executes the
+  self-contained `runPageMotionFreezeControl` function in `world: "MAIN"`.
+  New guards in `tests/page-motion-bridge-isolation.test.js` lock the absence
+  of the startup bridge, static marker, and persistent `message` listener.
 
 ---
 
