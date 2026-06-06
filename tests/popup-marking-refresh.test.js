@@ -489,10 +489,10 @@ test("popup blocks the interface with a spinner while page inspection is running
 
   assert.match(source, /const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";/);
   assert.match(source, /let contentInspectionPending = Boolean\(/);
-  assert.match(source, /let restoreInspectionPending = Boolean\(/);
+  assert.doesNotMatch(source, /restoreInspectionPending/);
   assert.match(
     source,
-    /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?restoreInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
+    /const pageInspectionBusy =[\s\S]*?contentInspectionPending[\s\S]*?pageSaveReconciliationPending[\s\S]*?state\.currentPageSaveReconciliation\.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON/
   );
   assert.match(source, /nextViewState\.isBusy = popupBusyActive \|\| remoteConfigRetryBlocked \|\| pageInspectionBusy;/);
   assert.match(
@@ -612,7 +612,7 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.match(source, /popupNavigationInspectionOverlayStarted/);
   assert.match(source, /popupNavigationInspectionOverlayTabId === currentTabId/);
   assert.match(source, /let contentInspectionPending = Boolean\(/);
-  assert.match(source, /let restoreInspectionPending = Boolean\(/);
+  assert.doesNotMatch(source, /restoreInspectionPending/);
   assert.match(source, /function beginNavigationInspectionOverlay\(tabId\) \{/);
   assert.match(source, /function endNavigationInspectionOverlay\(tabId = popupNavigationInspectionOverlayTabId\) \{/);
   assert.match(source, /function scheduleNavigationInspectionSettlePoll\(tabId, baseUrl\) \{/);
@@ -624,7 +624,9 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   )[1];
 
   assert.match(onUpdatedBlock, /changeInfo\.status === "loading"/);
-  assert.match(onUpdatedBlock, /await messages\.getTabState\(tabId, "restore"\)/);
+  assert.match(onUpdatedBlock, /type: "clearReloadRestoreTabState"/);
+  assert.doesNotMatch(onUpdatedBlock, /messages\.getTabState\(tabId, "restore"\)/);
+  assert.doesNotMatch(onUpdatedBlock, /messages\.setTabState\(tabId, tabState\)/);
   assert.match(onUpdatedBlock, /beginNavigationInspectionOverlay\(tabId\);/);
   assert.match(onUpdatedBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
   assert.match(onUpdatedBlock, /const settleResult = await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
@@ -642,15 +644,16 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
     /async function refreshUiInner\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function maybeResumePersistedAiRun/
   )[1];
   assert.match(refreshBody, /const persistedTabState = await messages\.getTabState\(state\.currentTab\.id\);/);
-  assert.match(refreshBody, /await messages\.getTabState\(state\.currentTab\.id, "restore"\)/);
+  assert.match(refreshBody, /type: "clearReloadRestoreTabState"/);
+  assert.doesNotMatch(refreshBody, /messages\.getTabState\(state\.currentTab\.id, "restore"\)/);
   assert.match(refreshBody, /await messages\.sendTabMessageToTab\(currentTabId, \{ type: "getInspectionStatus" \}\)/);
-  assert.match(refreshBody, /restoreInspectionPending \|\|\s*contentInspectionPending/);
+  assert.match(refreshBody, /contentInspectionPending/);
   // After a tab reload, the latest runtime status response is authoritative:
-  // once it arrives the popup stops treating restore inspection as pending and
-  // adopts the fresh inspection status instead of the stale optimistic value.
+  // once it arrives the popup adopts the fresh inspection status instead of
+  // stale optimistic UI state.
   assert.match(refreshBody, /let latestRuntimeStatus = null;/);
-  assert.match(refreshBody, /const runtimeStatusBaseUrl = state\.currentBaseUrl \|\| effectiveTabState\.baseUrl \|\|/);
-  assert.match(refreshBody, /if \(latestRuntimeResponseObserved\) \{\s*restoreInspectionPending = false;/);
+  assert.match(refreshBody, /const runtimeStatusBaseUrl = state\.currentBaseUrl \|\| effectiveTabState\.baseUrl \|\| "";/);
+  assert.doesNotMatch(refreshBody, /latestRuntimeResponseObserved/);
   assert.match(refreshBody, /inspectionStatus = latestRuntimeStatus\.inspectionStatus;/);
   assert.match(refreshBody, /!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/);
   assert.doesNotMatch(refreshBody, /const pageScopedUiDisabled =[\s\S]*pageTypeUiBlocked && !navigationInspectionPending/);

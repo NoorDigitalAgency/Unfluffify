@@ -267,15 +267,22 @@ test("shared clearTabState removes initial tab lifecycle state as well as live t
     'if (message.type === "clearTabState") {',
     'if (message.type === "unregisterTabAndReload") {'
   );
+  const clearRestoreMessageBlock = extractSourceBlock(
+    backgroundSource,
+    'if (message.type === "clearReloadRestoreTabState") {',
+    'if (message.type === "setTabState") {'
+  );
 
   assert.match(clearTabStateBlock, /const key = `\$\{TAB_STATE_PREFIX\}\$\{tabId\}`;/);
   assert.match(clearTabStateBlock, /const initialKey = `\$\{TAB_STATE_PREFIX\}initial:\$\{tabId\}`;/);
   assert.match(clearTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[key, initialKey\]\);/);
   assert.match(clearMessageBlock, /utils\.clearTabState\(message\.tabId\)/);
   assert.match(clearMessageBlock, /clearReloadRestoreTabState\(message\.tabId\)/);
+  assert.match(clearRestoreMessageBlock, /clearReloadRestoreTabState\(tabId\)/);
+  assert.doesNotMatch(clearRestoreMessageBlock, /utils\.clearTabState/);
 });
 
-test("completed reload restores marking when the page stays within the saved base URL", () => {
+test("completed reload reactivates live enabled tabs without restore scope fallback", () => {
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
     "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
@@ -283,9 +290,9 @@ test("completed reload restores marking when the page stays within the saved bas
   );
 
   assert.match(backgroundSource, /const TAB_RESTORE_SCOPE = "restore";/);
-  assert.match(backgroundSource, /async function getReloadRestoreTabState\(tabId\) \{/);
+  assert.doesNotMatch(backgroundSource, /async function getReloadRestoreTabState\(tabId\) \{/);
   // setReloadRestoreTabState was removed in Phase 2 slice 1 (auto-restore retired);
-  // only the read path and clear path remain.
+  // only the cleanup key path remains.
   assert.doesNotMatch(backgroundSource, /async function setReloadRestoreTabState\(tabId, state\) \{/);
   assert.match(backgroundSource, /async function clearReloadRestoreTabStateAfterActivation\(tabId, tabState\) \{/);
   // Restore scope is no longer consulted (auto-restore retired in Phase 2.1)
@@ -313,10 +320,7 @@ test("successful same-base restore activation clears restore intent after conten
 
   assert.match(restoreBlock, /if \(chrome\.runtime\.lastError \|\| !response \|\| response\.ok === false\) \{/);
   assert.match(restoreBlock, /clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)\.catch\(\(\) => \{\}\);/);
-  assert.match(clearBlock, /const restoreState = await getReloadRestoreTabState\(tabId\);/);
-  assert.match(clearBlock, /restoreState\.baseUrl !== tabState\.baseUrl/);
-  assert.match(clearBlock, /const tabUrl = await getTabUrl\(tabId\);/);
-  assert.match(clearBlock, /!utils\.isPageWithinBaseUrl\(tabUrl, tabState\.baseUrl\)/);
+  assert.doesNotMatch(clearBlock, /getReloadRestoreTabState|restoreState|await getTabUrl/);
   assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
 });
 

@@ -2231,6 +2231,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "clearReloadRestoreTabState") {
+    const tabId = message.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) {
+      sendResponse({ ok: false });
+      return;
+    }
+    clearReloadRestoreTabState(tabId)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch(() => {
+        sendResponse({ ok: false });
+      });
+    return true;
+  }
+
   if (message.type === "setTabState") {
     const tabId = message.tabId || (sender.tab && sender.tab.id);
     if (!tabId) {
@@ -2726,14 +2742,6 @@ function getReloadRestoreTabStateKey(tabId) {
   return `${TAB_STATE_PREFIX}${TAB_RESTORE_SCOPE}:${tabId}`;
 }
 
-async function getReloadRestoreTabState(tabId) {
-  const state = await utils.getTabState(tabId, TAB_RESTORE_SCOPE);
-  if (!state || !state.enabled || !state.baseUrl) {
-    return null;
-  }
-  return state;
-}
-
 async function clearReloadRestoreTabState(tabId) {
   if (!tabId) {
     return;
@@ -2743,14 +2751,6 @@ async function clearReloadRestoreTabState(tabId) {
 
 async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
   if (!tabId || !tabState || !tabState.enabled || !tabState.baseUrl) {
-    return;
-  }
-  const restoreState = await getReloadRestoreTabState(tabId);
-  if (!restoreState || restoreState.baseUrl !== tabState.baseUrl) {
-    return;
-  }
-  const tabUrl = await getTabUrl(tabId);
-  if (tabUrl && !utils.isPageWithinBaseUrl(tabUrl, tabState.baseUrl)) {
     return;
   }
   await clearReloadRestoreTabState(tabId);

@@ -3933,10 +3933,13 @@ async function refreshUiInner(options = {}) {
   const normalizedStageBaseValue = normalizeStageBase(stageBaseValue);
   let configs = await config.getConfigs();
   const persistedTabState = await messages.getTabState(state.currentTab.id);
-  const restoreTabState = persistedTabState
-    ? null
-    : await messages.getTabState(state.currentTab.id, "restore");
-  const tabState = persistedTabState || restoreTabState || { enabled: false, baseUrl: "" };
+  if (currentTabId) {
+    await messages.sendRuntimeMessage({
+      type: "clearReloadRestoreTabState",
+      tabId: currentTabId
+    }).catch(() => null);
+  }
+  const tabState = persistedTabState || { enabled: false, baseUrl: "" };
   let initialTabState = currentTabId
     ? (await messages.getTabState(currentTabId, "initial")) || { active: false }
     : { active: false };
@@ -4812,17 +4815,6 @@ async function refreshUiInner(options = {}) {
       inspectionStatus.ok &&
       (inspectionStatus.active || inspectionStatus.pending)
   );
-  let restoreInspectionPending = Boolean(
-    currentTabId &&
-      toggleEnabled &&
-      effectiveTabState.enabled &&
-      effectiveTabState.baseUrl &&
-      !persistedTabState &&
-      restoreTabState &&
-      restoreTabState.enabled &&
-      restoreTabState.baseUrl &&
-      (!pageUrl || utils.isPageWithinBaseUrl(pageUrl, restoreTabState.baseUrl))
-  );
   const navigationInspectionPending = Boolean(
     (currentTabId &&
       popupNavigationInspectionOverlayStarted &&
@@ -4830,13 +4822,12 @@ async function refreshUiInner(options = {}) {
       toggleEnabled &&
       effectiveTabState.enabled &&
       effectiveTabState.baseUrl) ||
-    restoreInspectionPending ||
     contentInspectionPending
   );
   if (
     popupSpinnerVisible &&
-    (restoreInspectionPending ||
-      (popupNavigationInspectionOverlayStarted && popupNavigationInspectionOverlayTabId === currentTabId))
+    popupNavigationInspectionOverlayStarted &&
+    popupNavigationInspectionOverlayTabId === currentTabId
   ) {
     setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
   }
@@ -4888,7 +4879,7 @@ async function refreshUiInner(options = {}) {
   state.currentPageSaveReconciliation = null;
   state.currentPageSaveReconciliationPending = false;
   let latestRuntimeStatus = null;
-  const runtimeStatusBaseUrl = state.currentBaseUrl || effectiveTabState.baseUrl || (restoreTabState && restoreTabState.baseUrl) || "";
+  const runtimeStatusBaseUrl = state.currentBaseUrl || effectiveTabState.baseUrl || "";
   if (
     runtimeStatusBaseUrl &&
     currentTabId &&
@@ -4898,14 +4889,6 @@ async function refreshUiInner(options = {}) {
       tabId: currentTabId,
       baseUrl: runtimeStatusBaseUrl
     });
-  }
-  const latestRuntimeResponseObserved = Boolean(
-    latestRuntimeStatus &&
-      ((latestRuntimeStatus.inspectionStatus && latestRuntimeStatus.inspectionStatus.ok) ||
-        (latestRuntimeStatus.draftStatus && latestRuntimeStatus.draftStatus.ok))
-  );
-  if (latestRuntimeResponseObserved) {
-    restoreInspectionPending = false;
   }
   if (
     latestRuntimeStatus &&
@@ -4918,7 +4901,6 @@ async function refreshUiInner(options = {}) {
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
   const pageInspectionBusy =
     contentInspectionPending ||
-    restoreInspectionPending ||
     (pageSaveReconciliationPending &&
       Boolean(
         state.currentPageSaveReconciliation &&
@@ -8685,10 +8667,11 @@ async function init() {
       return;
     }
     state.currentTab = tab;
-    const persistedTabState = await messages.getTabState(tabId);
-    const tabState =
-      persistedTabState ||
-      (await messages.getTabState(tabId, "restore"));
+    await messages.sendRuntimeMessage({
+      type: "clearReloadRestoreTabState",
+      tabId
+    }).catch(() => null);
+    const tabState = await messages.getTabState(tabId);
     const candidateUrl = typeof changeInfo.url === "string" && changeInfo.url
       ? changeInfo.url
       : ((tab && typeof tab.url === "string") ? tab.url : "");
@@ -8698,9 +8681,6 @@ async function init() {
         tabState.baseUrl &&
         (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, tabState.baseUrl))
     );
-    if (!persistedTabState && inspectionExpected) {
-      await messages.setTabState(tabId, tabState);
-    }
     if (!inspectionExpected) {
       if (popupNavigationInspectionOverlayTabId === tabId) {
         endNavigationInspectionOverlay(tabId);
