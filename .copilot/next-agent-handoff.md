@@ -110,87 +110,113 @@ Additional fixes landed after the initial drift audit:
     clean; live AI-submission smoke passed on Bonliva and Prowork with
     `snapshot.ok=true`, `errs=0`, and `hasFreezeNode=false` at startup.
 
-## What's Left
+## Already complete (do NOT redo)
 
-### PRIORITY: Code-inspection remediation (9 findings)
+- **All 9 code-inspection findings (F1–F9): FIXED.** Phased plan + acceptance
+  criteria + the user's binding Q&A decisions are in
+  `.copilot/code-inspection-remediation-plan.md`. Treat as history.
+- **Subsystem inspection: COMPLETE.** Tier 1, Tier 2, `content/core.js`
+  high-risk paths, Tier 3, and a targeted remote-support/DevTools security pass
+  are all done and recorded in `.copilot/subsystem-inspection.md` (with passing
+  cross-checks). Locked contracts verified enforced (no remote-control replay;
+  ICE config fails closed; snapshot sanitizer leak-proof; DevTools panels
+  `textContent`-only).
 
-A two-reviewer code inspection produced 9 verified findings in
-`CODE_INSPECTION_TODO.md`. The ordered, phased fix plan with acceptance
-criteria and per-item test plans is in
-**`.copilot/code-inspection-remediation-plan.md`** — start there.
+## What's Left — actionable backlog
 
-Phase order (severity-first):
-- **Phase 1 (High): complete.** F3 disable() draft flush → F2 popup stale
-  restore-scope resurrection → F1 page-motion bridge public control surface.
-- **Phase 2 (Medium): complete.** F4 async reconcile abort coverage → F5
-  SPA/hash nav silently discarding a dirty session.
-- **Phase 3 (Medium-low): complete.** F7 Save Session infinite retry → F6
-  deterministic test count.
-- **Phase 4 (Low): complete.** F8 stale names/comments + F9 content-script
-  console logs.
+Nothing here is an active bug; the branch is shippable as-is. These are the
+remaining OPTIONAL improvements + the human-gated validations. Each item below
+has its own pointers and acceptance criteria so it can be executed directly.
+Full rationale for every finding is in
+`.copilot/subsystem-inspection.md` ("Improvement-plan assessment" table).
 
-All 9 code-inspection remediation findings are complete. Keep the standing
-validation rules in the plan for future marking/content changes. **Do not
-change the locked marking contract to make a fix easier.**
+### A. Cheap hardening batch — one small low-risk PR (recommended first)
 
-### Subsystem inspection (beyond the 9 findings)
+Closes three Low findings. Doc/dedup/guard-level only; add a source-guard test
+for each. **Do not change the locked marking contract.**
 
-A deeper read-for-correctness pass of subsystems the 9-finding inspection did
-not cover is tracked in **`.copilot/subsystem-inspection.md`**.
-- **Tier 1 (config / xpath / marking+submission rules / selector cache):
-  INSPECTED — solid, no High/Medium findings.** Two Low hardening notes
-  (T1-a timestamp JSDoc/type mismatch; T1-b selector-cache `shouldIncludeNode`
-  not in key) — safe today, no fix required.
-- **Tier 2 (lynx, device-emulation core, page-save-state, popup submodules):
-  INSPECTED — solid, no High/Medium findings.** Two Low notes (T2-a
-  device-emulation debugger ops not serialized per tab; T2-b duplicated
-  non-blocking reconciliation-reason list) — safe today, no fix required.
-- **`content/core.js` high-risk paths: INSPECTED — solid, no new findings.**
-  Snapshot sanitizer (leak-proof), consent handling (matches contract),
-  submission visibility (Phase A intact) all verified. NOT a full
-  411-function audit — the rendering/scheduling internals remain unread but
-  are lower-risk and test-covered (now an optional backlog item).
-- **Tier 3 (telemetry, world-messaging-contract, constants, packaging):
-  INSPECTED.** One Medium finding **T3-a**: the page telemetry bridge
-  (`common/page-telemetry.js`, injected by `ensurePageTelemetryBridge` on every
-  activated tab) re-introduces the Finding-1 pattern — persistent MAIN-world
-  script, static-marker `window` control listener, ungated `fetch`/`XHR`/
-  `console` wrapping, and `content-main.handlePageTelemetryWindowMessage`
-  forwards page-posted telemetry to background with no origin validation
-  (a page can inject fabricated telemetry). Parked with remote-support
-  (deprioritized); remediation sketch in `subsystem-inspection.md`. The
-  always-on API wrapping is the part broader than remote-support.
-- **DevTools + remote-support: TARGETED SECURITY PASS done.** Locked
-  contracts verified enforced (no remote-control replay; ICE config fails
-  closed at both background + offscreen, no public fallback); DevTools mirror
-  is `textContent`-only so T3-a is pollution-not-RCE. Full line-by-line audit
-  of the WebRTC signaling/reconnect/media internals remains optional backlog.
+1. **T2-b — de-duplicate the non-blocking reconciliation-reason list.**
+   - Source of truth: `common/config.js`
+     `NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS` (≈ lines 36–46).
+   - Duplicate to remove: the inline array in `isBlockingPageSaveReconciliation`
+     in `common/page-save-state.js` (≈ lines 7–17).
+   - Action: export the set from `config.js` (or a shared constants module) and
+     import it in `page-save-state.js`.
+   - Acceptance: one definition only; `tests/page-save-state.test.js` +
+     `tests/config.test.js` green; add a guard test asserting the two modules
+     reference the same set.
 
-### Improvement-plan assessment
+2. **T1-a — fix `isIncomingTimestampNewer` type/JSDoc mismatch.**
+   - File: `common/config.js`. `parseTimestampMillis` (≈ line 233) only accepts
+     strings (non-strings → NaN → treated as oldest), but the JSDoc on
+     `isIncomingTimestampNewer` (≈ line 286) claims `string|Date|number`.
+   - Action: EITHER make `parseTimestampMillis` accept `number`/`Date`, OR fix
+     the JSDoc to "string only" and normalize/assert at the boundary.
+   - Acceptance: doc matches behavior; if accepting number/Date, add a unit
+     test that a numeric epoch and a `Date` compare correctly.
 
-See the "Improvement-plan assessment" section in
-`.copilot/subsystem-inspection.md`. **Conclusion: no urgent fix plan needed —
-all open findings (T1-a, T1-b, T2-a, T2-b Low; T3-a Medium) are "safe today,"
-not active bugs.** Optional groupings: (1) a cheap hardening batch (T2-b dedup,
-T1-a timestamp types, T1-b cache-contract doc); (2) T2-a device-emulation
-serialization only if flakiness is observed (reuse the F1 queue pattern);
-(3) T3-a folded into the eventual remote-support rework.
+3. **T1-b — document the selector-cache filter contract.**
+   - File: `content/shared-selector-cache.js`, `collectCachedSelectorMatches`
+     (≈ line 105). It caches `shouldIncludeNode`-filtered results without the
+     callback in the cache key.
+   - Action: add a doc-comment stating that any `shouldIncludeNode` dependency
+     MUST be reflected in `suppressionFingerprint` or a generation bump
+     (current sole caller already does this); optionally fold a caller-supplied
+     filter fingerprint into the key.
+   - Acceptance: contract documented; existing selector/silent-highlight suites
+     green.
 
-### Other open items (lower priority than the 9 findings)
+### B. T2-a — serialize device-emulation debugger ops (only if flakiness is seen)
 
-1. **Phase 2 live validation** — requires a real browser session with
-   property auth (Bonliva or similar). Run
+- Symptom to watch: emulation occasionally not applying, or the debugger banner
+  appearing/leaving wrongly, after a rapid device-toggle + navigate. Self-heals
+  on next popup open, so only do this if a real symptom shows up.
+- Files: `common/emulation.js` (`updateDeviceEmulation` — 9 call sites incl.
+  the `chrome.debugger.onDetach` handler — and `clearDeviceEmulationAfterNavigation`).
+- Action: reuse the F1 per-target serialization queue pattern
+  (`pageMotionFreezeControlQueueByTarget` in `background.js`) for the
+  device-emulation debugger path, keyed by tabId.
+- Acceptance: concurrent emulation ops for one tab serialize; device-emulation
+  lifecycle tests green; manual rapid toggle+navigate no longer desyncs.
+
+### C. T3-a — page telemetry bridge (do as part of the remote-support rework)
+
+- Medium finding, parked with remote-support (deprioritized). Full remediation
+  sketch in `.copilot/subsystem-inspection.md` (T3-a section).
+- Files: `common/page-telemetry.js`, `common/extension-telemetry.js`,
+  `content-main.js` (`ensurePageTelemetryBridge`,
+  `handlePageTelemetryWindowMessage`).
+- Three required changes: (1) install the page telemetry bridge just-in-time
+  while a support session needs it, tear down on session end (F1 lifecycle
+  model); (2) gate `console`/`fetch`/`XHR` wrapping behind an `isEnabled` tied
+  to an active support session; (3) authenticate the telemetry channel
+  (nonce/handshake) so arbitrary page scripts cannot inject entries via the
+  static `window.postMessage` marker.
+- Acceptance: no MAIN-world API wrapping or telemetry forwarding on an
+  activated tab when no support session is active; a page posting the static
+  marker cannot inject telemetry into the supporter mirror.
+
+### D. Human-gated validations (cannot be fully automated here)
+
+1. **Phase 2 live validation** — needs a real browser session with property
+   auth (Bonliva or similar). Run
    `xvfb-run -a node scripts/smoke-property-lock-phase2.mjs <candidate-url> <cross-property-url>`
-   with a session that has a valid auth token. The smoke harness is more
-   reliable than before (retries up to 3× on popup load). Watch for:
+   in a session with a valid auth token. Pass when:
    - `checks.initialEditor === true`
-   - `checks.crossPropertyCountdown === true` (popup shows "Return to it
-     within N seconds")
+   - `checks.crossPropertyCountdown === true` (popup shows "Return to it within N seconds")
    - `checks.returnRecovered === true` (popup shows "You are editing")
+2. **Remote Support Follow-up** — manual 2-profile validation; see plan.md
+   "Remote Support Follow-up".
 
-2. **Remote Support Follow-up** (manual, 2-profile) — see plan.md.
+### E. Optional deeper inspection (lower-risk, test-covered — only if desired)
 
-3. **Silent-highlight sub-2/sub-6 deeper** — optional, profiling-gated.
+- `content/core.js` rendering/scheduling internals (overlay layout, hover/focus
+  boxes, mark-id management, render scheduling, reveal/warmup) — visual/perf, not
+  data-integrity.
+- Remote-support reliability internals (WebRTC signaling state machine,
+  reconnect/backoff, chunked-message reassembly, media-track lifecycle, viewer
+  UI).
+- **Silent-highlight sub-2/sub-6 deeper** — profiling-gated perf work.
 
 ## What NOT To Do
 

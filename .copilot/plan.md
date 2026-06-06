@@ -1,22 +1,26 @@
 # Unfluffify Plan
 
-## Active priority: code-inspection remediation (2026-06-06)
+## START HERE (2026-06-06)
 
-A two-reviewer code inspection (`CODE_INSPECTION_TODO.md`) found 9 verified
-issues. The ordered, phased remediation plan with acceptance criteria and
-per-item test plans lives in
-`.copilot/code-inspection-remediation-plan.md`. This is the current top
-priority, ahead of the remaining authority/live-validation work below. All
-code-inspection remediation phases are complete and validated: Phase 1
-(F3 → F2 → F1), Phase 2 (F4 async reconcile abort coverage → F5 dirty
-same-document navigation preservation), Phase 3 (F7 Save Session bounded
-retries + F6 deterministic full-suite count), and Phase 4 (F8 stale
-names/comments + F9 content-script console logs).
-The pre-implementation Q&A is complete; the chosen decisions are recorded in
-the remediation plan and should be treated as binding implementation guidance.
-Older validation notes below that mention `#unfluffify-page-motion-freeze-script`
-are historical; the current Phase 1 fix intentionally leaves no freeze node at
-content-loader startup.
+**The single source of truth for what's left is
+`.copilot/next-agent-handoff.md` ("What's Left — actionable backlog").**
+Read it first, then this plan and `.copilot/knowledge.md` for context.
+
+Current state:
+- **Code-inspection remediation (9 findings F1–F9): COMPLETE & validated.**
+  Phased plan, acceptance criteria, and the user's binding Q&A decisions are in
+  `.copilot/code-inspection-remediation-plan.md` (history). Phases: 1
+  (F3→F2→F1), 2 (F4→F5), 3 (F7→F6), 4 (F8→F9).
+- **Subsystem inspection: COMPLETE.** Tier 1/2/3 + `content/core.js` high-risk
+  paths + a targeted remote-support/DevTools security pass — all recorded in
+  `.copilot/subsystem-inspection.md` with an "Improvement-plan assessment".
+- **Open items are all OPTIONAL hardening + human-gated validations** (no active
+  bugs). They are enumerated as an executable backlog (A–E) in the handoff.
+
+Note: older validation notes below that mention
+`#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix
+intentionally leaves no freeze node at content-loader startup. The locked
+marking contract must not be changed to make any remaining fix easier.
 
 ## Authority Refactor Handoff
 
