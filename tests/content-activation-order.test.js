@@ -314,11 +314,15 @@ test("refreshSilentHighlightings yields between source-set collection and render
   const fnEnd = source.indexOf("\n}\n", fnStart);
   const fnSource = source.slice(fnStart, fnEnd);
 
-  // Between collectIncludedNodesFromSelectorSet and the renderable-collections
-  // build there is a setTimeout(0) task break that re-checks the generation
-  // token so a newer refresh that started during source collection wins.
-  const collectIdx = fnSource.indexOf("const contentMarking = collectIncludedNodesFromSelectorSet(");
+  // The source-set collection runs inside the shared element-computation cache
+  // (memoizes visibility/text/immutable lookups across the deep helper graph),
+  // and between it and the renderable-collections build there is a
+  // setTimeout(0) task break that re-checks the generation token so a newer
+  // refresh that started during source collection wins.
+  const collectIdx = fnSource.indexOf("const contentMarking = core.withElementComputationCache(() =>");
   assert.ok(collectIdx > -1);
+  const between0 = fnSource.slice(collectIdx);
+  assert.match(between0, /collectIncludedNodesFromSelectorSet\(effectiveSelectorSet\)/);
   const buildIdx = fnSource.indexOf("renderCollections = buildSilentHighlightRenderableCollections({", collectIdx);
   assert.ok(buildIdx > collectIdx);
   const between = fnSource.slice(collectIdx, buildIdx);
@@ -341,6 +345,23 @@ test("collectIncludedNodesFromSelectorSet memoizes core.isVisible per call", () 
   assert.match(fnSource, /const visibilityMemo = new WeakMap\(\);/);
   assert.match(fnSource, /const memoIsVisible = \(node\) => \{/);
   assert.match(fnSource, /isIncludedNodeAvailableForUser = \(node\) =>\s*memoIsVisible\(node\)/);
+});
+
+test("silent-highlight collection runs inside the shared element-computation cache (sub-6)", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  // Both full-page collection call sites (refresh + preview) wrap the
+  // synchronous collector in core.withElementComputationCache so the deep
+  // helper graph memoizes visibility/text/immutable lookups per pass.
+  const wrappedCalls = source.match(
+    /core\.withElementComputationCache\(\(\) =>\s*\n?\s*collectIncludedNodesFromSelectorSet\(/g
+  ) || [];
+  assert.ok(
+    wrappedCalls.length >= 2,
+    `expected both collector call sites wrapped in the computation cache; saw ${wrappedCalls.length}`
+  );
+
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  assert.match(coreSource, /export function withElementComputationCache\(callback\) \{/);
 });
 
 test("silent-highlight observer demotes class mutations on non-tracked targets to reposition", () => {

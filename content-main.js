@@ -2464,7 +2464,9 @@ function buildAiPreviewItemsWithCategories(selectorSet, defaultItems = []) {
   const defaultTextByXpath = new Map(
     defaultPreviewItems.map((item) => [item.xpath, item.text])
   );
-  const collections = collectIncludedNodesFromSelectorSet(selectorSet);
+  const collections = core.withElementComputationCache(() =>
+    collectIncludedNodesFromSelectorSet(selectorSet)
+  );
   const explicitIncludedSet = new Set(collections.explicitIncluded || []);
   const implicitIncluded = (collections.included || []).filter((node) => !explicitIncludedSet.has(node));
   const trackedNodes = [
@@ -6048,8 +6050,15 @@ async function refreshSilentHighlightings() {
   });
   if (hasSelectorHighlights) {
     try {
-      const contentMarking = collectIncludedNodesFromSelectorSet(
-        effectiveSelectorSet
+      // Run the (synchronous) source-set collection inside the shared
+      // element-computation cache so the deep helper graph
+      // (collectImplicitIncludedNodesOutsideExplicit, hasRenderableTextForHighlight,
+      // isInclusionEligibleNode, ...) memoizes visibility / text / immutable
+      // lookups per pass instead of recomputing them per node. Scoped to this
+      // synchronous call only — no awaits inside — so cached layout cannot go
+      // stale across a yield. (Plan item 50 sub-6; also cuts sub-2 blocking time.)
+      const contentMarking = core.withElementComputationCache(() =>
+        collectIncludedNodesFromSelectorSet(effectiveSelectorSet)
       );
       // Yield to the event loop between source-set computation and renderable
       // expansion so a long page can break up the synchronous work. The next

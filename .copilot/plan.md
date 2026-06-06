@@ -796,9 +796,14 @@ Validation checkpoint after Round-7 authority slices:
      landed as items 50g (rAF yield before overlay DOM write, previous
      overlay stays in place during the yield) and 50j (setTimeout(0) task
      break between source-set collection and renderable-collections build,
-     with a generation re-check). Deeper subdivision of
-     `collectIncludedNodesFromSelectorSet` itself into multiple chunked
-     phases remains optional and gated on live profiling.
+     with a generation re-check), and the blocking-time of the synchronous
+     collection itself was cut by 50m (see sub-6 — the source collection now
+     runs inside the shared element-computation cache). Further intra-collector
+     async chunking is deliberately NOT done: it would require yielding mid
+     DOM-traversal (DOM-mutation staleness risk) for an uncertain benefit, and
+     the 50m memoization already addresses the synchronous blocking-time
+     concern. Revisit only if live profiling shows the cached collection still
+     blocks.
    - **50 sub-3 (render-target caching)**: landed as item 50e.
    - **50 sub-4 (tracked-node mutation index)**: landed as item 50f.
    - **50 sub-5 (narrower mutation paths — position-only vs full vs
@@ -809,11 +814,33 @@ Validation checkpoint after Round-7 authority slices:
      standalone caller exists.
    - **50 sub-6 (per-generation memoization of visibility/textual checks)**:
      landed as item 50k for the direct `core.isVisible(...)` call inside
-     `collectIncludedNodesFromSelectorSet(...)`. Plumbing the same memo
-     through the deeper helper graph (e.g.
-     `collectImplicitIncludedNodesOutsideExplicit(...)`,
-     `hasRenderableTextForHighlight(...)`) remains optional and gated on
-     live profiling.
+     `collectIncludedNodesFromSelectorSet(...)`, and completed by **item 50m**:
+     the silent-highlight source collection (both the `refreshSilentHighlightings`
+     and AI-preview call sites) now runs inside the exported
+     `core.withElementComputationCache(...)`, so the entire deep helper graph
+     (`collectImplicitIncludedNodesOutsideExplicit`, `hasRenderableTextForHighlight`,
+     `isInclusionEligibleNode`, `hasRenderableTextOutsideExcludedNature`, the
+     immutable/toggleable-default and direct/normalized-text helpers) memoizes
+     its visibility/text/immutable lookups per pass instead of recomputing per
+     node. Scoped to the synchronous collection (no awaits inside) so cached
+     layout cannot go stale across a yield. Verified behavior-neutral: Bonliva
+     (117/117) and prowork (76/76) submission verdicts unchanged. Guard test in
+     `tests/content-activation-order.test.js`.
+
+50m. Silent-highlight collection computation-cache reuse completed:
+   `withElementComputationCache(...)` is now `export`ed from
+   [content/core.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content/core.js)
+   and wraps the two synchronous `collectIncludedNodesFromSelectorSet(...)`
+   call sites in
+   [content-main.js](/home/rojan/Documents/Git/GitHub/Unfluffify/content-main.js)
+   (`refreshSilentHighlightings` and `buildAiPreviewItemsWithCategories`). This
+   activates the existing per-pass visibility / ancestor-vis / overflow /
+   direct-text / normalized-text / toggleable-default / immutable-match /
+   immutable-ancestor / textual-descendant caches across the silent-highlight
+   collection, which previously ran with no computation cache (every
+   `core.isVisible`/text call recomputed). Implements plan item 50 sub-6 fully
+   and reduces sub-2 synchronous blocking time. Full `npm test` (556/556) and
+   Bonliva+prowork live smoke green with identical verdicts.
    Item 52 live-smoke obligation: items 50d/50e/50f have full `npm test` and
    focused-suite coverage. A headful repo-local smoke through
    `scripts/smoke-ai-submission.mjs` against

@@ -449,7 +449,7 @@ function getTextualOptionCache(cache, options = {}) {
     : cache.visible;
 }
 
-function withElementComputationCache(callback) {
+export function withElementComputationCache(callback) {
   const outermost = state.elementComputationCacheDepth === 0;
   const previous = outermost
     ? {
