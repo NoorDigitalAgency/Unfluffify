@@ -145,9 +145,12 @@ not cover is tracked in **`.copilot/subsystem-inspection.md`**.
   INSPECTED — solid, no High/Medium findings.** Two Low notes (T2-a
   device-emulation debugger ops not serialized per tab; T2-b duplicated
   non-blocking reconciliation-reason list) — safe today, no fix required.
-- **Tier 3 / `content/core.js` remainder / DevTools+remote-support: BACKLOG,
-  not yet inspected.** Full list in that doc. The ~11k-line `content/core.js`
-  is the single largest uninspected surface (only finding-relevant slices read).
+- **`content/core.js` high-risk paths: INSPECTED — solid, no new findings.**
+  Snapshot sanitizer (leak-proof), consent handling (matches contract),
+  submission visibility (Phase A intact) all verified. NOT a full
+  411-function audit — the rendering/scheduling internals remain unread but
+  are lower-risk and test-covered (now an optional backlog item).
+- **Tier 3 / DevTools+remote-support: BACKLOG, not yet inspected.**
 
 ### Other open items (lower priority than the 9 findings)
 

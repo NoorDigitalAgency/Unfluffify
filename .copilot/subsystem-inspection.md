@@ -154,16 +154,65 @@ Both are below the bar of the original 9 and need no immediate fix.
 
 ---
 
+## `content/core.js` high-risk paths: INSPECTED 2026-06-06 (HEAD `24cd814`)
+
+`content/core.js` is 11,392 lines / 411 functions — too large for an
+exhaustive single-pass read. This pass targeted the AI-payload-critical and
+locked-contract-critical paths (the parts where a latent bug would corrupt the
+submission or violate the marking contract). Lifecycle/state paths
+(`disable`, dirty-baseline, URL watcher, async reconcile, motion-pause) were
+already read during the 9-finding + Tier 1 work.
+
+Read in this pass:
+- `createSanitizedPageSnapshot` + `getSnapshotStripSelectors` +
+  `EXTENSION_SNAPSHOT_STRIP_SELECTORS`/`_ROOT_CLASSES` — the AI-payload
+  `renderedHtml` sanitizer.
+- Consent handling: `hideConsentElements`, `hideConsentElement`,
+  `markConsentElementHidden`, `hideConsentElementVisibility`,
+  `injectConsentBypassStyle`, `hideConsentOnEnable`, `restorePageScrolling`.
+- `isVisibleForSubmission` (+ its ambiguous/definitive visibility walk and the
+  Phase A `anyClientRectIntersectsSubmissionArea` bridge).
+- `getXPath` / `getElementFromXPath` (Tier 1 cross-check).
+
+### Verdict: solid. No new findings.
+
+Cross-checks that passed:
+- **Snapshot is leak-proof:** strip selectors `[id^="unfluffify-"]` +
+  `[data-uf-extension-ui="true"]` (plus shadow-root/MCP containers) remove all
+  injected UI, and a per-element pass deletes every residual `data-uf-*`
+  attribute and title-prefixed `title`. Combined with F1 (no injected freeze
+  `<script>` node), this matches the live-smoke `hasFreezeNode:false`.
+- **Consent matches the contract:** consent nodes are hidden in place via
+  inline `opacity/visibility/pointer-events` (XPath preserved), `<dialog open>`
+  is `close()`d to leave the top layer, and no dedicated `consentXpaths` are
+  stored/synced/submitted — hidden consent is handled by normal
+  hidden-textual detection (so it submits as excluded).
+- **Submission visibility is intact:** `isVisibleForSubmission` rejects
+  extension UI, honors definitive/ambiguous hidden ancestors with the shared
+  hit-test reality check, and falls back to the partial-visibility bridge —
+  the Phase A contract is unchanged.
+
+### Honest scope caveat
+This was a targeted high-risk pass, NOT a full 411-function audit. The
+remaining unread bulk of `content/core.js` is the rendering/scheduling
+internals (overlay layout, hover boxes, mark-id management, render scheduling,
+reveal/warmup mechanics). Those are visual/perf surfaces (not data-integrity)
+and are covered by the focused suites (`core-visibility`, `core-scheduling`,
+`marking-rules`, `silent-highlight-*`, `submission-rules`,
+`page-motion-freeze`). A full line-by-line audit of those internals remains
+available as a future effort if desired, but is lower-risk than anything
+inspected so far.
+
+---
+
 ## Inspection backlog (NOT yet read for correctness)
 
 Ordered by risk. Pick up when prioritized.
 
-### Tier 2 remainder
-- `content/core.js` REMAINING SECTIONS — only the slices touched by the 9
-  findings + Tier 1/Tier 2 cross-checks were read; the full ~11k-line file
-  (marking render pipeline, hover/overlay, consent handling, snapshot
-  sanitizer, reveal/warmup) has not had a full independent correctness read.
-  This is the single largest uninspected surface; treat as its own effort.
+### content/core.js rendering/scheduling internals (lower risk, test-covered)
+- Overlay layout/projection, hover/focus boxes, mark-id management, render
+  scheduling, reveal/warmup mechanics. Visual/perf surfaces, not
+  data-integrity; covered by focused suites. Optional full line-by-line audit.
 
 ### Tier 3 — lower risk
 - Telemetry: `common/page-telemetry.js`, `common/extension-telemetry.js`,
