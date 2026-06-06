@@ -11,13 +11,12 @@
   registry, artifact logging, JSONC config/secrets parsing, auth secret
   validation, UI-driven auth seeding, disabled-profile recovery, profile-target
   guards, stale-token clearing, and unit coverage.
-- Phase 3 live validation is PARTIAL: local gitignored `config.jsonc` and
-  `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, and account B
+- Phase 3 live validation is COMPLETE: local gitignored `config.jsonc` and
+  `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, account A
+  seeded successfully into `orchestration/profiles/director`, and account B
   seeded successfully into `orchestration/profiles/follower`.
-- Phase 3 remains BLOCKED for the director side: account A login reaches the
-  staging auth service but returns `Login failed (400)` before a token is saved.
-  Phase 4+ depends on a valid director profile; Phase 6 still requires two real
-  hosts.
+- Phase 4 is now unblocked for one-machine property-lock E2E with two seeded
+  profiles. Phase 6 still requires two real hosts.
 - Latest focused validation for the Phase 3 code slice:
   `node --test tests/orchestration-auth.test.js tests/orchestration-runner.test.js`
   passes (`20/20`, `# fail 0`). Full-suite validation passes (`591/591`,
@@ -39,9 +38,9 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 - Prefer targeted follow-up notes in code comments/tests over long standalone
   migration diaries.
 
-## Remaining Items (Human-Gated)
+## Remaining Items
 
-- Fix or replace account A in `orchestration/.secrets.jsonc`, then rerun:
-  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director`.
+- Build and run Phase 4 property-lock E2E on one machine with the seeded
+  director/follower profiles.
 - Validate remote support end-to-end with two real Chrome profiles (permission
   prompts, viewer transport, telemetry mirrors, and teardown behavior).

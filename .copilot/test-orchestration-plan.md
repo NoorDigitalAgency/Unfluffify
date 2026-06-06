@@ -172,11 +172,11 @@ Debug channel: `note{text}`.
   fake-media/auto-capture args; `readState` helpers; deterministic results.
   Acceptance: a runner launches the extension, opens the popup, reads
   banner/storage state, and reports over the bus on one machine.
-- **Phase 3 — auth seeding. CODE COMPLETE 2026-06-06; LIVE VALIDATION PARTIAL/BLOCKED.** `setup-auth.mjs` from
+- **Phase 3 — auth seeding. COMPLETE 2026-06-06.** `setup-auth.mjs` from
   `.secrets.jsonc`, configurable account per side. Acceptance: a fresh profile
   reaches authenticated state non-interactively for a given account. Current
-  live status: account B seeds into `orchestration/profiles/follower`; account A
-  reaches staging auth but returns `Login failed (400)` before a token is saved.
+  live status: account A seeds into `orchestration/profiles/director`; account B
+  seeds into `orchestration/profiles/follower`.
 - **Phase 4 — property-lock E2E on ONE machine (first green).** Two profiles,
   configurable accounts. Assert: single-editor lock, read-only second tab,
   take-over, off-candidate (70s) + cross-property (30s) countdowns, release.
@@ -237,27 +237,22 @@ Debug channel: `note{text}`.
   refuses obvious director/follower profile mismatches, recovers disabled
   unpacked-extension metadata in generated profiles, and accepts both fresh
   configuration view and configured read-only field states.
-- Phase 3 live validation is PARTIAL. Local gitignored `.secrets.jsonc` and
-  `config.jsonc` exist, and headed Chromium runs under xvfb. Account B seeded
+- Phase 3 live validation is complete. Local gitignored `.secrets.jsonc` and
+  `config.jsonc` exist, and headed Chromium runs under xvfb. Account A seeded
   successfully with:
+  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director`.
+  Account B seeded successfully with:
   `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role follower --side B --account B --profile-dir orchestration/profiles/follower`.
-  Account A is BLOCKED with:
-  `Authentication failed before token was saved (token status: Login required; toast: Login failed (400))`.
 - Validation completed:
   `node --test tests/orchestration-bus.test.js tests/orchestration-runner.test.js tests/orchestration-auth.test.js`
   -> pass; latest focused auth/runner validation is `20/20`, `# fail 0`.
 - Full validation completed:
   `npm test` -> `591/591` pass, `# fail 0`; `node --check` also passes for the
   Phase 3 entry/test files.
-- Phase 4 is the next implementation slice after account A is fixed/replaced
-  and both director/follower profiles are seeded. Phase 6 still needs two real
-  hosts for media-connected assertions.
+- Phase 4 is the next implementation slice. Both director/follower profiles are
+  seeded. Phase 6 still needs two real hosts for media-connected assertions.
 
-## Open items to confirm before Phase 3+
-- Account A needs human validation/replacement: the current `.secrets.jsonc`
-  value reaches staging auth but returns `Login failed (400)`. After updating
-  it, rerun:
-  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director`.
+## Open items to confirm before Phase 4+
 - The 3 staging configuration values (Configuration Endpoint, AI Endpoint,
   Stage Base) + the two account credentials → go in `.secrets.jsonc` (above).
 - Test properties (resolved 2026-06-06) — use any of these; candidate pages are

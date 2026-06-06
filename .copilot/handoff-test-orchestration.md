@@ -7,7 +7,7 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 ## State
 - **Planning complete. Phase 0, Phase 1, Phase 2, and Phase 3 code are
   implemented.** All Q&A decisions are resolved (see the plan's Decisions
-  table). Phase 3 live validation is partial and blocked on account A auth.
+  table). Phase 3 live auth validation is complete.
 - The plan and the first implementation slice are committed to `main`.
 - Implemented files:
   - `orchestration/config.example.jsonc`
@@ -40,12 +40,12 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
   `orchestration/lib/jsonc.mjs`, `orchestration/lib/config.mjs`,
   `orchestration/lib/secrets.mjs`, `tests/orchestration-runner.test.js`, and
   `tests/orchestration-auth.test.js`.
-- Live Phase 3 auth seeding was attempted on 2026-06-06 with local gitignored
+- Live Phase 3 auth seeding passed on 2026-06-06 with local gitignored
   `config.jsonc` / `.secrets.jsonc` and xvfb. Extension startup works after
   disabled-profile recovery and normal launch no longer forces
-  `chrome.runtime.reload()`. Account B seeded successfully into
-  `orchestration/profiles/follower`; account A is BLOCKED by staging auth
-  returning `Login failed (400)` before a token is saved.
+  `chrome.runtime.reload()`. Account A seeded successfully into
+  `orchestration/profiles/director`; account B seeded successfully into
+  `orchestration/profiles/follower`.
 - The auth seeder now clears stale tokens before opening the popup and before
   submitting credentials, refuses obvious director/follower profile mismatches,
   accepts a popup that already opens in configuration view, and waits for edit
@@ -79,7 +79,7 @@ work. The full design is in `.copilot/test-orchestration-plan.md`; this is the
 - Observability: `popup.html?debugTabId=`, `chrome.storage.session`
   (`tabState:*`, `deviceEmulation:*`), property-lock banner text, RS state.
 
-## Next step: finish Phase 3 director auth, then Phase 4
+## Next step: Phase 4
 Create local `orchestration/config.jsonc` and `orchestration/.secrets.jsonc`
 from the commented JSONC examples if they are not already present, then run
 with a real display or xvfb. Use explicit profile dirs so the two sides cannot
@@ -87,16 +87,14 @@ collide:
 
 `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role director --side A --account A --profile-dir orchestration/profiles/director`
 
-If account A still returns `Login failed (400)`, verify/replace the account A
-email/password or staging permission in `.secrets.jsonc`; do not fake a token.
-Account B has already succeeded, but can be reseeded with:
+and:
 
 `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/setup-auth.mjs --role follower --side B --account B --profile-dir orchestration/profiles/follower`
 
-Once both profiles are seeded, start Phase 4: property-lock E2E on one machine
-with two profiles. Phase 4 should reuse the Phase 2 runner/browser steps and
-add scenario definitions for single-editor lock, read-only second tab,
-take-over, off-candidate countdown, cross-property countdown, and release.
+Both profiles are currently seeded. Start Phase 4: property-lock E2E on one
+machine with two profiles. Phase 4 should reuse the Phase 2 runner/browser
+steps and add scenario definitions for single-editor lock, read-only second
+tab, take-over, off-candidate countdown, cross-property countdown, and release.
 
 Then Phases 5→7 per the plan (RS handshake one machine → two-machine media →
 LLM roles).
