@@ -133,6 +133,19 @@ All 9 code-inspection remediation findings are complete. Keep the standing
 validation rules in the plan for future marking/content changes. **Do not
 change the locked marking contract to make a fix easier.**
 
+### Subsystem inspection (beyond the 9 findings)
+
+A deeper read-for-correctness pass of subsystems the 9-finding inspection did
+not cover is tracked in **`.copilot/subsystem-inspection.md`**.
+- **Tier 1 (config / xpath / marking+submission rules / selector cache):
+  INSPECTED — solid, no High/Medium findings.** Two Low hardening notes
+  recorded (T1-a timestamp JSDoc/type mismatch; T1-b selector-cache
+  `shouldIncludeNode` not in key) — safe today, no fix required.
+- **Tier 2 / Tier 3 / DevTools+remote-support: BACKLOG, not yet inspected.**
+  Full list in that doc so it is not forgotten. Note: even `content/core.js`
+  has only been partially read (the 9-finding slices + Tier 1 cross-checks),
+  not a full independent pass.
+
 ### Other open items (lower priority than the 9 findings)
 
 1. **Phase 2 live validation** — requires a real browser session with
