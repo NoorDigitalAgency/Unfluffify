@@ -11,6 +11,56 @@ independent read on top of that.
 
 ---
 
+## UI/UX design implementation inspection: DONE 2026-06-06
+
+Covered: design/implementation uniformity, font usage uniformity/correctness,
+z-index correctness, visual-element visibility correctness. Popup (`popup.html`
++ `theme-*.css` + `popup/ui.js`) and the injected page-world UI (toasts,
+banners, notices, AI popover, motion-pause indicator, remote-support terminate
+button).
+
+### Fixed
+- **Font uniformity (injected page-world UI).** The injected styles used eight
+  inconsistent font families: two toasts in **Palatino serif** (clearly
+  copy-pasted, the popup brand is Inter sans), three different sans stacks for
+  the notices/banner/terminate button, an `Arial, sans-serif` AI popover, and a
+  `font:` shorthand on the terminate button. Introduced
+  `EXTENSION_UI_FONT_STACK` in `common/constants.js` (mirrors the popup brand
+  `--font-sans` = Inter + system fallback, since page-world injected styles
+  cannot read the popup theme's custom properties) and routed every injected UI
+  font through it. The Material Design Icons glyph font is intentionally left
+  separate. Guard test: `tests/ui-font-uniformity.test.js`.
+- **Font correctness (popup).** `popup.css` referenced an undefined
+  `var(--mono)` (the theme defines `--font-mono`); it rendered monospace only
+  via the literal fallback and bypassed the brand JetBrains Mono. Fixed to
+  `var(--font-mono)`.
+
+### Inspected, no change needed
+- **z-index.** Coherent tier system: ceiling `2147483647` for must-be-top
+  interactive chrome (remote-support terminate button, marking overlay, AI
+  popover, motion-pause indicator, marking-disabled/page-inspection notices);
+  `2147483646` for the page toast + silent-highlight overlay; `2147483645` for
+  the property-lock banner; popup-internal values stay in a small local range.
+  Several elements share the ceiling and resolve by DOM order, but the
+  page-world overlays are transparent / `pointer-events:none`, so lower-z
+  transient UI still shows through and no definite occlusion bug exists.
+  Deliberately not reshuffled — churning a working max-int layering carries
+  more regression risk than the ceiling-tie smell warrants.
+- **Visibility correctness.** Popup has a global
+  `[hidden] { display: none !important; }` baseline (`theme-components.css:1`),
+  so any element rendered with the `hidden` attribute is reliably hidden
+  regardless of component `display` rules. The injected marking overlay defines
+  its own `.uf-...-notice[hidden] { display: none }` rules (page-world styles
+  don't load the popup CSS). The remote-support terminate button toggles
+  `button.hidden` and sets no `display`, so the UA `[hidden]` default applies —
+  no override bug. Popup live-rendered cleanly (body font resolves to Inter,
+  zero console errors, screenshot verified).
+
+Validation: full `npm test` 559/559; popup screenshot + console-error check
+clean; AI-submission smoke unaffected.
+
+---
+
 ## Tier 1 — product-correctness core: INSPECTED 2026-06-06 (HEAD `f8f09e7`)
 
 Read in full for correctness:

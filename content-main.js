@@ -3,7 +3,8 @@ import * as config from "./common/config.js";
 import * as utils from "./common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
+  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS,
+  EXTENSION_UI_FONT_STACK
 } from "./common/constants.js";
 import {
   normalizeAiSelectorSet,
@@ -1101,7 +1102,7 @@ function ensureRemoteSupportTerminateButton() {
         border-radius: 999px;
         background: #cf2338;
         color: #ffffff;
-        font: 600 13px/1.1 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+        font: 600 13px/1.1 ${EXTENSION_UI_FONT_STACK};
         box-shadow: 0 12px 32px rgba(126, 14, 27, 0.35);
         cursor: pointer;
       }
@@ -1190,7 +1191,7 @@ function ensureRemoteSupportSupportPageStyles() {
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} {
       min-height: 100vh;
       color: #e8edf6;
-      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: ${EXTENSION_UI_FONT_STACK};
     }
 
     #${REMOTE_SUPPORT_SUPPORT_PAGE_ROOT_ID} * {
@@ -2559,7 +2560,7 @@ function ensurePageToastStyle() {
         padding: 10px 12px;
         background: rgba(47, 42, 36, 0.9);
         color: #fdf6ed;
-        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        font-family: ${EXTENSION_UI_FONT_STACK};
         font-size: 12px;
         border-radius: 10px;
         opacity: 0;
@@ -7220,7 +7221,7 @@ function ensurePropertyLockBannerStyle() {
       padding: 12px 16px;
       background: #fff3cd;
       border-bottom: 1px solid #d39e00;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: ${EXTENSION_UI_FONT_STACK};
       font-size: 14px;
       color: #4d3900;
       z-index: 2147483645;

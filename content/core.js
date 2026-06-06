@@ -2,7 +2,8 @@ import * as config from "../common/config.js";
 import * as utils from "../common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS
+  DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS,
+  EXTENSION_UI_FONT_STACK
 } from "../common/constants.js";
 import { ContentText } from "../common/text.js";
 import { REMOVABLE_ELEMENT_SELECTORS } from "./constants.js";
@@ -5707,7 +5708,7 @@ function createOverlay() {
         padding: 10px 12px;
         background: rgba(47, 42, 36, 0.9);
         color: #fdf6ed;
-        font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        font-family: ${EXTENSION_UI_FONT_STACK};
         font-size: 12px;
         border-radius: 10px;
         opacity: 0;
@@ -5731,7 +5732,7 @@ function createOverlay() {
         background: rgba(35, 39, 47, 0.94);
         color: #ffffff;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: ${EXTENSION_UI_FONT_STACK};
         font-size: 13px;
         font-weight: 650;
         line-height: 1.25;
@@ -5764,7 +5765,7 @@ function createOverlay() {
         background: rgba(22, 26, 34, 0.96);
         color: #ffffff;
         box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: ${EXTENSION_UI_FONT_STACK};
         font-size: 14px;
         font-weight: 650;
         line-height: 1.3;
@@ -6534,7 +6535,7 @@ function ensureAiPopoverStyle() {
         cursor: pointer;
         font-size: 16px;
         font-weight: 700;
-        font-family: Arial, sans-serif;
+        font-family: ${EXTENSION_UI_FONT_STACK};
         display: inline-flex;
         align-items: center;
         justify-content: center;

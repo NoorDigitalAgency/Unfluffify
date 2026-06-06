@@ -1,3 +1,11 @@
+// Shared font stack for extension-owned UI that is injected into the page
+// (toasts, banners, notices, popovers, motion-pause indicator text). Page-world
+// injected styles cannot read the popup theme's `--font-sans` custom property,
+// so this mirrors it as a literal. Keep it aligned with `--font-sans` in
+// theme-color.css so extension chrome looks uniform everywhere.
+export const EXTENSION_UI_FONT_STACK =
+  "\"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif";
+
 export const TAB_STATE_PREFIX = "tabState:";
 export const DEVICE_EMULATION_PREFIX = "deviceEmulation:";
 export const SCRIPT_INJECTED_PREFIX = "scriptInjected:";
