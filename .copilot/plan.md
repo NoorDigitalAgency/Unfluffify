@@ -24,14 +24,14 @@
   tested same-origin non-candidate URLs stayed in editor state with no popup
   candidate list / off-candidate deadline. Re-run after a staging property has a
   known current Live Page candidate plus a known same-base non-candidate URL.
-- Phase 5 is code-complete and live-blocked by the current Xvfb desktop-capture
-  environment. Latest run
-  `orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5` confirmed
-  the director profile has a stored token and can reach the runtime request
-  path, then failed with `Screen sharing was cancelled or unavailable` before a
-  support code was issued. Tried `captureSourceTitle` values `Entire screen`
-  and `Screen 1`. Re-run on a real display or with the exact host capture-source
-  title.
+- Phase 5 is code-complete and live-blocked by desktop capture. Latest real
+  display run on `DISPLAY=:0` / Wayland,
+  `orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5`,
+  confirmed the director profile has a stored token and can reach the runtime
+  request path, then failed with `Screen sharing was cancelled or unavailable`
+  before a support code was issued. Tried `captureSourceTitle` values
+  `Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`. Re-run after
+  verifying the exact host capture-source path/portal behavior.
 - Phase 6 still requires two real hosts.
 - Latest focused validation for the orchestration slice:
   `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
@@ -56,9 +56,8 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 
 ## Remaining Items
 
-- Re-run Phase 5 remote-support request/join validation on a real display or
-  with a verified `captureSourceTitle`; media-connected assertions remain
-  two-machine-gated.
+- Re-run Phase 5 remote-support request/join validation after the host desktop
+  capture path is verified; media-connected assertions remain two-machine-gated.
 - Re-run the Phase 4 off-candidate countdown sub-check when a known same-base
   non-candidate URL is available for the staging property.
 - Validate remote support end-to-end with two real Chrome profiles (permission

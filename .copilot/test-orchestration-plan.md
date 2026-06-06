@@ -193,11 +193,12 @@ Debug channel: `note{text}`.
   `two-machine-gated` and skipped with a clear reason on a single host.
   Acceptance: handshake + signaling validated; media asserts reported as gated.
   Current live status: run
-  `orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5`
-  confirmed the director token and runtime request path, then failed with
-  `Screen sharing was cancelled or unavailable` before a support code was
-  issued. Tried `captureSourceTitle` values `Entire screen` and `Screen 1`.
-  Re-run on a real display or with the exact host capture-source title.
+  `orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5` on
+  `DISPLAY=:0` / Wayland confirmed the director token and runtime request path,
+  then failed with `Screen sharing was cancelled or unavailable` before a
+  support code was issued. Tried `captureSourceTitle` values `Entire screen`,
+  `Screen 1`, `Entire Screen`, and `Screen`. Re-run after verifying the host
+  desktop-capture source/portal behavior.
 - **Phase 6 — two-machine bring-up.** Point the follower at machine B over LAN.
   Validate RS media: screen-share visible, view-only, DevTools console/network
   mirror labels, camera/mic via fake media, teardown clears media/telemetry.
@@ -283,13 +284,13 @@ Debug channel: `note{text}`.
   the configured `/support` page, invokes the join runtime contract when a code
   exists, records requester/supporter state snapshots, and explicitly records
   same-host media assertions as gated/skipped.
-- Phase 5 live validation is blocked by desktop capture in the current Xvfb
-  environment. Latest run:
-  `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"`
+- Phase 5 live validation is blocked by desktop capture on the current host.
+  Latest real-display run:
+  `node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"`
   -> `ok:false`, `directorTokenAvailable:true`,
   `requestRuntimeAvailable:true`, error `Screen sharing was cancelled or
-  unavailable`. The default configured `Entire screen` token failed the same
-  way.
+  unavailable`. The configured `Entire screen`, `Screen 1`, `Entire Screen`,
+  and `Screen` tokens all failed the same way.
 - Phase 6 still needs two real hosts for media-connected assertions.
 
 ## Open items to confirm before Phase 4+

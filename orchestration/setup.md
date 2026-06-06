@@ -147,7 +147,7 @@ deadline.
 After seeding both profiles, run the Phase 5 remote-support handshake harness:
 
 ```bash
-xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"
+node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"
 ```
 
 The scenario opens the director profile on the property, calls the extension's
@@ -157,11 +157,11 @@ code when available, writes state snapshots, and marks same-host media assertion
 as gated/skipped.
 
 Current live status as of 2026-06-06: the harness reaches the runtime request
-path with a seeded token, but this Xvfb environment returns `Screen sharing was
-cancelled or unavailable` before a support code is issued. The configured
-`captureSourceTitle` value `Entire screen` and the Linux-style `Screen 1` value
-both failed. Re-run on a real display or after verifying the exact capture source
-title for the host.
+path with a seeded token, but the current real display (`DISPLAY=:0`, Wayland)
+returns `Screen sharing was cancelled or unavailable` before a support code is
+issued. The `captureSourceTitle` values `Entire screen`, `Screen 1`,
+`Entire Screen`, and `Screen` all failed. Re-run after verifying the exact host
+desktop-capture source/portal behavior.
 
 ## Two-machine bring-up
 

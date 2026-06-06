@@ -108,20 +108,21 @@ same-base non-candidate URL for the chosen property.
 
 Phase 5 now has a direct scenario:
 
-`xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen 1"`
+`node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"`
 
 Latest live result:
-`orchestration/runs/2026-06-06T21-39-17-773Z-remote-support-phase5` returned
-`ok:false`. It confirmed `directorTokenAvailable:true` and
-`requestRuntimeAvailable:true`, then `remoteSupportRequestCode` failed with
-`Screen sharing was cancelled or unavailable` before a support code was issued.
-Also tried the configured `captureSourceTitle` value `Entire screen`; it failed
-the same way. Re-run on a real display or after pinning the exact capture source
-title for the host. Media-connected assertions remain two-machine-gated and are
-recorded as skipped by the scenario, not faked.
+`orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5` ran on the
+real display (`DISPLAY=:0`, Wayland) and returned `ok:false`. It confirmed
+`directorTokenAvailable:true` and `requestRuntimeAvailable:true`, then
+`remoteSupportRequestCode` failed with `Screen sharing was cancelled or
+unavailable` before a support code was issued. Tried `captureSourceTitle` values
+`Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`; all failed the same
+way. Re-run after verifying the host desktop-capture source/portal behavior.
+Media-connected assertions remain two-machine-gated and are recorded as skipped
+by the scenario, not faked.
 
-Next step: Phase 6 two-host bring-up once a host can grant/auto-select desktop
-capture.
+Next step: fix the host capture setup, then rerun Phase 5 and proceed to Phase 6
+two-host bring-up once a host can grant/auto-select desktop capture.
 
 ## Watch-outs
 - **Never commit** `orchestration/.secrets.jsonc`, `config.jsonc`, legacy
