@@ -1,5 +1,14 @@
 # Unfluffify Plan
 
+## Active priority: code-inspection remediation (2026-06-06)
+
+A two-reviewer code inspection (`CODE_INSPECTION_TODO.md`) found 9 verified
+issues. The ordered, phased remediation plan with acceptance criteria and
+per-item test plans lives in
+`.copilot/code-inspection-remediation-plan.md`. This is the current top
+priority, ahead of the remaining authority/live-validation work below. Start
+with Phase 1 (F3 → F2 → F1).
+
 ## Authority Refactor Handoff
 
 Planning-only handoff prepared for the local Copilot agent:
