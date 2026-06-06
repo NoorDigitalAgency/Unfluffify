@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
+import {
+  NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS,
+  isPageSaveReconciliationPending
+} from "../common/config.js";
 import { buildPageSaveUiState } from "../common/page-save-state.js";
 import { PopupText } from "../common/text.js";
 
@@ -39,6 +44,29 @@ test("keeps pending reconciliation messaging without blocking save and discard",
   assert.equal(state.pageDraftStatusTone, "warning");
   assert.equal(state.aiBlockedByDraft, false);
   assert.equal(state.aiDirtyNoticeText, PopupText.page.statusServerSyncPending);
+});
+
+test("page-save UI and config share the non-blocking reconciliation reasons", () => {
+  const pageSaveStateSource = readFileSync(new URL("../common/page-save-state.js", import.meta.url), "utf8");
+
+  assert.match(pageSaveStateSource, /import \{ NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS \} from "\.\/config\.js";/);
+  assert.doesNotMatch(pageSaveStateSource, /\[\s*""[\s\S]*?"load_failed"[\s\S]*?\]\.includes/);
+  for (const reason of NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS) {
+    const reconciliation = {
+      status: "pending",
+      reason
+    };
+    const state = buildPageSaveUiState({
+      pageControlsVisible: true,
+      sessionHasPendingChanges: true,
+      sessionRequiresAiRun: false,
+      reconciliation
+    });
+
+    assert.equal(isPageSaveReconciliationPending(reconciliation), false, reason);
+    assert.equal(state.pageSaveReconciliationPending, false, reason);
+    assert.equal(state.pageSaveDisabled, false, reason);
+  }
 });
 
 test("keeps retry messaging without blocking save and discard after a failed reconciliation", () => {

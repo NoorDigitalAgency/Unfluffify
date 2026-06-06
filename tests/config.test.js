@@ -7,8 +7,10 @@ import {
   createBackendSavedPageMarkingsSnapshot,
   createConfigSyncPayload,
   isPageSaveReconciliationPending,
+  isIncomingTimestampNewer,
   mergePageMarkingsByTimestamp,
   normalizePageMarkings,
+  normalizeEntryTimestamp,
   normalizePageSaveReconciliation,
   normalizeConfig,
   normalizeConfigSyncPayload
@@ -47,6 +49,21 @@ test("normalizeConfig preserves legacy page markings without pageType for later 
     false
   );
   assert.equal(normalized.pageMarkings["https://example.com/current"].pageType, "article");
+});
+
+test("timestamp comparison accepts numeric epochs and Date values", () => {
+  assert.equal(
+    isIncomingTimestampNewer(1_700_000_001_000, "2023-11-14T22:13:20Z"),
+    true
+  );
+  assert.equal(
+    isIncomingTimestampNewer(new Date("2023-11-14T22:13:19Z"), 1_700_000_000_000),
+    false
+  );
+  assert.equal(
+    normalizeEntryTimestamp(1_700_000_000_000),
+    "2023-11-14T22:13:20Z"
+  );
 });
 
 test("normalizeConfig preserves unsupported page types for later candidate reconciliation", () => {

@@ -1,20 +1,11 @@
+import { NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS } from "./config.js";
 import { PopupText } from "./text.js";
 
 function isBlockingPageSaveReconciliation(reconciliation) {
   if (!reconciliation || reconciliation.status !== "pending") {
     return false;
   }
-  return ![
-    "",
-    "pending",
-    "saving",
-    "preparing",
-    "loading",
-    "calculating",
-    "sync_failed",
-    "sync_skipped",
-    "load_failed"
-  ].includes(reconciliation.reason);
+  return !NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS.has(reconciliation.reason);
 }
 
 export function getPageSaveReconciliationStatusText(reconciliation) {

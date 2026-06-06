@@ -15,7 +15,8 @@ Current state:
   paths + a targeted remote-support/DevTools security pass — all recorded in
   `.copilot/subsystem-inspection.md` with an "Improvement-plan assessment".
 - **Open items are all OPTIONAL hardening + human-gated validations** (no active
-  bugs). They are enumerated as an executable backlog (A–E) in the handoff.
+  bugs). Backlog A (cheap hardening: T2-b/T1-a/T1-b) is complete and validated;
+  remaining executable backlog is B–E in the handoff.
 
 Note: older validation notes below that mention
 `#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix

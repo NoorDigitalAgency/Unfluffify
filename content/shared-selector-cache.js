@@ -102,6 +102,14 @@ export function invalidateSharedSelectorCache({
   }
 }
 
+/**
+ * Collects selector matches through the shared cache.
+ *
+ * The cache stores results after `shouldIncludeNode` filtering. Any state used
+ * by that callback must therefore be represented by `suppressionFingerprint` or
+ * by a cache-clearing generation bump (`domStructure`, `config`, or
+ * `pageMarkings`) before this function is called.
+ */
 export function collectCachedSelectorMatches({
   root = null,
   selectors = [],

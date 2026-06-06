@@ -21,8 +21,8 @@ are all implemented and validated. A full code-review pass of the agent commit
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
 **Test status: all green. Finding 6 removed `--test-force-exit` from
-`package.json`; after the Phase 4 guard test, the latest full `npm test`
-reports `# tests 547`, `# pass 547`, `# fail 0`. All syntax checks clean.**
+`package.json`; after backlog A guard tests, the latest full `npm test`
+reports `# tests 550`, `# pass 550`, `# fail 0`. All syntax checks clean.**
 
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
@@ -121,6 +121,13 @@ Additional fixes landed after the initial drift audit:
   cross-checks). Locked contracts verified enforced (no remote-control replay;
   ICE config fails closed; snapshot sanitizer leak-proof; DevTools panels
   `textContent`-only).
+- **Backlog A cheap hardening: COMPLETE.** T2-b now has a single exported
+  non-blocking reconciliation-reason set shared by config and page-save UI;
+  T1-a timestamp parsing accepts the documented `string|Date|number` inputs;
+  T1-b selector-cache filtered-result key requirements are documented.
+  Validation: focused config/page-save/selector suites green (`50` pass), full
+  `npm test` green (`# tests 550`, `# pass 550`, `# fail 0`), syntax checks
+  clean, and Bonliva AI-submission smoke passed (`snapshot.ok=true`, `errs=0`).
 
 ## What's Left — actionable backlog
 
@@ -130,10 +137,10 @@ has its own pointers and acceptance criteria so it can be executed directly.
 Full rationale for every finding is in
 `.copilot/subsystem-inspection.md` ("Improvement-plan assessment" table).
 
-### A. Cheap hardening batch — one small low-risk PR (recommended first)
+### A. Cheap hardening batch — COMPLETE
 
-Closes three Low findings. Doc/dedup/guard-level only; add a source-guard test
-for each. **Do not change the locked marking contract.**
+Closed three Low findings without changing the locked marking contract.
+Source-guard/runtime coverage was added for each item.
 
 1. **T2-b — de-duplicate the non-blocking reconciliation-reason list.**
    - Source of truth: `common/config.js`
@@ -142,9 +149,9 @@ for each. **Do not change the locked marking contract.**
      in `common/page-save-state.js` (≈ lines 7–17).
    - Action: export the set from `config.js` (or a shared constants module) and
      import it in `page-save-state.js`.
-   - Acceptance: one definition only; `tests/page-save-state.test.js` +
-     `tests/config.test.js` green; add a guard test asserting the two modules
-     reference the same set.
+   - Status: complete. `common/config.js` exports the set and
+     `common/page-save-state.js` imports it; guard coverage asserts the shared
+     source and matching UI/config behavior.
 
 2. **T1-a — fix `isIncomingTimestampNewer` type/JSDoc mismatch.**
    - File: `common/config.js`. `parseTimestampMillis` (≈ line 233) only accepts
@@ -152,8 +159,9 @@ for each. **Do not change the locked marking contract.**
      `isIncomingTimestampNewer` (≈ line 286) claims `string|Date|number`.
    - Action: EITHER make `parseTimestampMillis` accept `number`/`Date`, OR fix
      the JSDoc to "string only" and normalize/assert at the boundary.
-   - Acceptance: doc matches behavior; if accepting number/Date, add a unit
-     test that a numeric epoch and a `Date` compare correctly.
+   - Status: complete. `parseTimestampMillis` now accepts finite numeric epochs
+     and valid `Date` objects; unit coverage verifies numeric and `Date`
+     comparisons plus normalization.
 
 3. **T1-b — document the selector-cache filter contract.**
    - File: `content/shared-selector-cache.js`, `collectCachedSelectorMatches`
@@ -163,8 +171,10 @@ for each. **Do not change the locked marking contract.**
      MUST be reflected in `suppressionFingerprint` or a generation bump
      (current sole caller already does this); optionally fold a caller-supplied
      filter fingerprint into the key.
-   - Acceptance: contract documented; existing selector/silent-highlight suites
-     green.
+   - Status: complete. `collectCachedSelectorMatches` now documents that
+     `shouldIncludeNode` dependencies must be represented by
+     `suppressionFingerprint` or a cache-clearing generation bump; source guard
+     coverage locks the contract wording.
 
 ### B. T2-a — serialize device-emulation debugger ops (only if flakiness is seen)
 

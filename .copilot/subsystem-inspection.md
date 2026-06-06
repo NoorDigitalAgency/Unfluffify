@@ -51,6 +51,9 @@ Cross-checks that passed:
 ### Two Low-severity hardening items (not bugs today)
 
 #### T1-a (Low / doc + latent-fragility): `isIncomingTimestampNewer` JSDoc overstates accepted types
+- **Status 2026-06-06: FIXED.** `parseTimestampMillis` now accepts the
+  documented `string|Date|number` inputs. Tests cover numeric epochs, `Date`
+  comparisons, and numeric normalization.
 - `common/config.js:286-292` documents params as `string|Date|number`, but
   `parseTimestampMillis` (`:233`) returns `NaN` for any non-string, and
   `toTimestampMillis` maps that to `NEGATIVE_INFINITY`. So a `Date` or numeric
@@ -65,6 +68,10 @@ Cross-checks that passed:
   at the boundary. No behavior change required immediately.
 
 #### T1-b (Low / latent-fragility): selector cache stores `shouldIncludeNode`-filtered results without the callback in the key
+- **Status 2026-06-06: FIXED.** `collectCachedSelectorMatches` now documents
+  that every `shouldIncludeNode` dependency must be reflected in
+  `suppressionFingerprint` or a cache-clearing generation bump; a source guard
+  locks the contract wording.
 - `content/shared-selector-cache.js:105-178` caches the post-filter node set.
   The `shouldIncludeNode` callback is NOT part of the cache key.
 - **Why it's safe now:** the only caller that uses `shouldIncludeNode`
@@ -140,6 +147,10 @@ Cross-checks that passed:
   device-emulation debugger path, keyed by tabId.
 
 #### T2-b (Low / maintainability): non-blocking reconciliation-reason list is duplicated
+- **Status 2026-06-06: FIXED.** `common/config.js` exports
+  `NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS`, and
+  `common/page-save-state.js` imports that single source. Guard coverage checks
+  the shared source and behavior parity.
 - The set of non-blocking page-save reconciliation reasons is defined twice:
   `NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS` in `common/config.js:36-46`
   and the inline array in `isBlockingPageSaveReconciliation`
@@ -339,10 +350,10 @@ All findings to date, with status:
 | ID  | Sev | Area | Active bug? | Status |
 |-----|-----|------|-------------|--------|
 | F1-F9 | — | (original) | — | FIXED |
-| T1-a | Low | config timestamp JSDoc/type | No (safe today) | Open, hardening |
-| T1-b | Low | selector-cache filter key | No (safe today) | Open, hardening |
+| T1-a | Low | config timestamp JSDoc/type | No (safe today) | FIXED |
+| T1-b | Low | selector-cache filter key | No (safe today) | FIXED |
 | T2-a | Low | device-emulation debugger race | No (self-heals) | Open, hardening |
-| T2-b | Low | duplicated reconcile-reason list | No (identical now) | Open, hardening |
+| T2-b | Low | duplicated reconcile-reason list | No (identical now) | FIXED |
 | T3-a | Medium | page telemetry F1-pattern | No (metadata-only outside support; pollution-not-RCE) | Parked w/ remote-support |
 
 **Do we need a fix plan? Conclusion: no URGENT plan; one OPTIONAL low-effort

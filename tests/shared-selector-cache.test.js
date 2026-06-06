@@ -1,10 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   collectCachedSelectorMatches,
   invalidateSharedSelectorCache
 } from "../content/shared-selector-cache.js";
+
+test("shared selector cache documents filtered-result cache key requirements", () => {
+  const source = readFileSync(new URL("../content/shared-selector-cache.js", import.meta.url), "utf8");
+  const commentStart = source.indexOf("* Collects selector matches through the shared cache.");
+  const functionStart = source.indexOf("export function collectCachedSelectorMatches", commentStart);
+  const contract = source.slice(commentStart, functionStart);
+
+  assert.ok(commentStart > -1);
+  assert.ok(functionStart > commentStart);
+  assert.match(contract, /shouldIncludeNode/);
+  assert.match(contract, /suppressionFingerprint/);
+  assert.match(contract, /generation bump/);
+});
 
 test("shared selector cache reuses selector matches until invalidated", () => {
   invalidateSharedSelectorCache({ reset: true });

@@ -33,7 +33,7 @@ const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
 const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
-const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
+export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "",
   "pending",
   "saving",
@@ -231,6 +231,13 @@ export function getConfigRenderMode(sourceConfig) {
 }
 
 function parseTimestampMillis(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : Number.NaN;
+  }
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+  }
   if (typeof value !== "string") {
     return Number.NaN;
   }
