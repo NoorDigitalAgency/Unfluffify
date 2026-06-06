@@ -16,7 +16,29 @@ Checks run on 2026-06-06:
 
 Do not treat this file as approval to change the locked marking contract. Each item below should be fixed with focused tests and then re-run the relevant full and focused suites.
 
+## Second-reviewer verification (2026-06-06, HEAD `93df272`)
+
+A second pass re-checked every item against the current code. Result: **all 9
+items AGREED / confirmed; none removed.** Per-item verification notes are added
+inline under each heading as `> Verified:` blocks. One refinement: item 6's
+root cause is the `--test-force-exit` flag (non-deterministic count), not
+dropped tests — details under item 6.
+
+Determinism note observed during this pass: `npm test` reported `532`, `521`,
+`482`, `463`, and `515` tests across five consecutive runs, always with
+`# fail 0`. The suite is green; the count is unstable by harness design.
+
 ## 1. High: page-motion freeze bridge is injected on every page and is publicly controllable
+
+> Verified: AGREE. `content-loader.js:63` calls
+> `ensurePageMotionFreezeBootstrapScript()` unconditionally; `manifest.json:32`
+> matches `<all_urls>`. `common/page-motion-freeze.js:433` runs
+> `initLazyLoadingBridge()` immediately, which wraps `IntersectionObserver`,
+> `ResizeObserver`, and `addEventListener` (lines 166-173) before any
+> activation. `page-motion-freeze.js:401` gates control only on the static
+> `CONTROL_MARKER` ("unfluffify:page-motion-freeze-control:v1", line 11), and
+> the listener is installed at line 435 — so any same-window page script can
+> drive pause/suppress. Security + fingerprint + compatibility risk all real.
 
 Files and lines:
 - `content-loader.js:22-63` injects `common/page-motion-freeze.js` at content-loader startup for every matched page.
@@ -38,6 +60,16 @@ Requested fix:
 
 ## 2. High: popup still restores retired reload state and can re-enable marking from stale `restore` scope
 
+> Verified: AGREE. `popup.js:3936-3939` reads `restore` scope as a fallback
+> when live state is missing; `popup.js:8688-8702` reads `restore` on tab
+> update and writes it back into live state via `messages.setTabState(tabId,
+> tabState)` at line 8702. Background still defines `getReloadRestoreTabState`
+> (`background.js:2729`) and uses it from `clearReloadRestoreTabStateAfterActivation`
+> (`background.js:2748`). Writers were removed in the prior session, but a
+> stale `tabState:restore:*` key from an older build can still be promoted back
+> into live state and resurrect marking UI — contradicts the no-auto-restore
+> contract.
+
 Files and lines:
 - `popup.js:3935-3939` falls back to `messages.getTabState(tabId, "restore")` when live tab state is missing.
 - `popup.js:4815-4825` treats that restore state as an inspection-pending enabled state.
@@ -58,6 +90,12 @@ Requested fix:
 
 ## 3. High: `disable()` cancels pending draft persistence after clearing the state needed to save it
 
+> Verified: AGREE. `content/core.js:10120` sets `state.baseUrl = ""` and
+> `:10122` sets `state.config = null`. The draft-persist fallback at
+> `:10159-10166` then checks `if (state.baseUrl && state.config)` before
+> calling `saveConfig(...)` — both are already cleared, so the branch is dead
+> and the pending draft is never flushed on teardown. Real data-loss-window bug.
+
 Files and lines:
 - `content/core.js:9560-9599` schedules debounced snapshot and draft persistence after explicit toggles.
 - `content/core.js:10109-10122` clears `state.enabled`, `state.baseUrl`, and `state.config`.
@@ -76,6 +114,13 @@ Requested fix:
 
 ## 4. Medium-high: async marking reconciliation can ignore aborts after candidate merge and still persist stale results
 
+> Verified: AGREE. The last `shouldAbort` check is at `content/core.js:11226`.
+> After it, the silent-whitespace merge loop (`:11247`), both previous-item
+> loops (`:11265`, `:11297`), the `changed` computation, the
+> `entry.xpaths = items` mutation (`:11336`), and the persist
+> (`setPageMarkingEntry`, `:11351`) all run with no further abort/yield. A
+> newer toggle generation that starts mid-loop cannot stop the stale write.
+
 Files and lines:
 - `content/core.js:11033-11228` handles `shouldAbort` through async candidate collection and merge.
 - `content/core.js:11235-11351` then processes silent-whitespace candidates and previous explicit items without further abort/yield checks before mutating `entry.xpaths` and persisting the entry.
@@ -91,6 +136,12 @@ Requested fix:
 - Add tests that force an abort after candidate merge and verify no entry mutation/persist occurs.
 
 ## 5. Medium: SPA/hash URL changes bypass the pending-session discard guard
+
+> Verified: AGREE. `content/core.js:9289-9296` polls `location.href` and calls
+> `disable({ preserveUnsavedDraftCache: false })` on ANY change, including
+> `history.pushState`/`replaceState`/hash. `handleBeforeUnload` (`:10261`) only
+> fires on real unloads, so same-document URL changes silently drop the draft
+> with no save/discard prompt. Compounds with item 3's teardown ordering.
 
 Files and lines:
 - `background.js:2643-2644` disables marking on `onHistoryStateUpdated` and `onReferenceFragmentUpdated`.
@@ -111,6 +162,16 @@ Requested fix:
 
 ## 6. Medium: latest handoff commit records an incorrect full-suite test count
 
+> Verified: AGREE, with root-cause refinement. The count is non-deterministic,
+> not simply wrong, and no tests were dropped. `package.json` runs
+> `node --test --test-force-exit`; `--test-force-exit` terminates the process
+> as soon as top-level tests settle, truncating the still-incrementing subtest
+> counter. Five consecutive runs reported 532 / 521 / 482 / 463 / 515, always
+> with `# fail 0`. Recommended fix is therefore to (a) stop quoting a fixed
+> number in handoff/plan docs and instead state "all green; count varies due to
+> --test-force-exit", and/or (b) drop `--test-force-exit` (or replace it with a
+> clean teardown) so the count stabilizes, then quote the stable number.
+
 Files and lines:
 - `.copilot/next-agent-handoff.md:23` says `532/532`.
 - `.copilot/plan.md` latest Phase 2 notes also reference `532/532`.
@@ -125,6 +186,12 @@ Requested fix:
 - If tests were unintentionally dropped, restore them and make the suite count align with the handoff.
 
 ## 7. Medium-low: Save Session can retry forever without a cancellation or terminal failure path
+
+> Verified: AGREE. `popup.js:7527` is `while (true)` around
+> `syncBaseConfigToServer({ ..., maxAttempts: 1 })`. Success (`:7538`),
+> `authExpired` (`:7549`), and `skipped` (`:7552`) all `return`, but any other
+> retryable failure falls through to `:7557-7559` (busy text + backoff capped
+> at 10s) and loops forever. No bounded retry count and no user cancel path.
 
 Files and lines:
 - `popup.js:7527-7560` loops `while (true)` around `syncBaseConfigToServer`.
@@ -142,6 +209,16 @@ Requested fix:
 
 ## 8. Low: stale names/comments conflict with the locked marking and restore contracts
 
+> Verified: AGREE. `common/constants.js:27` comment says default-excluded tags
+> "cannot be toggled", but `DEFAULT_EXCLUDED_TAG_SELECTORS` (`:30`) contains
+> FOOTER/FORM/NAV/HEADER etc. that also appear in
+> `DEFAULT_EXCLUDED_TOGGLEABLE_SELECTORS` (`:57`) — the comment is inaccurate.
+> `tests/marking-rules.test.js:178` test name says "links immutable" while its
+> body (`:208-209`) correctly asserts LINK is omitted from both taxonomies.
+> `tests/device-emulation-lifecycle.test.js:278` is still named "completed
+> reload restores marking" though auto-restore is retired. All cosmetic; no
+> runtime impact, but misleading to the next agent.
+
 Files and lines:
 - `common/constants.js:26-28` says all default excluded tags "cannot be toggled", but the same list includes toggleable defaults.
 - `tests/marking-rules.test.js:178` says "links immutable", while `tests/marking-rules.test.js:208-209` correctly asserts `LINK` is omitted from both taxonomies.
@@ -156,6 +233,12 @@ Requested fix:
 - Keep the actual assertions aligned with the docs: `LINK` is omitted, toggleable defaults are user-toggleable, and reload auto-restore is retired.
 
 ## 9. Low: content loader writes debug-style logs into every matched page console
+
+> Verified: AGREE. `content-loader.js:73` and `:77` log content-main load
+> status; `:89` logs "Initializing content main"; `:102` logs
+> `"Content loader received message:"` with the full message object;
+> `content/core.js:9362` logs `"Restored scrolling on", element.tagName`. All
+> run unconditionally on `<all_urls>` pages and are not gated behind trace mode.
 
 Files and lines:
 - `content-loader.js:72-85` logs content-main load status.
