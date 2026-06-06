@@ -77,6 +77,20 @@ Additional fixes landed after the initial drift audit:
     (`# pass 505`, `# fail 0` in the latest run); syntax checks clean; live
     AI-submission smoke passed on Bonliva and Prowork with `snapshot.ok=true`,
     `errs=0`, and `hasFreezeNode=false` at startup.
+- Remediation Phase 3.1 is complete:
+  - F7 Save Session retries are bounded to five one-attempt sync tries with the
+    existing backoff cadence.
+  - Repeated retryable failures now surface the save-failed status/toast,
+    refresh the popup, and exit the spinner without applying the post-save
+    silent transition or clearing the dirty draft.
+  - No new cancel button was added because the existing save overlay has no
+    natural action slot; the bounded terminal failure path preserves local work
+    and lets the user retry later.
+  - Latest Phase 3.1 validation: focused popup save tests green (`63` pass);
+    popup/marking guard suite green (`318` pass); full `npm test` green
+    (`# pass 545`, `# fail 0` in the latest run); syntax checks clean. Live
+    smoke was not required because this phase changes popup retry control flow,
+    not content activation or snapshot behavior.
 
 ## What's Left
 
@@ -92,8 +106,9 @@ Phase order (severity-first):
   restore-scope resurrection → F1 page-motion bridge public control surface.
 - **Phase 2 (Medium): complete.** F4 async reconcile abort coverage → F5
   SPA/hash nav silently discarding a dirty session.
-- **Phase 3 (Medium-low): next.** F7 Save Session infinite retry → F6 non-
-  deterministic test count (root cause: `--test-force-exit`).
+- **Phase 3 (Medium-low): in progress.** F7 Save Session infinite retry is
+  complete; next is F6 non-deterministic test count (root cause:
+  `--test-force-exit`).
 - **Phase 4 (Low):** F8 stale names/comments + F9 content-script console logs
   (safe to batch).
 

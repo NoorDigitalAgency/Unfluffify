@@ -130,6 +130,9 @@ import {
 } from "./common/property-lock.js";
 
 const { state } = stateModule;
+const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
+const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
+const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
 
 installExtensionTelemetry({
   source: "popup",
@@ -7505,8 +7508,8 @@ async function handlePageSave() {
     const pageUrl = getCurrentPageUrl();
     const { tokenValue, configEndpointValue, stageBaseValue } =
       await helpers.loadGlobalAiSettings();
-    let retryDelayMs = 1500;
-    while (true) {
+    let retryDelayMs = PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS;
+    for (let attempt = 0; attempt < PAGE_SAVE_SYNC_MAX_ATTEMPTS; attempt += 1) {
       const syncResult = await syncBaseConfigToServer({
         baseUrl: state.currentBaseUrl,
         pageUrl,
@@ -7536,9 +7539,15 @@ async function handlePageSave() {
         uiModule.showToast(syncResult.reason || PopupText.page.saveFailedToast);
         return;
       }
+      if (attempt + 1 >= PAGE_SAVE_SYNC_MAX_ATTEMPTS) {
+        updateLastConfigSaveStatus(PopupText.page.saveFailed);
+        uiModule.showToast(PopupText.page.saveFailedToast);
+        await refreshUi();
+        return;
+      }
       uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice);
       await waitForRetryDelay(retryDelayMs);
-      retryDelayMs = Math.min(retryDelayMs * 2, 10000);
+      retryDelayMs = Math.min(retryDelayMs * 2, PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS);
     }
   });
 }

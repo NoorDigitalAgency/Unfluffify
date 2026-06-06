@@ -335,6 +335,19 @@ test("session save uploads all local page markings while default sync stays back
   assert.match(handlePageSaveBody, /validateStoredToken\(\{ force: true \}\)/);
   assert.match(handlePageSaveBody, /PopupText\.status\.remoteServerRetryNotice/);
   assert.match(handlePageSaveBody, /maxAttempts: 1/);
+  assert.match(source, /const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;/);
+  assert.match(source, /const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;/);
+  assert.match(source, /const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;/);
+  assert.match(handlePageSaveBody, /for \(let attempt = 0; attempt < PAGE_SAVE_SYNC_MAX_ATTEMPTS; attempt \+= 1\) \{/);
+  assert.doesNotMatch(handlePageSaveBody, /while \(true\)/);
+  assert.match(
+    handlePageSaveBody,
+    /if \(attempt \+ 1 >= PAGE_SAVE_SYNC_MAX_ATTEMPTS\) \{[\s\S]*?updateLastConfigSaveStatus\(PopupText\.page\.saveFailed\);[\s\S]*?uiModule\.showToast\(PopupText\.page\.saveFailedToast\);[\s\S]*?await refreshUi\(\);[\s\S]*?return;[\s\S]*?\}/
+  );
+  assert.match(
+    handlePageSaveBody,
+    /retryDelayMs = Math\.min\(retryDelayMs \* 2, PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS\);/
+  );
   assert.match(handlePageSaveBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.match(
     handlePageRevertBody,
@@ -349,6 +362,26 @@ test("session save uploads all local page markings while default sync stays back
   assert.doesNotMatch(handlePageRevertBody, /validateStoredToken/);
   assert.match(handlePageRevertBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
+});
+
+test("session save terminal retry failure leaves the local draft dirty for retry", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const handlePageSaveBody = source.match(
+    /async function handlePageSave\(\) \{([\s\S]*?)\n\}\n\nasync function applyLocalPageDiscard/
+  )[1];
+  const terminalFailureStart = handlePageSaveBody.indexOf("if (attempt + 1 >= PAGE_SAVE_SYNC_MAX_ATTEMPTS)");
+  const terminalFailureEnd = handlePageSaveBody.indexOf(
+    "uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice)",
+    terminalFailureStart
+  );
+  assert.ok(terminalFailureStart > -1);
+  assert.ok(terminalFailureEnd > terminalFailureStart);
+  const terminalFailureBody = handlePageSaveBody.slice(terminalFailureStart, terminalFailureEnd);
+
+  assert.match(terminalFailureBody, /updateLastConfigSaveStatus\(PopupText\.page\.saveFailed\);/);
+  assert.match(terminalFailureBody, /uiModule\.showToast\(PopupText\.page\.saveFailedToast\);/);
+  assert.match(terminalFailureBody, /await refreshUi\(\);/);
+  assert.doesNotMatch(terminalFailureBody, /applyPostSaveSilentTransition|state\.currentDraftDirty = false|alignPopupToSilentMode/);
 });
 
 test("todo completion backend cache ignores local confirmed page markings unless explicitly enabled", () => {

@@ -294,6 +294,15 @@ a dirty session on same-document nav), so it follows 2.1.
 
 ### 3.1 Finding 7 — Save Session can retry forever
 
+- **Status (2026-06-06): complete.** `handlePageSave()` now uses a bounded
+  five-attempt retry policy with the existing 1.5s exponential backoff capped
+  at 10s. Repeated retryable failures surface the existing save-failed status
+  and toast, refresh the popup UI, and return through `runWithSpinner()` so the
+  busy overlay is released. The terminal failure branch does not call the
+  post-save silent transition and does not clear `state.currentDraftDirty`, so
+  the local draft remains available for a later retry. No new cancel control was
+  added because the current save overlay has no natural action slot; the
+  terminal failure path is the accepted exit path without data loss.
 - **Root cause:** `popup.js:7527` `while (true)` around
   `syncBaseConfigToServer({ ..., maxAttempts: 1 })`. Success/`authExpired`/
   `skipped` return, but any other retryable failure loops indefinitely with a
@@ -305,7 +314,9 @@ a dirty session on same-document nav), so it follows 2.1.
 - **Acceptance criteria:**
   1. Repeated retryable failures end in a terminal failure state (bounded), not
      an infinite busy loop.
-  2. A user cancel path exits the busy state without data loss.
+  2. A user cancel path exits the busy state without data loss if the UI has a
+     natural cancel affordance; otherwise the bounded terminal branch is the
+     exit path.
   3. The local draft survives a failed/cancelled save.
 - **Test plan:**
   - New tests in `tests/popup-*` driving `syncBaseConfigToServer` to fail
