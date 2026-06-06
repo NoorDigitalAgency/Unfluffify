@@ -16,6 +16,30 @@
 - The supportee popup/side panel is the source for mirrored sidebar simulation state: it publishes debounced normalized sidebar snapshots to the background, which caches and replays them over the dedicated `sidebar` data channel and forwards them to the supporter `/support` page.
 - In content scripts, `Extension context invalidated` means the old extension instance was reloaded/disabled/replaced. Treat it as a terminal lifecycle signal for that script: stop property-lock reconnect loops and wait for the new content script instead of retrying Chrome extension APIs.
 
+## Manifest / web-accessible resources
+
+- `web_accessible_resources` is an explicit allowlist (no `common/*.js` /
+  `content/*.js` wildcards) to limit the install fingerprint. Any resource
+  loaded into the page world via `chrome.runtime.getURL(...)` MUST stay listed
+  or the browser blocks the load. Notably `common/page-telemetry.js` is injected
+  by `ensurePageTelemetryBridge()` as a `<script src>` and must remain
+  web-accessible; narrowing the list once dropped it and silently broke the
+  page-telemetry bridge. `common/page-motion-freeze-control.js` is the opposite
+  case: it runs via `chrome.scripting.executeScript({ func })` (serialized), so
+  it must NOT be web-accessible. `tests/manifest-permissions.test.js` now
+  asserts every literal `getURL("…")` injected resource is web-accessible.
+
+## Page telemetry transport
+
+- Page-world telemetry (page console/fetch/XHR mirror for remote support) only
+  installs while the tab is in an active `being_supported` session; it wraps
+  page APIs behind an `isEnabled` gate and streams over a private
+  `MessageChannel` port transferred once during the nonce-guarded enable
+  handshake, with a nonce'd `window.postMessage` fallback. Teardown closes the
+  port and unwraps the APIs. The remaining residual (a page racing the one-time
+  port handshake) is inherent to MAIN-world capture and bounded to active
+  sessions / pollution-not-RCE (DevTools panels render via `textContent`).
+
 ## Current Architecture Decisions
 
 - The dedicated `/support` page is the primary supporter viewing surface.
@@ -67,6 +91,8 @@
 - Preview Contents is intentionally available in marking mode again, gated on AI-run freshness and page-save reconciliation. Silent Preview Contents still reads the latest stored selector set, and Send to Lynx remains silent-highlighting-only with handler-level guards outside silent mode.
 - Shift parent selection may climb wrapper chains to cohesive content boundaries, but must reject shallow generic body-level page shells with broad viewport footprint or multiple page landmarks.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
+- The marking mutation observer re-runs `hideConsentElements()` on any non-overlay `childList` batch so late-injected consent widgets are hidden during active marking. This is idempotent and loop-safe (the consent bypass `<style>` is appended to `document.head`, which the body-scoped observer does not watch). It is currently un-debounced (unlike the adjacent `scheduleRender`); fold it into a throttled path if a highly mutating page shows cost during marking.
+- Extension-owned UI injected into the page (toasts, banners, notices, AI popover, motion-pause indicator, remote-support terminate button) uses the shared `EXTENSION_UI_FONT_STACK` constant (mirrors the popup brand `--font-sans` = Inter) rather than ad-hoc per-element families. The Material Design Icons glyph font is intentionally separate.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Marking enable first shows a page-inspection spinner, blocks page/content-overlay input, performs a bottom-and-top reveal scroll for lazy content, restores the user's scroll, then freezes and renders overlays. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, normalizes layout-present scroll/viewport/attribute-driven reveal candidates such as Webflow `data-w-id` blocks to visible posture, shows an Unfluffify-scoped Material Design Icons snowflake/code indicator without injecting global `.mdi` page styles, excludes extension-owned UI, keeps internal marking scheduling on extension-owned timers/rAF, and strips all freeze mechanics from snapshots.
 - Opening Unfluffify on a supported page enables mobile simulation by default for a fresh tab session. A user-disabled mobile simulation state is a per-session choice and must not be auto-enabled again until the tab session state is cleared, except that active marking sessions force mobile simulation back on for the editor tab until marking is disabled.
 - When AI selectors exist for the current property, the popup exposes a separate desktop-preview checkbox that persists for the tab lifecycle via initial tab state. Enabling it switches the page to desktop emulation, keeps silent previewing available, disables marking entry, and DevTools detach clears the checkbox back to forced mobile simulation.
