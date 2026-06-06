@@ -21,8 +21,8 @@ are all implemented and validated. A full code-review pass of the agent commit
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
 **Test status: all green. Finding 6 removed `--test-force-exit` from
-`package.json`; after backlog A guard tests, the latest full `npm test`
-reports `# tests 550`, `# pass 550`, `# fail 0`. All syntax checks clean.**
+`package.json`; after backlog B guard tests, the latest full `npm test`
+reports `# tests 551`, `# pass 551`, `# fail 0`. All syntax checks clean.**
 
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
@@ -128,6 +128,13 @@ Additional fixes landed after the initial drift audit:
   Validation: focused config/page-save/selector suites green (`50` pass), full
   `npm test` green (`# tests 550`, `# pass 550`, `# fail 0`), syntax checks
   clean, and Bonliva AI-submission smoke passed (`snapshot.ok=true`, `errs=0`).
+- **Backlog B T2-a device-emulation serialization: COMPLETE.** `common/emulation.js`
+  now serializes debugger attach / metrics override / clear / detach paths
+  per tabId using the F1 queue pattern, covering both `updateDeviceEmulation`
+  and `clearDeviceEmulationAfterNavigation`. Validation: focused device
+  lifecycle suite green (`23` pass), full `npm test` green (`# tests 551`,
+  `# pass 551`, `# fail 0`), and `node --check` clean for
+  `common/emulation.js` plus the lifecycle guard test.
 
 ## What's Left — actionable backlog
 
@@ -176,18 +183,22 @@ Source-guard/runtime coverage was added for each item.
      `suppressionFingerprint` or a cache-clearing generation bump; source guard
      coverage locks the contract wording.
 
-### B. T2-a — serialize device-emulation debugger ops (only if flakiness is seen)
+### B. T2-a — serialize device-emulation debugger ops — COMPLETE
 
-- Symptom to watch: emulation occasionally not applying, or the debugger banner
-  appearing/leaving wrongly, after a rapid device-toggle + navigate. Self-heals
-  on next popup open, so only do this if a real symptom shows up.
+- Original symptom to watch: emulation occasionally not applying, or the
+  debugger banner appearing/leaving wrongly, after a rapid device-toggle +
+  navigate. Self-heals on next popup open, but this was completed as requested
+  in the autonomous backlog run.
 - Files: `common/emulation.js` (`updateDeviceEmulation` — 9 call sites incl.
   the `chrome.debugger.onDetach` handler — and `clearDeviceEmulationAfterNavigation`).
 - Action: reuse the F1 per-target serialization queue pattern
   (`pageMotionFreezeControlQueueByTarget` in `background.js`) for the
   device-emulation debugger path, keyed by tabId.
-- Acceptance: concurrent emulation ops for one tab serialize; device-emulation
-  lifecycle tests green; manual rapid toggle+navigate no longer desyncs.
+- Status: complete. `runDeviceEmulationOperation` chains per-tab operations and
+  only clears the queue if the completing promise is still current; both
+  `updateDeviceEmulation` and navigation cleanup run inside it. Source guard
+  coverage locks the queue mechanics and call sites. Automated acceptance
+  passed; manual rapid toggle+navigate remains optional live UX validation.
 
 ### C. T3-a — page telemetry bridge (do as part of the remote-support rework)
 

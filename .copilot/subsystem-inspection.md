@@ -127,23 +127,26 @@ Cross-checks that passed:
 ### Two Low-severity findings (not bugs today)
 
 #### T2-a (Low / robustness): device-emulation debugger ops are not serialized per tab
-- `common/emulation.js` `updateDeviceEmulation` (9 call sites: popup device
-  toggle, desktop-preview enable/disable, `ensureEditorMobileSimulation`,
+- **Status 2026-06-06: FIXED.** `common/emulation.js` now serializes
+  `updateDeviceEmulation` and `clearDeviceEmulationAfterNavigation` through a
+  per-tab queue keyed by normalized tabId. Guard coverage locks the queue
+  mechanics and both debugger-operation call sites.
+- Before the fix, `common/emulation.js` `updateDeviceEmulation` (9 call sites:
+  popup device-toggle, desktop-preview enable/disable, `ensureEditorMobileSimulation`,
   background `setDeviceEmulation`/`updateDeviceEmulation` handlers, and the
   `chrome.debugger.onDetach` handler) and `clearDeviceEmulationAfterNavigation`
-  (webNavigation `onCompleted`) can interleave for the same tab with no
+  (webNavigation `onCompleted`) could interleave for the same tab with no
   queue/lock.
-- **Risk:** concurrent calls can race `attach` / `setDeviceMetricsOverride` /
+- **Risk:** concurrent calls could race `attach` / `setDeviceMetricsOverride` /
   `clearDeviceMetricsOverride` / `detach`, leaving the stored
   `DEVICE_EMULATION_PREFIX` state inconsistent with the actual renderer
   override (e.g. emulation cleared right after being set, or debugger left
   attached/detached out of sync) after a rapid toggle+navigate.
-- **Why it's bounded:** `reconcileDeviceEmulationState` self-heals on the next
+- **Why it was bounded:** `reconcileDeviceEmulationState` self-heals on the next
   popup open, so the inconsistency is transient. Pre-existing — not introduced
   by the 9 fixes.
-- **Suggested hardening:** apply the same per-target serialization queue the
-  F1 fix introduced for page-motion MAIN-world control
-  (`pageMotionFreezeControlQueueByTarget` in `background.js`) to the
+- **Implemented hardening:** applied the same per-target serialization pattern
+  the F1 fix introduced for page-motion MAIN-world control to the
   device-emulation debugger path, keyed by tabId.
 
 #### T2-b (Low / maintainability): non-blocking reconciliation-reason list is duplicated
@@ -161,7 +164,8 @@ Cross-checks that passed:
 - **Suggested hardening:** export the set from `config.js` and import it in
   `page-save-state.js` (or a shared constants module).
 
-Both are below the bar of the original 9 and need no immediate fix.
+Both Tier 2 items were below the bar of the original 9 and are now fixed as
+optional hardening.
 
 ---
 
@@ -352,7 +356,7 @@ All findings to date, with status:
 | F1-F9 | — | (original) | — | FIXED |
 | T1-a | Low | config timestamp JSDoc/type | No (safe today) | FIXED |
 | T1-b | Low | selector-cache filter key | No (safe today) | FIXED |
-| T2-a | Low | device-emulation debugger race | No (self-heals) | Open, hardening |
+| T2-a | Low | device-emulation debugger race | No (self-heals) | FIXED |
 | T2-b | Low | duplicated reconcile-reason list | No (identical now) | FIXED |
 | T3-a | Medium | page telemetry F1-pattern | No (metadata-only outside support; pollution-not-RCE) | Parked w/ remote-support |
 
@@ -375,10 +379,9 @@ Recommended (optional) groupings if/when capacity allows:
    These are doc/dedup/guard changes with negligible risk; add a source-guard
    test for each.
 
-2. **T2-a (only if device-emulation flakiness is observed):** reuse the F1
-   per-target serialization queue (`pageMotionFreezeControlQueueByTarget`)
-   for the device-emulation debugger path keyed by tabId. Slightly larger;
-   only worth it if a real symptom appears, since it self-heals.
+2. **T2-a:** completed in the autonomous backlog run. The device-emulation
+   debugger path now uses a per-tab queue, keyed by tabId, to serialize
+   concurrent attach / metrics override / clear / detach operations.
 
 3. **T3-a:** fold into the remote-support rework when that subsystem is
    reprioritized — remediation sketch already recorded above (just-in-time

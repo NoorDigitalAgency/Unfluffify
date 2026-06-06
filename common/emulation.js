@@ -5,6 +5,8 @@ import {
 } from "./constants.js";
 import { storageGet, storageSet } from "./utilities.js";
 
+const deviceEmulationQueueByTabId = new Map();
+
 function normalizeDeviceMode(mode) {
   return mode === "mobile" ? "mobile" : "desktop";
 }
@@ -147,6 +149,32 @@ async function setDeviceEmulationState(tabId, state) {
   await storageSet(chrome.storage.session, { [key]: state });
 }
 
+function getDeviceEmulationQueueKey(tabId) {
+  const normalizedTabId = Number(tabId);
+  return Number.isFinite(normalizedTabId) && normalizedTabId > 0
+    ? String(Math.trunc(normalizedTabId))
+    : "";
+}
+
+async function runDeviceEmulationOperation(tabId, operation) {
+  const queueKey = getDeviceEmulationQueueKey(tabId);
+  if (!queueKey) {
+    return operation();
+  }
+  const previous = deviceEmulationQueueByTabId.get(queueKey) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(operation);
+  deviceEmulationQueueByTabId.set(queueKey, next);
+  try {
+    return await next;
+  } finally {
+    if (deviceEmulationQueueByTabId.get(queueKey) === next) {
+      deviceEmulationQueueByTabId.delete(queueKey);
+    }
+  }
+}
+
 function getDebuggerTargets() {
   return new Promise((resolve) => {
     if (!chrome.debugger || !chrome.debugger.getTargets) {
@@ -272,38 +300,40 @@ async function clearDeviceEmulation(tabId) {
 }
 
 export async function updateDeviceEmulation(tabId, updates) {
-  const current = await getDeviceEmulationState(tabId);
-  const next = {
-    ...current,
-    ...updates
-  };
-  const shouldRecalculateScale = Boolean(updates && updates.recalculateScale);
-  delete next.recalculateScale;
-  next.mode = normalizeDeviceMode(next.mode);
-  next.scale = normalizeDeviceScale(next.scale, next.mode);
+  return runDeviceEmulationOperation(tabId, async () => {
+    const current = await getDeviceEmulationState(tabId);
+    const next = {
+      ...current,
+      ...updates
+    };
+    const shouldRecalculateScale = Boolean(updates && updates.recalculateScale);
+    delete next.recalculateScale;
+    next.mode = normalizeDeviceMode(next.mode);
+    next.scale = normalizeDeviceScale(next.scale, next.mode);
 
-  if (!next.enabled) {
-    await clearDeviceEmulation(tabId);
-    next.enabled = false;
+    if (!next.enabled) {
+      await clearDeviceEmulation(tabId);
+      next.enabled = false;
+      await setDeviceEmulationState(tabId, next);
+      return { ok: true, state: next };
+    }
+
+    if (current.enabled && current.mode !== next.mode) {
+      await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
+    }
+
+    if (shouldRecalculateScale || !current.enabled || current.mode !== next.mode) {
+      next.scale = await getBestDeviceScale(tabId, next.mode);
+    }
+
+    const applyResult = await applyDeviceEmulation(tabId, next);
+    if (!applyResult.ok) {
+      return applyResult;
+    }
+    next.enabled = true;
     await setDeviceEmulationState(tabId, next);
     return { ok: true, state: next };
-  }
-
-  if (current.enabled && current.mode !== next.mode) {
-    await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
-  }
-
-  if (shouldRecalculateScale || !current.enabled || current.mode !== next.mode) {
-    next.scale = await getBestDeviceScale(tabId, next.mode);
-  }
-
-  const applyResult = await applyDeviceEmulation(tabId, next);
-  if (!applyResult.ok) {
-    return applyResult;
-  }
-  next.enabled = true;
-  await setDeviceEmulationState(tabId, next);
-  return { ok: true, state: next };
+  });
 }
 
 export async function ensureDefaultMobileDeviceEmulation(tabId) {
@@ -333,18 +363,20 @@ export function normalizeDeviceEmulationStateForUi(value) {
 // clearDeviceMetricsOverride + detach. Call this after onCompleted to fix the
 // new page's renderer if emulation was previously used but is now disabled.
 export async function clearDeviceEmulationAfterNavigation(tabId) {
-  const hasState = await hasStoredDeviceEmulationState(tabId);
-  if (!hasState) {
-    return;
-  }
-  const state = await getDeviceEmulationState(tabId);
-  if (state.enabled) {
-    return;
-  }
-  const attachResult = await attachDebugger(tabId);
-  if (!attachResult.ok) {
-    return;
-  }
-  await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
-  await detachDebugger(tabId);
+  return runDeviceEmulationOperation(tabId, async () => {
+    const hasState = await hasStoredDeviceEmulationState(tabId);
+    if (!hasState) {
+      return;
+    }
+    const state = await getDeviceEmulationState(tabId);
+    if (state.enabled) {
+      return;
+    }
+    const attachResult = await attachDebugger(tabId);
+    if (!attachResult.ok) {
+      return;
+    }
+    await sendDebuggerCommand(tabId, "Emulation.clearDeviceMetricsOverride");
+    await detachDebugger(tabId);
+  });
 }

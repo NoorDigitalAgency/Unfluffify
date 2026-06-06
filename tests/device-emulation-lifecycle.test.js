@@ -393,12 +393,39 @@ test("disabled mobile emulation remains a per-session choice after navigation cl
   const cleanupBlock = extractSourceBlock(
     emulationSource,
     "export async function clearDeviceEmulationAfterNavigation",
-    "\n  await detachDebugger(tabId);\n}"
+    "\n  });\n}"
   );
 
   assert.match(cleanupBlock, /Emulation\.clearDeviceMetricsOverride/);
   assert.doesNotMatch(cleanupBlock, /storageRemove/);
   assert.doesNotMatch(cleanupBlock, /DEVICE_EMULATION_PREFIX/);
+});
+
+test("device emulation debugger operations serialize per tab", () => {
+  const queueBlock = extractSourceBlock(
+    emulationSource,
+    "async function runDeviceEmulationOperation(tabId, operation) {",
+    "function getDebuggerTargets()"
+  );
+  const updateBlock = extractSourceBlock(
+    emulationSource,
+    "export async function updateDeviceEmulation(tabId, updates) {",
+    "export async function ensureDefaultMobileDeviceEmulation"
+  );
+  const cleanupBlock = extractSourceBlock(
+    emulationSource,
+    "export async function clearDeviceEmulationAfterNavigation(tabId) {",
+    "\n  });\n}"
+  );
+
+  assert.match(emulationSource, /const deviceEmulationQueueByTabId = new Map\(\);/);
+  assert.match(queueBlock, /const previous = deviceEmulationQueueByTabId\.get\(queueKey\) \|\| Promise\.resolve\(\);/);
+  assert.match(queueBlock, /\.catch\(\(\) => \{\}\)\s*\.then\(operation\)/);
+  assert.match(queueBlock, /deviceEmulationQueueByTabId\.set\(queueKey, next\);/);
+  assert.match(queueBlock, /if \(deviceEmulationQueueByTabId\.get\(queueKey\) === next\) \{/);
+  assert.match(queueBlock, /deviceEmulationQueueByTabId\.delete\(queueKey\);/);
+  assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
+  assert.match(cleanupBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
 });
 
 test("debugger detach reapplies mobile emulation while marking stays enabled", () => {
