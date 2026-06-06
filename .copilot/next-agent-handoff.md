@@ -24,6 +24,9 @@ are all implemented and validated. A full code-review pass of the agent commit
 `package.json`; after backlog C guard tests, the latest full `npm test`
 reports `# tests 553`, `# pass 553`, `# fail 0`. All syntax checks clean.**
 
+Latest full-suite re-run at review HEAD `e76b01a`: `# tests 559`,
+`# pass 559`, `# fail 0` (`npm test`).
+
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
 `.copilot/code-inspection-remediation-plan.md` under "Q&A Decisions Recorded
@@ -276,7 +279,9 @@ Source-guard/runtime coverage was added for each item.
 - Remote-support reliability internals (WebRTC signaling state machine,
   reconnect/backoff, chunked-message reassembly, media-track lifecycle, viewer
   UI).
-- **Silent-highlight sub-2/sub-6 deeper** — profiling-gated perf work.
+- **Silent-highlight sub-2/sub-6 deeper** — DONE (item 50m: silent-highlight
+  collection now runs inside the shared element-computation cache). Further
+  intra-collector async chunking deliberately not done.
 
 Status: complete for the bounded code-inspection pass requested in the
 autonomous backlog run. The audit checked `content/core.js` render scheduling,
@@ -287,6 +292,26 @@ cleanup, idle offscreen teardown, and view-only contracts. No new suspicious or
 clearly problematic code issue was found. Validation:
 `node --test tests/remote-support*.test.js tests/background-remote-support-routing.test.js tests/core-scheduling.test.js tests/core-motion-pause.test.js tests/core-visibility.test.js`
 passed (`208` pass), followed by full `npm test` (`553/553`, `# fail 0`).
+
+### F. Full codebase review follow-ups (Low — open, optional)
+
+A holistic codebase-level review (2026-06-06) found the codebase healthy /
+shippable with no High/Medium issues. Full write-up:
+**`.copilot/codebase-review.md`**. Two new Low items, both fit one small PR:
+
+1. **CR-1 — narrow `web_accessible_resources`.** `manifest.json` exposes
+   `common/*.js` + `content/*.js` to `<all_urls>`; background-only modules are
+   fetchable by any page (source-disclosure + install fingerprint, no code
+   exec). Scope to the actual page-world import graph; verify with the
+   AI-submission smoke + a remote-support viewer load (under-scoping breaks a
+   dynamic `import()`).
+2. **CR-2 — gate three content-main page-console warn/error** (~lines 2930,
+   3006, 6590) behind trace mode or route to telemetry, per the F9
+   "quiet on customer pages" principle. Background-SW and popup console calls
+   are fine as-is.
+
+Noted (not a defect): ~302 error-swallowing `catch` blocks — deliberate
+"never break the host page" pattern; keep in mind when debugging field issues.
 
 ## What NOT To Do
 

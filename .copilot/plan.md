@@ -20,6 +20,11 @@ Current state:
   E (bounded optional deeper audit) are complete and validated. Backlog D Phase
   2 live property-lock validation passed; remote-support two-profile validation
   remains BLOCKED for a human with two real browser profiles.
+- **Full codebase review pass is COMPLETE** and recorded in
+  `.copilot/codebase-review.md` (healthy/shippable verdict at HEAD `e76b01a`).
+  It added two optional Low hardening follow-ups only: CR-1
+  (`web_accessible_resources` narrowing) and CR-2 (gate three content-main
+  page-console warn/error logs).
 
 Note: older validation notes below that mention
 `#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix
