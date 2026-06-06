@@ -7,7 +7,9 @@ issues. The ordered, phased remediation plan with acceptance criteria and
 per-item test plans lives in
 `.copilot/code-inspection-remediation-plan.md`. This is the current top
 priority, ahead of the remaining authority/live-validation work below. Start
-with Phase 1 (F3 → F2 → F1).
+with Phase 1 (F3 → F2 → F1). The pre-implementation Q&A is complete; the
+chosen decisions are recorded in the remediation plan and should be treated as
+binding implementation guidance.
 
 ## Authority Refactor Handoff
 

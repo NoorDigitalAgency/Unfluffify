@@ -26,6 +26,12 @@ are all implemented and validated. A full code-review pass of the agent commit
 see Finding 6 in `.copilot/code-inspection-remediation-plan.md`. Judge the
 suite by `# fail 0`, not a fixed number. All syntax checks clean.**
 
+Pre-implementation Q&A for the 9 remediation findings is complete. The user's
+chosen decisions are recorded in
+`.copilot/code-inspection-remediation-plan.md` under "Q&A Decisions Recorded
+Before Implementation". Use those choices as binding implementation guidance
+before changing runtime behavior.
+
 Additional fixes landed after the initial drift audit:
 - `onBeforeNavigate` → `onCommitted` for marking teardown (critical: prevents
   "Stay" dialog rejections from destroying the session).

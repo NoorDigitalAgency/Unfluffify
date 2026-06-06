@@ -5,6 +5,32 @@ verified at HEAD `d59ba49`). This document turns those findings into an
 ordered, phased fix plan with explicit acceptance criteria and a test plan
 for each item. **Planning only — do not change the locked marking contract.**
 
+## Q&A Decisions Recorded Before Implementation
+
+The user answered the pre-implementation Q&A on 2026-06-06. Treat these as
+binding choices for the remediation work:
+
+1. **Page-motion bridge:** remove startup injection, remove the persistent
+   public `postMessage` listener, and use just-in-time MAIN-world execution
+   only when pause/unpause is needed.
+2. **Same-document URL changes:** for dirty same-base URL changes, preserve
+   the draft and enter the existing temporary-disabled/recovery path; for
+   cross-base changes, keep the current disable behavior.
+3. **`disable()` teardown:** flush both pending draft persistence and pending
+   page snapshot work using captured pre-clear `baseUrl`/`config`, but only
+   when the corresponding timer was actually pending.
+4. **Save Session retry UX:** use a bounded retry policy plus a visible
+   terminal failure state, preserving the local draft. Do not add a new cancel
+   button unless the existing UI has a natural action slot.
+5. **Test-count stability:** first try the technical fix: remove
+   `--test-force-exit`, identify and clean up open handles/timers, and make
+   the test count stable.
+6. **Content-script logs:** remove production content-script logs entirely
+   unless they are already part of an existing trace/diagnostic mode.
+7. **Commit cadence:** one finding per commit where practical, update docs at
+   the end of each phase, validate each commit, and push after each validated
+   commit.
+
 ## How to read this
 
 Each finding is assigned to a phase ordered by severity + blast radius. Within
@@ -52,10 +78,9 @@ no contract or design decision needed. Do it first.
 - **Fix approach:** Capture `baseUrl`, `config`, and the current page URL into
   locals at the very top of `disable()` (before any state clearing). When the
   `draftPersistTimer` is cleared, flush using the captured locals, not the
-  already-cleared `state.*`. Decide whether `snapshotTimer` needs the same
-  capture-and-flush (the finding flags stale AI/save evidence if the snapshot
-  timer is silently dropped) — if a snapshot flush is in flight, flush it too,
-  otherwise document why it is safe to drop.
+  already-cleared `state.*`. Also flush pending page snapshot work using the
+  captured locals when `snapshotTimer` was pending. Do not create spurious
+  saves when the corresponding timer was not pending.
 - **Acceptance criteria:**
   1. After a rapid mark → unmark → `disable()` sequence with a pending
      draft-persist timer, `saveConfig(...)` is invoked with the original
@@ -129,15 +154,11 @@ note approved before coding.
   gated only on the static `CONTROL_MARKER` (`:11`), so any same-window page
   script can drive pause/suppress.
 - **Fix approach (design-first):**
-  - Do not install the page-world bridge at content-loader startup. Load/init
-    it just-in-time when a real reveal/freeze begins, and tear it down (restore
-    wrapped APIs) when freeze ends.
-  - Remove or harden the long-lived public `postMessage` command surface.
-    Preferred: one-shot MAIN-world script execution (`chrome.scripting.executeScript`
+  - Do not install the page-world bridge at content-loader startup.
+  - Remove the long-lived public `postMessage` command surface.
+  - Use one-shot MAIN-world script execution (`chrome.scripting.executeScript`
     with `world: "MAIN"`) for pause/unpause, so there is no persistent page-
-    controllable listener. If a message bridge must remain, a static window
-    marker is insufficient (page listeners can observe it); document the chosen
-    anti-spoof mechanism and why it holds.
+    controllable listener and inactive pages have no bridge global.
   - Ensure that an inactive page has unwrapped native APIs, no exposed bridge
     global, and cannot be paused by posting the marker.
   - **Before coding:** write a 1-paragraph design note in this file (or the
@@ -211,13 +232,9 @@ a dirty session on same-document nav), so it follows 2.1.
   change including `history.pushState`/`replaceState`/hash. `handleBeforeUnload`
   (`:10261`) only covers real unloads, so same-document changes bypass the
   save/discard contract that popup-initiated navigation honors.
-- **Decision required (capture answer before coding):** For a dirty marking
-  session on a same-base same-document URL change, should we (a) preserve the
-  draft and surface a blocking/recovery UI, or (b) stop marking but honor the
-  save/discard contract as far as the platform allows? Default recommendation:
-  within the same base URL, preserve the draft (do not pass
-  `preserveUnsavedDraftCache: false`) and show the existing temporary-disabled/
-  recovery UI; on cross-base, keep current disable.
+- **Decision:** For a dirty marking session on a same-base same-document URL
+  change, preserve the draft and surface the existing temporary-disabled/
+  recovery UI. For cross-base changes, keep the current disable behavior.
 - **Fix approach:** Branch the URL-watcher transition on same-base vs
   cross-base and on dirty vs clean. Never clear the only local draft copy
   without a persisted replacement (ties into Finding 3 — land 1.1 first).
@@ -242,10 +259,10 @@ a dirty session on same-document nav), so it follows 2.1.
   `syncBaseConfigToServer({ ..., maxAttempts: 1 })`. Success/`authExpired`/
   `skipped` return, but any other retryable failure loops indefinitely with a
   10s-capped backoff and no cancel path.
-- **Fix approach:** Add a bounded retry policy (max attempts or max elapsed
-  time) and/or a visible cancel action, ending in an explicit terminal
+- **Fix approach:** Add a bounded retry policy and a visible terminal
   "save failed — retry later" state. Preserve the no-data-loss contract: a
-  failed save must not discard the local draft.
+  failed save must not discard the local draft. Do not add a new cancel button
+  unless the existing UI has a natural action slot.
 - **Acceptance criteria:**
   1. Repeated retryable failures end in a terminal failure state (bounded), not
      an infinite busy loop.
@@ -265,11 +282,10 @@ a dirty session on same-document nav), so it follows 2.1.
   `--test-force-exit` terminates the process when top-level tests settle,
   truncating the still-incrementing subtest counter (observed 532/521/482/
   463/515, always `# fail 0`).
-- **Fix approach (pick one):**
-  - (a) Remove `--test-force-exit` and fix whatever open handle/timer keeps the
-    process alive (preferred — makes the count stable and meaningful), or
-  - (b) keep the flag but stop quoting a fixed number in docs; standardize on
-    "all green; count varies due to --test-force-exit".
+- **Fix approach:** First try to remove `--test-force-exit` and fix whatever
+  open handle/timer keeps the process alive, making the count stable and
+  meaningful. If that proves infeasible after focused investigation, document
+  the blocker before falling back to count-variance wording.
 - **Acceptance criteria:**
   1. Either `npm test` reports a stable count across 5 consecutive runs, OR all
      handoff/plan docs stop asserting a fixed number and state the count is
@@ -308,8 +324,9 @@ These are safe to batch into a single commit if desired.
 
 - **Root cause:** Unconditional logs at `content-loader.js:73/77/89/102` and
   `content/core.js:9362` run on `<all_urls>` pages.
-- **Fix approach:** Gate these behind the existing trace/diagnostic mode or
-  remove them. Do not log full message objects by default.
+- **Fix approach:** Remove production content-script logs entirely unless they
+  are already part of an existing trace/diagnostic mode. Do not log full
+  message objects by default.
 - **Acceptance criteria:**
   1. A normally-loaded page with trace mode off produces no Unfluffify content
      logs.
