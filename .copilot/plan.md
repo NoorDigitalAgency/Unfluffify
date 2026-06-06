@@ -14,13 +14,12 @@ Current state:
 - **Subsystem inspection: COMPLETE.** Tier 1/2/3 + `content/core.js` high-risk
   paths + a targeted remote-support/DevTools security pass — all recorded in
   `.copilot/subsystem-inspection.md` with an "Improvement-plan assessment".
-- **Open items are all OPTIONAL hardening + human-gated validations** (no active
-  bugs). Backlog A (cheap hardening: T2-b/T1-a/T1-b), backlog B (T2-a
-  device-emulation debugger serialization), and backlog C (T3-a page-telemetry
-  bridge hardening) are complete and validated. Backlog D Phase 2 live
-  property-lock validation passed; remote-support two-profile validation is
-  BLOCKED for a human with two real browser profiles. Remaining autonomous work
-  is optional deeper audit E in the handoff.
+- **Open autonomous backlog is COMPLETE** (no active bugs). Backlog A (cheap
+  hardening: T2-b/T1-a/T1-b), backlog B (T2-a device-emulation debugger
+  serialization), backlog C (T3-a page-telemetry bridge hardening), and backlog
+  E (bounded optional deeper audit) are complete and validated. Backlog D Phase
+  2 live property-lock validation passed; remote-support two-profile validation
+  remains BLOCKED for a human with two real browser profiles.
 
 Note: older validation notes below that mention
 `#unfluffify-page-motion-freeze-script` are historical; the Phase 1 fix

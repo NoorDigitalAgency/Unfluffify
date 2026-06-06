@@ -388,9 +388,12 @@ Recommended (optional) groupings if/when capacity allows:
    page API wrapping, nonce-gated control/forwarding, and sanitized forwarding
    without page-provided tab routing.
 
-Remaining pure-inspection gap (optional): the `content/core.js`
-rendering/scheduling internals and the remote-support reliability internals —
-both lower-risk and test-covered.
+Remaining pure-inspection gap (optional): closed for the bounded autonomous
+audit on 2026-06-06. `content/core.js` rendering/scheduling/teardown and
+remote-support background/offscreen/viewer reliability internals were inspected
+for stale-channel guards, chunk reassembly, buffer-limit handling, media-track
+cleanup, idle offscreen teardown, render coalescing, cache invalidation, and
+enable/disable cancellation. No new code finding was opened.
 
 Validation follow-up (2026-06-06):
 - Phase 2 property-lock live smoke passed with the persistent repo profile:
@@ -401,6 +404,10 @@ Validation follow-up (2026-06-06):
   no automated two-profile harness exists here, and the required screen share,
   camera, microphone, navigation, telemetry, and teardown checks need two real
   Chrome profiles with valid support/auth configuration.
+- Optional deeper audit E passed:
+  `node --test tests/remote-support*.test.js tests/background-remote-support-routing.test.js tests/core-scheduling.test.js tests/core-motion-pause.test.js tests/core-visibility.test.js`
+  reported `208` pass, followed by full `npm test` reporting `553/553` and
+  `# fail 0`.
 
 ---
 

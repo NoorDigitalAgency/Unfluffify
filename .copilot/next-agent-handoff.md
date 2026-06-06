@@ -149,12 +149,20 @@ Additional fixes landed after the initial drift audit:
   validation passed with the persistent repo profile and real auth/config.
   Remote-support two-profile validation remains BLOCKED for a human with two
   real Chrome profiles plus screen/camera/microphone permission prompts.
+- **Backlog E optional deeper audit: COMPLETE.** Bounded source inspection was
+  completed for `content/core.js` rendering/scheduling/teardown and remote
+  support reliability internals (background lifecycle, offscreen/viewer WebRTC
+  transport, chunk reassembly, buffer limits, media-track cleanup, stale channel
+  guards). No new code finding was opened. Focused audit validation passed
+  (`208` pass), and the full suite remained green (`# tests 553`, `# pass 553`,
+  `# fail 0`).
 
 ## What's Left — actionable backlog
 
-Nothing here is an active bug; the branch is shippable as-is. These are the
-remaining human-gated validations plus optional inspections. Each item below
-has its own pointers and acceptance criteria so it can be executed directly.
+Nothing here is an active bug; the branch is shippable as-is. The only
+remaining item is human-gated remote-support validation that cannot be honestly
+completed inside a single automated profile. Each item below has its own
+pointers and acceptance criteria so it can be executed directly.
 Full rationale for every finding is in
 `.copilot/subsystem-inspection.md` ("Improvement-plan assessment" table).
 
@@ -260,7 +268,7 @@ Source-guard/runtime coverage was added for each item.
    - teardown from either side clears remote-support UI and does not leave
      media tracks, telemetry wrapping, or session state active.
 
-### E. Optional deeper inspection (lower-risk, test-covered — only if desired)
+### E. Optional deeper inspection — COMPLETE
 
 - `content/core.js` rendering/scheduling internals (overlay layout, hover/focus
   boxes, mark-id management, render scheduling, reveal/warmup) — visual/perf, not
@@ -269,6 +277,16 @@ Source-guard/runtime coverage was added for each item.
   reconnect/backoff, chunked-message reassembly, media-track lifecycle, viewer
   UI).
 - **Silent-highlight sub-2/sub-6 deeper** — profiling-gated perf work.
+
+Status: complete for the bounded code-inspection pass requested in the
+autonomous backlog run. The audit checked `content/core.js` render scheduling,
+explicit overlay refresh/coalescing, cache invalidation, enable/disable
+teardown, and the remote-support background/offscreen/viewer reliability paths
+for stale-channel guards, chunk reassembly, buffer-limit handling, media-track
+cleanup, idle offscreen teardown, and view-only contracts. No new suspicious or
+clearly problematic code issue was found. Validation:
+`node --test tests/remote-support*.test.js tests/background-remote-support-routing.test.js tests/core-scheduling.test.js tests/core-motion-pause.test.js tests/core-visibility.test.js`
+passed (`208` pass), followed by full `npm test` (`553/553`, `# fail 0`).
 
 ## What NOT To Do
 
