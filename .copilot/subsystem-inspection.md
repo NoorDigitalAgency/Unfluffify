@@ -86,22 +86,84 @@ bug.
 
 ---
 
+## Tier 2 — feature subsystems: INSPECTED 2026-06-06 (HEAD `06fb75c`)
+
+Read in full for correctness:
+- `common/lynx-checklist.js` (365) — page-type/candidate normalization,
+  marked-page resolution, checklist view-model.
+- `common/lynx-live-pages.js` (118) — stage-base/site-id normalization,
+  GraphQL queries, candidate state, token refresh.
+- `common/emulation.js` (350) — device emulation core (scale/mode math,
+  debugger attach/detach, reconcile).
+- `popup/emulation.js` (22) — popup emulation state sync.
+- `common/page-save-state.js` (101) — page-save UI state model.
+- `popup/ai-run.js` (114) — AI-run parsing/persistence/submission xpath build.
+- `popup/messages.js` (155), `popup/helpers.js` (132),
+  `popup/chrome-helpers.js` (53), `popup/render-mode.js` (45).
+
+### Verdict: solid. No High/Medium findings.
+
+Cross-checks that passed:
+- **lynx normalization:** duplicate-URL candidates are correctly flagged and
+  duplicate-URL marked pages are correctly invalidated (can't assign one URL
+  to a single page type); page-type ordering follows the allowed-key order.
+- **ai-run parsing:** `parseAiRunStartResponse` strictly requires a single
+  `session_id` key; `buildAiSubmissionXpaths` strips document-root xpaths and
+  tags explicit includes; `normalizePersistedAiRunRecord` validates all fields.
+- **emulation math:** scale clamped to [0.25, 1]; `reconcileDeviceEmulationState`
+  handles the tri-state `isDebuggerAttachedToTab` (null = unknown → keep) safely;
+  `clear`/`detach` are harmless no-ops when not attached.
+- **popup message helpers:** all trace logs gated behind `traceModeEnabled`;
+  `lastError` handled on every `chrome.tabs.sendMessage`; timeouts guard
+  `clearBrowsingData`/`reloadTab`.
+
+### Two Low-severity findings (not bugs today)
+
+#### T2-a (Low / robustness): device-emulation debugger ops are not serialized per tab
+- `common/emulation.js` `updateDeviceEmulation` (9 call sites: popup device
+  toggle, desktop-preview enable/disable, `ensureEditorMobileSimulation`,
+  background `setDeviceEmulation`/`updateDeviceEmulation` handlers, and the
+  `chrome.debugger.onDetach` handler) and `clearDeviceEmulationAfterNavigation`
+  (webNavigation `onCompleted`) can interleave for the same tab with no
+  queue/lock.
+- **Risk:** concurrent calls can race `attach` / `setDeviceMetricsOverride` /
+  `clearDeviceMetricsOverride` / `detach`, leaving the stored
+  `DEVICE_EMULATION_PREFIX` state inconsistent with the actual renderer
+  override (e.g. emulation cleared right after being set, or debugger left
+  attached/detached out of sync) after a rapid toggle+navigate.
+- **Why it's bounded:** `reconcileDeviceEmulationState` self-heals on the next
+  popup open, so the inconsistency is transient. Pre-existing — not introduced
+  by the 9 fixes.
+- **Suggested hardening:** apply the same per-target serialization queue the
+  F1 fix introduced for page-motion MAIN-world control
+  (`pageMotionFreezeControlQueueByTarget` in `background.js`) to the
+  device-emulation debugger path, keyed by tabId.
+
+#### T2-b (Low / maintainability): non-blocking reconciliation-reason list is duplicated
+- The set of non-blocking page-save reconciliation reasons is defined twice:
+  `NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS` in `common/config.js:36-46`
+  and the inline array in `isBlockingPageSaveReconciliation`
+  (`common/page-save-state.js:7-17`). They are identical today.
+- **Risk:** if one is updated without the other, the UI blocking state
+  (`page-save-state.js`) and the config-layer blocking decision (`config.js`)
+  diverge silently.
+- **Suggested hardening:** export the set from `config.js` and import it in
+  `page-save-state.js` (or a shared constants module).
+
+Both are below the bar of the original 9 and need no immediate fix.
+
+---
+
 ## Inspection backlog (NOT yet read for correctness)
 
 Ordered by risk. Pick up when prioritized.
 
-### Tier 2 — feature subsystems
-- `common/lynx-checklist.js` (365) + `common/lynx-live-pages.js` (118) — Lynx
-  checklist / live-page candidate logic and site-id normalization.
-- `common/emulation.js` (350) + `popup/emulation.js` — device emulation core
-  (scale/mode math, debugger attach/detach).
-- `common/page-save-state.js` (101) — page-save UI state model.
-- Popup submodules: `popup/ai-run.js`, `popup/helpers.js`,
-  `popup/chrome-helpers.js`, `popup/messages.js`, `popup/render-mode.js`.
+### Tier 2 remainder
 - `content/core.js` REMAINING SECTIONS — only the slices touched by the 9
-  findings + Tier 1 cross-checks were read; the full ~11k-line file
+  findings + Tier 1/Tier 2 cross-checks were read; the full ~11k-line file
   (marking render pipeline, hover/overlay, consent handling, snapshot
   sanitizer, reveal/warmup) has not had a full independent correctness read.
+  This is the single largest uninspected surface; treat as its own effort.
 
 ### Tier 3 — lower risk
 - Telemetry: `common/page-telemetry.js`, `common/extension-telemetry.js`,

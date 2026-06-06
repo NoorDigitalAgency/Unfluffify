@@ -139,12 +139,15 @@ A deeper read-for-correctness pass of subsystems the 9-finding inspection did
 not cover is tracked in **`.copilot/subsystem-inspection.md`**.
 - **Tier 1 (config / xpath / marking+submission rules / selector cache):
   INSPECTED — solid, no High/Medium findings.** Two Low hardening notes
-  recorded (T1-a timestamp JSDoc/type mismatch; T1-b selector-cache
-  `shouldIncludeNode` not in key) — safe today, no fix required.
-- **Tier 2 / Tier 3 / DevTools+remote-support: BACKLOG, not yet inspected.**
-  Full list in that doc so it is not forgotten. Note: even `content/core.js`
-  has only been partially read (the 9-finding slices + Tier 1 cross-checks),
-  not a full independent pass.
+  (T1-a timestamp JSDoc/type mismatch; T1-b selector-cache `shouldIncludeNode`
+  not in key) — safe today, no fix required.
+- **Tier 2 (lynx, device-emulation core, page-save-state, popup submodules):
+  INSPECTED — solid, no High/Medium findings.** Two Low notes (T2-a
+  device-emulation debugger ops not serialized per tab; T2-b duplicated
+  non-blocking reconciliation-reason list) — safe today, no fix required.
+- **Tier 3 / `content/core.js` remainder / DevTools+remote-support: BACKLOG,
+  not yet inspected.** Full list in that doc. The ~11k-line `content/core.js`
+  is the single largest uninspected surface (only finding-relevant slices read).
 
 ### Other open items (lower priority than the 9 findings)
 
