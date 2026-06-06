@@ -328,6 +328,11 @@ a dirty session on same-document nav), so it follows 2.1.
 
 ### 3.2 Finding 6 — non-deterministic full-suite test count
 
+- **Status (2026-06-06): complete.** The technical fix path succeeded:
+  `package.json` now runs plain `node --test` without `--test-force-exit`.
+  A focused package-script regression test locks that command. Five consecutive
+  full `npm test` runs exited cleanly and reported a stable `# tests 546`,
+  `# pass 546`, `# fail 0`, so no open-handle cleanup was needed.
 - **Root cause:** `package.json` `"test": "node --test --test-force-exit"`.
   `--test-force-exit` terminates the process when top-level tests settle,
   truncating the still-incrementing subtest counter (observed 532/521/482/

@@ -20,11 +20,9 @@ are all implemented and validated. A full code-review pass of the agent commit
    the desktop preview label row.
 5. Plan — corrected `47/47` test count (was a partial run; full suite is 493+).
 
-**Test status: all green (`# fail 0`). The total count is non-deterministic
-(observed 532/521/482/463/515 across runs) because `package.json` uses
-`node --test --test-force-exit`, which truncates the subtest counter on exit —
-see Finding 6 in `.copilot/code-inspection-remediation-plan.md`. Judge the
-suite by `# fail 0`, not a fixed number. All syntax checks clean.**
+**Test status: all green. Finding 6 removed `--test-force-exit` from
+`package.json`, and five consecutive full `npm test` runs now report a stable
+`# tests 546`, `# pass 546`, `# fail 0`. All syntax checks clean.**
 
 Pre-implementation Q&A for the 9 remediation findings is complete. The user's
 chosen decisions are recorded in
@@ -91,6 +89,13 @@ Additional fixes landed after the initial drift audit:
     (`# pass 545`, `# fail 0` in the latest run); syntax checks clean. Live
     smoke was not required because this phase changes popup retry control flow,
     not content activation or snapshot behavior.
+- Remediation Phase 3.2 is complete:
+  - F6 test-count stabilization used the technical fix path: `package.json`
+    now runs plain `node --test` without `--test-force-exit`.
+  - A package-script guard test locks the clean test runner command.
+  - Latest Phase 3.2 validation: focused package tests green (`3` pass); five
+    consecutive full `npm test` runs all reported `# tests 546`, `# pass 546`,
+    `# fail 0`.
 
 ## What's Left
 
@@ -106,11 +111,10 @@ Phase order (severity-first):
   restore-scope resurrection → F1 page-motion bridge public control surface.
 - **Phase 2 (Medium): complete.** F4 async reconcile abort coverage → F5
   SPA/hash nav silently discarding a dirty session.
-- **Phase 3 (Medium-low): in progress.** F7 Save Session infinite retry is
-  complete; next is F6 non-deterministic test count (root cause:
-  `--test-force-exit`).
-- **Phase 4 (Low):** F8 stale names/comments + F9 content-script console logs
-  (safe to batch).
+- **Phase 3 (Medium-low): complete.** F7 Save Session infinite retry → F6
+  deterministic test count.
+- **Phase 4 (Low): next.** F8 stale names/comments + F9 content-script console
+  logs (safe to batch).
 
 Suggested commit sequence and standing validation rules are in the plan.
 **Do not change the locked marking contract to make a fix easier.**

@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "package:extension": "node ./scripts/package-extension.mjs",
-    "test": "node --test --test-force-exit"
+    "test": "node --test"
   }
 }

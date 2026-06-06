@@ -2,7 +2,8 @@
 
 ## Remote Support
 
-- Use Node's built-in test runner via `npm test`; the script includes `--test-force-exit` so mocked extension transports do not keep CI open.
+- Use Node's built-in test runner via `npm test`; the script intentionally runs
+  plain `node --test` so the full subtest count is meaningful.
 - For focused remote-support validation, run `npm test -- tests/remote-support-offscreen.test.js tests/remote-support-background.test.js tests/remote-support.test.js`.
 - The offscreen transport must enforce `REMOTE_SUPPORT_DATA_CHANNEL_BUFFER_LIMIT_BYTES` and chunk oversized outbound payloads; a healthy ICE/peer connection can still fail if the data channel closes on a large first payload.
 - Remote ICE candidates must be queued until `setRemoteDescription` completes.
