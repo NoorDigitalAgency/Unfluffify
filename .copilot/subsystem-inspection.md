@@ -205,6 +205,74 @@ inspected so far.
 
 ---
 
+## Tier 3 — lower-risk subsystems: INSPECTED 2026-06-06 (HEAD `6efad65`)
+
+Read in full for correctness:
+- `common/world-messaging-contract.js` (49) — message-type/lifecycle constants.
+- `common/page-telemetry.js` (38) — MAIN-world page telemetry installer.
+- `common/extension-telemetry.js` (388) — console/fetch/XHR wrapping engine.
+- `popup/telemetry.js` (27) — popup telemetry helpers.
+- `content/constants.js` (22) — removable consent/modal selectors.
+- `common/constants.js` (76) — tab/device/marking-taxonomy constants.
+- `scripts/package-extension.mjs` (422) — packaging (dev-only, test-covered by
+  `tests/package-extension.test.js`).
+
+### Verdict: one Medium finding (T3-a). Everything else clean.
+
+Cross-checks that passed:
+- **constants** match the locked taxonomy (`DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS`
+  = all − toggleable; BUTTON toggleable; LINK omitted); F8 comment fix present.
+- **content/constants** consent selectors all use `:not(body):not(html)` guards
+  (never match the root).
+- **popup/telemetry** correctly gates payloads on `scopedState.active &&
+  includePayloads` (remote-support active).
+- **packaging** uses reachability-based inclusion (only files referenced from
+  the manifest entry points are staged), so `.copilot/`, tests, node_modules
+  cannot leak into the package; `page-motion-freeze-control.js` is traced via
+  the background import.
+
+### T3-a (Medium / security+privacy): page telemetry bridge re-introduces the Finding 1 pattern
+- `common/page-telemetry.js` is injected as a persistent MAIN-world `<script>`
+  by `ensurePageTelemetryBridge()` in `content-main.js` `main()` — on EVERY
+  activated tab, regardless of whether a remote-support session is active.
+- It calls `installExtensionTelemetry` with NO `isEnabled` gate, so the page's
+  `console` / `fetch` / `XMLHttpRequest.prototype` are wrapped and network +
+  console METADATA are forwarded to the background on every activated page.
+  (Request/response BODIES are gated on remote-support `includePayloads`, but
+  the wrapping + metadata forwarding are not.)
+- It installs a persistent `window` "message" listener gated only on a static
+  marker (`unfluffify-page-telemetry-control`); any page script can post that
+  marker to flip `includePayloads`.
+- `content-main.handlePageTelemetryWindowMessage` forwards ANY page
+  `window.postMessage` carrying the static `PAGE_TELEMETRY_MESSAGE_MARKER` +
+  `message.type === "remoteSupportExtensionTelemetry"` straight to the
+  background with NO origin/shape validation → a page can **inject fabricated
+  telemetry entries** (including an attacker-chosen `tabId`) into the
+  supporter's console/network mirror.
+- This is the same class of issue Finding 1 fixed for the page-motion bridge:
+  persistent page-world script, static-marker control surface, page-API
+  wrapping, page-spoofable.
+- **Why it is not catastrophic today:** only on activated tabs; metadata-only
+  outside an active support session; the spoofed/forwarded telemetry pollutes
+  the supporter's own mirror during a support session rather than exfiltrating
+  to the page. Still a fingerprint + perf + privacy concern on every activated
+  page, and a spoofing vector into the supporter view.
+- **Scope:** feeds the remote-support DevTools mirroring, which the user has
+  deprioritized — so this finding is parked with that subsystem. The
+  always-on API wrapping is broader than remote-support and is the part most
+  worth revisiting first.
+- **Suggested remediation (when remote-support is reprioritized):**
+  1. Install the page telemetry bridge just-in-time (only while a support
+     session that needs it is active) and tear it down on session end — the
+     F1 lifecycle model.
+  2. Gate the `console`/`fetch`/`XHR` wrapping behind `isEnabled` tied to an
+     active support session.
+  3. Stop trusting a page `window.postMessage` marker for forwarding —
+     authenticate the channel (nonce/handshake) or capture via a mechanism the
+     page cannot post into, so arbitrary page scripts cannot inject telemetry.
+
+---
+
 ## Inspection backlog (NOT yet read for correctness)
 
 Ordered by risk. Pick up when prioritized.
@@ -213,14 +281,6 @@ Ordered by risk. Pick up when prioritized.
 - Overlay layout/projection, hover/focus boxes, mark-id management, render
   scheduling, reveal/warmup mechanics. Visual/perf surfaces, not
   data-integrity; covered by focused suites. Optional full line-by-line audit.
-
-### Tier 3 — lower risk
-- Telemetry: `common/page-telemetry.js`, `common/extension-telemetry.js`,
-  `popup/telemetry.js`.
-- `common/world-messaging-contract.js`.
-- `scripts/package-extension.mjs` (packaging).
-- `content/constants.js`, `common/constants.js` (only the exclusion taxonomy
-  was checked).
 
 ### Deferred with remote-support (user-deprioritized)
 - `remote-support-offscreen.js`, `remote-support-viewer.js`,

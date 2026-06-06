@@ -150,7 +150,18 @@ not cover is tracked in **`.copilot/subsystem-inspection.md`**.
   submission visibility (Phase A intact) all verified. NOT a full
   411-function audit — the rendering/scheduling internals remain unread but
   are lower-risk and test-covered (now an optional backlog item).
-- **Tier 3 / DevTools+remote-support: BACKLOG, not yet inspected.**
+- **Tier 3 (telemetry, world-messaging-contract, constants, packaging):
+  INSPECTED.** One Medium finding **T3-a**: the page telemetry bridge
+  (`common/page-telemetry.js`, injected by `ensurePageTelemetryBridge` on every
+  activated tab) re-introduces the Finding-1 pattern — persistent MAIN-world
+  script, static-marker `window` control listener, ungated `fetch`/`XHR`/
+  `console` wrapping, and `content-main.handlePageTelemetryWindowMessage`
+  forwards page-posted telemetry to background with no origin validation
+  (a page can inject fabricated telemetry). Parked with remote-support
+  (deprioritized); remediation sketch in `subsystem-inspection.md`. The
+  always-on API wrapping is the part broader than remote-support.
+- **DevTools + remote-support: BACKLOG (user-deprioritized).** Note T3-a lives
+  at the boundary of this area.
 
 ### Other open items (lower priority than the 9 findings)
 
