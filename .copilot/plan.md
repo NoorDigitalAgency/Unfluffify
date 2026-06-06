@@ -25,13 +25,16 @@
   candidate list / off-candidate deadline. Re-run after a staging property has a
   known current Live Page candidate plus a known same-base non-candidate URL.
 - Phase 5 is code-complete and live-blocked by desktop capture. Latest real
-  display run on `DISPLAY=:0` / Wayland,
-  `orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5`,
+  display run on `DISPLAY=:0` / GNOME Wayland remote desktop,
+  `orchestration/runs/2026-06-06T22-08-05-959Z-remote-support-phase5`,
   confirmed the director profile has a stored token and can reach the runtime
   request path, then failed with `Screen sharing was cancelled or unavailable`
   before a support code was issued. Tried `captureSourceTitle` values
-  `Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`. Re-run after
-  verifying the exact host capture-source path/portal behavior.
+  `Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`; also tried
+  `--enable-features=WebRTCPipeWireCapturer` and `--ozone-platform=wayland`.
+  System Chrome was tested but did not load the seeded unpacked extension
+  service worker from the existing profile. Re-run after verifying the exact
+  host capture-source path/portal behavior.
 - Phase 6 still requires two real hosts.
 - Latest focused validation for the orchestration slice:
   `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`

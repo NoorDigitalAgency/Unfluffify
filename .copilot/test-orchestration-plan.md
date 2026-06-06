@@ -193,12 +193,13 @@ Debug channel: `note{text}`.
   `two-machine-gated` and skipped with a clear reason on a single host.
   Acceptance: handshake + signaling validated; media asserts reported as gated.
   Current live status: run
-  `orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5` on
-  `DISPLAY=:0` / Wayland confirmed the director token and runtime request path,
-  then failed with `Screen sharing was cancelled or unavailable` before a
-  support code was issued. Tried `captureSourceTitle` values `Entire screen`,
-  `Screen 1`, `Entire Screen`, and `Screen`. Re-run after verifying the host
-  desktop-capture source/portal behavior.
+  `orchestration/runs/2026-06-06T22-08-05-959Z-remote-support-phase5` on
+  `DISPLAY=:0` / GNOME Wayland remote desktop confirmed the director token and
+  runtime request path, then failed with `Screen sharing was cancelled or
+  unavailable` before a support code was issued. Tried `captureSourceTitle`
+  values `Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`; also tried
+  `--enable-features=WebRTCPipeWireCapturer` and `--ozone-platform=wayland`.
+  Re-run after verifying the host desktop-capture source/portal behavior.
 - **Phase 6 — two-machine bring-up.** Point the follower at machine B over LAN.
   Validate RS media: screen-share visible, view-only, DevTools console/network
   mirror labels, camera/mic via fake media, teardown clears media/telemetry.
@@ -286,11 +287,13 @@ Debug channel: `note{text}`.
   same-host media assertions as gated/skipped.
 - Phase 5 live validation is blocked by desktop capture on the current host.
   Latest real-display run:
-  `node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"`
+  `node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen" --chrome-arg "--enable-features=WebRTCPipeWireCapturer" --chrome-arg "--ozone-platform=wayland"`
   -> `ok:false`, `directorTokenAvailable:true`,
   `requestRuntimeAvailable:true`, error `Screen sharing was cancelled or
   unavailable`. The configured `Entire screen`, `Screen 1`, `Entire Screen`,
-  and `Screen` tokens all failed the same way.
+  and `Screen` tokens all failed the same way. System Chrome was tested but did
+  not load the seeded unpacked extension service worker from the existing
+  profile.
 - Phase 6 still needs two real hosts for media-connected assertions.
 
 ## Open items to confirm before Phase 4+

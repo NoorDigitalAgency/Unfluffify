@@ -157,11 +157,19 @@ code when available, writes state snapshots, and marks same-host media assertion
 as gated/skipped.
 
 Current live status as of 2026-06-06: the harness reaches the runtime request
-path with a seeded token, but the current real display (`DISPLAY=:0`, Wayland)
-returns `Screen sharing was cancelled or unavailable` before a support code is
-issued. The `captureSourceTitle` values `Entire screen`, `Screen 1`,
-`Entire Screen`, and `Screen` all failed. Re-run after verifying the exact host
-desktop-capture source/portal behavior.
+path with a seeded token, but the current real display (`DISPLAY=:0`, GNOME
+Wayland remote desktop) returns `Screen sharing was cancelled or unavailable`
+before a support code is issued. The `captureSourceTitle` values
+`Entire screen`, `Screen 1`, `Entire Screen`, and `Screen` all failed. The
+Wayland/PipeWire flags below also failed in the same capture step. Re-run after
+verifying the exact host desktop-capture source/portal behavior.
+
+For host-specific capture experiments, pass extra Chrome flags with repeated
+`--chrome-arg` values:
+
+```bash
+node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen" --chrome-arg "--enable-features=WebRTCPipeWireCapturer" --chrome-arg "--ozone-platform=wayland"
+```
 
 ## Two-machine bring-up
 

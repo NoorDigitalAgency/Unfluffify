@@ -48,5 +48,10 @@
 
   // Optional desktop-capture source title substring for automated screen
   // sharing. This is locale/case-sensitive; verify the exact value per host.
-  "captureSourceTitle": "Entire screen"
+  "captureSourceTitle": "Entire screen",
+
+  // Optional extra Chrome launch flags for host-specific capture debugging.
+  // Example for Wayland/PipeWire capture tests:
+  // ["--enable-features=WebRTCPipeWireCapturer", "--ozone-platform=wayland"]
+  "chromeArgs": []
 }

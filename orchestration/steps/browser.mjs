@@ -39,6 +39,9 @@ export function buildChromeLaunchArgs(config = {}) {
   if (config.captureSourceTitle) {
     args.push(`--auto-select-desktop-capture-source=${config.captureSourceTitle}`);
   }
+  if (Array.isArray(config.chromeArgs)) {
+    args.push(...config.chromeArgs.filter((arg) => typeof arg === "string" && arg.trim()));
+  }
 
   return args;
 }

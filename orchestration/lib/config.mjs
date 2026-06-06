@@ -18,10 +18,16 @@ export function parseCliArgs(argv = []) {
     }
     const key = value.slice(2);
     const next = argv[index + 1];
-    if (!next || next.startsWith("--")) {
-      result[key] = true;
+    const forceValue = key === "chrome-arg" || key === "chrome-args";
+    const nextValue = !next || (!forceValue && next.startsWith("--")) ? true : next;
+    if (Object.prototype.hasOwnProperty.call(result, key)) {
+      result[key] = Array.isArray(result[key])
+        ? result[key].concat(nextValue)
+        : [result[key], nextValue];
     } else {
-      result[key] = next;
+      result[key] = nextValue;
+    }
+    if (nextValue !== true) {
       index += 1;
     }
   }
@@ -50,6 +56,13 @@ function normalizePort(value) {
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeStringList(value) {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .map((item) => normalizeString(item))
+    .filter(Boolean);
 }
 
 function resolveMaybeRelativePath(value, cwd) {
@@ -113,7 +126,8 @@ export async function loadOrchestrationConfig(options = {}) {
         profileDir: cli["profile-dir"],
         stageBase: cli["stage-base"],
         testPropertyUrl: cli["property-url"],
-        captureSourceTitle: cli["capture-source-title"]
+        captureSourceTitle: cli["capture-source-title"],
+        chromeArgs: cli["chrome-arg"] || cli["chrome-args"]
       }).filter(([, value]) => typeof value !== "undefined" && value !== true)
     )
   };
@@ -145,6 +159,7 @@ export async function loadOrchestrationConfig(options = {}) {
     stageBase: normalizeString(merged.stageBase),
     testPropertyUrl: normalizeString(merged.testPropertyUrl) || DEFAULT_TEST_PROPERTY_URL,
     captureSourceTitle: normalizeString(merged.captureSourceTitle),
+    chromeArgs: normalizeStringList(merged.chromeArgs),
     runRoot: resolveMaybeRelativePath(merged.runRoot || "orchestration/runs", cwd)
   };
 }

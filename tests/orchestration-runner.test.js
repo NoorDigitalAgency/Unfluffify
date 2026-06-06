@@ -68,7 +68,9 @@ test("orchestration config loader merges local config with CLI overrides", async
         "--config", configPath,
         "--role", "director",
         "--bus-port", "9010",
-        "--capture-source-title", "Screen 1"
+        "--capture-source-title", "Screen 1",
+        "--chrome-arg", "--enable-features=WebRTCPipeWireCapturer",
+        "--chrome-arg", "--ozone-platform=wayland"
       ],
       env: {}
     });
@@ -80,6 +82,10 @@ test("orchestration config loader merges local config with CLI overrides", async
     assert.equal(config.busUrl, "ws://10.0.0.2:9010");
     assert.equal(config.testPropertyUrl, "https://prowork.se/");
     assert.equal(config.captureSourceTitle, "Screen 1");
+    assert.deepEqual(config.chromeArgs, [
+      "--enable-features=WebRTCPipeWireCapturer",
+      "--ozone-platform=wayland"
+    ]);
     assert.equal(config.profileDir, path.join(tmp, "profiles/follower"));
   } finally {
     await rm(tmp, { recursive: true, force: true });
@@ -118,13 +124,19 @@ test("orchestration config loader reads commented default JSONC config", async (
 test("browser launch args load only the unpacked extension and enable media automation", () => {
   const args = buildChromeLaunchArgs({
     extensionPath: "/tmp/unfluffify",
-    captureSourceTitle: "Entire screen"
+    captureSourceTitle: "Entire screen",
+    chromeArgs: [
+      "--enable-features=WebRTCPipeWireCapturer",
+      "--ozone-platform=wayland"
+    ]
   });
   assert.ok(args.includes("--disable-extensions-except=/tmp/unfluffify"));
   assert.ok(args.includes("--load-extension=/tmp/unfluffify"));
   assert.ok(args.includes("--use-fake-ui-for-media-stream"));
   assert.ok(args.includes("--use-fake-device-for-media-stream"));
   assert.ok(args.includes("--auto-select-desktop-capture-source=Entire screen"));
+  assert.ok(args.includes("--enable-features=WebRTCPipeWireCapturer"));
+  assert.ok(args.includes("--ozone-platform=wayland"));
 });
 
 test("extension reload starts waiting for the replacement worker before reloading", async () => {

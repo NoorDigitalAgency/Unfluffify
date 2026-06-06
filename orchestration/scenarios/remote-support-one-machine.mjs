@@ -287,7 +287,8 @@ export async function runRemoteSupportOneMachineScenario(options = {}) {
     logPath,
     propertyUrl,
     supportPageUrl,
-    captureSourceTitle: baseConfig.captureSourceTitle || ""
+    captureSourceTitle: baseConfig.captureSourceTitle || "",
+    chromeArgs: Array.isArray(baseConfig.chromeArgs) ? baseConfig.chromeArgs : []
   };
 
   try {

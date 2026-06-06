@@ -108,18 +108,21 @@ same-base non-candidate URL for the chosen property.
 
 Phase 5 now has a direct scenario:
 
-`node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"`
+`node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen" --chrome-arg "--enable-features=WebRTCPipeWireCapturer" --chrome-arg "--ozone-platform=wayland"`
 
 Latest live result:
-`orchestration/runs/2026-06-06T21-55-04-671Z-remote-support-phase5` ran on the
-real display (`DISPLAY=:0`, Wayland) and returned `ok:false`. It confirmed
-`directorTokenAvailable:true` and `requestRuntimeAvailable:true`, then
-`remoteSupportRequestCode` failed with `Screen sharing was cancelled or
-unavailable` before a support code was issued. Tried `captureSourceTitle` values
-`Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`; all failed the same
-way. Re-run after verifying the host desktop-capture source/portal behavior.
-Media-connected assertions remain two-machine-gated and are recorded as skipped
-by the scenario, not faked.
+`orchestration/runs/2026-06-06T22-08-05-959Z-remote-support-phase5` ran on the
+real display (`DISPLAY=:0`, GNOME Wayland remote desktop) and returned
+`ok:false`. It confirmed `directorTokenAvailable:true` and
+`requestRuntimeAvailable:true`, then `remoteSupportRequestCode` failed with
+`Screen sharing was cancelled or unavailable` before a support code was issued.
+Tried `captureSourceTitle` values `Entire screen`, `Screen 1`, `Entire Screen`,
+and `Screen`; all failed the same way. The latest run also included
+`--enable-features=WebRTCPipeWireCapturer` and `--ozone-platform=wayland`.
+System Chrome was tested but did not load the seeded unpacked extension service
+worker from the existing profile. Re-run after verifying the host
+desktop-capture source/portal behavior. Media-connected assertions remain
+two-machine-gated and are recorded as skipped by the scenario, not faked.
 
 Next step: fix the host capture setup, then rerun Phase 5 and proceed to Phase 6
 two-host bring-up once a host can grant/auto-select desktop capture.
