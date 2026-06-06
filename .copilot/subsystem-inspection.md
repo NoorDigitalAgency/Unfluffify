@@ -255,6 +255,25 @@ Cross-checks that passed:
   `content-main.handlePageTelemetryWindowMessage` requires the current nonce,
   requires active support mode, sanitizes the message, and drops any
   page-supplied `tabId` before forwarding to background.
+- **Independent verification 2026-06-06 (reviewer):** confirmed correct.
+  Lifecycle is driven by `applyRemoteSupportSessionState` →
+  `syncPageTelemetryBridgeLifecycle()` (install only in `being_supported`,
+  teardown otherwise); `main()` no longer installs unconditionally.
+  `extension-telemetry.installExtensionTelemetry` now returns an `uninstall`
+  controller that restores the original `console`/`fetch`/`XHR` (guarded
+  against clobbering re-wraps), so teardown genuinely unwraps. Full
+  `npm test` 553/553; AI-submission smoke clean (`errs=0`,
+  `snapshot.ok=true`, `hasFreezeNode=false`).
+- **Residual (Low, inherent to MAIN↔ISOLATED): nonce is observable.** The
+  per-session nonce is delivered to the MAIN-world script via
+  `window.postMessage`, which a page script in the same window can read. So
+  during an ACTIVE support session a page that actively eavesdrops on window
+  `message` events could still capture the nonce and inject fabricated
+  telemetry. Because the DevTools panels render via `textContent`, this is
+  pollution-not-RCE, and the exposure window is now only an active support
+  session (was: every activated tab, blind static-marker injection). Fully
+  closing it would need a transferred `MessagePort`/handshake the page cannot
+  intercept; acceptable to leave as-is for now.
 - Before the fix, `common/page-telemetry.js` was injected as a persistent
   MAIN-world `<script>` by `ensurePageTelemetryBridge()` in `content-main.js`
   `main()` — on EVERY activated tab, regardless of whether a remote-support
