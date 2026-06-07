@@ -162,7 +162,16 @@ export function createRpcClient(options = {}) {
       }, timeoutMs);
       pending.set(key, { resolve, reject, timeout });
     });
-    socket.send(JSON.stringify(payload));
+    try {
+      socket.send(JSON.stringify(payload));
+    } catch (error) {
+      const record = pending.get(key);
+      if (record) {
+        clearTimeout(record.timeout);
+        pending.delete(key);
+      }
+      throw toError(error, "RPC socket send failed");
+    }
     return resultPromise;
   }
 
