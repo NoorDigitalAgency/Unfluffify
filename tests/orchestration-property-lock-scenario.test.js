@@ -45,6 +45,36 @@ test("property-lock scenario extracts release identity from initial tab state", 
     }
   });
 
+  test("property-lock scenario tolerates null state values", () => {
+    assert.deepEqual(getPropertyLockIdentityFromState(null), {
+      siteId: null,
+      clientId: "",
+      baseUrl: ""
+    });
+    assert.deepEqual(buildPropertyLockIdentityDiagnostics(null, null), {
+      director: {
+        isEditor: false,
+        identity: {
+          siteId: null,
+          clientId: "",
+          baseUrl: ""
+        }
+      },
+      follower: {
+        isEditor: false,
+        identity: {
+          siteId: null,
+          clientId: "",
+          baseUrl: ""
+        }
+      },
+      sameSiteId: false,
+      sameBaseUrl: false,
+      sameClientId: false,
+      bothEditor: false
+    });
+  });
+
   assert.deepEqual(identity, {
     siteId: 5542,
     clientId: "client-1",
