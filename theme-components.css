@@ -417,8 +417,6 @@ button.loading:disabled {
   overflow: hidden;
   font-size: 12px;
   font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .property-lock__detail {
