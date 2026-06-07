@@ -50,9 +50,14 @@ Cluster 6 (lower): render mode and conditional UI visibility
 
 ## 4-Hour Timeline
 
-Phase A (00:00-00:25)
+Phase A (00:00-00:25) - DONE
 - Repro matrix and instrumentation pass for Cluster 1 and Cluster 2.
 - Identify message/event paths and stale state sources.
+- Result: full event/state map + root causes recorded in
+  .copilot/handoff-core-hotfix.md (Phase A Findings). Key roots: dual
+  spinner source-of-truth (background vs popup) with polling reconciler;
+  blink = hide->reveal cycle in renderSilentHighlightOverlay reused by every
+  reposition.
 
 Phase B (00:25-01:45) - Cluster 1
 - Implement lifecycle/spinner source-of-truth and timeout cleanup.
