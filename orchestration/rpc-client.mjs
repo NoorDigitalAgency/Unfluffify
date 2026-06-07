@@ -89,14 +89,22 @@ export function createRpcClient(options = {}) {
     return new Promise((resolve, reject) => {
       const onOpen = () => {
         socket.removeEventListener("error", onError);
+        socket.removeEventListener("close", onClose);
         resolve();
       };
       const onError = (error) => {
         socket.removeEventListener("open", onOpen);
+        socket.removeEventListener("close", onClose);
         reject(error);
+      };
+      const onClose = () => {
+        socket.removeEventListener("open", onOpen);
+        socket.removeEventListener("error", onError);
+        reject(new Error("RPC socket closed before opening"));
       };
       socket.addEventListener("open", onOpen, { once: true });
       socket.addEventListener("error", onError, { once: true });
+      socket.addEventListener("close", onClose, { once: true });
     });
   }
 
