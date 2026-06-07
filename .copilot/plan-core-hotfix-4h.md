@@ -112,7 +112,64 @@ SESSION 3 + "STRONG ROOT-CAUSE HYPOTHESIS"), because it plausibly underlies #3,
 Do not start #16, #17, or any Cluster 3-6 issue before the above is resolved or
 explicitly deprioritized by the owner.
 
+## Difficulty / effort rating (tuned for Copilot Local "Auto")
+
+Copilot Local's "Auto" model selector reads the task PROMPT to pick a model, but
+it cannot see these markdown labels and does not infer "this needs a smart
+model" from a doc. So each task below carries an explicit difficulty/effort tag
+that you USE in two ways:
+
+  1. As the human dispatching the task: paste the task's difficulty cue into the
+     chat prompt so Auto has the signal (e.g. start hard tasks with
+     "This is a hard, multi-layer runtime debugging task that needs deep
+     reasoning:"). Auto routes on prompt wording, so say it out loud.
+  2. As the working agent: treat the tag as a budget/depth contract - spend
+     proportional reasoning, and HAND BACK (don't guess) if a task tagged HARD
+     lands on you while you're clearly a small/fast model with no live-debug
+     capability.
+
+Scale (difficulty = inherent problem hardness; effort = reasoning depth to ask
+for; live? = needs the browser/owner per the capability gate):
+
+  - TRIVIAL  : single-file, mechanical, unit-testable. Effort: low. Any model.
+  - EASY     : bounded logic, one layer, clear repro or pure unit test.
+               Effort: low-medium.
+  - MEDIUM   : spans 2 layers or needs a careful reconcile; deterministic test
+               possible. Effort: medium.
+  - HARD     : open-ended live diagnosis across popup/broker/content, no clean
+               repro yet, or root-cause hunting. Effort: high. Needs a strong
+               model AND live capability.
+
+Per-task ratings (OPEN issues only; FIXED ones need no rating):
+
+| Task | Difficulty | Effort | Live? | Note |
+|------|-----------|--------|-------|------|
+| ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | #1 priority; underlies #3/#13/marking-not-enabling. Cross-layer live diagnosis. |
+| #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | Likely a symptom of the root-cause lead; do that first. |
+| B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | Decide revert vs keep; must re-verify real navInspect flows live. |
+| #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | Needs AI preview list populated; reconcile vs collectSilentHighlightRenderTargets. |
+| #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
+| #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
+| #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
+| #19 "Preview in desktop mode" shown after silent landing | EASY | low-medium | yes | Conditional-UI; overlaps #14. |
+| #14 "Preview in desktop mode" visibility/enable/note rules | EASY | low-medium | partial | Mostly view-flag logic; can unit-test the gating. |
+| #10 lock countdown resets to 30 and loops | MEDIUM | medium | yes | Cluster 4 timer/state loop. |
+| #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
+| #12 render-mode options reset while countdown banner shows | MEDIUM | medium | yes | |
+| #7  discard-confirm delayed on uncheck | EASY | low-medium | yes | |
+| #8  discard-confirm delayed on navigation | EASY | low-medium | yes | |
+| #9  fast repeated debugger disable not detected | MEDIUM | medium | yes | Timing/race detection. |
+| #13 "With JavaScript" runs reveal/freeze on fresh non-candidate page | HARD | high | yes | Linked to root-cause lead. |
+| #6  marking applies after a few seconds (scheduleRender delay) | TRIVIAL | low | perceptual | candidate: delay 50ms->0 for user-driven renders; verify perceptually. |
+| #20 trace enabled in sync but checkbox off / no logs | EASY | low-medium | partial | Reconcile checkbox + per-tab trace round-trip; unit-testable in part. |
+| #4  spinner text out of sync (LOW) | EASY | low | yes | Cosmetic; revisit after #3. |
+
+If you are on Auto and the task is HARD, prompt Auto explicitly toward its
+strongest reasoning model and confirm live capability before starting; if it is
+TRIVIAL/EASY, a fast model is the credit-efficient choice.
+
 ## Issue clusters and status
+
 
 See `.copilot/handoff-core-hotfix.md` "Issue status" for the authoritative,
 per-issue state. ALL 20 reported issues, verbatim intent + status:
