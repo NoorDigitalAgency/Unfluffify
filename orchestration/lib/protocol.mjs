@@ -36,6 +36,10 @@ function isJsonRpcId(value) {
   return isNonEmptyString(value) || (Number.isFinite(value) && !Number.isNaN(value));
 }
 
+function isJsonRpcErrorResponseId(value) {
+  return value === null || isJsonRpcId(value);
+}
+
 function optionalPlainObject(value) {
   return typeof value === "undefined" || isPlainObject(value);
 }
@@ -101,18 +105,24 @@ export function normalizeRpcMessage(candidate) {
     return { ok: true, kind: "notification", message: candidate };
   }
 
-  if (!hasId || !isJsonRpcId(candidate.id)) {
-    return { ok: false, error: "RPC response id must be a non-empty string or finite number" };
-  }
   if (hasResult === hasError) {
     return { ok: false, error: "RPC response must include exactly one of result or error" };
   }
   if (hasError) {
+    if (!hasId || !isJsonRpcErrorResponseId(candidate.id)) {
+      return {
+        ok: false,
+        error: "RPC error response id must be null, a non-empty string, or finite number"
+      };
+    }
     const normalizedError = normalizeRpcError(candidate.error);
     if (!normalizedError.ok) {
       return normalizedError;
     }
     return { ok: true, kind: "error", message: candidate };
+  }
+  if (!hasId || !isJsonRpcId(candidate.id)) {
+    return { ok: false, error: "RPC response id must be a non-empty string or finite number" };
   }
   return { ok: true, kind: "response", message: candidate };
 }
