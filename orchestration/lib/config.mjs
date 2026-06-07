@@ -65,7 +65,7 @@ function deriveMediaMode(rawMediaMode, legacyUseFakeMedia) {
     return normalizeMediaMode(explicitMode);
   }
   if (legacyUseFakeMedia === null) {
-    return normalizeMediaMode("");
+    return "fake";
   }
   return legacyUseFakeMedia ? "fake" : "real";
 }

@@ -87,6 +87,7 @@ test("orchestration config loader merges local config with CLI overrides", async
     assert.equal(config.mediaMode, "real");
     assert.equal(config.useFakeMedia, false);
     assert.equal(config.testPropertyUrl, "https://prowork.se/");
+    // Loader normalization stores origins, not raw URLs with trailing slash/path.
     assert.deepEqual(config.insecureOrigins, ["https://www.bonliva.no"]);
     assert.equal(config.captureSourceTitle, "Screen 1");
     assert.deepEqual(config.chromeArgs, [
