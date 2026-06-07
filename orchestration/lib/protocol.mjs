@@ -64,8 +64,8 @@ function normalizeRpcError(error) {
   if (!isPlainObject(error)) {
     return { ok: false, error: "rpc.error must be an object" };
   }
-  if (!Number.isFinite(error.code)) {
-    return { ok: false, error: "rpc.error.code must be a finite number" };
+  if (!Number.isInteger(error.code)) {
+    return { ok: false, error: "rpc.error.code must be an integer" };
   }
   if (!isNonEmptyString(error.message)) {
     return { ok: false, error: "rpc.error.message must be a non-empty string" };
