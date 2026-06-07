@@ -70,7 +70,7 @@ test("orchestration config loader merges local config with CLI overrides", async
         "--bus-port", "9010",
         "--display-mode", "wayland",
         "--media-mode", "real",
-        "--insecure-origin", "https://www.bonliva.no/",
+        "--insecure-origins", "https://www.bonliva.no/",
         "--capture-source-title", "Screen 1",
         "--chrome-arg", "--enable-features=WebRTCPipeWireCapturer",
         "--chrome-arg", "--ozone-platform=wayland"

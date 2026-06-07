@@ -59,6 +59,17 @@ function normalizeMediaMode(value) {
   return value === "real" ? "real" : "fake";
 }
 
+function deriveMediaMode(rawMediaMode, legacyUseFakeMedia) {
+  const explicitMode = normalizeString(rawMediaMode);
+  if (explicitMode) {
+    return normalizeMediaMode(explicitMode);
+  }
+  if (legacyUseFakeMedia === null) {
+    return normalizeMediaMode("");
+  }
+  return legacyUseFakeMedia ? "fake" : "real";
+}
+
 function normalizePort(value) {
   const port = Number(value);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 8765;
@@ -191,10 +202,7 @@ export async function loadOrchestrationConfig(options = {}) {
   const extensionPath = resolveMaybeRelativePath(merged.extensionPath || ".", cwd);
   const profileDir = resolveMaybeRelativePath(merged.profileDir || DEFAULT_PROFILE_DIR, cwd);
   const mediaModeFromLegacy = normalizeBooleanLike(merged.useFakeMedia);
-  const mediaMode = normalizeMediaMode(
-    normalizeString(merged.mediaMode) ||
-      (mediaModeFromLegacy === null ? "" : mediaModeFromLegacy ? "fake" : "real")
-  );
+  const mediaMode = deriveMediaMode(merged.mediaMode, mediaModeFromLegacy);
 
   return {
     configPath,

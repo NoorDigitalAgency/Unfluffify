@@ -71,7 +71,7 @@ function writeUpgradeRejection(socket) {
 export function createRpcServer(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const runRoot = path.resolve(options.runRoot || "orchestration/runs");
-  const runId = options.runId || `${createRunId()}-rpc-follower-B`;
+  const runId = options.runId || `${createRunId()}-rpc-server`;
   const runDir = options.runDir || path.join(runRoot, runId);
   const transcriptPath = path.join(runDir, "rpc.log");
   const expectedToken = options.token || process.env.UNFLUFFIFY_RPC_TOKEN || "";

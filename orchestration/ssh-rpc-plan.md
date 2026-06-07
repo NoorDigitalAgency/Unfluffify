@@ -54,7 +54,7 @@ Add these gitignored files as the stable storage targets:
 - `orchestration/.secrets.jsonc`: existing endpoint and account source, if the
   implementation chooses to keep using it.
 
-Suggested `ssh-rpc.local.jsonc` shape:
+Planned `ssh-rpc.local.jsonc` shape:
 
 ```jsonc
 {
@@ -93,7 +93,7 @@ Suggested `ssh-rpc.local.jsonc` shape:
 }
 ```
 
-Suggested `ssh-rpc.secrets.jsonc` shape:
+Planned `ssh-rpc.secrets.jsonc` shape:
 
 ```jsonc
 {

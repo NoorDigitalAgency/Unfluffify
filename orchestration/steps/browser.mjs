@@ -29,24 +29,21 @@ export function buildChromeLaunchArgs(config = {}) {
   const extensionPath = config.extensionPath || process.cwd();
   const mediaMode = config.mediaMode === "real" ? "real" : "fake";
   const extraOrigins = Array.isArray(config.insecureOrigins) ? config.insecureOrigins : [];
+  const originCandidates = [config.testPropertyUrl, config.supportPageUrl, ...extraOrigins]
+    .filter((value) => typeof value === "string" && value.trim());
   const insecureOrigins = Array.from(
     new Set(
-      [config.testPropertyUrl, config.supportPageUrl, ...extraOrigins]
-        .map((value) => {
-          if (typeof value !== "string" || !value.trim()) {
+      originCandidates.map((value) => {
+        try {
+          const parsed = new URL(value);
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
             return "";
           }
-          try {
-            const parsed = new URL(value);
-            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-              return "";
-            }
-            return parsed.origin;
-          } catch {
-            return "";
-          }
-        })
-        .filter(Boolean)
+          return parsed.origin;
+        } catch {
+          return "";
+        }
+      }).filter(Boolean)
     )
   );
   const args = [

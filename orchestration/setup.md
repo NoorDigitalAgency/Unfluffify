@@ -190,7 +190,7 @@ expected to validate only request/join/signaling up to the media connection.
 ## SSH RPC transition decisions
 
 The active migration plan in
-`/tmp/workspace/NoorDigitalAgency/Unfluffify/orchestration/ssh-rpc-plan.md`
+`orchestration/ssh-rpc-plan.md`
 is now pinned to these defaults:
 
 - Unix-like remote hosts first.
