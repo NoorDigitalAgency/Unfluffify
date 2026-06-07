@@ -46,7 +46,28 @@ function normalizeSide(value, role) {
 }
 
 function normalizeDisplayMode(value) {
-  return value === "xvfb" ? "xvfb" : "real";
+  if (value === "xvfb") {
+    return "xvfb";
+  }
+  if (value === "wayland") {
+    return "wayland";
+  }
+  return "real";
+}
+
+function normalizeMediaMode(value) {
+  return value === "real" ? "real" : "fake";
+}
+
+function deriveMediaMode(rawMediaMode, legacyUseFakeMedia) {
+  const explicitMode = normalizeString(rawMediaMode);
+  if (explicitMode) {
+    return normalizeMediaMode(explicitMode);
+  }
+  if (legacyUseFakeMedia === null) {
+    return "fake";
+  }
+  return legacyUseFakeMedia ? "fake" : "real";
 }
 
 function normalizePort(value) {
@@ -63,6 +84,43 @@ function normalizeStringList(value) {
   return values
     .map((item) => normalizeString(item))
     .filter(Boolean);
+}
+
+function normalizeBooleanLike(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function normalizeOriginList(value) {
+  const values = normalizeStringList(value);
+  const seen = new Set();
+  const results = [];
+  for (const candidate of values) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      const origin = parsed.origin;
+      if (!seen.has(origin)) {
+        seen.add(origin);
+        results.push(origin);
+      }
+    } catch {}
+  }
+  return results;
 }
 
 function resolveMaybeRelativePath(value, cwd) {
@@ -120,13 +178,22 @@ export async function loadOrchestrationConfig(options = {}) {
         busHost: cli["bus-host"],
         busPort: cli["bus-port"],
         displayMode: cli["display-mode"],
+        mediaMode: cli["media-mode"],
+        useFakeMedia: cli["use-fake-media"],
         chromePath: cli["chrome-path"],
         playwrightModulePath: cli["playwright-module-path"],
         extensionPath: cli["extension-path"],
         profileDir: cli["profile-dir"],
         stageBase: cli["stage-base"],
         testPropertyUrl: cli["property-url"],
+        supportPageUrl: cli["support-page-url"],
         captureSourceTitle: cli["capture-source-title"],
+        insecureOrigins: (() => {
+          const values = [cli["insecure-origin"], cli["insecure-origins"]]
+            .flat()
+            .filter((value) => typeof value === "string" && value.trim());
+          return values.length ? values : undefined;
+        })(),
         chromeArgs: cli["chrome-arg"] || cli["chrome-args"]
       }).filter(([, value]) => typeof value !== "undefined" && value !== true)
     )
@@ -139,6 +206,8 @@ export async function loadOrchestrationConfig(options = {}) {
   const busPort = normalizePort(merged.busPort);
   const extensionPath = resolveMaybeRelativePath(merged.extensionPath || ".", cwd);
   const profileDir = resolveMaybeRelativePath(merged.profileDir || DEFAULT_PROFILE_DIR, cwd);
+  const mediaModeFromLegacy = normalizeBooleanLike(merged.useFakeMedia);
+  const mediaMode = deriveMediaMode(merged.mediaMode, mediaModeFromLegacy);
 
   return {
     configPath,
@@ -149,6 +218,8 @@ export async function loadOrchestrationConfig(options = {}) {
     busPort,
     busUrl: `ws://${busHost}:${busPort}`,
     displayMode: normalizeDisplayMode(merged.displayMode),
+    mediaMode,
+    useFakeMedia: mediaMode === "fake",
     chromePath: resolveMaybeRelativePath(merged.chromePath, cwd),
     playwrightModulePath: resolveMaybeRelativePath(
       merged.playwrightModulePath || env.UNFLUFFIFY_PLAYWRIGHT_PATH || "",
@@ -158,7 +229,9 @@ export async function loadOrchestrationConfig(options = {}) {
     profileDir,
     stageBase: normalizeString(merged.stageBase),
     testPropertyUrl: normalizeString(merged.testPropertyUrl) || DEFAULT_TEST_PROPERTY_URL,
+    supportPageUrl: normalizeString(merged.supportPageUrl),
     captureSourceTitle: normalizeString(merged.captureSourceTitle),
+    insecureOrigins: normalizeOriginList(merged.insecureOrigins),
     chromeArgs: normalizeStringList(merged.chromeArgs),
     runRoot: resolveMaybeRelativePath(merged.runRoot || "orchestration/runs", cwd)
   };
