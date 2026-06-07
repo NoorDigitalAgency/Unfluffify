@@ -1,0 +1,456 @@
+# SSH Playwright RPC orchestration plan
+
+This plan replaces the follower-agent workflow for two-machine testing with a
+director-owned SSH bootstrap and a long-lived Playwright RPC worker on the
+remote machine. It is only test/debug orchestration. It does not replace or
+change the product remote-support transport.
+
+## Goals
+
+- One human starts debugging from the director machine.
+- The director setup script gathers SSH, repo, endpoint, profile, and account
+  details, stores them in gitignored local files, and verifies that both
+  machines are ready.
+- If SSH key auth is unavailable, the setup script can prompt once for a
+  password, generate a repo-local key if needed, copy the public key to the
+  remote host, then continue with key auth.
+- The director launches and owns a remote Playwright RPC server over SSH.
+- The remote RPC server controls the follower browser directly and immediately;
+  no second LLM/agent prompt cycle is involved.
+- Both director and follower Chrome instances launch with deterministic media,
+  permission, capture, and extension flags so tests do not require human
+  selection for screen, camera, microphone, or audio permission prompts.
+- Runs collect enough state, screenshots, traces, browser logs, extension logs,
+  network records, and command transcripts to debug failures from the director
+  side.
+
+## Non-goals
+
+- Do not expose the remote RPC server on a LAN interface by default.
+- Do not store passwords, tokens, or private keys in tracked files.
+- Do not make product remote support depend on Playwright or SSH.
+- Do not require the remote machine to run Codex or another LLM session.
+
+## Open questions
+
+1. Should the bootstrap support only Unix-like remote hosts first, or must it
+   support Windows OpenSSH clients and paths in the first implementation?
+2. Should the generated SSH key live under `orchestration/.ssh/` or reuse the
+   user's normal `~/.ssh` key material when available?
+3. Should the setup script install missing remote dependencies, or only detect
+   and report them? Examples: Node.js version, Playwright package, Chromium
+   browser binaries, `xvfb-run`, `rsync`, and `sshpass`.
+4. Should the remote checkout be updated by `git pull --ff-only`, by `rsync`
+   from the director checkout, or selectable per run?
+5. Should secrets for accounts A/B be copied to the remote checkout, or should
+   the director seed profiles over RPC without writing account credentials on
+   the remote machine?
+6. Which desktop mode is the baseline for two-machine media tests: real desktop,
+   Xvfb, Wayland/PipeWire, or Chrome fake media only?
+7. For screen-share validation, is fake deterministic capture acceptable for
+   most tests, with one optional real-desktop smoke test, or must every run use
+   the real remote desktop capture source?
+
+## Local files
+
+Add these gitignored files as the stable storage targets:
+
+- `orchestration/ssh-rpc.local.jsonc`: machine topology and non-secret paths.
+- `orchestration/ssh-rpc.secrets.jsonc`: account credentials and optional
+  SSH password bootstrap metadata.
+- `orchestration/config.jsonc`: existing per-side browser defaults.
+- `orchestration/.secrets.jsonc`: existing endpoint and account source, if the
+  implementation chooses to keep using it.
+
+Suggested `ssh-rpc.local.jsonc` shape:
+
+```jsonc
+{
+  "remote": {
+    "host": "192.168.86.37",
+    "username": "rojan",
+    "port": 22,
+    "identityFile": "orchestration/.ssh/unfluffify_two_host_ed25519",
+    "repoPath": "/home/rojan/Documents/Git/GitHub/Unfluffify",
+    "nodePath": "node",
+    "playwrightModulePath": "/home/rojan/Desktop/test/node_modules/playwright/index.mjs",
+    "chromePath": "",
+    "profileDir": "orchestration/profiles/follower",
+    "displayMode": "real",
+    "rpcPort": 9876
+  },
+  "director": {
+    "profileDir": "orchestration/profiles/director",
+    "playwrightModulePath": "",
+    "chromePath": ""
+  },
+  "extension": {
+    "configurationEndpoint": "https://example.invalid",
+    "aiEndpoint": "https://example.invalid",
+    "stageBase": "a.example.invalid",
+    "testPropertyUrl": "https://www.example.invalid/",
+    "supportPageUrl": ""
+  },
+  "browser": {
+    "captureSourceTitle": "Entire screen",
+    "viewport": { "width": 1280, "height": 1024 },
+    "useFakeMedia": true,
+    "autoGrantPermissions": true
+  }
+}
+```
+
+Suggested `ssh-rpc.secrets.jsonc` shape:
+
+```jsonc
+{
+  "accounts": {
+    "A": { "email": "", "password": "" },
+    "B": { "email": "", "password": "" }
+  }
+}
+```
+
+Do not persist the SSH password after bootstrap. If a password prompt is needed,
+use it only to run `ssh-copy-id` or append the generated public key to
+`~/.ssh/authorized_keys` on the remote host.
+
+## Setup script flow
+
+Create `orchestration/setup-ssh-rpc.mjs`.
+
+1. Prompt for remote host, username, SSH port, optional identity file path.
+2. Try `ssh -o BatchMode=yes` with the selected key/default agent.
+3. If key auth fails:
+   - Ask whether to generate a dedicated Ed25519 key under
+     `orchestration/.ssh/`.
+   - Prompt for the remote SSH password without echo.
+   - Copy the public key using `ssh-copy-id` when available, otherwise use an
+     SSH command that creates `~/.ssh`, fixes permissions, and appends the
+     public key.
+   - Retry `ssh -o BatchMode=yes`.
+4. Prompt for the remote repo path and verify:
+   - `test -d <repo>/.git`
+   - `node --version`
+   - Playwright import via the configured `UNFLUFFIFY_PLAYWRIGHT_PATH`
+   - extension files exist, including `manifest.json`
+5. Prompt for extension configuration:
+   - Configuration Endpoint
+   - AI Endpoint
+   - Stage Base
+   - default property URL
+   - optional support page URL override
+6. Prompt for account A and B credentials. Store only in ignored secrets files.
+7. Prompt for browser mode:
+   - `fake-media` for deterministic CI/debugging.
+   - `real-media` for desktop capture validation.
+   - `xvfb` if no real display is available.
+8. Write local config/secrets atomically with file mode `0600`.
+9. Run local and remote preflight checks.
+10. Offer to seed director and follower profiles.
+11. Offer to start the remote RPC server and run a smoke command.
+
+The setup script should print exact commands it runs, but redact passwords,
+tokens, and bearer credentials.
+
+## Remote process model
+
+Create `orchestration/rpc-server.mjs`.
+
+- Runs on the remote machine from the remote repo checkout.
+- Listens on `127.0.0.1:<rpcPort>` only.
+- The director reaches it through SSH local port forwarding:
+
+  ```bash
+  ssh -N -L 9876:127.0.0.1:9876 user@host
+  ```
+
+- The director should be able to start it with one SSH command:
+
+  ```bash
+  cd <repo> &&
+  UNFLUFFIFY_PLAYWRIGHT_PATH=<path> \
+  node orchestration/rpc-server.mjs --host 127.0.0.1 --port 9876
+  ```
+
+- The server owns one or more named browser contexts and rejects attempts to
+  reuse a profile already locked by another Chrome process.
+- It writes a command transcript and artifacts under
+  `orchestration/runs/<timestamp>-rpc-follower-B/`.
+- It supports graceful shutdown and emergency browser cleanup.
+
+Create `orchestration/rpc-client.mjs` for the director-side library and optional
+CLI smoke commands.
+
+## Transport protocol
+
+Use WebSocket JSON-RPC 2.0 over the SSH tunnel. JSON-RPC gives request ids,
+responses, notifications, and error shape without inventing new framing.
+
+Request envelope:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "cmd_0001",
+  "method": "browser.launch",
+  "params": {}
+}
+```
+
+Success:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "cmd_0001",
+  "result": { "ok": true }
+}
+```
+
+Failure:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "cmd_0001",
+  "error": {
+    "code": -32000,
+    "message": "Popup did not become ready",
+    "data": {
+      "category": "timeout",
+      "artifactPath": "orchestration/runs/.../failure.png"
+    }
+  }
+}
+```
+
+Notification:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "event.console",
+  "params": {
+    "contextId": "follower",
+    "pageId": "property",
+    "level": "error",
+    "text": "..."
+  }
+}
+```
+
+Each command should accept `timeoutMs` and `traceId`. Every response should
+include `durationMs` and relevant artifact paths when generated.
+
+## RPC method surface
+
+### System
+
+- `system.ping`: return process id, hostname, platform, cwd, git commit, Node
+  version, Playwright resolution, display variables, and server uptime.
+- `system.preflight`: verify repo, extension path, Node, Playwright import,
+  browser executable, display mode, writable run dir, and profile lock status.
+- `system.env`: return a redacted view of selected environment variables.
+- `system.exec`: run allowlisted diagnostic commands, disabled by default unless
+  started with `--allow-exec`.
+- `system.shutdown`: close browsers, flush artifacts, and stop the RPC server.
+
+### Browser lifecycle
+
+- `browser.launch`: launch persistent Chromium with extension loaded.
+- `browser.close`: close a named browser context.
+- `browser.resetProfile`: delete or archive a named profile after the browser is
+  closed.
+- `browser.contexts`: list active contexts, pages, workers, extension ids, and
+  profile dirs.
+- `browser.grantPermissions`: grant camera, microphone, clipboard, geolocation,
+  and notification permissions for configured origins.
+- `browser.setViewport`: set default viewport or page-specific viewport.
+- `browser.startTracing`: start Playwright trace, HAR, console, and screenshot
+  collection.
+- `browser.stopTracing`: stop tracing and return artifact paths.
+
+### Page control
+
+- `page.new`: create a page in a context.
+- `page.goto`: navigate with `waitUntil`, timeout, and expected URL matching.
+- `page.reload`: reload and wait.
+- `page.close`: close a page.
+- `page.bringToFront`: focus a page.
+- `page.waitForSelector`: wait for DOM readiness.
+- `page.click`: click a selector or coordinates.
+- `page.fill`: fill a selector.
+- `page.press`: send a key.
+- `page.evaluate`: evaluate a function body with JSON params. Require an
+  explicit `unsafe: true` flag in the caller to make this visible in logs.
+- `page.screenshot`: capture full page or viewport.
+- `page.videoFrame`: capture a screenshot from a video element if possible.
+- `page.contentSnapshot`: return URL, title, selected DOM text, active element,
+  visibility state, and focused frame info.
+
+### Extension control
+
+- `extension.resolve`: wait for the extension service worker and extension id.
+- `extension.reload`: reload the unpacked extension and reacquire the worker.
+- `extension.openPopup`: open `popup.html?debugTabId=<tabId>`.
+- `extension.sendMessage`: call `chrome.runtime.sendMessage` through the worker
+  or popup.
+- `extension.storage.get`: read `chrome.storage.sync`, `local`, and `session`
+  keys with redaction support.
+- `extension.storage.set`: set configuration keys during setup.
+- `extension.worker.evaluate`: evaluate diagnostic code in the service worker.
+- `extension.collectLogs`: return recent background, popup, content, console,
+  and network telemetry captured by the harness.
+
+### Auth and configuration
+
+- `auth.seedProfile`: configure endpoints and log in a selected account.
+- `auth.verifyToken`: assert the selected profile has a stored token.
+- `auth.clearToken`: clear stale token and account state.
+- `config.applyExtensionSettings`: set Configuration Endpoint, AI Endpoint, and
+  Stage Base through the extension UI or storage contract.
+- `config.readExtensionSettings`: return redacted current extension settings.
+
+### Remote support test helpers
+
+- `remoteSupport.openRequester`: open a property page and popup as account A.
+- `remoteSupport.requestCode`: call the runtime request-code contract and wait
+  for a support code.
+- `remoteSupport.openSupportPage`: open the support page as account B.
+- `remoteSupport.join`: call the runtime join contract with a support code.
+- `remoteSupport.readState`: return requester/supporter runtime state.
+- `remoteSupport.waitForState`: wait for active, connected, partnerConnected,
+  streaming, error, role, or supportCode predicates.
+- `remoteSupport.end`: end the session and verify inactive state.
+- `remoteSupport.mediaSnapshot`: collect video/audio element state, WebRTC
+  stats, track labels, ready states, dimensions, and muted/enabled flags.
+- `remoteSupport.getWebRtcStats`: return selected `RTCPeerConnection.getStats`
+  metrics from viewer/offscreen contexts when reachable.
+
+### Property lock test helpers
+
+- `property.open`: open a property URL and activate content.
+- `property.readLockState`: return page banner, popup lock state, background tab
+  state, and selected candidate state.
+- `property.takeLock`: request or take over the lock.
+- `property.releaseLock`: release the lock.
+- `property.waitForLockState`: wait for owner/read-only/takeover/countdown
+  predicates.
+
+### Debug artifact collection
+
+- `debug.snapshotAll`: collect screenshots, DOM summaries, extension state,
+  browser logs, current URLs, WebRTC state, storage snapshots, and process info.
+- `debug.tailRunLog`: stream recent server transcript lines.
+- `debug.downloadArtifact`: fetch a named artifact over the RPC connection.
+- `debug.mark`: write a named marker into the run transcript.
+
+## Browser launch policy
+
+Both director and remote browser launch should use a shared helper that builds
+Chrome flags. Baseline flags:
+
+```text
+--no-sandbox
+--disable-dev-shm-usage
+--disable-extensions-except=<extensionPath>
+--load-extension=<extensionPath>
+--use-fake-ui-for-media-stream
+--use-fake-device-for-media-stream
+--auto-accept-camera-and-microphone-capture
+--allow-http-screen-capture
+--disable-features=MediaRouter
+--enable-features=WebRTCPipeWireCapturer
+--unsafely-treat-insecure-origin-as-secure=<configured origins>
+```
+
+When `captureSourceTitle` is configured:
+
+```text
+--auto-select-desktop-capture-source=<captureSourceTitle>
+```
+
+For deterministic non-human media tests, prefer fake media:
+
+```text
+--use-fake-device-for-media-stream
+--use-fake-ui-for-media-stream
+--use-file-for-fake-video-capture=<optional y4m fixture>
+--use-file-for-fake-audio-capture=<optional wav fixture>
+```
+
+For real screen-share validation, run on a real desktop when possible. Xvfb can
+validate automation and extension behavior, but it may not represent the actual
+Wayland/PipeWire portal path. The setup script should record `DISPLAY`,
+`WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`, `PIPEWIRE_RUNTIME_DIR`, and the exact
+Chrome capture title used.
+
+Use Playwright context permissions in addition to flags:
+
+```js
+await context.grantPermissions([
+  "camera",
+  "microphone",
+  "clipboard-read",
+  "clipboard-write",
+  "notifications"
+], { origin });
+```
+
+## Director scenario flow
+
+Create `orchestration/two-host-debug.mjs`.
+
+1. Load `ssh-rpc.local.jsonc` and `ssh-rpc.secrets.jsonc`.
+2. Verify SSH key auth with `BatchMode=yes`.
+3. Start an SSH tunnel to the remote RPC port.
+4. Start the remote RPC server if it is not already healthy.
+5. Run `system.preflight` remotely and locally.
+6. Launch director browser profile A locally.
+7. Launch follower browser profile B remotely.
+8. Seed or verify both profiles.
+9. Execute the chosen scenario entirely from the director process.
+10. On failure, call `debug.snapshotAll` on both sides before cleanup.
+11. Save a combined summary under `orchestration/runs/<timestamp>-two-host/`.
+12. Close browsers and the tunnel unless `--keep-open` is set.
+
+## Security model
+
+- Bind remote RPC to `127.0.0.1`.
+- Reach remote RPC only through SSH local forwarding.
+- Generate a random per-run RPC bearer token and pass it to the remote server in
+  the SSH command environment. Require it on the WebSocket upgrade.
+- Redact account passwords, auth tokens, endpoint credentials, cookies, and
+  Authorization headers from all logs and responses.
+- Store generated private keys with mode `0600`.
+- Store local config/secrets with mode `0600`.
+- Never print the SSH password or persist it after key installation.
+
+## Implementation phases
+
+1. Add shared browser launch flag builder and tests around deterministic media
+   flags.
+2. Add JSON-RPC framing helpers and unit tests.
+3. Add remote RPC server with `system.*`, `browser.*`, `page.*`, and
+   `debug.snapshotAll`.
+4. Add extension/auth/remote-support/property-lock method groups.
+5. Add SSH setup script and gitignored config/secrets files.
+6. Add director two-host scenario runner.
+7. Retire the two-agent follower instructions from `setup.md` after the SSH RPC
+   runner passes the current Phase 6 validation.
+
+## Acceptance criteria
+
+- A fresh director machine can run one setup script, provide SSH details and
+  account credentials, and produce ignored local config files.
+- If SSH key auth is absent, the script can install a dedicated key and retry
+  without requiring another password prompt.
+- The director can start the remote RPC server over SSH and receive
+  `system.ping`.
+- The director can launch both browsers with extension profiles and no media
+  permission prompts.
+- The director can run a remote-support request/join handshake without any
+  second agent prompt.
+- On failure, the run directory contains enough artifacts to inspect both
+  browsers without accessing the remote desktop manually.
