@@ -171,13 +171,13 @@ export function createRpcServer(options = {}) {
           close().catch(() => {});
         }, 10);
       }
-      await append({ direction: "response", method: request.method, id: request.id, ok: true });
+      append({ direction: "response", method: request.method, id: request.id, ok: true }).catch(() => {});
     } catch (error) {
       const message = String(error && error.message ? error.message : error);
       if (typeof request.id !== "undefined") {
         peer.sendJson(createRpcError(request.id, -32000, message));
       }
-      await append({ direction: "response", method: request.method, id: request.id, ok: false, error: message });
+      append({ direction: "response", method: request.method, id: request.id, ok: false, error: message }).catch(() => {});
     }
   }
 
