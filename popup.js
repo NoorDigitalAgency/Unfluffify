@@ -676,6 +676,7 @@ const RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY = 0.65;
 const RENDER_MODE_DETECTION_REVIEW_ACCURACY = 0.95;
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 2000;
 const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 8000;
+const RENDER_MODE_SET_NAV_GUARD_MAX_MS = 20000;
 const RENDER_MODE_UNDETERMINED = "undetermined";
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -745,6 +746,7 @@ const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
+const popupRenderModeSetNavGuardByTabId = new Map();
 let popupStaleInspectionBusyClearTimer = 0;
 let popupBackgroundStatePort = null;
 let popupBackgroundLifecycle = null;
@@ -1249,7 +1251,8 @@ function scheduleStaleInspectionBusyClear(
         runtimeStatus &&
           (runtimeStatus.inspectionPending || editorPreparationPending)
       );
-      if (!inspectionPending) {
+      const holdForRenderModeSet = shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId);
+      if (!inspectionPending && !holdForRenderModeSet) {
         if (silentNavSpinnerStuck || renderModeNavSpinnerStuck) {
           logPopupSpinnerDebug(
             renderModeNavSpinnerStuck ? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear",
@@ -2873,6 +2876,7 @@ async function waitForEnableMarkingInspectionToSettle(tabId, baseUrl) {
     );
     if (inspectionPending || reconciliationPending) {
       inspectionObserved = true;
+      noteRenderModeSetNavGuardInspection(tabId);
     } else if (inspectionObserved || (responseObserved && attempt >= 2) || attempt >= 6) {
       return {
         inspectionObserved,
@@ -2910,6 +2914,79 @@ function clearNavigationInspectionSettlePollsExcept(tabIdToKeep = null) {
   });
 }
 
+function startRenderModeSetNavGuard(tabId) {
+  if (!tabId) {
+    return;
+  }
+  popupRenderModeSetNavGuardByTabId.set(tabId, {
+    startedAt: Date.now(),
+    inspectionSeen: false
+  });
+  logPopupSpinnerDebug("render-mode-set-nav-guard-start", { tabId });
+}
+
+function clearRenderModeSetNavGuard(tabId) {
+  if (!tabId) {
+    return;
+  }
+  if (popupRenderModeSetNavGuardByTabId.delete(tabId)) {
+    logPopupSpinnerDebug("render-mode-set-nav-guard-clear", { tabId });
+  }
+}
+
+function noteRenderModeSetNavGuardInspection(tabId) {
+  if (!tabId) {
+    return;
+  }
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  if (!guard || guard.inspectionSeen) {
+    return;
+  }
+  guard.inspectionSeen = true;
+  popupRenderModeSetNavGuardByTabId.set(tabId, guard);
+  logPopupSpinnerDebug("render-mode-set-nav-guard-observed", { tabId });
+}
+
+function shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  if (!guard) {
+    return false;
+  }
+  if (guard.inspectionSeen) {
+    clearRenderModeSetNavGuard(tabId);
+    return false;
+  }
+  if (Date.now() - guard.startedAt >= RENDER_MODE_SET_NAV_GUARD_MAX_MS) {
+    logPopupSpinnerDebug("render-mode-set-nav-guard-timeout", { tabId });
+    clearRenderModeSetNavGuard(tabId);
+    return false;
+  }
+  return true;
+}
+
+// True while a render-mode Set reload is still in flight (guard armed and not yet
+// expired). Used by the tab onUpdated listener so it keeps the navInspect overlay
+// alive across the post-Set reload even in silent mode, where the tab is not
+// marking-enabled and the listener would otherwise tear the overlay down.
+function isRenderModeSetNavGuardActive(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const guard = popupRenderModeSetNavGuardByTabId.get(tabId);
+  if (!guard) {
+    return false;
+  }
+  if (Date.now() - guard.startedAt >= RENDER_MODE_SET_NAV_GUARD_MAX_MS) {
+    logPopupSpinnerDebug("render-mode-set-nav-guard-timeout", { tabId });
+    clearRenderModeSetNavGuard(tabId);
+    return false;
+  }
+  return true;
+}
+
 function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
   if (!tabId) {
     return;
@@ -2941,6 +3018,9 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
       draftStatus.reconciliation &&
       draftStatus.reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
     );
+    if (inspectionPending || reconciliationPending) {
+      noteRenderModeSetNavGuardInspection(tabId);
+    }
     logPopupSpinnerDebug("nav-settle-poll", {
       tabId,
       attempt,
@@ -2950,10 +3030,14 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
       draftStatusOk: Boolean(draftStatus && draftStatus.ok)
     });
     if (!inspectionPending && !reconciliationPending) {
-      endNavigationInspectionOverlay(tabId);
-      clearNavigationInspectionSettlePoll(tabId);
-      void refreshUi({ useBusyOverlay: false });
-      return;
+      if (shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId)) {
+        logPopupSpinnerDebug("nav-settle-poll-hold-for-render-mode-set", { tabId, attempt });
+      } else {
+        endNavigationInspectionOverlay(tabId);
+        clearNavigationInspectionSettlePoll(tabId);
+        void refreshUi({ useBusyOverlay: false });
+        return;
+      }
     }
     if (attempt >= maxAttempts) {
       logPopupSpinnerDebug("nav-settle-poll-timeout", { tabId, attempt });
@@ -3006,6 +3090,7 @@ function endNavigationInspectionOverlay(tabId = popupNavigationInspectionOverlay
     popSpinner("navInspect");
   }
   if (tabId) {
+    clearRenderModeSetNavGuard(tabId);
     clearNavigationInspectionSettlePoll(tabId);
   }
   logPopupSpinnerDebug("nav-overlay-end", { tabId });
@@ -5943,6 +6028,7 @@ function handleLynxChecklistCancel() {
 
 async function handleRenderModeSet() {
   await runWithSpinner(null, PopupText.overlay.savingRenderMode, async () => {
+    const tabId = state.currentTab && state.currentTab.id;
     const nextRenderMode = normalizeUiRenderModeValue(uiModule.getViewState().renderModeValue);
     if (isUndeterminedRenderMode(nextRenderMode)) {
       uiModule.showToast(PopupText.renderMode.toastUndeterminedCannotSet);
@@ -5984,6 +6070,34 @@ async function handleRenderModeSet() {
       type: "configUpdated",
       baseUrl: state.currentBaseUrl
     });
+    // Normalize page execution state after Set regardless of the last
+    // inspection path (with/without JavaScript) so post-Set behavior is
+    // deterministic.
+    if (tabId) {
+      const tabState = await messages.getTabState(tabId);
+      const candidateUrl =
+        (state.currentTab && typeof state.currentTab.url === "string"
+          ? state.currentTab.url
+          : "");
+      const settleBaseUrl =
+        (tabState && tabState.baseUrl) || state.currentBaseUrl || "";
+      // The post-Set reload always runs the editor reveal/freeze warmup for an
+      // in-scope page, even in silent mode (marking not enabled). Gate the
+      // overlay on in-scope, not on tabState.enabled, otherwise the spinner
+      // never shows for the common fresh-property Set flow.
+      const inspectionExpected = Boolean(
+        settleBaseUrl &&
+          (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, settleBaseUrl))
+      );
+      if (inspectionExpected) {
+        startRenderModeSetNavGuard(tabId);
+        beginNavigationInspectionOverlay(tabId);
+      }
+      await normalizeRenderModeDebuggerPage(tabId);
+      if (state.renderModeDebuggerTabId === tabId) {
+        state.renderModeDebuggerTabId = null;
+      }
+    }
     await maybeSwitchToMarkingView();
     await refreshUi();
     uiModule.showToast(
@@ -5999,7 +6113,7 @@ async function handleRenderModeEditToggle() {
   if (state.renderModeEditMode) {
     state.renderModeSummaryOpen = true;
   }
-  await refreshUi();
+  await refreshUi({ useBusyOverlay: false });
 }
 
 async function handleOpenRenderModeSection() {
@@ -6007,7 +6121,7 @@ async function handleOpenRenderModeSection() {
   uiModule.setBasePageMenuOpen(false);
   state.renderModeEditMode = true;
   state.renderModeSummaryOpen = true;
-  await refreshUi();
+  await refreshUi({ useBusyOverlay: false });
 }
 
 function handleRenderModeSummaryToggle(event) {
@@ -8777,11 +8891,21 @@ async function init() {
     const candidateUrl = typeof changeInfo.url === "string" && changeInfo.url
       ? changeInfo.url
       : ((tab && typeof tab.url === "string") ? tab.url : "");
+    // While a render-mode Set reload is in flight, the tab may not be
+    // marking-enabled (silent mode). Resolve a base URL from tab state or the
+    // current property so the settle checks and scope test still work, and treat
+    // the reload as inspection so the navInspect overlay is not torn down here.
+    const renderModeSetGuardActive = isRenderModeSetNavGuardActive(tabId);
+    const settleBaseUrl =
+      (tabState && tabState.baseUrl) || state.currentBaseUrl || "";
     const inspectionExpected = Boolean(
-      tabState &&
+      (tabState &&
         tabState.enabled &&
         tabState.baseUrl &&
-        (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, tabState.baseUrl))
+        (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, tabState.baseUrl))) ||
+      (renderModeSetGuardActive &&
+        settleBaseUrl &&
+        (!candidateUrl || utils.isPageWithinBaseUrl(candidateUrl, settleBaseUrl)))
     );
     if (!inspectionExpected) {
       if (popupNavigationInspectionOverlayTabId === tabId) {
@@ -8799,19 +8923,23 @@ async function init() {
     try {
       await refreshUi({ useBusyOverlay: false });
       if (changeInfo.status === "complete") {
-        const settleResult = await waitForEnableMarkingInspectionToSettle(tabId, tabState.baseUrl);
+        const settleResult = await waitForEnableMarkingInspectionToSettle(tabId, settleBaseUrl);
         logPopupSpinnerDebug("nav-complete-settle", {
           tabId,
           settleResult,
           url: tab && typeof tab.url === "string" ? tab.url : ""
         });
         if (settleResult.responseObserved || settleResult.inspectionObserved) {
-          endNavigationInspectionOverlay(tabId);
-          await refreshUi({ useBusyOverlay: false });
+          if (shouldHoldNavInspectUntilRenderModeInspectionSeen(tabId)) {
+            scheduleNavigationInspectionSettlePoll(tabId, settleBaseUrl);
+          } else {
+            endNavigationInspectionOverlay(tabId);
+            await refreshUi({ useBusyOverlay: false });
+          }
         } else {
           // Communication can briefly fail on some pages. Keep queued spinner active
           // until we can explicitly confirm inspection settled.
-          scheduleNavigationInspectionSettlePoll(tabId, tabState.baseUrl);
+          scheduleNavigationInspectionSettlePoll(tabId, settleBaseUrl);
         }
       }
     } finally {
@@ -8989,7 +9117,7 @@ async function init() {
     }
   }, TOKEN_VALIDATION_INTERVAL_MS);
 
-  await refreshUi();
+  await refreshUi({ useBusyOverlay: false });
 }
 
 init();

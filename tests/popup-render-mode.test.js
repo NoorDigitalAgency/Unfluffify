@@ -169,3 +169,112 @@ test("render mode inspection reload outcome returns the started toast for the ch
     }
   );
 });
+
+test("render mode set always normalizes page execution state after persisting the mode", () => {
+  const setBlock = extractSourceBlock(
+    popupSource,
+    "async function handleRenderModeSet",
+    "async function handleRenderModeEditToggle"
+  );
+
+  assert.match(
+    setBlock,
+    /const tabId = state\.currentTab && state\.currentTab\.id;/
+  );
+  assert.match(
+    setBlock,
+    /await messages\.sendTabMessage\(\{[\s\S]*?type:\s*"configUpdated",[\s\S]*?baseUrl:\s*state\.currentBaseUrl[\s\S]*?\}\);[\s\S]*?if \(tabId\) \{[\s\S]*?await normalizeRenderModeDebuggerPage\(tabId\);[\s\S]*?\}/
+  );
+  assert.match(
+    setBlock,
+    /if \(state\.renderModeDebuggerTabId === tabId\) \{[\s\S]*?state\.renderModeDebuggerTabId = null;[\s\S]*?\}/
+  );
+});
+
+test("render mode set keeps popup blocked with nav inspection spinner during enabled-tab reload settle", () => {
+  const setBlock = extractSourceBlock(
+    popupSource,
+    "async function handleRenderModeSet",
+    "async function handleRenderModeEditToggle"
+  );
+
+  assert.match(setBlock, /const tabState = await messages\.getTabState\(tabId\);/);
+  // Silent-mode editor reveal/freeze runs after Set even when the tab is not
+  // marking-enabled, so the overlay must be gated on in-scope, not on enabled.
+  assert.match(
+    setBlock,
+    /const inspectionExpected = Boolean\([\s\S]*?settleBaseUrl[\s\S]*?utils\.isPageWithinBaseUrl\(candidateUrl, settleBaseUrl\)[\s\S]*?\);/
+  );
+  assert.doesNotMatch(
+    setBlock,
+    /const inspectionExpected = Boolean\([\s\S]*?tabState\.enabled[\s\S]*?\);/
+  );
+  assert.match(
+    setBlock,
+    /if \(inspectionExpected\) \{[\s\S]*?startRenderModeSetNavGuard\(tabId\);[\s\S]*?beginNavigationInspectionOverlay\(tabId\);[\s\S]*?\}/
+  );
+  assert.doesNotMatch(setBlock, /waitForTabLoadComplete\(/);
+  assert.doesNotMatch(setBlock, /waitForEnableMarkingInspectionToSettle\(/);
+});
+
+test("nav settle and stale clear paths hold navInspect until post-set inspection is first observed", () => {
+  const settlePollBlock = extractSourceBlock(
+    popupSource,
+    "function scheduleNavigationInspectionSettlePoll",
+    "function beginNavigationInspectionOverlay"
+  );
+  const staleClearBlock = extractSourceBlock(
+    popupSource,
+    "function scheduleStaleInspectionBusyClear",
+    "function popSpinner"
+  );
+  const onUpdatedBlock = extractSourceBlock(
+    popupSource,
+    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+    "window.addEventListener(\"beforeunload\""
+  );
+
+  assert.match(settlePollBlock, /noteRenderModeSetNavGuardInspection\(tabId\);/);
+  assert.match(settlePollBlock, /shouldHoldNavInspectUntilRenderModeInspectionSeen\(tabId\)/);
+  assert.match(
+    staleClearBlock,
+    /const holdForRenderModeSet = shouldHoldNavInspectUntilRenderModeInspectionSeen\(tabId\);[\s\S]*?if \(!inspectionPending && !holdForRenderModeSet\)/
+  );
+  assert.match(
+    onUpdatedBlock,
+    /if \(shouldHoldNavInspectUntilRenderModeInspectionSeen\(tabId\)\) \{[\s\S]*?scheduleNavigationInspectionSettlePoll\(tabId, settleBaseUrl\);/
+  );
+  assert.match(
+    onUpdatedBlock,
+    /const renderModeSetGuardActive = isRenderModeSetNavGuardActive\(tabId\);/
+  );
+});
+
+test("render mode open/edit flows refresh without showing the generic popup busy curtain", () => {
+  const editToggleBlock = extractSourceBlock(
+    popupSource,
+    "async function handleRenderModeEditToggle",
+    "async function handleOpenRenderModeSection"
+  );
+  const openSectionBlock = extractSourceBlock(
+    popupSource,
+    "async function handleOpenRenderModeSection",
+    "function handleRenderModeSummaryToggle"
+  );
+
+  assert.match(editToggleBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
+  assert.match(openSectionBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
+});
+
+test("popup init performs its first refresh without the generic busy curtain", () => {
+  const initBlock = extractSourceBlock(
+    popupSource,
+    "async function init()",
+    "init();"
+  );
+
+  assert.match(
+    initBlock,
+    /state\.tokenValidationTimer = window\.setInterval\([\s\S]*?TOKEN_VALIDATION_INTERVAL_MS\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);/
+  );
+});

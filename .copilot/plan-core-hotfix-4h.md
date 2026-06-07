@@ -1,6 +1,6 @@
 # Core Hotfix Sprint Plan
 
-Date: 2026-06-07
+Date: 2026-06-08
 Branch: main
 
 ## Objective
@@ -88,49 +88,39 @@ ambiguous across layers; or "verify live" is required and unavailable.
 
 ## Next single task (decision tree for the implementing agent)
 
-Latest delta (2026-06-07, owner follow-up):
-- New unsolved behavior: after clicking Render Mode Set, a reveal/freeze can
-      fire later with no popup spinner.
-- New regression: "Without JavaScript" can keep the popup spinner visible too
-      long after reload.
+Latest delta (2026-06-08):
+- Owner confirmed the post-Set spinner regression is now solved.
+- Popup render-mode inspect actions were reordered for UX:
+      "Without JavaScript" now appears before "With JavaScript" (placement only).
 
-Decision for this phase: FIX DIRECTLY NOW (do not defer). Rationale: both are
-in the active render-mode lifecycle path touched in this sprint, and both can
-be addressed with bounded, low-scope reconciliation changes.
-
-Applied code delta (pending live owner confirmation):
-- `content-main.js`: do not re-arm render-mode inspection activity from
-      unrelated editor-lock refresh calls; this prevents random watchdog drift.
-- `content-main.js`: watchdog recovery now re-runs editor reveal only if the
-      inspection UI was still active at timeout; otherwise it performs lightweight
-      silent-highlighting refresh to avoid delayed heavy reveal/freeze bursts.
-- `popup.js`: reduced render-mode content-ready polling window from 30 to 12
-      attempts to shorten long "Without JavaScript" spinner windows.
+Completed in this phase:
+- `popup.js`: post-Set nav overlay ownership now stays alive for in-scope
+      silent-mode reloads (guarded until inspection is observed/settled).
+- `popup.js`: tabs.onUpdated now evaluates inspection expectation with
+      `settleBaseUrl` + active render-mode-set guard rather than requiring
+      `tabState.enabled`.
+- `popup/ui.js`: Step-1 inspect button placement swapped (Without JS first,
+      With JS second) without behavior changes.
 
 Verification done in this phase:
-- Focused tests green: `tests/render-mode-inspection-order.test.js`,
-      `tests/popup-render-mode.test.js`, `tests/property-lock-render-mode.test.js`,
-      `tests/silent-highlight-annotations.test.js`,
-      `tests/core-motion-pause.test.js`.
+- Focused tests green: `tests/popup-render-mode.test.js`,
+      `tests/render-mode-inspection-order.test.js`,
+      `tests/property-lock-render-mode.test.js`,
+      `tests/device-emulation-lifecycle.test.js`.
+- Owner feedback: "OK, seems to be solved" for the post-Set spinner issue.
 
-Required next verification:
-- Live owner replay of the two reported scenarios to confirm:
-      1) no delayed post-Set reveal/freeze without popup ownership,
-      2) shorter spinner duration on "Without JavaScript" reload.
-
-SESSION 3 root-cause lead is complete and superseded by live fix data:
+SESSION 3 root-cause lead remains superseded by live fix data:
 - `activateContentMain` was not the blocker in the verified repro path
       (`alreadyLoaded` after reload).
 - #3 was fixed by preserving enabled state on same-base top-level navigation,
       allowing navInspect spinner flow to run and settle after reload.
 
-Next single task: #R1 reveal/freeze runs incompletely (no spinner / no scroll) -
-owner-reported after c66782a. LIVE TRIAGE FOUND: reveal warmup fires, but the
-page-motion freeze is already paused before the reveal scroll begins, with no
-scroll events emitted. Move to the pause-release path in `content/core.js` /
-`content-main.js` (check whether `enableForBaseUrl` or
-`warmupPageRevealBeforeMotionPause` leave the page paused). Then #16 preview
-list visibility and #17 AI-exit cannot save.
+Next single task: #R1 reveal/freeze runs incompletely (no spinner / no scroll).
+LIVE TRIAGE FOUND: reveal warmup fires, but the page-motion freeze is already
+paused before the reveal scroll begins, with no scroll events emitted. Move to
+the pause-release path in `content/core.js` / `content-main.js` (check whether
+`enableForBaseUrl` or `warmupPageRevealBeforeMotionPause` leave the page
+paused). Then #16 preview list visibility and #17 AI-exit cannot save.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 

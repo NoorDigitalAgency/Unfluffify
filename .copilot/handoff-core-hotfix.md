@@ -1,6 +1,6 @@
 # Handoff - Core Hotfix Sprint
 
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 Branch: main
 Scope: stabilize core user-facing spinner/curtain + silent-highlight behavior.
 
@@ -333,20 +333,21 @@ Regressions reported during this sprint:
        pushed. Pin the exact early-return before changing code.
 
   - #R2 render-mode Set can trigger delayed reveal/freeze with no popup spinner.
-      STATUS: FIX APPLIED IN-CODE (pending live confirmation).
+      STATUS: FIXED + owner-confirmed (2026-06-08).
       Owner report: after Set, reveal/freeze can fire later after a random,
       usually long delay, and popup shows no spinner ownership for that late run.
       Diagnosed causal chain: unrelated editor-lock refresh paths were re-arming
       render-mode inspection active state, extending watchdog recovery timing and
       allowing stale inspection recovery to trigger a later heavy reveal.
-      Mitigation applied (content-main.js):
-      1) `runEditorSilentHighlightingActivationOnce()` no longer re-arms
-        render-mode inspection on the "inspection active" guard path.
-      2) `recoverFromStuckRenderModeInspection()` now only re-runs editor reveal
-        if page inspection UI was still active at timeout; otherwise it performs
-        lightweight `refreshSilentHighlightings()` cleanup.
-      Expected effect: no random delayed post-Set reveal/freeze bursts without
-      popup lifecycle ownership.
+      Final fix path (popup/content reconciliation):
+      1) `popup.js` render-mode Set/onUpdated inspection expectation now supports
+        in-scope silent-mode reloads (does not require `tabState.enabled`) and
+        keeps nav overlay ownership via the render-mode-set guard until
+        inspection is observed and settled.
+      2) `content-main.js` avoids unrelated re-arming on guard paths and
+        watchdog recovery only re-runs heavy reveal when inspection UI is still
+        active.
+      Outcome: owner confirmed the post-Set spinner behavior now appears solved.
 
   - #R3 "Without JavaScript" inspection spinner remains visible too long.
       STATUS: FIX APPLIED IN-CODE (pending live confirmation).
@@ -393,12 +394,13 @@ Regressions reported during this sprint:
 
 5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
 
-Latest phase decision (2026-06-07 owner follow-up):
-- #R2 and #R3 were handled in THIS phase (not deferred) because both are in the
-  active render-mode lifecycle path and had low-scope corrective changes with
-  deterministic test coverage.
-- Remaining requirement: live owner replay to confirm runtime behavior exactly
-  matches the two reported scenarios.
+Latest phase decision (updated 2026-06-08):
+- #R2 is now owner-confirmed solved after the silent-mode inspection-ownership
+  correction.
+- #R3 remains FIX APPLIED IN-CODE and should still be watched in live runs for
+  long-tail reloads on the "Without JavaScript" path.
+- UX polish shipped: render-mode Step-1 button placement now lists
+  "Without JavaScript" before "With JavaScript" (no behavior change).
 
 6. Historical investigation notes for #3 (kept for traceability):
    the reveal/freeze SPINNER DOES NOT APPEAR after

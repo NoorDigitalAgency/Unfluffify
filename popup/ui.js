@@ -1150,17 +1150,6 @@ function renderRenderModeEditor(view, handlers) {
         h(
           "button",
           {
-            id: "render-mode-inspect-with-javascript",
-            type: "button",
-            class: "u-btn-secondary",
-            disabled: view.renderModeInspectButtonsDisabled,
-            onClick: handlers.onRenderModeInspectWithJavaScript
-          },
-          PopupText.renderMode.inspectWithJavaScriptButton
-        ),
-        h(
-          "button",
-          {
             id: "render-mode-inspect-without-javascript",
             type: "button",
             class: "u-btn-secondary",
@@ -1168,6 +1157,17 @@ function renderRenderModeEditor(view, handlers) {
             onClick: handlers.onRenderModeInspectWithoutJavaScript
           },
           PopupText.renderMode.inspectWithoutJavaScriptButton
+        ),
+        h(
+          "button",
+          {
+            id: "render-mode-inspect-with-javascript",
+            type: "button",
+            class: "u-btn-secondary",
+            disabled: view.renderModeInspectButtonsDisabled,
+            onClick: handlers.onRenderModeInspectWithJavaScript
+          },
+          PopupText.renderMode.inspectWithJavaScriptButton
         )
       )
     ),
