@@ -238,13 +238,6 @@ export function createRpcServer(options = {}) {
           peers.delete(peer);
         }
       });
-        onMessage: (raw) => {
-          onRawMessage(peer, raw).catch(() => {});
-        },
-        onClose: () => {
-          peers.delete(peer);
-        }
-      });
       peers.add(peer);
     });
 
