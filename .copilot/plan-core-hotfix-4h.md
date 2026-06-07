@@ -206,7 +206,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #8  discard-confirm delayed on navigation | EASY | low-medium | yes | |
 | #9  fast repeated debugger disable not detected | MEDIUM | medium | yes | Timing/race detection. |
 | #13 "With JavaScript" runs reveal/freeze on fresh non-candidate page | HARD | high | yes | Linked to root-cause lead. |
-| #6  marking applies after a few seconds (scheduleRender delay) | TRIVIAL | low | perceptual | candidate: delay 50ms->0 for user-driven renders; verify perceptually. |
+| #6  marking applies after a few seconds (scheduleRender delay) | TRIVIAL | low | perceptual | DONE+live-verified (2026-06-08). Real root cause was NOT the 50ms scheduleRender delay but the user-toggle path routing through the async overlay reconcile (`refreshExplicitMarkingOverlayAsync`, ~2020ms on seo.se) so the explicit layer only drew ~+2232ms. Fix: drain passes `immediateFullRender:true`; `completeExplicitToggle` async branch gated by `&& !immediateFullRender` so user clicks use the SYNC `scheduleExplicitOverlayRefresh`; `getExplicitMarkingFullRenderOptions().delay` 40->0. Live: visible mark +2232->+387ms, render.total +2351->+554ms. |
 | #20 trace enabled in sync but checkbox off / no logs | EASY | low-medium | partial | Reconcile checkbox + per-tab trace round-trip; unit-testable in part. |
 | #4  spinner text out of sync (LOW) | EASY | low | yes | Cosmetic; revisit after #3. |
 

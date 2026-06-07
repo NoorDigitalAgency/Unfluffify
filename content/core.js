@@ -8625,13 +8625,17 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
   const immediateFullRender = Object.prototype.hasOwnProperty.call(options, "immediateFullRender")
     ? Boolean(options.immediateFullRender)
     : shouldUseImmediateFullRenderForExplicitToggle({ target, type });
-  if (options && options.deferMarkingRefresh) {
+  if (options && options.deferMarkingRefresh && !immediateFullRender) {
     scheduleAsyncExplicitToggleReconcile(entry, {
       target,
       type,
       immediateFullRender
     });
   } else {
+    // User-driven toggles draw the explicit overlay synchronously so the mark
+    // appears immediately. The async reconcile path delayed the visible mark by
+    // up to ~2s on large pages (the explicit layer only drew after the chunked
+    // document re-scan), which made clicks feel unregistered (issue #6).
     scheduleExplicitOverlayRefresh(entry, {
       target,
       type,
@@ -8664,9 +8668,9 @@ function scheduleQueuedToggleMutationDrain() {
         return;
       }
       if (nextJob.mode === "include") {
-        toggleExplicitInclude(nextJob.target, { deferMarkingRefresh: true });
+        toggleExplicitInclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       } else {
-        toggleExplicitExclude(nextJob.target, { deferMarkingRefresh: true });
+        toggleExplicitExclude(nextJob.target, { deferMarkingRefresh: true, immediateFullRender: true });
       }
       if (state.toggleInFlightKey) {
         state.lastToggleActionKey = state.toggleInFlightKey;

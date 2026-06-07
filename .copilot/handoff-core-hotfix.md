@@ -261,8 +261,16 @@ Cluster 1 - operation lifecycle / spinner (messaging layers):
        getUfBackgroundState traceEnabled=false despite sync flag; popup disables it)
 
 Cluster 2 - silent highlight / preview:
-- #6  marking apply delayed a few seconds .. OPEN (core.scheduleRender default
-       delay=50ms on user actions; candidate fix delay:0 for user-driven renders)
+- #6  marking apply delayed a few seconds .. FIXED + live-verified (2026-06-08).
+       Root cause: user-toggle drain used `deferMarkingRefresh:true` -> async
+       overlay reconcile (`refreshExplicitMarkingOverlayAsync`) which took
+       ~2020ms on seo.se, so the explicit layer only drew ~+2232ms (after the
+       180ms ack faded). Fix: drain passes `immediateFullRender:true`;
+       `completeExplicitToggle` async branch gated by `&& !immediateFullRender`
+       so user clicks draw via the SYNC `scheduleExplicitOverlayRefresh` (~85ms);
+       `getExplicitMarkingFullRenderOptions().delay` 40->0. Live result: visible
+       mark +2232ms->+387ms, render.total +2351ms->+554ms (toggle-perf probe
+       `toggle-latency-seo.mjs`). Unit: tests/core-scheduling.test.js (28 pass).
 - #16 preview list rows not visible/scrollable (VERY HIGH) . OPEN (needs AI
        preview list populated; reconcile preview eligibility against
        collectSilentHighlightRenderTargets / renderable collections)

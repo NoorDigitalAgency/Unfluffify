@@ -613,7 +613,7 @@ test("cheap leaf explicit toggles defer the invalidating full rebuild", () => {
 
     assert.equal(state.explicitFullRenderTimer, 0);
     assert.equal(scheduled.length, 2);
-    assert.equal(scheduled[1].delay, 40);
+    assert.equal(scheduled[1].delay, 0);
   }, { withRaf: true });
 });
 
@@ -626,6 +626,19 @@ test("explicit exclude no longer forces immediate full rebuild prechecks", () =>
   assert.doesNotMatch(excludeSource, /const hasRelatedStoredMarking = \(currentXPath\) =>/);
   assert.doesNotMatch(excludeSource, /const immediateFullRender =/);
   assert.match(excludeSource, /completeExplicitToggle\(entry, target, "exclude", mutationStartedAt, options\);/);
+});
+
+test("user-driven explicit toggles draw the marking overlay synchronously (issue #6)", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const completeStart = coreSource.indexOf("function completeExplicitToggle(entry, target, type, mutationStartedAt, options = {})");
+  const completeBody = coreSource.slice(completeStart, coreSource.indexOf("\n}\n", completeStart));
+
+  // Only non-immediate deferred toggles take the slower async reconcile; user
+  // clicks (immediateFullRender) draw the explicit overlay synchronously so the
+  // mark appears right away instead of after the ~2s async document re-scan.
+  assert.match(completeBody, /options\.deferMarkingRefresh && !immediateFullRender/);
+  assert.match(completeBody, /scheduleAsyncExplicitToggleReconcile\(entry, \{/);
+  assert.match(completeBody, /\} else \{[\s\S]*?scheduleExplicitOverlayRefresh\(entry, \{/);
 });
 
 test("marking UI scheduling uses extension-owned timers during page motion pause", () => {
@@ -742,8 +755,8 @@ test("explicit toggles yield after the immediate acknowledgement before running 
     source,
     /if \(getExtensionRequestAnimationFrame\(\)\) \{[\s\S]*?state\.toggleMutationHandle = extensionRequestAnimationFrame\(runDrain\);[\s\S]*?state\.toggleMutationHandleType = "raf";/
   );
-  assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
-  assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true \}\);/);
+  assert.match(source, /toggleExplicitInclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
+  assert.match(source, /toggleExplicitExclude\(nextJob\.target, \{ deferMarkingRefresh: true, immediateFullRender: true \}\);/);
   assert.match(source, /scheduleAsyncExplicitToggleReconcile\(entry, \{[\s\S]*?immediateFullRender/);
   assert.match(source, /const scannedCandidates = await scanReconcileDocumentCandidatesAsync\(immutableExcluded, excludedParents, \{/);
   assert.match(source, /const candidates = scannedCandidates\.toggleableCandidates;/);

@@ -78,7 +78,7 @@ export function chooseExcludeParentBoundaryTarget(options = {}) {
 
 export function getExplicitMarkingFullRenderOptions() {
   return {
-    delay: 40,
+    delay: 0,
     minInterval: 120,
     invalidate: true,
     reason: "explicit-toggle-full-rebuild"
