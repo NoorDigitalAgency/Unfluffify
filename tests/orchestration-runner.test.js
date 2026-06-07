@@ -68,6 +68,9 @@ test("orchestration config loader merges local config with CLI overrides", async
         "--config", configPath,
         "--role", "director",
         "--bus-port", "9010",
+        "--display-mode", "wayland",
+        "--media-mode", "real",
+        "--insecure-origins", "https://www.bonliva.no/",
         "--capture-source-title", "Screen 1",
         "--chrome-arg", "--enable-features=WebRTCPipeWireCapturer",
         "--chrome-arg", "--ozone-platform=wayland"
@@ -80,7 +83,12 @@ test("orchestration config loader merges local config with CLI overrides", async
     assert.equal(config.busHost, "10.0.0.2");
     assert.equal(config.busPort, 9010);
     assert.equal(config.busUrl, "ws://10.0.0.2:9010");
+    assert.equal(config.displayMode, "wayland");
+    assert.equal(config.mediaMode, "real");
+    assert.equal(config.useFakeMedia, false);
     assert.equal(config.testPropertyUrl, "https://prowork.se/");
+    // Loader normalization stores origins, not raw URLs with trailing slash/path.
+    assert.deepEqual(config.insecureOrigins, ["https://www.bonliva.no"]);
     assert.equal(config.captureSourceTitle, "Screen 1");
     assert.deepEqual(config.chromeArgs, [
       "--enable-features=WebRTCPipeWireCapturer",
@@ -124,6 +132,7 @@ test("orchestration config loader reads commented default JSONC config", async (
 test("browser launch args load only the unpacked extension and enable media automation", () => {
   const args = buildChromeLaunchArgs({
     extensionPath: "/tmp/unfluffify",
+    testPropertyUrl: "https://www.bonliva.no/",
     captureSourceTitle: "Entire screen",
     chromeArgs: [
       "--enable-features=WebRTCPipeWireCapturer",
@@ -132,11 +141,28 @@ test("browser launch args load only the unpacked extension and enable media auto
   });
   assert.ok(args.includes("--disable-extensions-except=/tmp/unfluffify"));
   assert.ok(args.includes("--load-extension=/tmp/unfluffify"));
+  assert.ok(args.includes("--auto-accept-camera-and-microphone-capture"));
+  assert.ok(args.includes("--allow-http-screen-capture"));
+  assert.ok(args.includes("--disable-features=MediaRouter"));
+  assert.ok(args.includes("--enable-features=WebRTCPipeWireCapturer"));
   assert.ok(args.includes("--use-fake-ui-for-media-stream"));
   assert.ok(args.includes("--use-fake-device-for-media-stream"));
+  assert.ok(args.includes("--unsafely-treat-insecure-origin-as-secure=https://www.bonliva.no"));
   assert.ok(args.includes("--auto-select-desktop-capture-source=Entire screen"));
-  assert.ok(args.includes("--enable-features=WebRTCPipeWireCapturer"));
   assert.ok(args.includes("--ozone-platform=wayland"));
+});
+
+test("browser launch args can disable fake media for real-desktop smoke runs", () => {
+  const args = buildChromeLaunchArgs({
+    extensionPath: "/tmp/unfluffify",
+    displayMode: "wayland",
+    mediaMode: "real",
+    insecureOrigins: ["https://staging.noorlynx.test"]
+  });
+  assert.ok(!args.includes("--use-fake-ui-for-media-stream"));
+  assert.ok(!args.includes("--use-fake-device-for-media-stream"));
+  assert.ok(args.includes("--ozone-platform=wayland"));
+  assert.ok(args.includes("--unsafely-treat-insecure-origin-as-secure=https://staging.noorlynx.test"));
 });
 
 test("extension reload starts waiting for the replacement worker before reloading", async () => {

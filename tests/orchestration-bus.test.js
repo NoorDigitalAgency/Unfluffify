@@ -5,7 +5,14 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { createScenarioBusServer } from "../orchestration/bus-server.mjs";
-import { normalizeBusMessage } from "../orchestration/lib/protocol.mjs";
+import {
+  createRpcError,
+  createRpcNotification,
+  createRpcRequest,
+  createRpcSuccess,
+  normalizeBusMessage,
+  normalizeRpcMessage
+} from "../orchestration/lib/protocol.mjs";
 
 function waitForOpen(socket) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -65,6 +72,59 @@ test("orchestration protocol rejects unknown or malformed messages", () => {
   assert.equal(normalizeBusMessage({ channel: "control", type: "takeover" }).ok, false);
   assert.equal(normalizeBusMessage({ channel: "debug", type: "note", text: "" }).ok, false);
   assert.equal(normalizeBusMessage({ channel: "control", type: "hello", role: "agent", side: "A" }).ok, false);
+});
+
+test("json-rpc helpers build valid request, notification, and response envelopes", () => {
+  const request = createRpcRequest("cmd_1", "system.ping", { traceId: "abc" });
+  assert.equal(normalizeRpcMessage(request).ok, true);
+  assert.equal(normalizeRpcMessage(request).kind, "request");
+
+  const notification = createRpcNotification("event.console", { level: "error" });
+  assert.equal(normalizeRpcMessage(notification).ok, true);
+  assert.equal(normalizeRpcMessage(notification).kind, "notification");
+
+  const success = createRpcSuccess("cmd_1", { ok: true });
+  assert.equal(normalizeRpcMessage(success).ok, true);
+  assert.equal(normalizeRpcMessage(success).kind, "response");
+
+  const failure = createRpcError("cmd_1", -32000, "Popup did not become ready", {
+    category: "timeout"
+  });
+  assert.equal(normalizeRpcMessage(failure).ok, true);
+  assert.equal(normalizeRpcMessage(failure).kind, "error");
+
+  const parseError = createRpcError(null, -32700, "Parse error");
+  const normalizedParseError = normalizeRpcMessage(parseError);
+  assert.equal(normalizedParseError.ok, true);
+  assert.equal(normalizedParseError.kind, "error");
+  assert.equal(normalizedParseError.message.id, null);
+});
+
+test("json-rpc normalization rejects malformed envelopes", () => {
+  assert.equal(normalizeRpcMessage({}).ok, false);
+  assert.equal(normalizeRpcMessage({ jsonrpc: "2.0", method: "", id: "cmd_1" }).ok, false);
+  assert.equal(normalizeRpcMessage({
+    jsonrpc: "2.0",
+    method: "system.ping",
+    id: "cmd_1",
+    result: { ok: true }
+  }).ok, false);
+  assert.equal(normalizeRpcMessage({
+    jsonrpc: "2.0",
+    id: "cmd_1",
+    result: { ok: true },
+    error: { code: -32000, message: "bad" }
+  }).ok, false);
+  assert.equal(normalizeRpcMessage({
+    jsonrpc: "2.0",
+    id: "cmd_1",
+    error: { code: "x", message: "bad" }
+  }).ok, false);
+  assert.equal(normalizeRpcMessage({
+    jsonrpc: "2.0",
+    id: null,
+    result: { ok: true }
+  }).ok, false);
 });
 
 test("scenario bus relays typed control and debug messages and writes a transcript", async () => {

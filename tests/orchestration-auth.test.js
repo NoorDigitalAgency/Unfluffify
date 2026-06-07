@@ -146,13 +146,15 @@ test("user-fillable orchestration examples are commented JSONC", async () => {
         "busHost",
         "busPort",
         "displayMode",
+        "mediaMode",
         "chromePath",
         "playwrightModulePath",
         "extensionPath",
         "profileDir",
         "stageBase",
         "testPropertyUrl",
-        "captureSourceTitle"
+        "captureSourceTitle",
+        "insecureOrigins"
       ]
     },
     {

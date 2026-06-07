@@ -10,6 +10,8 @@ ship in the extension package.
 - `secrets.example.jsonc` - copy to `orchestration/.secrets.jsonc` and fill with
   staging values and the two test accounts.
 - `bus-server.mjs` - LAN coordination server for director/follower agents.
+- `rpc-server.mjs` - SSH-tunnel-first JSON-RPC worker (early scaffold).
+- `rpc-client.mjs` - director-side JSON-RPC request helper and smoke CLI.
 - `mock-client.mjs` - small smoke client for checking bus connectivity.
 - `runs/` - generated bus transcripts and future scenario artifacts.
 - `profiles/` - generated persistent Chrome profiles.
@@ -46,7 +48,10 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
      if Playwright is not installed in this repo.
    - `profileDir`: unique per side, for example
      `orchestration/profiles/director`.
+   - `mediaMode`: keep `fake` for deterministic runs; use `real` for optional
+     desktop smoke checks.
    - `testPropertyUrl`: one staging-backed property from the handoff list.
+   - `insecureOrigins`: optional extra origins for local/http capture tests.
 
 4. Start the bus:
 
@@ -181,6 +186,21 @@ node orchestration/scenarios/remote-support-one-machine.mjs --property-url https
 
 Remote-support media assertions remain two-machine-gated. Same-host WebRTC is
 expected to validate only request/join/signaling up to the media connection.
+
+## SSH RPC transition decisions
+
+The active migration plan in
+`orchestration/ssh-rpc-plan.md`
+is now pinned to these defaults:
+
+- Unix-like remote hosts first.
+- Dedicated SSH key under `orchestration/.ssh/`.
+- Setup installs missing remote dependencies.
+- Remote checkout sync supports both `git pull --ff-only` and `rsync`.
+- Account A/B secrets may be copied to remote ignored secrets files.
+- Desktop validation supports baseline + real desktop + Xvfb + Wayland.
+- Fake deterministic capture is valid for most runs, with one optional
+  real-desktop smoke check.
 
 ## Capture source token
 

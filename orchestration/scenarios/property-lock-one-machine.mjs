@@ -47,10 +47,11 @@ export function hasPopupButton(popupState = {}, labelPattern) {
 }
 
 export function getPropertyLockIdentityFromState(state = {}) {
-  const raw = state && state.tabState && state.tabState.raw && typeof state.tabState.raw === "object"
-    ? state.tabState.raw
+  const safeState = state && typeof state === "object" ? state : {};
+  const raw = safeState.tabState && safeState.tabState.raw && typeof safeState.tabState.raw === "object"
+    ? safeState.tabState.raw
     : {};
-  const initialKey = `tabState:initial:${state.tabId}`;
+  const initialKey = `tabState:initial:${safeState.tabId}`;
   const initialState = raw[initialKey] || {};
   return {
     siteId: Number.isFinite(initialState.propertyLockRecoverySiteId)
@@ -62,21 +63,23 @@ export function getPropertyLockIdentityFromState(state = {}) {
 }
 
 export function buildPropertyLockIdentityDiagnostics(directorState = {}, followerState = {}) {
-  const directorIdentity = getPropertyLockIdentityFromState(directorState);
-  const followerIdentity = getPropertyLockIdentityFromState(followerState);
+  const safeDirectorState = directorState && typeof directorState === "object" ? directorState : {};
+  const safeFollowerState = followerState && typeof followerState === "object" ? followerState : {};
+  const directorIdentity = getPropertyLockIdentityFromState(safeDirectorState);
+  const followerIdentity = getPropertyLockIdentityFromState(safeFollowerState);
   return {
     director: {
-      isEditor: isEditorPopupState(directorState.popupState),
+      isEditor: isEditorPopupState(safeDirectorState.popupState),
       identity: directorIdentity
     },
     follower: {
-      isEditor: isEditorPopupState(followerState.popupState),
+      isEditor: isEditorPopupState(safeFollowerState.popupState),
       identity: followerIdentity
     },
     sameSiteId: Boolean(directorIdentity.siteId && directorIdentity.siteId === followerIdentity.siteId),
     sameBaseUrl: Boolean(directorIdentity.baseUrl && directorIdentity.baseUrl === followerIdentity.baseUrl),
     sameClientId: Boolean(directorIdentity.clientId && directorIdentity.clientId === followerIdentity.clientId),
-    bothEditor: isEditorPopupState(directorState.popupState) && isEditorPopupState(followerState.popupState)
+    bothEditor: isEditorPopupState(safeDirectorState.popupState) && isEditorPopupState(safeFollowerState.popupState)
   };
 }
 

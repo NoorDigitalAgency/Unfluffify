@@ -32,6 +32,14 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isJsonRpcId(value) {
+  return isNonEmptyString(value) || (Number.isFinite(value) && !Number.isNaN(value));
+}
+
+function isJsonRpcErrorResponseId(value) {
+  return value === null || isJsonRpcId(value);
+}
+
 function optionalPlainObject(value) {
   return typeof value === "undefined" || isPlainObject(value);
 }
@@ -42,6 +50,118 @@ function optionalString(value) {
 
 function optionalTarget(value) {
   return typeof value === "undefined" || BUS_TARGETS.has(value);
+}
+
+function optionalRpcParams(value) {
+  return typeof value === "undefined" || isPlainObject(value) || Array.isArray(value);
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function normalizeRpcError(error) {
+  if (!isPlainObject(error)) {
+    return { ok: false, error: "rpc.error must be an object" };
+  }
+  if (!Number.isFinite(error.code)) {
+    return { ok: false, error: "rpc.error.code must be a finite number" };
+  }
+  if (!isNonEmptyString(error.message)) {
+    return { ok: false, error: "rpc.error.message must be a non-empty string" };
+  }
+  return { ok: true, value: error };
+}
+
+export function normalizeRpcMessage(candidate) {
+  if (!isPlainObject(candidate)) {
+    return { ok: false, error: "RPC message must be a JSON object" };
+  }
+  if (candidate.jsonrpc !== "2.0") {
+    return { ok: false, error: "RPC jsonrpc must be 2.0" };
+  }
+
+  const hasMethod = hasOwn(candidate, "method");
+  const hasId = hasOwn(candidate, "id");
+  const hasResult = hasOwn(candidate, "result");
+  const hasError = hasOwn(candidate, "error");
+
+  if (hasMethod) {
+    if (!isNonEmptyString(candidate.method)) {
+      return { ok: false, error: "rpc.method must be a non-empty string" };
+    }
+    if (!optionalRpcParams(candidate.params)) {
+      return { ok: false, error: "rpc.params must be an object or array when present" };
+    }
+    if (hasResult || hasError) {
+      return { ok: false, error: "RPC method messages cannot include result or error" };
+    }
+    if (hasId) {
+      if (!isJsonRpcId(candidate.id)) {
+        return { ok: false, error: "rpc.id must be a non-empty string or finite number" };
+      }
+      return { ok: true, kind: "request", message: candidate };
+    }
+    return { ok: true, kind: "notification", message: candidate };
+  }
+
+  if (hasResult === hasError) {
+    return { ok: false, error: "RPC response must include exactly one of result or error" };
+  }
+  if (hasError) {
+    if (!hasId || !isJsonRpcErrorResponseId(candidate.id)) {
+      return {
+        ok: false,
+        error: "RPC error response id must be null, a non-empty string, or finite number"
+      };
+    }
+    const normalizedError = normalizeRpcError(candidate.error);
+    if (!normalizedError.ok) {
+      return normalizedError;
+    }
+    return { ok: true, kind: "error", message: candidate };
+  }
+  if (!hasId || !isJsonRpcId(candidate.id)) {
+    return { ok: false, error: "RPC response id must be a non-empty string or finite number" };
+  }
+  return { ok: true, kind: "response", message: candidate };
+}
+
+export function createRpcRequest(id, method, params = {}) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method,
+    params
+  };
+}
+
+export function createRpcNotification(method, params = {}) {
+  return {
+    jsonrpc: "2.0",
+    method,
+    params
+  };
+}
+
+export function createRpcSuccess(id, result = {}) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result
+  };
+}
+
+export function createRpcError(id, code, message, data) {
+  const error = { code, message };
+  if (typeof data !== "undefined") {
+    error.data = data;
+  }
+  return {
+    jsonrpc: "2.0",
+    id,
+    error
+  };
 }
 
 function validateControlMessage(message) {
