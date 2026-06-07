@@ -192,7 +192,12 @@ export function createRpcServer(options = {}) {
     }
     const normalized = normalizeRpcMessage(parsed);
     if (!normalized.ok) {
-      const id = parsed && typeof parsed.id !== "undefined" ? parsed.id : null;
+      const rawId = parsed && Object.prototype.hasOwnProperty.call(parsed, "id") ? parsed.id : null;
+      const id = (rawId === null ||
+        (typeof rawId === "string" && rawId.trim()) ||
+        (typeof rawId === "number" && Number.isFinite(rawId)))
+        ? rawId
+        : null;
       peer.sendJson(createRpcError(id, -32600, normalized.error));
       await append({ direction: "reject", reason: normalized.error });
       return;
