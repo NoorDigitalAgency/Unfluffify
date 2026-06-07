@@ -177,7 +177,11 @@ export function createRpcClient(options = {}) {
 
   async function notify(method, params = {}) {
     await waitForOpen();
-    socket.send(JSON.stringify(createRpcNotification(method, params)));
+    try {
+      socket.send(JSON.stringify(createRpcNotification(method, params)));
+    } catch (error) {
+      throw toError(error, "RPC socket send failed");
+    }
   }
 
   function close() {
