@@ -1,6 +1,6 @@
 # Unfluffify Plan
 
-## Checkpoint Status (2026-06-06)
+## Checkpoint Status (2026-06-07)
 
 - Engineering backlog items are complete and shipped to `main`.
 - CR-1 and CR-2 cleanup follow-ups are complete.
@@ -12,34 +12,34 @@
   validation, UI-driven auth seeding, disabled-profile recovery, profile-target
   guards, stale-token clearing, one-machine property-lock scenario coverage,
   one-machine remote-support handshake harnessing, and unit coverage.
-- Phase 3 live validation is COMPLETE: local gitignored `config.jsonc` and
-  `.secrets.jsonc` exist, xvfb/Chromium can launch the extension, account A
-  seeded successfully into `orchestration/profiles/director`, and account B
-  seeded successfully into `orchestration/profiles/follower`.
-- Phase 4 is code-complete and partially live-validated with the two seeded
-  profiles. Live run
-  `orchestration/runs/2026-06-06T21-28-48-445Z-property-lock-phase4` passed
-  single-editor lock, read-only second profile, takeover, cross-property
-  countdown, and release. The off-candidate countdown sub-check remains BLOCKED:
-  tested same-origin non-candidate URLs stayed in editor state with no popup
-  candidate list / off-candidate deadline. Re-run after a staging property has a
-  known current Live Page candidate plus a known same-base non-candidate URL.
-- Phase 5 is code-complete and live-blocked by desktop capture. Latest real
-  display run on `DISPLAY=:0` / GNOME Wayland remote desktop,
-  `orchestration/runs/2026-06-06T22-08-05-959Z-remote-support-phase5`,
-  confirmed the director profile has a stored token and can reach the runtime
-  request path, then failed with `Screen sharing was cancelled or unavailable`
-  before a support code was issued. Tried `captureSourceTitle` values
-  `Entire screen`, `Screen 1`, `Entire Screen`, and `Screen`; also tried
-  `--enable-features=WebRTCPipeWireCapturer` and `--ozone-platform=wayland`.
-  System Chrome was tested but did not load the seeded unpacked extension
-  service worker from the existing profile. Re-run after verifying the exact
-  host capture-source path/portal behavior.
-- Phase 6 still requires two real hosts.
-- Latest focused validation for the orchestration slice:
-  `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
-  passes (`31/31`, `# fail 0`). Full-suite validation passes (`598/598`,
-  `# fail 0`).
+- Repo-local validation was re-run before milestone execution:
+  - `npm test` passes (`603/603`, `# fail 0`).
+  - Focused orchestration suite
+    `node --test tests/orchestration-remote-support-scenario.test.js tests/orchestration-property-lock-scenario.test.js tests/orchestration-auth.test.js tests/orchestration-runner.test.js tests/orchestration-bus.test.js`
+    passes (`35/35`, `# fail 0`).
+- Phase 4 (property-lock one-machine) was re-run:
+  - Command:
+    `xvfb-run -a -s "-screen 0 1280x1024x24" node orchestration/scenarios/property-lock-one-machine.mjs --property-url https://www.bonliva.no/ --cross-property-url https://prowork.se/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower`
+  - Run dir:
+    `orchestration/runs/2026-06-07T07-33-49-449Z-property-lock-phase4`
+  - Result: blocked in environment bootstrap with
+    `Could not resolve playwright; set playwrightModulePath or UNFLUFFIFY_PLAYWRIGHT_PATH`
+    before off-candidate countdown assertions could run.
+- Phase 5 (remote-support one-machine request/join) was re-run:
+  - Command:
+    `node orchestration/scenarios/remote-support-one-machine.mjs --property-url https://www.bonliva.no/ --director-profile-dir orchestration/profiles/director --follower-profile-dir orchestration/profiles/follower --capture-source-title "Screen"`
+  - Result: blocked immediately by missing local secrets file:
+    `Missing orchestration secrets: .../orchestration/.secrets.jsonc or .../orchestration/.secrets.json`.
+- Phase 6 (two-host workflow) prep was re-run for repo-local coordination:
+  - Bus bring-up:
+    `node orchestration/bus-server.mjs --host 127.0.0.1 --port 8765`
+  - Local smoke clients both succeeded:
+    `node orchestration/mock-client.mjs --role director --side A ...` and
+    `node orchestration/mock-client.mjs --role follower --side B ...`
+  - Transcript:
+    `orchestration/runs/2026-06-07T07-34-00-300Z/bus.log`
+  - Result: local bus messaging is healthy; full Phase 6 remains externally blocked
+    because this environment has no second real host.
 
 ## Marking Contract Lock
 
@@ -59,9 +59,16 @@ AI-submission behavior must continue to submit every stored excluded XPath row a
 
 ## Remaining Items
 
-- Re-run Phase 5 remote-support request/join validation after the host desktop
-  capture path is verified; media-connected assertions remain two-machine-gated.
-- Re-run the Phase 4 off-candidate countdown sub-check when a known same-base
-  non-candidate URL is available for the staging property.
-- Validate remote support end-to-end with two real Chrome profiles (permission
-  prompts, viewer transport, telemetry mirrors, and teardown behavior).
+- Install or point to Playwright for orchestration scenarios
+  (`playwrightModulePath` or `UNFLUFFIFY_PLAYWRIGHT_PATH`) and re-run Phase 4.
+- Create local gitignored `orchestration/config.jsonc` and
+  `orchestration/.secrets.jsonc`, then seed director/follower profiles with
+  `orchestration/setup-auth.mjs`.
+- Re-run the Phase 4 off-candidate countdown sub-check with a staging property
+  that has both (a) a known current Live Page candidate and (b) a known
+  same-base non-candidate URL.
+- Re-run Phase 5 remote-support request/join validation after secrets/profile
+  seeding and host-specific desktop capture source token verification.
+- Run full Phase 6 on two real hosts (LAN-reachable bus host + remote follower
+  host) to validate permission prompts, viewer transport, telemetry mirrors, and
+  teardown behavior.
