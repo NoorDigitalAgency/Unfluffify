@@ -91,7 +91,7 @@ reconciler is removed LAST, only after the authoritative path is proven on the
 silent-restore edge case. Removing it before that would reintroduce the P0
 stuck-curtain.
 
-B1 - background authoritatively tears down the inspection curtain (DONE)
+B1 - background authoritatively tears down the inspection curtain (DONE, browser-verified)
 - Added shared SPINNER_KEYS.NAV_INSPECT + CURTAIN_BEARING_LIFECYCLE_KINDS +
   isCurtainBearingLifecycleKind to common/world-messaging-contract.js.
 - background.js updateLifecycleState now clears the persistent navInspect
@@ -101,6 +101,14 @@ B1 - background authoritatively tears down the inspection curtain (DONE)
   the owner of end-of-operation curtain teardown: a popup that closed
   mid-inspection reopens without a stuck curtain because the snapshot no longer
   carries navInspect.
+- BROWSER-VERIFIED (Playwright, extension loaded, verify-b1.mjs) by driving the
+  real background message handlers (SPINNER_SET / LIFECYCLE_EVENT /
+  GET_BACKGROUND_STATE) per synthetic tab. All 4 checks pass:
+  render-mode-inspection FINISHED clears navInspect; activation FINISHED clears
+  navInspect; content-ready FINISHED does NOT clear; render-mode STARTED
+  (non-terminal) does NOT clear. (Verifies the gate, not the full side-panel
+  close/reopen UX; the popup curtain is driven purely from this broker state via
+  syncUiBusyFromBrokerState.)
 
 B2 - resolved without code change
 - #5 transient "Applying device emulation..." orphan: ALREADY cleared on the
