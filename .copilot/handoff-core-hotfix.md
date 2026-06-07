@@ -210,10 +210,33 @@ Validation:
 - Playwright blink counts above.
 
 Commit:
-- 62ea6a3 (reposition path) + this commit (full-refresh path)
+- 62ea6a3 (reposition path) + 8747835 (full-refresh path)
 
 Push:
-- pending
+- pushed (8747835)
+
+#6 immediate marking feedback - DEFERRED (owner, needs concrete repro)
+- Characterization: the only concrete delay primitive is core.scheduleRender
+  (content/core.js), default delay = 50ms before the rAF redraw, commented as
+  intentional batching for observer/mutation-driven renders. User marking clicks
+  (setExplicitInclude / setExplicitExclude handlers in content-main.js) call
+  core.scheduleRender() with that 50ms default, so a click's marking-overlay
+  update lands ~66ms later.
+- Candidate fix (NOT applied): pass scheduleRender({ delay: 0, reason:
+  "user-marking" }) on the direct user-action handlers so user clicks bypass the
+  batching delay while observer/mutation renders keep it.
+- Why deferred: (a) the 50ms is intentional batching - removing it for user
+  actions needs care against rapid-click churn; (b) a ~50ms perceptual change is
+  hard to verify OBJECTIVELY in Playwright (frame-timing noise) - needs a real
+  repro to confirm the symptom and a trustworthy measurement.
+
+#16 preview list/visible-target mismatch - DEFERRED (owner, needs repro)
+- Needs the AI preview list POPULATED (aiPreviewState.items) to reproduce, which
+  requires the backend AI-compute flow to produce selectors/items. The harness
+  cannot generate that data without stubbing the compute path, so no faithful
+  before/after is possible yet. Fix direction unchanged: reconcile preview list
+  eligibility against collectSilentHighlightRenderTargets / renderable
+  collections so every row maps to a visible, highlightable target.
 
 ## Environment Switch Checklist
 
@@ -233,8 +256,9 @@ When resuming in a new environment:
 ## Next Actions (Always Keep Current)
 
 1. Phase A complete - event/state map recorded above.
-2. Phase C #1 blink - DONE (committed/pushed).
-3. Phase B B1 authority shift - DONE (committed/pushed). B2 resolved no-op.
+2. Phase C #1 blink - DONE, browser-verified 6->0 (62ea6a3 + 8747835, pushed).
+3. Phase B B1 authority shift - DONE, browser-verified gate (f7b4d82, pushed).
+   B2 resolved no-op. #6/#16 DEFERRED pending concrete repro (see above).
 4. B3 reconciler removal - BLOCKED on manual verification:
    - Load the unpacked extension; reproduce the silent-restore stuck curtain
      (open marking session -> trigger navInspect -> close popup mid-inspection
