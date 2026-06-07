@@ -31,25 +31,17 @@ change the product remote-support transport.
 - Do not make product remote support depend on Playwright or SSH.
 - Do not require the remote machine to run Codex or another LLM session.
 
-## Open questions
+## Decisions (2026-06-07)
 
-1. Should the bootstrap support only Unix-like remote hosts first, or must it
-   support Windows OpenSSH clients and paths in the first implementation?
-2. Should the generated SSH key live under `orchestration/.ssh/` or reuse the
-   user's normal `~/.ssh` key material when available?
-3. Should the setup script install missing remote dependencies, or only detect
-   and report them? Examples: Node.js version, Playwright package, Chromium
-   browser binaries, `xvfb-run`, `rsync`, and `sshpass`.
-4. Should the remote checkout be updated by `git pull --ff-only`, by `rsync`
-   from the director checkout, or selectable per run?
-5. Should secrets for accounts A/B be copied to the remote checkout, or should
-   the director seed profiles over RPC without writing account credentials on
-   the remote machine?
-6. Which desktop mode is the baseline for two-machine media tests: real desktop,
-   Xvfb, Wayland/PipeWire, or Chrome fake media only?
-7. For screen-share validation, is fake deterministic capture acceptable for
-   most tests, with one optional real-desktop smoke test, or must every run use
-   the real remote desktop capture source?
+1. First implementation supports Unix-like remote hosts.
+2. Generated SSH key lives under `orchestration/.ssh/`.
+3. Setup installs missing remote dependencies instead of only reporting them.
+4. Remote checkout supports both `git pull --ff-only` and `rsync` from the
+   director checkout.
+5. Account A/B secrets may be copied to the remote checkout.
+6. Desktop support baseline includes real desktop, Xvfb, and Wayland paths.
+7. Fake deterministic capture is acceptable for most tests, with one optional
+   real-desktop smoke test.
 
 ## Local files
 
@@ -77,6 +69,7 @@ Suggested `ssh-rpc.local.jsonc` shape:
     "chromePath": "",
     "profileDir": "orchestration/profiles/follower",
     "displayMode": "real",
+    "syncPolicy": "pull", // or "rsync"
     "rpcPort": 9876
   },
   "director": {
@@ -104,6 +97,7 @@ Suggested `ssh-rpc.secrets.jsonc` shape:
 
 ```jsonc
 {
+  "copyToRemoteCheckout": true,
   "accounts": {
     "A": { "email": "", "password": "" },
     "B": { "email": "", "password": "" }
@@ -129,22 +123,25 @@ Create `orchestration/setup-ssh-rpc.mjs`.
      SSH command that creates `~/.ssh`, fixes permissions, and appends the
      public key.
    - Retry `ssh -o BatchMode=yes`.
-4. Prompt for the remote repo path and verify:
+4. Prompt for the remote repo path and verify/install:
    - `test -d <repo>/.git`
    - `node --version`
    - Playwright import via the configured `UNFLUFFIFY_PLAYWRIGHT_PATH`
    - extension files exist, including `manifest.json`
+   - install missing dependencies (`xvfb-run`, `rsync`, `sshpass`, browser
+     binaries) when absent
 5. Prompt for extension configuration:
    - Configuration Endpoint
    - AI Endpoint
    - Stage Base
    - default property URL
    - optional support page URL override
-6. Prompt for account A and B credentials. Store only in ignored secrets files.
-7. Prompt for browser mode:
-   - `fake-media` for deterministic CI/debugging.
-   - `real-media` for desktop capture validation.
-   - `xvfb` if no real display is available.
+6. Prompt for account A and B credentials. Store in ignored local secrets and
+   optionally copy to the ignored remote checkout secrets file.
+7. Prompt for browser mode and capture target:
+   - default to `fake-media` for deterministic CI/debugging.
+   - support `real-media`, `xvfb`, and Wayland/PipeWire runs.
+   - mark one optional real-desktop smoke test per run set.
 8. Write local config/secrets atomically with file mode `0600`.
 9. Run local and remote preflight checks.
 10. Offer to seed director and follower profiles.
@@ -404,16 +401,17 @@ Create `orchestration/two-host-debug.mjs`.
 
 1. Load `ssh-rpc.local.jsonc` and `ssh-rpc.secrets.jsonc`.
 2. Verify SSH key auth with `BatchMode=yes`.
-3. Start an SSH tunnel to the remote RPC port.
-4. Start the remote RPC server if it is not already healthy.
-5. Run `system.preflight` remotely and locally.
-6. Launch director browser profile A locally.
-7. Launch follower browser profile B remotely.
-8. Seed or verify both profiles.
-9. Execute the chosen scenario entirely from the director process.
-10. On failure, call `debug.snapshotAll` on both sides before cleanup.
-11. Save a combined summary under `orchestration/runs/<timestamp>-two-host/`.
-12. Close browsers and the tunnel unless `--keep-open` is set.
+3. Update remote checkout by configured sync policy (`pull` or `rsync`).
+4. Start an SSH tunnel to the remote RPC port.
+5. Start the remote RPC server if it is not already healthy.
+6. Run `system.preflight` remotely and locally.
+7. Launch director browser profile A locally.
+8. Launch follower browser profile B remotely.
+9. Seed or verify both profiles.
+10. Execute the chosen scenario entirely from the director process.
+11. On failure, call `debug.snapshotAll` on both sides before cleanup.
+12. Save a combined summary under `orchestration/runs/<timestamp>-two-host/`.
+13. Close browsers and the tunnel unless `--keep-open` is set.
 
 ## Security model
 

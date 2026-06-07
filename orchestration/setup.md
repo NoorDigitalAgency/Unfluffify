@@ -182,6 +182,21 @@ node orchestration/scenarios/remote-support-one-machine.mjs --property-url https
 Remote-support media assertions remain two-machine-gated. Same-host WebRTC is
 expected to validate only request/join/signaling up to the media connection.
 
+## SSH RPC transition decisions
+
+The active migration plan in
+`/tmp/workspace/NoorDigitalAgency/Unfluffify/orchestration/ssh-rpc-plan.md`
+is now pinned to these defaults:
+
+- Unix-like remote hosts first.
+- Dedicated SSH key under `orchestration/.ssh/`.
+- Setup installs missing remote dependencies.
+- Remote checkout sync supports both `git pull --ff-only` and `rsync`.
+- Account A/B secrets may be copied to remote ignored secrets files.
+- Desktop validation supports baseline + real desktop + Xvfb + Wayland.
+- Fake deterministic capture is valid for most runs, with one optional
+  real-desktop smoke check.
+
 ## Capture source token
 
 `captureSourceTitle` is matched by Chrome against the available screen-share
