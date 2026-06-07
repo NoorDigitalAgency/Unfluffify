@@ -254,7 +254,8 @@ export function createRpcServer(options = {}) {
         resolve();
       });
     });
-    return { host, port: listeningPort, url: `ws://${host}:${listeningPort}` };
+    const urlHost = host.includes(":") ? `[${host}]` : host;
+    return { host, port: listeningPort, url: `ws://${urlHost}:${listeningPort}` };
   }
 
   async function close() {
