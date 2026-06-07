@@ -178,6 +178,19 @@ test("browser launch args merge WebRTCPipeWireCapturer into caller enable-featur
   assert.ok(args.includes("--enable-features=Foo,Bar,WebRTCPipeWireCapturer"));
 });
 
+test("browser launch args merge MediaRouter into caller disable-features switches", () => {
+  const args = buildChromeLaunchArgs({
+    extensionPath: "/tmp/unfluffify",
+    chromeArgs: [
+      "--disable-features=Foo",
+      "--disable-features=Bar"
+    ]
+  });
+  const disableFeaturesArgs = args.filter((arg) => arg.startsWith("--disable-features="));
+  assert.equal(disableFeaturesArgs.length, 1);
+  assert.ok(args.includes("--disable-features=MediaRouter,Foo,Bar"));
+});
+
 test("extension reload starts waiting for the replacement worker before reloading", async () => {
   const calls = [];
   let resolveReplacementWorker;

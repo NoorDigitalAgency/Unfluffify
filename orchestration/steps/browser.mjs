@@ -71,6 +71,7 @@ export function buildChromeLaunchArgs(config = {}) {
   if (Array.isArray(config.chromeArgs)) {
     args.push(...config.chromeArgs.filter((arg) => typeof arg === "string" && arg.trim()));
   }
+  ensureChromeFeatureDisabled(args, "MediaRouter");
   ensureChromeFeatureEnabled(args, "WebRTCPipeWireCapturer");
 
   return Array.from(new Set(args));
@@ -101,6 +102,43 @@ function ensureChromeFeatureEnabled(args, featureName) {
   }
 
   const consolidated = `--enable-features=${allFeatures.join(",")}`;
+
+  if (indices.length === 0) {
+    args.push(consolidated);
+    return;
+  }
+
+  args[indices[0]] = consolidated;
+  for (let i = indices.length - 1; i >= 1; i -= 1) {
+    args.splice(indices[i], 1);
+  }
+}
+
+function ensureChromeFeatureDisabled(args, featureName) {
+  const indices = [];
+  const allFeatures = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index].startsWith("--disable-features=")) {
+      indices.push(index);
+      const rawFeatures = args[index].slice("--disable-features=".length);
+      rawFeatures
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((feature) => {
+          if (!allFeatures.includes(feature)) {
+            allFeatures.push(feature);
+          }
+        });
+    }
+  }
+
+  if (!allFeatures.includes(featureName)) {
+    allFeatures.push(featureName);
+  }
+
+  const consolidated = `--disable-features=${allFeatures.join(",")}`;
 
   if (indices.length === 0) {
     args.push(consolidated);
