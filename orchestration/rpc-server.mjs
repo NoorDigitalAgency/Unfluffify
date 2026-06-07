@@ -218,7 +218,7 @@ export function createRpcServer(options = {}) {
     server.on("upgrade", (request, socket) => {
       if (expectedToken && extractToken(request) !== expectedToken) {
         writeUpgradeRejection(socket);
-        append({ direction: "reject", reason: "unauthorized-upgrade" });
+        append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
         return;
       }
       if (!acceptWebSocketUpgrade(request, socket)) {
