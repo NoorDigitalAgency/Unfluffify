@@ -310,6 +310,41 @@ Cluster 6 - render mode / conditional UI:
      appear after the refresh.
    - Property-lock claim still a candidate common root for #3/#10-#12 (see
      bonliva follow-up), but seo.se shows the lock CAN be clean, so test there.
+
+   SESSION 3 (seo.se, full sequence observed via drive-seo4.mjs - instruments
+   BOTH the page (framenavigated/load/console) and the popup). Sequence:
+   land -> "With JavaScript" -> pick Static -> Set -> Enable Marking.
+   KEY OBSERVATIONS (page reload = reveal/freeze ran on the page):
+   - STEP A (fresh landing): no page reload, no reveal/freeze. OK.
+   - STEP B ("With JavaScript"): PAGE RELOADED (reveal/freeze RAN) on a fresh
+     property. Owner: this should NOT happen here = ISSUE #13 confirmed.
+   - STEP C (pick Static + Set): page reloaded after Set. OWNER CLARIFICATION:
+     this is GENUINE/expected - JavaScript must be enabled before exiting the
+     render-mode detection view. NOT a bug.
+   - STEP D (Enable Marking): curtain went "Applying device emulation..." ->
+     "Inspecting page..." -> cleared, BUT tabState.enabled stayed FALSE (marking
+     did NOT actually enable) and NO page reload happened (no reveal/freeze on
+     enable).
+   - THROUGHOUT after the STEP B/C reloads: getInspectionStatus returned
+     undefined (a=undefined,p=undefined,rmi=undefined) and broker lc[none] - i.e.
+     CONTENT-MAIN IS NOT ACTIVE/RESPONDING on the tab after the reveal/freeze
+     reloads. (content-loader is present but content-main, which answers
+     getInspectionStatus + emits lifecycle, is not loaded.)
+   STRONG ROOT-CAUSE HYPOTHESIS (links #3, #5-followups, #13): after a
+   reveal/freeze / debugger-driven page reload, content-main is NOT reliably
+   re-activated (background not re-sending activateContentMain, or the
+   activation path post-render-mode-reload is broken). That would explain:
+   marking-enable silently failing (enabled stays false; the flow needs content),
+   no lifecycle/spinner after navigation (#3), etc. The render-mode "With
+   JavaScript" path still works because it is BACKGROUND/debugger-driven, not
+   content-driven.
+   NEXT STEP (verify the root): after the sequence, send
+   chrome.tabs.sendMessage(tabId,{type:"activateContentMain"}) (or re-open the
+   popup which triggers activation) and re-probe getInspectionStatus; if content
+   revives, the bug is the missing auto re-activation after the reveal/freeze
+   reload. Then fix in background.js (re-activate content after render-mode /
+   debugger reloads) and re-verify the full sequence live, expecting marking to
+   reach enabled=true and the reveal/freeze spinner to appear on navigation.
 3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
 4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very

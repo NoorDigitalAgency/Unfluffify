@@ -130,7 +130,15 @@ Cluster 6 - render mode / conditional UI:
 - #13 "With JavaScript" runs the reveal/freeze on a fresh site with no prior
       render-mode save (likely because the page is not yet a candidate page), so
       it does NOT run on landing AND does not run when render mode is set+ready.
-      STATUS: OPEN.
+      STATUS: OPEN - partially observed live (drive-seo4.mjs): clicking "With
+      JavaScript" on a fresh seo.se property RELOADS the page (reveal/freeze runs)
+      = the "shouldn't happen here" part confirmed. Note: the page reload after
+      Set (Static) is GENUINE/expected (JS must be enabled before exiting the
+      render-mode detection view) - not a bug. See handoff SESSION 3.
+      LIKELY LINKED ROOT (with #3 + marking-not-enabling): after a
+      reveal/freeze/debugger reload, content-main is not re-activated
+      (getInspectionStatus undefined, lc[none]); investigate background
+      re-activation of content after render-mode/debugger reloads.
 - #14 "Preview in desktop mode" is sometimes shown on every view and always
       enabled; it should be visible only on the silent-mode view, enabled only
       when CSS selectors are already saved, and when visible-but-disabled it must
