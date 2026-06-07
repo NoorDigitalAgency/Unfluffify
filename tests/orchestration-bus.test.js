@@ -94,8 +94,10 @@ test("json-rpc helpers build valid request, notification, and response envelopes
   assert.equal(normalizeRpcMessage(failure).kind, "error");
 
   const parseError = createRpcError(null, -32700, "Parse error");
-  assert.equal(normalizeRpcMessage(parseError).ok, true);
-  assert.equal(normalizeRpcMessage(parseError).kind, "error");
+  const normalizedParseError = normalizeRpcMessage(parseError);
+  assert.equal(normalizedParseError.ok, true);
+  assert.equal(normalizedParseError.kind, "error");
+  assert.equal(normalizedParseError.message.id, null);
 });
 
 test("json-rpc normalization rejects malformed envelopes", () => {
