@@ -199,14 +199,23 @@ real navInspect flows live. Keep V2 (the popup reconciler fix) regardless.
 
 Cluster 1 - operation lifecycle / spinner (messaging layers):
 - #1  silent blink ........................ FIXED+verified (V1)
-- #2  spinner stuck after reveal/freeze ... FIXED+verified (V2, popup reconciler)
-- #3  refresh -> spinner gone, never returns . OPEN (next; likely broker port
-       re-connect / lifecycle reset after page reload - drive it with reload-ext +
-       a page reload, watch broker lifecycle->none and whether popup re-subscribes)
+- #2  spinner stuck after reveal/freeze ... FIXED+verified (V2); owner confirms
+       the spinner-stuck issue is solved.
+- #3  refresh/navigation -> reveal/freeze SPINNER DOES NOT APPEAR for any later
+       events (the run itself works) ....... OPEN (NEXT; owner-flagged, possibly
+       related to #2/#5). Hypothesis: after reload the broker lifecycle resets to
+       none and the popup's broker port / tabs.onUpdated navInspect-raising path
+       (beginNavigationInspectionOverlay, gated on tabState.enabled + inScope) is
+       not re-established / no longer fires. REPRO: instrumented
+       popup.html?debugTabId, settle, reload the candidate page (sw.evaluate
+       chrome.tabs.reload), poll broker lifecycle + curtain + whether
+       beginNavigationInspectionOverlay logs fire; then trigger reveal/freeze and
+       confirm the spinner appears.
 - #4  spinner text out of sync (low) ...... OPEN (low)
-- #5  "Applying device emulation..." stuck . FIXED via V3 (queued runWithSpinner
-       spinner whose device-emulation await could hang; now bounded by a 12s
-       targeted timeout + a 60s universal spinner watchdog). Verified live.
+- #5  "Applying device emulation..." stuck . FIXED+verified (V4: dedicated
+       deviceEmulationApplying flag; root cause was deviceControlsDisabled
+       raising the curtain for the whole marking session). V3 watchdog + 12s
+       device-emul timeout added as safety nets. Owner confirms solved.
 - #20 trace enabled in sync but checkbox off/no logs . OPEN (observed live:
        getUfBackgroundState traceEnabled=false despite sync flag; popup disables it)
 
@@ -242,16 +251,19 @@ Cluster 6 - render mode / conditional UI:
 --------------------------------------------------------------------------------
 ## Next actions (keep current)
 
-1. (DONE) Confirm marking-enable curtain clears - verified via drive2.mjs.
-2. Issue #3 (refresh -> spinner never reappears): with launch-live running,
-   open instrumented popup, reload the candidate page, and poll broker lifecycle
-   + popup port state. Hypothesis: after reload the broker lifecycle resets to
-   none and the popup's broker port / event subscription is not re-established,
-   so subsequent events never reach the popup. Confirm live, then fix, then
-   verify by triggering an event after reload and watching the curtain appear.
+1. (DONE) Marking-enable curtain - #2/#5 fixed + owner-confirmed solved.
+2. Issue #3 (NEXT): the reveal/freeze SPINNER DOES NOT APPEAR after
+   refresh/navigation. With launch-live running, open the instrumented popup,
+   reload the candidate page (sw.evaluate chrome.tabs.reload), and poll broker
+   lifecycle + popup curtain + whether beginNavigationInspectionOverlay fires.
+   Hypothesis: after reload the broker lifecycle resets to none and the popup's
+   broker port / tabs.onUpdated navInspect-raising path is not re-established, so
+   subsequent reveal/freeze events never raise the spinner. Fix, then verify by
+   triggering a reveal/freeze after reload and watching the spinner appear.
 3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
-4. Continue down Cluster 1 (#20, #4), then Cluster 2 very-high (#16, #17).
+4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
+   high), then #20, #4, then Clusters 3-6 and #6.
 
 ## Constraints
 - Verify every runtime/visual fix LIVE before recording it as done.
