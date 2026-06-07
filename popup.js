@@ -1140,7 +1140,36 @@ function scheduleStaleInspectionBusyClear(
   }
   clearStaleInspectionBusyClearTimer();
   let attempt = 0;
-  const maxAttempts = 12;
+  // Reconcile against the authoritative content inspection status until it is
+  // actually no longer pending, rather than abandoning after a fixed budget.
+  // The old 12-attempt (~5s) cap gave up while the editor reveal/freeze warmup
+  // was still pending and then NOTHING re-triggered the clear, leaving the
+  // "Inspecting page..." curtain (uiBusy) stuck permanently with an empty
+  // spinner queue. The high cap below is a safety net only; the curtain clears
+  // as soon as content reports not-pending.
+  const maxAttempts = 75;
+  const failOpenClear = () => {
+    const view = uiModule.getViewState();
+    const stillInspectionCurtain =
+      view.isBusy && view.busyMessage === PopupText.overlay.pageInspection;
+    if (!stillInspectionCurtain) {
+      return;
+    }
+    // Last resort: never leave a blocking curtain up indefinitely. A stuck
+    // curtain blocks the entire popup, which is worse than clearing slightly
+    // early after the (generous) reconcile budget is exhausted.
+    if (popupSpinnerQueue.has("navInspect")) {
+      endNavigationInspectionOverlay(tabId);
+      popSpinner("navInspect");
+    } else if (
+      popupSpinnerQueue.size === 0 &&
+      !popupSpinnerVisible &&
+      !popupSpinnerTimer
+    ) {
+      uiModule.setUiBusy(false);
+    }
+    logPopupSpinnerDebug("stale-inspection-busy-failopen", { tabId, attempt });
+  };
   const run = async () => {
     popupStaleInspectionBusyClearTimer = 0;
     attempt += 1;
@@ -1197,6 +1226,7 @@ function scheduleStaleInspectionBusyClear(
       }
     }
     if (attempt >= maxAttempts) {
+      failOpenClear();
       return;
     }
     popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
