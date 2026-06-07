@@ -41,7 +41,6 @@ function withToken(url, token) {
   }
   return parsed.toString();
 }
-}
 
 function toError(value, fallbackMessage) {
   if (value instanceof Error) {
