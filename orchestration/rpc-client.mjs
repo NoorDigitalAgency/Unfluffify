@@ -88,7 +88,7 @@ export function createRpcClient(options = {}) {
     pending.delete(key);
     clearTimeout(record.timeout);
     if (normalized.kind === "error") {
-      record.reject(parsed.error || { code: -32000, message: "RPC error" });
+      record.reject(toError(parsed.error || { code: -32000, message: "RPC error" }, "RPC error"));
       return;
     }
     record.resolve(parsed.result);

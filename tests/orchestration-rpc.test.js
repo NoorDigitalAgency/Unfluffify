@@ -110,7 +110,10 @@ test("rpc server enforces upgrade token when configured", async () => {
     });
     await assert.rejects(
       unauthorizedClient.request("system.ping"),
-      /closed|Error|timeout/i
+      (err) => {
+        assert(err instanceof Error);
+        return true;
+      }
     );
     unauthorizedClient.close();
   } finally {
@@ -118,3 +121,68 @@ test("rpc server enforces upgrade token when configured", async () => {
     await rm(runRoot, { recursive: true, force: true });
   }
 });
+
+test("rpc client wraps JSON-RPC error responses in Error instances", async () => {
+  class MockRpcSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor() {
+      this.readyState = MockRpcSocket.OPEN;
+      this.listeners = new Map();
+    }
+
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) {
+        this.listeners.set(type, new Set());
+      }
+      this.listeners.get(type).add(listener);
+    }
+
+    removeEventListener(type, listener) {
+      this.listeners.get(type)?.delete(listener);
+    }
+
+    send(data) {
+      const parsed = JSON.parse(data);
+      queueMicrotask(() => {
+        const errorResponse = {
+          jsonrpc: "2.0",
+          id: parsed.id,
+          error: { code: -32601, message: "Method not found", data: { method: parsed.method } }
+        };
+        this.#emit("message", { data: JSON.stringify(errorResponse) });
+      });
+    }
+
+    close() {
+      this.readyState = MockRpcSocket.CLOSED;
+    }
+
+    #emit(type, event) {
+      for (const listener of this.listeners.get(type) || []) {
+        listener(event);
+      }
+    }
+  }
+
+  const client = createRpcClient({
+    url: "ws://127.0.0.1:9876",
+    WebSocketImpl: MockRpcSocket
+  });
+
+  await assert.rejects(
+    client.request("unknown.method"),
+    (err) => {
+      assert(err instanceof Error);
+      assert.equal(err.message, "Method not found");
+      assert.equal(err.code, -32601);
+      assert.deepEqual(err.data, { method: "unknown.method" });
+      return true;
+    }
+  );
+
+  client.close();
+});
+
