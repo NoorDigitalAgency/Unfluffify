@@ -46,7 +46,10 @@ Never commit real endpoints, passwords, run dumps, screenshots, or profiles.
      if Playwright is not installed in this repo.
    - `profileDir`: unique per side, for example
      `orchestration/profiles/director`.
+   - `mediaMode`: keep `fake` for deterministic runs; use `real` for optional
+     desktop smoke checks.
    - `testPropertyUrl`: one staging-backed property from the handoff list.
+   - `insecureOrigins`: optional extra origins for local/http capture tests.
 
 4. Start the bus:
 

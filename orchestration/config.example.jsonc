@@ -19,8 +19,13 @@
   "busPort": 8765,
 
   // Browser display mode expected by the runner. Use "real" for a visible
-  // local desktop session or "xvfb" when launching under xvfb-run.
+  // local desktop session, "xvfb" under xvfb-run, or "wayland" for explicit
+  // Wayland/PipeWire host runs.
   "displayMode": "real",
+
+  // Media mode used by deterministic launch flags. "fake" is the default for
+  // repeatable orchestration runs; switch to "real" for desktop smoke checks.
+  "mediaMode": "fake",
 
   // Optional absolute Chrome/Chromium executable path. Leave blank to let
   // Playwright choose its bundled browser.
@@ -49,6 +54,11 @@
   // Optional desktop-capture source title substring for automated screen
   // sharing. This is locale/case-sensitive; verify the exact value per host.
   "captureSourceTitle": "Entire screen",
+
+  // Optional extra insecure origins to mark as secure in Chrome for local/http
+  // capture tests. Origins from testPropertyUrl/supportPageUrl are added
+  // automatically.
+  "insecureOrigins": [],
 
   // Optional extra Chrome launch flags for host-specific capture debugging.
   // Example for Wayland/PipeWire capture tests:

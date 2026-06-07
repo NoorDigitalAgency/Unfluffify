@@ -27,15 +27,47 @@ async function resolvePlaywright(config) {
 
 export function buildChromeLaunchArgs(config = {}) {
   const extensionPath = config.extensionPath || process.cwd();
+  const mediaMode = config.mediaMode === "real" ? "real" : "fake";
+  const insecureOrigins = Array.from(
+    new Set(
+      [config.testPropertyUrl, config.supportPageUrl, ...(Array.isArray(config.insecureOrigins) ? config.insecureOrigins : [])]
+        .map((value) => {
+          if (typeof value !== "string" || !value.trim()) {
+            return "";
+          }
+          try {
+            const parsed = new URL(value);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+              return "";
+            }
+            return parsed.origin;
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+    )
+  );
   const args = [
     "--no-sandbox",
     "--disable-dev-shm-usage",
     `--disable-extensions-except=${extensionPath}`,
     `--load-extension=${extensionPath}`,
-    "--use-fake-ui-for-media-stream",
-    "--use-fake-device-for-media-stream"
+    "--auto-accept-camera-and-microphone-capture",
+    "--allow-http-screen-capture",
+    "--disable-features=MediaRouter",
+    "--enable-features=WebRTCPipeWireCapturer"
   ];
 
+  if (mediaMode === "fake") {
+    args.push("--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream");
+  }
+  if (config.displayMode === "wayland") {
+    args.push("--ozone-platform=wayland");
+  }
+  if (insecureOrigins.length) {
+    args.push(`--unsafely-treat-insecure-origin-as-secure=${insecureOrigins.join(",")}`);
+  }
   if (config.captureSourceTitle) {
     args.push(`--auto-select-desktop-capture-source=${config.captureSourceTitle}`);
   }
@@ -43,7 +75,7 @@ export function buildChromeLaunchArgs(config = {}) {
     args.push(...config.chromeArgs.filter((arg) => typeof arg === "string" && arg.trim()));
   }
 
-  return args;
+  return Array.from(new Set(args));
 }
 
 export function createBrowserStepContext(config, options = {}) {
