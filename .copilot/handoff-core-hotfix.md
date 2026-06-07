@@ -1,309 +1,210 @@
-# Handoff - Core Hotfix Sprint (Environment Switch Ready)
+# Handoff - Core Hotfix Sprint
 
-Date started: 2026-06-07
-Current branch: main
-Scope: core stability first, then return to two-machine orchestration.
+Last updated: 2026-06-07
+Branch: main
+Scope: stabilize core user-facing spinner/curtain + silent-highlight behavior.
 
-## Sprint Guardrails
+This handoff is written so that you OR a fresh agent can reproduce, diagnose,
+fix, and VERIFY each issue independently using a real loaded extension. Read the
+"Live debugging methodology" section first - it is the single most important
+part. Do NOT declare a runtime/visual fix done from source reasoning or
+source-snapshot tests alone; verify it live.
 
-1. Keep .copilot/plan-core-hotfix-4h.md and this handoff file updated continuously.
-2. Commit and push after every completed fix phase.
-3. Do not start new feature work until listed P0/P1 items are stabilized.
+--------------------------------------------------------------------------------
+## Live debugging methodology (USE THIS - it is how every real bug here was found)
 
-## Priority Map
+The repo's `playwright-local` MCP is hardcoded to LINUX paths (`/home/rojan/...`)
+and cannot launch on this Mac, so its tools never connect. Drive Playwright
+directly instead. A runnable harness lives OUTSIDE the repo at
+`~/.uf-blink-harness/` (has its own node_modules; install with
+`PLAYWRIGHT_BROWSERS_PATH=~/Library/Caches/ms-playwright npm i playwright@1.60.0`).
+Gitignored REFERENCE copies are in `.scratch-blink-test/` (no node_modules).
+Logs are written to `~/.uf-live/`.
 
-Now:
-1. Cluster 1 - lifecycle/spinner consistency
-2. Cluster 2 - silent highlight and preview consistency
+Core loop:
 
-Next after core stabilization:
-3. Property lock completion/hardening
-4. Remote support (last priority)
+1. LAUNCH (headed, persistent profile, remote debugging) - `launch-live.mjs`:
+   `chromium.launchPersistentContext("~/.uf-live-profile", { headless:false,
+     args:["--disable-extensions-except=<REPO>","--load-extension=<REPO>",
+           "--no-sandbox","--remote-debugging-port=9222"] })`.
+   The persistent profile keeps the user's config/endpoints/token/login across
+   runs. Keep the process alive (`await new Promise(()=>{})`).
 
-## Work Log
+2. CONNECT for inspection/driving from separate short scripts:
+   `chromium.connectOverCDP("http://localhost:9222")` ->
+   `browser.contexts()[0]`. The service worker is `ctx.serviceWorkers()[0]`;
+   `extId = new URL(sw.url()).host`.
 
-### Phase A - Repro and instrumentation
-Status: COMPLETE (mapping/root-cause pass)
-Owner: active engineer
-Started at: 2026-06-07
-Completed at: 2026-06-07
+3. Find the candidate tab id via the SW:
+   `sw.evaluate(async () => (await chrome.tabs.query({})).find(t=>t.url?.startsWith("http"))?.id)`.
 
-Repro coverage:
-- #1 silent highlight blinking
-- #2/#3/#5 spinner stuck/missing
-- #4 spinner text sync (low)
-- #6 delayed apply feedback
-- #16 preview item visibility mismatch
-- #20 trace cross-world mismatch
+4. Open an INSTRUMENTED popup bound to that tab as a NORMAL Playwright page:
+   `ctx.newPage()` then `goto("chrome-extension://<extId>/popup.html?debugTabId=<tabId>")`.
+   popup/messages.js loadActiveTab reads `debugTabId` from the query string, so
+   the popup binds to the real candidate tab and behaves like the side panel.
+   CRITICAL: the real Chrome SIDE PANEL is NOT instrumentable over connectOverCDP
+   (no `page`/`console` events, addInitScript/exposeBinding do not apply). Always
+   use `popup.html?debugTabId=` in a controllable tab for instrumentation.
 
-Findings (event/state map):
+5. INSTRUMENT:
+   - `page.addInitScript(() => localStorage.setItem("ufDebugSpinnerQueue","1"))`
+     makes the popup emit `[popup-spinner]` push/pop/show/hide logs (read per call
+     from localStorage, so it also works if set after load).
+   - Capture `page.on("console", ...)` and filter for
+     /popup-spinner|world-trace|nav|spinner|curtain|busy|reveal|freeze|device/.
+   - For popup-LOCAL state that is not otherwise observable, temporarily add a
+     read-only debug hook to popup.js exposing `window.__ufSpinnerDebug()` ->
+     { localQueue, popupSpinnerVisible, getViewState().isBusy (uiBusy), navInspect
+     flags, popupStaleInspectionBusyClearTimer }. REMOVE it before committing.
 
-Cluster 1 - spinner/lifecycle authority
-- Authoritative store lives in background.js: tabSpinnerQueueByTabId (per-tab Map)
-  and tabLifecycleStateByTabId, surfaced via buildBrokerState/broadcastBrokerState
-  over ufPopupState:<tabId> ports (common/world-messaging-contract.js).
-- popup.js keeps a PARALLEL popupSpinnerQueue and pushes each entry back via
-  syncSpinnerEntryToBackground (popup.js:1018 pushSpinner / 1211 popSpinner).
-  Two sources of truth that can diverge -> core defect surface.
-- #2/#3/#5 stuck/missing: popSpinner only runs inside runWithSpinner's finally
-  (popup.js:1248). Popup close mid-op skips the local pop; background entry
-  persists (persistent or just never removed) and reopen restores the curtain
-  from the spinnerQueue snapshot. scheduleStaleInspectionBusyClear
-  (popup.js:1133) is a 12-attempt x 400ms polling reconciler - the timing hack
-  the constraints warn against.
-- #5 "Applying device emulation...": setSpinnerMessage(spinnerKey,
-  applyingDeviceEmulation) at popup.js:6994 keys onto navInspect/spinnerKey; if
-  the op settles via a different path the key lingers in the background queue.
-- #4 text desync: setSpinnerMessage only repaints UI when the key is
-  top-of-queue ([...keys()].at(-1), popup.js:1118). A message update to a
-  non-top key updates background state but not the visible text.
-- #20 trace cross-world: appendWorldTraceEvent records per-tab spinner/lifecycle
-  events; need to confirm UI toggle (setWorldTraceEnabled) round-trips to the
-  same tab's traceEnabled flag.
+6. READ BOTH layers - they diverge, and the divergence IS the bug:
+   - Popup-local: `window.__ufSpinnerDebug()` + `#ui-curtain` DOM
+     (`document.getElementById("ui-curtain")`, visible via
+     offsetWidth||offsetHeight||getClientRects().length, title from
+     `.ui-curtain__title`).
+   - Broker (background authority): from the popup page,
+     `chrome.runtime.sendMessage({type:"getUfBackgroundState", tabId})` ->
+     { spinnerQueue, lifecycle{kind,phase,busy}, traceEnabled, traceEvents }.
+   - Content: `chrome.tabs.sendMessage(tabId,{type:"getInspectionStatus"})` ->
+     { active, pending, pendingReason, markingEnabled, mode }.
 
-Cluster 2 - silent highlight/preview
-- #1 blink ROOT CAUSE: renderSilentHighlightOverlay (content-main.js:3535) calls
-  setSilentHighlightOverlayHidden(true) -> redraw rects ->
-  scheduleSilentHighlightOverlayReveal() (rAF-deferred, content-main.js:3299).
-  repositionSilentHighlightOverlay (content-main.js:3623) repeats that exact
-  hide->redraw->reveal cycle, and it is invoked on settle finalize (every
-  SILENT_SETTLE_REPOSITION_SAMPLE_MS=120ms while unsettled), on layout-shift
-  (PerformanceObserver, content-main.js:4227), and on relevant DOM mutations
-  (content-main.js:4204). Each reposition is a visible blink because the reveal
-  is deferred a frame and gated behind no-pending-timers.
-- #6 delayed apply: marking interactions go through
-  scheduleSilentHighlightingsRefresh (debounced) -> async config.getConfigs ->
-  double yield (setTimeout 0 then rAF) before the overlay updates
-  (refreshSilentHighlightings, content-main.js:5980). Visible lag can read as an
-  ignored click.
-- #16 preview visibility mismatch: preview list eligibility must be reconciled
-  against collectSilentHighlightRenderTargets / renderable collections so list
-  rows always map to a visible, highlightable target.
+7. DRIVE the flow: `popup.click("#toggle-enabled")` (enable marking), click
+   render-mode / "With JavaScript", etc. Poll a timeline every ~200ms and log
+   only on change (see `drive2.mjs`).
 
-### Phase B - Cluster 1 lifecycle/spinner
-Status: B1 DONE (authority shift); B2 no-op (already handled); B3 DEFERRED
-Owner: active engineer
-Started at: 2026-06-07
-Completed at: 2026-06-07 (B1)
+8. APPLY a code change, then RELOAD the extension from disk WITHOUT relaunching:
+   `sw.evaluate(() => chrome.runtime.reload())` (`reload-ext.mjs`). Re-run the
+   driver and compare the timeline before/after.
 
-Scope decision (owner): full authority refactor, staged so the polling
-reconciler is removed LAST, only after the authoritative path is proven on the
-silent-restore edge case. Removing it before that would reintroduce the P0
-stuck-curtain.
+Harness file inventory (in ~/.uf-blink-harness/, reference copies in .scratch-blink-test/):
+- launch-live.mjs  : launch headed browser + enable world trace + console log.
+- reload-ext.mjs   : chrome.runtime.reload() via the SW (pick up disk changes).
+- drive2.mjs       : open instrumented popup, click Enable Marking, timeline of
+                     curtain + __ufSpinnerDebug + broker (THE main repro driver).
+- inspect2.mjs     : one-shot read of #ui-curtain + broker spinnerQueue/lifecycle/trace.
+- inspect3.mjs     : push+remove navInspect in broker to test popup reconciliation.
+- probe-insp.mjs   : read content getInspectionStatus for the candidate tab.
+- run.mjs          : silent-highlight blink counter (overlay uf-silent-hidden toggles).
+- verify-b1.mjs    : background curtain-teardown gate (synthetic - see caveat below).
+- verify-curtain.mjs: real popup #ui-curtain show/hide via broker (synthetic - caveat).
 
-B1 - background authoritatively tears down the inspection curtain (DONE, browser-verified)
-- Added shared SPINNER_KEYS.NAV_INSPECT + CURTAIN_BEARING_LIFECYCLE_KINDS +
-  isCurtainBearingLifecycleKind to common/world-messaging-contract.js.
-- background.js updateLifecycleState now clears the persistent navInspect
-  spinner for a tab when a curtain-bearing lifecycle (ACTIVATION /
-  RENDER_MODE_INSPECTION) reaches a terminal phase (FINISHED/FAILED), gated so
-  routine content-ready terminals never drop the curtain. This makes background
-  the owner of end-of-operation curtain teardown: a popup that closed
-  mid-inspection reopens without a stuck curtain because the snapshot no longer
-  carries navInspect.
-- BROWSER-VERIFIED (Playwright, extension loaded, verify-b1.mjs) by driving the
-  real background message handlers (SPINNER_SET / LIFECYCLE_EVENT /
-  GET_BACKGROUND_STATE) per synthetic tab. All 4 checks pass:
-  render-mode-inspection FINISHED clears navInspect; activation FINISHED clears
-  navInspect; content-ready FINISHED does NOT clear; render-mode STARTED
-  (non-terminal) does NOT clear.
+Other gotchas learned:
+- `normalizeBaseUrl` strips ports -> a localhost:PORT page can never match a
+  stored base URL; use a default-port host (route-intercepted) for synthetic pages.
+- content-main.js only loads after the background sends `activateContentMain`;
+  it does not auto-run. Drive it via `chrome.tabs.sendMessage(tabId,
+  {type:"activateContentMain"})` or by opening the popup which activates it.
+- Config lives in EXTENSION-ORIGIN IndexedDB `unfluffify`/store `kv`/key `configs`;
+  seed it in the SW directly (`import()` is disallowed in service workers).
+- World trace: set `chrome.storage.sync.globalTraceModeEnabled=true`, but the
+  popup may re-disable it (issue #20) - force it per tab with a
+  `{type:"ufTraceSet", tabId, enabled:true}` runtime message if needed.
 
-B1.1 - VISUAL popup curtain fix (the spinner-still-stuck report)
-- The B1 gate test passed but the actual popup #ui-curtain stayed visible. A
-  VISUAL harness (verify-curtain.mjs: opens the real popup.html?debugTabId=<tab>,
-  drives the broker, reads #ui-curtain DOM + screenshots) reproduced it:
-  "Inspecting page..." curtain stayed up after the terminal lifecycle.
-- ROOT CAUSE: the curtain teardown lived AFTER the lifecycle supersede guard in
-  updateLifecycleState. When a late inspection-finished arrives for operation X
-  but the tab lifecycle already advanced to a newer operation (e.g. a
-  content-ready reload, operationId Y != X), the supersede guard returns early
-  and B1's navInspect clear never ran -> navInspect leaked in the broker -> the
-  popup mirrors it and #ui-curtain stays stuck. (The popup broadcast path does
-  NOT run the reconciler, so a stale broker spinner sticks.)
-- FIX: extracted clearNavInspectCurtain() and run it INDEPENDENTLY of the
-  supersede guard - a terminal curtain-bearing event always clears the stale
-  curtain (and broadcasts) even when the lifecycle-state update is superseded.
-- VISUAL VERIFICATION (verify-curtain.mjs, 4/4 pass + screenshots
-  curtain-1-inspecting.png / curtain-2-after-finish.png): inspection curtain
-  VISIBLE "Inspecting page..." while inspecting; #ui-curtain HIDDEN after the
-  terminal lifecycle; navInspect cleared from the broker; curtain no longer
-  shows the inspecting message. Full node --test green.
+--------------------------------------------------------------------------------
+## Verified fixes (live-confirmed)
 
-B2 - resolved without code change
-- #5 transient "Applying device emulation..." orphan: ALREADY cleared on the
-  last popup-port disconnect (background.js port.onDisconnect ->
-  clearBackgroundSpinnerQueue transientOnly). Transient spinners are
-  popup-session scoped by design; persistent navInspect is the only cross-close
-  curtain and B1 now owns its teardown.
-- #4 "text desync": not a real bug. The curtain shows currentSpinnerMessage()
-  (last/top entry); setSpinnerMessage repainting only the top entry is
-  self-consistent. No change, to avoid risk.
+V1. Silent-highlight blink (#1) - FIXED, verified with run.mjs (6 hide/reveal
+    cycles in 8s BEFORE -> 0 after). Two parts:
+    - content-main.js renderSilentHighlightOverlay/repositionSilentHighlightOverlay
+      gained a keepVisible flag; settle/layout-shift/mutation repositions update
+      rects in place instead of hide->reveal.
+    - applyOverlayUpdate keeps an already-live overlay visible on full refresh.
+    Commits: 62ea6a3, 8747835.
 
-B3 - remove scheduleStaleInspectionBusyClear (DEFERRED, see Next Actions)
-- Precondition to remove safely: confirm (manual/extension test) that the
-  silent-restore edge case (leftover navInspect from a prior marking session in
-  silent mode, popup.js:1150) always receives a terminal curtain-bearing
-  lifecycle so B1 clears it. Until verified in a real browser, keep the
-  reconciler as a rarely-firing fallback behind the authoritative path
-  (robust reconciliation + bounded fallback, not a pure timing hack).
+V2. Stuck "Inspecting page..." curtain on marking-enable (#2 / #5) - FIXED,
+    verified live with drive2.mjs (curtain VIS ~20s -> HIDDEN ~30s when content
+    settles, instead of sticking forever).
+    ROOT CAUSE (popup-side, NOT background): the "Inspecting page..." curtain
+    after Enable Marking is a uiBusy flag set by refreshUi when
+    getInspectionStatus reports pending (editor reveal/freeze warmup). It is NOT
+    a spinner-queue entry, so the broker spinnerQueue is empty.
+    scheduleStaleInspectionBusyClear (popup.js) polled to clear it but gave up
+    after 12 attempts (~5s) while content was still pending, and nothing
+    re-triggered the clear once content settled (~9s) -> permanently blocked UI.
+    FIX (popup.js scheduleStaleInspectionBusyClear): reconcile against the
+    authoritative content status until actually not-pending (cap 12 -> 75 as a
+    safety net only) and fail-open on exhaustion so a blocking curtain can never
+    persist. Commit: 8eba026.
 
-Files touched:
-- common/world-messaging-contract.js (SPINNER_KEYS, CURTAIN_BEARING_LIFECYCLE_KINDS,
-  isCurtainBearingLifecycleKind)
-- background.js (import + updateLifecycleState terminal curtain teardown)
-- tests/lifecycle-broker.test.js (new assertion for terminal curtain teardown)
+--------------------------------------------------------------------------------
+## CORRECTION / caveat on the earlier background "curtain" work
 
-Validation:
-- node --test full suite green; lifecycle-broker + device-emulation-lifecycle +
-  content-activation-order + popup-marking-refresh + popup-mode-sync pass.
-- Contract smoke test: isCurtainBearingLifecycleKind(ACTIVATION)=true,
-  (CONTENT_READY)=false.
+Commits f7b4d82 (B1) and 33da9b1 (B1.1) added background-side navInspect teardown
+in updateLifecycleState (clear navInspect on a terminal curtain-bearing lifecycle;
+B1.1 made it run independently of the supersede guard). These were based on a
+SYNTHETIC repro (verify-curtain.mjs pokes the broker directly). LIVE debugging
+later showed the user's actual stuck curtain is the popup-side reconciler issue
+above, where navInspect is NOT even in the broker. So B1/B1.1 do not address the
+real bug.
 
-Commit:
-- pending (this checkpoint)
+RISK: B1.1 (clear navInspect even when the lifecycle is superseded) can clear a
+legitimate navInspect curtain mid-operation. During live testing the user once
+observed the curtain "disappear too early". B1.1 is the prime suspect.
+ACTION FOR NEXT AGENT: evaluate reverting B1.1 (restore B1's supersede-gated
+clear, or remove the background navInspect teardown entirely) and re-verify the
+real navInspect flows live. Keep V2 (the popup reconciler fix) regardless.
 
-Push:
-- pending
+--------------------------------------------------------------------------------
+## Issue status (full original 20-issue report)
 
-### Phase C - Cluster 2 highlight/preview
-Status: IN PROGRESS (#1 blink DONE + browser-verified; #6/#16 pending)
-Owner: active engineer
-Started at: 2026-06-07
-Completed at: -
+Cluster 1 - operation lifecycle / spinner (messaging layers):
+- #1  silent blink ........................ FIXED+verified (V1)
+- #2  spinner stuck after reveal/freeze ... FIXED+verified (V2, popup reconciler)
+- #3  refresh -> spinner gone, never returns . OPEN (next; likely broker port
+       re-connect / lifecycle reset after page reload - drive it with reload-ext +
+       a page reload, watch broker lifecycle->none and whether popup re-subscribes)
+- #4  spinner text out of sync (low) ...... OPEN (low)
+- #5  "Applying device emulation..." stuck . FIXED via V2 (same uiBusy/reconciler
+       path; reveal/freeze correctly does not run on enable - the curtain was the
+       stuck part). Re-confirm live.
+- #20 trace enabled in sync but checkbox off/no logs . OPEN (observed live:
+       getUfBackgroundState traceEnabled=false despite sync flag; popup disables it)
 
-Sequencing note: owner chose to land the isolated blink fix (#1) before the
-Cluster 1 authority refactor. Remaining Cluster 2 items (#6 immediate feedback,
-#16 preview/visible-target alignment) still pending.
+Cluster 2 - silent highlight / preview:
+- #6  marking apply delayed a few seconds .. OPEN (core.scheduleRender default
+       delay=50ms on user actions; candidate fix delay:0 for user-driven renders)
+- #16 preview list rows not visible/scrollable (VERY HIGH) . OPEN (needs AI
+       preview list populated; reconcile preview eligibility against
+       collectSilentHighlightRenderTargets / renderable collections)
 
-#1 silent-highlight blink - DONE (two-part fix, browser-verified)
+Cluster 3 - mode transitions / temporary state reset:
+- #15 saved data used on enable -> dirty/discard wrong .... OPEN
+- #17 exit AI content list -> silent mode, cannot save (VERY HIGH) . OPEN
+- #18 enable after that silent landing -> only Run AI/Discard enabled
+       (temp changes not discarded) ........................ OPEN
+- #19 "Preview in desktop mode" shown after that flow ...... OPEN (see #14)
 
-CORRECTION: the first commit (62ea6a3) fixed only the reposition path and was
-declared "done" on source reasoning + snapshot tests WITHOUT running the
-extension. Owner confirmed the blink was still present. A real-browser repro
-(Playwright, extension loaded) showed the DOMINANT source was a different path.
-Lesson recorded: do not claim a runtime/visual fix without observing it in the
-actual extension. See [[verify-visual-fixes-in-real-browser]].
+Cluster 4 - property-lock countdown / lock-loss loop:
+- #10 "return within XXs" resets to 30 after 0 and loops ... OPEN
+- #11 refresh after countstuck -> read-only config view, back disabled, loop . OPEN
+- #12 render-mode options reset while countdown banner shows . OPEN
 
-Two distinct blink sources:
-1. Reposition path (commit 62ea6a3): scheduleSilentHighlightReposition hid the
-   overlay up front for ALL repositions; repositionSilentHighlightOverlay ran
-   setSilentHighlightOverlayHidden(true) -> rAF reveal on every settle/
-   layout-shift/mutation. Fixed via keepVisible on settle/layout-shift/mutation
-   repositions; scroll/resize keep hide->reveal (viewport-fixed rects go stale
-   mid-gesture).
-2. Full-refresh path (DOMINANT, this commit): shouldRenderSilentHighlightOverlay
-   returns true whenever isFullRefresh, so refreshSilentHighlightings ->
-   applyOverlayUpdate ALWAYS ran renderSilentHighlightOverlay with the hide->
-   reveal cycle - even when the recomputed highlight set was identical. A DOM
-   class mutation on a tracked node re-runs the full pipeline (debounced to the
-   ~1200ms mutation min-interval), so the overlay blinked ~once/1.2s on any
-   dynamic page. Fix: pass keepVisible when the overlay is already live
-   (lastSilentHighlightingsActive && shouldBeActive && overlay exists), so live
-   updates repaint rects in place; only the initial inactive->active paint uses
-   hide->reveal so the first reveal is scheduled.
+Cluster 5 - confirmations / debugger:
+- #7  discard-confirm message delayed on uncheck ........... OPEN
+- #8  discard-confirm message delayed on navigation ........ OPEN
+- #9  fast repeated debugger disable not detected .......... OPEN
 
-Browser verification (Playwright harness, extension loaded, seeded silent config,
-page mutating a tracked node's class every 500ms):
-- BEFORE fix #2 (HEAD with only the reposition fix): 6 hide/reveal cycles in 8s.
-- AFTER fix #2: 0 cycles across two 14s runs (34 mutations each), 16 rects intact.
-- Scroll regression check: overlay legitimately hides on scroll, then reveals AND
-  repositions (rect top 40px -> 5.9px), visibleAfterScroll=true, no page errors.
+Cluster 6 - render mode / conditional UI:
+- #13 "With JavaScript" doesn't run on a fresh non-candidate page . OPEN
+- #14 "Preview in desktop mode" should only show on silent-mode view
+       with saved CSS selectors, disabled+with-note otherwise ... OPEN
 
-Files touched:
-- content-main.js (renderSilentHighlightOverlay + repositionSilentHighlightOverlay
-  keepVisible plumbing; scheduleSilentHighlightReposition scroll-only hide;
-  applyOverlayUpdate keepVisible for live overlays)
-- tests/silent-highlight-annotations.test.js (snapshot regexes for new signatures)
+--------------------------------------------------------------------------------
+## Next actions (keep current)
 
-Test harness (gitignored, .scratch-blink-test/): Playwright loads the unpacked
-extension via the Mac chromium-1223 cache, seeds the extension-origin IDB
-(unfluffify/kv/configs) directly in the service worker, activates content via
-activateContentMain, and counts overlay uf-silent-hidden toggles. NOTE: the
-repo's playwright-local MCP (.mcp.json) is hardcoded to LINUX paths
-(/home/rojan/...) and cannot launch on this Mac - that is why its tools never
-connect here. normalizeBaseUrl strips ports, so the harness must use a
-default-port host (route-intercepted) not localhost:PORT.
+1. (DONE) Confirm marking-enable curtain clears - verified via drive2.mjs.
+2. Issue #3 (refresh -> spinner never reappears): with launch-live running,
+   open instrumented popup, reload the candidate page, and poll broker lifecycle
+   + popup port state. Hypothesis: after reload the broker lifecycle resets to
+   none and the popup's broker port / event subscription is not re-established,
+   so subsequent events never reach the popup. Confirm live, then fix, then
+   verify by triggering an event after reload and watching the curtain appear.
+3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
+   navInspect clearing; re-verify live.
+4. Continue down Cluster 1 (#20, #4), then Cluster 2 very-high (#16, #17).
 
-Validation:
-- node --test full suite green.
-- Playwright blink counts above.
-
-Commit:
-- 62ea6a3 (reposition path) + 8747835 (full-refresh path)
-
-Push:
-- pushed (8747835)
-
-#6 immediate marking feedback - DEFERRED (owner, needs concrete repro)
-- Characterization: the only concrete delay primitive is core.scheduleRender
-  (content/core.js), default delay = 50ms before the rAF redraw, commented as
-  intentional batching for observer/mutation-driven renders. User marking clicks
-  (setExplicitInclude / setExplicitExclude handlers in content-main.js) call
-  core.scheduleRender() with that 50ms default, so a click's marking-overlay
-  update lands ~66ms later.
-- Candidate fix (NOT applied): pass scheduleRender({ delay: 0, reason:
-  "user-marking" }) on the direct user-action handlers so user clicks bypass the
-  batching delay while observer/mutation renders keep it.
-- Why deferred: (a) the 50ms is intentional batching - removing it for user
-  actions needs care against rapid-click churn; (b) a ~50ms perceptual change is
-  hard to verify OBJECTIVELY in Playwright (frame-timing noise) - needs a real
-  repro to confirm the symptom and a trustworthy measurement.
-
-#16 preview list/visible-target mismatch - DEFERRED (owner, needs repro)
-- Needs the AI preview list POPULATED (aiPreviewState.items) to reproduce, which
-  requires the backend AI-compute flow to produce selectors/items. The harness
-  cannot generate that data without stubbing the compute path, so no faithful
-  before/after is possible yet. Fix direction unchanged: reconcile preview list
-  eligibility against collectSilentHighlightRenderTargets / renderable
-  collections so every row maps to a visible, highlightable target.
-
-## Environment Switch Checklist
-
-Before stopping work:
-1. Update this handoff with exact status and next command.
-2. Update .copilot/plan-core-hotfix-4h.md with completed phase details.
-3. Commit and push current phase.
-4. Ensure git status is clean or intentionally includes only active-phase changes.
-
-When resuming in a new environment:
-1. git fetch --all --prune
-2. git checkout main
-3. git pull --ff-only
-4. Read this file from top to bottom.
-5. Run first command in Next Actions.
-
-## Next Actions (Always Keep Current)
-
-1. Phase A complete - event/state map recorded above.
-2. Phase C #1 blink - DONE, browser-verified 6->0 (62ea6a3 + 8747835, pushed).
-3. Phase B B1 authority shift - DONE, browser-verified gate (f7b4d82, pushed).
-   B2 resolved no-op. #6/#16 DEFERRED pending concrete repro (see above).
-4. B3 reconciler removal - BLOCKED on manual verification:
-   - Load the unpacked extension; reproduce the silent-restore stuck curtain
-     (open marking session -> trigger navInspect -> close popup mid-inspection
-     -> switch to silent mode -> reopen popup).
-   - Confirm via world-trace (ufDebugSpinnerQueue=1) that a terminal
-     curtain-bearing lifecycle clears navInspect (B1) WITHOUT the reconciler.
-   - Only if confirmed for every curtain path: delete scheduleStaleInspectionBusyClear
-     and its call sites in popup.js, update popup-marking-refresh tests.
-5. Phase C remaining (Cluster 2):
-   - #6 immediate marking feedback: render an instant local highlight/echo on
-     marking interaction before the debounced refreshSilentHighlightings settles.
-   - #16 preview list/visible-target alignment: reconcile preview list eligibility
-     against collectSilentHighlightRenderTargets so every row maps to a visible,
-     highlightable target.
-   - Validate: tests/silent-highlight-annotations.test.js,
-     tests/content-main*.test.js, tests/popup-render-mode.test.js.
-
-## Immediate Commands
-
-- git status --short
-- rg -n "spinner|runWithSpinner|ufLifecycleEvent|ufSpinner|navInspect|getInspectionStatus" popup.js background.js content-main.js common
-- rg -n "highlight|silent|refreshSilent|preview|visibility|xpath|scroll" content-main.js content popup.js common
-- npm test -- tests/popup-marking-refresh.test.js tests/device-emulation-lifecycle.test.js tests/content-activation-order.test.js
-
-## Known Constraints
-
+## Constraints
+- Verify every runtime/visual fix LIVE before recording it as done.
+- Keep fixes minimal and deterministic; prefer authoritative state reconciliation
+  over fixed-time give-ups (the #2 bug was exactly a premature give-up).
 - Do not weaken the locked marking contract.
-- Keep fix scope minimal and deterministic.
-- Prefer robust state reconciliation over timing-based hacks.

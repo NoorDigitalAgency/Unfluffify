@@ -1,128 +1,69 @@
-# Core Hotfix Sprint Plan (4h)
+# Core Hotfix Sprint Plan
 
 Date: 2026-06-07
 Branch: main
-Owner: active engineer in current environment
 
 ## Objective
 
-Stabilize core user-facing workflows before returning to two-machine orchestration.
-Priority order after core stabilization:
-1. Property lock validation and hardening.
-2. Remote support validation and hardening.
+Stabilize core spinner/curtain and silent-highlight behavior reported in the
+20-issue bug report. Fix and VERIFY each issue against the real loaded
+extension - source reasoning and source-snapshot tests are NOT sufficient for
+runtime/visual bugs.
 
-This plan is execution-focused for a 4-hour emergency window.
+## How to work (mandatory)
 
-## Rules For This Sprint
+Use the live debugging methodology documented in
+`.copilot/handoff-core-hotfix.md` ("Live debugging methodology"). In short:
+launch the extension headed via Playwright with `--remote-debugging-port=9222`
+and a persistent profile, connect over CDP, open an instrumented
+`popup.html?debugTabId=<tabId>` page (the Chrome side panel is NOT instrumentable
+over CDP), drive it with `popup.click(...)`, and poll a timeline of the popup
+`#ui-curtain` + `window.__ufSpinnerDebug()` + broker `getUfBackgroundState` +
+content `getInspectionStatus`. Reload code changes with `chrome.runtime.reload()`
+via the service worker and re-run the driver. Harness scripts live in
+`~/.uf-blink-harness/` (reference copies in `.scratch-blink-test/`).
 
-1. No net-new feature work.
-2. Fix P0/P1 regressions only.
-3. Keep changes minimal and isolated.
-4. Update this plan and the handoff document after every phase.
-5. Commit and push after every completed fix phase.
-6. Every fix phase must include:
-   - Repro note
-   - Root cause note
-   - Files touched
-   - Validation commands and results
+Key principle proven by this sprint: the bug is usually a DIVERGENCE between
+layers (popup-local view state vs background broker vs content status). Always
+read all three.
 
-## Issue Clusters
+## Rules
 
-Cluster 1 (highest): operation lifecycle and spinner consistency
-- Related issues: #2, #3, #4, #5, #20
-- Goal: one authoritative per-tab lifecycle state and spinner ownership across popup/background/content.
+1. Fix P0/P1 regressions only; no net-new features.
+2. Keep changes minimal, deterministic, and reconciliation-based (avoid
+   fixed-time give-ups - issue #2 was exactly a premature give-up).
+3. Verify every fix LIVE, capture the before/after timeline, THEN record it.
+4. Update this plan and the handoff after every fix. Commit and push per fix.
+5. Do not weaken the locked marking contract.
 
-Cluster 2 (highest): silent highlight and preview consistency
-- Related issues: #1, #6, #16
-- Goal: remove visible blinking, reduce delayed state application confusion, and align list item visibility/highlight targeting.
+## Issue clusters and status
 
-Cluster 3: mode transitions and temporary state reset
-- Related issues: #17, #18, #19, #15
+See `.copilot/handoff-core-hotfix.md` "Issue status" for the authoritative,
+per-issue state. Summary:
 
-Cluster 4: property-lock countdown and lock-loss loop handling
-- Related issues: #10, #11, #12
+- Cluster 1 (lifecycle/spinner, messaging): #1 FIXED, #2 FIXED, #5 FIXED,
+  #3 OPEN (next), #4 OPEN (low), #20 OPEN.
+- Cluster 2 (silent/preview): #6 OPEN, #16 OPEN (very high).
+- Cluster 3 (mode transitions/temp reset): #15, #17 (very high), #18, #19 OPEN.
+- Cluster 4 (property-lock countdown loop): #10, #11, #12 OPEN.
+- Cluster 5 (confirmations/debugger): #7, #8, #9 OPEN.
+- Cluster 6 (render-mode/conditional UI): #13, #14 OPEN.
 
-Cluster 5: confirmations and debugger edge behavior
-- Related issues: #7, #8, #9
+## Priority order for remaining work
 
-Cluster 6 (lower): render mode and conditional UI visibility
-- Related issues: #13, #14
+1. #3 spinner-never-reappears-after-refresh (Cluster 1, completes the messaging
+   layer the user emphasized).
+2. Re-evaluate B1.1 background change (premature navInspect clear risk) - see
+   handoff CORRECTION.
+3. #16 preview list visibility (very high) and #17 AI-exit cannot save (very high).
+4. #20, #4 (finish Cluster 1), then Clusters 3-6.
 
-## 4-Hour Timeline
+## Verified-fix log
 
-Phase A (00:00-00:25) - DONE
-- Repro matrix and instrumentation pass for Cluster 1 and Cluster 2.
-- Identify message/event paths and stale state sources.
-- Result: full event/state map + root causes recorded in
-  .copilot/handoff-core-hotfix.md (Phase A Findings). Key roots: dual
-  spinner source-of-truth (background vs popup) with polling reconciler;
-  blink = hide->reveal cycle in renderSilentHighlightOverlay reused by every
-  reposition.
+- #1 silent blink: commits 62ea6a3, 8747835 (run.mjs: 6->0 hide/reveal cycles).
+- #2/#5 stuck inspection curtain: commit 8eba026 (drive2.mjs: curtain clears
+  when content settles instead of sticking; popup reconciler no longer gives up
+  early and fails open).
 
-Phase B (00:25-01:45) - Cluster 1
-- Implement lifecycle/spinner source-of-truth and timeout cleanup.
-- Ensure popup restore behavior uses authoritative state and does not lose future events.
-- Fix spinner text mapping synchronization while preserving queue semantics.
-- Update docs, commit, push.
-
-Phase C (01:45-03:05) - Cluster 2
-- Remove/limit highlight repaint loop causing blink.
-- Align preview list eligibility with actual visible/highlightable targets.
-- Improve immediate feedback path when state application is deferred.
-- Update docs, commit, push.
-
-Phase D (03:05-03:35) - verification and triage delta
-- Re-run focused tests and manual flow checks for Cluster 1/2.
-- Capture open deltas and severity.
-
-Phase E (03:35-04:00) - handoff hardening
-- Prepare environment-switch handoff with exact next commands and checkpoints.
-- Commit and push final sprint checkpoint.
-
-## Acceptance Criteria For Cluster 1
-
-1. Spinner starts for reveal/freeze and ends reliably on complete/fail/cancel.
-2. Spinner can recover after popup close/reopen and after page refresh.
-3. Spinner text matches active operation stage.
-4. No stuck "Applying device emulation..." spinner after operation settle.
-5. Trace cross-world messaging setting is reflected in UI and behavior.
-
-## Acceptance Criteria For Cluster 2
-
-1. Silent-mode highlight no longer blinks at periodic interval.
-2. User feedback appears immediately on marking interactions.
-3. Preview list items always map to visible targets and can scroll/highlight.
-4. Delayed state updates do not appear as ignored user clicks.
-
-## Required Validation Commands
-
-Use these during each phase and record pass/fail in handoff.
-
-- npm test -- tests/popup-marking-refresh.test.js tests/device-emulation-lifecycle.test.js tests/content-activation-order.test.js
-- npm test -- tests/content-main*.test.js tests/popup*.test.js
-- npm test
-
-If command patterns are not supported by the local test runner, run equivalent explicit files.
-
-## Documentation Update Checklist (Mandatory Per Phase)
-
-After each completed phase:
-1. Update .copilot/plan-core-hotfix-4h.md (phase status + deltas).
-2. Update .copilot/handoff-core-hotfix.md (exact current state and next steps).
-3. Commit with phase-specific message.
-4. Push branch.
-
-## Commit Convention
-
-- hotfix(core): phase B cluster 1 lifecycle and spinner stabilization
-- hotfix(core): phase C cluster 2 silent highlight and preview consistency
-- hotfix(core): phase E handoff checkpoint for environment switch
-
-## Resume Procedure After Environment Change
-
-1. git fetch --all --prune
-2. git checkout main
-3. git pull --ff-only
-4. Open .copilot/handoff-core-hotfix.md
-5. Execute Next Actions in order.
-6. Keep plan and handoff updated before writing code and before stopping.
+## Commit convention
+- hotfix(core): <concise description> (live-verified)
