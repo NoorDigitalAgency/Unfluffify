@@ -57,6 +57,10 @@ STEP 2 - reproduce FIRST. Capture the before timeline/state. If you cannot
 reproduce, do not change code - record why and stop. (Several OPEN issues here
 have never been cleanly reproduced even by the planning model; reproduction is
 the real work, not an afterthought.)
+Render-mode precondition: if you need to enter render-mode flow on a property
+that is not yet saved on the backend, clear that property's IndexedDB entries
+first (extension origin `unfluffify` DB, `kv/configs` data), otherwise stale
+local config can bypass/hide render-mode and invalidate the repro.
 
 STEP 3 - find the divergence. The recurring bug shape is a DIVERGENCE between
 the three layers: popup-local view state (popup.js / popup/ui.js), the
@@ -84,33 +88,14 @@ ambiguous across layers; or "verify live" is required and unavailable.
 
 ## Next single task (decision tree for the implementing agent)
 
-The #1 priority is the content-reactivation root-cause lead (see handoff
-SESSION 3 + "STRONG ROOT-CAUSE HYPOTHESIS"), because it plausibly underlies #3,
-#13, and marking-not-enabling at once. Do this, nothing else, first:
+SESSION 3 root-cause lead is complete and superseded by live fix data:
+- `activateContentMain` was not the blocker in the verified repro path
+      (`alreadyLoaded` after reload).
+- #3 was fixed by preserving enabled state on same-base top-level navigation,
+      allowing navInspect spinner flow to run and settle after reload.
 
-  A. Drive the full sequence (land -> "With JavaScript" -> Static -> Set ->
-     Enable Marking) per handoff SESSION 3.
-  B. After the reveal/freeze reloads, probe
-     `chrome.tabs.sendMessage(tabId,{type:"getInspectionStatus"})`. Expect it
-     UNDEFINED and broker lc[none] (content-main not active).
-  C. Send `chrome.tabs.sendMessage(tabId,{type:"activateContentMain"})` (the
-     content listener is content-main.js:7796; activation is requested from
-     background.js requestContentActivation ~line 2869 and the
-     activateContentMain send at background.js:2873). Re-probe
-     getInspectionStatus.
-       - If content REVIVES -> confirmed: background does not auto re-activate
-         content-main after a render-mode/debugger reload. Fix in background.js
-         so content is re-activated after those reloads (re-arm the
-         requestContentActivation / restoreEnabledStateForTab path on the
-         post-reload tabs.onUpdated), then re-verify the WHOLE sequence: marking
-         reaches enabled=true and the navInspect spinner appears on navigation.
-       - If content does NOT revive -> the bug is in content-main activation
-         itself (content-loader present but content-main not loading); record
-         that and narrow further before changing background.
-  D. Only after this lands, move to B1.1 re-evaluation, then #16/#17.
-
-Do not start #16, #17, or any Cluster 3-6 issue before the above is resolved or
-explicitly deprioritized by the owner.
+Next single task: B1.1 re-evaluation (premature navInspect clear risk), then
+#16/#17.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 
@@ -144,8 +129,8 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 
 | Task | Difficulty | Effort | Live? | Note |
 |------|-----------|--------|-------|------|
-| ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | #1 priority; underlies #3/#13/marking-not-enabling. Cross-layer live diagnosis. |
-| #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | Likely a symptom of the root-cause lead; do that first. |
+| ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
+| #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | Decide revert vs keep; must re-verify real navInspect flows live. |
 | #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | Needs AI preview list populated; reconcile vs collectSilentHighlightRenderTargets. |
 | #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
@@ -186,17 +171,13 @@ Cluster 1 - operation lifecycle / spinner (messaging layers):
       appear anymore for ANY events; the reveal/freeze run itself works. Owner
       refinement: the reveal/freeze SPINNER DOES NOT APPEAR after
       refresh/navigation. "make sure of all messaging layers and events."
-      STATUS: OPEN - NEXT. Likely related to #2/#5 (curtain/messaging layers).
-      Hypothesis (to verify live): after a page reload/navigation the broker
-      lifecycle resets to none (observed: lc[none]) and the popup's broker port /
-      tabs.onUpdated subscription / navInspect-raising path
-      (beginNavigationInspectionOverlay, gated on tabState.enabled + inScope) is
-      not re-established or no longer fires, so subsequent reveal/freeze events
-      never raise the spinner. REPRO PLAN: launch-live + instrumented
-      popup.html?debugTabId, settle, then reload the candidate page (or
-      sw.evaluate chrome.tabs.reload), and poll broker lifecycle + popup curtain
-      + whether beginNavigationInspectionOverlay logs fire on the reload. Then
-      trigger a reveal/freeze and confirm the spinner appears.
+      STATUS: FIXED + live-verified. Root cause: background disabled marking on
+      every top-level navigation commit, including same-base reloads, so
+      navInspect never had enabled state to run against. Fix preserves enabled
+      marking for same-base navigations/reloads and only disables outside baseUrl.
+      Live verification: nav spinner appears (`push:show` + set-message) and
+      settles (`nav-complete-settle`, `nav-overlay-end`) after reload; content
+      remains in marking mode post-reload.
 - #4  Spinner text for different events not in sync (LOW priority).
       STATUS: OPEN (low). setSpinnerMessage repaints only the top-of-queue entry;
       revisit once #3 lands.
@@ -279,13 +260,10 @@ Cluster 6 - render mode / conditional UI:
 
 ## Priority order for remaining work
 
-1. #3 reveal/freeze spinner does not appear after refresh/navigation (Cluster 1,
-   completes the messaging layer; owner-flagged as next and possibly related to
-   #2/#5).
-2. Re-evaluate B1.1 background change (premature navInspect clear risk) - see
+1. Re-evaluate B1.1 background change (premature navInspect clear risk) - see
    handoff CORRECTION.
-3. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
-4. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
+2. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
+3. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
    #7-#9; #13, #14), #6.
 
 ## Verified-fix log (all live-verified)
@@ -296,6 +274,10 @@ Cluster 6 - render mode / conditional UI:
 - #5  "Applying device emulation..." stuck after enable: d97124c (drive3.mjs:
       dedicated deviceEmulationApplying flag instead of deviceControlsDisabled).
       Safety nets: 50baf18 (60s spinner watchdog + 12s device-emul timeout).
+- #3  nav spinner absent after refresh/navigation: live-verified in
+      session3-root-cause.mjs after preserving enabled state on same-base
+      top-level navigation (background.js) and preventing transient popup
+      down-reconcile during lock-claim/pending windows (popup.js).
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

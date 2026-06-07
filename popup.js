@@ -4456,18 +4456,29 @@ async function refreshUiInner(options = {}) {
   );
   if (contentModeKnown) {
     const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
+    const shouldPreserveEnabledDuringReactivation = Boolean(
+      effectiveTabState.enabled &&
+        !contentMarkingEnabled &&
+        (contentModeStatus.lockClaimPending ||
+          contentModeStatus.pending ||
+          contentModeStatus.renderModeInspectionActive)
+    );
     if (contentMarkingEnabled !== Boolean(effectiveTabState.enabled) && currentTabId) {
-      effectiveTabState = {
-        ...effectiveTabState,
-        enabled: contentMarkingEnabled,
-        baseUrl: contentMarkingEnabled
-          ? state.currentBaseUrl || effectiveTabState.baseUrl || ""
-          : effectiveTabState.baseUrl || state.currentBaseUrl || ""
-      };
-      await messages.setTabState(currentTabId, effectiveTabState);
-      clearLastPopupEnabled();
+      if (!shouldPreserveEnabledDuringReactivation) {
+        effectiveTabState = {
+          ...effectiveTabState,
+          enabled: contentMarkingEnabled,
+          baseUrl: contentMarkingEnabled
+            ? state.currentBaseUrl || effectiveTabState.baseUrl || ""
+            : effectiveTabState.baseUrl || state.currentBaseUrl || ""
+        };
+        await messages.setTabState(currentTabId, effectiveTabState);
+        clearLastPopupEnabled();
+      }
     }
-    toggleEnabled = contentMarkingEnabled;
+    toggleEnabled = shouldPreserveEnabledDuringReactivation
+      ? Boolean(effectiveTabState.enabled)
+      : contentMarkingEnabled;
   }
   let isEnabled = toggleEnabled;
   const storedDeviceState = currentTabId

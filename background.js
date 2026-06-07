@@ -2737,11 +2737,15 @@ async function disableExtensionOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  // Per the editor-mobile-only contract, marking does NOT survive a
-  // navigation/refresh. Clear the active tab state so the post-load handler
-  // does not auto-restore enabled marking, and explicitly clear any
-  // previously-saved reload restore state so legacy entries cannot leak
-  // through on subsequent navigations.
+  const navigationUrl = typeof details.url === "string" ? details.url : "";
+  const preserveEnabledOnNavigation = Boolean(
+    state.baseUrl &&
+      navigationUrl &&
+      utils.isPageWithinBaseUrl(navigationUrl, state.baseUrl)
+  );
+  if (preserveEnabledOnNavigation) {
+    return;
+  }
   await clearReloadRestoreTabState(tabId);
   await utils.disableExtensionForTab(tabId);
 }

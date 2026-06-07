@@ -13,7 +13,7 @@ source-snapshot tests alone; verify it live.
 --------------------------------------------------------------------------------
 ## REQUIRED CAPABILITIES - read this before you accept any OPEN issue
 
-Every OPEN issue in this sprint (#3, #6-#20, #13, #14, the content-reactivation
+Every OPEN issue in this sprint (#6-#20, #13, #14, the content-reactivation
 root-cause lead) is a RUNTIME/VISUAL bug. The rules below say each fix MUST be
 verified live. That live loop needs ALL of the following, and they are NOT
 present in a headless cloud / CI sandbox:
@@ -125,6 +125,9 @@ Other gotchas learned:
   {type:"activateContentMain"})` or by opening the popup which activates it.
 - Config lives in EXTENSION-ORIGIN IndexedDB `unfluffify`/store `kv`/key `configs`;
   seed it in the SW directly (`import()` is disallowed in service workers).
+- If you need to reach render-mode flow on a property that is not yet saved on
+  the backend, clear that property's IndexedDB entries first; stale local config
+  can bypass/hide the render-mode path and confound repro.
 - World trace: set `chrome.storage.sync.globalTraceModeEnabled=true`, but the
   popup may re-disable it (issue #20) - force it per tab with a
   `{type:"ufTraceSet", tabId, enabled:true}` runtime message if needed.
@@ -231,15 +234,19 @@ Cluster 1 - operation lifecycle / spinner (messaging layers):
 - #2  spinner stuck after reveal/freeze ... FIXED+verified (V2); owner confirms
        the spinner-stuck issue is solved.
 - #3  refresh/navigation -> reveal/freeze SPINNER DOES NOT APPEAR for any later
-       events (the run itself works) ....... OPEN (NEXT; owner-flagged, possibly
-       related to #2/#5). Hypothesis: after reload the broker lifecycle resets to
-       none and the popup's broker port / tabs.onUpdated navInspect-raising path
-       (beginNavigationInspectionOverlay, gated on tabState.enabled + inScope) is
-       not re-established / no longer fires. REPRO: instrumented
-       popup.html?debugTabId, settle, reload the candidate page (sw.evaluate
-       chrome.tabs.reload), poll broker lifecycle + curtain + whether
-       beginNavigationInspectionOverlay logs fire; then trigger reveal/freeze and
-       confirm the spinner appears.
+  events (the run itself works) ....... FIXED+verified (V5).
+  ROOT CAUSE: background.js disabled marking on EVERY top-level committed
+  navigation (`chrome.webNavigation.onCommitted` ->
+  disableExtensionOnTopLevelNavigation), including same-base reloads. That
+  cleared enabled state before popup navInspect reconciliation could run,
+  so no navigation spinner appeared and mode dropped back to silent.
+  FIX: preserve enabled state for same-base navigations/reloads and only
+  disable when navigating outside baseUrl.
+  LIVE VERIFICATION (session3-root-cause.mjs): after enable, reloading the
+  same-base seo.se page now shows `[popup-spinner] push:show` and
+  nav-overlay set-message events, then `nav-complete-settle` +
+  `nav-overlay-end`; post-reload inspection status remains
+  `markingEnabled:true`.
 - #4  spinner text out of sync (low) ...... OPEN (low)
 - #5  "Applying device emulation..." stuck . FIXED+verified (V4: dedicated
        deviceEmulationApplying flag; root cause was deviceControlsDisabled
@@ -278,10 +285,24 @@ Cluster 6 - render mode / conditional UI:
        with saved CSS selectors, disabled+with-note otherwise ... OPEN
 
 --------------------------------------------------------------------------------
-## Next actions (keep current)
+## Next actions (updated)
 
 1. (DONE) Marking-enable curtain - #2/#5 fixed + owner-confirmed solved.
-2. Issue #3 (NEXT): the reveal/freeze SPINNER DOES NOT APPEAR after
+2. (DONE) Issue #3 fixed live (session3-root-cause.mjs):
+   - same-base reload preserves marking mode,
+   - navInspect spinner now appears and clears,
+   - post-reload content status remains markingEnabled=true.
+
+   SESSION 4 (seo.se, 2026-06-07):
+   - Reproduced pre-fix behavior: after Enable Marking + reload,
+     marking dropped to silent and nav spinner did not appear.
+   - Patch in background.js: keep enabled state on same-base
+     `webNavigation.onCommitted`; only disable outside baseUrl.
+   - Re-verified live: nav reload now emits popup spinner push/set-message,
+     then nav settle/end; inspection status after reload stays in marking mode.
+
+3. Historical investigation notes for #3 (kept for traceability):
+   the reveal/freeze SPINNER DOES NOT APPEAR after
    refresh/navigation. With launch-live running, open the instrumented popup,
    reload the candidate page (sw.evaluate chrome.tabs.reload), and poll broker
    lifecycle + popup curtain + whether beginNavigationInspectionOverlay fires.
@@ -374,9 +395,9 @@ Cluster 6 - render mode / conditional UI:
    reload. Then fix in background.js (re-activate content after render-mode /
    debugger reloads) and re-verify the full sequence live, expecting marking to
    reach enabled=true and the reveal/freeze spinner to appear on navigation.
-3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
+4. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
-4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
+5. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
    high), then #20, #4, then Clusters 3-6 and #6.
 
 ## Constraints
