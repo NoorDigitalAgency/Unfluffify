@@ -260,6 +260,26 @@ Cluster 6 - render mode / conditional UI:
    broker port / tabs.onUpdated navInspect-raising path is not re-established, so
    subsequent reveal/freeze events never raise the spinner. Fix, then verify by
    triggering a reveal/freeze after reload and watching the spinner appear.
+
+   LIVE INVESTIGATION 2026-06-07 (drive-refresh.mjs, on bonliva.se): could NOT
+   cleanly repro #3 because the test environment was confounded:
+   - Content IS alive (getInspectionStatus ok:true, mode:silent) BUT
+     lockClaimPending:true - the property-lock editor claim is stuck pending.
+   - Marking-enable never completed: clicking Enable Marking showed "Inspecting
+     page..." for ~30s then cleared, but tabState.enabled stayed FALSE and broker
+     lifecycle stayed lc[none] (no lifecycle events recorded for the tab).
+   - So the marking-enabled-then-reload precondition for the #3 repro can't be
+     reached while the property lock claim is stuck (this overlaps Cluster 4,
+     #10-#12).
+   CLEAN-REPRO PREREQUISITE for next session: start from a clean property-lock
+   state - use a fresh candidate page / release the editor lock first (or a
+   different account/page) so Enable Marking actually reaches enabled=true and
+   the broker records lifecycle. THEN reload and check the reveal/freeze spinner.
+   Watch whether the stuck lockClaimPending is itself the cause of "no lifecycle
+   / no spinner" after navigation (i.e. #3 may be a symptom of the property-lock
+   claim never resolving after a reload).
+   NOTE: many chrome.runtime.reload() cycles during a debug session can also
+   drift content/tab state - prefer a fresh tab when starting a new repro.
 3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
 4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
