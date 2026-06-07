@@ -197,7 +197,10 @@ export function createRpcServer(options = {}) {
       await append({ direction: "reject", reason: normalized.error });
       return;
     }
-    await append({ direction: "request", kind: normalized.kind, method: parsed.method || "", id: parsed.id });
+    const direction = normalized.kind === "request" || normalized.kind === "notification"
+      ? "request"
+      : "inbound";
+    await append({ direction, kind: normalized.kind, method: parsed.method || "", id: parsed.id });
     if (normalized.kind === "request" || normalized.kind === "notification") {
       await handleRequest(peer, parsed);
     }
