@@ -173,9 +173,9 @@ test("browser launch args merge WebRTCPipeWireCapturer into caller enable-featur
       "--enable-features=Bar"
     ]
   });
-  assert.ok(args.includes("--enable-features=Foo"));
-  assert.ok(args.includes("--enable-features=Bar,WebRTCPipeWireCapturer"));
-  assert.ok(!args.includes("--enable-features=WebRTCPipeWireCapturer"));
+  const enableFeaturesArgs = args.filter((arg) => arg.startsWith("--enable-features="));
+  assert.equal(enableFeaturesArgs.length, 1);
+  assert.ok(args.includes("--enable-features=Foo,Bar,WebRTCPipeWireCapturer"));
 });
 
 test("extension reload starts waiting for the replacement worker before reloading", async () => {

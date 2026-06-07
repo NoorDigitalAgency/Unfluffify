@@ -188,7 +188,9 @@ export async function loadOrchestrationConfig(options = {}) {
         testPropertyUrl: cli["property-url"],
         supportPageUrl: cli["support-page-url"],
         captureSourceTitle: cli["capture-source-title"],
-        insecureOrigins: cli["insecure-origin"] || cli["insecure-origins"],
+        insecureOrigins: (cli["insecure-origin"] !== undefined || cli["insecure-origins"] !== undefined)
+          ? [cli["insecure-origin"], cli["insecure-origins"]].flat().filter((value) => typeof value === "string")
+          : undefined,
         chromeArgs: cli["chrome-arg"] || cli["chrome-args"]
       }).filter(([, value]) => typeof value !== "undefined" && value !== true)
     )

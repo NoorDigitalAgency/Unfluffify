@@ -77,27 +77,40 @@ export function buildChromeLaunchArgs(config = {}) {
 }
 
 function ensureChromeFeatureEnabled(args, featureName) {
-  let lastEnableFeaturesIndex = -1;
+  const indices = [];
+  const allFeatures = [];
+
   for (let index = 0; index < args.length; index += 1) {
     if (args[index].startsWith("--enable-features=")) {
-      lastEnableFeaturesIndex = index;
+      indices.push(index);
+      const rawFeatures = args[index].slice("--enable-features=".length);
+      rawFeatures
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((feature) => {
+          if (!allFeatures.includes(feature)) {
+            allFeatures.push(feature);
+          }
+        });
     }
   }
 
-  if (lastEnableFeaturesIndex === -1) {
-    args.push(`--enable-features=${featureName}`);
+  if (!allFeatures.includes(featureName)) {
+    allFeatures.push(featureName);
+  }
+
+  const consolidated = `--enable-features=${allFeatures.join(",")}`;
+
+  if (indices.length === 0) {
+    args.push(consolidated);
     return;
   }
 
-  const rawFeatures = args[lastEnableFeaturesIndex].slice("--enable-features=".length);
-  const features = rawFeatures
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (!features.includes(featureName)) {
-    features.push(featureName);
+  args[indices[0]] = consolidated;
+  for (let i = indices.length - 1; i >= 1; i -= 1) {
+    args.splice(indices[i], 1);
   }
-  args[lastEnableFeaturesIndex] = `--enable-features=${features.join(",")}`;
 }
 
 export function createBrowserStepContext(config, options = {}) {
