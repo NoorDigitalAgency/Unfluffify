@@ -165,6 +165,19 @@ test("browser launch args can disable fake media for real-desktop smoke runs", (
   assert.ok(args.includes("--unsafely-treat-insecure-origin-as-secure=https://staging.noorlynx.test"));
 });
 
+test("browser launch args merge WebRTCPipeWireCapturer into caller enable-features switches", () => {
+  const args = buildChromeLaunchArgs({
+    extensionPath: "/tmp/unfluffify",
+    chromeArgs: [
+      "--enable-features=Foo",
+      "--enable-features=Bar"
+    ]
+  });
+  assert.ok(args.includes("--enable-features=Foo"));
+  assert.ok(args.includes("--enable-features=Bar,WebRTCPipeWireCapturer"));
+  assert.ok(!args.includes("--enable-features=WebRTCPipeWireCapturer"));
+});
+
 test("extension reload starts waiting for the replacement worker before reloading", async () => {
   const calls = [];
   let resolveReplacementWorker;

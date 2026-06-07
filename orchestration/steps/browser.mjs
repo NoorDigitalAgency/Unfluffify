@@ -53,8 +53,7 @@ export function buildChromeLaunchArgs(config = {}) {
     `--load-extension=${extensionPath}`,
     "--auto-accept-camera-and-microphone-capture",
     "--allow-http-screen-capture",
-    "--disable-features=MediaRouter",
-    "--enable-features=WebRTCPipeWireCapturer"
+    "--disable-features=MediaRouter"
   ];
 
   if (mediaMode === "fake") {
@@ -72,8 +71,33 @@ export function buildChromeLaunchArgs(config = {}) {
   if (Array.isArray(config.chromeArgs)) {
     args.push(...config.chromeArgs.filter((arg) => typeof arg === "string" && arg.trim()));
   }
+  ensureChromeFeatureEnabled(args, "WebRTCPipeWireCapturer");
 
   return Array.from(new Set(args));
+}
+
+function ensureChromeFeatureEnabled(args, featureName) {
+  let lastEnableFeaturesIndex = -1;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index].startsWith("--enable-features=")) {
+      lastEnableFeaturesIndex = index;
+    }
+  }
+
+  if (lastEnableFeaturesIndex === -1) {
+    args.push(`--enable-features=${featureName}`);
+    return;
+  }
+
+  const rawFeatures = args[lastEnableFeaturesIndex].slice("--enable-features=".length);
+  const features = rawFeatures
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!features.includes(featureName)) {
+    features.push(featureName);
+  }
+  args[lastEnableFeaturesIndex] = `--enable-features=${features.join(",")}`;
 }
 
 export function createBrowserStepContext(config, options = {}) {

@@ -62,6 +62,16 @@ function toError(value, fallbackMessage) {
   return error;
 }
 
+function toPendingKey(id) {
+  if (typeof id === "string" && id.trim()) {
+    return `str:${id}`;
+  }
+  if (typeof id === "number" && Number.isFinite(id)) {
+    return `num:${id}`;
+  }
+  return "";
+}
+
 export function createRpcClient(options = {}) {
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   const url = withToken(String(options.url || ""), options.token || "");
@@ -85,7 +95,10 @@ export function createRpcClient(options = {}) {
     if (normalized.kind !== "response" && normalized.kind !== "error") {
       return;
     }
-    const key = String(parsed.id);
+    const key = toPendingKey(parsed.id);
+    if (!key) {
+      return;
+    }
     const record = pending.get(key);
     if (!record) {
       return;
@@ -138,7 +151,10 @@ export function createRpcClient(options = {}) {
     const id = typeof options.id !== "undefined" ? options.id : `cmd_${nextId++}`;
     const payload = createRpcRequest(id, method, params);
     const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : requestTimeoutMs;
-    const key = String(id);
+    const key = toPendingKey(id);
+    if (!key) {
+      throw new Error("RPC id must be a non-empty string or finite number");
+    }
     const resultPromise = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         pending.delete(key);

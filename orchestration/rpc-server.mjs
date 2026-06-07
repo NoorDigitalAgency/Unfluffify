@@ -157,7 +157,7 @@ export function createRpcServer(options = {}) {
     const handler = methods[request.method];
     if (!handler) {
       if (typeof request.id !== "undefined") {
-        peer.sendJson(createRpcError(request.id, -32601, `Method not found: ${request.method}`));
+        peer.sendJson(createRpcError(request.id, -32601, "Method not found", { method: request.method }));
       }
       return;
     }

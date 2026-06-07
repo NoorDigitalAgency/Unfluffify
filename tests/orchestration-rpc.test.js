@@ -186,3 +186,94 @@ test("rpc client wraps JSON-RPC error responses in Error instances", async () =>
   client.close();
 });
 
+test("rpc server method-not-found errors use stable message and include method in data", async () => {
+  const runRoot = await mkdtemp(path.join(os.tmpdir(), "unfluffify-rpc-method-not-found-test-"));
+  const rpc = createRpcServer({
+    runRoot,
+    repoPath: process.cwd(),
+    extensionPath: process.cwd()
+  });
+
+  try {
+    const listening = await rpc.listen(0);
+    const client = createRpcClient({
+      url: listening.url,
+      requestTimeoutMs: 5000
+    });
+    await assert.rejects(
+      client.request("unknown.method"),
+      (err) => {
+        assert(err instanceof Error);
+        assert.equal(err.message, "Method not found");
+        assert.equal(err.code, -32601);
+        assert.deepEqual(err.data, { method: "unknown.method" });
+        return true;
+      }
+    );
+    client.close();
+  } finally {
+    await rpc.close();
+    await rm(runRoot, { recursive: true, force: true });
+  }
+});
+
+test("rpc client keeps numeric and string ids distinct in pending map", async () => {
+  class MockCollisionSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor() {
+      this.readyState = MockCollisionSocket.OPEN;
+      this.listeners = new Map();
+    }
+
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) {
+        this.listeners.set(type, new Set());
+      }
+      this.listeners.get(type).add(listener);
+    }
+
+    removeEventListener(type, listener) {
+      this.listeners.get(type)?.delete(listener);
+    }
+
+    send(data) {
+      const parsed = JSON.parse(data);
+      const delay = typeof parsed.id === "number" ? 5 : 0;
+      setTimeout(() => {
+        this.#emit("message", {
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            id: parsed.id,
+            result: { method: parsed.method, idType: typeof parsed.id }
+          })
+        });
+      }, delay);
+    }
+
+    close() {
+      this.readyState = MockCollisionSocket.CLOSED;
+    }
+
+    #emit(type, event) {
+      for (const listener of this.listeners.get(type) || []) {
+        listener(event);
+      }
+    }
+  }
+
+  const client = createRpcClient({
+    url: "ws://127.0.0.1:9876",
+    requestTimeoutMs: 1000,
+    WebSocketImpl: MockCollisionSocket
+  });
+  const [numeric, stringy] = await Promise.all([
+    client.request("numeric.id", {}, { id: 1 }),
+    client.request("string.id", {}, { id: "1" })
+  ]);
+  assert.deepEqual(numeric, { method: "numeric.id", idType: "number" });
+  assert.deepEqual(stringy, { method: "string.id", idType: "string" });
+  client.close();
+});
