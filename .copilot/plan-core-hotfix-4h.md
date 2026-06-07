@@ -88,6 +88,36 @@ ambiguous across layers; or "verify live" is required and unavailable.
 
 ## Next single task (decision tree for the implementing agent)
 
+Latest delta (2026-06-07, owner follow-up):
+- New unsolved behavior: after clicking Render Mode Set, a reveal/freeze can
+      fire later with no popup spinner.
+- New regression: "Without JavaScript" can keep the popup spinner visible too
+      long after reload.
+
+Decision for this phase: FIX DIRECTLY NOW (do not defer). Rationale: both are
+in the active render-mode lifecycle path touched in this sprint, and both can
+be addressed with bounded, low-scope reconciliation changes.
+
+Applied code delta (pending live owner confirmation):
+- `content-main.js`: do not re-arm render-mode inspection activity from
+      unrelated editor-lock refresh calls; this prevents random watchdog drift.
+- `content-main.js`: watchdog recovery now re-runs editor reveal only if the
+      inspection UI was still active at timeout; otherwise it performs lightweight
+      silent-highlighting refresh to avoid delayed heavy reveal/freeze bursts.
+- `popup.js`: reduced render-mode content-ready polling window from 30 to 12
+      attempts to shorten long "Without JavaScript" spinner windows.
+
+Verification done in this phase:
+- Focused tests green: `tests/render-mode-inspection-order.test.js`,
+      `tests/popup-render-mode.test.js`, `tests/property-lock-render-mode.test.js`,
+      `tests/silent-highlight-annotations.test.js`,
+      `tests/core-motion-pause.test.js`.
+
+Required next verification:
+- Live owner replay of the two reported scenarios to confirm:
+      1) no delayed post-Set reveal/freeze without popup ownership,
+      2) shorter spinner duration on "Without JavaScript" reload.
+
 SESSION 3 root-cause lead is complete and superseded by live fix data:
 - `activateContentMain` was not the blocker in the verified repro path
       (`alreadyLoaded` after reload).

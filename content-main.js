@@ -116,6 +116,13 @@ const SILENT_HIGHLIGHT_STYLE_ID = "unfluffify-silent-highlightings-style";
 const SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON = "silent-highlighting";
 const SILENT_HIGHLIGHTING_PREPARATION_REASON = "editor_preparing";
 const RENDER_MODE_INSPECTION_SESSION_KEY = "unfluffify:render-mode-inspection-active";
+// Self-healing bound for render-mode inspection. The flag is persisted in
+// sessionStorage so it survives the deliberate inspection reload, but if the
+// driving popup never delivers `renderModeInspectionEnd` (popup closed, message
+// port dropped after the reload), the flag would otherwise stick forever and
+// permanently gate editor reveal while holding the page frozen. The window must
+// exceed the popup begin->reveal gap (load timeout 8s + content-ready retries).
+const RENDER_MODE_INSPECTION_WATCHDOG_MS = 30000;
 const SILENT_HIGHLIGHT_LAYER_KEYS = ["immutable", "content", "excluded"];
 const SILENT_HIGHLIGHT_OVERLAY_Z_INDEX = "2147483646";
 const SILENT_SCROLL_REPOSITION_DEBOUNCE_MS = 120;
@@ -215,6 +222,7 @@ let silentHighlightEditorActivationPromise = null;
 let silentHighlightEditorActivationQueued = false;
 let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
+let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
 let worldTraceEnabled = false;
 let silentSelectorAnnotatedNodes = new Set();
@@ -2677,10 +2685,71 @@ function setRenderModeInspectionActive(active) {
   } catch {
     // Some pages block sessionStorage; the in-memory guard still covers this document.
   }
+  if (renderModeInspectionActive) {
+    armRenderModeInspectionWatchdog();
+  } else {
+    clearRenderModeInspectionWatchdog();
+  }
 }
 
 function isRenderModeInspectionActive() {
   return renderModeInspectionActive || readRenderModeInspectionActive();
+}
+
+function clearRenderModeInspectionWatchdog() {
+  if (renderModeInspectionWatchdogTimer) {
+    window.clearTimeout(renderModeInspectionWatchdogTimer);
+    renderModeInspectionWatchdogTimer = 0;
+  }
+}
+
+function armRenderModeInspectionWatchdog() {
+  clearRenderModeInspectionWatchdog();
+  if (typeof window.setTimeout !== "function") {
+    return;
+  }
+  renderModeInspectionWatchdogTimer = window.setTimeout(() => {
+    renderModeInspectionWatchdogTimer = 0;
+    recoverFromStuckRenderModeInspection();
+  }, RENDER_MODE_INSPECTION_WATCHDOG_MS);
+}
+
+// Force-clear a render-mode inspection that never received its terminating
+// `renderModeInspectionEnd` (popup closed / port dropped after the reload).
+// Clears the persisted flag, releases the inspection UI, emits a terminal
+// lifecycle event so any owning spinner can settle, and restores the correct
+// silent-highlighting / editor-reveal posture for the current role.
+function recoverFromStuckRenderModeInspection() {
+  if (!isRenderModeInspectionActive()) {
+    return;
+  }
+  const inspectionUiWasActive = core.isPageInspectionUiActive();
+  setRenderModeInspectionActive(false);
+  if (silentHighlightEditorRevealInFlight) {
+    silentHighlightEditorRevealInFlight = 0;
+  }
+  silentHighlightEditorRevealKey = "";
+  core.finishPageInspectionUi();
+  if (propertyLockBannerMode === "editor_inspection_reconnecting") {
+    updatePropertyLockBannerMode();
+    renderPropertyLockBanner();
+  }
+  // Do not emit a fresh operationId here. Background intentionally ignores
+  // terminal lifecycle events whose operationId differs from the active one.
+  // Recovery is fail-open cleanup for the currently-active (possibly stale)
+  // inspection operation, so omit operationId and let background apply this
+  // terminal event to the current lifecycle state.
+  emitLifecycleEvent({
+    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+    phase: LIFECYCLE_PHASES.FAILED,
+    busy: false,
+    message: ""
+  });
+  if (inspectionUiWasActive && propertyLockState && propertyLockState.isEditor) {
+    runEditorSilentHighlightingActivation().catch(() => {});
+  } else {
+    refreshSilentHighlightings().then().catch(() => {});
+  }
 }
 
 function cancelSilentHighlightEditorActivation() {
@@ -3149,7 +3218,9 @@ async function runEditorSilentHighlightingActivationOnce() {
     return;
   }
   if (isRenderModeInspectionActive()) {
-    setRenderModeInspectionActive(true);
+    // Inspection activity has priority. Do not re-arm the inspection flag from
+    // unrelated editor-lock refreshes; the dedicated inspection phases already
+    // arm the watchdog and this avoids delayed post-inspection reveals.
     return;
   }
   const activationId = ++silentHighlightEditorActivationIdCounter;
@@ -7537,6 +7608,14 @@ export function main() {
   }
   state.initialized = true;
 
+  // A render-mode inspection flag persisted in sessionStorage survives the
+  // inspection reload. If this document booted with it already set, arm the
+  // self-healing watchdog so a flag left stuck by a closed/disconnected popup
+  // cannot permanently gate editor reveal or hold the page frozen.
+  if (isRenderModeInspectionActive()) {
+    armRenderModeInspectionWatchdog();
+  }
+
   installExtensionTelemetry({
     source: "content",
     getIncludePayloads: () => remoteSupportIncludePayloads
@@ -7915,6 +7994,11 @@ export function main() {
         const operationId = typeof message.operationId === "string" && message.operationId
           ? message.operationId
           : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
+        // Keep the self-healing watchdog fresh across the capture phase so a slow
+        // raw-HTML fetch cannot let the inspection flag expire mid-flight.
+        if (isRenderModeInspectionActive()) {
+          armRenderModeInspectionWatchdog();
+        }
         const snapshot = createCurrentPageSnapshot();
         const rawHtml = await fetchCurrentPageRawHtml(location.href);
         core.finishPageInspectionUi();

@@ -332,6 +332,32 @@ Regressions reported during this sprint:
        REVEAL_FINISHED lifecycle events emit; is the popup navInspect spinner
        pushed. Pin the exact early-return before changing code.
 
+  - #R2 render-mode Set can trigger delayed reveal/freeze with no popup spinner.
+      STATUS: FIX APPLIED IN-CODE (pending live confirmation).
+      Owner report: after Set, reveal/freeze can fire later after a random,
+      usually long delay, and popup shows no spinner ownership for that late run.
+      Diagnosed causal chain: unrelated editor-lock refresh paths were re-arming
+      render-mode inspection active state, extending watchdog recovery timing and
+      allowing stale inspection recovery to trigger a later heavy reveal.
+      Mitigation applied (content-main.js):
+      1) `runEditorSilentHighlightingActivationOnce()` no longer re-arms
+        render-mode inspection on the "inspection active" guard path.
+      2) `recoverFromStuckRenderModeInspection()` now only re-runs editor reveal
+        if page inspection UI was still active at timeout; otherwise it performs
+        lightweight `refreshSilentHighlightings()` cleanup.
+      Expected effect: no random delayed post-Set reveal/freeze bursts without
+      popup lifecycle ownership.
+
+  - #R3 "Without JavaScript" inspection spinner remains visible too long.
+      STATUS: FIX APPLIED IN-CODE (pending live confirmation).
+      Owner report: popup spinner can remain for a long period after reload in
+      the Without JavaScript inspection path.
+      Mitigation applied (popup.js): reduced
+      `ensureContentReadyForRenderModeInspection()` polling window from 30 to 12
+      attempts (250ms spacing), keeping explicit inspection flow robust while
+      tightening worst-case spinner duration.
+      Expected effect: materially shorter spinner tails on slower reloads.
+
 --------------------------------------------------------------------------------
 ## Next actions (updated)
 
@@ -366,6 +392,13 @@ Regressions reported during this sprint:
    editing code. Do NOT assume the last commit caused it.
 
 5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
+
+Latest phase decision (2026-06-07 owner follow-up):
+- #R2 and #R3 were handled in THIS phase (not deferred) because both are in the
+  active render-mode lifecycle path and had low-scope corrective changes with
+  deterministic test coverage.
+- Remaining requirement: live owner replay to confirm runtime behavior exactly
+  matches the two reported scenarios.
 
 6. Historical investigation notes for #3 (kept for traceability):
    the reveal/freeze SPINNER DOES NOT APPEAR after

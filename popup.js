@@ -3687,7 +3687,10 @@ async function ensureContentReadyForRenderModeInspection(tabId) {
   if (!tabId) {
     return false;
   }
-  const maxAttempts = 6;
+  // Keep the ready wait bounded so the render-mode popup spinner does not sit
+  // for too long on slow reloads (notably the Without JavaScript path), while
+  // still giving content-main a fair chance to come up post-navigation.
+  const maxAttempts = 12;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
     const status = await messages.sendTabMessageToTab(tabId, {
@@ -5797,10 +5800,19 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
       uiModule.showToast(outcome.toast);
     } finally {
       await ensureContentReadyForRenderModeInspection(tabId).catch(() => false);
-      await messages.sendTabMessageToTab(tabId, {
-        type: "renderModeInspectionEnd",
-        operationId
-      }).catch(() => null);
+      for (let endAttempt = 0; endAttempt < 3; endAttempt += 1) {
+        const endResponse = await messages.sendTabMessageToTab(tabId, {
+          type: "renderModeInspectionEnd",
+          operationId
+        }).catch(() => null);
+        if (endResponse && endResponse.ok) {
+          break;
+        }
+        if (endAttempt + 1 < 3) {
+          await messages.delay(250);
+          await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
+        }
+      }
       state.renderModeInspectionActive = false;
       uiModule.setViewState(buildPropertyLockViewState());
     }
