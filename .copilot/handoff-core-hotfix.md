@@ -280,6 +280,15 @@ Cluster 6 - render mode / conditional UI:
    claim never resolving after a reload).
    NOTE: many chrome.runtime.reload() cycles during a debug session can also
    drift content/tab state - prefer a fresh tab when starting a new repro.
+   FOLLOW-UP: closing the orphaned popup tabs did NOT clear lockClaimPending - it
+   is a GENUINE stuck editor-lock claim (not a multi-popup artifact). Strong lead:
+   the property-lock editor claim never resolving may be a COMMON ROOT for #3 (no
+   lifecycle/spinner after navigation), #10 (countdown resets/loops), #11
+   (read-only config loop), #12 (render-mode options reset). Recommend
+   investigating the property-lock claim/grant round-trip
+   (propertyLockEditorClaimPending in content-main.js + the property-lock
+   background/WS handlers) as the next high-leverage target, OR reset the lock
+   state (release editor / fresh account+page) before retrying #3.
 3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
 4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
