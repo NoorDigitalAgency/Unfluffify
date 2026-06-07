@@ -88,13 +88,13 @@ ambiguous across layers; or "verify live" is required and unavailable.
 
 ## Next single task (decision tree for the implementing agent)
 
-Latest delta (2026-06-08):
-- Owner confirmed the post-Set spinner regression is now solved.
-- Popup render-mode inspect actions were reordered for UX:
-      "Without JavaScript" now appears before "With JavaScript" (placement only).
-- #R1 mitigation applied in code: silent reveal warmup now force-releases the
-      stale `silent-highlighting` pause reason before running the reveal scroll
-      pass, then re-applies pause after warmup completes.
+Latest delta (2026-06-08, post-A/B + patched live replay):
+- Owner-confirmed post-Set spinner behavior remains stable.
+- Popup render-mode inspect actions remain in UX order:
+      "Without JavaScript" before "With JavaScript".
+- #R1 now uses a narrower warmup fix: release only timer-bridge pausing during
+      reveal when the same pause reason is already held, then restore pause
+      posture after warmup.
 
 Completed in this phase:
 - `popup.js`: post-Set nav overlay ownership now stays alive for in-scope
@@ -104,11 +104,12 @@ Completed in this phase:
       `tabState.enabled`.
 - `popup/ui.js`: Step-1 inspect button placement swapped (Without JS first,
       With JS second) without behavior changes.
-- `content/core.js`: `warmupSilentHighlightingBeforeMotionPause()` now calls
-      `resumePageMotion(reason)` before reveal so stale paused state cannot
-      block reveal scrolling.
-- `tests/core-motion-pause.test.js`: added regression assertion that silent
-      warmup resumes before reveal and pauses again after reveal.
+- `content/core.js`: `warmupSilentHighlightingBeforeMotionPause()` now records
+      `hadPauseReason`, temporarily calls
+      `setPageMotionFreezeTimersPaused(false)` before reveal, and restores pause
+      posture via `refreshPageMotionPause()` in `finally`.
+- `tests/core-motion-pause.test.js`: regression assertions updated to enforce
+      timer-bridge-only release before reveal and pause-state restoration.
 
 Verification done in this phase:
 - Focused tests green: `tests/popup-render-mode.test.js`,
@@ -117,6 +118,12 @@ Verification done in this phase:
       `tests/device-emulation-lifecycle.test.js`,
       `tests/core-motion-pause.test.js`.
 - Owner feedback: "OK, seems to be solved" for the post-Set spinner issue.
+- Live verification on patched build:
+      `r1-triage.mjs` now emits scroll events again in the marking/lock-pending
+      repro (`SCROLL` count 12, reveal `ok:true`, page height 3754 -> 4099).
+- R2 sanity preserved: `drive-seo4.log` still shows
+      `render-mode-set-nav-guard-start/observed/clear` and `nav-overlay-end`.
+- R3 sanity preserved: `without-js-spinner-timer.mjs` measured ~7084ms tail.
 
 SESSION 3 root-cause lead remains superseded by live fix data:
 - `activateContentMain` was not the blocker in the verified repro path
@@ -124,10 +131,31 @@ SESSION 3 root-cause lead remains superseded by live fix data:
 - #3 was fixed by preserving enabled state on same-base top-level navigation,
       allowing navInspect spinner flow to run and settle after reload.
 
-Next single task: LIVE VERIFY #R1 with owner replay (render-mode reveal and
-marking-enabled reload) to confirm scroll + spinner behavior is restored with
-the pause-release fix. If confirmed, move to #16 preview list visibility and
-#17 AI-exit cannot save.
+Next single task: follow the owner-set priority queue below, one issue at a
+time, while preserving restored R1/R2/R3 behavior.
+
+Owner-set priority order (2026-06-08):
+1. #6
+2. #7
+3. #8
+4. #16
+5. #17
+6. #18
+7. #15
+8. #19
+9. #14
+10. #10
+11. #11
+12. #12
+13. #4
+14. #20
+15. #13
+16. #9
+17. Anything else left
+
+Special policy for #13 (owner directive): on non-candidate pages, regardless
+of property status, show only the locked banner and the non-candidate note, and
+disable all other functionality.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 
@@ -161,7 +189,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 
 | Task | Difficulty | Effort | Live? | Note |
 |------|-----------|--------|-------|------|
-| #R1 reveal/freeze runs incompletely (no spinner / no scroll) | HARD | high | yes | Live triage: reveal warmup fires, but page-motion freeze is already paused before the reveal scroll begins (`paused:true`, `lazyLoadingSuppressed:true`); no scroll events were emitted. Next hop: page-motion pause-release path, not the B1.1 background revert. |
+| #R1 reveal/freeze runs incompletely (no spinner / no scroll) | DONE | done | verified | FIXED+verified live on 2026-06-08: warmup now releases only timer-bridge pausing during reveal when the pause reason is active; `r1-triage.mjs` restored scroll events. |
 | ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |

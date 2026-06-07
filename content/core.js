@@ -5962,10 +5962,13 @@ export async function warmupSilentHighlightingBeforeMotionPause(
     state.pageRevealWarmupId === revealWarmupId &&
     location.href === pageUrl &&
     (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
-  // A stale pause reason from a previous silent-highlighting pass can leave the
-  // main-world timer bridge paused and stall reveal scrolling. Always release
-  // this reason before the reveal walk, then re-apply it once warmup finishes.
-  resumePageMotion(reason);
+  const hadPauseReason = hasPageMotionPauseReason(reason);
+  // Reveal scrolling can stall when deferred main-world timers stay paused from
+  // a previous silent-highlight pass. Temporarily release only timer pausing
+  // while keeping existing page-motion locks intact.
+  if (hadPauseReason) {
+    setPageMotionFreezeTimersPaused(false);
+  }
   try {
     startPageInspectionInputBlocker();
     createOverlay();
@@ -5989,6 +5992,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
     pausePageMotion(reason);
     return true;
   } finally {
+    if (hadPauseReason && hasPageMotionPauseReason(reason)) {
+      refreshPageMotionPause();
+    }
     if (!keepUiActive) {
       setPageInspectionUiActive(false);
       stopPageInspectionInputBlocker();

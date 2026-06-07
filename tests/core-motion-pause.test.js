@@ -1111,7 +1111,7 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });
 
-test("silent warmup releases stale pause before reveal and re-applies it after reveal", () => {
+test("silent warmup temporarily releases timer pausing during reveal and restores pause state", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const warmupStart = source.indexOf("export async function warmupSilentHighlightingBeforeMotionPause(");
   const warmupEnd = source.indexOf("export function finishPageInspectionUi()", warmupStart);
@@ -1122,10 +1122,14 @@ test("silent warmup releases stale pause before reveal and re-applies it after r
   const warmupSource = source.slice(warmupStart, warmupEnd);
   assert.match(
     warmupSource,
-    /resumePageMotion\(reason\);[\s\S]*?await revealPageContentBeforeMotionPause\(/
+    /if \(hadPauseReason\) \{[\s\S]*?setPageMotionFreezeTimersPaused\(false\);[\s\S]*?\}[\s\S]*?await revealPageContentBeforeMotionPause\(/
   );
   assert.match(
     warmupSource,
     /await revealPageContentBeforeMotionPause\([\s\S]*?pausePageMotion\(reason\);/
+  );
+  assert.match(
+    warmupSource,
+    /if \(hadPauseReason && hasPageMotionPauseReason\(reason\)\) \{[\s\S]*?refreshPageMotionPause\(\);/
   );
 });

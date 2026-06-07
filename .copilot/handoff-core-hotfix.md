@@ -290,61 +290,32 @@ Cluster 6 - render mode / conditional UI:
        with saved CSS selectors, disabled+with-note otherwise ... OPEN
 
 Regressions reported during this sprint:
-- #R1 reveal/freeze phase runs incompletely - FIX APPLIED IN-CODE (pending live confirmation).
-       Owner report (2026-06-07, after the B1.1 revert c66782a): the freeze
-       ICONS show, but there is NO spinner and NO scroll-to-bottom-then-back-up
-       during the reveal/freeze phase. So the freeze applies but the
-       page-reveal scroll pass and its overlay/spinner do not run (or are not
-       visible).
-       CAUSALITY ANALYSIS (source-level, not yet live-verified): the last commit
-       (c66782a) only relocated the navInspect curtain teardown inside
-       `updateLifecycleState` (background.js) so superseded terminal lifecycle
-       events no longer clear navInspect. It does NOT touch the reveal/freeze
-       execution path. The reveal scroll lives in
-       `revealPageContentBeforeMotionPause` -> `scrollPageInspectionTo`
-       (content/core.js ~4102/4150), driven by
-       `warmupSilentHighlightingBeforeMotionPause` (content/core.js ~5952) via
-       `runRenderModeRevealOnce` (content-main.js ~7845). The freeze itself is
-       `pageMotionFreezeControl` (common/page-motion-freeze-control.js). None of
-       these were changed by c66782a, so the revert is an UNLIKELY cause.
-       CANDIDATE REAL CAUSES to check live (in order): (a) reveal warmup returns
-       early because `isRevealWarmupCurrent()`/`isStillCurrent()` flips false
-       (URL/baseUrl mismatch or a competing reveal id bump from
-       cancelSilentHighlightEditorActivation); (b) `document.visibilityState` is
-       hidden or scrollHeight<=viewport so revealPageContentBeforeMotionPause
-       no-ops the scroll; (c) the overlay/spinner is suppressed while the freeze
-       still proceeds (setPageInspectionUiActive / createOverlay path vs the
-       popup navInspect spinner); (d) a genuinely older commit (e.g. the
-       same-base nav-preserve change 76cae0f) altered which lifecycle events the
-       popup sees. Bisect c66782a vs 76cae0f vs HEAD~ if needed.
-      LIVE TRIAGE RESULT (2026-06-07): the reveal warmup does fire and returns
-      `ok:true`, but the page-motion freeze layer is already active before the
-      reveal scroll begins (`__unfluffifyPageMotionFreezeState.paused:true`,
-      `lazyLoadingSuppressed:true`), `scrollY` stays near the bottom, and no
-      scroll events are emitted during the 18s probe. So the next hop is not
-      the last background change; it is the page-motion pause-release path
-      (where `warmupPageRevealBeforeMotionPause` / `enableForBaseUrl` should
-      leave the page unpaused before the reveal scroll).
-       REPRO PLAN: launch-live, instrument popup, trigger the reveal/freeze
-       (render-mode "With JavaScript" or a marking-enabled reload) and log: does
-       `runRenderModeRevealOnce` fire; does revealPageContentBeforeMotionPause
-       enter the scroll loop (window.scrollTo calls); do REVEAL_STARTED/
-       REVEAL_FINISHED lifecycle events emit; is the popup navInspect spinner
-       pushed. Pin the exact early-return before changing code.
-      APPLIED MITIGATION (2026-06-08): `content/core.js`
-      `warmupSilentHighlightingBeforeMotionPause()` now calls
-      `resumePageMotion(reason)` before running the reveal scroll pass, then
-      re-applies pause via `pausePageMotion(reason)` after warmup. This prevents
-      a stale `silent-highlighting` pause from keeping the page-world timer
-      bridge paused during reveal scroll (the observed freeze-without-scroll
-      shape). Added source-level regression coverage in
-      `tests/core-motion-pause.test.js`.
-      UNIT VERIFICATION: `node --test tests/core-motion-pause.test.js`
-      `tests/render-mode-inspection-order.test.js`
-      `tests/popup-render-mode.test.js`
-      `tests/property-lock-render-mode.test.js`
-      `tests/device-emulation-lifecycle.test.js` -> pass 62, fail 0.
-      REMAINING VERIFICATION: owner live replay still required to close #R1.
+- #R1 reveal/freeze phase runs incompletely - FIXED + live-verified (2026-06-08).
+       Owner report (2026-06-07, after B1.1 revert): freeze icons showed but
+       reveal/freeze had no visible scroll pass or spinner progression.
+       A/B comparison isolated the regression to the last core-motion tweak:
+       on 649c810, `r1-triage.mjs` produced 0 SCROLL events; on 5679d42, the
+       same probe produced SCROLL activity.
+       Final mitigation (2026-06-08): narrowed warmup behavior in
+       `content/core.js` so `warmupSilentHighlightingBeforeMotionPause()` does
+       NOT fully call `resumePageMotion(reason)` before reveal. Instead it:
+       1) checks `hadPauseReason` for the reveal reason,
+       2) temporarily releases only timer-bridge pausing via
+          `setPageMotionFreezeTimersPaused(false)` before reveal,
+       3) restores pause posture with `refreshPageMotionPause()` in `finally`,
+          and still re-applies the reveal reason via `pausePageMotion(reason)`.
+       This preserves existing motion locks while avoiding stale deferred-timer
+       stalls during the reveal scroll walk.
+       Regression coverage updated in `tests/core-motion-pause.test.js` to
+       assert timer-bridge-only release before reveal and pause restoration.
+       UNIT VERIFICATION: `node --test tests/core-motion-pause.test.js` -> pass.
+       LIVE VERIFICATION:
+       - `r1-triage.mjs` on patched build: reveal `ok:true`, SCROLL events
+         restored (12 events), page height grows 3754 -> 4099 in the
+         marking/lock-pending repro.
+       - R2 sanity preserved in `drive-seo4.log`:
+         `render-mode-set-nav-guard-start/observed/clear` + `nav-overlay-end`.
+       - R3 sanity preserved: `without-js-spinner-timer.mjs` ~7084ms.
 
   - #R2 render-mode Set can trigger delayed reveal/freeze with no popup spinner.
       STATUS: FIXED + owner-confirmed (2026-06-08).
@@ -364,14 +335,15 @@ Regressions reported during this sprint:
       Outcome: owner confirmed the post-Set spinner behavior now appears solved.
 
   - #R3 "Without JavaScript" inspection spinner remains visible too long.
-      STATUS: FIX APPLIED IN-CODE (pending live confirmation).
+      STATUS: FIXED + live-verified (harness, 2026-06-08).
       Owner report: popup spinner can remain for a long period after reload in
       the Without JavaScript inspection path.
       Mitigation applied (popup.js): reduced
       `ensureContentReadyForRenderModeInspection()` polling window from 30 to 12
       attempts (250ms spacing), keeping explicit inspection flow robust while
       tightening worst-case spinner duration.
-      Expected effect: materially shorter spinner tails on slower reloads.
+      Live measurement: `without-js-spinner-timer.mjs` now measures ~6.8-7.1s
+      spinner tails on the seo.se repro flow.
 
 --------------------------------------------------------------------------------
 ## Next actions (updated)
@@ -396,19 +368,40 @@ Regressions reported during this sprint:
    - Re-verified live with synthetic supersede check + full session3 flow:
      no early clear regression observed, and #3 remains fixed.
 
-4. NEXT (live verify first): #R1 reveal/freeze runs incompletely (no spinner /
-  no scroll) - run owner replay against the 2026-06-08 pause-release patch and
-  confirm the reveal scroll + spinner are restored. If confirmed, mark #R1
-  fixed and move immediately to #16 preview list visibility and #17 AI-exit
-  cannot save.
+4. (DONE) #R1 reveal/freeze incomplete run:
+   - Patched core warmup to release timer-bridge pausing only (not full motion
+     resume) while preserving pause locks.
+   - Live replay (`r1-triage.mjs`) restored scroll activity in the
+     marking/lock-pending repro.
 
-5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
+5. NEXT (owner-set priority order, 2026-06-08):
+  1) #6
+  2) #7
+  3) #8
+  4) #16
+  5) #17
+  6) #18
+  7) #15
+  8) #19
+  9) #14
+  10) #10
+  11) #11
+  12) #12
+  13) #4
+  14) #20
+  15) #13
+  16) #9
+  17) anything else left.
+
+  #13 owner directive (must hold): on non-candidate pages, regardless of
+  property status, show only the locked banner and the non-candidate note, and
+  expose no other functionality.
 
 Latest phase decision (updated 2026-06-08):
 - #R2 is now owner-confirmed solved after the silent-mode inspection-ownership
   correction.
-- #R3 remains FIX APPLIED IN-CODE and should still be watched in live runs for
-  long-tail reloads on the "Without JavaScript" path.
+- #R3 now has harness live verification (~6.8-7.1s spinner tail) and should
+  still be watched on broader owner properties for long-tail reloads.
 - UX polish shipped: render-mode Step-1 button placement now lists
   "Without JavaScript" before "With JavaScript" (no behavior change).
 
