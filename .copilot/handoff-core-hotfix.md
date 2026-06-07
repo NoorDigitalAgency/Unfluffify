@@ -99,22 +99,44 @@ Push:
 - Pending
 
 ### Phase C - Cluster 2 highlight/preview
-Status: NOT STARTED
-Owner: TBD
-Started at: -
+Status: IN PROGRESS (blink #1 landed first per owner direction)
+Owner: active engineer
+Started at: 2026-06-07
 Completed at: -
 
+Sequencing note: owner chose to land the isolated blink fix (#1) before the
+Cluster 1 authority refactor. Remaining Cluster 2 items (#6 immediate feedback,
+#16 preview/visible-target alignment) still pending.
+
+#1 silent-highlight blink - DONE
+- Repro: on pages with continuous small layout shifts / DOM mutations, the
+  settle-driven reposition path hid the silent overlay and re-revealed it a
+  frame later on every shift, producing a periodic blink/strobe.
+- Root cause: scheduleSilentHighlightReposition hid the overlay up front for ALL
+  repositions, and repositionSilentHighlightOverlay -> renderSilentHighlightOverlay
+  always ran setSilentHighlightOverlayHidden(true) -> rAF-deferred reveal. Rect
+  boxes are reused DOM nodes whose positions update atomically in one sync pass,
+  so settle repositions never needed the hide.
+- Fix: threaded a keepVisible flag. Settle/layout-shift/mutation repositions
+  ({ keepVisible: true }) update rects in place without touching visibility;
+  scroll/resize repositions keep the hide->reveal cycle (their viewport-fixed
+  rects genuinely go stale mid-gesture). Full rebuilds unchanged.
+
 Files touched:
-- Pending
+- content-main.js (renderSilentHighlightOverlay, repositionSilentHighlightOverlay,
+  scheduleSilentHighlightReposition, settle-finalize rAF)
+- tests/silent-highlight-annotations.test.js (source-snapshot regexes updated to
+  new signatures + keepVisible assertion)
 
 Validation:
-- Pending
+- node --test (full suite) green; silent-highlight + core-visibility +
+  selector-suppression + motion/cache suites all pass.
 
 Commit:
-- Pending
+- pending (this checkpoint)
 
 Push:
-- Pending
+- pending
 
 ## Environment Switch Checklist
 

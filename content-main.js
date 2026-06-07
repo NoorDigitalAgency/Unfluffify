@@ -3532,12 +3532,19 @@ function drawSilentRectsForNode(layerState, node, className, keySalt = "") {
   }
 }
 
-function renderSilentHighlightOverlay(collections) {
+function renderSilentHighlightOverlay(collections, options = {}) {
   const overlay = ensureSilentHighlightOverlay();
   if (!overlay) {
     return;
   }
-  setSilentHighlightOverlayHidden(true);
+  // keepVisible (in-place reposition) leaves the overlay's current visibility
+  // untouched: boxes are reused DOM nodes whose positions update atomically in
+  // this synchronous pass, so there is no half-built frame to hide. The
+  // hide->reveal cycle is reserved for full rebuilds and scroll repositions.
+  const keepVisible = Boolean(options.keepVisible);
+  if (!keepVisible) {
+    setSilentHighlightOverlayHidden(true);
+  }
   const immutableNodes = Array.from(collections.immutableNodes || []);
   const contentNodes = Array.from(collections.contentNodes || []);
   const ghostContentNodeSet = new Set(collections.ghostContentNodes || []);
@@ -3617,16 +3624,25 @@ function renderSilentHighlightOverlay(collections) {
         ? new Map(collections.implicitIncludeXpathByNode)
         : new Map()
   };
-  scheduleSilentHighlightOverlayReveal();
+  if (!keepVisible) {
+    scheduleSilentHighlightOverlayReveal();
+  }
 }
 
-function repositionSilentHighlightOverlay() {
+function repositionSilentHighlightOverlay(options = {}) {
   if (!lastSilentHighlightingsActive || state.enabled || !silentHighlightCollections) {
     return;
   }
-  setSilentHighlightOverlayHidden(true);
+  // keepVisible repositions (settle/layout-shift/mutation) update rect boxes in
+  // place without the hide->reveal cycle, which is what produced the periodic
+  // silent-highlight blink (#1). Scroll/resize repositions still hide first
+  // because their viewport-fixed rects go stale during the gesture.
+  const keepVisible = Boolean(options.keepVisible);
+  if (!keepVisible) {
+    setSilentHighlightOverlayHidden(true);
+  }
   const nextCollections = buildSilentHighlightRenderableCollections(silentHighlightCollections);
-  renderSilentHighlightOverlay(nextCollections);
+  renderSilentHighlightOverlay(nextCollections, { keepVisible });
 }
 
 function buildSilentHighlightPositionSignature(collections = silentHighlightCollections) {
@@ -3700,7 +3716,7 @@ function runSilentHighlightSettledRepositionSample() {
     }
     silentHighlightRepositionRaf = window.requestAnimationFrame(() => {
       silentHighlightRepositionRaf = 0;
-      repositionSilentHighlightOverlay();
+      repositionSilentHighlightOverlay({ keepVisible: true });
     });
     return;
   }
@@ -3714,8 +3730,10 @@ function scheduleSilentHighlightReposition(options = {}) {
   if (state.enabled || !lastSilentHighlightingsActive || !silentHighlightCollections) {
     return;
   }
-  setSilentHighlightOverlayHidden(true);
   if (options && options.waitForSettle) {
+    // Settle-driven repositions (layout-shift / DOM mutation) keep the overlay
+    // visible and reposition in place when settled, so they do not blink. Only
+    // scroll/resize repositions (the else branch) hide up front.
     if (!silentHighlightSettleStartedAt) {
       silentHighlightSettleStartedAt = Date.now();
       silentHighlightSettleStableSamples = 0;
@@ -3730,6 +3748,7 @@ function scheduleSilentHighlightReposition(options = {}) {
     );
     return;
   }
+  setSilentHighlightOverlayHidden(true);
   resetSilentHighlightSettleTracking();
   if (silentHighlightScrollTimer) {
     window.clearTimeout(silentHighlightScrollTimer);

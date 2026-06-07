@@ -71,7 +71,7 @@ test("silent highlighting keeps immutable sources on a dedicated immutable overl
   );
   assert.match(
     source,
-    /function renderSilentHighlightOverlay\(collections\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
+    /function renderSilentHighlightOverlay\(collections, options = \{\}\) \{[\s\S]*?const immutableNodes = Array\.from\(collections\.immutableNodes \|\| \[\]\);[\s\S]*?const immutableLayerState = beginSilentLayerRender\("immutable"\);[\s\S]*?drawSilentRectsForNode\(immutableLayerState, node, "uf-silent-immutable"\);/
   );
   assert.match(
     source,
@@ -113,7 +113,13 @@ test("silent highlight reposition and mutation tracking use source collections i
 
   assert.match(
     source,
-    /function repositionSilentHighlightOverlay\(\) \{[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections\);[\s\S]*?\}/
+    /function repositionSilentHighlightOverlay\(options = \{\}\) \{[\s\S]*?const keepVisible = Boolean\(options\.keepVisible\);[\s\S]*?const nextCollections = buildSilentHighlightRenderableCollections\(silentHighlightCollections\);[\s\S]*?renderSilentHighlightOverlay\(nextCollections, \{ keepVisible \}\);[\s\S]*?\}/
+  );
+  // Settle-driven repositions keep the overlay visible (no hide->reveal blink),
+  // while scroll/resize repositions still hide up front.
+  assert.match(
+    source,
+    /repositionSilentHighlightOverlay\(\{ keepVisible: true \}\);/
   );
   // The tracked-node index that backs mutationTargetTouchesSilentCollections
   // must still draw from every source AND projected collection so a mutation
