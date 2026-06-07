@@ -199,7 +199,7 @@ export function createRpcServer(options = {}) {
         ? rawId
         : null;
       peer.sendJson(createRpcError(id, -32600, normalized.error));
-      await append({ direction: "reject", reason: normalized.error });
+      append({ direction: "reject", reason: normalized.error }).catch(() => {});
       return;
     }
     const direction = normalized.kind === "request" || normalized.kind === "notification"
