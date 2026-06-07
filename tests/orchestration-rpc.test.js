@@ -7,6 +7,43 @@ import { test } from "node:test";
 import { createRpcClient } from "../orchestration/rpc-client.mjs";
 import { createRpcServer } from "../orchestration/rpc-server.mjs";
 
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 3;
+
+  constructor() {
+    this.readyState = MockWebSocket.CONNECTING;
+    this.listeners = new Map();
+    queueMicrotask(() => {
+      this.#emit("error", { type: "error" });
+    });
+  }
+
+  addEventListener(type, listener) {
+    if (!this.listeners.has(type)) {
+      this.listeners.set(type, new Set());
+    }
+    this.listeners.get(type).add(listener);
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  send() {}
+
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+  }
+
+  #emit(type, event) {
+    for (const listener of this.listeners.get(type) || []) {
+      listener(event);
+    }
+  }
+}
+
 test("rpc server handles system.ping and system.preflight over json-rpc", async () => {
   const runRoot = await mkdtemp(path.join(os.tmpdir(), "unfluffify-rpc-test-"));
   const rpc = createRpcServer({
@@ -41,6 +78,19 @@ test("rpc server handles system.ping and system.preflight over json-rpc", async 
     await rpc.close();
     await rm(runRoot, { recursive: true, force: true });
   }
+});
+
+test("rpc client wraps non-Error open failures in Error instances", async () => {
+  const client = createRpcClient({
+    url: "ws://127.0.0.1:9876",
+    WebSocketImpl: MockWebSocket
+  });
+
+  await assert.rejects(client.waitForOpen(), (error) => {
+    assert(error instanceof Error);
+    assert.equal(error.message, "RPC socket error before opening");
+    return true;
+  });
 });
 
 test("rpc server enforces upgrade token when configured", async () => {

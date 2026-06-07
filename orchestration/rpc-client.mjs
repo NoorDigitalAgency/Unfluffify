@@ -37,6 +37,26 @@ function withToken(url, token) {
   return parsed.toString();
 }
 
+function toError(value, fallbackMessage) {
+  if (value instanceof Error) {
+    return value;
+  }
+  if (value?.error instanceof Error) {
+    return value.error;
+  }
+  const message = typeof value?.message === "string" && value.message.trim()
+    ? value.message
+    : fallbackMessage;
+  const error = new Error(message);
+  if (typeof value?.code !== "undefined") {
+    error.code = value.code;
+  }
+  if (typeof value?.data !== "undefined") {
+    error.data = value.data;
+  }
+  return error;
+}
+
 export function createRpcClient(options = {}) {
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   const url = withToken(String(options.url || ""), options.token || "");
@@ -95,7 +115,7 @@ export function createRpcClient(options = {}) {
       const onError = (error) => {
         socket.removeEventListener("open", onOpen);
         socket.removeEventListener("close", onClose);
-        reject(error);
+        reject(toError(error, "RPC socket error before opening"));
       };
       const onClose = () => {
         socket.removeEventListener("open", onOpen);
