@@ -73,24 +73,36 @@ export async function updateDeviceEmulation({
     });
   };
   emulation.setDeviceControlsDisabled(true);
+  // Raise the blocking "Applying device emulation..." curtain only for the
+  // duration of THIS operation. (deviceControlsDisabled also stays true for the
+  // whole marking session, so it must not drive the curtain.)
+  uiModule.setViewState({ deviceEmulationApplying: true });
   // The background mobile-emulation update attaches the Chrome debugger, which
   // can hang (e.g. a slow/again-attaching target). Bound it so a hang cannot
   // wedge the caller's spinner ("Applying device emulation...") indefinitely;
   // on timeout we fall through to the failure path which reconciles + toasts.
-  const response = await Promise.race([
-    messages.sendRuntimeMessage({
-      type: "updateDeviceEmulation",
-      tabId: state.currentTab.id,
-      enabled,
-      mode,
-      scale,
-      recalculateScale
-    }),
-    new Promise((resolve) => {
-      setTimeout(() => resolve({ ok: false, error: "Device emulation timed out", timedOut: true }), 12000);
-    })
-  ]);
-  emulation.setDeviceControlsDisabled(false);
+  let response;
+  try {
+    response = await Promise.race([
+      messages.sendRuntimeMessage({
+        type: "updateDeviceEmulation",
+        tabId: state.currentTab.id,
+        enabled,
+        mode,
+        scale,
+        recalculateScale
+      }),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ ok: false, error: "Device emulation timed out", timedOut: true }), 12000);
+      })
+    ]);
+  } finally {
+    // Always drop the operation curtain, even if the message rejects - unlike
+    // deviceControlsDisabled, deviceEmulationApplying is not recomputed by
+    // refreshUi, so a leak here would stick the curtain permanently.
+    emulation.setDeviceControlsDisabled(false);
+    uiModule.setViewState({ deviceEmulationApplying: false });
+  }
   if (!response || !response.ok) {
     uiModule.showToast((response && response.error) || PopupText.device.emulationFailed);
     const reconciledState = state.currentTab && state.currentTab.id

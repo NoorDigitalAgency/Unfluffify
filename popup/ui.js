@@ -79,6 +79,10 @@ const initialViewState = {
   desktopPreviewNoticeVisible: false,
   desktopPreviewNoticeText: "",
   deviceControlsDisabled: false,
+  // Operation-scoped flag for the blocking "Applying device emulation..." curtain.
+  // Distinct from deviceControlsDisabled, which stays true for the whole marking
+  // session (to grey the device toggle) and must NOT raise a blocking curtain.
+  deviceEmulationApplying: false,
   pageDataNewNoticeHidden: true,
   pageSaveDisabled: true,
   pageRevertDisabled: true,
@@ -542,7 +546,7 @@ function getBlockingUiCurtainState(view) {
       timerText: ""
     };
   }
-  if (view.deviceControlsDisabled) {
+  if (view.deviceEmulationApplying) {
     return {
       visible: true,
       mode: "busy",

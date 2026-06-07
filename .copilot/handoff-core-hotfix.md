@@ -148,7 +148,33 @@ V3. Comprehensive spinner stuck-prevention (#5 "Applying device emulation..."
       against a 12s timeout, falling through to the existing reconcile+toast
       failure path so the enable flow reverts gracefully instead of hanging.
     Normal enable flow still clears correctly (verified live, drive2.mjs).
-    Commit: (this change).
+    Commit: 50baf18.
+
+V4. "Applying device emulation..." curtain stuck AFTER marking enables (#5, the
+    REAL root cause) - FIXED, verified live (drive3.mjs).
+    Found only by driving the EXACT sequence: wait for the initial reveal/freeze
+    curtain to settle, THEN click Enable Marking. The curtain then stuck on
+    "Applying device emulation..." forever. Live state showed
+    `#ui-curtain` VISIBLE but popupSpinnerQueue empty, popupSpinnerVisible false,
+    AND viewState.isBusy false - i.e. the curtain was NOT a spinner and NOT
+    uiBusy. getBlockingUiCurtainState (popup/ui.js) raises the blocking curtain
+    for SEVERAL view flags, including `view.deviceControlsDisabled`, whose
+    message is "Applying device emulation...". But popup.js sets
+    `deviceControlsDisabled = state.deviceControlsDisabled || isEnabled` - so once
+    marking is ENABLED (isEnabled true) deviceControlsDisabled is forced true for
+    the whole session, and the curtain shows forever. (That is why it only stuck
+    when enable SUCCEEDED, after the initial settle - earlier races reverted
+    enable so isEnabled stayed false.)
+    FIX: introduced a dedicated operation-scoped viewState flag
+    `deviceEmulationApplying` (popup/ui.js default + getBlockingUiCurtainState now
+    checks it instead of deviceControlsDisabled). helpers.updateDeviceEmulation
+    sets it true around the operation and false in a finally. deviceControlsDisabled
+    keeps its job of greying the device toggle during marking, but no longer
+    raises a blocking curtain. Verified live: Enable Marking -> brief "Applying
+    device emulation..." during the op -> "Inspecting page..." -> curtain CLEARS
+    (~13-19s), final hidden, across repeated runs. Commit: (this change).
+    NOTE: V3 watchdog + device-emul timeout remain as safety nets but did not fix
+    this - the curtain here was a view-flag curtain, not a queued spinner.
 
 --------------------------------------------------------------------------------
 ## CORRECTION / caveat on the earlier background "curtain" work
