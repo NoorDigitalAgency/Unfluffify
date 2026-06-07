@@ -5962,6 +5962,10 @@ export async function warmupSilentHighlightingBeforeMotionPause(
     state.pageRevealWarmupId === revealWarmupId &&
     location.href === pageUrl &&
     (!baseUrl || utils.isPageWithinBaseUrl(location.href, baseUrl));
+  // A stale pause reason from a previous silent-highlighting pass can leave the
+  // main-world timer bridge paused and stall reveal scrolling. Always release
+  // this reason before the reveal walk, then re-apply it once warmup finishes.
+  resumePageMotion(reason);
   try {
     startPageInspectionInputBlocker();
     createOverlay();

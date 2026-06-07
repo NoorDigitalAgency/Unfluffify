@@ -1110,3 +1110,22 @@ test("marking enable inspects and blocks input before freezing and rendering ove
   assert.match(source, /const pollUntilSettled = \(\) => \{[\s\S]*?if \(hasSettled\(\) && isNearTarget\(\)\) \{[\s\S]*?finish\(\);/);
   assert.match(source, /await waitForPageInspectionScrollEnd\(isStillCurrent, \{[\s\S]*?targetY: targetScrollY[\s\S]*?\}\);/);
 });
+
+test("silent warmup releases stale pause before reveal and re-applies it after reveal", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const warmupStart = source.indexOf("export async function warmupSilentHighlightingBeforeMotionPause(");
+  const warmupEnd = source.indexOf("export function finishPageInspectionUi()", warmupStart);
+
+  assert.ok(warmupStart > -1);
+  assert.ok(warmupEnd > warmupStart);
+
+  const warmupSource = source.slice(warmupStart, warmupEnd);
+  assert.match(
+    warmupSource,
+    /resumePageMotion\(reason\);[\s\S]*?await revealPageContentBeforeMotionPause\(/
+  );
+  assert.match(
+    warmupSource,
+    /await revealPageContentBeforeMotionPause\([\s\S]*?pausePageMotion\(reason\);/
+  );
+});

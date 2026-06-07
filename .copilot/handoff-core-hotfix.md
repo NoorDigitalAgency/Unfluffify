@@ -290,7 +290,7 @@ Cluster 6 - render mode / conditional UI:
        with saved CSS selectors, disabled+with-note otherwise ... OPEN
 
 Regressions reported during this sprint:
-- #R1 reveal/freeze phase runs incompletely - OPEN (UNCONFIRMED cause).
+- #R1 reveal/freeze phase runs incompletely - FIX APPLIED IN-CODE (pending live confirmation).
        Owner report (2026-06-07, after the B1.1 revert c66782a): the freeze
        ICONS show, but there is NO spinner and NO scroll-to-bottom-then-back-up
        during the reveal/freeze phase. So the freeze applies but the
@@ -331,6 +331,20 @@ Regressions reported during this sprint:
        enter the scroll loop (window.scrollTo calls); do REVEAL_STARTED/
        REVEAL_FINISHED lifecycle events emit; is the popup navInspect spinner
        pushed. Pin the exact early-return before changing code.
+      APPLIED MITIGATION (2026-06-08): `content/core.js`
+      `warmupSilentHighlightingBeforeMotionPause()` now calls
+      `resumePageMotion(reason)` before running the reveal scroll pass, then
+      re-applies pause via `pausePageMotion(reason)` after warmup. This prevents
+      a stale `silent-highlighting` pause from keeping the page-world timer
+      bridge paused during reveal scroll (the observed freeze-without-scroll
+      shape). Added source-level regression coverage in
+      `tests/core-motion-pause.test.js`.
+      UNIT VERIFICATION: `node --test tests/core-motion-pause.test.js`
+      `tests/render-mode-inspection-order.test.js`
+      `tests/popup-render-mode.test.js`
+      `tests/property-lock-render-mode.test.js`
+      `tests/device-emulation-lifecycle.test.js` -> pass 62, fail 0.
+      REMAINING VERIFICATION: owner live replay still required to close #R1.
 
   - #R2 render-mode Set can trigger delayed reveal/freeze with no popup spinner.
       STATUS: FIXED + owner-confirmed (2026-06-08).
@@ -382,15 +396,11 @@ Regressions reported during this sprint:
    - Re-verified live with synthetic supersede check + full session3 flow:
      no early clear regression observed, and #3 remains fixed.
 
-4. NEXT (triage first): #R1 reveal/freeze runs incompletely (no spinner / no
-  scroll) - owner-reported regression after c66782a. Live probe now shows the
-  reveal warmup fires but the page-motion freeze is already paused before the
-  reveal scroll starts, with no scroll events emitted. Move to the
-  pause-release path in `content/core.js` / `content-main.js` (not the B1.1
-  background change); pin whether `enableForBaseUrl` / `warmupPageRevealBeforeMotionPause`
-  are leaving the page paused, then #16 preview list visibility and #17 AI-exit
+4. NEXT (live verify first): #R1 reveal/freeze runs incompletely (no spinner /
+  no scroll) - run owner replay against the 2026-06-08 pause-release patch and
+  confirm the reveal scroll + spinner are restored. If confirmed, mark #R1
+  fixed and move immediately to #16 preview list visibility and #17 AI-exit
   cannot save.
-   editing code. Do NOT assume the last commit caused it.
 
 5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
 

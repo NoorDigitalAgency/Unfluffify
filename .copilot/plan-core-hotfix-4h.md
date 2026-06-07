@@ -92,6 +92,9 @@ Latest delta (2026-06-08):
 - Owner confirmed the post-Set spinner regression is now solved.
 - Popup render-mode inspect actions were reordered for UX:
       "Without JavaScript" now appears before "With JavaScript" (placement only).
+- #R1 mitigation applied in code: silent reveal warmup now force-releases the
+      stale `silent-highlighting` pause reason before running the reveal scroll
+      pass, then re-applies pause after warmup completes.
 
 Completed in this phase:
 - `popup.js`: post-Set nav overlay ownership now stays alive for in-scope
@@ -101,12 +104,18 @@ Completed in this phase:
       `tabState.enabled`.
 - `popup/ui.js`: Step-1 inspect button placement swapped (Without JS first,
       With JS second) without behavior changes.
+- `content/core.js`: `warmupSilentHighlightingBeforeMotionPause()` now calls
+      `resumePageMotion(reason)` before reveal so stale paused state cannot
+      block reveal scrolling.
+- `tests/core-motion-pause.test.js`: added regression assertion that silent
+      warmup resumes before reveal and pauses again after reveal.
 
 Verification done in this phase:
 - Focused tests green: `tests/popup-render-mode.test.js`,
       `tests/render-mode-inspection-order.test.js`,
       `tests/property-lock-render-mode.test.js`,
-      `tests/device-emulation-lifecycle.test.js`.
+      `tests/device-emulation-lifecycle.test.js`,
+      `tests/core-motion-pause.test.js`.
 - Owner feedback: "OK, seems to be solved" for the post-Set spinner issue.
 
 SESSION 3 root-cause lead remains superseded by live fix data:
@@ -115,12 +124,10 @@ SESSION 3 root-cause lead remains superseded by live fix data:
 - #3 was fixed by preserving enabled state on same-base top-level navigation,
       allowing navInspect spinner flow to run and settle after reload.
 
-Next single task: #R1 reveal/freeze runs incompletely (no spinner / no scroll).
-LIVE TRIAGE FOUND: reveal warmup fires, but the page-motion freeze is already
-paused before the reveal scroll begins, with no scroll events emitted. Move to
-the pause-release path in `content/core.js` / `content-main.js` (check whether
-`enableForBaseUrl` or `warmupPageRevealBeforeMotionPause` leave the page
-paused). Then #16 preview list visibility and #17 AI-exit cannot save.
+Next single task: LIVE VERIFY #R1 with owner replay (render-mode reveal and
+marking-enabled reload) to confirm scroll + spinner behavior is restored with
+the pause-release fix. If confirmed, move to #16 preview list visibility and
+#17 AI-exit cannot save.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 
