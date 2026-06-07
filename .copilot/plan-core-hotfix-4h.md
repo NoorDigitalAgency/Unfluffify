@@ -95,9 +95,12 @@ SESSION 3 root-cause lead is complete and superseded by live fix data:
       allowing navInspect spinner flow to run and settle after reload.
 
 Next single task: #R1 reveal/freeze runs incompletely (no spinner / no scroll) -
-owner-reported after c66782a. TRIAGE FIRST (reproduce + pin the early-return);
-source analysis says the B1.1 revert is an unlikely cause. Then #16 preview list
-visibility and #17 AI-exit cannot save.
+owner-reported after c66782a. LIVE TRIAGE FOUND: reveal warmup fires, but the
+page-motion freeze is already paused before the reveal scroll begins, with no
+scroll events emitted. Move to the pause-release path in `content/core.js` /
+`content-main.js` (check whether `enableForBaseUrl` or
+`warmupPageRevealBeforeMotionPause` leave the page paused). Then #16 preview
+list visibility and #17 AI-exit cannot save.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 
@@ -131,7 +134,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 
 | Task | Difficulty | Effort | Live? | Note |
 |------|-----------|--------|-------|------|
-| #R1 reveal/freeze runs incompletely (no spinner / no scroll) | HARD | high | yes | Owner-reported regression after c66782a. Triage first: reproduce, log whether runRenderModeRevealOnce fires + revealPageContentBeforeMotionPause enters scroll loop. B1.1 revert is an UNLIKELY cause (did not touch reveal/freeze path). |
+| #R1 reveal/freeze runs incompletely (no spinner / no scroll) | HARD | high | yes | Live triage: reveal warmup fires, but page-motion freeze is already paused before the reveal scroll begins (`paused:true`, `lazyLoadingSuppressed:true`); no scroll events were emitted. Next hop: page-motion pause-release path, not the B1.1 background revert. |
 | ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |
@@ -264,25 +267,18 @@ Cluster 6 - render mode / conditional UI:
 Regressions reported during this sprint:
 - #R1 Reveal/freeze phase runs incompletely: the freeze ICONS show, but there is
       NO spinner and NO scroll-to-bottom-then-back-up during reveal/freeze.
-      STATUS: OPEN (UNCONFIRMED cause; reported 2026-06-07 after the B1.1 revert
-      c66782a). Source analysis: c66782a only relocated navInspect curtain
-      teardown in updateLifecycleState (background.js) and did NOT touch the
-      reveal/freeze path - revealPageContentBeforeMotionPause /
-      scrollPageInspectionTo (content/core.js), warmupSilentHighlighting...
-      (content/core.js), runRenderModeRevealOnce (content-main.js), or
-      pageMotionFreezeControl (common/page-motion-freeze-control.js). So the
-      revert is an unlikely cause. Triage live before editing: confirm whether
-      runRenderModeRevealOnce fires, whether the scroll loop runs (window.scrollTo),
-      whether REVEAL_STARTED/REVEAL_FINISHED lifecycle events emit, and whether the
-      popup navInspect spinner is pushed; check for an early isStillCurrent() /
-      visibilityState / scrollHeight<=viewport return. Bisect c66782a vs 76cae0f
-      if the live repro implicates a recent commit. See handoff "#R1" for the full
-      repro plan and candidate causes.
+      STATUS: OPEN. Live triage (2026-06-07): the reveal warmup does fire and
+      returns ok:true, but the page-motion freeze is already paused before the
+      reveal scroll begins (`__unfluffifyPageMotionFreezeState.paused:true`,
+      `lazyLoadingSuppressed:true`), so no scroll events are emitted. The next
+      hop is the page-motion pause-release path in content/core.js and
+      content-main.js, not the B1.1 background revert.
 
 ## Priority order for remaining work
 
-1. #R1 reveal/freeze incomplete (TRIAGE FIRST - owner-reported regression;
-   reproduce + pin the early-return; B1.1 revert is an unlikely cause).
+1. #R1 reveal/freeze incomplete (TRIAGE FIRST - live finding: warmup fires but
+      page-motion is already paused; trace the pause-release path in content/core.js
+      and content-main.js).
 2. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
 3. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
    #7-#9; #13, #14), #6.

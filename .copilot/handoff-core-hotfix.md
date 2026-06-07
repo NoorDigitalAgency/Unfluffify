@@ -317,6 +317,14 @@ Regressions reported during this sprint:
        popup navInspect spinner); (d) a genuinely older commit (e.g. the
        same-base nav-preserve change 76cae0f) altered which lifecycle events the
        popup sees. Bisect c66782a vs 76cae0f vs HEAD~ if needed.
+      LIVE TRIAGE RESULT (2026-06-07): the reveal warmup does fire and returns
+      `ok:true`, but the page-motion freeze layer is already active before the
+      reveal scroll begins (`__unfluffifyPageMotionFreezeState.paused:true`,
+      `lazyLoadingSuppressed:true`), `scrollY` stays near the bottom, and no
+      scroll events are emitted during the 18s probe. So the next hop is not
+      the last background change; it is the page-motion pause-release path
+      (where `warmupPageRevealBeforeMotionPause` / `enableForBaseUrl` should
+      leave the page unpaused before the reveal scroll).
        REPRO PLAN: launch-live, instrument popup, trigger the reveal/freeze
        (render-mode "With JavaScript" or a marking-enabled reload) and log: does
        `runRenderModeRevealOnce` fire; does revealPageContentBeforeMotionPause
@@ -348,9 +356,13 @@ Regressions reported during this sprint:
      no early clear regression observed, and #3 remains fixed.
 
 4. NEXT (triage first): #R1 reveal/freeze runs incompletely (no spinner / no
-   scroll) - owner-reported regression after c66782a. Source analysis says the
-   B1.1 revert is an unlikely cause (it did not touch the reveal/freeze path);
-   reproduce live and pin the early-return per the #R1 repro plan above before
+  scroll) - owner-reported regression after c66782a. Live probe now shows the
+  reveal warmup fires but the page-motion freeze is already paused before the
+  reveal scroll starts, with no scroll events emitted. Move to the
+  pause-release path in `content/core.js` / `content-main.js` (not the B1.1
+  background change); pin whether `enableForBaseUrl` / `warmupPageRevealBeforeMotionPause`
+  are leaving the page paused, then #16 preview list visibility and #17 AI-exit
+  cannot save.
    editing code. Do NOT assume the last commit caused it.
 
 5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
