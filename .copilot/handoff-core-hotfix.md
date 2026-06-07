@@ -219,12 +219,17 @@ later showed the user's actual stuck curtain is the popup-side reconciler issue
 above, where navInspect is NOT even in the broker. So B1/B1.1 do not address the
 real bug.
 
-RISK: B1.1 (clear navInspect even when the lifecycle is superseded) can clear a
-legitimate navInspect curtain mid-operation. During live testing the user once
-observed the curtain "disappear too early". B1.1 is the prime suspect.
-ACTION FOR NEXT AGENT: evaluate reverting B1.1 (restore B1's supersede-gated
-clear, or remove the background navInspect teardown entirely) and re-verify the
-real navInspect flows live. Keep V2 (the popup reconciler fix) regardless.
+RISK (confirmed): B1.1 (clear navInspect even when the lifecycle is superseded)
+can clear a legitimate navInspect curtain mid-operation.
+SESSION 5 RESULT (2026-06-07): B1.1 was reverted. `updateLifecycleState` now
+ignores superseded terminal lifecycle events and only clears navInspect for the
+current operation's terminal curtain-bearing lifecycle. Live verification:
+- synthetic supersede check keeps navInspect for stale terminal event and clears
+  for current terminal event,
+- full `session3-root-cause.mjs` run still shows nav spinner
+  push/set-message -> `nav-complete-settle` -> `nav-overlay-end` after reload,
+  with post-reload `markingEnabled:true`.
+Keep V2 (popup reconciler fix) unchanged.
 
 --------------------------------------------------------------------------------
 ## Issue status (full original 20-issue report)
@@ -301,7 +306,15 @@ Cluster 6 - render mode / conditional UI:
    - Re-verified live: nav reload now emits popup spinner push/set-message,
      then nav settle/end; inspection status after reload stays in marking mode.
 
-3. Historical investigation notes for #3 (kept for traceability):
+3. (DONE) B1.1 re-evaluation (premature navInspect clear risk):
+   - Reverted B1.1 behavior in `background.js` so superseded terminal events do
+     not clear navInspect.
+   - Re-verified live with synthetic supersede check + full session3 flow:
+     no early clear regression observed, and #3 remains fixed.
+
+4. NEXT: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
+
+5. Historical investigation notes for #3 (kept for traceability):
    the reveal/freeze SPINNER DOES NOT APPEAR after
    refresh/navigation. With launch-live running, open the instrumented popup,
    reload the candidate page (sw.evaluate chrome.tabs.reload), and poll broker

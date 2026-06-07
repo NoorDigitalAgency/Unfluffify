@@ -94,8 +94,7 @@ SESSION 3 root-cause lead is complete and superseded by live fix data:
 - #3 was fixed by preserving enabled state on same-base top-level navigation,
       allowing navInspect spinner flow to run and settle after reload.
 
-Next single task: B1.1 re-evaluation (premature navInspect clear risk), then
-#16/#17.
+Next single task: #16 preview list visibility and #17 AI-exit cannot save.
 
 ## Difficulty / effort rating (tuned for Copilot Local "Auto")
 
@@ -131,7 +130,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 |------|-----------|--------|-------|------|
 | ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
-| B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | Decide revert vs keep; must re-verify real navInspect flows live. |
+| B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |
 | #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | Needs AI preview list populated; reconcile vs collectSilentHighlightRenderTargets. |
 | #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
 | #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
@@ -260,10 +259,8 @@ Cluster 6 - render mode / conditional UI:
 
 ## Priority order for remaining work
 
-1. Re-evaluate B1.1 background change (premature navInspect clear risk) - see
-   handoff CORRECTION.
-2. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
-3. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
+1. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
+2. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
    #7-#9; #13, #14), #6.
 
 ## Verified-fix log (all live-verified)
@@ -278,6 +275,10 @@ Cluster 6 - render mode / conditional UI:
       session3-root-cause.mjs after preserving enabled state on same-base
       top-level navigation (background.js) and preventing transient popup
       down-reconcile during lock-claim/pending windows (popup.js).
+- B1.1 re-evaluation: reverted superseded-terminal navInspect clear behavior in
+      `updateLifecycleState` (background.js); live-verified with synthetic
+      supersede check (`supersededTerminalKeepsNav:true`,
+      `currentTerminalClearsNav:true`) and full `session3-root-cause.mjs` flow.
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

@@ -1625,29 +1625,25 @@ function updateLifecycleState(tabId, event = {}) {
   const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
   const eventKind = typeof event.kind === "string" && event.kind ? event.kind : "";
   const isTerminalEvent = isLifecycleTerminalPhase(eventPhase);
-  // Authoritative curtain teardown: a terminal curtain-bearing event
-  // (inspection/activation finished/failed) means that operation's persistent
-  // navigation-inspection curtain is now stale, so drop it for this tab. This
-  // runs INDEPENDENTLY of the lifecycle-state supersede guard below: a late
-  // inspection-finished can arrive after the page already advanced to a new
-  // operation (e.g. a content-ready reload), and the curtain must still clear
-  // even though we will not overwrite the newer lifecycle state with it.
-  // Routine terminal kinds (content-ready, which fires on every load) are
-  // excluded so unrelated curtains are untouched.
-  const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind(eventKind);
-  const curtainCleared = clearsCurtain && clearNavInspectCurtain(normalizedTabId);
   if (
     eventOperationId &&
     previous.operationId &&
     eventOperationId !== previous.operationId &&
     isTerminalEvent
   ) {
-    // Lifecycle state is superseded by a newer operation, but if we tore down a
-    // stale curtain above the popups still need the updated snapshot.
-    if (curtainCleared) {
-      broadcastBrokerState(normalizedTabId);
-    }
+    // Superseded terminal lifecycle events must not tear down the current
+    // operation's navigation-inspection curtain. Ignore stale terminal events
+    // entirely and keep the active operation authoritative.
     return buildBrokerState(normalizedTabId);
+  }
+  // Authoritative curtain teardown: a terminal curtain-bearing event
+  // (inspection/activation finished/failed) means that operation's persistent
+  // navigation-inspection curtain is now stale, so drop it for this tab.
+  // Routine terminal kinds (content-ready, which fires on every load) are
+  // excluded so unrelated curtains are untouched.
+  const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind(eventKind);
+  if (clearsCurtain) {
+    clearNavInspectCurtain(normalizedTabId);
   }
   const operationId = eventOperationId
     ? event.operationId
