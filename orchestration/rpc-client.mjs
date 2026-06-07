@@ -30,11 +30,17 @@ function withToken(url, token) {
   if (!token) {
     return url;
   }
-  const parsed = new URL(url);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid RPC url: ${url}`);
+  }
   if (!parsed.searchParams.get("token")) {
     parsed.searchParams.set("token", token);
   }
   return parsed.toString();
+}
 }
 
 function toError(value, fallbackMessage) {
