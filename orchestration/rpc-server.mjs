@@ -205,7 +205,7 @@ export function createRpcServer(options = {}) {
     const direction = normalized.kind === "request" || normalized.kind === "notification"
       ? "request"
       : "inbound";
-    await append({ direction, kind: normalized.kind, method: parsed.method || "", id: parsed.id });
+    append({ direction, kind: normalized.kind, method: parsed.method || "", id: parsed.id }).catch(() => {});
     if (normalized.kind === "request" || normalized.kind === "notification") {
       await handleRequest(peer, parsed);
     }
