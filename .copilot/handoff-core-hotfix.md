@@ -289,6 +289,41 @@ Cluster 6 - render mode / conditional UI:
 - #14 "Preview in desktop mode" should only show on silent-mode view
        with saved CSS selectors, disabled+with-note otherwise ... OPEN
 
+Regressions reported during this sprint:
+- #R1 reveal/freeze phase runs incompletely - OPEN (UNCONFIRMED cause).
+       Owner report (2026-06-07, after the B1.1 revert c66782a): the freeze
+       ICONS show, but there is NO spinner and NO scroll-to-bottom-then-back-up
+       during the reveal/freeze phase. So the freeze applies but the
+       page-reveal scroll pass and its overlay/spinner do not run (or are not
+       visible).
+       CAUSALITY ANALYSIS (source-level, not yet live-verified): the last commit
+       (c66782a) only relocated the navInspect curtain teardown inside
+       `updateLifecycleState` (background.js) so superseded terminal lifecycle
+       events no longer clear navInspect. It does NOT touch the reveal/freeze
+       execution path. The reveal scroll lives in
+       `revealPageContentBeforeMotionPause` -> `scrollPageInspectionTo`
+       (content/core.js ~4102/4150), driven by
+       `warmupSilentHighlightingBeforeMotionPause` (content/core.js ~5952) via
+       `runRenderModeRevealOnce` (content-main.js ~7845). The freeze itself is
+       `pageMotionFreezeControl` (common/page-motion-freeze-control.js). None of
+       these were changed by c66782a, so the revert is an UNLIKELY cause.
+       CANDIDATE REAL CAUSES to check live (in order): (a) reveal warmup returns
+       early because `isRevealWarmupCurrent()`/`isStillCurrent()` flips false
+       (URL/baseUrl mismatch or a competing reveal id bump from
+       cancelSilentHighlightEditorActivation); (b) `document.visibilityState` is
+       hidden or scrollHeight<=viewport so revealPageContentBeforeMotionPause
+       no-ops the scroll; (c) the overlay/spinner is suppressed while the freeze
+       still proceeds (setPageInspectionUiActive / createOverlay path vs the
+       popup navInspect spinner); (d) a genuinely older commit (e.g. the
+       same-base nav-preserve change 76cae0f) altered which lifecycle events the
+       popup sees. Bisect c66782a vs 76cae0f vs HEAD~ if needed.
+       REPRO PLAN: launch-live, instrument popup, trigger the reveal/freeze
+       (render-mode "With JavaScript" or a marking-enabled reload) and log: does
+       `runRenderModeRevealOnce` fire; does revealPageContentBeforeMotionPause
+       enter the scroll loop (window.scrollTo calls); do REVEAL_STARTED/
+       REVEAL_FINISHED lifecycle events emit; is the popup navInspect spinner
+       pushed. Pin the exact early-return before changing code.
+
 --------------------------------------------------------------------------------
 ## Next actions (updated)
 
@@ -312,9 +347,15 @@ Cluster 6 - render mode / conditional UI:
    - Re-verified live with synthetic supersede check + full session3 flow:
      no early clear regression observed, and #3 remains fixed.
 
-4. NEXT: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
+4. NEXT (triage first): #R1 reveal/freeze runs incompletely (no spinner / no
+   scroll) - owner-reported regression after c66782a. Source analysis says the
+   B1.1 revert is an unlikely cause (it did not touch the reveal/freeze path);
+   reproduce live and pin the early-return per the #R1 repro plan above before
+   editing code. Do NOT assume the last commit caused it.
 
-5. Historical investigation notes for #3 (kept for traceability):
+5. THEN: #16 preview list visibility and #17 AI-exit cannot save (both VERY HIGH).
+
+6. Historical investigation notes for #3 (kept for traceability):
    the reveal/freeze SPINNER DOES NOT APPEAR after
    refresh/navigation. With launch-live running, open the instrumented popup,
    reload the candidate page (sw.evaluate chrome.tabs.reload), and poll broker
