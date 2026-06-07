@@ -215,7 +215,7 @@ export function createRpcServer(options = {}) {
       response.end();
     });
 
-    server.on("upgrade", (request, socket) => {
+    server.on("upgrade", (request, socket, head) => {
       if (expectedToken && extractToken(request) !== expectedToken) {
         writeUpgradeRejection(socket);
         append({ direction: "reject", reason: "unauthorized-upgrade" }).catch(() => {});
@@ -224,7 +224,17 @@ export function createRpcServer(options = {}) {
       if (!acceptWebSocketUpgrade(request, socket)) {
         return;
       }
+      if (head && head.length) {
+        socket.unshift(head);
+      }
       const peer = new WebSocketPeer(socket, {
+        onMessage: (raw) => {
+          onRawMessage(peer, raw).catch(() => {});
+        },
+        onClose: () => {
+          peers.delete(peer);
+        }
+      });
         onMessage: (raw) => {
           onRawMessage(peer, raw).catch(() => {});
         },
