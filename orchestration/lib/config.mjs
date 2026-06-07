@@ -188,7 +188,7 @@ export async function loadOrchestrationConfig(options = {}) {
         testPropertyUrl: cli["property-url"],
         supportPageUrl: cli["support-page-url"],
         captureSourceTitle: cli["capture-source-title"],
-insecureOrigins: (() => {
+        insecureOrigins: (() => {
           const values = [cli["insecure-origin"], cli["insecure-origins"]]
             .flat()
             .filter((value) => typeof value === "string" && value.trim());
