@@ -1623,13 +1623,30 @@ function updateLifecycleState(tabId, event = {}) {
     ? event.operationId
     : "";
   const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
+  const eventKind = typeof event.kind === "string" && event.kind ? event.kind : "";
   const isTerminalEvent = isLifecycleTerminalPhase(eventPhase);
+  // Authoritative curtain teardown: a terminal curtain-bearing event
+  // (inspection/activation finished/failed) means that operation's persistent
+  // navigation-inspection curtain is now stale, so drop it for this tab. This
+  // runs INDEPENDENTLY of the lifecycle-state supersede guard below: a late
+  // inspection-finished can arrive after the page already advanced to a new
+  // operation (e.g. a content-ready reload), and the curtain must still clear
+  // even though we will not overwrite the newer lifecycle state with it.
+  // Routine terminal kinds (content-ready, which fires on every load) are
+  // excluded so unrelated curtains are untouched.
+  const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind(eventKind);
+  const curtainCleared = clearsCurtain && clearNavInspectCurtain(normalizedTabId);
   if (
     eventOperationId &&
     previous.operationId &&
     eventOperationId !== previous.operationId &&
     isTerminalEvent
   ) {
+    // Lifecycle state is superseded by a newer operation, but if we tore down a
+    // stale curtain above the popups still need the updated snapshot.
+    if (curtainCleared) {
+      broadcastBrokerState(normalizedTabId);
+    }
     return buildBrokerState(normalizedTabId);
   }
   const operationId = eventOperationId
@@ -1648,28 +1665,27 @@ function updateLifecycleState(tabId, event = {}) {
   };
   tabLifecycleStateByTabId.set(normalizedTabId, next);
   appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", next);
-  // Authoritative curtain teardown: when a curtain-bearing operation
-  // (inspection/activation) reaches a terminal phase, drop the persistent
-  // navigation-inspection spinner for this tab directly. This is what lets a
-  // popup that closed mid-inspection reopen without a stuck curtain - the
-  // background owns the end-of-operation transition instead of the popup
-  // polling runtime status. Routine terminal kinds (e.g. content-ready, which
-  // fires on every load) are excluded so unrelated curtains are untouched.
-  if (isTerminalEvent && isCurtainBearingLifecycleKind(next.kind)) {
-    const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
-    if (queue && queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
-      if (queue.size === 0) {
-        tabSpinnerQueueByTabId.delete(normalizedTabId);
-      }
-      appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
-        type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-        message: SPINNER_KEYS.NAV_INSPECT,
-        reason: "lifecycle-terminal"
-      });
-    }
-  }
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
+}
+
+// Drop the persistent navigation-inspection curtain spinner for a tab. Returns
+// true if an entry was actually removed. Used by the authoritative
+// terminal-lifecycle curtain teardown in updateLifecycleState.
+function clearNavInspectCurtain(normalizedTabId) {
+  const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
+  if (!queue || !queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
+    return false;
+  }
+  if (queue.size === 0) {
+    tabSpinnerQueueByTabId.delete(normalizedTabId);
+  }
+  appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
+    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
+    message: SPINNER_KEYS.NAV_INSPECT,
+    reason: "lifecycle-terminal"
+  });
+  return true;
 }
 
 function setBackgroundSpinnerEntry(tabId, key, entry = {}) {

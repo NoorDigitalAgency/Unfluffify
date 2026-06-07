@@ -106,9 +106,28 @@ B1 - background authoritatively tears down the inspection curtain (DONE, browser
   GET_BACKGROUND_STATE) per synthetic tab. All 4 checks pass:
   render-mode-inspection FINISHED clears navInspect; activation FINISHED clears
   navInspect; content-ready FINISHED does NOT clear; render-mode STARTED
-  (non-terminal) does NOT clear. (Verifies the gate, not the full side-panel
-  close/reopen UX; the popup curtain is driven purely from this broker state via
-  syncUiBusyFromBrokerState.)
+  (non-terminal) does NOT clear.
+
+B1.1 - VISUAL popup curtain fix (the spinner-still-stuck report)
+- The B1 gate test passed but the actual popup #ui-curtain stayed visible. A
+  VISUAL harness (verify-curtain.mjs: opens the real popup.html?debugTabId=<tab>,
+  drives the broker, reads #ui-curtain DOM + screenshots) reproduced it:
+  "Inspecting page..." curtain stayed up after the terminal lifecycle.
+- ROOT CAUSE: the curtain teardown lived AFTER the lifecycle supersede guard in
+  updateLifecycleState. When a late inspection-finished arrives for operation X
+  but the tab lifecycle already advanced to a newer operation (e.g. a
+  content-ready reload, operationId Y != X), the supersede guard returns early
+  and B1's navInspect clear never ran -> navInspect leaked in the broker -> the
+  popup mirrors it and #ui-curtain stays stuck. (The popup broadcast path does
+  NOT run the reconciler, so a stale broker spinner sticks.)
+- FIX: extracted clearNavInspectCurtain() and run it INDEPENDENTLY of the
+  supersede guard - a terminal curtain-bearing event always clears the stale
+  curtain (and broadcasts) even when the lifecycle-state update is superseded.
+- VISUAL VERIFICATION (verify-curtain.mjs, 4/4 pass + screenshots
+  curtain-1-inspecting.png / curtain-2-after-finish.png): inspection curtain
+  VISIBLE "Inspecting page..." while inspecting; #ui-curtain HIDDEN after the
+  terminal lifecycle; navInspect cleared from the broker; curtain no longer
+  shows the inspecting message. Full node --test green.
 
 B2 - resolved without code change
 - #5 transient "Applying device emulation..." orphan: ALREADY cleared on the
