@@ -36,6 +36,82 @@ read all three.
 4. Update this plan and the handoff after every fix. Commit and push per fix.
 5. Do not weaken the locked marking contract.
 
+## Execution protocol (read before touching code)
+
+This sprint is being continued by a cost-constrained agent. Follow this
+mechanically; do not improvise scope.
+
+STEP 0 - capability gate. Confirm you actually have the live-debug capabilities
+listed in `.copilot/handoff-core-hotfix.md` -> "REQUIRED CAPABILITIES" (headed
+Chrome on :9222, the owner's authenticated property, the `~/.uf-blink-harness/`
+scripts, owner available for side-effectful steps). If ANY is missing, you may
+ONLY do: doc/analysis edits, root-cause narrowing recorded as UNVERIFIED, or a
+pure-logic change covered by a new `node --test` unit test. You may NOT mark any
+runtime/visual issue FIXED. Stop and hand back if the assigned issue needs the
+browser and you don't have it.
+
+STEP 1 - one issue at a time, in the priority order below. Do NOT batch issues.
+Re-read that issue's full entry in the handoff "Issue status" section first.
+
+STEP 2 - reproduce FIRST. Capture the before timeline/state. If you cannot
+reproduce, do not change code - record why and stop. (Several OPEN issues here
+have never been cleanly reproduced even by the planning model; reproduction is
+the real work, not an afterthought.)
+
+STEP 3 - find the divergence. The recurring bug shape is a DIVERGENCE between
+the three layers: popup-local view state (popup.js / popup/ui.js), the
+background broker (background.js lifecycle/spinnerQueue), and content status
+(content-main.js getInspectionStatus). Read all three before forming a fix.
+
+STEP 4 - smallest reconciliation-based fix. Prefer reconciling against
+authoritative state over fixed-time give-ups (issue #2 was exactly a premature
+give-up; do not reintroduce that pattern). Touch only the file(s) the diagnosis
+points to. No net-new features, no refactors, no drive-by changes.
+
+STEP 5 - verify. Live-verify with the before/after timeline if you have the
+browser; otherwise add/keep a deterministic `node --test` that fails before and
+passes after. Run `npm test` and confirm green. Never close an issue on source
+reasoning alone.
+
+STEP 6 - record + commit. Update this plan's "Verified-fix log" and the handoff
+"Issue status" for that one issue (mark VERIFIED or UNVERIFIED honestly), then
+commit per the convention below. One issue per commit.
+
+HARD STOP CONDITIONS - stop and hand back rather than guess if: the repro needs
+a render-mode "Set" or any other write to live property data and the owner has
+not OK'd it; the fix would weaken the locked marking contract; the diagnosis is
+ambiguous across layers; or "verify live" is required and unavailable.
+
+## Next single task (decision tree for the implementing agent)
+
+The #1 priority is the content-reactivation root-cause lead (see handoff
+SESSION 3 + "STRONG ROOT-CAUSE HYPOTHESIS"), because it plausibly underlies #3,
+#13, and marking-not-enabling at once. Do this, nothing else, first:
+
+  A. Drive the full sequence (land -> "With JavaScript" -> Static -> Set ->
+     Enable Marking) per handoff SESSION 3.
+  B. After the reveal/freeze reloads, probe
+     `chrome.tabs.sendMessage(tabId,{type:"getInspectionStatus"})`. Expect it
+     UNDEFINED and broker lc[none] (content-main not active).
+  C. Send `chrome.tabs.sendMessage(tabId,{type:"activateContentMain"})` (the
+     content listener is content-main.js:7796; activation is requested from
+     background.js requestContentActivation ~line 2869 and the
+     activateContentMain send at background.js:2873). Re-probe
+     getInspectionStatus.
+       - If content REVIVES -> confirmed: background does not auto re-activate
+         content-main after a render-mode/debugger reload. Fix in background.js
+         so content is re-activated after those reloads (re-arm the
+         requestContentActivation / restoreEnabledStateForTab path on the
+         post-reload tabs.onUpdated), then re-verify the WHOLE sequence: marking
+         reaches enabled=true and the navInspect spinner appears on navigation.
+       - If content does NOT revive -> the bug is in content-main activation
+         itself (content-loader present but content-main not loading); record
+         that and narrow further before changing background.
+  D. Only after this lands, move to B1.1 re-evaluation, then #16/#17.
+
+Do not start #16, #17, or any Cluster 3-6 issue before the above is resolved or
+explicitly deprioritized by the owner.
+
 ## Issue clusters and status
 
 See `.copilot/handoff-core-hotfix.md` "Issue status" for the authoritative,
