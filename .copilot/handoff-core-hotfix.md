@@ -280,15 +280,36 @@ Cluster 6 - render mode / conditional UI:
    claim never resolving after a reload).
    NOTE: many chrome.runtime.reload() cycles during a debug session can also
    drift content/tab state - prefer a fresh tab when starting a new repro.
-   FOLLOW-UP: closing the orphaned popup tabs did NOT clear lockClaimPending - it
-   is a GENUINE stuck editor-lock claim (not a multi-popup artifact). Strong lead:
-   the property-lock editor claim never resolving may be a COMMON ROOT for #3 (no
-   lifecycle/spinner after navigation), #10 (countdown resets/loops), #11
-   (read-only config loop), #12 (render-mode options reset). Recommend
-   investigating the property-lock claim/grant round-trip
-   (propertyLockEditorClaimPending in content-main.js + the property-lock
-   background/WS handlers) as the next high-leverage target, OR reset the lock
-   state (release editor / fresh account+page) before retrying #3.
+   FOLLOW-UP (bonliva.se): closing orphaned popups did NOT clear lockClaimPending
+   there - bonliva had a real lock cooldown.
+
+   SESSION 2 (seo.se, owner-provided to bypass the lock cooldown; lock starts
+   CLEAN there):
+   - METHODOLOGY FIX: drive scripts MUST call popup.close() at the end. A CDP
+     browser.close() does NOT close the popup.html?debugTabId tabs, and every
+     open popup claims the editor lock -> orphaned popups make lockClaimPending
+     stick. drive-seo3.mjs closes its popup (good); older drivers did not.
+   - Render-mode "With JavaScript" reveal/freeze SPINNER WORKS: it appears both
+     before AND after a page reload ("Please wait..." -> "Detecting render
+     mode...", ~8-13s, then clears). lc[none] throughout: render-mode inspection
+     uses a popup-LOCAL runWithSpinner, not the lifecycle broker. So #3 is NOT
+     this path.
+   - => #3 is most likely the MARKING-mode navInspect "Inspecting page..."
+     spinner on navigation (tabs.onUpdated -> beginNavigationInspectionOverlay),
+     which requires marking ENABLED.
+   - BLOCKER to auto-repro: enabling marking on a fresh seo.se page first needs
+     the RENDER MODE SET (select #render-mode-choice-static|rendered radio ->
+     #render-mode-set, which is disabled until a radio is chosen; the radio
+     selection RESETS each time the popup reopens until Set is clicked). Clicking
+     Set PERSISTS render-mode config to the owner's real property (a
+     side-effectful change to live data) - do NOT do this unprompted. ASK the
+     owner to set render mode + enable marking on a seo.se candidate page (or OK
+     it), THEN observe the navigation behavior: enable marking, reload within the
+     base URL, and watch whether beginNavigationInspectionOverlay raises the
+     "Inspecting page..." navInspect spinner via tabs.onUpdated. #3 = it does not
+     appear after the refresh.
+   - Property-lock claim still a candidate common root for #3/#10-#12 (see
+     bonliva follow-up), but seo.se shows the lock CAN be clean, so test there.
 3. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
 4. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
