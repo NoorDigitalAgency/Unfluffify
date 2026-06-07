@@ -36,7 +36,140 @@ read all three.
 4. Update this plan and the handoff after every fix. Commit and push per fix.
 5. Do not weaken the locked marking contract.
 
+## Execution protocol (read before touching code)
+
+This sprint is being continued by a cost-constrained agent. Follow this
+mechanically; do not improvise scope.
+
+STEP 0 - capability gate. Confirm you actually have the live-debug capabilities
+listed in `.copilot/handoff-core-hotfix.md` -> "REQUIRED CAPABILITIES" (headed
+Chrome on :9222, the owner's authenticated property, the `~/.uf-blink-harness/`
+scripts, owner available for side-effectful steps). If ANY is missing, you may
+ONLY do: doc/analysis edits, root-cause narrowing recorded as UNVERIFIED, or a
+pure-logic change covered by a new `node --test` unit test. You may NOT mark any
+runtime/visual issue FIXED. Stop and hand back if the assigned issue needs the
+browser and you don't have it.
+
+STEP 1 - one issue at a time, in the priority order below. Do NOT batch issues.
+Re-read that issue's full entry in the handoff "Issue status" section first.
+
+STEP 2 - reproduce FIRST. Capture the before timeline/state. If you cannot
+reproduce, do not change code - record why and stop. (Several OPEN issues here
+have never been cleanly reproduced even by the planning model; reproduction is
+the real work, not an afterthought.)
+
+STEP 3 - find the divergence. The recurring bug shape is a DIVERGENCE between
+the three layers: popup-local view state (popup.js / popup/ui.js), the
+background broker (background.js lifecycle/spinnerQueue), and content status
+(content-main.js getInspectionStatus). Read all three before forming a fix.
+
+STEP 4 - smallest reconciliation-based fix. Prefer reconciling against
+authoritative state over fixed-time give-ups (issue #2 was exactly a premature
+give-up; do not reintroduce that pattern). Touch only the file(s) the diagnosis
+points to. No net-new features, no refactors, no drive-by changes.
+
+STEP 5 - verify. Live-verify with the before/after timeline if you have the
+browser; otherwise add/keep a deterministic `node --test` that fails before and
+passes after. Run `npm test` and confirm green. Never close an issue on source
+reasoning alone.
+
+STEP 6 - record + commit. Update this plan's "Verified-fix log" and the handoff
+"Issue status" for that one issue (mark VERIFIED or UNVERIFIED honestly), then
+commit per the convention below. One issue per commit.
+
+HARD STOP CONDITIONS - stop and hand back rather than guess if: the repro needs
+a render-mode "Set" or any other write to live property data and the owner has
+not OK'd it; the fix would weaken the locked marking contract; the diagnosis is
+ambiguous across layers; or "verify live" is required and unavailable.
+
+## Next single task (decision tree for the implementing agent)
+
+The #1 priority is the content-reactivation root-cause lead (see handoff
+SESSION 3 + "STRONG ROOT-CAUSE HYPOTHESIS"), because it plausibly underlies #3,
+#13, and marking-not-enabling at once. Do this, nothing else, first:
+
+  A. Drive the full sequence (land -> "With JavaScript" -> Static -> Set ->
+     Enable Marking) per handoff SESSION 3.
+  B. After the reveal/freeze reloads, probe
+     `chrome.tabs.sendMessage(tabId,{type:"getInspectionStatus"})`. Expect it
+     UNDEFINED and broker lc[none] (content-main not active).
+  C. Send `chrome.tabs.sendMessage(tabId,{type:"activateContentMain"})` (the
+     content listener is content-main.js:7796; activation is requested from
+     background.js requestContentActivation ~line 2869 and the
+     activateContentMain send at background.js:2873). Re-probe
+     getInspectionStatus.
+       - If content REVIVES -> confirmed: background does not auto re-activate
+         content-main after a render-mode/debugger reload. Fix in background.js
+         so content is re-activated after those reloads (re-arm the
+         requestContentActivation / restoreEnabledStateForTab path on the
+         post-reload tabs.onUpdated), then re-verify the WHOLE sequence: marking
+         reaches enabled=true and the navInspect spinner appears on navigation.
+       - If content does NOT revive -> the bug is in content-main activation
+         itself (content-loader present but content-main not loading); record
+         that and narrow further before changing background.
+  D. Only after this lands, move to B1.1 re-evaluation, then #16/#17.
+
+Do not start #16, #17, or any Cluster 3-6 issue before the above is resolved or
+explicitly deprioritized by the owner.
+
+## Difficulty / effort rating (tuned for Copilot Local "Auto")
+
+Copilot Local's "Auto" model selector reads the task PROMPT to pick a model, but
+it cannot see these markdown labels and does not infer "this needs a smart
+model" from a doc. So each task below carries an explicit difficulty/effort tag
+that you USE in two ways:
+
+  1. As the human dispatching the task: paste the task's difficulty cue into the
+     chat prompt so Auto has the signal (e.g. start hard tasks with
+     "This is a hard, multi-layer runtime debugging task that needs deep
+     reasoning:"). Auto routes on prompt wording, so say it out loud.
+  2. As the working agent: treat the tag as a budget/depth contract - spend
+     proportional reasoning, and HAND BACK (don't guess) if a task tagged HARD
+     lands on you while you're clearly a small/fast model with no live-debug
+     capability.
+
+Scale (difficulty = inherent problem hardness; effort = reasoning depth to ask
+for; live? = needs the browser/owner per the capability gate):
+
+  - TRIVIAL  : single-file, mechanical, unit-testable. Effort: low. Any model.
+  - EASY     : bounded logic, one layer, clear repro or pure unit test.
+               Effort: low-medium.
+  - MEDIUM   : spans 2 layers or needs a careful reconcile; deterministic test
+               possible. Effort: medium.
+  - HARD     : open-ended live diagnosis across popup/broker/content, no clean
+               repro yet, or root-cause hunting. Effort: high. Needs a strong
+               model AND live capability.
+
+Per-task ratings (OPEN issues only; FIXED ones need no rating):
+
+| Task | Difficulty | Effort | Live? | Note |
+|------|-----------|--------|-------|------|
+| ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | #1 priority; underlies #3/#13/marking-not-enabling. Cross-layer live diagnosis. |
+| #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | Likely a symptom of the root-cause lead; do that first. |
+| B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | Decide revert vs keep; must re-verify real navInspect flows live. |
+| #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | Needs AI preview list populated; reconcile vs collectSilentHighlightRenderTargets. |
+| #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
+| #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
+| #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
+| #19 "Preview in desktop mode" shown after silent landing | EASY | low-medium | yes | Conditional-UI; overlaps #14. |
+| #14 "Preview in desktop mode" visibility/enable/note rules | EASY | low-medium | partial | Mostly view-flag logic; can unit-test the gating. |
+| #10 lock countdown resets to 30 and loops | MEDIUM | medium | yes | Cluster 4 timer/state loop. |
+| #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
+| #12 render-mode options reset while countdown banner shows | MEDIUM | medium | yes | |
+| #7  discard-confirm delayed on uncheck | EASY | low-medium | yes | |
+| #8  discard-confirm delayed on navigation | EASY | low-medium | yes | |
+| #9  fast repeated debugger disable not detected | MEDIUM | medium | yes | Timing/race detection. |
+| #13 "With JavaScript" runs reveal/freeze on fresh non-candidate page | HARD | high | yes | Linked to root-cause lead. |
+| #6  marking applies after a few seconds (scheduleRender delay) | TRIVIAL | low | perceptual | candidate: delay 50ms->0 for user-driven renders; verify perceptually. |
+| #20 trace enabled in sync but checkbox off / no logs | EASY | low-medium | partial | Reconcile checkbox + per-tab trace round-trip; unit-testable in part. |
+| #4  spinner text out of sync (LOW) | EASY | low | yes | Cosmetic; revisit after #3. |
+
+If you are on Auto and the task is HARD, prompt Auto explicitly toward its
+strongest reasoning model and confirm live capability before starting; if it is
+TRIVIAL/EASY, a fast model is the credit-efficient choice.
+
 ## Issue clusters and status
+
 
 See `.copilot/handoff-core-hotfix.md` "Issue status" for the authoritative,
 per-issue state. ALL 20 reported issues, verbatim intent + status:

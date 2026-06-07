@@ -11,6 +11,35 @@ part. Do NOT declare a runtime/visual fix done from source reasoning or
 source-snapshot tests alone; verify it live.
 
 --------------------------------------------------------------------------------
+## REQUIRED CAPABILITIES - read this before you accept any OPEN issue
+
+Every OPEN issue in this sprint (#3, #6-#20, #13, #14, the content-reactivation
+root-cause lead) is a RUNTIME/VISUAL bug. The rules below say each fix MUST be
+verified live. That live loop needs ALL of the following, and they are NOT
+present in a headless cloud / CI sandbox:
+
+  1. A headed (non-headless) Chrome you can launch with the unpacked extension
+     and `--remote-debugging-port=9222`, plus a persistent profile.
+  2. The owner's real login + property config (seo.se / bonliva.se etc.). Several
+     repros (marking-enable, navInspect spinner, property lock) cannot be reached
+     without a real authenticated property.
+  3. The out-of-repo Playwright harness at `~/.uf-blink-harness/` (and the owner
+     available to perform side-effectful steps such as "Set render mode", which
+     writes to live property data and must NOT be done unprompted).
+
+If you are running WITHOUT these (e.g. a Copilot cloud agent on the default
+runner), you CANNOT complete any OPEN issue to this sprint's bar. Do NOT fake it
+with source-only reasoning and do NOT mark anything FIXED. Your allowed scope in
+that case is strictly:
+  - Documentation/analysis edits (this file + the plan).
+  - Source-level investigation that NARROWS a root cause and writes the finding
+    + exact file/function/line into the handoff, explicitly labelled UNVERIFIED.
+  - Pure-logic changes that already have, or you add, a deterministic
+    `node --test` unit test that fails before and passes after (no browser).
+Anything that can only be confirmed in the browser must be left OPEN with a
+written repro plan, not closed.
+
+--------------------------------------------------------------------------------
 ## Live debugging methodology (USE THIS - it is how every real bug here was found)
 
 The repo's `playwright-local` MCP is hardcoded to LINUX paths (`/home/rojan/...`)
