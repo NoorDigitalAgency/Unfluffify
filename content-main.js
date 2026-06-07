@@ -6178,7 +6178,17 @@ async function refreshSilentHighlightings() {
       return;
     }
     if (shouldRenderOverlay) {
-      renderSilentHighlightOverlay(renderCollections);
+      // Updating an already-live overlay (it was active and stays active) keeps
+      // it visible and repaints rects in place: boxes are reused DOM nodes whose
+      // positions/membership update atomically in this synchronous rAF pass, so
+      // there is no half-built frame to hide. Running the hide->reveal cycle on
+      // every full refresh - including the common case where a DOM mutation
+      // re-runs the pipeline with identical output - is what blinked the overlay.
+      // Only the initial paint (inactive -> active, or no overlay yet) uses the
+      // hide->reveal transition so the first reveal is correctly scheduled.
+      const overlayAlreadyLive =
+        lastSilentHighlightingsActive && shouldBeActive && Boolean(silentHighlightOverlay);
+      renderSilentHighlightOverlay(renderCollections, { keepVisible: overlayAlreadyLive });
     } else if (renderChanged) {
       clearSilentHighlightOverlay();
     }

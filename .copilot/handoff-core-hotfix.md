@@ -139,7 +139,7 @@ Push:
 - pending
 
 ### Phase C - Cluster 2 highlight/preview
-Status: IN PROGRESS (blink #1 landed first per owner direction)
+Status: IN PROGRESS (#1 blink DONE + browser-verified; #6/#16 pending)
 Owner: active engineer
 Started at: 2026-06-07
 Completed at: -
@@ -148,32 +148,61 @@ Sequencing note: owner chose to land the isolated blink fix (#1) before the
 Cluster 1 authority refactor. Remaining Cluster 2 items (#6 immediate feedback,
 #16 preview/visible-target alignment) still pending.
 
-#1 silent-highlight blink - DONE
-- Repro: on pages with continuous small layout shifts / DOM mutations, the
-  settle-driven reposition path hid the silent overlay and re-revealed it a
-  frame later on every shift, producing a periodic blink/strobe.
-- Root cause: scheduleSilentHighlightReposition hid the overlay up front for ALL
-  repositions, and repositionSilentHighlightOverlay -> renderSilentHighlightOverlay
-  always ran setSilentHighlightOverlayHidden(true) -> rAF-deferred reveal. Rect
-  boxes are reused DOM nodes whose positions update atomically in one sync pass,
-  so settle repositions never needed the hide.
-- Fix: threaded a keepVisible flag. Settle/layout-shift/mutation repositions
-  ({ keepVisible: true }) update rects in place without touching visibility;
-  scroll/resize repositions keep the hide->reveal cycle (their viewport-fixed
-  rects genuinely go stale mid-gesture). Full rebuilds unchanged.
+#1 silent-highlight blink - DONE (two-part fix, browser-verified)
+
+CORRECTION: the first commit (62ea6a3) fixed only the reposition path and was
+declared "done" on source reasoning + snapshot tests WITHOUT running the
+extension. Owner confirmed the blink was still present. A real-browser repro
+(Playwright, extension loaded) showed the DOMINANT source was a different path.
+Lesson recorded: do not claim a runtime/visual fix without observing it in the
+actual extension. See [[verify-visual-fixes-in-real-browser]].
+
+Two distinct blink sources:
+1. Reposition path (commit 62ea6a3): scheduleSilentHighlightReposition hid the
+   overlay up front for ALL repositions; repositionSilentHighlightOverlay ran
+   setSilentHighlightOverlayHidden(true) -> rAF reveal on every settle/
+   layout-shift/mutation. Fixed via keepVisible on settle/layout-shift/mutation
+   repositions; scroll/resize keep hide->reveal (viewport-fixed rects go stale
+   mid-gesture).
+2. Full-refresh path (DOMINANT, this commit): shouldRenderSilentHighlightOverlay
+   returns true whenever isFullRefresh, so refreshSilentHighlightings ->
+   applyOverlayUpdate ALWAYS ran renderSilentHighlightOverlay with the hide->
+   reveal cycle - even when the recomputed highlight set was identical. A DOM
+   class mutation on a tracked node re-runs the full pipeline (debounced to the
+   ~1200ms mutation min-interval), so the overlay blinked ~once/1.2s on any
+   dynamic page. Fix: pass keepVisible when the overlay is already live
+   (lastSilentHighlightingsActive && shouldBeActive && overlay exists), so live
+   updates repaint rects in place; only the initial inactive->active paint uses
+   hide->reveal so the first reveal is scheduled.
+
+Browser verification (Playwright harness, extension loaded, seeded silent config,
+page mutating a tracked node's class every 500ms):
+- BEFORE fix #2 (HEAD with only the reposition fix): 6 hide/reveal cycles in 8s.
+- AFTER fix #2: 0 cycles across two 14s runs (34 mutations each), 16 rects intact.
+- Scroll regression check: overlay legitimately hides on scroll, then reveals AND
+  repositions (rect top 40px -> 5.9px), visibleAfterScroll=true, no page errors.
 
 Files touched:
-- content-main.js (renderSilentHighlightOverlay, repositionSilentHighlightOverlay,
-  scheduleSilentHighlightReposition, settle-finalize rAF)
-- tests/silent-highlight-annotations.test.js (source-snapshot regexes updated to
-  new signatures + keepVisible assertion)
+- content-main.js (renderSilentHighlightOverlay + repositionSilentHighlightOverlay
+  keepVisible plumbing; scheduleSilentHighlightReposition scroll-only hide;
+  applyOverlayUpdate keepVisible for live overlays)
+- tests/silent-highlight-annotations.test.js (snapshot regexes for new signatures)
+
+Test harness (gitignored, .scratch-blink-test/): Playwright loads the unpacked
+extension via the Mac chromium-1223 cache, seeds the extension-origin IDB
+(unfluffify/kv/configs) directly in the service worker, activates content via
+activateContentMain, and counts overlay uf-silent-hidden toggles. NOTE: the
+repo's playwright-local MCP (.mcp.json) is hardcoded to LINUX paths
+(/home/rojan/...) and cannot launch on this Mac - that is why its tools never
+connect here. normalizeBaseUrl strips ports, so the harness must use a
+default-port host (route-intercepted) not localhost:PORT.
 
 Validation:
-- node --test (full suite) green; silent-highlight + core-visibility +
-  selector-suppression + motion/cache suites all pass.
+- node --test full suite green.
+- Playwright blink counts above.
 
 Commit:
-- pending (this checkpoint)
+- 62ea6a3 (reposition path) + this commit (full-refresh path)
 
 Push:
 - pending

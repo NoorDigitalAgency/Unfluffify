@@ -368,3 +368,4 @@ orchestration/ssh-rpc.secrets.jsonc
 orchestration/runs/
 orchestration/profiles/
 orchestration/.profiles/
+.scratch-blink-test/
