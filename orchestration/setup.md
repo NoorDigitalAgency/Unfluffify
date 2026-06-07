@@ -10,6 +10,8 @@ ship in the extension package.
 - `secrets.example.jsonc` - copy to `orchestration/.secrets.jsonc` and fill with
   staging values and the two test accounts.
 - `bus-server.mjs` - LAN coordination server for director/follower agents.
+- `rpc-server.mjs` - SSH-tunnel-first JSON-RPC worker (early scaffold).
+- `rpc-client.mjs` - director-side JSON-RPC request helper and smoke CLI.
 - `mock-client.mjs` - small smoke client for checking bus connectivity.
 - `runs/` - generated bus transcripts and future scenario artifacts.
 - `profiles/` - generated persistent Chrome profiles.
