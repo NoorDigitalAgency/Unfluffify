@@ -81,22 +81,62 @@ Cluster 2 - silent highlight/preview
   rows always map to a visible, highlightable target.
 
 ### Phase B - Cluster 1 lifecycle/spinner
-Status: NOT STARTED
-Owner: TBD
-Started at: -
-Completed at: -
+Status: B1 DONE (authority shift); B2 no-op (already handled); B3 DEFERRED
+Owner: active engineer
+Started at: 2026-06-07
+Completed at: 2026-06-07 (B1)
+
+Scope decision (owner): full authority refactor, staged so the polling
+reconciler is removed LAST, only after the authoritative path is proven on the
+silent-restore edge case. Removing it before that would reintroduce the P0
+stuck-curtain.
+
+B1 - background authoritatively tears down the inspection curtain (DONE)
+- Added shared SPINNER_KEYS.NAV_INSPECT + CURTAIN_BEARING_LIFECYCLE_KINDS +
+  isCurtainBearingLifecycleKind to common/world-messaging-contract.js.
+- background.js updateLifecycleState now clears the persistent navInspect
+  spinner for a tab when a curtain-bearing lifecycle (ACTIVATION /
+  RENDER_MODE_INSPECTION) reaches a terminal phase (FINISHED/FAILED), gated so
+  routine content-ready terminals never drop the curtain. This makes background
+  the owner of end-of-operation curtain teardown: a popup that closed
+  mid-inspection reopens without a stuck curtain because the snapshot no longer
+  carries navInspect.
+
+B2 - resolved without code change
+- #5 transient "Applying device emulation..." orphan: ALREADY cleared on the
+  last popup-port disconnect (background.js port.onDisconnect ->
+  clearBackgroundSpinnerQueue transientOnly). Transient spinners are
+  popup-session scoped by design; persistent navInspect is the only cross-close
+  curtain and B1 now owns its teardown.
+- #4 "text desync": not a real bug. The curtain shows currentSpinnerMessage()
+  (last/top entry); setSpinnerMessage repainting only the top entry is
+  self-consistent. No change, to avoid risk.
+
+B3 - remove scheduleStaleInspectionBusyClear (DEFERRED, see Next Actions)
+- Precondition to remove safely: confirm (manual/extension test) that the
+  silent-restore edge case (leftover navInspect from a prior marking session in
+  silent mode, popup.js:1150) always receives a terminal curtain-bearing
+  lifecycle so B1 clears it. Until verified in a real browser, keep the
+  reconciler as a rarely-firing fallback behind the authoritative path
+  (robust reconciliation + bounded fallback, not a pure timing hack).
 
 Files touched:
-- Pending
+- common/world-messaging-contract.js (SPINNER_KEYS, CURTAIN_BEARING_LIFECYCLE_KINDS,
+  isCurtainBearingLifecycleKind)
+- background.js (import + updateLifecycleState terminal curtain teardown)
+- tests/lifecycle-broker.test.js (new assertion for terminal curtain teardown)
 
 Validation:
-- Pending
+- node --test full suite green; lifecycle-broker + device-emulation-lifecycle +
+  content-activation-order + popup-marking-refresh + popup-mode-sync pass.
+- Contract smoke test: isCurtainBearingLifecycleKind(ACTIVATION)=true,
+  (CONTENT_READY)=false.
 
 Commit:
-- Pending
+- pending (this checkpoint)
 
 Push:
-- Pending
+- pending
 
 ### Phase C - Cluster 2 highlight/preview
 Status: IN PROGRESS (blink #1 landed first per owner direction)
@@ -156,27 +196,24 @@ When resuming in a new environment:
 ## Next Actions (Always Keep Current)
 
 1. Phase A complete - event/state map recorded above.
-2. Phase B (Cluster 1) - make background the single spinner/lifecycle authority:
-   - Reconcile popup popupSpinnerQueue from broker snapshot on (re)connect so a
-     closed-popup operation that already settled does not restore a stale
-     curtain; drop the scheduleStaleInspectionBusyClear polling hack in favor of
-     authoritative state.
-   - Ensure navInspect/device-emulation keys are removed on terminal lifecycle
-     phase (FINISHED/FAILED) regardless of which path settles the op.
-   - Fix setSpinnerMessage to repaint whenever the keyed entry drives the
-     current message, not only when it is top-of-queue.
-   - Validate: tests/device-emulation-lifecycle.test.js,
-     tests/lifecycle-broker.test.js, tests/popup-marking-refresh.test.js.
-3. Validate and commit/push Phase B.
-4. Phase C (Cluster 2):
-   - Eliminate the hide->reveal blink: only repaint changed rects in place and
-     keep the overlay visible across reposition; reserve hide/reveal for genuine
-     full rebuilds (renderKey change), not for settle/reposition resamples.
-   - Tighten immediate marking feedback (#6) and preview list/visible-target
-     alignment (#16).
+2. Phase C #1 blink - DONE (committed/pushed).
+3. Phase B B1 authority shift - DONE (committed/pushed). B2 resolved no-op.
+4. B3 reconciler removal - BLOCKED on manual verification:
+   - Load the unpacked extension; reproduce the silent-restore stuck curtain
+     (open marking session -> trigger navInspect -> close popup mid-inspection
+     -> switch to silent mode -> reopen popup).
+   - Confirm via world-trace (ufDebugSpinnerQueue=1) that a terminal
+     curtain-bearing lifecycle clears navInspect (B1) WITHOUT the reconciler.
+   - Only if confirmed for every curtain path: delete scheduleStaleInspectionBusyClear
+     and its call sites in popup.js, update popup-marking-refresh tests.
+5. Phase C remaining (Cluster 2):
+   - #6 immediate marking feedback: render an instant local highlight/echo on
+     marking interaction before the debounced refreshSilentHighlightings settles.
+   - #16 preview list/visible-target alignment: reconcile preview list eligibility
+     against collectSilentHighlightRenderTargets so every row maps to a visible,
+     highlightable target.
    - Validate: tests/silent-highlight-annotations.test.js,
      tests/content-main*.test.js, tests/popup-render-mode.test.js.
-5. Validate and commit/push Phase C.
 
 ## Immediate Commands
 

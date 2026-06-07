@@ -40,6 +40,26 @@ export const SPINNER_OWNERS = Object.freeze({
   POPUP: "popup"
 });
 
+// Well-known spinner queue keys shared across worlds. The navigation-inspection
+// curtain is pushed as a persistent spinner so it survives a popup close while
+// an inspection is genuinely in flight; background clears it authoritatively
+// when the owning lifecycle (inspection/activation) reaches a terminal phase.
+export const SPINNER_KEYS = Object.freeze({
+  NAV_INSPECT: "navInspect"
+});
+
+// Lifecycle kinds whose terminal phase (finished/failed) means the page
+// inspection curtain should be torn down. Other terminal kinds (e.g.
+// content-ready, which fires on every load) must not clear the curtain.
+export const CURTAIN_BEARING_LIFECYCLE_KINDS = Object.freeze([
+  LIFECYCLE_KINDS.ACTIVATION,
+  LIFECYCLE_KINDS.RENDER_MODE_INSPECTION
+]);
+
+export function isCurtainBearingLifecycleKind(kind) {
+  return CURTAIN_BEARING_LIFECYCLE_KINDS.includes(kind);
+}
+
 export function buildPopupStatePortName(tabId) {
   return `${WORLD_PORTS.POPUP_STATE_PREFIX}${tabId}`;
 }

@@ -60,9 +60,11 @@ import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
   SPINNER_OWNERS,
+  SPINNER_KEYS,
   WORLD_MESSAGE_TYPES,
   WORLD_PORTS,
-  isLifecycleTerminalPhase
+  isLifecycleTerminalPhase,
+  isCurtainBearingLifecycleKind
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_PERSIST_KEY,
@@ -1646,6 +1648,26 @@ function updateLifecycleState(tabId, event = {}) {
   };
   tabLifecycleStateByTabId.set(normalizedTabId, next);
   appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", next);
+  // Authoritative curtain teardown: when a curtain-bearing operation
+  // (inspection/activation) reaches a terminal phase, drop the persistent
+  // navigation-inspection spinner for this tab directly. This is what lets a
+  // popup that closed mid-inspection reopen without a stuck curtain - the
+  // background owns the end-of-operation transition instead of the popup
+  // polling runtime status. Routine terminal kinds (e.g. content-ready, which
+  // fires on every load) are excluded so unrelated curtains are untouched.
+  if (isTerminalEvent && isCurtainBearingLifecycleKind(next.kind)) {
+    const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
+    if (queue && queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
+      if (queue.size === 0) {
+        tabSpinnerQueueByTabId.delete(normalizedTabId);
+      }
+      appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
+        type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
+        message: SPINNER_KEYS.NAV_INSPECT,
+        reason: "lifecycle-terminal"
+      });
+    }
+  }
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
 }

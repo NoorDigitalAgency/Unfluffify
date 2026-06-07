@@ -32,6 +32,28 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(backgroundSource, /eventOperationId !== previous\.operationId[\s\S]*?isTerminalEvent[\s\S]*?return buildBrokerState\(normalizedTabId\);/);
 });
 
+test("background authoritatively tears down the navigation-inspection curtain on terminal lifecycle", () => {
+  assert.match(contractSource, /export const SPINNER_KEYS = Object\.freeze\(\{[\s\S]*?NAV_INSPECT: "navInspect"[\s\S]*?\}\);/);
+  assert.match(contractSource, /export function isCurtainBearingLifecycleKind\(kind\) \{/);
+  assert.match(
+    contractSource,
+    /CURTAIN_BEARING_LIFECYCLE_KINDS = Object\.freeze\(\[[\s\S]*?LIFECYCLE_KINDS\.ACTIVATION[\s\S]*?LIFECYCLE_KINDS\.RENDER_MODE_INSPECTION[\s\S]*?\]\);/
+  );
+  // The terminal-curtain clear is gated on a curtain-bearing kind so routine
+  // terminal events (content-ready on every load) never drop the curtain.
+  assert.match(
+    backgroundSource,
+    /if \(isTerminalEvent && isCurtainBearingLifecycleKind\(next\.kind\)\) \{[\s\S]*?queue\.delete\(SPINNER_KEYS\.NAV_INSPECT\)[\s\S]*?\}/
+  );
+  // Transient spinners remain popup-session scoped: the last port disconnect
+  // clears them, while the persistent navInspect curtain is cleared by the
+  // authoritative terminal-lifecycle path above.
+  assert.match(
+    backgroundSource,
+    /port\.onDisconnect\.addListener\(\(\) => \{[\s\S]*?clearBackgroundSpinnerQueue\(tabId, \{ transientOnly: true \}\);[\s\S]*?\}\);/
+  );
+});
+
 test("background exposes lifecycle and spinner state over messages and popup ports", () => {
   assert.match(backgroundSource, /chrome\.runtime\.onConnect\.addListener\(\(port\) => \{/);
   assert.match(backgroundSource, /port\.name\.startsWith\(WORLD_PORTS\.POPUP_STATE_PREFIX\)/);
