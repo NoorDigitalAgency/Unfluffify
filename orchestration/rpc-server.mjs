@@ -138,8 +138,8 @@ export function createRpcServer(options = {}) {
       displayMode: process.env.WAYLAND_DISPLAY
         ? "wayland"
         : process.env.DISPLAY
-          ? "real"
-          : "xvfb-or-headless",
+          ? "x11"
+          : "none",
       runDir
     };
   }
