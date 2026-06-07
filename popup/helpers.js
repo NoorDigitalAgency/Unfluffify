@@ -73,14 +73,23 @@ export async function updateDeviceEmulation({
     });
   };
   emulation.setDeviceControlsDisabled(true);
-  const response = await messages.sendRuntimeMessage({
-    type: "updateDeviceEmulation",
-    tabId: state.currentTab.id,
-    enabled,
-    mode,
-    scale,
-    recalculateScale
-  });
+  // The background mobile-emulation update attaches the Chrome debugger, which
+  // can hang (e.g. a slow/again-attaching target). Bound it so a hang cannot
+  // wedge the caller's spinner ("Applying device emulation...") indefinitely;
+  // on timeout we fall through to the failure path which reconciles + toasts.
+  const response = await Promise.race([
+    messages.sendRuntimeMessage({
+      type: "updateDeviceEmulation",
+      tabId: state.currentTab.id,
+      enabled,
+      mode,
+      scale,
+      recalculateScale
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ ok: false, error: "Device emulation timed out", timedOut: true }), 12000);
+    })
+  ]);
   emulation.setDeviceControlsDisabled(false);
   if (!response || !response.ok) {
     uiModule.showToast((response && response.error) || PopupText.device.emulationFailed);

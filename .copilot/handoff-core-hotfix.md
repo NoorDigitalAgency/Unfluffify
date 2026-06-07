@@ -126,6 +126,30 @@ V2. Stuck "Inspecting page..." curtain on marking-enable (#2 / #5) - FIXED,
     safety net only) and fail-open on exhaustion so a blocking curtain can never
     persist. Commit: 8eba026.
 
+V3. Comprehensive spinner stuck-prevention (#5 "Applying device emulation..."
+    never disappears, + ALL queued-spinner hangs) - FIXED, verified live.
+    There are TWO curtain systems: (A) the spinner queue (popupSpinnerQueue,
+    cleared by popSpinner) and (B) the uiBusy flag (V2). "Applying device
+    emulation..." is system A: a runWithSpinner UUID spinner. runWithSpinner pops
+    in its finally, but if the awaited op never settles (e.g. the background
+    mobile-emulation debugger attach hangs, a tab reload never completes), the
+    finally never runs and the spinner sticks forever. There are 11
+    runWithSpinner sites + manual pushSpinner sites (navInspect, clear-cache,
+    unregister) all with the same exposure.
+    FIX (two layers):
+    - WATCHDOG (covers ALL queued spinners): pushSpinner/setSpinnerMessage arm a
+      per-key fail-open timer (popup.js SPINNER_WATCHDOG_MS=60s), reset on each
+      message change (progress), cleared by popSpinner. On fire it force-pops the
+      key so no spinner can stay up indefinitely. Verified live: a never-popped
+      spinner is force-cleared (test with watchdog temporarily at 5s -> curtain
+      VIS:STUCK TEST -> hidden after 5s).
+    - TARGETED TIMEOUT (device emulation, the reported case): helpers.js
+      updateDeviceEmulation races the background updateDeviceEmulation message
+      against a 12s timeout, falling through to the existing reconcile+toast
+      failure path so the enable flow reverts gracefully instead of hanging.
+    Normal enable flow still clears correctly (verified live, drive2.mjs).
+    Commit: (this change).
+
 --------------------------------------------------------------------------------
 ## CORRECTION / caveat on the earlier background "curtain" work
 
@@ -154,9 +178,9 @@ Cluster 1 - operation lifecycle / spinner (messaging layers):
        re-connect / lifecycle reset after page reload - drive it with reload-ext +
        a page reload, watch broker lifecycle->none and whether popup re-subscribes)
 - #4  spinner text out of sync (low) ...... OPEN (low)
-- #5  "Applying device emulation..." stuck . FIXED via V2 (same uiBusy/reconciler
-       path; reveal/freeze correctly does not run on enable - the curtain was the
-       stuck part). Re-confirm live.
+- #5  "Applying device emulation..." stuck . FIXED via V3 (queued runWithSpinner
+       spinner whose device-emulation await could hang; now bounded by a 12s
+       targeted timeout + a 60s universal spinner watchdog). Verified live.
 - #20 trace enabled in sync but checkbox off/no logs . OPEN (observed live:
        getUfBackgroundState traceEnabled=false despite sync flag; popup disables it)
 

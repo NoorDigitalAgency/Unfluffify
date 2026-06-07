@@ -732,6 +732,16 @@ const popupSpinnerQueue = new Map();
 const popupSpinnerKeyTabIds = new Map();
 let popupSpinnerVisible = false;
 let popupSpinnerTimer = 0;
+// Fail-open watchdog: every queued spinner is force-cleared if it makes no
+// progress for this long. runWithSpinner relies on its finally to pop the
+// spinner, but if an awaited operation (e.g. device emulation / debugger
+// attach, a hung network call, a tab reload that never completes) never
+// settles, the finally never runs and the popup stays blocked forever. The
+// watchdog guarantees no spinner can stick. It is reset whenever the spinner's
+// message changes (progress), so legitimately long multi-stage operations are
+// not cut off mid-flight.
+const SPINNER_WATCHDOG_MS = 60000;
+const popupSpinnerWatchdogByKey = new Map();
 let popupNavigationInspectionOverlayStarted = false;
 let popupNavigationInspectionOverlayTabId = null;
 const popupNavigationInspectionSettlePollByTabId = new Map();
@@ -1015,6 +1025,31 @@ function connectBackgroundStatePort(tabId) {
   }
 }
 
+function clearSpinnerWatchdog(key) {
+  const timer = popupSpinnerWatchdogByKey.get(key);
+  if (timer) {
+    window.clearTimeout(timer);
+    popupSpinnerWatchdogByKey.delete(key);
+  }
+}
+
+function armSpinnerWatchdog(key) {
+  if (!key) {
+    return;
+  }
+  clearSpinnerWatchdog(key);
+  const timer = window.setTimeout(() => {
+    popupSpinnerWatchdogByKey.delete(key);
+    if (popupSpinnerQueue.has(key)) {
+      // The owning operation never settled (its runWithSpinner finally / manual
+      // popSpinner never ran). Fail open so the popup can never stay blocked.
+      logPopupSpinnerDebug("spinner-watchdog-failopen", { key });
+      popSpinner(key);
+    }
+  }, SPINNER_WATCHDOG_MS);
+  popupSpinnerWatchdogByKey.set(key, timer);
+}
+
 function pushSpinner(key, message, options = {}) {
   const effectiveKey = (typeof key === "string" && key) ? key : crypto.randomUUID();
   const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
@@ -1057,11 +1092,13 @@ function pushSpinner(key, message, options = {}) {
     if (tabId) {
       popupSpinnerKeyTabIds.set(effectiveKey, tabId);
     }
+    armSpinnerWatchdog(effectiveKey);
     syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
     return effectiveKey;
   }
 
   popupSpinnerQueue.set(effectiveKey, { message: msg, persistent });
+  armSpinnerWatchdog(effectiveKey);
   if (tabId) {
     popupSpinnerKeyTabIds.set(effectiveKey, tabId);
   }
@@ -1111,6 +1148,8 @@ function setSpinnerMessage(key, message) {
     return;
   }
   entry.message = message.trim();
+  // Message change = progress; reset the fail-open watchdog for this key.
+  armSpinnerWatchdog(key);
   logPopupSpinnerDebug("set-message", { key, message: entry.message });
   const tabId = state.currentTab && state.currentTab.id;
   syncSpinnerEntryToBackground(key).catch(() => {});
@@ -1242,6 +1281,7 @@ function popSpinner(key) {
   if (!key || typeof key !== "string") {
     return;
   }
+  clearSpinnerWatchdog(key);
   const mappedTabId = popupSpinnerKeyTabIds.get(key);
   if (!popupSpinnerQueue.has(key)) {
     if (mappedTabId) {
