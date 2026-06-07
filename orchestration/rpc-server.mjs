@@ -187,7 +187,7 @@ export function createRpcServer(options = {}) {
       parsed = JSON.parse(raw);
     } catch {
       peer.sendJson(createRpcError(null, -32700, "Parse error"));
-      await append({ direction: "reject", reason: "invalid-json" });
+      append({ direction: "reject", reason: "invalid-json" }).catch(() => {});
       return;
     }
     const normalized = normalizeRpcMessage(parsed);
