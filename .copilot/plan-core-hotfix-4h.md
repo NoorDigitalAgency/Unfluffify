@@ -203,7 +203,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
 | #12 render-mode options reset while countdown banner shows | MEDIUM | medium | yes | |
 | #7  discard-confirm delayed on uncheck | EASY | low-medium | yes | DONE+live-verified (2026-06-08). Root cause: `handleEnableToggle` always awaited `refreshCurrentPageRuntimeStatus` + `refreshUi` before showing the disable-discard confirm. Fix: pre-confirm refresh now runs only when pending state is not already known (`!pendingKnownFromCurrentView`), so known-dirty sessions prompt immediately. Live probe (`uncheck-confirm-delay-seo.mjs`): uncheck->confirm dialog 38ms. |
-| #8  discard-confirm delayed on navigation | EASY | low-medium | yes | |
+| #8  discard-confirm delayed on navigation | EASY | low-medium | yes | DONE+live-verified (2026-06-08). Root cause: `confirmNavigationAwayFromMarking` always awaited `refreshCurrentPageRuntimeStatus` + `refreshUi` before checking pending/discard state. Fix mirrors #7: pre-confirm refresh now runs only when pending is not already known (`!pendingKnownFromCurrentView`), so known-dirty navigation attempts prompt immediately. Live probe (`navigation-confirm-delay-manual-assist.mjs`): nav-click->confirm 2ms. |
 | #9  fast repeated debugger disable not detected | MEDIUM | medium | yes | Timing/race detection. |
 | #13 "With JavaScript" runs reveal/freeze on fresh non-candidate page | HARD | high | yes | Linked to root-cause lead. |
 | #6  marking applies after a few seconds (scheduleRender delay) | TRIVIAL | low | perceptual | DONE+live-verified (2026-06-08). Real root cause was NOT the 50ms scheduleRender delay but the user-toggle path routing through the async overlay reconcile (`refreshExplicitMarkingOverlayAsync`, ~2020ms on seo.se) so the explicit layer only drew ~+2232ms. Fix: drain passes `immediateFullRender:true`; `completeExplicitToggle` async branch gated by `&& !immediateFullRender` so user clicks use the SYNC `scheduleExplicitOverlayRefresh`; `getExplicitMarkingFullRenderOptions().delay` 40->0. Live: visible mark +2232->+387ms, render.total +2351->+554ms. |
@@ -300,7 +300,11 @@ Cluster 5 - confirmations / debugger:
       `currentViewState.sessionHasPendingChanges` is already true, instead of
       waiting for a runtime-status + full popup refresh first.
 - #8  Same confirmation appears with a long delay on a navigation attempt.
-      STATUS: OPEN.
+      STATUS: FIXED + live-verified (2026-06-08). `confirmNavigationAwayFromMarking`
+      now prompts immediately when `view.sessionHasPendingChanges` is already
+      true, instead of waiting for a runtime-status + full popup refresh first.
+      Live probe (`navigation-confirm-delay-manual-assist.mjs`): nav-click to
+      discard confirm dialog 2ms.
 - #9  Disabling the Chrome debugger fast and repeatedly is not detected.
       STATUS: OPEN.
 
@@ -334,12 +338,15 @@ Regressions reported during this sprint:
 
 ## Priority order for remaining work
 
-1. #R1 reveal/freeze incomplete (TRIAGE FIRST - live finding: warmup fires but
-      page-motion is already paused; trace the pause-release path in content/core.js
-      and content-main.js).
-2. #16 preview list visibility (VERY HIGH) and #17 AI-exit cannot save (VERY HIGH).
-3. #20, #4 (finish Cluster 1), then Clusters 3-6 (#15, #18, #19; #10-#12;
-   #7-#9; #13, #14), #6.
+1. #16 preview list visibility (VERY HIGH).
+2. #17 AI-exit lands in silent mode and cannot save (VERY HIGH).
+3. #18 temp changes not discarded on enable after silent landing.
+4. #15 saved data used on enable -> wrong dirty/discard state.
+5. #19 preview in desktop mode shown after silent landing.
+6. #14 preview in desktop mode visibility/enable/note rules.
+7. #10, #11, #12 property-lock countdown/lock-loss loop.
+8. #4 spinner text sync (low), then #20 trace toggle mismatch.
+9. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
 
 ## Verified-fix log (all live-verified)
 
@@ -357,6 +364,14 @@ Regressions reported during this sprint:
       `updateLifecycleState` (background.js); live-verified with synthetic
       supersede check (`supersededTerminalKeepsNav:true`,
       `currentTerminalClearsNav:true`) and full `session3-root-cause.mjs` flow.
+- #6  marking apply latency after user toggle: 54c7667 (live on seo.se:
+      visible mark +2232ms -> +387ms; render.total +2351ms -> +554ms).
+- #7  uncheck discard-confirm delay: bce679f (live on seo.se:
+      uncheck->confirm 38ms).
+- #8  navigation discard-confirm delay: (this commit) popup now gates
+      pre-confirm refresh behind `!pendingKnownFromCurrentView` in
+      `confirmNavigationAwayFromMarking`; live probe
+      `navigation-confirm-delay-manual-assist.mjs`: nav-click->confirm 2ms.
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

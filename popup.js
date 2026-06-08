@@ -7015,7 +7015,14 @@ async function confirmNavigationAwayFromMarking() {
   if (!view.toggleEnabled) {
     return true;
   }
-  if ((await helpers.ensureActiveTab({ requireId: true })) && state.currentBaseUrl) {
+  const pendingKnownFromCurrentView = Boolean(view.sessionHasPendingChanges);
+  if (
+    (await helpers.ensureActiveTab({ requireId: true })) &&
+    state.currentBaseUrl &&
+    !pendingKnownFromCurrentView
+  ) {
+    // If pending changes are already known, show confirm immediately. Only
+    // refresh when pending state is not yet known to avoid false negatives.
     await refreshCurrentPageRuntimeStatus();
     await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
     view = uiModule.getViewState();

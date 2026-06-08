@@ -128,6 +128,11 @@ test("navigating away from a pending marking session prompts to discard first", 
     fnBody,
     /if \(!view\.sessionHasPendingChanges\) \{[\s\S]*?await alignPopupToSilentMode\(\);\s*return true;\s*\}/
   );
+  assert.match(fnBody, /const pendingKnownFromCurrentView = Boolean\(view\.sessionHasPendingChanges\);/);
+  assert.match(
+    fnBody,
+    /if \([\s\S]*?helpers\.ensureActiveTab\(\{ requireId: true \}\)[\s\S]*?state\.currentBaseUrl[\s\S]*?!pendingKnownFromCurrentView[\s\S]*?\) \{[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false, skipPropertyLockFetch: true \}\);/
+  );
   // Pending session shows toast + confirm gated on the same discard flow.
   assert.match(fnBody, /window\.confirm\(PopupText\.page\.navigateDiscardConfirm\)/);
   // Cancel stops navigation; OK discards locally before navigating.

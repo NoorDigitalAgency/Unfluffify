@@ -294,7 +294,12 @@ Cluster 5 - confirmations / debugger:
   refresh behind `!pendingKnownFromCurrentView`, so known-dirty sessions
   confirm immediately on uncheck. Live probe: uncheck->confirm 38ms
   (`uncheck-confirm-delay-seo.mjs`).
-- #8  discard-confirm message delayed on navigation ........ OPEN
+- #8  discard-confirm message delayed on navigation ........ FIXED +
+  live-verified (2026-06-08). Root cause: `confirmNavigationAwayFromMarking`
+  always awaited runtime-status + full UI refresh before confirm. Fix mirrors
+  #7 by gating that refresh behind `!pendingKnownFromCurrentView`, so
+  known-dirty navigation attempts prompt immediately. Live probe:
+  nav-click->confirm 2ms (`navigation-confirm-delay-manual-assist.mjs`).
 - #9  fast repeated debugger disable not detected .......... OPEN
 
 Cluster 6 - render mode / conditional UI:
@@ -388,22 +393,21 @@ Regressions reported during this sprint:
      marking/lock-pending repro.
 
 5. NEXT (owner-set priority order, 2026-06-08):
-  Completed from queue: #6, #7.
-  1) #8
-  2) #16
-  3) #17
-  4) #18
-  5) #15
-  6) #19
-  7) #14
-  8) #10
-  9) #11
-  10) #12
-  11) #4
-  12) #20
-  13) #13
-  14) #9
-  15) anything else left.
+  Completed from queue: #6, #7, #8.
+  1) #16
+  2) #17
+  3) #18
+  4) #15
+  5) #19
+  6) #14
+  7) #10
+  8) #11
+  9) #12
+  10) #4
+  11) #20
+  12) #13
+  13) #9
+  14) anything else left.
 
   #13 owner directive (must hold): on non-candidate pages, regardless of
   property status, show only the locked banner and the non-candidate note, and
