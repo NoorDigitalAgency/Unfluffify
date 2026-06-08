@@ -8518,11 +8518,19 @@ export function main() {
         }
         const savedEntry = core.getSavedPageEntry(pageUrl);
         const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+        // Submission-xpath staleness only signals a discardable change when the
+        // entry already carries submission data from a prior AI run/save. On a
+        // freshly enabled page the entry has no submissionXpaths yet, while the
+        // live page always reports submittable xpaths; comparing the two would
+        // otherwise mark the pristine page dirty and wrongly enable Discard.
+        const entrySubmissionXpaths =
+          entry && Array.isArray(entry.submissionXpaths) ? entry.submissionXpaths : [];
         const submissionXpathsStale = Boolean(
           hasEntry &&
           entry &&
+          entrySubmissionXpaths.length > 0 &&
           !submissionXpathsEqual(
-            entry.submissionXpaths,
+            entrySubmissionXpaths,
             collectAiSubmissionXpathsForCurrentPage()
           )
         );

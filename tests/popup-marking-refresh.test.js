@@ -855,6 +855,26 @@ test("content saved baseline is refreshed from backend cache, not local drafts",
   assert.doesNotMatch(contentSource, /confirmed local snapshot|immediate post-save remote reload omits/);
 });
 
+test("submission-xpath staleness only counts when the entry already has prior run data", () => {
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const block = contentSource.match(
+    /if \(message\.type === "getPageDraftStatus"\) \{[\s\S]*?reconciliationPending: core\.isPageSaveReconciliationPending\(pageUrl\)/
+  )[0];
+
+  // The stale check must be gated on the entry carrying submission xpaths from a
+  // prior AI run/save. Without this gate a freshly enabled page (empty
+  // submissionXpaths vs. non-empty live xpaths) is wrongly flagged dirty and the
+  // Discard button false-enables.
+  assert.match(
+    block,
+    /const entrySubmissionXpaths =\s*\n?\s*entry && Array\.isArray\(entry\.submissionXpaths\) \? entry\.submissionXpaths : \[\];/
+  );
+  assert.match(
+    block,
+    /const submissionXpathsStale = Boolean\([\s\S]*?entrySubmissionXpaths\.length > 0 &&[\s\S]*?submissionXpathsEqual\(\s*entrySubmissionXpaths,/
+  );
+});
+
 test("forced config reload replaces the current page entry without re-syncing live DOM", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const configUpdatedSource = source.match(
