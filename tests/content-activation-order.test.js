@@ -93,7 +93,10 @@ test("reveal activation starts on becameEditor transition and not on marking ena
   assert.ok(messageStart > -1);
   assert.ok(messageEnd > messageStart);
   assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  assert.match(
+    messageSource,
+    /await core\.enableForBaseUrl\(message\.baseUrl, \{[\s\S]*?skipInitialReveal,[\s\S]*?discardUnsavedDraftCache[\s\S]*?\}\);/
+  );
   assert.doesNotMatch(messageSource, /warmupPageRevealBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /warmupSilentHighlightingBeforeMotionPause\(/);
   assert.doesNotMatch(messageSource, /runEditorSilentHighlightingActivation\(/);
@@ -220,7 +223,24 @@ test("runtime setEnabled can request an initial reveal when reload restoration r
   assert.ok(messageEnd > messageStart);
   const messageSource = source.slice(messageStart, messageEnd);
   assert.match(messageSource, /const skipInitialReveal = !Boolean\(message\.performInitialReveal\);/);
-  assert.match(messageSource, /await core\.enableForBaseUrl\(message\.baseUrl, \{ skipInitialReveal \}\);/);
+  assert.match(messageSource, /const discardUnsavedDraftCache = Boolean\(message\.clearStalePageDraftOnEnable\);/);
+  assert.match(
+    messageSource,
+    /await core\.enableForBaseUrl\(message\.baseUrl, \{[\s\S]*?skipInitialReveal,[\s\S]*?discardUnsavedDraftCache[\s\S]*?\}\);/
+  );
+});
+
+test("enableForBaseUrl can skip restoring disabled unsaved draft cache", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const enableStart = source.indexOf("export async function enableForBaseUrl(baseUrl, options = {}) {");
+  const enableEnd = source.indexOf("export function handleBeforeUnload(event)", enableStart);
+
+  assert.ok(enableStart > -1);
+  assert.ok(enableEnd > enableStart);
+  const enableSource = source.slice(enableStart, enableEnd);
+
+  assert.match(enableSource, /const discardUnsavedDraftCache = Boolean\(options && options\.discardUnsavedDraftCache\);/);
+  assert.match(enableSource, /const cachedDraft = discardUnsavedDraftCache \? null : state\.disabledUnsavedDraft;/);
 });
 
 test("capturePageSnapshot collects AI submission rows from the target config", () => {

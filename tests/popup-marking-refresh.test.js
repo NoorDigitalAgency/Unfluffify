@@ -778,6 +778,14 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
     enableBody,
     /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/
   );
+  assert.match(
+    enableBody,
+    /state\.currentBaseUrl = effectiveBaseUrl;[\s\S]*?await applyLocalPageDiscard\(\);[\s\S]*?await messages\.setTabState\(tab\.id, \{[\s\S]*?enabled: true/
+  );
+  assert.match(
+    enableBody,
+    /type: "setEnabled"[\s\S]*?clearStalePageDraftOnEnable: true/
+  );
   assert.match(enableBody, /performInitialReveal: true/);
   assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
 });

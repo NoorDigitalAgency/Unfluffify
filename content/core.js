@@ -10170,6 +10170,7 @@ export function disable(options = {}) {
 
 export async function enableForBaseUrl(baseUrl, options = {}) {
   const skipInitialReveal = Boolean(options && options.skipInitialReveal);
+  const discardUnsavedDraftCache = Boolean(options && options.discardUnsavedDraftCache);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
@@ -10193,7 +10194,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
     );
   }
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
-  const cachedDraft = state.disabledUnsavedDraft;
+  const cachedDraft = discardUnsavedDraftCache ? null : state.disabledUnsavedDraft;
   if (
     cachedDraft &&
     utils.sameBaseUrl(cachedDraft.baseUrl, normalizedBaseUrl) &&

@@ -7327,6 +7327,10 @@ async function handleEnableToggle(event) {
         const effectiveBaseUrl = siteIdResult.baseUrl || baseUrlValue;
         state.currentBaseUrl = effectiveBaseUrl;
         state.currentConfig = siteIdResult.config || state.currentConfig;
+        // Fresh enable must start from the backend-saved baseline for this
+        // page. Drop any stale local draft persisted from previous temporary
+        // marking sessions before entering marking mode again.
+        await applyLocalPageDiscard();
         if (uiModule.getViewState().desktopPreviewEnabled) {
           uiModule.showToast(PopupText.device.desktopPreviewDisableMarkingToast);
           uiModule.setViewState({ toggleEnabled: false });
@@ -7362,7 +7366,8 @@ async function handleEnableToggle(event) {
           enabled: true,
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey,
-          performInitialReveal: true
+          performInitialReveal: true,
+          clearStalePageDraftOnEnable: true
         });
         if (!enableResponse || !enableResponse.ok) {
           await messages.setTabState(tab.id, {

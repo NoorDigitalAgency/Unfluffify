@@ -7937,11 +7937,15 @@ export function main() {
         setSilentHighlightingsActive(false);
         (async () => {
           const skipInitialReveal = !Boolean(message.performInitialReveal);
+          const discardUnsavedDraftCache = Boolean(message.clearStalePageDraftOnEnable);
           const reconciliation = core.getPageSaveReconciliationState(location.href);
           if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
             await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
           }
-          await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
+          await core.enableForBaseUrl(message.baseUrl, {
+            skipInitialReveal,
+            discardUnsavedDraftCache
+          });
           refreshEnabledAiHighlights();
           emitLifecycleEvent({
             operationId,
