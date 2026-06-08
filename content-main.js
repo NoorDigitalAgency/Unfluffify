@@ -2210,6 +2210,62 @@ function normalizeAiPreviewItems(items) {
     .filter((item) => item.xpath);
 }
 
+function mapAiPreviewItemsToRenderableTargets(items) {
+  const normalized = normalizeAiPreviewItems(items);
+  const rows = [];
+  const seenXpaths = new Set();
+  normalized.forEach((item) => {
+    const sourceXpath = typeof item.xpath === "string" ? item.xpath : "";
+    if (!sourceXpath) {
+      return;
+    }
+    const sourceNode = core.getElementFromXPath(sourceXpath);
+    if (!sourceNode || sourceNode.nodeType !== 1 || isExtensionUiNode(sourceNode)) {
+      return;
+    }
+    const renderTargets = collectSilentHighlightRenderTargets(sourceNode, {
+      keepShallowestOnly: true
+    });
+    const targets = renderTargets.length
+      ? renderTargets
+      : hasRenderableClientBox(sourceNode)
+        ? [sourceNode]
+        : [];
+    targets.forEach((target) => {
+      if (!target || target.nodeType !== 1 || isExtensionUiNode(target)) {
+        return;
+      }
+      const xpath = core.getXPath(target);
+      if (!xpath || seenXpaths.has(xpath)) {
+        return;
+      }
+      const text = typeof item.text === "string" && item.text
+        ? item.text
+        : core.getElementLabel(target);
+      if (!text) {
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      rows.push({
+        xpath,
+        text,
+        title: typeof item.title === "string" && item.title ? item.title : sourceXpath,
+        kind: AI_PREVIEW_KINDS.has(item.kind) ? item.kind : "",
+        top: rect.top + window.scrollY,
+        left: rect.left + window.scrollX
+      });
+      seenXpaths.add(xpath);
+    });
+  });
+  rows.sort((left, right) => {
+    if (left.top === right.top) {
+      return left.left - right.left;
+    }
+    return left.top - right.top;
+  });
+  return rows.map(({ xpath, text, title, kind }) => ({ xpath, text, title, kind }));
+}
+
 function setAiPreviewItems(items, options = {}) {
   const normalized = normalizeAiPreviewItems(items);
   const previousFocusedXpath = aiPreviewState.focusedXpath;
@@ -2231,8 +2287,8 @@ function setAiPreviewItems(items, options = {}) {
 }
 
 function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
-  aiPreviewState.defaultItems = normalizeAiPreviewItems(defaultItems);
-  aiPreviewState.expandedItems = normalizeAiPreviewItems(expandedItems);
+  aiPreviewState.defaultItems = mapAiPreviewItemsToRenderableTargets(defaultItems);
+  aiPreviewState.expandedItems = mapAiPreviewItemsToRenderableTargets(expandedItems);
   aiPreviewState.showAllCategories = Boolean(options.showAllCategories);
   setAiPreviewItems(
     aiPreviewState.showAllCategories

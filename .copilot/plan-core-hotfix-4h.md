@@ -193,7 +193,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |
-| #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | Needs AI preview list populated; reconcile vs collectSilentHighlightRenderTargets. |
+| #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | DONE+live-verified (2026-06-08). Root cause: preview rows were built from visibility-agnostic inclusion matches, so row xpaths could point at non-renderable ancestors. Fix: `content-main.js` now remaps preview rows to renderable targets via `collectSilentHighlightRenderTargets`/`hasRenderableClientBox` before `setAiPreviewItemSets`. Live probe (`preview-row-visibility-forced-selectors.mjs`): 133 rows, 0 non-renderable. |
 | #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
 | #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
 | #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
@@ -259,15 +259,18 @@ Cluster 1 - operation lifecycle / spinner (messaging layers):
 Cluster 2 - silent highlight / preview:
 - #6  Markings responsive (UI not frozen) but the new state applies only after a
       few seconds; the click feels unregistered.
-      STATUS: OPEN. core.scheduleRender default delay=50ms on user actions;
-      candidate fix delay:0 for user-driven renders (verify perceptually).
+      STATUS: FIXED + live-verified (2026-06-08). Real root cause was async
+      explicit-overlay reconcile on user toggles; fix forces immediate full render
+      for user clicks and removes the explicit full-render delay. Live:
+      visible mark +2232ms->+387ms, render.total +2351ms->+554ms.
 - #16 Preview list shows content not visible on the page, so clicking a row can't
       scroll-to/highlight it. "marking, visibility, xpath, highlighting and
       content detection must always be correct, solid, robust." (VERY HIGH)
-      STATUS: OPEN. Reconcile preview-list eligibility against
-      collectSilentHighlightRenderTargets / renderable collections so every row
-      maps to a visible, highlightable target. Needs the AI preview list
-      populated to repro.
+      STATUS: FIXED + live-verified (2026-06-08). Root cause: preview rows were
+      derived from visibility-agnostic inclusion nodes and could target
+      non-renderable ancestors. Fix remaps preview rows to renderable targets
+      before storing preview item sets. Live forced-selector probe:
+      133 rows collected, 0 non-renderable rows.
 
 Cluster 3 - mode transitions / temporary state reset:
 - #15 A page with previously saved data uses the OLD data on enabling marking,
@@ -338,15 +341,14 @@ Regressions reported during this sprint:
 
 ## Priority order for remaining work
 
-1. #16 preview list visibility (VERY HIGH).
-2. #17 AI-exit lands in silent mode and cannot save (VERY HIGH).
-3. #18 temp changes not discarded on enable after silent landing.
-4. #15 saved data used on enable -> wrong dirty/discard state.
-5. #19 preview in desktop mode shown after silent landing.
-6. #14 preview in desktop mode visibility/enable/note rules.
-7. #10, #11, #12 property-lock countdown/lock-loss loop.
-8. #4 spinner text sync (low), then #20 trace toggle mismatch.
-9. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
+1. #17 AI-exit lands in silent mode and cannot save (VERY HIGH).
+2. #18 temp changes not discarded on enable after silent landing.
+3. #15 saved data used on enable -> wrong dirty/discard state.
+4. #19 preview in desktop mode shown after silent landing.
+5. #14 preview in desktop mode visibility/enable/note rules.
+6. #10, #11, #12 property-lock countdown/lock-loss loop.
+7. #4 spinner text sync (low), then #20 trace toggle mismatch.
+8. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
 
 ## Verified-fix log (all live-verified)
 
@@ -372,6 +374,11 @@ Regressions reported during this sprint:
       pre-confirm refresh behind `!pendingKnownFromCurrentView` in
       `confirmNavigationAwayFromMarking`; live probe
       `navigation-confirm-delay-manual-assist.mjs`: nav-click->confirm 2ms.
+- #16 preview list visibility/highlightability: (this commit) preview item sets
+      are remapped to renderable targets via
+      `collectSilentHighlightRenderTargets`/`hasRenderableClientBox` before
+      sidebar/focus wiring. Live probe `preview-row-visibility-forced-selectors.mjs`:
+      preview opened, 133 rows, 0 non-renderable.
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

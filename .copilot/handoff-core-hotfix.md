@@ -271,9 +271,15 @@ Cluster 2 - silent highlight / preview:
        `getExplicitMarkingFullRenderOptions().delay` 40->0. Live result: visible
        mark +2232ms->+387ms, render.total +2351ms->+554ms (toggle-perf probe
        `toggle-latency-seo.mjs`). Unit: tests/core-scheduling.test.js (28 pass).
-- #16 preview list rows not visible/scrollable (VERY HIGH) . OPEN (needs AI
-       preview list populated; reconcile preview eligibility against
-       collectSilentHighlightRenderTargets / renderable collections)
+- #16 preview list rows not visible/scrollable (VERY HIGH) . FIXED +
+  live-verified (2026-06-08). Root cause: preview rows were derived from
+  visibility-agnostic inclusion matches, so row xpaths could reference
+  non-renderable ancestors. Fix: `content-main.js` remaps preview rows to
+  renderable targets via `collectSilentHighlightRenderTargets` and
+  `hasRenderableClientBox` before storing preview item sets used by the
+  sidebar/focus handlers. Live verification probe
+  (`preview-row-visibility-forced-selectors.mjs`): preview opened, 133
+  rows, 0 non-renderable rows.
 
 Cluster 3 - mode transitions / temporary state reset:
 - #15 saved data used on enable -> dirty/discard wrong .... OPEN
@@ -393,21 +399,20 @@ Regressions reported during this sprint:
      marking/lock-pending repro.
 
 5. NEXT (owner-set priority order, 2026-06-08):
-  Completed from queue: #6, #7, #8.
-  1) #16
-  2) #17
-  3) #18
-  4) #15
-  5) #19
-  6) #14
-  7) #10
-  8) #11
-  9) #12
-  10) #4
-  11) #20
-  12) #13
-  13) #9
-  14) anything else left.
+  Completed from queue: #6, #7, #8, #16.
+  1) #17
+  2) #18
+  3) #15
+  4) #19
+  5) #14
+  6) #10
+  7) #11
+  8) #12
+  9) #4
+  10) #20
+  11) #13
+  12) #9
+  13) anything else left.
 
   #13 owner directive (must hold): on non-candidate pages, regardless of
   property status, show only the locked banner and the non-candidate note, and
@@ -517,8 +522,8 @@ Latest phase decision (updated 2026-06-08):
    reach enabled=true and the reveal/freeze spinner to appear on navigation.
 4. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
-5. Continue per the priority order in plan-core-hotfix-4h.md: #16 + #17 (very
-   high), then #20, #4, then Clusters 3-6 and #6.
+5. Continue per the priority order in plan-core-hotfix-4h.md: #17 (very
+  high), then #18/#15/#19/#14, then #10-#12, #4/#20, and #13/#9.
 
 ## Constraints
 - Verify every runtime/visual fix LIVE before recording it as done.
