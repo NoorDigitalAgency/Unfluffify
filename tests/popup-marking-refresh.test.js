@@ -169,6 +169,12 @@ test("desktop preview is a separate popup section that disables marking entry wh
   assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
   assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
   assert.match(popupSource, /nextViewState\.toggleEnabledDisabled =[\s\S]*desktopPreviewActive;/);
+  // Non-candidate pages (pageTypeUiBlocked) must disable the marking toggle so
+  // marking cannot be enabled where it is not allowed.
+  assert.match(
+    popupSource,
+    /nextViewState\.toggleEnabledDisabled =[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)\)[\s\S]*?desktopPreviewActive;/
+  );
   assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
   assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
   assert.match(desktopToggleBody, /const targetMode = desiredEnabled \? "desktop" : "mobile";/);

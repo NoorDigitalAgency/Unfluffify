@@ -1787,7 +1787,14 @@ function getLatestPageMarkingTimestamp(pageMarkings) {
 }
 
 function doesSessionRequireAiRun(sourceConfig, localPageMarkings, backendSavedPageMarkings, options = {}) {
-  if (options.currentDraftDirty) {
+  // A dirty current-page draft normally means the markings changed and the
+  // selectors are stale, so an AI run is required before Save. But once a
+  // successful AI run already matches the live current-page markings
+  // (aiRunUpToDate), the draft is dirty only because it has not been
+  // backend-saved yet - it does NOT need another run. Skipping the early
+  // return in that case lets Save enable right after a clean run (State C)
+  // while still demanding a run after any new mark/unmark change (State B).
+  if (options.currentDraftDirty && !options.aiRunUpToDate) {
     return true;
   }
   if (!hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)) {
@@ -1850,9 +1857,27 @@ function clonePageMarkingEntry(entry) {
 function fingerprintPageMarkingEntry(entry) {
   // Stable signature of the element-level markings only (exclude + include
   // xpaths). CSS-selector edits intentionally do not affect this fingerprint,
-  // so only mark/unmark actions re-enable Run AI.
-  const excludeXpaths = entry && Array.isArray(entry.xpaths) ? entry.xpaths.slice() : [];
-  const includeXpaths = entry && Array.isArray(entry.includeXpaths) ? entry.includeXpaths.slice() : [];
+  // so only mark/unmark actions re-enable Run AI. Normalize to marking-identity
+  // strings (xpath + excluded flag) so incidental entry-object shape/order
+  // differences across the AI-run snapshot + preview-exit refresh cycle do not
+  // spuriously invalidate the fingerprint (which would wrongly re-enable Run AI
+  // and disable Show Content List/Save right after a clean run).
+  const excludeXpaths = entry && Array.isArray(entry.xpaths)
+    ? entry.xpaths
+        .map((item) => {
+          if (typeof item === "string") {
+            return item ? `${item}|0` : "";
+          }
+          if (item && typeof item === "object" && typeof item.xpath === "string") {
+            return `${item.xpath}|${item.excluded ? "1" : "0"}`;
+          }
+          return "";
+        })
+        .filter((value) => value)
+    : [];
+  const includeXpaths = entry && Array.isArray(entry.includeXpaths)
+    ? entry.includeXpaths.filter((xpath) => typeof xpath === "string" && xpath)
+    : [];
   excludeXpaths.sort();
   includeXpaths.sort();
   return JSON.stringify({ exclude: excludeXpaths, include: includeXpaths });
@@ -5206,16 +5231,16 @@ async function refreshUiInner(options = {}) {
       reconciliationPending: pageSaveReconciliationPending
     }
   );
-  const sessionRequiresAiRun = doesSessionRequireAiRun(
-    state.currentConfig,
-    pageMarkings,
-    backendSavedPageMarkings,
-    { currentDraftDirty: state.currentDraftDirty }
-  );
   // True only while the last successful AI run still matches the live element
   // markings. Gates Run AI (disabled when up to date) and Save/Preview (enabled
   // only when up to date). Any mark/unmark change flips this back to false.
   const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings();
+  const sessionRequiresAiRun = doesSessionRequireAiRun(
+    state.currentConfig,
+    pageMarkings,
+    backendSavedPageMarkings,
+    { currentDraftDirty: state.currentDraftDirty, aiRunUpToDate }
+  );
 
   let resolvedView =
     state.currentView ||
@@ -5293,7 +5318,7 @@ async function refreshUiInner(options = {}) {
     pageScopedUiDisabled ||
     pageSaveReconciliationPending ||
     !baseUrlReady ||
-    (!navigationInspectionPending && (!siteIdReady || !renderModeReady)) ||
+    (!navigationInspectionPending && (!siteIdReady || !renderModeReady || pageTypeUiBlocked)) ||
     desktopPreviewActive;
   nextViewState.mainUiHidden =
     pageScopedUiDisabled ||
@@ -8045,11 +8070,18 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
   state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
   state.aiSelectorsComputedBaseUrl = hasComputedNewSelectors ? state.currentBaseUrl : "";
+
+  await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
+  // Refresh from the now-committed content draft so the captured fingerprint
+  // reflects the SAME authoritative markings entry that the post-preview-exit
+  // refresh will read back. Capturing from the (possibly stale or
+  // refresh-nulled) in-memory draft could mismatch on return to marking mode
+  // and wrongly re-enable Run AI / disable Show Content List + Save.
+  await refreshCurrentPageRuntimeStatus();
   // Record the markings this AI run was computed for so Run AI disables and
   // Save/Preview enable until the next mark/unmark change.
   captureAiRunMarkingsFingerprint();
 
-  await messages.sendTabMessage({ type: "configUpdated", baseUrl: state.currentBaseUrl });
   const previewResponse = await messages.sendTabMessage({
     type: "showAiPreview",
     selectorSet

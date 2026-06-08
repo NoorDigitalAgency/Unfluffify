@@ -227,7 +227,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
 | #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
 | #19 "Preview in desktop mode" shown after silent landing | EASY | low-medium | yes | Conditional-UI; overlaps #14. |
-| #21 marking-mode button states wrong after clean AI run + preview exit | MEDIUM | medium | yes | IN PROGRESS (2026-06-08). Surfaced by #17 fix landing in marking mode. Confirmed truth table A-E (see handoff #21). Bug = State C inverted: Run AI enabled / Show Content List disabled / Save disabled. Root cause: `aiRunUpToDate` false + `sessionRequiresAiRun` true on return to marking after a clean run. Fix: keep run fingerprint matching and draft non-dirty so State C renders correctly; add A/B/C/D unit tests; live-verify the four controls before closing. |
+| #21 marking-mode button states wrong after clean AI run + preview exit | DONE | done | verified | DONE+live-verified (2026-06-08). Surfaced by #17 fix landing in marking mode. State C inverted (Run AI enabled / Show Content List disabled / Save disabled). Root cause: `aiRunUpToDate` false + `sessionRequiresAiRun` true on return to marking. Fix (popup.js): normalized run fingerprint, captured it from the committed draft after refresh, skipped dirty-draft early return when run matches live markings. Live full harness State C `pass:true`. Also fixed #2b: non-candidate page left the marking toggle enabled - `toggleEnabledDisabled` now includes `pageTypeUiBlocked` (probe `toggleDisabled:true` on bonliva.no/interessemelding). |
 | #14 "Preview in desktop mode" visibility/enable/note rules | EASY | low-medium | partial | Mostly view-flag logic; can unit-test the gating. |
 | #10 lock countdown resets to 30 and loops | MEDIUM | medium | yes | Cluster 4 timer/state loop. |
 | #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
@@ -430,6 +430,25 @@ Autonomous checkpoint (2026-06-08):
       it once runtime status confirms marking. Live probe
       `preview-close-popup-state-check.mjs`: pre-fix after-close-short
       toggle=false/content marking=true; post-fix toggle=true/content marking=true.
+
+- #21 marking-mode button states after clean AI run + preview exit: (this
+      commit) popup.js only - normalized AI-run marking fingerprint, captured
+      the run fingerprint from the committed draft after refresh, and skipped
+      the dirty-draft early return in `doesSessionRequireAiRun` when the run
+      matches live markings. State C now renders correctly. Live full harness
+      `issue21-marking-buttons-after-run.mjs` (candidate bonliva.no, siteId
+      5542): State C `pass:true` (runAiDisabled, showContentListEnabled,
+      saveEnabled, discardEnabled all true) after a real Run AI -> preview ->
+      exit cycle. Tests: 4 assertions in `tests/popup-ai-run-gating.test.js`;
+      630/630 green.
+- #2b non-candidate page leaves marking toggle enabled: (this commit) popup.js
+      only - `nextViewState.toggleEnabledDisabled` now includes
+      `pageTypeUiBlocked` inside its `!navigationInspectionPending` guard, so a
+      non-candidate page disables the toggle once inspection settles. Live
+      standalone probe `issue21-candidate-probe.mjs` on the confirmed
+      non-candidate `bonliva.no/interessemelding`: `toggleDisabled:true` stable
+      across reads. Test: assertion added in
+      `tests/popup-marking-refresh.test.js`; 630/630 green.
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

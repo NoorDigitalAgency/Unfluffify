@@ -181,3 +181,61 @@ test("silent-mode reveal/freeze surfaces the inspecting curtain", () => {
     /silentNavSpinnerStuck \|\| renderModeNavSpinnerStuck\) \{[\s\S]*?renderModeNavSpinnerStuck \? "render-mode-nav-curtain-clear" : "silent-nav-curtain-clear"[\s\S]*?endNavigationInspectionOverlay\(tabId\);/
   );
 });
+
+// --- #21: marking-mode button states after a clean AI run + preview exit ---
+// After a clean AI run that returns to marking mode (per the #17 fix), the four
+// controls must render State C: Run AI DISABLED (already ran), Show Content List
+// ENABLED, Save ENABLED, Discard ENABLED. The two signals that drive this are
+// aiRunUpToDate (fingerprint freshness) and sessionRequiresAiRun.
+
+test("#21 fingerprint normalizes markings to xpath identity strings", () => {
+  const fnBody = popupSource.match(
+    /function fingerprintPageMarkingEntry\(entry\) \{([\s\S]*?)\n\}/
+  )[1];
+  // Exclude markings are reduced to `${xpath}|${excluded?1:0}` so incidental
+  // entry-object shape/order differences across the run+exit cycle do not
+  // spuriously invalidate the fingerprint.
+  assert.match(fnBody, /\$\{item\.xpath\}\|\$\{item\.excluded \? "1" : "0"\}/);
+  // Both lists are sorted for a stable, order-independent signature.
+  assert.match(fnBody, /excludeXpaths\.sort\(\);/);
+  assert.match(fnBody, /includeXpaths\.sort\(\);/);
+  // Still scoped to element markings only (no CSS selectors).
+  assert.doesNotMatch(fnBody, /cssSelectors/);
+});
+
+test("#21 a clean AI run captures the fingerprint from the committed content draft", () => {
+  const fnBody = popupSource.match(
+    /async function applyComputedSelectorSet\([\s\S]*?\n\}\n\n/
+  )[0];
+  // configUpdated commits the run, then a runtime refresh repopulates the draft
+  // entry, and only THEN is the fingerprint captured - so it matches the entry
+  // the post-preview-exit refresh reads back.
+  assert.match(
+    fnBody,
+    /configUpdated[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureAiRunMarkingsFingerprint\(\);/
+  );
+  // The capture must happen before the preview opens (showAiPreview).
+  const captureIndex = fnBody.indexOf("captureAiRunMarkingsFingerprint();");
+  const previewIndex = fnBody.indexOf("showAiPreview");
+  assert.ok(captureIndex > -1 && previewIndex > -1 && captureIndex < previewIndex);
+});
+
+test("#21 an up-to-date AI run no longer forces another run for Save", () => {
+  const fnBody = popupSource.match(
+    /function doesSessionRequireAiRun\([\s\S]*?\n\}/
+  )[0];
+  // The dirty-draft early return is skipped once the run matches live markings,
+  // so State C (clean run) can Save while State B (post-change) still requires a run.
+  assert.match(
+    fnBody,
+    /if \(options\.currentDraftDirty && !options\.aiRunUpToDate\) \{\s*return true;\s*\}/
+  );
+});
+
+test("#21 refresh feeds aiRunUpToDate into the session-requires-AI-run check", () => {
+  // aiRunUpToDate is computed before doesSessionRequireAiRun and passed in.
+  assert.match(
+    popupSource,
+    /const aiRunUpToDate = isAiRunUpToDateForCurrentMarkings\(\);\s*const sessionRequiresAiRun = doesSessionRequireAiRun\([\s\S]*?\{ currentDraftDirty: state\.currentDraftDirty, aiRunUpToDate \}\s*\);/
+  );
+});

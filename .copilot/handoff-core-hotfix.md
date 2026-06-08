@@ -330,8 +330,8 @@ Cluster 3 - mode transitions / temporary state reset:
     added assertions in `tests/device-emulation-lifecycle.test.js` and
     `tests/popup-marking-refresh.test.js`.
   - #21 marking-mode button states wrong after a clean AI run + preview exit
-     (surfaced by #17 fix landing in marking mode) ........ IN PROGRESS
-    (2026-06-08). Symptom (owner-reported): after a successful AI run and
+     (surfaced by #17 fix landing in marking mode) ........ FIXED +
+    live-verified (2026-06-08). Symptom (owner-reported): after a successful AI run and
     exiting the content-list preview, the popup now correctly returns to
     MARKING mode (per the #17 fix) but the four marking-mode controls are
     inverted: Run AI content detection is ENABLED, Show Content List is
@@ -376,6 +376,71 @@ Cluster 3 - mode transitions / temporary state reset:
     false), rendering State C correctly. Add deterministic `node --test`
     coverage for States A/B/C/D, then LIVE-verify the four control states in a
     real Run-AI -> preview -> exit flow before declaring solved.
+
+    FIX IMPLEMENTED (2026-06-08, popup.js only - no content/background change):
+      1. `fingerprintPageMarkingEntry` now normalizes markings to sorted
+         `${xpath}|${excluded?1:0}` identity strings (+ sorted include xpaths)
+         instead of stringifying raw entry-object arrays, so incidental
+         object-shape/order noise across the run+exit cycle no longer
+         invalidates `aiRunUpToDate`.
+      2. `applyComputedSelectorSet` now sends `configUpdated`, awaits
+         `refreshCurrentPageRuntimeStatus()`, THEN calls
+         `captureAiRunMarkingsFingerprint()` (before `showAiPreview`), so the
+         fingerprint is captured from the same committed content draft the
+         post-exit refresh reads back (was captured from a possibly stale /
+         refresh-nulled in-memory draft).
+      3. `doesSessionRequireAiRun` now skips the dirty-draft early return when
+         the run already matches the live markings: `if (currentDraftDirty &&
+         !aiRunUpToDate) return true;`. The refresh computes `aiRunUpToDate`
+         before the call and passes it in. State C (clean run) can Save; State B
+         (post-change) still requires a run. Save gating stays on
+         `buildPageSaveUiState`/`sessionRequiresAiRun` (no second
+         `!aiRunUpToDate` block on the Save view flag - per repo memory note).
+      Tests: 4 new source-pattern assertions in
+      `tests/popup-ai-run-gating.test.js`; full suite green (630/630). State C
+      Save dimension is also covered behaviorally by the existing page-save
+      "enables save and discard when the session is ready to sync" test.
+
+    LIVE VERIFICATION (2026-06-08, full harness
+      `issue21-marking-buttons-after-run.mjs` over CDP :9222 against the loaded
+      fixed extension; candidate https://www.bonliva.no/, siteId 5542):
+      State C after a real Run AI -> preview -> exit cycle landed in marking
+      mode with `pass: true` and all verdict dimensions true:
+        backInMarking:true, runAiDisabled:true, showContentListEnabled:true,
+        saveEnabled:true, discardEnabled:true (status "Changes ready to save").
+      This confirms the inverted gating is resolved end-to-end.
+
+  - #2b non-candidate page leaves the marking toggle ENABLED ...... FIXED +
+    live-verified (2026-06-08). Symptom (owner-reported, surfaced while
+    verifying #21): on a page that is NOT one of the current Live Page
+    candidates, the popup shows the non-candidate notice but the "Enable
+    Marking" toggle stays interactive, so marking can be (wrongly) enabled
+    where it must be impossible (ref owner directive for #13).
+    Root cause: `nextViewState.toggleEnabledDisabled` (popup.js) did not
+    include `pageTypeUiBlocked` inside its `!navigationInspectionPending`
+    guard, so once navigation inspection settled the toggle was re-enabled even
+    on non-candidate pages. The existing force-disable block already set
+    `toggleEnabled=false` for `pageTypeUiBlocked`, but the recomputed
+    enabled/disabled flag overrode it.
+    Fix (popup.js only): `toggleEnabledDisabled` now reads
+    `... || (!navigationInspectionPending && (!siteIdReady || !renderModeReady
+    || pageTypeUiBlocked)) || desktopPreviewActive;` (added `|| pageTypeUiBlocked`).
+    Anti-flicker note: the toggle intentionally stays enabled WHILE navigation
+    inspection is pending (warmup); it disables once inspection settles. So on a
+    non-candidate page the disable appears only after the inspection warmup
+    completes and marking is off.
+    Tests: added a source-pattern assertion in
+    `tests/popup-marking-refresh.test.js` asserting `pageTypeUiBlocked` is part
+    of the `toggleEnabledDisabled` navigation-inspection guard; full suite green
+    (630/630).
+    LIVE VERIFICATION (2026-06-08): standalone probe
+      `issue21-candidate-probe.mjs` opening a fresh popup at the confirmed
+      non-candidate `https://www.bonliva.no/interessemelding` reported
+      `toggleDisabled: true` stably across repeated reads while the
+      non-candidate notice was shown. (The combined full-harness sub-check reads
+      `false` only because a second popup is held open on the same tab during
+      that phase, keeping navigation inspection pending - a harness artifact,
+      not a product regression; the single-popup probe is authoritative.)
 
 Cluster 4 - property-lock countdown / lock-loss loop:
 - #10 "return within XXs" resets to 30 after 0 and loops ... OPEN
