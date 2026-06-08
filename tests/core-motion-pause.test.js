@@ -678,6 +678,22 @@ test("page inspection reveal scrolls to top, bottom, and then the reserved point
   }
 });
 
+test("page inspection reveal hides consent before styling or scrolling", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
+  const end = source.indexOf("function blockPageInspectionInput", start);
+  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
+  const fnBody = source.slice(start, end);
+
+  const consentIndex = fnBody.indexOf("hideConsentBeforeReveal();");
+  const styleIndex = fnBody.indexOf("ensurePageInspectionStyle();");
+  const scrollIndex = fnBody.indexOf("scrollPageInspectionTo(");
+
+  assert.ok(consentIndex > 0, "Expected reveal to hide consent before scrolling");
+  assert.ok(styleIndex > consentIndex, "Consent hiding must precede inspection styling");
+  assert.ok(scrollIndex > consentIndex, "Consent hiding must precede reveal scrolling");
+});
+
 test("page inspection reveal still scrolls on pages without vertical scroll room", async () => {
   const dom = installMotionDom();
   dom.html.clientHeight = 700;

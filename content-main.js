@@ -8098,12 +8098,23 @@ export function main() {
           busy: true,
           message: "Inspecting page..."
         });
+        armRenderModeInspectionWatchdog();
         const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
           baseUrl,
           pageUrl,
           SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
-          { keepUiActive: true }
+          {
+            keepUiActive: true,
+            onRevealProgress: () => {
+              if (renderModeInspectionActive) {
+                armRenderModeInspectionWatchdog();
+              }
+            }
+          }
         );
+        if (renderModeInspectionActive) {
+          armRenderModeInspectionWatchdog();
+        }
         if (!prepared || !isStillCurrent()) {
           core.finishPageInspectionUi();
           emitLifecycleEvent({

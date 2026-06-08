@@ -4104,10 +4104,21 @@ function suppressPageInspectionLazyLoading() {
   };
 }
 
+function notifyPageInspectionProgress(options = {}) {
+  if (options && typeof options.onProgress === "function") {
+    try {
+      options.onProgress();
+    } catch {
+      // Progress hooks are best-effort and must not affect reveal/freeze.
+    }
+  }
+}
+
 async function scrollPageInspectionTo(target, isStillCurrent, options = {}) {
   if (!isStillCurrent() || typeof window === "undefined" || typeof window.scrollTo !== "function") {
     return false;
   }
+  notifyPageInspectionProgress(options);
   const targetScrollY = getPageInspectionScrollTarget(target);
   window.scrollTo({ top: targetScrollY, behavior: "smooth" });
   await waitForPageInspectionScrollEnd(isStillCurrent, {
@@ -4130,6 +4141,7 @@ export async function revealPageContentBeforeMotionPause(
   if (document.visibilityState === "hidden") {
     return false;
   }
+  hideConsentBeforeReveal();
   const direction = normalizePageInspectionScrollDirection(scrollDirection);
   const maxScrolls = Math.max(1, Math.trunc(Number(maximumScrollCount) || PAGE_INSPECTION_DEFAULT_MAX_SCROLLS));
   const pauseDelay = Math.max(0, Math.trunc(Number(pauseMs) || 0));
@@ -4155,9 +4167,11 @@ export async function revealPageContentBeforeMotionPause(
           lazyLoadRestorer = suppressPageInspectionLazyLoading();
           state.lazyLoadSuppressRestorer = lazyLoadRestorer;
         }
+        notifyPageInspectionProgress(options);
         const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
         visited = scrolled || visited;
         await waitForPageInspectionDelay(pauseDelay, isStillCurrent);
+        notifyPageInspectionProgress(options);
         if (isPageInspectionAtBottom()) {
           break;
         }
@@ -5960,6 +5974,9 @@ export async function warmupSilentHighlightingBeforeMotionPause(
   options = {}
 ) {
   const keepUiActive = Boolean(options.keepUiActive);
+  const onRevealProgress = typeof options.onRevealProgress === "function"
+    ? options.onRevealProgress
+    : null;
   const revealWarmupId = state.pageRevealWarmupId + 1;
   state.pageRevealWarmupId = revealWarmupId;
   const isRevealWarmupCurrent = () =>
@@ -5981,7 +5998,8 @@ export async function warmupSilentHighlightingBeforeMotionPause(
       "both",
       PAGE_INSPECTION_DEFAULT_MAX_SCROLLS,
       PAGE_INSPECTION_DEFAULT_PAUSE_MS,
-      isRevealWarmupCurrent
+      isRevealWarmupCurrent,
+      onRevealProgress ? { onProgress: onRevealProgress } : {}
     );
     if (!isRevealWarmupCurrent()) {
       return false;
@@ -9306,6 +9324,10 @@ function hideConsentOnEnable(pageUrl) {
     return 0;
   }
   state.consentSyncedPageUrl = pageUrl;
+  return hideConsentBeforeReveal();
+}
+
+function hideConsentBeforeReveal() {
   const hiddenCount = hideConsentElements();
   if (hiddenCount === 0) {
     injectConsentBypassStyle();

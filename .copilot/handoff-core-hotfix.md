@@ -561,13 +561,27 @@ Regressions reported during this sprint:
           and still re-applies the reveal reason via `pausePageMotion(reason)`.
        This preserves existing motion locks while avoiding stale deferred-timer
        stalls during the reveal scroll walk.
+       Follow-up (2026-06-08): restored the actual `cc83f13` reveal loop
+       (max-scroll walk + final return to reserved scroll position) after a
+       failed one/two-pass experiment. The new fix is consent-first ordering:
+       `revealPageContentBeforeMotionPause()` force-runs consent hiding before
+       inspection styling or any scroll. Long Bonliva reveal walks also refresh
+       the render-mode watchdog via a progress callback so the flow does not
+       fail after doing legitimate work.
        Regression coverage updated in `tests/core-motion-pause.test.js` to
-       assert timer-bridge-only release before reveal and pause restoration.
+       assert timer-bridge-only release before reveal, pause restoration,
+       historical scroll behavior, lazy-load suppression, and consent hiding
+       before styling/scrolling.
        UNIT VERIFICATION: `node --test tests/core-motion-pause.test.js` -> pass.
        LIVE VERIFICATION:
        - `r1-triage.mjs` on patched build: reveal `ok:true`, SCROLL events
          restored (12 events), page height grows 3754 -> 4099 in the
          marking/lock-pending repro.
+       - `tmp-bonliva-reveal-consent-check.mjs` on
+         `https://www.bonliva.se/lediga-jobb`: `runRenderModeRevealOnce`
+         returned `ok:true`; before reveal hidden consent was 0, at first scroll
+         hidden consent was 371 (CookieYes hidden), and the final page-world
+         freeze bridge reported `paused:true` + `lazyLoadingSuppressed:true`.
        - R2 sanity preserved in `drive-seo4.log`:
          `render-mode-set-nav-guard-start/observed/clear` + `nav-overlay-end`.
        - R3 sanity preserved: `without-js-spinner-timer.mjs` ~7084ms.

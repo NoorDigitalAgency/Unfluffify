@@ -130,6 +130,11 @@ Verification done in this phase:
 - Live verification on patched build:
       `r1-triage.mjs` now emits scroll events again in the marking/lock-pending
       repro (`SCROLL` count 12, reveal `ok:true`, page height 3754 -> 4099).
+      Follow-up exact-page probe `tmp-bonliva-reveal-consent-check.mjs` on
+      `https://www.bonliva.se/lediga-jobb`: restored the `cc83f13` reveal loop,
+      consent is hidden before the first scroll (0 -> 371 hidden nodes),
+      `runRenderModeRevealOnce` returns `ok:true`, and the page-world bridge ends
+      `paused:true` + `lazyLoadingSuppressed:true`.
 - R2 sanity preserved: `drive-seo4.log` still shows
       `render-mode-set-nav-guard-start/observed/clear` and `nav-overlay-end`.
 - R3 sanity preserved: `without-js-spinner-timer.mjs` measured ~7084ms tail.
@@ -249,7 +254,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 
 | Task | Difficulty | Effort | Live? | Note |
 |------|-----------|--------|-------|------|
-| #R1 reveal/freeze runs incompletely (no spinner / no scroll) | DONE | done | verified | FIXED+verified live on 2026-06-08: warmup now releases only timer-bridge pausing during reveal when the pause reason is active; `r1-triage.mjs` restored scroll events. |
+| #R1 reveal/freeze runs incompletely / consent hidden too late | DONE | done | verified | FIXED+verified live on 2026-06-08: restored the actual `cc83f13` reveal loop, warmup releases only timer-bridge pausing during reveal when the pause reason is active, reveal hides consent before styling/scrolling, and long render-mode reveal walks refresh the watchdog. |
 | ROOT-CAUSE LEAD: content not re-activated after render-mode/debugger reload (handoff SESSION 3) | HARD | high | yes | Completed investigation; not the blocker for #3 in latest live run. |
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |
