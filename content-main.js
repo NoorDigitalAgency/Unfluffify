@@ -258,11 +258,13 @@ function createAiPreviewState() {
     previousPageUrl: "",
     previousDraftEntry: null,
     previousSavedEntry: null,
-    previousAutoSeededPendingSavePageUrl: ""
+    previousAutoSeededPendingSavePageUrl: "",
+    preserveDraftOnExit: false
   };
 }
 
 let aiPreviewState = createAiPreviewState();
+let aiPreviewExitPromise = null;
 const REMOTE_SUPPORT_TERMINATE_BUTTON_ID = "unfluffify-remote-support-terminate";
 const REMOTE_SUPPORT_TERMINATE_STYLE_ID = "unfluffify-remote-support-terminate-style";
 const REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR = 'meta[name="unfluffify-remote-support-page"][content="support"]';
@@ -3129,7 +3131,8 @@ async function toggleEnabledFromPage(options = {}) {
       type: "setTabState",
       enabled: false,
       baseUrl,
-      pageType: ""
+      pageType: "",
+      pageUrl: location.href
     });
     refreshSilentHighlightings().then();
     return;
@@ -3139,7 +3142,8 @@ async function toggleEnabledFromPage(options = {}) {
     type: "setTabState",
     enabled: true,
     baseUrl,
-    pageType: state.currentPageType
+    pageType: state.currentPageType,
+    pageUrl: location.href
   });
   sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
   try {
@@ -3152,7 +3156,8 @@ async function toggleEnabledFromPage(options = {}) {
       type: "setTabState",
       enabled: false,
       baseUrl,
-      pageType: ""
+      pageType: "",
+      pageUrl: location.href
     });
     sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_RELEASE);
     showPageToast("Unable to activate on this page");
@@ -4453,6 +4458,9 @@ function restoreAiPreviewDraftState(restoreState) {
   if (!pageUrl || location.href !== pageUrl) {
     return;
   }
+  if (restoreState.preserveDraftOnExit) {
+    return;
+  }
   if (!state.config.pageMarkings || typeof state.config.pageMarkings !== "object") {
     state.config.pageMarkings = {};
   }
@@ -4505,12 +4513,16 @@ function beginAiPreviewMode(options = {}) {
       previousPageUrl,
       previousDraftEntry: core.clonePageEntry(core.getDraftPageEntry(previousPageUrl)),
       previousSavedEntry: core.getSavedPageEntry(previousPageUrl),
-      previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || ""
+      previousAutoSeededPendingSavePageUrl: state.autoSeededPendingSavePageUrl || "",
+      preserveDraftOnExit: Boolean(options.preserveDraftOnExit)
     };
   } else {
     aiPreviewState.mode = nextMode;
     if (restoreMarkingOnExit) {
       aiPreviewState.restoreMarkingOnExit = true;
+    }
+    if (options.preserveDraftOnExit) {
+      aiPreviewState.preserveDraftOnExit = true;
     }
   }
 
@@ -4529,7 +4541,8 @@ function beginAiPreviewMode(options = {}) {
         type: "setTabState",
         enabled: true,
         baseUrl: lockedBaseUrl,
-        pageType: state.currentPageType || ""
+        pageType: state.currentPageType || "",
+        pageUrl: location.href
       }).catch(() => null);
     }
   }
@@ -4541,10 +4554,20 @@ async function enterAiPreviewMode(options = {}) {
 }
 
 async function exitAiPreviewMode() {
+  if (aiPreviewExitPromise) {
+    return aiPreviewExitPromise;
+  }
   if (!aiPreviewState.active) {
     return;
   }
 
+  aiPreviewExitPromise = exitAiPreviewModeInner().finally(() => {
+    aiPreviewExitPromise = null;
+  });
+  return aiPreviewExitPromise;
+}
+
+async function exitAiPreviewModeInner() {
   const restoreState = aiPreviewState;
   const shouldRestoreMarking = Boolean(
     restoreState.previousEnabled || restoreState.restoreMarkingOnExit
@@ -4564,14 +4587,16 @@ async function exitAiPreviewMode() {
     let restoredMarking = false;
     try {
       await core.enableForBaseUrl(restoredBaseUrl, {
-        skipInitialReveal: true
+        skipInitialReveal: true,
+        discardUnsavedDraftCache: Boolean(restoreState.preserveDraftOnExit)
       });
       restoredMarking = true;
     } catch {
       try {
         state.config = await core.loadConfig(restoredBaseUrl);
         await core.enableForBaseUrl(restoredBaseUrl, {
-          skipInitialReveal: true
+          skipInitialReveal: true,
+          discardUnsavedDraftCache: Boolean(restoreState.preserveDraftOnExit)
         });
         restoredMarking = true;
       } catch {
@@ -4590,7 +4615,8 @@ async function exitAiPreviewMode() {
       type: "setTabState",
       enabled: true,
       baseUrl: restoredBaseUrl,
-      pageType: state.currentPageType || ""
+      pageType: state.currentPageType || "",
+      pageUrl: location.href
     }).catch(() => null);
     return;
   }
@@ -7969,7 +7995,10 @@ export function main() {
       }
       state.currentPageType = "";
       clearAiPreviewState();
-      core.disable();
+      // A post-save disable (clearUnsavedDraft) drops the cached unsaved draft so
+      // no marking session data survives into the next enable; the normal Disable
+      // button preserves the cache so an accidental toggle can be undone.
+      core.disable(message.clearUnsavedDraft ? { preserveUnsavedDraftCache: false } : {});
       emitLifecycleEvent({
         operationId: createLifecycleOperationId(LIFECYCLE_KINDS.MODE),
         kind: LIFECYCLE_KINDS.MODE,
@@ -8187,6 +8216,7 @@ export function main() {
         mode: aiPreviewState.mode || "",
         previousEnabled: Boolean(aiPreviewState.previousEnabled),
         restoreMarkingOnExit: Boolean(aiPreviewState.restoreMarkingOnExit),
+        preserveDraftOnExit: Boolean(aiPreviewState.preserveDraftOnExit),
         previousBaseUrl: aiPreviewState.previousBaseUrl || "",
         showAllCategories: aiPreviewState.showAllCategories,
         items: aiPreviewState.items.map((item) => ({
@@ -8247,9 +8277,12 @@ export function main() {
         return;
       }
       if (core.hasAiPopover()) {
-        core.requestAiPopoverClose();
-        sendResponse({ ok: true, active: false });
-        return;
+        core.requestAiPopoverClose().then(() => {
+          sendResponse({ ok: true, active: false });
+        }).catch(() => {
+          sendResponse({ ok: false });
+        });
+        return true;
       }
       exitAiPreviewMode().then(() => {
         sendResponse({ ok: true, active: false });
@@ -8291,6 +8324,10 @@ export function main() {
           } else {
             const reloadedEntry = backendEntry || loadedEntry || null;
             core.setSavedPageEntry(pageUrl, reloadedEntry);
+            // A forced reload replaces the draft with the authoritative saved
+            // baseline (save, discard, or bulk replace/merge), so the draft is
+            // clean again - clear the user-edit dirty flag for this page.
+            core.clearPageDraftUserEdited(pageUrl);
             state.currentPageType = (reloadedEntry && reloadedEntry.pageType) || state.currentPageType || "";
           }
           if (!forceReloadPageEntry) {
@@ -8477,6 +8514,10 @@ export function main() {
 
         if (shouldPersist) {
           await core.saveConfig(targetBaseUrl, config);
+          // A committed AI run mutates the page draft (snapshot + submission
+          // xpaths), so flag it as user-edited: Save/Discard stay enabled until
+          // the run is saved, discarded, or marking is disabled (State C).
+          core.markPageDraftUserEdited(location.href);
         }
 
         if (matchesActiveBaseUrl(targetBaseUrl)) {
@@ -8877,7 +8918,7 @@ export function main() {
           defaultItems = [];
           expandedItems = [];
         }
-        await enterAiPreviewMode({ mode: "preview" });
+        await enterAiPreviewMode({ mode: "preview", preserveDraftOnExit: true });
         setAiPreviewItemSets(defaultItems, expandedItems, { showAllCategories: false });
         core.showAiPopover(defaultItems, {
           onClose: () => exitAiPreviewMode()

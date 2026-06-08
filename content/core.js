@@ -71,10 +71,14 @@ export const state = {
   mutationObserver: null,
   savedPageEntry: null,
   savedPageUrl: "",
-  // Per-page fingerprint of the last clean state. Lazy-initialised on the
-  // first dirty check after sync populates the draft, and refreshed when a
-  // backend-confirmed entry lands via setSavedPageEntry. Cleared in disable().
-  cleanBaselineFingerprintByPageUrl: new Map(),
+  // Per-page set of page URLs whose draft has diverged from the clean baseline
+  // because of an explicit user mark/unmark or a committed AI run. This is the
+  // authoritative dirty signal for the Save/Discard UI gates - it replaces the
+  // old DOM-xpath fingerprint baseline, which drifted to "dirty" on dynamic
+  // SPAs as live xpaths churned between the baseline snapshot and the status
+  // check with zero user action. Cleared in disable() and on save/discard/
+  // auto-seed.
+  pageDraftEditedSinceCleanByPageUrl: new Set(),
   pageSaveReconciliation: null,
   disabledUnsavedDraft: null,
   consentSyncedPageUrl: "",
@@ -6684,7 +6688,7 @@ function closeAiPopover(options = {}) {
   const notify = options.notify !== false;
   const suppressCallback = options.suppressCallback === true;
   if (!state.aiPopover) {
-    return;
+    return Promise.resolve();
   }
   const popover = state.aiPopover;
   const onClose = state.aiPopoverOnClose;
@@ -6702,15 +6706,14 @@ function closeAiPopover(options = {}) {
         })
     : Promise.resolve();
   if (notify) {
-    afterClose.finally(() => {
-      chrome.runtime.sendMessage({
-        type: "aiPreviewClosed",
-        markingEnabled: Boolean(state.enabled)
-      }).then().catch(() => {
-        // Ignore notification failures during teardown.
-      });
-    });
+    return afterClose.finally(() => chrome.runtime.sendMessage({
+      type: "aiPreviewClosed",
+      markingEnabled: Boolean(state.enabled)
+    }).then().catch(() => {
+      // Ignore notification failures during teardown.
+    }));
   }
+  return afterClose;
 }
 
 function setAiPopoverCollapsed(collapsed) {
@@ -6736,7 +6739,7 @@ export function hasAiPopover() {
 }
 
 export function requestAiPopoverClose(options = {}) {
-  closeAiPopover(options);
+  return closeAiPopover(options);
 }
 
 export function focusPreviewElement(target, options = {}) {
@@ -8645,6 +8648,12 @@ function completeExplicitToggle(entry, target, type, mutationStartedAt, options 
       immediateFullRender
     });
   }
+  // A manual mark/unmark is the canonical "user edited the draft" event. Flag
+  // this page so the Save/Discard gates report dirty until it is saved,
+  // discarded, or marking is disabled.
+  if (location.href) {
+    state.pageDraftEditedSinceCleanByPageUrl.add(location.href);
+  }
   scheduleSnapshotSave(EXPLICIT_TOGGLE_SNAPSHOT_DELAY_MS);
   notifyDraftStatus(location.href);
   scheduleDraftPersist(state.baseUrl, EXPLICIT_TOGGLE_DRAFT_PERSIST_DELAY_MS);
@@ -8929,7 +8938,12 @@ function renderHighlightsInner() {
   logTogglePerf("render.rebuild", rebuildStartedAt, { pageUrl });
 
   if (autoSeededFromAiSelectors) {
-    state.autoSeededPendingSavePageUrl = pageUrl;
+    // Auto-seeded AI-selector markings form the clean per-page baseline rather
+    // than a pending save. The user should only see Save/Discard enabled after
+    // a manual mark/unmark (or a committed AI run), so the freshly seeded draft
+    // starts clean by not setting the user-edit flag here. Do not clear an
+    // existing flag: a committed AI run may render through this same path and
+    // must stay dirty until save/discard.
     scheduleSnapshotSave();
     notifyDraftStatus(pageUrl);
   }
@@ -9200,23 +9214,9 @@ function stopObservers() {
   }
 }
 
-function shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl) {
-  if (!state.enabled || !state.baseUrl || !previousUrl || !nextUrl) {
-    return false;
-  }
-  if (!utils.isPageWithinBaseUrl(previousUrl, state.baseUrl)) {
-    return false;
-  }
-  if (!utils.isPageWithinBaseUrl(nextUrl, state.baseUrl)) {
-    return false;
-  }
-  return isPageDraftDirty(previousUrl);
-}
-
 export function handleUrlWatcherTransition(previousUrl, nextUrl) {
-  const preserveUnsavedDraftCache = shouldPreserveDraftCacheForUrlChange(previousUrl, nextUrl);
   disable({
-    preserveUnsavedDraftCache,
+    preserveUnsavedDraftCache: false,
     pageUrl: previousUrl
   });
 }
@@ -9336,28 +9336,30 @@ export function isImmutableExcludedElement(el) {
 }
 
 export function isPageDraftDirty(pageUrl) {
-  if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
-    return true;
-  }
+  // A pending server reconciliation always counts as dirty (the local draft is
+  // ahead of the confirmed backend state).
   if (isPageSaveReconciliationPending(pageUrl)) {
     return true;
   }
-  const draft = getDraftPageEntry(pageUrl);
-  const draftFingerprint = getEntryFingerprint(draft).join("\n");
-  const baseline = pageUrl
-    ? state.cleanBaselineFingerprintByPageUrl.get(pageUrl)
-    : undefined;
-  if (baseline === undefined) {
-    // No baseline yet. If the draft has been populated by the initial sync
-    // (defaults + AI CSS selectors), snapshot it as the implicit clean
-    // baseline so subsequent user/AI changes are detected. If the draft is
-    // still empty (sync hasn't run), there is nothing to lose yet.
-    if (pageUrl && draft && Array.isArray(draft.xpaths) && draft.xpaths.length > 0) {
-      state.cleanBaselineFingerprintByPageUrl.set(pageUrl, draftFingerprint);
-    }
-    return false;
+  // Otherwise the draft is dirty only when an explicit user mark/unmark or a
+  // committed AI run flagged this page. We intentionally do NOT diff a DOM
+  // xpath fingerprint here: on dynamic SPAs the live xpaths churn between the
+  // baseline snapshot and the status check with zero user action, which made
+  // the old fingerprint approach report "dirty" for a freshly auto-seeded,
+  // untouched page (Save/Discard wrongly enabled).
+  return Boolean(pageUrl && state.pageDraftEditedSinceCleanByPageUrl.has(pageUrl));
+}
+
+export function markPageDraftUserEdited(pageUrl = location.href) {
+  if (pageUrl) {
+    state.pageDraftEditedSinceCleanByPageUrl.add(pageUrl);
   }
-  return draftFingerprint !== baseline;
+}
+
+export function clearPageDraftUserEdited(pageUrl = location.href) {
+  if (pageUrl) {
+    state.pageDraftEditedSinceCleanByPageUrl.delete(pageUrl);
+  }
 }
 
 export function getPageSaveReconciliationState(pageUrl = location.href) {
@@ -9455,16 +9457,10 @@ export function setSavedPageEntry(pageUrl, entry) {
   if (pageUrl && state.autoSeededPendingSavePageUrl === pageUrl) {
     state.autoSeededPendingSavePageUrl = "";
   }
-  // A backend-confirmed entry refreshes the clean baseline for that page so
-  // subsequent edits or AI runs flip the dirty signal back on. Skip empty
-  // entries (null / reset) so we do not erase an established baseline mid
-  // session.
-  if (pageUrl && entry && Array.isArray(entry.xpaths) && entry.xpaths.length > 0) {
-    state.cleanBaselineFingerprintByPageUrl.set(
-      pageUrl,
-      getEntryFingerprint(entry).join("\n")
-    );
-  }
+  // NOTE: do NOT clear the per-page user-edit flag here. setSavedPageEntry runs
+  // on the non-force configUpdated merge during an AI run apply too, and that
+  // run must STAY dirty (State C). The flag is cleared explicitly on the force-
+  // reload (save/discard/replace) path in content-main and in disable().
 }
 
 export async function refreshSavedPageEntryFromBackendCache(baseUrl = state.baseUrl, pageUrl = location.href) {
@@ -10152,7 +10148,7 @@ export function disable(options = {}) {
   clearMarkingSettleRenders();
   state.savedPageEntry = null;
   state.savedPageUrl = "";
-  state.cleanBaselineFingerprintByPageUrl.clear();
+  state.pageDraftEditedSinceCleanByPageUrl.clear();
   removeOverlay();
   closeAiPopover();
   removeConsentBypassStyle();
@@ -10170,6 +10166,7 @@ export function disable(options = {}) {
 
 export async function enableForBaseUrl(baseUrl, options = {}) {
   const skipInitialReveal = Boolean(options && options.skipInitialReveal);
+  const discardUnsavedDraftCache = Boolean(options && options.discardUnsavedDraftCache);
   const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || baseUrl;
   if (!normalizedBaseUrl || !utils.isPageWithinBaseUrl(location.href, normalizedBaseUrl)) {
     disable();
@@ -10195,6 +10192,7 @@ export async function enableForBaseUrl(baseUrl, options = {}) {
   await refreshPageSaveReconciliation(normalizedBaseUrl, pageUrl);
   const cachedDraft = state.disabledUnsavedDraft;
   if (
+    !discardUnsavedDraftCache &&
     cachedDraft &&
     utils.sameBaseUrl(cachedDraft.baseUrl, normalizedBaseUrl) &&
     cachedDraft.pageUrl === pageUrl &&

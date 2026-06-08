@@ -253,6 +253,10 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   assert.doesNotMatch(popupHeartbeatBlock, /savePersistedAiRunRecord|clearPersistedAiRunRecord|sendTabMessage\(\{[\s\S]*?setAiComputeLock/);
   assert.match(contentSource, /function beginAiPreviewMode\(options = \{\}\) \{/);
   assert.match(contentSource, /async function enterAiPreviewMode\(options = \{\}\) \{[\s\S]*?beginAiPreviewMode\(options\);[\s\S]*?await refreshSilentHighlightings\(\);/);
+  assert.match(contentSource, /preserveDraftOnExit: false/);
+  assert.match(contentSource, /if \(restoreState\.preserveDraftOnExit\) \{[\s\S]*?return;[\s\S]*?\}/);
+  assert.match(contentSource, /enterAiPreviewMode\(\{ mode: "preview", preserveDraftOnExit: true \}\)/);
+  assert.match(contentSource, /discardUnsavedDraftCache: Boolean\(restoreState\.preserveDraftOnExit\)/);
   assert.match(contentComputeLockBlock, /beginAiPreviewMode\(\{ mode: "compute_lock" \}\);/);
   assert.match(contentComputeLockBlock, /sendResponse\(\{ ok: true, active: true \}\);[\s\S]*?refreshSilentHighlightings\(\)\.then\(\);/);
 });

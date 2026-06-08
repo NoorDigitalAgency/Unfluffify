@@ -108,6 +108,39 @@ test("content preview close notification includes restored marking state", () =>
   );
 });
 
+test("content preview close waits for popover restore before responding", () => {
+  const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const closeBlock = contentSource.match(
+    /if \(message\.type === "closeAiPreview"\) \{([\s\S]*?)\n    if \(message\.type === "configUpdated"\)/
+  )[1];
+
+  assert.match(
+    coreSource,
+    /function closeAiPopover\(options = \{\}\) \{[\s\S]*?return afterClose\.finally\(\(\) => chrome\.runtime\.sendMessage\(/
+  );
+  assert.match(
+    coreSource,
+    /export function requestAiPopoverClose\(options = \{\}\) \{\s*return closeAiPopover\(options\);\s*\}/
+  );
+  assert.match(
+    closeBlock,
+    /core\.requestAiPopoverClose\(\)\.then\(\(\) => \{\s*sendResponse\(\{ ok: true, active: false \}\);/
+  );
+  assert.doesNotMatch(closeBlock, /core\.requestAiPopoverClose\(\);\s*sendResponse/);
+});
+
+test("content preview exit serializes duplicate close requests", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /let aiPreviewExitPromise = null;/);
+  assert.match(
+    source,
+    /async function exitAiPreviewMode\(\) \{\s*if \(aiPreviewExitPromise\) \{\s*return aiPreviewExitPromise;\s*\}[\s\S]*?aiPreviewExitPromise = exitAiPreviewModeInner\(\)\.finally\(\(\) => \{\s*aiPreviewExitPromise = null;\s*\}\);\s*return aiPreviewExitPromise;\s*\}/
+  );
+  assert.match(source, /async function exitAiPreviewModeInner\(\) \{/);
+});
+
 test("content preview exit recovers marking base URL when preview state captured an empty base URL", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 

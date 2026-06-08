@@ -642,6 +642,50 @@ export async function idbRemove(keys) {
   });
 }
 
+// Session-scoped key/value storage for property data. Backed by
+// chrome.storage.session so it never persists to disk and is cleared when the
+// browser session ends. Content scripts cannot reach chrome.storage.session
+// directly, so they relay through the background service worker (mirroring the
+// idb relay above).
+export async function sessionKvGet(keys) {
+  if (!isExtensionContext()) {
+    const response = await sendRuntimeMessage({ type: "sessionKvGet", keys });
+    if (response && response.ok) {
+      return response.result || {};
+    }
+    throw new Error(response && response.error ? response.error : "Session storage get failed");
+  }
+  return storageGet(chrome.storage.session, keys);
+}
+
+export async function sessionKvSet(items) {
+  if (!items || typeof items !== "object") {
+    return;
+  }
+  if (!isExtensionContext()) {
+    const response = await sendRuntimeMessage({ type: "sessionKvSet", items });
+    if (!response || !response.ok) {
+      throw new Error(response && response.error ? response.error : "Session storage set failed");
+    }
+    return;
+  }
+  await storageSet(chrome.storage.session, items);
+}
+
+export async function sessionKvRemove(keys) {
+  if (keys === null || keys === undefined) {
+    return;
+  }
+  if (!isExtensionContext()) {
+    const response = await sendRuntimeMessage({ type: "sessionKvRemove", keys });
+    if (!response || !response.ok) {
+      throw new Error(response && response.error ? response.error : "Session storage remove failed");
+    }
+    return;
+  }
+  await storageRemove(chrome.storage.session, keys);
+}
+
 // Tab state utilities
 export async function getTabState(tabId, scope = null) {
   const key = `${TAB_STATE_PREFIX}${(scope ? `${scope}:` : '')}${tabId}`;

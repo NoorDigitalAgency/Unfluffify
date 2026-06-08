@@ -1,7 +1,7 @@
 import {
   arraysEqual,
-  idbGet,
-  idbSet,
+  sessionKvGet,
+  sessionKvSet,
   normalizeBaseUrl,
   normalizeCanonicalBaseUrl
 } from "./utilities.js";
@@ -88,7 +88,7 @@ export function isPageSaveReconciliationPending(value) {
 }
 
 async function getPageSaveReconciliations() {
-  const result = await idbGet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: {} });
+  const result = await sessionKvGet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: {} });
   const raw = result[PAGE_SAVE_RECONCILIATIONS_KEY];
   return raw && typeof raw === "object" ? raw : {};
 }
@@ -121,7 +121,7 @@ export async function setPageSaveReconciliation(baseUrl, pageUrl, value = {}) {
   }
   const reconciliations = await getPageSaveReconciliations();
   reconciliations[key] = nextValue;
-  await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
+  await sessionKvSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
   return nextValue;
 }
 
@@ -135,7 +135,7 @@ export async function clearPageSaveReconciliation(baseUrl, pageUrl) {
     return;
   }
   delete reconciliations[key];
-  await idbSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
+  await sessionKvSet({ [PAGE_SAVE_RECONCILIATIONS_KEY]: reconciliations });
 }
 
 export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
@@ -164,7 +164,7 @@ export function createBackendSavedPageMarkingsSnapshot(pageMarkings) {
 }
 
 async function getBackendSavedPageMarkingsStore() {
-  const result = await idbGet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: {} });
+  const result = await sessionKvGet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: {} });
   const store = result[BACKEND_SAVED_PAGE_MARKINGS_KEY];
   return store && typeof store === "object" ? store : {};
 }
@@ -186,7 +186,7 @@ export async function setBackendSavedPageMarkings(baseUrl, pageMarkings) {
   const store = await getBackendSavedPageMarkingsStore();
   const snapshot = createBackendSavedPageMarkingsSnapshot(pageMarkings);
   store[normalizedBaseUrl] = snapshot;
-  await idbSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
+  await sessionKvSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
   return snapshot;
 }
 
@@ -200,7 +200,7 @@ export async function clearBackendSavedPageMarkings(baseUrl) {
     return;
   }
   delete store[normalizedBaseUrl];
-  await idbSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
+  await sessionKvSet({ [BACKEND_SAVED_PAGE_MARKINGS_KEY]: store });
 }
 
 /**
@@ -1153,7 +1153,7 @@ export function mergePageMarkingsByTimestamp(
 }
 
 export async function getConfigs() {
-  const result = await idbGet("configs");
+  const result = await sessionKvGet("configs");
   const rawConfigs = result.configs || {};
   const normalizedConfigs = {};
   let changed = false;
@@ -1203,7 +1203,7 @@ export async function getConfigs() {
     };
   });
   if (changed) {
-    await idbSet({ configs: normalizedConfigs });
+    await sessionKvSet({ configs: normalizedConfigs });
   }
   return normalizedConfigs;
 }
@@ -1214,7 +1214,7 @@ export async function saveConfigs(configs) {
     const normalizedKey = normalizeBaseUrl(key) || key;
     normalizedConfigs[normalizedKey] = normalizeConfig(normalizedKey, value).config;
   });
-  await idbSet({ configs: normalizedConfigs });
+  await sessionKvSet({ configs: normalizedConfigs });
 }
 
 export async function ensureConfig(baseUrl) {

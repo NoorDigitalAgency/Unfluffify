@@ -224,6 +224,57 @@ test("Preview Contents uses the latest stored selector set and stays disabled wi
   assert.doesNotMatch(previewBody, /getCurrentSelectorsFromConfig\(/);
 });
 
+test("AI preview close restores the captured popup view without rebuilding controls", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const previewBody = source.match(
+    /async function handlePreviewLatest\(\) \{([\s\S]*?)\n\}\n\nasync function handleMarkingPreview/
+  )[1];
+  const markingPreviewBody = source.match(
+    /async function handleMarkingPreview\(\) \{([\s\S]*?)\n\}\n\nasync function handleExitPreviewMode/
+  )[1];
+  const exitBody = source.match(
+    /async function handleExitPreviewMode\(\) \{([\s\S]*?)\n\}\n\nfunction normalizePreviewItems/
+  )[1];
+  const closedHandler = source.match(
+    /if \(message && message\.type === "aiPreviewClosed"\) \{([\s\S]*?)\n    if \(message && message\.type === "aiPreviewFocusChanged"\)/
+  )[1];
+
+  assert.match(source, /function storeAiPreviewReturnViewState\(source, viewState = uiModule\.getViewState\(\)\) \{/);
+  assert.match(source, /function restoreAiPreviewReturnViewState\(\) \{/);
+  assert.match(previewBody, /storeAiPreviewReturnViewState\("silent", view\);/);
+  assert.match(previewBody, /await refreshPreviewViewState\(\);/);
+  assert.match(markingPreviewBody, /storeAiPreviewReturnViewState\("marking", uiModule\.getViewState\(\)\);/);
+  assert.match(markingPreviewBody, /await refreshPreviewViewState\(\);/);
+  assert.match(exitBody, /restoreAiPreviewReturnViewState\(\);/);
+  assert.doesNotMatch(exitBody, /refreshCurrentPageRuntimeStatus|refreshUi/);
+  assert.match(closedHandler, /restoreAiPreviewReturnViewState\(\);/);
+  assert.doesNotMatch(closedHandler, /refreshCurrentPageRuntimeStatus|refreshUi/);
+});
+
+test("AI-run auto preview captures the post-run marking controls for return", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const pollingBody = source.match(
+    /async function continueAiRunPolling\([\s\S]*?\n\}\n\nasync function handleComputeSelectors/
+  )[0];
+
+  assert.match(
+    pollingBody,
+    /await stopAiRun\(\{ unlockPage: !previewOpened \}\);[\s\S]*?if \(previewOpened\) \{[\s\S]*?storeAiPreviewReturnViewState\("marking"\);[\s\S]*?\}/
+  );
+  assert.match(source, /if \(state\.aiPreviewReturnRestoreDeadlineAt > Date\.now\(\)\) \{\s*return;\s*\}/);
+});
+
+test("current-page Discard treats committed AI-run submission rows as pending", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const fnBody = source.match(
+    /function hasCurrentPagePendingChanges\(localPageMarkings, backendSavedPageMarkings, options = \{\}\) \{([\s\S]*?)\n\}/
+  )[1];
+
+  assert.match(fnBody, /getNormalizedPageMarkingSnapshotEntry\(\s*localPageMarkings,\s*options\.pageUrl\s*\)/);
+  assert.match(fnBody, /normalizedLocalEntry\.submissionXpaths\.length > 0/);
+  assert.match(fnBody, /currentPageHasCommittedAiRun/);
+});
+
 test("Lynx checklist submission uses the current view's marked-page coverage without AI-answer gating", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
@@ -830,6 +881,20 @@ test("content-side save hotkey workflow is removed from the marking session", ()
 
   assert.match(keydownBody, /if \(key !== "e" && key !== "m"\) \{/);
   assert.doesNotMatch(keydownBody, /key === "s"|isPageSaveHotkeyAllowedOnPage|saveCurrentPageDraft/);
+});
+
+test("post-save disable clears the content-side unsaved draft cache", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const setEnabledBody = source.match(
+    /if \(message\.type === "setEnabled"\) \{([\s\S]*?)\n\s*if \(message\.type === "getInspectionStatus"\)/
+  )[1];
+
+  // The disable branch honors clearUnsavedDraft so a post-save disable drops the
+  // cached session draft, while the normal Disable button preserves it.
+  assert.match(
+    setEnabledBody,
+    /core\.disable\(message\.clearUnsavedDraft \? \{ preserveUnsavedDraftCache: false \} : \{\}\);/
+  );
 });
 
 test("content saved baseline is refreshed from backend cache, not local drafts", () => {

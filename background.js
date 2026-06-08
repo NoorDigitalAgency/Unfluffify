@@ -35,8 +35,11 @@ import {
 } from "./common/emulation.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 import * as constants from "./common/constants.js";
-import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
-import { buildLynxChecklistAssignments } from "./common/lynx-checklist.js";
+import {
+  buildLynxChecklistAssignments,
+  normalizeCandidatePageUrl,
+  normalizePropertyPageTypes
+} from "./common/lynx-checklist.js";
 import {
   PROPERTY_PAGE_TYPES_QUERY,
   URL_SEARCH_INFO_QUERY,
@@ -2418,6 +2421,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (Object.prototype.hasOwnProperty.call(message.state, "pageType")) {
             nextState.pageType = typeof message.state.pageType === "string" ? message.state.pageType : "";
           }
+          if (Object.prototype.hasOwnProperty.call(message.state, "pageUrl")) {
+            nextState.pageUrl = typeof message.state.pageUrl === "string" ? message.state.pageUrl : "";
+          }
           if (Object.prototype.hasOwnProperty.call(message.state, "desktopPreviewEnabled")) {
             nextState.desktopPreviewEnabled = Boolean(message.state.desktopPreviewEnabled);
           }
@@ -2454,6 +2460,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           };
           if (Object.prototype.hasOwnProperty.call(message, "pageType")) {
             nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
+          }
+          if (Object.prototype.hasOwnProperty.call(message, "pageUrl")) {
+            nextState.pageUrl = typeof message.pageUrl === "string" ? message.pageUrl : "";
           }
         }
         return utils.setTabState(tabId, nextState, scope)
@@ -2664,6 +2673,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "sessionKvGet") {
+    utils.sessionKvGet(message.keys)
+      .then((result) => {
+        sendResponse({ ok: true, result });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "Session storage get failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "sessionKvSet") {
+    utils.sessionKvSet(message.items)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "Session storage set failed" });
+      });
+    return true;
+  }
+
+  if (message.type === "sessionKvRemove") {
+    utils.sessionKvRemove(message.keys)
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error && error.message ? error.message : "Session storage remove failed" });
+      });
+    return true;
+  }
+
   if (message.type === "resolveLivePageSiteId") {
     resolveLivePageSiteId({
       stageBase: message.stageBase,
@@ -2775,14 +2817,13 @@ async function disableExtensionOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  const navigationUrl = typeof details.url === "string" ? details.url : "";
-  const preserveEnabledOnNavigation = Boolean(
-    state.baseUrl &&
-      navigationUrl &&
-      utils.isPageWithinBaseUrl(navigationUrl, state.baseUrl)
-  );
-  if (preserveEnabledOnNavigation) {
-    return;
+  const pageUrl = typeof state.pageUrl === "string" && state.pageUrl
+    ? state.pageUrl
+    : (typeof details.url === "string" ? details.url : "");
+  try {
+    await discardLocalPageMarkingDraft(state.baseUrl, pageUrl);
+  } catch (error) {
+    console.warn("Unable to discard local page draft during navigation:", error);
   }
   await clearReloadRestoreTabState(tabId);
   await utils.disableExtensionForTab(tabId);
@@ -2888,6 +2929,48 @@ async function clearTrackedTabSessionState(tabId, options = {}) {
     keysToRemove.push(`${DEVICE_EMULATION_PREFIX}${tabId}`);
   }
   await utils.storageRemove(chrome.storage.session, keysToRemove);
+}
+
+function clonePlainObject(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function findPageMarkingEntryByUrl(pageMarkings, pageUrl) {
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedTargetUrl || !pageMarkings || typeof pageMarkings !== "object") {
+    return null;
+  }
+  const matchingUrl = Object.keys(pageMarkings).find(
+    (url) => normalizeCandidatePageUrl(url) === normalizedTargetUrl
+  );
+  return matchingUrl ? pageMarkings[matchingUrl] || null : null;
+}
+
+async function discardLocalPageMarkingDraft(baseUrl, pageUrl) {
+  const normalizedBaseUrl = utils.normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedBaseUrl || !normalizedTargetUrl) {
+    return;
+  }
+  const backendSavedPageMarkings = await configStore.getBackendSavedPageMarkings(normalizedBaseUrl);
+  const backendEntry = findPageMarkingEntryByUrl(backendSavedPageMarkings, normalizedTargetUrl);
+  await configStore.updateConfig(normalizedBaseUrl, (targetConfig) => {
+    if (!targetConfig.pageMarkings || typeof targetConfig.pageMarkings !== "object") {
+      targetConfig.pageMarkings = {};
+    }
+    Object.keys(targetConfig.pageMarkings).forEach((url) => {
+      if (normalizeCandidatePageUrl(url) === normalizedTargetUrl) {
+        delete targetConfig.pageMarkings[url];
+      }
+    });
+    if (backendEntry) {
+      targetConfig.pageMarkings[pageUrl] = clonePlainObject(backendEntry);
+    }
+  });
+  await configStore.clearPageSaveReconciliation(normalizedBaseUrl, pageUrl);
 }
 
 function getReloadRestoreTabStateKey(tabId) {
@@ -3022,10 +3105,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
   // Per the editor-mobile-only contract, marking does not auto-restore on
-  // page-load. The restore scope is never populated. We still read live tab
-  // state so that the content-activation path (requestContentActivation) can
-  // re-inject the content script for already-enabled tabs that navigated
-  // within the same base URL.
+  // page-load. Navigation commit clears the live enabled tab state, and the
+  // restore scope is never populated.
   const tabState = await utils.getTabState(tabId);
   if (
     tabState &&
@@ -3037,10 +3118,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
   requestContentActivation(tabId);
-  // restoreEnabledStateForTab is a no-op when tabState is null/disabled (the
-  // common case now that auto-restore is retired) but is kept to preserve the
-  // activation path for developer-console re-injection scenarios.
-  restoreEnabledStateForTab(tabId, tabState);
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

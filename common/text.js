@@ -7,7 +7,6 @@ export const ViewText = Object.freeze({
   syncLoadIdle: "Not loaded yet", // Default remote-load summary before any configuration load runs.
   syncSaveIdle: "No save sent yet", // Default remote-save summary before any configuration save runs.
   markedPagesEmpty: "None yet", // Empty-state text for the marked-pages list when a base URL exists.
-  basePageUrlsEmpty: "Property not found", // Empty-state text for the discovered base-page URL menu.
   computeButtonIdle: "Run AI content detection", // Idle label for the AI selector-compute button.
   computeButtonBusy: "AI is working...", // Busy label for the AI selector-compute button.
   saveExcludesIdle: "Send to Lynx", // Idle label for the selector-submit button.
@@ -202,7 +201,6 @@ export const PopupText = Object.freeze({
   }),
 
   tooltips: Object.freeze({
-    basePageUrls: "Properties", // Tooltip on the base-page URL menu button.
     mobileSimulationHotkey: "M", // Shortcut hint for the desktop-preview toggle (was mobile-simulation).
     enableMarkingHotkey: "CTRL/CMD+E" // Shortcut hint for the marking toggle row.
   }),
