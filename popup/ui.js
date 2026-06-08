@@ -1919,7 +1919,6 @@ function App({ state: view, actions: handlers }) {
 function renderAiControlsContent(view, handlers) {
   const computeButtonClass = classNames(
     "u-full-width",
-    "u-mt-2",
     view.computeButtonLoading && "loading"
   );
 
@@ -1930,6 +1929,7 @@ function renderAiControlsContent(view, handlers) {
       "div",
       {
         id: "ai-controls",
+        class: "u-grid u-gap-3",
         "aria-busy": view.aiControlsBusy ? "true" : "false"
       },
       h(
@@ -2130,6 +2130,34 @@ function renderMarkingView({state: view, actions: handlers}) {
   const mergedControlsSectionChildren = [];
 
   if (markingMode) {
+    // 1. Run AI content detection - top of the marking action flow.
+    mergedControlsSectionChildren.push(
+      h(Fragment, { key: "ai-controls" }, renderAiControlsContent(view, handlers))
+    );
+  }
+
+  if (markingMode && view.markingPreviewVisible) {
+    // 2. Show Content List - review the latest AI run results (stays in place).
+    mergedControlsSectionChildren.push(
+      h(
+        "button",
+        {
+          key: "marking-preview-row",
+          id: "marking-preview",
+          type: "button",
+          class: "u-btn-secondary u-full-width",
+          disabled: view.markingPreviewDisabled,
+          onClick: handlers.onMarkingPreview
+        },
+        icon("eye-outline"),
+        PopupText.actions.previewLatest
+      )
+    );
+  }
+
+  if (markingMode) {
+    // 3. Save / Discard - commit actions at the bottom; one divider separates
+    //    the compute/preview group above from the commit group here.
     mergedControlsSectionChildren.push(
       h("div", { key: "page-save-divider", class: "section-divider", role: "separator" }),
       pageSaveNotice,
@@ -2169,31 +2197,6 @@ function renderMarkingView({state: view, actions: handlers}) {
         },
         view.pageDraftStatusText
       )
-    );
-  }
-
-  if (markingMode && view.markingPreviewVisible) {
-    mergedControlsSectionChildren.push(
-      h(
-        "button",
-        {
-          key: "marking-preview-row",
-          id: "marking-preview",
-          type: "button",
-          class: "u-btn-secondary u-full-width",
-          disabled: view.markingPreviewDisabled,
-          onClick: handlers.onMarkingPreview
-        },
-        icon("eye-outline"),
-        PopupText.actions.previewLatest
-      )
-    );
-  }
-
-  if (markingMode) {
-    mergedControlsSectionChildren.push(
-      h("div", { key: "ai-divider", class: "section-divider", role: "separator" }),
-      h(Fragment, { key: "ai-controls" }, renderAiControlsContent(view, handlers))
     );
   }
 
