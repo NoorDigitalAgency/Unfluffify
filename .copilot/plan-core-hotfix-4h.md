@@ -158,35 +158,7 @@ SESSION 3 root-cause lead remains superseded by live fix data:
 Next single task: follow the owner-set priority queue below, one issue at a
 time, while preserving restored R1/R2/R3 behavior.
 
-DONE (2026-06-08): #23 server-authoritative property config. Property data
-(configs: selectors + pageMarkings, backendSavedPageMarkings, reconciliations)
-moved OUT of IndexedDB into chrome.storage.session via new
-sessionKvGet/Set/Remove primitives (utilities.js + background relay), with
-config.js swapped to them (no call-site changes). Single session store keyed by
-property baseUrl (per-url + per-session; NOT per-tab - see handoff #23 rationale).
-applyComputedSelectorSet (popup.js) keeps computed selectors IN-MEMORY only so
-silent never renders unsaved selectors; Save/Lynx read state.currentConfig.
-property-url-actions REMOVED. 5 new tests (server-authoritative-config.test.js);
-full suite 645/645. Live-verified on :9222 (silent renders only from injected
-SAVED session config; /load not_found path; #19 desktop-preview gating positive).
-#15/#19 deterministically unit-covered. Next: commit + push.
-
-PRIOR ACTIVE (2026-06-08): #23 server-authoritative property config. Owner directive:
-silent mode must NEVER render CSS selectors that are not saved. Property data
-(configs: selectors + pageMarkings) moves OUT of IndexedDB into session storage,
-isolated per tab + per property URL + per browser session (no migration, no
-stale carryover). The session-stored config is populated ONLY from the server:
-`/load` on property page load and the `/save` RESPONSE payload on save success.
-That session-stored SAVED config is the single source of truth for BOTH silent
-highlighting and the Lynx submission; in-progress marking edits stay in-memory
-(marking overlay only) and become saved solely via a server round-trip. Side
-effect: the `property-url-actions` base-page menu (multi-baseUrl switcher) is no
-longer functional and is REMOVED (UI in popup/ui.js, handlers in popup.js, CSS
-in theme-components.css). Implement -> unit test -> live verify on :9222, then
-re-verify #15 and #19 (both already code-patched), then commit + push. See the
-#23 entry in handoff-core-hotfix.md for the full contract and file map.
-
-PRIOR (2026-06-08): #21 marking-mode button states after a clean AI run +
+ACTIVE (2026-06-08): #21 marking-mode button states after a clean AI run +
 preview exit (now lands in marking mode per the #17 fix). Owner-confirmed
 truth table A-E recorded in `handoff-core-hotfix.md` (#21). Expected State C
 (after a clean run, still in marking): Run AI DISABLED, Show Content List
@@ -197,9 +169,6 @@ marking). Add A/B/C/D unit tests, then LIVE-verify the four controls in a real
 Run-AI -> preview -> exit flow before marking solved.
 
 Owner-set priority order (2026-06-08):
-0. #23  server-authoritative property config (silent mode uses saved data only;
-        session-storage config per tab/url/session; remove property-url-actions)
-        <- DONE (implemented + unit + live verified; #15/#19 re-verified)
 1. #6
 2. #7
 3. #8

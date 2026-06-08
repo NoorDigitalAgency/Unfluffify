@@ -277,7 +277,7 @@ async function withDisableFlushHarness(callback) {
     mutationObserver: null,
     savedPageEntry: null,
     savedPageUrl: "",
-    pageDraftEditedSinceCleanByPageUrl: new Set(),
+    cleanBaselineFingerprintByPageUrl: new Map(),
     pageSaveReconciliation: null,
     disabledUnsavedDraft: null,
     consentRootElements: new Set(),
@@ -469,24 +469,60 @@ test("disable does not persist when no draft or snapshot timer is pending", asyn
   });
 });
 
-test("URL watcher discards temporary draft cache across URL changes", async () => {
+test("URL watcher preserves dirty drafts across same-base same-document URL changes", async () => {
   const cases = [
-    ["dirty pushState", "https://example.com/page/details", true],
-    ["dirty replaceState", "https://example.com/page?step=2", true],
-    ["dirty hash", "https://example.com/page#details", true],
-    ["clean same-base", "https://example.com/page#clean", false],
-    ["dirty cross-base", "https://other.example/page", true]
+    ["pushState", "https://example.com/page/details"],
+    ["replaceState", "https://example.com/page?step=2"],
+    ["hash", "https://example.com/page#details"]
   ];
 
-  for (const [label, nextUrl, dirty] of cases) {
+  for (const [label, nextUrl] of cases) {
     await withDisableFlushHarness(async ({
       pageUrl,
       intervals,
       clearedIntervals,
       dispatchedEvents
     }) => {
+      const draftEntry = state.config.pageMarkings[pageUrl];
+      state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
+
+      startUrlWatcher();
+      assert.equal(intervals.length, 1, label);
+      globalThis.location.href = nextUrl;
+      intervals[0].fn();
+
+      assert.equal(state.enabled, false, label);
+      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.pageUrl, pageUrl, label);
+      assert.equal(state.disabledUnsavedDraft && state.disabledUnsavedDraft.baseUrl, "https://example.com", label);
+      assert.deepEqual(
+        state.disabledUnsavedDraft && state.disabledUnsavedDraft.draftEntry.xpaths,
+        draftEntry.xpaths,
+        label
+      );
+      assert.deepEqual(clearedIntervals, [intervals[0].id], label);
+      assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
+    });
+  }
+});
+
+test("URL watcher discards temporary draft cache for clean or cross-base URL changes", async () => {
+  const cases = [
+    {
+      label: "clean same-base",
+      nextUrl: "https://example.com/page#clean",
+      dirty: false
+    },
+    {
+      label: "dirty cross-base",
+      nextUrl: "https://other.example/page",
+      dirty: true
+    }
+  ];
+
+  for (const { label, nextUrl, dirty } of cases) {
+    await withDisableFlushHarness(async ({ pageUrl, intervals, dispatchedEvents }) => {
       if (dirty) {
-        state.pageDraftEditedSinceCleanByPageUrl.add(pageUrl);
+        state.cleanBaselineFingerprintByPageUrl.set(pageUrl, "clean-before-user-edit");
       }
 
       startUrlWatcher();
@@ -496,7 +532,6 @@ test("URL watcher discards temporary draft cache across URL changes", async () =
 
       assert.equal(state.enabled, false, label);
       assert.equal(state.disabledUnsavedDraft, null, label);
-      assert.deepEqual(clearedIntervals, [intervals[0].id], label);
       assert.deepEqual(dispatchedEvents, ["unfluffify:url-changed"], label);
     });
   }

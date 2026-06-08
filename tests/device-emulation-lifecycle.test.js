@@ -291,7 +291,7 @@ test("shared clearTabState removes initial tab lifecycle state as well as live t
   assert.doesNotMatch(clearRestoreMessageBlock, /utils\.clearTabState/);
 });
 
-test("completed reload does not reactivate live enabled tabs", () => {
+test("completed reload reactivates live enabled tabs without restore scope fallback", () => {
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
     "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
@@ -311,7 +311,7 @@ test("completed reload does not reactivate live enabled tabs", () => {
   // live state, so tabState is null/disabled when onUpdated fires).
   assert.doesNotMatch(onUpdatedBlock, /await utils\.setTabState\(tabId, tabState\);/);
   assert.match(onUpdatedBlock, /requestContentActivation\(tabId\);/);
-  assert.doesNotMatch(onUpdatedBlock, /restoreEnabledStateForTab\(tabId, tabState\);/);
+  assert.match(onUpdatedBlock, /restoreEnabledStateForTab\(tabId, tabState\);/);
   assert.match(backgroundSource, /performInitialReveal: true/);
 });
 

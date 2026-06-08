@@ -1,12 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import {
   state,
   isPageDraftDirty,
-  markPageDraftUserEdited,
-  clearPageDraftUserEdited
+  setSavedPageEntry
 } from "../content/core.js";
 
 const PAGE_URL = "https://example.com/dirty-baseline-test";
@@ -28,118 +26,103 @@ function makeEntry(xpaths) {
 
 function resetState() {
   state.config = { pageMarkings: {} };
-  state.pageDraftEditedSinceCleanByPageUrl.clear();
+  state.cleanBaselineFingerprintByPageUrl.clear();
   state.savedPageEntry = null;
   state.savedPageUrl = "";
   state.autoSeededPendingSavePageUrl = "";
   state.pageSaveReconciliation = null;
 }
 
-test("isPageDraftDirty is false for a freshly auto-seeded page with no user edit", () => {
+test("isPageDraftDirty is false for a page that has no draft yet", () => {
   resetState();
-  // A populated draft alone (auto-seeded AI selectors) must NOT report dirty:
-  // the old DOM-fingerprint approach reported dirty here due to xpath churn.
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+});
+
+test("isPageDraftDirty lazy-records the first non-empty draft as the clean baseline", () => {
+  resetState();
+  const initial = makeEntry(["/html/body/p[1]"]);
+  state.config.pageMarkings[PAGE_URL] = initial;
+  // First check after sync: no baseline yet, draft has content, so the
+  // implicit baseline is recorded and the page reports clean.
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+  assert.ok(state.cleanBaselineFingerprintByPageUrl.has(PAGE_URL));
+  // Same state on a subsequent check stays clean.
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+});
+
+test("isPageDraftDirty flips to true when the draft diverges from the recorded baseline", () => {
+  resetState();
+  state.config.pageMarkings[PAGE_URL] = makeEntry(["/html/body/p[1]"]);
+  isPageDraftDirty(PAGE_URL); // establish baseline
   state.config.pageMarkings[PAGE_URL] = makeEntry([
     "/html/body/p[1]",
     "/html/body/p[2]"
   ]);
-  assert.equal(isPageDraftDirty(PAGE_URL), false);
+  assert.equal(isPageDraftDirty(PAGE_URL), true);
 });
 
-test("isPageDraftDirty flips to true once the page is flagged as user-edited", () => {
+test("setSavedPageEntry with a substantive entry refreshes the clean baseline", () => {
   resetState();
   state.config.pageMarkings[PAGE_URL] = makeEntry(["/html/body/p[1]"]);
-  assert.equal(isPageDraftDirty(PAGE_URL), false);
-  markPageDraftUserEdited(PAGE_URL);
+  isPageDraftDirty(PAGE_URL); // establish baseline at xpaths=[p1]
+  state.config.pageMarkings[PAGE_URL] = makeEntry([
+    "/html/body/p[1]",
+    "/html/body/p[2]"
+  ]);
   assert.equal(isPageDraftDirty(PAGE_URL), true);
+  // Simulate a backend save that confirms the new state.
+  setSavedPageEntry(PAGE_URL, state.config.pageMarkings[PAGE_URL]);
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
 });
 
-test("clearPageDraftUserEdited returns the page to clean (save / discard)", () => {
+test("setSavedPageEntry with an empty entry does not erase the established baseline", () => {
   resetState();
   state.config.pageMarkings[PAGE_URL] = makeEntry(["/html/body/p[1]"]);
-  markPageDraftUserEdited(PAGE_URL);
-  assert.equal(isPageDraftDirty(PAGE_URL), true);
-  clearPageDraftUserEdited(PAGE_URL);
-  assert.equal(isPageDraftDirty(PAGE_URL), false);
+  isPageDraftDirty(PAGE_URL); // establish baseline
+  const before = state.cleanBaselineFingerprintByPageUrl.get(PAGE_URL);
+  setSavedPageEntry(PAGE_URL, null);
+  setSavedPageEntry(PAGE_URL, { xpaths: [] });
+  const after = state.cleanBaselineFingerprintByPageUrl.get(PAGE_URL);
+  assert.equal(after, before);
 });
 
-test("the user-edit flag is scoped per page URL", () => {
+test("AI-run-driven draft changes flip dirty to true until a backend save lands", () => {
+  // Simulates the contract: AI run output mutates selectors which mutate the
+  // per-page draft via re-sync; the dirty signal must flip true. A subsequent
+  // user-triggered backend save (which calls setSavedPageEntry) refreshes the
+  // baseline so dirty returns to false.
   resetState();
-  const otherUrl = `${PAGE_URL}/other`;
-  markPageDraftUserEdited(PAGE_URL);
+  const initial = makeEntry(["/html/body/p[1]"]);
+  state.config.pageMarkings[PAGE_URL] = initial;
+  isPageDraftDirty(PAGE_URL); // establish baseline (defaults + initial selectors)
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+
+  // AI run completes: new selectors influence the draft, sync repopulates it
+  // with additional / changed rows.
+  const afterAi = makeEntry([
+    "/html/body/p[1]",
+    "/html/body/article[1]"
+  ]);
+  state.config.pageMarkings[PAGE_URL] = afterAi;
   assert.equal(isPageDraftDirty(PAGE_URL), true);
-  assert.equal(isPageDraftDirty(otherUrl), false);
+
+  // User triggers a backend save. The just-saved entry refreshes the baseline.
+  setSavedPageEntry(PAGE_URL, afterAi);
+  assert.equal(isPageDraftDirty(PAGE_URL), false);
+
+  // Subsequent user edit re-flips dirty.
+  state.config.pageMarkings[PAGE_URL] = makeEntry([
+    "/html/body/p[1]",
+    "/html/body/article[1]",
+    "/html/body/footer[1]"
+  ]);
+  assert.equal(isPageDraftDirty(PAGE_URL), true);
 });
 
-test("isPageDraftDirty does NOT diff a DOM xpath fingerprint", () => {
-  // Regression guard: the dirty signal must be driven purely by the explicit
-  // per-page user-edit flag (+ reconciliation), never by comparing draft xpaths
-  // against a snapshotted baseline. Dynamic SPAs churn xpaths with zero user
-  // action, which the old fingerprint approach mis-read as dirty.
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const fnMatch = source.match(
-    /export function isPageDraftDirty\(pageUrl\) \{[\s\S]*?\n\}/
-  );
-  assert.ok(fnMatch, "expected an isPageDraftDirty function in core.js");
-  const body = fnMatch[0];
-  assert.ok(
-    /pageDraftEditedSinceCleanByPageUrl\.has\(pageUrl\)/.test(body),
-    "isPageDraftDirty must read the explicit user-edit flag"
-  );
-  assert.ok(
-    !/getEntryFingerprint/.test(body),
-    "isPageDraftDirty must NOT compute a DOM xpath fingerprint"
-  );
-  assert.ok(
-    !/cleanBaselineFingerprintByPageUrl/.test(body),
-    "isPageDraftDirty must NOT consult the removed fingerprint baseline map"
-  );
-});
-
-test("a manual mark/unmark flags the current page as user-edited", () => {
-  // completeExplicitToggle is the single funnel for every manual mark/unmark,
-  // and it must flag the current page so Save/Discard report dirty (State B).
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const fnMatch = source.match(
-    /function completeExplicitToggle\([\s\S]*?\n\}/
-  );
-  assert.ok(fnMatch, "expected a completeExplicitToggle function in core.js");
-  assert.ok(
-    /pageDraftEditedSinceCleanByPageUrl\.add\(location\.href\)/.test(fnMatch[0]),
-    "completeExplicitToggle must flag the current page as user-edited"
-  );
-});
-
-test("auto-seeded AI-selector markings stay clean (Save/Discard disabled until a manual change or AI run)", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const block = source.match(
-    /if \(autoSeededFromAiSelectors\) \{[\s\S]*?\n {2}\}/
-  );
-  assert.ok(block, "expected an `if (autoSeededFromAiSelectors)` block in renderMarkingCollections");
-  const body = block[0];
-  // The freshly seeded draft starts clean because auto-seed does not set the
-  // user-edit flag. It must also avoid clearing an existing flag: committed AI
-  // runs can render through this path and must stay dirty for State C.
-  assert.ok(
-    !/pageDraftEditedSinceCleanByPageUrl\.delete\(pageUrl\)/.test(body),
-    "auto-seed must not clear a committed AI-run dirty flag"
-  );
-  assert.ok(
-    !/autoSeededPendingSavePageUrl\s*=\s*pageUrl/.test(body),
-    "auto-seed must NOT flag a pending save (would false-enable Save/Discard on fresh enable)"
-  );
-  // The seeded markings must still persist locally and refresh the UI.
-  assert.ok(/scheduleSnapshotSave\(\)/.test(body), "auto-seed must still persist the seeded draft");
-  assert.ok(/notifyDraftStatus\(pageUrl\)/.test(body), "auto-seed must still refresh draft status");
-});
-
-test("enableForBaseUrl can skip merging the disabled unsaved draft cache", () => {
-  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
-  const fnMatch = source.match(
-    /export async function enableForBaseUrl\(baseUrl, options = \{\}\) \{[\s\S]*?\n\}/
-  );
-  assert.ok(fnMatch, "expected enableForBaseUrl in core.js");
-  const body = fnMatch[0];
-  assert.match(body, /const discardUnsavedDraftCache = Boolean\(options && options\.discardUnsavedDraftCache\);/);
-  assert.match(body, /!discardUnsavedDraftCache &&[\s\S]*?cachedDraft &&[\s\S]*?mergeDraftEntry\(/);
+test("autoSeededPendingSavePageUrl overrides the baseline comparison and reports dirty", () => {
+  resetState();
+  state.config.pageMarkings[PAGE_URL] = makeEntry(["/html/body/p[1]"]);
+  isPageDraftDirty(PAGE_URL); // establish baseline
+  state.autoSeededPendingSavePageUrl = PAGE_URL;
+  assert.equal(isPageDraftDirty(PAGE_URL), true);
 });

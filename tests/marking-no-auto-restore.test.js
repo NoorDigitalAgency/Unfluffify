@@ -37,40 +37,7 @@ test("disableExtensionOnTopLevelNavigation clears the reload restore scope witho
   );
 
   assert.match(block, /await clearReloadRestoreTabState\(tabId\);/);
-  assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
-  assert.match(block, /discardLocalPageMarkingDraft\(state\.baseUrl, pageUrl\)/);
-  assert.doesNotMatch(block, /preserveEnabledOnNavigation/);
-  assert.doesNotMatch(block, /isPageWithinBaseUrl\(navigationUrl, state\.baseUrl\)/);
   assert.doesNotMatch(block, /setReloadRestoreTabState\(tabId,/);
-});
-
-test("navigation draft discard restores the cached backend page entry", () => {
-  assert.match(backgroundSource, /async function discardLocalPageMarkingDraft\(baseUrl, pageUrl\) \{/);
-  assert.match(backgroundSource, /configStore\.getBackendSavedPageMarkings\(normalizedBaseUrl\)/);
-  assert.match(backgroundSource, /configStore\.updateConfig\(normalizedBaseUrl, \(targetConfig\) => \{/);
-  assert.match(backgroundSource, /delete targetConfig\.pageMarkings\[url\];/);
-  assert.match(backgroundSource, /targetConfig\.pageMarkings\[pageUrl\] = clonePlainObject\(backendEntry\);/);
-  assert.match(backgroundSource, /configStore\.clearPageSaveReconciliation\(normalizedBaseUrl, pageUrl\)/);
-});
-
-test("enabled tab state records the current page URL for navigation cleanup", () => {
-  assert.match(backgroundSource, /nextState\.pageUrl = typeof message\.state\.pageUrl === "string"/);
-  assert.match(backgroundSource, /nextState\.pageUrl = typeof message\.pageUrl === "string"/);
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const contentMainSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
-  assert.match(popupSource, /enabled: true,[\s\S]*?pageUrl: tab\.url \|\| ""/);
-  assert.match(contentMainSource, /enabled: true,[\s\S]*?pageUrl: location\.href/);
-});
-
-test("completed page load does not restore live enabled marking state", () => {
-  const block = extractFunctionBody(
-    backgroundSource,
-    "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
-    "chrome.storage.onChanged.addListener"
-  );
-
-  assert.match(block, /requestContentActivation\(tabId\);/);
-  assert.doesNotMatch(block, /restoreEnabledStateForTab\(tabId, tabState\);/);
 });
 
 test("background sweeps stale transfer-payload keys on service-worker start", () => {

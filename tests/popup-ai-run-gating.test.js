@@ -62,12 +62,6 @@ test("a successful save transitions the popup from marking to silent mode", () =
   assert.match(fnBody, /state\.currentDraftDirty = false;/);
   // Align popup + tab state to silent via the shared helper.
   assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
-  // Explicitly disable marking on the page (no navigation happens on save) and
-  // clear the content-side session draft so silent highlighting is shown.
-  assert.match(
-    fnBody,
-    /type: "setEnabled",\s*enabled: false,\s*pageType: "",\s*clearUnsavedDraft: true/
-  );
 });
 
 test("aligning to silent mode clears the popup toggle without touching content", () => {

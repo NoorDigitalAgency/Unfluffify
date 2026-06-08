@@ -134,15 +134,6 @@ const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
 const AI_PREVIEW_MARKING_RESTORE_HOLD_MS = 5000;
-const AI_PREVIEW_RETURN_RESTORE_HOLD_MS = 1500;
-const PREVIEW_CLEARED_VIEW_STATE = {
-  previewActive: false,
-  previewItems: [],
-  previewFocusedXpath: "",
-  previewShowAllCategories: false,
-  previewBlocked: false,
-  previewBlockedMessage: ViewText.previewBlockedDefault
-};
 
 installExtensionTelemetry({
   source: "popup",
@@ -1830,32 +1821,10 @@ function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedP
 }
 
 function hasCurrentPagePendingChanges(localPageMarkings, backendSavedPageMarkings, options = {}) {
-  // The local-vs-backend marking diff only signals "pending changes" when the
-  // page already has a backend-saved entry to diff against. On a never-saved
-  // page the auto-seeded local entry always differs from the empty backend
-  // entry, so without this gate Discard would be permanently enabled even on a
-  // freshly enabled, untouched page. For never-saved pages the authoritative
-  // signal is currentDraftDirty (the explicit per-page user-edit flag). A
-  // committed AI run also writes submission xpaths into the current local page
-  // entry, which is a discardable page-scoped change even before the backend has
-  // a saved baseline.
-  const normalizedLocalEntry = getNormalizedPageMarkingSnapshotEntry(
-    localPageMarkings,
-    options.pageUrl
-  );
-  const currentPageHasCommittedAiRun = Boolean(
-    normalizedLocalEntry &&
-      Array.isArray(normalizedLocalEntry.submissionXpaths) &&
-      normalizedLocalEntry.submissionXpaths.length > 0
-  );
-  const localDiffersFromSavedBaseline =
-    hasBackendSavedPageMarking(backendSavedPageMarkings, options.pageUrl) &&
-    hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, options.pageUrl);
   return Boolean(
     options.currentDraftDirty ||
       options.reconciliationPending ||
-      currentPageHasCommittedAiRun ||
-      localDiffersFromSavedBaseline
+      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, options.pageUrl)
   );
 }
 
@@ -1931,59 +1900,6 @@ function captureAiRunMarkingsFingerprint() {
 
 function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
-}
-
-function buildPreviewReturnViewState(viewState) {
-  if (!viewState || typeof viewState !== "object") {
-    return null;
-  }
-  return {
-    ...viewState,
-    ...PREVIEW_CLEARED_VIEW_STATE,
-    isBusy: false,
-    busyMessage: "",
-    computeButtonLoading: false,
-    saveExcludesButtonLoading: false,
-    aiControlsBusy: false,
-    aiRunSpinnerNote: "",
-    aiRunCountdownVisible: false,
-    aiRunCountdownText: "0:00"
-  };
-}
-
-function storeAiPreviewReturnViewState(source, viewState = uiModule.getViewState()) {
-  const snapshot = buildPreviewReturnViewState(viewState);
-  state.aiPreviewReturnViewState = snapshot;
-  state.aiPreviewReturnSource = snapshot && typeof source === "string" ? source : "";
-}
-
-function clearAiPreviewReturnViewState() {
-  state.aiPreviewReturnViewState = null;
-  state.aiPreviewReturnSource = "";
-}
-
-function restoreAiPreviewReturnViewState() {
-  const snapshot = state.aiPreviewReturnViewState;
-  clearAiPreviewReturnViewState();
-  state.aiPreviewReturnRestoreDeadlineAt = Date.now() + AI_PREVIEW_RETURN_RESTORE_HOLD_MS;
-  state.aiPreviewMarkingRestoreDeadlineAt = 0;
-  if (!snapshot) {
-    setPreviewBlocked(false);
-    return false;
-  }
-  uiModule.setViewState({
-    ...snapshot,
-    ...PREVIEW_CLEARED_VIEW_STATE
-  });
-  return true;
-}
-
-async function refreshPreviewViewState() {
-  const response = await messages.sendTabMessage({ type: "getAiPreviewState" });
-  if (response && response.ok) {
-    uiModule.setViewState(buildPreviewViewState(response));
-  }
-  return response;
 }
 
 async function resolveSiteIdFromGraphql(options = {}) {
@@ -5219,8 +5135,7 @@ async function refreshUiInner(options = {}) {
     effectiveTabState = { ...effectiveTabState, enabled: false };
     await messages.setTabState(currentTabId, {
       enabled: false,
-      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || "",
-      pageUrl
+      baseUrl: state.currentBaseUrl || effectiveTabState.baseUrl || ""
     });
     await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false });
   }
@@ -5733,6 +5648,24 @@ async function refreshUiInner(options = {}) {
       alertOnCurrentReplacement: false
     }).then();
   }
+
+  const basePageUrlSet = new Set(
+    Object.keys(configs).filter((url) => {
+      if (typeof url !== "string" || !url) {
+        return false;
+      }
+      const normalized = config.normalizeConfig(url, configs[url]).config;
+      return Boolean(normalizeSiteIdValue(normalized.siteId));
+    })
+  );
+  if (state.currentBaseUrl && liveSiteId) {
+    basePageUrlSet.add(state.currentBaseUrl);
+  }
+  const basePageUrls = Array.from(basePageUrlSet)
+    .sort((left, right) => left.localeCompare(right))
+    .map((url) => ({ url }));
+  nextViewState.basePageUrls = basePageUrls;
+  nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
   const nextTodoExpansionKey = buildTodoExpansionContextKey(currentTabId, state.currentBaseUrl);
   const currentTodoExpansionKey = state.currentTodoExpansionKey;
@@ -7031,6 +6964,17 @@ function handleConfigMenuClick(event) {
   event.stopPropagation();
 }
 
+function handleBasePageMenuToggle(event) {
+  event.stopPropagation();
+  uiModule.setConfigMenuOpen(false);
+  uiModule.setTodoControlsMenuOpen(false);
+  uiModule.setBasePageMenuOpen(!state.basePageMenuOpen);
+}
+
+function handleBasePageMenuClick(event) {
+  event.stopPropagation();
+}
+
 function handleTodoControlsMenuToggle(event) {
   event.stopPropagation();
   const view = uiModule.getViewState();
@@ -7254,6 +7198,11 @@ async function handleMarkedPageNavigate(url) {
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
+async function handleBasePageNavigate(url) {
+  uiModule.setBasePageMenuOpen(false);
+  await navigateActiveTabToUrlWithTodoCollapse(url);
+}
+
 async function handleLynxChecklistCandidateNavigate(url) {
   if (!url) {
     return;
@@ -7405,8 +7354,7 @@ async function handleEnableToggle(event) {
         await messages.setTabState(tab.id, {
           enabled: true,
           baseUrl: effectiveBaseUrl,
-          pageType: currentPageTypeKey,
-          pageUrl: tab.url || ""
+          pageType: currentPageTypeKey
         });
         setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
         const enableResponse = await messages.sendTabMessageWithRetry({
@@ -7420,8 +7368,7 @@ async function handleEnableToggle(event) {
           await messages.setTabState(tab.id, {
             enabled: false,
             baseUrl: effectiveBaseUrl,
-            pageType: "",
-            pageUrl: tab.url || ""
+            pageType: ""
           });
           uiModule.setViewState({ toggleEnabled: false });
           clearLastPopupEnabled();
@@ -7441,8 +7388,7 @@ async function handleEnableToggle(event) {
         await messages.setTabState(tab.id, {
           enabled: false,
           baseUrl: baseUrlValue,
-          pageType: "",
-          pageUrl: tab.url || ""
+          pageType: ""
         });
         await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false, pageType: "" });
       }
@@ -7856,25 +7802,23 @@ async function alignPopupToSilentMode() {
     ? state.currentTab.id
     : null;
   if (tabId !== null) {
-    await messages.setTabState(tabId, { enabled: false, baseUrl, pageType: "", pageUrl: getCurrentPageUrl() });
+    await messages.setTabState(tabId, { enabled: false, baseUrl, pageType: "" });
   }
   clearLastPopupEnabled();
   uiModule.setViewState({ toggleEnabled: false });
 }
 
 async function applyPostSaveSilentTransition() {
-  // Post-save contract: (1) clear the marking session data, (2) disable marking
-  // mode, and (3) show silent highlighting. The page does NOT navigate on save,
-  // so unlike the navigation-away path we must explicitly tell the content
-  // script to leave marking mode (core.disable() + silent highlighting) rather
-  // than relying on the destination page loading in silent.
+  // Post-save contract: the current page render resets from
+  // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
+  // explicit deltas are dropped from the overlay), the mode switches marking ->
+  // silent highlighting, and the user stays in silent until Enable Marking
+  // re-enters marking from scratch. The page already drops to silent on save, so
+  // do NOT re-issue an enable message to the content script; only align the popup
+  // + tab state.
   const baseUrl = state.currentBaseUrl;
-  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-  // 1) Clear the session: reset the content-side page entry to the just-saved
-  //    baseline so its draft is no longer dirty (Discard detects no pending
-  //    changes and no stale deltas survive into the next marking session).
+  // Reset the content-side page entry to the saved baseline so its draft is no
+  // longer dirty (Discard detects no pending changes).
   if (baseUrl) {
     await messages.sendTabMessageWithRetry({
       type: "configUpdated",
@@ -7883,18 +7827,7 @@ async function applyPostSaveSilentTransition() {
     }, 2);
   }
   state.currentDraftDirty = false;
-  // 2) Align the popup + tab state to silent (clears the toggle, marks tab off).
   await alignPopupToSilentMode();
-  // 3) Disable marking on the page and render silent highlighting. clearUnsavedDraft
-  //    drops the content-side disable cache so no session data lingers.
-  if (tabId !== null) {
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: false,
-      pageType: "",
-      clearUnsavedDraft: true
-    });
-  }
 }
 
 async function handlePageSave() {
@@ -8129,16 +8062,10 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
     : config.normalizeEntryTimestamp(
         state.currentConfig && state.currentConfig.selectorsUpdatedAt
       );
-  // Keep freshly computed selectors in memory only. They are unsaved, so they
-  // must not enter the session-scoped config store that silent mode and lynx
-  // read - that store stays server-authoritative (populated by /load and the
-  // /save response). The computed set is persisted to the store only when the
-  // user saves (submitSelectorSetToServer writes it just before /save).
-  state.currentConfig = config.normalizeConfig(state.currentBaseUrl, {
-    ...(state.currentConfig || {}),
-    selectors: normalizeAiSelectorSet(selectorSet),
-    selectorsUpdatedAt: selectorSetUpdatedAt
-  }).config;
+  state.currentConfig = await config.updateConfig(state.currentBaseUrl, (targetConfig) => {
+    targetConfig.selectors = normalizeAiSelectorSet(selectorSet);
+    targetConfig.selectorsUpdatedAt = selectorSetUpdatedAt;
+  });
   const hasComputedNewSelectors =
     !aiSelectorSetsEqual(selectorSet, getLastSubmittedSelectorsFromConfig(state.currentConfig));
   state.aiSelectorsComputedSinceLastSubmit = hasComputedNewSelectors;
@@ -8257,9 +8184,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
       tokenValue
     });
     await stopAiRun({ unlockPage: !previewOpened });
-    if (previewOpened) {
-      storeAiPreviewReturnViewState("marking");
-    }
     return;
   }
 }
@@ -8720,7 +8644,6 @@ async function handlePreviewLatest() {
   if (view.previewBlocked) {
     return;
   }
-  storeAiPreviewReturnViewState("silent", view);
   clearLastPopupEnabled();
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
@@ -8732,9 +8655,8 @@ async function handlePreviewLatest() {
     if (!response || !response.ok) {
       throw new Error(PopupText.preview.openFailed);
     }
-    await refreshPreviewViewState();
+    await refreshUi();
   } catch (error) {
-    clearAiPreviewReturnViewState();
     setPreviewBlocked(false);
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
     await refreshUi();
@@ -8769,7 +8691,6 @@ async function handleMarkingPreview() {
   if (uiModule.getViewState().previewBlocked) {
     return;
   }
-  storeAiPreviewReturnViewState("marking", uiModule.getViewState());
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
@@ -8780,9 +8701,8 @@ async function handleMarkingPreview() {
     if (!response || !response.ok) {
       throw new Error(PopupText.preview.openFailed);
     }
-    await refreshPreviewViewState();
+    await refreshUi();
   } catch (error) {
-    clearAiPreviewReturnViewState();
     setPreviewBlocked(false);
     uiModule.showToast((error && error.message) || PopupText.preview.openFailed);
     await refreshUi();
@@ -8796,9 +8716,7 @@ async function handleExitPreviewMode() {
   const response = await messages.sendTabMessage({ type: "closeAiPreview" });
   if (!response || !response.ok) {
     uiModule.showToast(PopupText.preview.exitFailed);
-    return;
   }
-  restoreAiPreviewReturnViewState();
 }
 
 function normalizePreviewItems(items) {
@@ -8874,9 +8792,6 @@ async function handlePreviewItemFocus(xpath) {
 }
 
 function scheduleRefresh() {
-  if (state.aiPreviewReturnRestoreDeadlineAt > Date.now()) {
-    return;
-  }
   if (state.refreshTimer) {
     return;
   }
@@ -8912,6 +8827,8 @@ async function init() {
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
     onConfigMenuClick: handleConfigMenuClick,
+    onBasePageMenuToggle: handleBasePageMenuToggle,
+    onBasePageMenuClick: handleBasePageMenuClick,
     onTodoControlsMenuToggle: handleTodoControlsMenuToggle,
     onTodoControlsMenuClick: handleTodoControlsMenuClick,
     onTodoSectionToggle: handleTodoSectionToggle,
@@ -8990,7 +8907,8 @@ async function init() {
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
-    onMarkedPageNavigate: handleMarkedPageNavigate
+    onMarkedPageNavigate: handleMarkedPageNavigate,
+    onBasePageNavigate: handleBasePageNavigate
   });
   ensureRemoteSupportPopupMediaChannel();
 
@@ -9294,7 +9212,16 @@ async function init() {
         : 0;
       (async () => {
         try {
-          restoreAiPreviewReturnViewState();
+          setPreviewBlocked(false);
+          if (message.markingEnabled) {
+            clearLastPopupEnabled();
+            uiModule.setViewState({
+              toggleEnabled: true,
+              mainUiHidden: false,
+              silentModeActive: false
+            });
+          }
+          await refreshUi();
         } catch {
           setPreviewBlocked(false);
         }
