@@ -94,6 +94,11 @@ test("extension activation enables default mobile emulation for fresh tab sessio
     "async function ensureDefaultMobileEmulationForTab",
     "chrome.tabs.onUpdated.addListener"
   );
+  const activationRetryBlock = extractSourceBlock(
+    backgroundSource,
+    "function requestContentActivation(tabId, attempt = 0) {",
+    "function restoreEnabledStateForTab"
+  );
 
   assert.match(actionBlock, /chrome\.sidePanel\.open\(\{\s*tabId:\s*tab\.id\s*\}\)\.then\(\)/);
   assert.match(activateHelperBlock, /await utils\.setTabState\(tabId,\s*\{\s*active:\s*true\s*\},\s*"initial"\)/);
@@ -102,6 +107,7 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(activateBlock, /await activateExtensionForTab\(/);
   assert.match(helperBlock, /utils\.getOriginFromUrl\(resolvedUrl\)/);
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
+  assert.match(activationRetryBlock, /chrome\.runtime\.lastError \|\| !response \|\| response\.ok === false/);
 });
 
 test("marking enable forces mobile simulation before content activation and locks the popup device toggle", () => {

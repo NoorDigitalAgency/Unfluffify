@@ -740,6 +740,20 @@ test("session pending is no longer tied to Lynx selector submission state", () =
   assert.doesNotMatch(pendingBody, /areCurrentSelectorsSubmitted|submittedSelectorsFingerprint/);
 });
 
+test("current-page pending (Discard) follows draft-vs-saved marking deltas, not generic draft dirty", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /function hasCurrentDraftMarkingChangesAgainstSaved\(\) \{[\s\S]*?fingerprintPageMarkingEntry\(state\.currentDraftEntry\)[\s\S]*?fingerprintPageMarkingEntry\(state\.currentSavedEntry\)[\s\S]*?\}/
+  );
+  assert.match(source, /const currentDraftHasMarkingChanges = hasCurrentDraftMarkingChangesAgainstSaved\(\);/);
+  assert.match(
+    source,
+    /const currentPageHasPendingChanges = hasCurrentPagePendingChanges\([\s\S]*?currentDraftDirty: currentDraftHasMarkingChanges,[\s\S]*?reconciliationPending: pageSaveReconciliationPending/
+  );
+});
+
 test("observer remote config polling stays passive-only and runs once a minute", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
@@ -774,6 +788,18 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
   )[1];
 
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
+  assert.match(
+    enableBody,
+    /const contentReady = await ensureContentReadyForRenderModeInspection\(tab\.id\);/ 
+  );
+  assert.match(
+    enableBody,
+    /if \(!contentReady\) \{[\s\S]*?uiModule\.showToast\(PopupText\.helper\.activateFailedOnPage\);[\s\S]*?return;/
+  );
+  assert.match(
+    enableBody,
+    /const contentReady = await ensureContentReadyForRenderModeInspection\(tab\.id\);[\s\S]*?setSpinnerMessage\(spinnerKey, PopupText\.overlay\.applyingDeviceEmulation\);/
+  );
   assert.match(
     enableBody,
     /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/
