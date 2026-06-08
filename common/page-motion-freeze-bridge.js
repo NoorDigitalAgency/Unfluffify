@@ -1,4 +1,32 @@
-export function runPageMotionFreezeControl(command = "setPaused", details = null) {
+/**
+ * @fileoverview Page-world (MAIN) document_start bridge for page-motion freeze.
+ *
+ * This classic content script is injected at document_start into the page's MAIN
+ * world (see manifest.json content_scripts). Running before the page's own
+ * scripts lets it install the lazy-loading interception (IntersectionObserver /
+ * ResizeObserver constructors and scroll/wheel/touchmove listeners) BEFORE the
+ * page creates its lazy-load observers. Wrapping them after the fact (the old
+ * just-in-time executeScript injection) was too late, so flipping the suppression
+ * flag during reveal had no effect and the page kept lazy-loading on every pass.
+ *
+ * The bridge only "arms" here (installs the wrappers with the flag off). The
+ * actual on/off toggling stays on the deterministic, awaited two-way control
+ * path: content (isolated world) -> chrome.runtime -> background ->
+ * chrome.scripting.executeScript(runPageMotionFreezeControl) in this same MAIN
+ * world. Because the wrappers are already installed, that toggle takes effect
+ * immediately and synchronously for every existing observer/listener.
+ *
+ * IMPORTANT: runPageMotionFreezeControl below must stay byte-identical (modulo
+ * the leading `export ` keyword) to common/page-motion-freeze-control.js. The
+ * test tests/page-motion-freeze-bridge.test.js enforces this so the document_start
+ * arming and the executeScript toggling share an identical state shape/version
+ * and therefore interoperate on the same window.__unfluffifyPageMotionFreezeState.
+ */
+
+(function () {
+  "use strict";
+
+function runPageMotionFreezeControl(command = "setPaused", details = null) {
   const STATE_KEY = "__unfluffifyPageMotionFreezeState";
   const VERSION = "main-world-exec-v1";
   const COMMAND_SET_PAUSED = "setPaused";
@@ -532,3 +560,13 @@ export function runPageMotionFreezeControl(command = "setPaused", details = null
 
   return buildResult();
 }
+
+  try {
+    // Arm the lazy-loading interception at document_start so the wrappers are in
+    // place before the page creates its own observers/scroll listeners.
+    runPageMotionFreezeControl("arm", null);
+  } catch (error) {
+    // Best-effort early arming; the executeScript toggle path still applies the
+    // pause/suppression flags if arming did not run for any reason.
+  }
+}());

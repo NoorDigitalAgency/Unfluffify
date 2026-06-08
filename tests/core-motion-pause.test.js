@@ -830,6 +830,108 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
   }
 });
 
+test("page inspection reveal waits for the page-world lazy-load lock before scrolling again", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+  const start = source.indexOf("export async function revealPageContentBeforeMotionPause(");
+  const end = source.indexOf("function blockPageInspectionInput", start);
+  assert.ok(start >= 0 && end > start, "Expected to locate reveal function body");
+  const fnBody = source.slice(start, end);
+
+  const suppressIndex = fnBody.indexOf("suppressPageInspectionLazyLoading();");
+  const lockWaitIndex = fnBody.indexOf("await waitForPageInspectionLazyLoadingLock(");
+  const scrollEndIndex = fnBody.indexOf("scrollPageInspectionTo(\"end\"");
+
+  assert.ok(suppressIndex > 0, "Expected reveal to suppress lazy loading");
+  assert.ok(lockWaitIndex > suppressIndex, "Lock wait must follow suppression");
+  assert.ok(
+    scrollEndIndex > lockWaitIndex,
+    "Reveal must await the page-world lock before scrolling to end again"
+  );
+});
+
+test("page inspection reveal stops scrolling once the page-world lazy-load lock applies", async () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 1000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 1000;
+  dom.window.innerHeight = 500;
+  let locked = false;
+  const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  dom.window.scrollTo = (xOrOptions, y) => {
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    const maxScrollY = Math.max(0, dom.html.scrollHeight - dom.window.innerHeight);
+    // Each bottom scroll lazy-loads more content until the page-world lock applies.
+    if (actualY >= maxScrollY && !locked) {
+      dom.html.scrollHeight += 1000;
+      dom.body.scrollHeight += 1000;
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        // The suppression lock only applies after the cross-world round-trip
+        // resolves (modeled here as a macrotask), mirroring executeScript(MAIN).
+        if (
+          message
+          && message.command === "setLazyLoadingSuppressed"
+          && message.details
+          && message.details.suppressed === true
+        ) {
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              locked = true;
+              resolve({ ok: true });
+            }, 0);
+          });
+        }
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+
+  try {
+    state.lazyLoadSuppressRestorer = null;
+
+    const inspected = await revealPageContentBeforeMotionPause(
+      "bottom",
+      10,
+      0,
+      () => true,
+      { scrollEndTimeoutMs: 0 }
+    );
+
+    assert.equal(inspected, true);
+    // One lazy load is allowed before the lock applies; the reveal must then stop
+    // instead of scrolling for all 10 passes.
+    assert.ok(
+      dom.scrollCalls.length <= 3,
+      `Expected reveal to stop after the lock applied, saw ${dom.scrollCalls.length} scrolls`
+    );
+    assert.equal(Math.max(...dom.scrollCalls.map((call) => call.y)), 1500);
+    assert.equal(locked, true);
+  } finally {
+    if (typeof state.lazyLoadSuppressRestorer === "function") {
+      state.lazyLoadSuppressRestorer();
+    }
+    state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
+    dom.restore();
+  }
+});
+
 test("page inspection overlay avoids backdrop blur", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
   const start = source.indexOf(`#unfluffify-overlay.\${PAGE_INSPECTION_OVERLAY_CLASS}`);

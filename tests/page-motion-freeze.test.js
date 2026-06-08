@@ -321,6 +321,36 @@ test("page motion freeze can suppress and restore lazy-load listeners and future
   });
 });
 
+test("arm installs the lazy-load interception early and keeps it across suppression toggles", async () => {
+  await withTimerWindow(async ({ windowObject, originalApis, runControl }) => {
+    // Arm (document_start path): wrap the observer constructor up front without
+    // suppressing anything yet.
+    const armResult = runControl({ command: "arm" });
+    assert.equal(armResult.active, true);
+    assert.equal(armResult.lazyLoadingBridgeInitialized, true);
+    assert.equal(armResult.lazyLoadingSuppressed, false);
+    assert.notEqual(windowObject.IntersectionObserver, originalApis.IntersectionObserver);
+
+    const calls = [];
+    const observer = new windowObject.IntersectionObserver(() => calls.push("intersection"));
+    observer.__trigger();
+    assert.deepEqual(calls, ["intersection"]);
+
+    // Suppress: the already-created observer must now be silenced.
+    runControl({ command: "setLazyLoadingSuppressed", suppressed: true });
+    observer.__trigger();
+    assert.deepEqual(calls, ["intersection"]);
+
+    // Unsuppress: armed bridge stays installed (not torn down) for the next reveal.
+    const restored = runControl({ command: "setLazyLoadingSuppressed", suppressed: false });
+    assert.equal(restored.active, true);
+    assert.ok(windowObject[STATE_KEY]);
+    assert.equal(windowObject[STATE_KEY].armed, true);
+    observer.__trigger();
+    assert.deepEqual(calls, ["intersection", "intersection"]);
+  });
+});
+
 test("page motion freeze restores all wrapped APIs when pause and lazy suppression are off", async () => {
   await withTimerWindow(async ({ windowObject, documentObject, originalApis, runControl }) => {
     runControl(true);

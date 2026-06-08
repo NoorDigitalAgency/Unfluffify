@@ -4093,15 +4093,32 @@ function getPageInspectionScrollTarget(target) {
 }
 
 function suppressPageInspectionLazyLoading() {
-  setPageMotionFreezeLazyLoadingSuppressed(true);
+  const applied = setPageMotionFreezeLazyLoadingSuppressed(true);
   let restored = false;
-  return () => {
+  const restore = () => {
     if (restored) {
       return;
     }
     restored = true;
     setPageMotionFreezeLazyLoadingSuppressed(false);
   };
+  // Expose the cross-world apply confirmation so reveal can wait for the lock
+  // to take effect in the page world before scrolling again.
+  restore.lazyLoadingSuppressionApplied =
+    applied && typeof applied.then === "function" ? applied : Promise.resolve();
+  return restore;
+}
+
+async function waitForPageInspectionLazyLoadingLock(restorer) {
+  const applied = restorer && restorer.lazyLoadingSuppressionApplied;
+  if (!applied || typeof applied.then !== "function") {
+    return;
+  }
+  try {
+    await applied;
+  } catch {
+    // Lock confirmation is best-effort; reveal proceeds regardless.
+  }
 }
 
 function notifyPageInspectionProgress(options = {}) {
@@ -4166,6 +4183,12 @@ export async function revealPageContentBeforeMotionPause(
         if (scrollCount === PAGE_INSPECTION_LAZY_LOAD_PHASES && !lazyLoadRestorer && !state.lazyLoadSuppressRestorer) {
           lazyLoadRestorer = suppressPageInspectionLazyLoading();
           state.lazyLoadSuppressRestorer = lazyLoadRestorer;
+          // Wait for the page-world lock to actually apply before scrolling
+          // again; otherwise lazy loading keeps firing for every scroll pass.
+          await waitForPageInspectionLazyLoadingLock(lazyLoadRestorer);
+          if (!isStillCurrent()) {
+            break;
+          }
         }
         notifyPageInspectionProgress(options);
         const scrolled = await scrollPageInspectionTo("end", isStillCurrent, options);
@@ -4405,7 +4428,7 @@ function sendPageMotionFreezeControl(command, details = null) {
     typeof command !== "string" ||
     !command
   ) {
-    return;
+    return Promise.resolve();
   }
   const message = {
     type: "pageMotionFreezeControl",
@@ -4415,9 +4438,12 @@ function sendPageMotionFreezeControl(command, details = null) {
     message.details = details;
   }
   try {
-    utils.sendRuntimeMessage(message).catch(() => {});
+    // The runtime response resolves only after the background relays the command
+    // into the page (MAIN) world, so awaiting this confirms the lock is applied.
+    return utils.sendRuntimeMessage(message).catch(() => {});
   } catch (error) {
     // Best-effort page-world motion control; CSS/Web Animations freezing still applies.
+    return Promise.resolve();
   }
 }
 
@@ -4436,10 +4462,10 @@ function setPageMotionFreezeTimersPaused(paused) {
 function setPageMotionFreezeLazyLoadingSuppressed(suppressed) {
   const shouldSuppress = Boolean(suppressed);
   if (pageMotionFreezeLazyLoadingSuppressed === shouldSuppress) {
-    return;
+    return Promise.resolve();
   }
   pageMotionFreezeLazyLoadingSuppressed = shouldSuppress;
-  sendPageMotionFreezeControl(
+  return sendPageMotionFreezeControl(
     PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED,
     { suppressed: shouldSuppress }
   );
