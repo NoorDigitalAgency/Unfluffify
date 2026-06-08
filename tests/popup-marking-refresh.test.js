@@ -110,7 +110,7 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
   assert.match(popupSource, /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/);
   assert.match(
     popupSource,
-    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!previewCloseMarkingHoldActive &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
+    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!aiComputeRunActive &&\s*!aiPreviewSessionActive &&\s*!previewCloseMarkingHoldActive &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
   );
 });
 
@@ -161,7 +161,10 @@ test("desktop preview is a separate popup section that disables marking entry wh
   )[1];
 
   assert.match(popupSource, /state\.currentDesktopPreviewEnabled = Boolean\(\s*initialTabState && initialTabState\.desktopPreviewEnabled\s*\);/);
-  assert.match(popupSource, /const desktopPreviewVisible = Boolean\(/);
+  assert.match(
+    popupSource,
+    /const desktopPreviewVisible = Boolean\(\s*silentModeActive &&/
+  );
   assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
   assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
   assert.match(popupSource, /nextViewState\.desktopPreviewEnabled = desktopPreviewActive;/);
@@ -310,7 +313,10 @@ test("session save uploads all local page markings while default sync stays back
   const handlePageSaveBody = source.match(
     /async function handlePageSave\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
   )[1];
-  const handlePageRevertBody = source.match(
+  const handlePageRevertHandlerBody = source.match(
+    /async function handlePageRevert\(\) \{([\s\S]*?)\n\}\n\nasync function requestAiRunStart/
+  )[1];
+  const applyLocalPageDiscardBody = source.match(
     /async function applyLocalPageDiscard\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
   )[1];
 
@@ -350,17 +356,18 @@ test("session save uploads all local page markings while default sync stays back
   );
   assert.match(handlePageSaveBody, /await clearCurrentPageSaveReconciliation\(\);/);
   assert.match(
-    handlePageRevertBody,
+    applyLocalPageDiscardBody,
     /const backendSavedPageMarkings = await config\.getBackendSavedPageMarkings\(baseUrl\)/
   );
   assert.match(
-    handlePageRevertBody,
+    applyLocalPageDiscardBody,
     /findBackendSavedPageMarkingEntry\(backendSavedPageMarkings, pageUrl\)/
   );
-  assert.match(handlePageRevertBody, /forceReloadPageEntry: true/);
-  assert.doesNotMatch(handlePageRevertBody, /loadRemoteConfigForCurrentPage/);
-  assert.doesNotMatch(handlePageRevertBody, /validateStoredToken/);
-  assert.match(handlePageRevertBody, /await clearCurrentPageSaveReconciliation\(\);/);
+  assert.match(applyLocalPageDiscardBody, /forceReloadPageEntry: true/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage/);
+  assert.doesNotMatch(applyLocalPageDiscardBody, /validateStoredToken/);
+  assert.match(applyLocalPageDiscardBody, /await clearCurrentPageSaveReconciliation\(\);/);
+  assert.match(handlePageRevertHandlerBody, /if \(!currentViewState\.currentPageHasPendingChanges\) \{/);
   assert.doesNotMatch(handlePageSaveBody, /type: "savePageDraft"/);
 });
 

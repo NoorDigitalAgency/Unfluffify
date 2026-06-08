@@ -108,6 +108,15 @@ Completed in this phase:
       `hadPauseReason`, temporarily calls
       `setPageMotionFreezeTimersPaused(false)` before reveal, and restores pause
       posture via `refreshPageMotionPause()` in `finally`.
+- `popup.js` + `common/page-save-state.js`: split current-page pending state
+      from session-wide pending state for discard logic. Added
+      `currentPageHasPendingChanges` and wired Revert gating/UI to current-page
+      dirtiness (`pageHasPendingChanges`) while preserving session-save gating.
+- `popup.js`: desktop preview visibility now requires `silentModeActive`
+      (no desktop preview control in marking mode after re-enable).
+- Tests: updated/added coverage in `tests/page-save-state.test.js`,
+      `tests/popup-marking-refresh.test.js`, and
+      `tests/device-emulation-lifecycle.test.js`.
 - `tests/core-motion-pause.test.js`: regression assertions updated to enforce
       timer-bridge-only release before reveal and pause-state restoration.
 
@@ -124,6 +133,16 @@ Verification done in this phase:
 - R2 sanity preserved: `drive-seo4.log` still shows
       `render-mode-set-nav-guard-start/observed/clear` and `nav-overlay-end`.
 - R3 sanity preserved: `without-js-spinner-timer.mjs` measured ~7084ms tail.
+- Focused deterministic tests for current pass: `node --test`
+      `tests/page-save-state.test.js`
+      `tests/popup-marking-refresh.test.js`
+      `tests/device-emulation-lifecycle.test.js`
+      `tests/popup-mode-sync.test.js`
+      `tests/ai-run.test.js` -> 96/96 pass.
+- Live strict harness re-check for #15/#19 remains blocked by runtime harness
+      instability in fresh persistent contexts (service-worker bootstrap/popup
+      control availability), so #15/#19 are code-patched but not yet marked
+      live-verified in this pass.
 
 SESSION 3 root-cause lead remains superseded by live fix data:
 - `activateContentMain` was not the blocker in the verified repro path
@@ -346,13 +365,22 @@ Regressions reported during this sprint:
 
 ## Priority order for remaining work
 
-1. #18 temp changes not discarded on enable after silent landing.
-2. #15 saved data used on enable -> wrong dirty/discard state.
-3. #19 preview in desktop mode shown after silent landing.
-4. #14 preview in desktop mode visibility/enable/note rules.
-5. #10, #11, #12 property-lock countdown/lock-loss loop.
-6. #4 spinner text sync (low), then #20 trace toggle mismatch.
-7. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
+1. #15 saved data used on enable -> wrong dirty/discard state.
+2. #19 preview in desktop mode shown after silent landing (paired with #14).
+3. #14 preview in desktop mode visibility/enable/note rules.
+4. #10, #11, #12 property-lock countdown/lock-loss loop.
+5. #4 spinner text sync (low), then #20 trace toggle mismatch.
+6. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
+
+Autonomous checkpoint (2026-06-08):
+- #17 follow-up root cause fixed in `content-main.js` (`configUpdated` now
+      preserves active preview restore intent during compute-lock transitions).
+- #18 strict real-flow repro no longer lands in silent mode after preview close
+      (`tmp-run-ai-close-debug.mjs` + `run-ai-completion-preview-exit-check.mjs`).
+      Treat #18 as resolved by #17 follow-up unless a fresh live repro appears.
+- #15 remains open: autonomous repro did not produce a stable candidate-controls
+      baseline for clean dirty-state assertion in this environment; schedule a
+      human-assisted run on a known candidate URL with known saved backend baseline.
 
 ## Verified-fix log (all live-verified)
 

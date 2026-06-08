@@ -179,6 +179,15 @@ test("desktop preview section has a section-divider and uses the correct icon an
   assert.match(sectionBody, /mobileSimulationHotkey/);
 });
 
+test("desktop preview visibility is gated by silent mode", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const desktopPreviewVisible = Boolean\(\s*silentModeActive &&[\s\S]*?hasStoredSelectors/
+  );
+});
+
 test("content main registers general page activity listeners for 30-min inactivity reset", () => {
   const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
   const mainStart = source.indexOf("export function main()");

@@ -1755,6 +1755,26 @@ function hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarking
   return !arePageMarkingSnapshotsEqual(localPageMarkings, backendSavedPageMarkings);
 }
 
+function getNormalizedPageMarkingSnapshotEntry(pageMarkings, pageUrl) {
+  const normalizedTargetUrl = normalizeCandidatePageUrl(pageUrl);
+  if (!normalizedTargetUrl) {
+    return null;
+  }
+  const entry = findBackendSavedPageMarkingEntry(pageMarkings, normalizedTargetUrl);
+  if (!entry) {
+    return null;
+  }
+  const snapshot = createNormalizedPageMarkingsSnapshot({
+    [normalizedTargetUrl]: entry
+  });
+  return snapshot[normalizedTargetUrl] || null;
+}
+
+function hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, pageUrl) {
+  return JSON.stringify(getNormalizedPageMarkingSnapshotEntry(localPageMarkings, pageUrl)) !==
+    JSON.stringify(getNormalizedPageMarkingSnapshotEntry(backendSavedPageMarkings, pageUrl));
+}
+
 function getLatestPageMarkingTimestamp(pageMarkings) {
   let latestTimestamp = config.PAGE_TIMESTAMP_FALLBACK;
   Object.values(createNormalizedPageMarkingsSnapshot(pageMarkings)).forEach((entry) => {
@@ -1790,6 +1810,14 @@ function hasSessionPendingChanges(sourceConfig, localPageMarkings, backendSavedP
     options.currentDraftDirty ||
       options.reconciliationPending ||
       hasSessionPageMarkingChanges(localPageMarkings, backendSavedPageMarkings)
+  );
+}
+
+function hasCurrentPagePendingChanges(localPageMarkings, backendSavedPageMarkings, options = {}) {
+  return Boolean(
+    options.currentDraftDirty ||
+      options.reconciliationPending ||
+      hasCurrentPageMarkingChanges(localPageMarkings, backendSavedPageMarkings, options.pageUrl)
   );
 }
 
@@ -2401,6 +2429,7 @@ function startAiRunCountdownTimer() {
 function resetAiRunState() {
   clearAiRunTimers();
   state.aiRequestInFlight = null;
+  state.aiComputeStartPending = false;
   state.aiRunPhase = "";
   state.aiRunSessionId = "";
   state.aiRunSiteId = "";
@@ -2417,6 +2446,7 @@ function setAiRunActiveState({
   resumed = false,
   phase = "starting"
 } = {}) {
+  state.aiComputeStartPending = false;
   state.aiRequestInFlight = "compute";
   state.aiRunPhase = phase;
   state.aiRunSessionId = sessionId;
@@ -2441,7 +2471,8 @@ async function syncAiComputeLock(active, expiresAt = 0) {
     type: "setAiComputeLockForTab",
     tabId: getCurrentPopupTabId(),
     active: Boolean(active),
-    expiresAt
+    expiresAt,
+    baseUrl: state.currentBaseUrl || ""
   });
   return Boolean(response && response.ok);
 }
@@ -2454,6 +2485,9 @@ async function refreshAiRunHeartbeat(options = {}) {
   const deadlineAt = Number.isFinite(options.deadlineAt)
     ? options.deadlineAt
     : state.aiRunDeadlineAt;
+  const baseUrl = typeof options.baseUrl === "string"
+    ? options.baseUrl
+    : state.currentBaseUrl || "";
   if (!sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
     return null;
   }
@@ -2466,7 +2500,8 @@ async function refreshAiRunHeartbeat(options = {}) {
     tabId,
     sessionId,
     siteId,
-    deadlineAt
+    deadlineAt,
+    baseUrl
   });
   if (!response || !response.ok || !Number.isFinite(Number(response.expiresAt))) {
     return null;
@@ -4124,6 +4159,8 @@ async function refreshUiInner(options = {}) {
     (initialTabState && initialTabState.active) ||
       utils.getOriginFromUrl(pageUrl)
   );
+  const aiComputeRunActive =
+    state.aiRequestInFlight === "compute" || state.aiComputeStartPending;
   state.currentDesktopPreviewEnabled = Boolean(
     initialTabState && initialTabState.desktopPreviewEnabled
   );
@@ -4162,6 +4199,7 @@ async function refreshUiInner(options = {}) {
     previewFocusedXpath,
     previewShowAllCategories
   } = buildPreviewViewState(previewState);
+  const aiPreviewSessionActive = Boolean(previewActive);
   let localMatchingBaseUrl = utils.findMatchingBaseUrl(pageUrl, configs);
   let hasLocalConfigForWebsite = Boolean(localMatchingBaseUrl);
   let discoveredBaseUrlFromGraphql = "";
@@ -4170,10 +4208,20 @@ async function refreshUiInner(options = {}) {
   let unsupportedByGraphql = false;
   let remoteLoadResult = { status: "skipped", baseUrl: "" };
   let effectiveTabState = tabState;
+  if ((aiComputeRunActive || aiPreviewSessionActive) && tabInScope) {
+    const preservedBaseUrl = tabState.baseUrl || state.currentBaseUrl || "";
+    effectiveTabState = {
+      ...tabState,
+      enabled: preservedBaseUrl ? true : Boolean(tabState.enabled),
+      baseUrl: preservedBaseUrl
+    };
+  }
   let propertyPageTypes = [];
   let propertyPageTypesFetchError = "";
   let propertyPageTypesLoaded = false;
   if (
+    !aiComputeRunActive &&
+    !aiPreviewSessionActive &&
     tabInScope &&
     tabState.baseUrl &&
     pageUrl &&
@@ -4345,6 +4393,8 @@ async function refreshUiInner(options = {}) {
   if (
     remoteLoadResult &&
     remoteLoadResult.status === "not_found" &&
+    !aiComputeRunActive &&
+    !aiPreviewSessionActive &&
     effectiveTabState.baseUrl &&
     !hasLocalConfigForWebsite &&
     !currentSiteId
@@ -4360,7 +4410,7 @@ async function refreshUiInner(options = {}) {
     currentSiteId = null;
     siteIdBlockedReason = "";
   }
-  if (unsupportedByGraphql) {
+  if (unsupportedByGraphql && !aiComputeRunActive && !aiPreviewSessionActive) {
     if (effectiveTabState.enabled) {
       effectiveTabState = { ...effectiveTabState, enabled: false, baseUrl: "" };
       await messages.setTabState(state.currentTab.id, effectiveTabState);
@@ -4533,6 +4583,9 @@ async function refreshUiInner(options = {}) {
     }
   }
   let contentModeStatus = null;
+  const previewCloseMarkingHoldActive = Boolean(
+    state.aiPreviewMarkingRestoreDeadlineAt > Date.now()
+  );
   if (currentTabId && tabInScope && state.currentBaseUrl) {
     contentModeStatus = await messages.sendTabMessageToTab(currentTabId, {
       type: "getInspectionStatus"
@@ -4545,6 +4598,17 @@ async function refreshUiInner(options = {}) {
   );
   if (contentModeKnown) {
     const contentMarkingEnabled = Boolean(contentModeStatus.markingEnabled);
+    const preserveEnabledDuringPreviewCloseRestore = Boolean(
+      previewCloseMarkingHoldActive &&
+      tabInScope &&
+      !contentMarkingEnabled
+    );
+    const preserveEnabledDuringAiComputeRun = Boolean(
+      (aiComputeRunActive || aiPreviewSessionActive) &&
+      tabInScope &&
+      Boolean(state.currentBaseUrl || effectiveTabState.baseUrl) &&
+      !contentMarkingEnabled
+    );
     const shouldPreserveEnabledDuringReactivation = Boolean(
       effectiveTabState.enabled &&
         !contentMarkingEnabled &&
@@ -4553,7 +4617,11 @@ async function refreshUiInner(options = {}) {
           contentModeStatus.renderModeInspectionActive)
     );
     if (contentMarkingEnabled !== Boolean(effectiveTabState.enabled) && currentTabId) {
-      if (!shouldPreserveEnabledDuringReactivation) {
+      if (
+        !shouldPreserveEnabledDuringReactivation &&
+        !preserveEnabledDuringPreviewCloseRestore &&
+        !preserveEnabledDuringAiComputeRun
+      ) {
         effectiveTabState = {
           ...effectiveTabState,
           enabled: contentMarkingEnabled,
@@ -4565,14 +4633,19 @@ async function refreshUiInner(options = {}) {
         clearLastPopupEnabled();
       }
     }
-    toggleEnabled = shouldPreserveEnabledDuringReactivation
-      ? Boolean(effectiveTabState.enabled)
-      : contentMarkingEnabled;
+    if (preserveEnabledDuringPreviewCloseRestore || preserveEnabledDuringAiComputeRun) {
+      toggleEnabled = true;
+    } else {
+      toggleEnabled = shouldPreserveEnabledDuringReactivation
+        ? Boolean(effectiveTabState.enabled)
+        : contentMarkingEnabled;
+    }
   }
-  const previewCloseMarkingHoldActive = Boolean(
-    state.aiPreviewMarkingRestoreDeadlineAt > Date.now()
-  );
-  if (!contentModeKnown && previewCloseMarkingHoldActive && tabInScope) {
+  if (
+    tabInScope &&
+    (previewCloseMarkingHoldActive || aiComputeRunActive || aiPreviewSessionActive) &&
+    (!contentModeKnown || !toggleEnabled)
+  ) {
     toggleEnabled = true;
   }
   const contentMarkingModeActive = Boolean(
@@ -5024,6 +5097,8 @@ async function refreshUiInner(options = {}) {
   if (
     tabInScope &&
     toggleEnabled &&
+    !aiComputeRunActive &&
+    !aiPreviewSessionActive &&
     !previewCloseMarkingHoldActive &&
     !navigationInspectionPending &&
     (!siteIdReady || !renderModeReady || pageTypeUiBlocked) &&
@@ -5122,6 +5197,15 @@ async function refreshUiInner(options = {}) {
       reconciliationPending: pageSaveReconciliationPending
     }
   );
+  const currentPageHasPendingChanges = hasCurrentPagePendingChanges(
+    pageMarkings,
+    backendSavedPageMarkings,
+    {
+      pageUrl,
+      currentDraftDirty: state.currentDraftDirty,
+      reconciliationPending: pageSaveReconciliationPending
+    }
+  );
   const sessionRequiresAiRun = doesSessionRequireAiRun(
     state.currentConfig,
     pageMarkings,
@@ -5195,6 +5279,7 @@ async function refreshUiInner(options = {}) {
     renderModeReady &&
     !isEnabled;
   const desktopPreviewVisible = Boolean(
+    silentModeActive &&
     currentTabId &&
     tabInScope &&
     state.currentConfig &&
@@ -5257,6 +5342,7 @@ async function refreshUiInner(options = {}) {
   nextViewState.lynxChecklistAiQuestionHidden = Boolean(state.lynxChecklistAiQuestionHidden);
   nextViewState.lynxChecklistNoticeText = state.lynxChecklistNoticeText || "";
   nextViewState.sessionHasPendingChanges = sessionHasPendingChanges;
+  nextViewState.currentPageHasPendingChanges = currentPageHasPendingChanges;
   nextViewState.sessionRequiresAiRun = sessionRequiresAiRun;
   nextViewState.renderModeInputDisabled =
     aiBusy ||
@@ -5388,6 +5474,7 @@ async function refreshUiInner(options = {}) {
   const pageSaveUiState = buildPageSaveUiState({
     pageControlsVisible,
     sessionHasPendingChanges,
+    pageHasPendingChanges: currentPageHasPendingChanges,
     sessionRequiresAiRun,
     reconciliation: state.currentPageSaveReconciliation
   });
@@ -7839,7 +7926,7 @@ async function handlePageRevert() {
     return;
   }
   const currentViewState = uiModule.getViewState();
-  if (!currentViewState.sessionHasPendingChanges) {
+  if (!currentViewState.currentPageHasPendingChanges) {
     uiModule.showToast(PopupText.page.noChangesToSave);
     return;
   }
@@ -8070,7 +8157,7 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
 }
 
 async function handleComputeSelectors() {
-  if (state.aiRequestInFlight) {
+  if (state.aiRequestInFlight || state.aiComputeStartPending) {
     return;
   }
   if (!await helpers.ensureActiveTab({ requireId: true })) {
@@ -8083,160 +8170,165 @@ async function handleComputeSelectors() {
     uiModule.showToast(PopupText.renderMode.toastConfirmBeforeUsingAi);
     return;
   }
-  await refreshCurrentPageRuntimeStatus();
-  if (state.currentPageSaveReconciliationPending) {
-    uiModule.showToast(PopupText.page.statusServerSyncPending);
-    return;
-  }
-  const credentials = await helpers.requireAiCredentials();
-  if (!credentials) {
-    return;
-  }
-  const { endpointValue, tokenValue } = credentials;
-
-  state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-  const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
-  if (!currentPageUrl) {
-    uiModule.showToast(PopupText.ai.currentPageUnavailable);
-    return;
-  }
-  let pageMarkings = state.currentConfig.pageMarkings || {};
-  let currentPageEntry = pageMarkings[currentPageUrl];
-  const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
-  const hasCurrentSubmissionXpaths =
-    Array.isArray(currentPageEntry && currentPageEntry.submissionXpaths) &&
-    currentPageEntry.submissionXpaths.length > 0;
-  const currentPageHtml =
-    currentPageEntry && typeof currentPageEntry.renderedHtml === "string"
-      ? currentPageEntry.renderedHtml
-      : "";
-  const currentPageNeedsSnapshot =
-    state.currentDraftDirty ||
-    !currentPageEntry ||
-    typeof currentPageEntry !== "object" ||
-    !currentPageHtml ||
-    !hasCurrentSubmissionXpaths;
-  if (currentPageNeedsSnapshot && !ensureMobileSimulationForSave()) {
-    return;
-  }
-
-  const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
-  const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
-  setAiRunActiveState({
-    siteId,
-    deadlineAt,
-    resumed: false,
-    phase: "starting"
-  });
-  await waitForPopupUiPaint();
+  state.aiComputeStartPending = true;
   try {
-    const initialLockExpiresAt = getAiRunResumeExpiresAt();
-    state.aiRunResumeExpiresAt = initialLockExpiresAt;
-    const initialLockApplied = await syncAiComputeLock(true, initialLockExpiresAt);
-    if (!initialLockApplied) {
-      await failAiRun(PopupText.ai.runFailed);
+    await refreshCurrentPageRuntimeStatus();
+    if (state.currentPageSaveReconciliationPending) {
+      uiModule.showToast(PopupText.page.statusServerSyncPending);
       return;
     }
-    await waitForPopupUiPaint();
+    const credentials = await helpers.requireAiCredentials();
+    if (!credentials) {
+      return;
+    }
+    const { endpointValue, tokenValue } = credentials;
 
-    if (currentPageNeedsSnapshot) {
-      const snapshotResponse = await messages.sendTabMessage({
-        type: "capturePageSnapshot",
-        baseUrl: state.currentBaseUrl,
-        pageType: state.currentPageTypeKey || "",
-        persist: true
-      });
-      if (!snapshotResponse || !snapshotResponse.ok) {
-        await failAiRun(getAiSnapshotFailureMessage(snapshotResponse));
-        return;
-      }
-      state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-      pageMarkings = state.currentConfig.pageMarkings || {};
-      currentPageEntry = pageMarkings[currentPageUrl];
-      if (
-        !currentPageEntry ||
-        typeof currentPageEntry !== "object" ||
-        typeof currentPageEntry.renderedHtml !== "string" ||
-        !currentPageEntry.renderedHtml ||
-        !Array.isArray(currentPageEntry.submissionXpaths) ||
-        currentPageEntry.submissionXpaths.length === 0
-      ) {
-        await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-        return;
-      }
+    state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+    const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
+    if (!currentPageUrl) {
+      uiModule.showToast(PopupText.ai.currentPageUnavailable);
+      return;
+    }
+    let pageMarkings = state.currentConfig.pageMarkings || {};
+    let currentPageEntry = pageMarkings[currentPageUrl];
+    const currentRenderMode = config.getConfigRenderMode(state.currentConfig);
+    const hasCurrentSubmissionXpaths =
+      Array.isArray(currentPageEntry && currentPageEntry.submissionXpaths) &&
+      currentPageEntry.submissionXpaths.length > 0;
+    const currentPageHtml =
+      currentPageEntry && typeof currentPageEntry.renderedHtml === "string"
+        ? currentPageEntry.renderedHtml
+        : "";
+    const currentPageNeedsSnapshot =
+      state.currentDraftDirty ||
+      !currentPageEntry ||
+      typeof currentPageEntry !== "object" ||
+      !currentPageHtml ||
+      !hasCurrentSubmissionXpaths;
+    if (currentPageNeedsSnapshot && !ensureMobileSimulationForSave()) {
+      return;
     }
 
-    const preparedPayload = await messages.sendRuntimeMessage({
-      type: "prepareAiRunPayloadSnapshot",
-      baseUrl: state.currentBaseUrl,
-      currentPageUrl,
-      currentRenderMode
+    const siteId = normalizeSiteIdValue(state.currentSiteId || (state.currentConfig && state.currentConfig.siteId));
+    const deadlineAt = Date.now() + AI_RUN_TIMEOUT_MS;
+    setAiRunActiveState({
+      siteId,
+      deadlineAt,
+      resumed: false,
+      phase: "starting"
     });
-    if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
-      if (preparedPayload && preparedPayload.reason === "missing_current_page") {
-        await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-        return;
-      }
-      if (preparedPayload && preparedPayload.reason === "missing_saved_pages") {
-        await failAiRun(PopupText.ai.savePagesBeforeComputing);
-        return;
-      }
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    let startPayloadKey = preparedPayload.payloadKey;
-    if (preparedPayload.requiresRawXPathRefinement) {
-      const payloadStore = await utils.storageGet(chrome.storage.session, preparedPayload.payloadKey).catch(() => ({}));
-      const payload = payloadStore && typeof payloadStore === "object"
-        ? payloadStore[preparedPayload.payloadKey]
-        : null;
-      await utils.storageRemove(chrome.storage.session, preparedPayload.payloadKey).catch(() => null);
-      if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
+    await waitForPopupUiPaint();
+    try {
+      const initialLockExpiresAt = getAiRunResumeExpiresAt();
+      state.aiRunResumeExpiresAt = initialLockExpiresAt;
+      const initialLockApplied = await syncAiComputeLock(true, initialLockExpiresAt);
+      if (!initialLockApplied) {
         await failAiRun(PopupText.ai.runFailed);
         return;
       }
-      const refinedPayload = {
-        ...payload,
-        pages: payload.pages.map((page) => {
-          const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
-          const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-          const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
-          return {
-            ...page,
-            rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
-          };
-        })
-      };
-      startPayloadKey = buildRemoteConfigTransferKey("ai-run-start-refined");
-      await utils.storageSet(chrome.storage.session, { [startPayloadKey]: refinedPayload });
-    }
-    const startResult = await requestAiRunStart({
-      endpointValue,
-      tokenValue,
-      payloadKey: startPayloadKey
-    });
-    if (!startResult.ok || !startResult.sessionId) {
+      await waitForPopupUiPaint();
+
+      if (currentPageNeedsSnapshot) {
+        const snapshotResponse = await messages.sendTabMessage({
+          type: "capturePageSnapshot",
+          baseUrl: state.currentBaseUrl,
+          pageType: state.currentPageTypeKey || "",
+          persist: true
+        });
+        if (!snapshotResponse || !snapshotResponse.ok) {
+          await failAiRun(getAiSnapshotFailureMessage(snapshotResponse));
+          return;
+        }
+        state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
+        pageMarkings = state.currentConfig.pageMarkings || {};
+        currentPageEntry = pageMarkings[currentPageUrl];
+        if (
+          !currentPageEntry ||
+          typeof currentPageEntry !== "object" ||
+          typeof currentPageEntry.renderedHtml !== "string" ||
+          !currentPageEntry.renderedHtml ||
+          !Array.isArray(currentPageEntry.submissionXpaths) ||
+          currentPageEntry.submissionXpaths.length === 0
+        ) {
+          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+          return;
+        }
+      }
+
+      const preparedPayload = await messages.sendRuntimeMessage({
+        type: "prepareAiRunPayloadSnapshot",
+        baseUrl: state.currentBaseUrl,
+        currentPageUrl,
+        currentRenderMode
+      });
+      if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
+        if (preparedPayload && preparedPayload.reason === "missing_current_page") {
+          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
+          return;
+        }
+        if (preparedPayload && preparedPayload.reason === "missing_saved_pages") {
+          await failAiRun(PopupText.ai.savePagesBeforeComputing);
+          return;
+        }
+        await failAiRun(PopupText.ai.runFailed);
+        return;
+      }
+      let startPayloadKey = preparedPayload.payloadKey;
+      if (preparedPayload.requiresRawXPathRefinement) {
+        const payloadStore = await utils.storageGet(chrome.storage.session, preparedPayload.payloadKey).catch(() => ({}));
+        const payload = payloadStore && typeof payloadStore === "object"
+          ? payloadStore[preparedPayload.payloadKey]
+          : null;
+        await utils.storageRemove(chrome.storage.session, preparedPayload.payloadKey).catch(() => null);
+        if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
+          await failAiRun(PopupText.ai.runFailed);
+          return;
+        }
+        const refinedPayload = {
+          ...payload,
+          pages: payload.pages.map((page) => {
+            const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
+            const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
+            const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
+            return {
+              ...page,
+              rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
+            };
+          })
+        };
+        startPayloadKey = buildRemoteConfigTransferKey("ai-run-start-refined");
+        await utils.storageSet(chrome.storage.session, { [startPayloadKey]: refinedPayload });
+      }
+      const startResult = await requestAiRunStart({
+        endpointValue,
+        tokenValue,
+        payloadKey: startPayloadKey
+      });
+      if (!startResult.ok || !startResult.sessionId) {
+        await failAiRun(PopupText.ai.runFailed);
+        return;
+      }
+      state.aiRunSessionId = startResult.sessionId;
+      state.aiRunPhase = "running";
+      const heartbeat = await refreshAiRunHeartbeat({
+        sessionId: startResult.sessionId,
+        siteId,
+        deadlineAt
+      });
+      if (!heartbeat) {
+        await failAiRun(PopupText.ai.runFailed);
+        return;
+      }
+      await continueAiRunPolling({
+        endpointValue,
+        tokenValue,
+        currentPageUrl
+      });
+    } catch {
       await failAiRun(PopupText.ai.runFailed);
-      return;
     }
-    state.aiRunSessionId = startResult.sessionId;
-    state.aiRunPhase = "running";
-    const heartbeat = await refreshAiRunHeartbeat({
-      sessionId: startResult.sessionId,
-      siteId,
-      deadlineAt
-    });
-    if (!heartbeat) {
-      await failAiRun(PopupText.ai.runFailed);
-      return;
-    }
-    await continueAiRunPolling({
-      endpointValue,
-      tokenValue,
-      currentPageUrl
-    });
-  } catch {
-    await failAiRun(PopupText.ai.runFailed);
+  } finally {
+    state.aiComputeStartPending = false;
   }
 }
 
@@ -9089,6 +9181,14 @@ async function init() {
       (async () => {
         try {
           setPreviewBlocked(false);
+          if (message.markingEnabled) {
+            clearLastPopupEnabled();
+            uiModule.setViewState({
+              toggleEnabled: true,
+              mainUiHidden: false,
+              silentModeActive: false
+            });
+          }
           await refreshUi();
         } catch {
           setPreviewBlocked(false);

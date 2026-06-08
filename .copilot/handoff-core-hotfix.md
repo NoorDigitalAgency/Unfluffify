@@ -282,7 +282,17 @@ Cluster 2 - silent highlight / preview:
   rows, 0 non-renderable rows.
 
 Cluster 3 - mode transitions / temporary state reset:
-- #15 saved data used on enable -> dirty/discard wrong .... OPEN
+- #15 saved data used on enable -> dirty/discard wrong .... PATCHED (live
+  verification blocked in current harness environment).
+  Code changes (2026-06-08): popup now tracks `currentPageHasPendingChanges`
+  separately from session-wide pending state. Revert gating and page-save UI
+  discard state now use current-page pending (`buildPageSaveUiState`
+  `pageHasPendingChanges` + `handlePageRevert` guard), preventing stale
+  session-level dirtiness from keeping Discard enabled on a clean current page.
+  Deterministic validation: focused node tests pass (96/96), including new
+  page-save-state coverage for session-dirty/current-page-clean behavior.
+  Remaining: rerun strict real-flow harness once service-worker/popup bootstrap
+  instability in fresh persistent contexts is resolved.
 - #17 exit AI content list -> silent mode, cannot save (VERY HIGH) . FIXED +
   live-verified (2026-06-08). Root cause: popup preview-close reconciliation
   could transiently miss authoritative marking restoration and fall back to
@@ -294,9 +304,31 @@ Cluster 3 - mode transitions / temporary state reset:
   Live probe (`preview-close-popup-state-check.mjs`): pre-fix after-close-short
   popup toggle=false with content marking=true; post-fix popup toggle=true with
   content marking=true.
-- #18 enable after that silent landing -> only Run AI/Discard enabled
-       (temp changes not discarded) ........................ OPEN
-- #19 "Preview in desktop mode" shown after that flow ...... OPEN (see #14)
+  - #17 follow-up root cause (Run AI completion path) . FIXED + live-verified
+    (2026-06-08). `content-main.js` `configUpdated` could run its non-enabled
+    branch during `compute_lock` and clear preview restore intent
+    (`clearAiPreviewState`) right before `showAiPreview`, dropping
+    `previousEnabled/restoreMarkingOnExit`. Fix: when `aiPreviewState.active`,
+    `configUpdated` now refreshes config only and never clears/disables; the
+    accidental duplicate preview guard in `capturePageSnapshot` was removed.
+    Validation: real `run-ai-completion-preview-exit-check.mjs` and patched
+    `tmp-run-ai-close-debug.mjs` both preserve `previousEnabled:true` and
+    restore marking after close.
+  - #18 enable after that silent landing -> only Run AI/Discard enabled
+     (temp changes not discarded) ........................ NO LONGER REPRO in
+    the strict top-frame Run AI completion flow after #17 follow-up. The
+    prerequisite silent landing no longer occurs (`tmp-run-ai-close-debug.mjs`:
+    `LONG_STATUS.markingEnabled:true`, `LONG_UI.toggleChecked:true`). Keep
+    watch, but this is treated as resolved by #17 follow-up unless a new live
+    repro appears.
+  - #19 "Preview in desktop mode" shown after that flow ...... PATCHED (live
+    verification blocked in current harness environment).
+    Code changes (2026-06-08): `popup.js` now shows desktop preview controls
+    only in silent mode (`desktopPreviewVisible` gated by `silentModeActive`),
+    matching #14/#19 intent and preventing visibility in marking mode after
+    re-enable. Deterministic validation: focused node tests pass (96/96), with
+    added assertions in `tests/device-emulation-lifecycle.test.js` and
+    `tests/popup-marking-refresh.test.js`.
 
 Cluster 4 - property-lock countdown / lock-loss loop:
 - #10 "return within XXs" resets to 30 after 0 and loops ... OPEN
@@ -539,3 +571,14 @@ Latest phase decision (updated 2026-06-08):
 - Keep fixes minimal and deterministic; prefer authoritative state reconciliation
   over fixed-time give-ups (the #2 bug was exactly a premature give-up).
 - Do not weaken the locked marking contract.
+
+Latest autonomous pass note (2026-06-08, post-#17 follow-up):
+- #17 real-flow regression is fixed in both the strict completion harness and
+  the previously failing debug harness after frame-targeting correction.
+- #18 could not be reproduced anymore in the exact Run AI completion path.
+- #15/#19 received targeted code fixes with focused test coverage, but strict
+  live re-verification is currently blocked by harness environment instability:
+  fresh persistent contexts intermittently fail to bootstrap a usable popup/
+  service-worker flow (`serviceworker` timeout or popup compute-controls absent),
+  so the exact end-to-end Run AI completion assertion for these two issues is
+  still pending a stable repro session.

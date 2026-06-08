@@ -76,7 +76,7 @@ export function sendTabMessage(message) {
       resolve(null);
       return;
     }
-    chrome.tabs.sendMessage(state.currentTab.id, message, (response) => {
+    chrome.tabs.sendMessage(state.currentTab.id, message, { frameId: 0 }, (response) => {
       if (chrome.runtime.lastError) {
         logPopupMessageTrace("tab:error", {
           tabId: state.currentTab.id,
@@ -106,7 +106,7 @@ export function sendTabMessageToTab(tabId, message) {
       tabId,
       type: message && message.type ? message.type : ""
     });
-    chrome.tabs.sendMessage(tabId, message, (response) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (response) => {
       if (chrome.runtime.lastError) {
         logPopupMessageTrace("tab:error", {
           tabId,

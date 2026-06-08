@@ -120,6 +120,19 @@ test("enables save and discard when the session is ready to sync", () => {
   assert.equal(state.pageSessionNoticeVisible, false);
 });
 
+test("keeps session save available while disabling discard when only another page is dirty", () => {
+  const state = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    pageHasPendingChanges: false,
+    sessionRequiresAiRun: false,
+    reconciliation: null
+  });
+
+  assert.equal(state.pageSaveDisabled, false);
+  assert.equal(state.pageRevertDisabled, true);
+});
+
 test("clears status text when page controls are hidden", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: false,

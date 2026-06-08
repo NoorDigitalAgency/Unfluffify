@@ -107,3 +107,51 @@ test("content preview close notification includes restored marking state", () =>
     /chrome\.runtime\.sendMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: Boolean\(state\.enabled\)/
   );
 });
+
+test("content preview exit recovers marking base URL when preview state captured an empty base URL", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const shouldRestoreMarking = Boolean\([\s\S]*?restoreState\.previousEnabled \|\| restoreState\.restoreMarkingOnExit[\s\S]*?\);/
+  );
+  assert.match(
+    source,
+    /let restoredBaseUrl = restoreState\.previousBaseUrl \|\| state\.baseUrl \|\| "";/
+  );
+  assert.match(
+    source,
+    /if \([\s\S]*?shouldRestoreMarking[\s\S]*?!restoredBaseUrl \|\| !utils\.isPageWithinBaseUrl\(location\.href, restoredBaseUrl\)[\s\S]*?\) \{[\s\S]*?restoredBaseUrl = await resolveBaseUrlForCurrentPage\(\);/
+  );
+  assert.match(
+    source,
+    /if \(shouldRestoreMarking && restoredBaseUrl\) \{[\s\S]*?await core\.enableForBaseUrl\(restoredBaseUrl, \{/
+  );
+});
+
+test("compute-lock preview pins marking restore intent and preserves enabled tab state", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(source, /restoreMarkingOnExit: false,/);
+  assert.match(
+    source,
+    /const restoreMarkingOnExit = nextMode === "compute_lock";/
+  );
+  assert.match(
+    source,
+    /if \(restoreMarkingOnExit\) \{[\s\S]*?aiPreviewState\.restoreMarkingOnExit = true;[\s\S]*?\}/
+  );
+  assert.match(
+    source,
+    /if \(aiPreviewState\.restoreMarkingOnExit\) \{[\s\S]*?type: "setTabState",[\s\S]*?enabled: true,[\s\S]*?baseUrl: lockedBaseUrl/
+  );
+});
+
+test("content-main keeps preview restore state when config updates during AI preview", () => {
+  const source = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /if \(message\.type === "configUpdated"\) \{[\s\S]*?if \(aiPreviewState\.active\) \{[\s\S]*?core\.loadConfig\(message\.baseUrl\)\.then\(\(loadedConfig\) => \{[\s\S]*?state\.config = loadedConfig;[\s\S]*?sendResponse\(\{ ok: true \}\);[\s\S]*?return true;/
+  );
+});

@@ -180,6 +180,7 @@ const initialViewState = {
   aiDirtyNoticeText: PopupText.ai.dirtyNotice,
   silentModeActive: false,
   sessionHasPendingChanges: false,
+  currentPageHasPendingChanges: false,
   sessionRequiresAiRun: false,
   pageSaveMobileSimulationRequiredVisible: false,
   pageSaveMobileSimulationRequiredText: "",

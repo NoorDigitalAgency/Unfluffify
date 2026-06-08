@@ -28,6 +28,7 @@ export function buildPageSaveUiState(options = {}) {
   const {
     pageControlsVisible = false,
     sessionHasPendingChanges = false,
+    pageHasPendingChanges = sessionHasPendingChanges,
     sessionRequiresAiRun = false,
     reconciliation = null
   } = options;
@@ -46,7 +47,7 @@ export function buildPageSaveUiState(options = {}) {
   const pageRevertDisabled =
     !pageControlsVisible ||
     pageSaveReconciliationPending ||
-    !sessionHasPendingChanges;
+    !pageHasPendingChanges;
 
   let pageDraftStatusText = "";
   let pageDraftStatusTone = "muted";

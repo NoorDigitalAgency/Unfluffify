@@ -253,6 +253,7 @@ function createAiPreviewState() {
     itemXpathSet: new Set(),
     focusedXpath: "",
     previousEnabled: false,
+    restoreMarkingOnExit: false,
     previousBaseUrl: "",
     previousPageUrl: "",
     previousDraftEntry: null,
@@ -4441,7 +4442,11 @@ function clearAiPreviewState() {
 }
 
 function restoreAiPreviewDraftState(restoreState) {
-  if (!restoreState || !restoreState.previousEnabled || !state.config) {
+  if (
+    !restoreState ||
+    !(restoreState.previousEnabled || restoreState.restoreMarkingOnExit) ||
+    !state.config
+  ) {
     return;
   }
   const pageUrl = restoreState.previousPageUrl || "";
@@ -4482,6 +4487,7 @@ function scheduleAiComputeLockRelease(expiresAt) {
 
 function beginAiPreviewMode(options = {}) {
   const nextMode = typeof options.mode === "string" ? options.mode : "preview";
+  const restoreMarkingOnExit = nextMode === "compute_lock";
   if (!aiPreviewState.active) {
     const previousPageUrl = location.href;
     aiPreviewState = {
@@ -4494,6 +4500,7 @@ function beginAiPreviewMode(options = {}) {
       itemXpathSet: new Set(),
       focusedXpath: "",
       previousEnabled: Boolean(state.enabled),
+      restoreMarkingOnExit,
       previousBaseUrl: state.baseUrl || "",
       previousPageUrl,
       previousDraftEntry: core.clonePageEntry(core.getDraftPageEntry(previousPageUrl)),
@@ -4502,6 +4509,9 @@ function beginAiPreviewMode(options = {}) {
     };
   } else {
     aiPreviewState.mode = nextMode;
+    if (restoreMarkingOnExit) {
+      aiPreviewState.restoreMarkingOnExit = true;
+    }
   }
 
   if (nextMode !== "compute_lock" && aiComputeLockReleaseTimer) {
@@ -4511,6 +4521,17 @@ function beginAiPreviewMode(options = {}) {
 
   if (aiPreviewState.previousEnabled && state.enabled) {
     core.disable();
+  }
+  if (aiPreviewState.restoreMarkingOnExit) {
+    const lockedBaseUrl = aiPreviewState.previousBaseUrl || state.baseUrl || "";
+    if (lockedBaseUrl) {
+      void utils.sendRuntimeMessage({
+        type: "setTabState",
+        enabled: true,
+        baseUrl: lockedBaseUrl,
+        pageType: state.currentPageType || ""
+      }).catch(() => null);
+    }
   }
 }
 
@@ -4525,21 +4546,57 @@ async function exitAiPreviewMode() {
   }
 
   const restoreState = aiPreviewState;
-  resetAiPreviewState();
+  const shouldRestoreMarking = Boolean(
+    restoreState.previousEnabled || restoreState.restoreMarkingOnExit
+  );
+  let restoredBaseUrl = restoreState.previousBaseUrl || state.baseUrl || "";
+  if (
+    shouldRestoreMarking &&
+    (!restoredBaseUrl || !utils.isPageWithinBaseUrl(location.href, restoredBaseUrl))
+  ) {
+    restoredBaseUrl = await resolveBaseUrlForCurrentPage();
+  }
 
-  if (restoreState.previousEnabled && restoreState.previousBaseUrl) {
+  if (shouldRestoreMarking && restoredBaseUrl) {
     stopSilentHighlightingObserver();
     clearSilentHighlightingMarks();
     setSilentHighlightingsActive(false);
-    await core.enableForBaseUrl(restoreState.previousBaseUrl, {
-      skipInitialReveal: true
-    });
+    let restoredMarking = false;
+    try {
+      await core.enableForBaseUrl(restoredBaseUrl, {
+        skipInitialReveal: true
+      });
+      restoredMarking = true;
+    } catch {
+      try {
+        state.config = await core.loadConfig(restoredBaseUrl);
+        await core.enableForBaseUrl(restoredBaseUrl, {
+          skipInitialReveal: true
+        });
+        restoredMarking = true;
+      } catch {
+        // Keep the restore intent alive for immediately-following preview
+        // transitions when a transient enable race happens.
+        state.baseUrl = restoredBaseUrl;
+        state.enabled = true;
+      }
+    }
     restoreAiPreviewDraftState(restoreState);
-    refreshEnabledAiHighlights();
+    if (restoredMarking) {
+      refreshEnabledAiHighlights();
+    }
+    resetAiPreviewState();
+    void utils.sendRuntimeMessage({
+      type: "setTabState",
+      enabled: true,
+      baseUrl: restoredBaseUrl,
+      pageType: state.currentPageType || ""
+    }).catch(() => null);
     return;
   }
 
   await refreshSilentHighlightings();
+  resetAiPreviewState();
 }
 
 function normalizeUrlPath(pathname) {
@@ -8128,6 +8185,9 @@ export function main() {
         ok: true,
         active: aiPreviewState.active,
         mode: aiPreviewState.mode || "",
+        previousEnabled: Boolean(aiPreviewState.previousEnabled),
+        restoreMarkingOnExit: Boolean(aiPreviewState.restoreMarkingOnExit),
+        previousBaseUrl: aiPreviewState.previousBaseUrl || "",
         showAllCategories: aiPreviewState.showAllCategories,
         items: aiPreviewState.items.map((item) => ({
           xpath: item.xpath,
@@ -8200,6 +8260,19 @@ export function main() {
     }
 
     if (message.type === "configUpdated") {
+      if (aiPreviewState.active) {
+        if (message.baseUrl) {
+          core.loadConfig(message.baseUrl).then((loadedConfig) => {
+            state.config = loadedConfig;
+            sendResponse({ ok: true });
+          }).catch(() => {
+            sendResponse({ ok: false });
+          });
+          return true;
+        }
+        sendResponse({ ok: true });
+        return;
+      }
       if (state.enabled && utils.sameBaseUrl(message.baseUrl, state.baseUrl)) {
         const pageUrl = location.href;
         const draftEntry = core.getDraftPageEntry(pageUrl);
@@ -8417,7 +8490,6 @@ export function main() {
         }
         sendResponse({ ok: true });
       })();
-
       return true;
     }
 

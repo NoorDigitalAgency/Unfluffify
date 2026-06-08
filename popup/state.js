@@ -20,6 +20,7 @@ export const state = {
   configEndpointEditMode: false,
   renderModeEditMode: false,
   aiRequestInFlight: null,
+  aiComputeStartPending: false,
   aiRunPhase: "",
   aiRunSessionId: "",
   aiRunSiteId: "",

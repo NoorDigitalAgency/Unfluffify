@@ -72,10 +72,20 @@ test("popup keeps marking mode active when content reports authoritative enabled
 
   assert.match(refreshBlock, /const contentMarkingModeActive = Boolean\(/);
   assert.match(refreshBlock, /const previewCloseMarkingHoldActive = Boolean\(/);
-  assert.match(refreshBlock, /if \(!contentModeKnown && previewCloseMarkingHoldActive && tabInScope\) \{/);
+  assert.match(
+    refreshBlock,
+    /const aiComputeRunActive =[\s\S]*?state\.aiRequestInFlight === "compute" \|\| state\.aiComputeStartPending;/
+  );
+  assert.match(refreshBlock, /const aiPreviewSessionActive = Boolean\(previewActive\);/);
+  assert.match(refreshBlock, /const preserveEnabledDuringPreviewCloseRestore = Boolean\(/);
+  assert.match(refreshBlock, /const preserveEnabledDuringAiComputeRun = Boolean\(/);
+  assert.match(
+    refreshBlock,
+    /if \([\s\S]*?tabInScope[\s\S]*?\(previewCloseMarkingHoldActive \|\| aiComputeRunActive \|\| aiPreviewSessionActive\)[\s\S]*?\(!contentModeKnown \|\| !toggleEnabled\)[\s\S]*?\) \{/
+  );
   assert.match(
     refreshBlock,
     /isEnabled = toggleEnabled && \([\s\S]*?contentMarkingModeActive \|\|[\s\S]*?previewCloseMarkingHoldActive \|\|[\s\S]*?navigationInspectionPending/
   );
-  assert.match(refreshBlock, /!previewCloseMarkingHoldActive &&[\s\S]*?!navigationInspectionPending/);
+  assert.match(refreshBlock, /!aiComputeRunActive &&[\s\S]*?!aiPreviewSessionActive &&[\s\S]*?!previewCloseMarkingHoldActive &&[\s\S]*?!navigationInspectionPending/);
 });

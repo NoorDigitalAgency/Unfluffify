@@ -109,6 +109,7 @@ const tabLifecycleStateByTabId = new Map();
 const tabSpinnerQueueByTabId = new Map();
 const popupStatePortsByTabId = new Map();
 const tabWorldTraceStateByTabId = new Map();
+const aiComputeLockExpiresAtByTabId = new Map();
 const pageMotionFreezeControlQueueByTarget = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
@@ -259,7 +260,7 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 3000) {
       finish({ ok: false, error: "Content message timed out" });
     }, Math.max(1, Number(timeoutMs) || 3000));
     try {
-      chrome.tabs.sendMessage(normalizedTabId, message, (response) => {
+      chrome.tabs.sendMessage(normalizedTabId, message, { frameId: 0 }, (response) => {
         if (chrome.runtime.lastError) {
           finish({
             ok: false,
@@ -303,10 +304,31 @@ async function ensureContentMainForTab(tabId) {
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
 }
 
-async function setAiComputeLockForTab(tabId, active, expiresAt = 0) {
+async function setAiComputeLockForTab(tabId, active, expiresAt = 0, baseUrl = "") {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return { ok: false, active: Boolean(active), error: "Missing tab" };
+  }
+  const normalizedExpiresAt = Number(expiresAt);
+  if (active) {
+    const nextExpiresAt =
+      Number.isFinite(normalizedExpiresAt) && normalizedExpiresAt > Date.now()
+        ? normalizedExpiresAt
+        : Date.now() + 30_000;
+    aiComputeLockExpiresAtByTabId.set(normalizedTabId, nextExpiresAt);
+  } else {
+    aiComputeLockExpiresAtByTabId.delete(normalizedTabId);
+  }
+  const normalizedBaseUrl = typeof baseUrl === "string" ? baseUrl : "";
+  if (active && normalizedBaseUrl) {
+    const existingTabState = await utils.getTabState(normalizedTabId);
+    const nextTabState = {
+      ...(existingTabState && typeof existingTabState === "object" ? existingTabState : {}),
+      enabled: true,
+      baseUrl: normalizedBaseUrl
+    };
+    await utils.setTabState(normalizedTabId, nextTabState);
+    utils.updateActionForTab(normalizedTabId).then();
   }
   if (active) {
     const activationResult = await ensureContentMainForTab(normalizedTabId);
@@ -337,11 +359,25 @@ async function setAiComputeLockForTab(tabId, active, expiresAt = 0) {
     };
 }
 
+function isAiComputeLockActiveForTab(tabId) {
+  const normalizedTabId = normalizeBrokerTabId(tabId);
+  if (!normalizedTabId) {
+    return false;
+  }
+  const expiresAt = aiComputeLockExpiresAtByTabId.get(normalizedTabId);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    aiComputeLockExpiresAtByTabId.delete(normalizedTabId);
+    return false;
+  }
+  return true;
+}
+
 async function refreshAiRunHeartbeat(options = {}) {
   const tabId = normalizeBrokerTabId(options.tabId);
   const sessionId = typeof options.sessionId === "string" ? options.sessionId.trim() : "";
   const siteId = normalizeSiteIdValue(options.siteId);
   const deadlineAt = Number(options.deadlineAt);
+  const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl : "";
   if (!tabId || !sessionId || !siteId || !Number.isFinite(deadlineAt) || deadlineAt <= 0) {
     return { ok: false, record: null, expiresAt: 0, lockApplied: false };
   }
@@ -355,7 +391,7 @@ async function refreshAiRunHeartbeat(options = {}) {
   if (!record) {
     return { ok: false, record: null, expiresAt: 0, lockApplied: false };
   }
-  const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt);
+  const lockResult = await setAiComputeLockForTab(tabId, true, expiresAt, baseUrl);
   if (!lockResult.ok) {
     await clearPersistedAiRunRecord();
     return {
@@ -2062,7 +2098,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     setAiComputeLockForTab(
       message.tabId || (sender.tab && sender.tab.id),
       message.active,
-      message.expiresAt
+      message.expiresAt,
+      message.baseUrl
     )
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, error: "AI compute lock failed" }));
@@ -2074,7 +2111,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       tabId: message.tabId || (sender.tab && sender.tab.id),
       sessionId: message.sessionId,
       siteId: message.siteId,
-      deadlineAt: message.deadlineAt
+      deadlineAt: message.deadlineAt,
+      baseUrl: message.baseUrl
     })
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, record: null, expiresAt: 0, lockApplied: false }));
@@ -2719,6 +2757,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabLifecycleStateByTabId.delete(tabId);
   tabSpinnerQueueByTabId.delete(tabId);
   tabWorldTraceStateByTabId.delete(tabId);
+  aiComputeLockExpiresAtByTabId.delete(tabId);
 });
 
 async function disableExtensionOnTopLevelNavigation(details) {
@@ -2727,6 +2766,9 @@ async function disableExtensionOnTopLevelNavigation(details) {
   }
   const tabId = details.tabId;
   if (!tabId) {
+    return;
+  }
+  if (isAiComputeLockActiveForTab(tabId)) {
     return;
   }
   const state = await utils.getTabState(tabId);
@@ -2870,7 +2912,7 @@ function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
   }
-  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, () => {
+  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, { frameId: 0 }, () => {
     if (chrome.runtime.lastError && attempt < 3) {
       setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
       return;
@@ -2901,6 +2943,7 @@ function restoreEnabledStateForTab(tabId, tabState, attempt = 0) {
       performInitialReveal: true,
       operationId
     },
+    { frameId: 0 },
     (response) => {
       if (chrome.runtime.lastError || !response || response.ok === false) {
         if (attempt < 4 && !(response && response.locked)) {
