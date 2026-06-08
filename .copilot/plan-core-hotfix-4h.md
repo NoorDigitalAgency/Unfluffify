@@ -202,7 +202,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #10 lock countdown resets to 30 and loops | MEDIUM | medium | yes | Cluster 4 timer/state loop. |
 | #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
 | #12 render-mode options reset while countdown banner shows | MEDIUM | medium | yes | |
-| #7  discard-confirm delayed on uncheck | EASY | low-medium | yes | |
+| #7  discard-confirm delayed on uncheck | EASY | low-medium | yes | DONE+live-verified (2026-06-08). Root cause: `handleEnableToggle` always awaited `refreshCurrentPageRuntimeStatus` + `refreshUi` before showing the disable-discard confirm. Fix: pre-confirm refresh now runs only when pending state is not already known (`!pendingKnownFromCurrentView`), so known-dirty sessions prompt immediately. Live probe (`uncheck-confirm-delay-seo.mjs`): uncheck->confirm dialog 38ms. |
 | #8  discard-confirm delayed on navigation | EASY | low-medium | yes | |
 | #9  fast repeated debugger disable not detected | MEDIUM | medium | yes | Timing/race detection. |
 | #13 "With JavaScript" runs reveal/freeze on fresh non-candidate page | HARD | high | yes | Linked to root-cause lead. |
@@ -295,7 +295,10 @@ Cluster 4 - property-lock countdown / lock-loss loop:
 
 Cluster 5 - confirmations / debugger:
 - #7  "Disable marking and discard... This cannot be undone." appears with a long
-      delay on unchecking the marking checkbox. STATUS: OPEN.
+      delay on unchecking the marking checkbox. STATUS: FIXED + live-verified
+      (2026-06-08). `handleEnableToggle` now prompts immediately when
+      `currentViewState.sessionHasPendingChanges` is already true, instead of
+      waiting for a runtime-status + full popup refresh first.
 - #8  Same confirmation appears with a long delay on a navigation attempt.
       STATUS: OPEN.
 - #9  Disabling the Chrome debugger fast and repeatedly is not detected.

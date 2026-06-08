@@ -288,7 +288,12 @@ Cluster 4 - property-lock countdown / lock-loss loop:
 - #12 render-mode options reset while countdown banner shows . OPEN
 
 Cluster 5 - confirmations / debugger:
-- #7  discard-confirm message delayed on uncheck ........... OPEN
+- #7  discard-confirm message delayed on uncheck ........... FIXED +
+  live-verified (2026-06-08). Root cause: popup disable flow always
+  awaited runtime-status + full UI refresh before confirm. Fix gates that
+  refresh behind `!pendingKnownFromCurrentView`, so known-dirty sessions
+  confirm immediately on uncheck. Live probe: uncheck->confirm 38ms
+  (`uncheck-confirm-delay-seo.mjs`).
 - #8  discard-confirm message delayed on navigation ........ OPEN
 - #9  fast repeated debugger disable not detected .......... OPEN
 
@@ -383,23 +388,22 @@ Regressions reported during this sprint:
      marking/lock-pending repro.
 
 5. NEXT (owner-set priority order, 2026-06-08):
-  1) #6
-  2) #7
-  3) #8
-  4) #16
-  5) #17
-  6) #18
-  7) #15
-  8) #19
-  9) #14
-  10) #10
-  11) #11
-  12) #12
-  13) #4
-  14) #20
-  15) #13
-  16) #9
-  17) anything else left.
+  Completed from queue: #6, #7.
+  1) #8
+  2) #16
+  3) #17
+  4) #18
+  5) #15
+  6) #19
+  7) #14
+  8) #10
+  9) #11
+  10) #12
+  11) #4
+  12) #20
+  13) #13
+  14) #9
+  15) anything else left.
 
   #13 owner directive (must hold): on non-candidate pages, regardless of
   property status, show only the locked banner and the non-candidate note, and

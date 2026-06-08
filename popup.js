@@ -7109,7 +7109,13 @@ async function handleEnableToggle(event) {
   }
 
   let latestViewState = currentViewState;
-  if (!desiredEnabled) {
+  const pendingKnownFromCurrentView = Boolean(
+    !desiredEnabled && currentViewState.sessionHasPendingChanges
+  );
+  if (!desiredEnabled && !pendingKnownFromCurrentView) {
+    // If pending changes are already known in the current view state, show the
+    // discard confirm immediately. Otherwise refresh first to avoid false
+    // negatives when the pending state has not been computed yet.
     await refreshCurrentPageRuntimeStatus({
       tabId: tab.id,
       baseUrl: state.currentBaseUrl
