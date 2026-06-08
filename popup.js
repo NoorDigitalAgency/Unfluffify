@@ -133,6 +133,7 @@ const { state } = stateModule;
 const PAGE_SAVE_SYNC_MAX_ATTEMPTS = 5;
 const PAGE_SAVE_SYNC_INITIAL_RETRY_DELAY_MS = 1500;
 const PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS = 10000;
+const AI_PREVIEW_MARKING_RESTORE_HOLD_MS = 5000;
 
 installExtensionTelemetry({
   source: "popup",
@@ -4568,6 +4569,17 @@ async function refreshUiInner(options = {}) {
       ? Boolean(effectiveTabState.enabled)
       : contentMarkingEnabled;
   }
+  const previewCloseMarkingHoldActive = Boolean(
+    state.aiPreviewMarkingRestoreDeadlineAt > Date.now()
+  );
+  if (!contentModeKnown && previewCloseMarkingHoldActive && tabInScope) {
+    toggleEnabled = true;
+  }
+  const contentMarkingModeActive = Boolean(
+    contentModeKnown &&
+      contentModeStatus &&
+      contentModeStatus.markingEnabled
+  );
   let isEnabled = toggleEnabled;
   const storedDeviceState = currentTabId
     ? await emulation.reconcileDeviceEmulationState(currentTabId)
@@ -5004,12 +5016,15 @@ async function refreshUiInner(options = {}) {
     setSpinnerMessage("navInspect", PopupText.overlay.pageInspection);
   }
   isEnabled = toggleEnabled && (
+    contentMarkingModeActive ||
+    previewCloseMarkingHoldActive ||
     navigationInspectionPending ||
     (siteIdReady && renderModeReady && currentPageMarkingAllowed)
   );
   if (
     tabInScope &&
     toggleEnabled &&
+    !previewCloseMarkingHoldActive &&
     !navigationInspectionPending &&
     (!siteIdReady || !renderModeReady || pageTypeUiBlocked) &&
     currentTabId
@@ -5069,6 +5084,11 @@ async function refreshUiInner(options = {}) {
   ) {
     inspectionStatus = latestRuntimeStatus.inspectionStatus;
     contentInspectionPending = Boolean(latestRuntimeStatus.inspectionPending);
+    if (latestRuntimeStatus.inspectionStatus.markingEnabled) {
+      isEnabled = true;
+      toggleEnabled = true;
+      state.aiPreviewMarkingRestoreDeadlineAt = 0;
+    }
   }
   const pageSaveReconciliationPending = Boolean(state.currentPageSaveReconciliationPending);
   const pageInspectionBusy =
@@ -9063,6 +9083,9 @@ async function init() {
       return;
     }
     if (message && message.type === "aiPreviewClosed") {
+      state.aiPreviewMarkingRestoreDeadlineAt = message.markingEnabled
+        ? Date.now() + AI_PREVIEW_MARKING_RESTORE_HOLD_MS
+        : 0;
       (async () => {
         try {
           setPreviewBlocked(false);

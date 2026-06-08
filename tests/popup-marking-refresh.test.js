@@ -110,7 +110,7 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
   assert.match(popupSource, /const silentModeActive =[\s\S]*?resolvedView === uiModule\.View\.Marking[\s\S]*?!isEnabled;/);
   assert.match(
     popupSource,
-    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
+    /if \(\s*tabInScope &&\s*toggleEnabled &&\s*!previewCloseMarkingHoldActive &&\s*!navigationInspectionPending &&\s*\(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)/
   );
 });
 

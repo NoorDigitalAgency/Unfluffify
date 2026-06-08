@@ -194,7 +194,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #3  navInspect spinner absent after refresh/navigation | HARD | high | yes | FIXED+verified live; same-base navigation now preserves marking and spinner flow. |
 | B1.1 re-evaluation (premature navInspect clear) | MEDIUM | medium | yes | DONE: reverted superseded-terminal clear behavior; live-verified with supersede check + session3 flow. |
 | #16 preview list rows not visible/highlightable (VERY HIGH) | HARD | high | yes | DONE+live-verified (2026-06-08). Root cause: preview rows were built from visibility-agnostic inclusion matches, so row xpaths could point at non-renderable ancestors. Fix: `content-main.js` now remaps preview rows to renderable targets via `collectSilentHighlightRenderTargets`/`hasRenderableClientBox` before `setAiPreviewItemSets`. Live probe (`preview-row-visibility-forced-selectors.mjs`): 133 rows, 0 non-renderable. |
-| #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | State-transition bug across modes. |
+| #17 AI-exit lands in silent mode, cannot save (VERY HIGH) | HARD | high | yes | DONE+live-verified (2026-06-08). Root cause: preview close could briefly lose authoritative marking-mode reconciliation in popup, so UI fell back to silent despite content restoring marking. Fix: content now sends `aiPreviewClosed` with `markingEnabled`; popup applies a short preview-close marking hold (`aiPreviewMarkingRestoreDeadlineAt`) to preserve marking mode and avoid transient auto-disable until runtime status reconfirms. Live probe (`preview-close-popup-state-check.mjs`): pre-fix after-close-short popup toggle=false/content marking=true; post-fix after-close-short popup toggle=true/content marking=true. |
 | #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
 | #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
 | #19 "Preview in desktop mode" shown after silent landing | EASY | low-medium | yes | Conditional-UI; overlaps #14. |
@@ -278,7 +278,12 @@ Cluster 3 - mode transitions / temporary state reset:
       STATUS: OPEN.
 - #17 After Run AI... -> content list popup -> on exit you land in silent-mode
       and CANNOT save the results. (VERY HIGH)
-      STATUS: OPEN.
+      STATUS: FIXED + live-verified (2026-06-08). Root cause: preview-close
+      reconciliation in popup could temporarily miss authoritative marking state
+      and drop into silent-mode UI while content had already restored marking.
+      Fix: include `markingEnabled` in `aiPreviewClosed`, hold marking-mode in
+      popup for short post-close reconciliation window, and clear hold once
+      runtime status confirms marking.
 - #18 After landing in silent-mode from the AI content popup, enabling marking
       leaves only Run AI... + Discard enabled - i.e. temporary changes that
       should be wiped on enable (replaced by defaults + CSS selectors) are NOT
@@ -341,14 +346,13 @@ Regressions reported during this sprint:
 
 ## Priority order for remaining work
 
-1. #17 AI-exit lands in silent mode and cannot save (VERY HIGH).
-2. #18 temp changes not discarded on enable after silent landing.
-3. #15 saved data used on enable -> wrong dirty/discard state.
-4. #19 preview in desktop mode shown after silent landing.
-5. #14 preview in desktop mode visibility/enable/note rules.
-6. #10, #11, #12 property-lock countdown/lock-loss loop.
-7. #4 spinner text sync (low), then #20 trace toggle mismatch.
-8. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
+1. #18 temp changes not discarded on enable after silent landing.
+2. #15 saved data used on enable -> wrong dirty/discard state.
+3. #19 preview in desktop mode shown after silent landing.
+4. #14 preview in desktop mode visibility/enable/note rules.
+5. #10, #11, #12 property-lock countdown/lock-loss loop.
+6. #4 spinner text sync (low), then #20 trace toggle mismatch.
+7. #13 non-candidate render-mode behavior, then #9 debugger fast-disable detection.
 
 ## Verified-fix log (all live-verified)
 
@@ -379,6 +383,14 @@ Regressions reported during this sprint:
       `collectSilentHighlightRenderTargets`/`hasRenderableClientBox` before
       sidebar/focus wiring. Live probe `preview-row-visibility-forced-selectors.mjs`:
       preview opened, 133 rows, 0 non-renderable.
+- #17 AI preview exit mode regression: popup no longer falls into transient
+      silent-mode after closing content list when content restored marking.
+      Fixes in `popup.js` + `popup/state.js` + `content/core.js`:
+      `aiPreviewClosed` now carries `markingEnabled`, popup applies short
+      post-close marking hold (`aiPreviewMarkingRestoreDeadlineAt`) and clears
+      it once runtime status confirms marking. Live probe
+      `preview-close-popup-state-check.mjs`: pre-fix after-close-short
+      toggle=false/content marking=true; post-fix toggle=true/content marking=true.
 
 ## Commit convention
 - hotfix(core): <concise description> (live-verified)

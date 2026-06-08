@@ -98,3 +98,12 @@ test("content-main remaps preview rows to renderable targets before syncing prev
     /function setAiPreviewItemSets\(defaultItems, expandedItems, options = \{\}\) \{[\s\S]*?aiPreviewState\.defaultItems = mapAiPreviewItemsToRenderableTargets\(defaultItems\);[\s\S]*?aiPreviewState\.expandedItems = mapAiPreviewItemsToRenderableTargets\(expandedItems\);/
   );
 });
+
+test("content preview close notification includes restored marking state", () => {
+  const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /chrome\.runtime\.sendMessage\(\{[\s\S]*?type: "aiPreviewClosed",[\s\S]*?markingEnabled: Boolean\(state\.enabled\)/
+  );
+});

@@ -62,3 +62,20 @@ test("popup runtime inspection status reuses the content-mode response", () => {
     /let inspectionStatus =\s*contentModeStatus \|\|\s*\(markingInspectionInScope \|\| silentInspectionInScope[\s\S]*?type: "getInspectionStatus"/
   );
 });
+
+test("popup keeps marking mode active when content reports authoritative enabled state", () => {
+  const refreshBlock = extractSourceBlock(
+    popupSource,
+    "async function refreshUiInner(options = {})",
+    "async function maybeResumePersistedAiRun"
+  );
+
+  assert.match(refreshBlock, /const contentMarkingModeActive = Boolean\(/);
+  assert.match(refreshBlock, /const previewCloseMarkingHoldActive = Boolean\(/);
+  assert.match(refreshBlock, /if \(!contentModeKnown && previewCloseMarkingHoldActive && tabInScope\) \{/);
+  assert.match(
+    refreshBlock,
+    /isEnabled = toggleEnabled && \([\s\S]*?contentMarkingModeActive \|\|[\s\S]*?previewCloseMarkingHoldActive \|\|[\s\S]*?navigationInspectionPending/
+  );
+  assert.match(refreshBlock, /!previewCloseMarkingHoldActive &&[\s\S]*?!navigationInspectionPending/);
+});

@@ -67,6 +67,7 @@ export const state = {
   lastPopupPageUrl: "",
   lastPopupEnabled: null,
   lastPopupEnabledContext: null,
+  aiPreviewMarkingRestoreDeadlineAt: 0,
   configViewLocked: false,
   tokenValidationInFlight: false,
   lastTokenValidationAt: 0,

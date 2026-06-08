@@ -6703,7 +6703,10 @@ function closeAiPopover(options = {}) {
     : Promise.resolve();
   if (notify) {
     afterClose.finally(() => {
-      chrome.runtime.sendMessage({ type: "aiPreviewClosed" }).then().catch(() => {
+      chrome.runtime.sendMessage({
+        type: "aiPreviewClosed",
+        markingEnabled: Boolean(state.enabled)
+      }).then().catch(() => {
         // Ignore notification failures during teardown.
       });
     });

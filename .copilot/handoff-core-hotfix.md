@@ -283,7 +283,17 @@ Cluster 2 - silent highlight / preview:
 
 Cluster 3 - mode transitions / temporary state reset:
 - #15 saved data used on enable -> dirty/discard wrong .... OPEN
-- #17 exit AI content list -> silent mode, cannot save (VERY HIGH) . OPEN
+- #17 exit AI content list -> silent mode, cannot save (VERY HIGH) . FIXED +
+  live-verified (2026-06-08). Root cause: popup preview-close reconciliation
+  could transiently miss authoritative marking restoration and fall back to
+  silent-mode UI while content had already restored marking. Fix:
+  `content/core.js` now sends `aiPreviewClosed` with `markingEnabled`; popup
+  (`popup.js` + `popup/state.js`) applies a short post-close marking hold
+  (`aiPreviewMarkingRestoreDeadlineAt`) and clears it when runtime status
+  confirms marking-enabled.
+  Live probe (`preview-close-popup-state-check.mjs`): pre-fix after-close-short
+  popup toggle=false with content marking=true; post-fix popup toggle=true with
+  content marking=true.
 - #18 enable after that silent landing -> only Run AI/Discard enabled
        (temp changes not discarded) ........................ OPEN
 - #19 "Preview in desktop mode" shown after that flow ...... OPEN (see #14)
@@ -399,20 +409,19 @@ Regressions reported during this sprint:
      marking/lock-pending repro.
 
 5. NEXT (owner-set priority order, 2026-06-08):
-  Completed from queue: #6, #7, #8, #16.
-  1) #17
-  2) #18
-  3) #15
-  4) #19
-  5) #14
-  6) #10
-  7) #11
-  8) #12
-  9) #4
-  10) #20
-  11) #13
-  12) #9
-  13) anything else left.
+  Completed from queue: #6, #7, #8, #16, #17.
+  1) #18
+  2) #15
+  3) #19
+  4) #14
+  5) #10
+  6) #11
+  7) #12
+  8) #4
+  9) #20
+  10) #13
+  11) #9
+  12) anything else left.
 
   #13 owner directive (must hold): on non-candidate pages, regardless of
   property status, show only the locked banner and the non-candidate note, and
@@ -522,8 +531,8 @@ Latest phase decision (updated 2026-06-08):
    reach enabled=true and the reveal/freeze spinner to appear on navigation.
 4. Re-evaluate B1.1 (see CORRECTION above) and revert if it causes premature
    navInspect clearing; re-verify live.
-5. Continue per the priority order in plan-core-hotfix-4h.md: #17 (very
-  high), then #18/#15/#19/#14, then #10-#12, #4/#20, and #13/#9.
+5. Continue per the priority order in plan-core-hotfix-4h.md: #18/#15/#19/#14,
+  then #10-#12, #4/#20, and #13/#9.
 
 ## Constraints
 - Verify every runtime/visual fix LIVE before recording it as done.
