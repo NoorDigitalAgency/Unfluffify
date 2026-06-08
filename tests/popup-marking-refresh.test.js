@@ -662,10 +662,10 @@ test("tab reload keeps the inspection curtain active while enabled pages re-insp
   assert.doesNotMatch(onUpdatedBlock, /messages\.setTabState\(tabId, tabState\)/);
   assert.match(onUpdatedBlock, /beginNavigationInspectionOverlay\(tabId\);/);
   assert.match(onUpdatedBlock, /await refreshUi\(\{ useBusyOverlay: false \}\);/);
-  assert.match(onUpdatedBlock, /const settleResult = await waitForEnableMarkingInspectionToSettle\(tabId, tabState\.baseUrl\);/);
+  assert.match(onUpdatedBlock, /const settleResult = await waitForEnableMarkingInspectionToSettle\(tabId, settleBaseUrl\);/);
   assert.match(onUpdatedBlock, /if \(settleResult\.responseObserved \|\| settleResult\.inspectionObserved\) \{/);
   assert.match(onUpdatedBlock, /endNavigationInspectionOverlay\(tabId\);\s*await refreshUi\(\{ useBusyOverlay: false \}\);/);
-  assert.match(onUpdatedBlock, /scheduleNavigationInspectionSettlePoll\(tabId, tabState\.baseUrl\);/);
+  assert.match(onUpdatedBlock, /scheduleNavigationInspectionSettlePoll\(tabId, settleBaseUrl\);/);
   assert.doesNotMatch(onUpdatedBlock, /finally \{[\s\S]*?endNavigationInspectionOverlay\(tabId\);/);
 
   const beginBody = source.match(

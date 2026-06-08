@@ -42,7 +42,11 @@ test("popup refresh reconciles toggle state to content mode without setEnabled",
   assert.match(modeBlock, /effectiveTabState = \{[\s\S]*?enabled: contentMarkingEnabled,[\s\S]*?\};/);
   assert.match(modeBlock, /await messages\.setTabState\(currentTabId, effectiveTabState\);/);
   assert.match(modeBlock, /clearLastPopupEnabled\(\);/);
-  assert.match(modeBlock, /toggleEnabled = contentMarkingEnabled;/);
+  assert.match(modeBlock, /const shouldPreserveEnabledDuringReactivation = Boolean\(/);
+  assert.match(
+    modeBlock,
+    /toggleEnabled = shouldPreserveEnabledDuringReactivation[\s\S]*?\? Boolean\(effectiveTabState\.enabled\)[\s\S]*?: contentMarkingEnabled;/
+  );
   assert.doesNotMatch(modeBlock, /setEnabled/);
 });
 

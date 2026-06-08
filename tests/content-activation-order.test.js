@@ -193,7 +193,11 @@ test("editor reveal is gated during render-mode inspection or before render mode
   assert.match(source, /function isRenderModeInspectionActive\(\) \{[\s\S]*?renderModeInspectionActive \|\| readRenderModeInspectionActive\(\)/);
   assert.match(
     activationSource,
-    /if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?setRenderModeInspectionActive\(true\);[\s\S]*?return;[\s\S]*?\}/
+    /if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?return;[\s\S]*?\}/
+  );
+  assert.doesNotMatch(
+    activationSource,
+    /if \(isRenderModeInspectionActive\(\)\) \{[\s\S]*?setRenderModeInspectionActive\(true\);/
   );
   assert.match(
     activationSource,

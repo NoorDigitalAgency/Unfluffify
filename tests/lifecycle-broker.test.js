@@ -47,15 +47,14 @@ test("background authoritatively tears down the navigation-inspection curtain on
   );
   assert.match(
     backgroundSource,
-    /const curtainCleared = clearsCurtain && clearNavInspectCurtain\(normalizedTabId\);/
+    /if \(clearsCurtain\) \{[\s\S]*?clearNavInspectCurtain\(normalizedTabId\);[\s\S]*?\}/
   );
   assert.match(backgroundSource, /function clearNavInspectCurtain\(normalizedTabId\) \{[\s\S]*?queue\.delete\(SPINNER_KEYS\.NAV_INSPECT\)[\s\S]*?\}/);
-  // The curtain teardown must run BEFORE/independent of the supersede-guard
-  // early return, so a late inspection-finished still clears a stale curtain
-  // even when a newer operation already advanced the lifecycle state.
+  // Superseded terminal events are ignored before curtain teardown so a stale
+  // operation cannot clear the active operation's navInspect curtain.
   assert.match(
     backgroundSource,
-    /const curtainCleared = clearsCurtain && clearNavInspectCurtain\(normalizedTabId\);[\s\S]*?eventOperationId !== previous\.operationId &&[\s\S]*?isTerminalEvent[\s\S]*?\) \{[\s\S]*?if \(curtainCleared\) \{[\s\S]*?broadcastBrokerState\(normalizedTabId\);[\s\S]*?return buildBrokerState\(normalizedTabId\);/
+    /eventOperationId !== previous\.operationId &&[\s\S]*?isTerminalEvent[\s\S]*?\) \{[\s\S]*?return buildBrokerState\(normalizedTabId\);[\s\S]*?const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind\(eventKind\);/
   );
   // Transient spinners remain popup-session scoped: the last port disconnect
   // clears them, while the persistent navInspect curtain is cleared by the
