@@ -817,9 +817,12 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
 
     const bridgeMessagesAfterDisable = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
     assert.equal(bridgeMessagesAfterDisable.at(-1).command, "setLazyLoadingSuppressed");
-    assert.deepEqual(bridgeMessagesAfterDisable.at(-1).details, { suppressed: false });
-    assert.equal(state.lazyLoadSuppressRestorer, null);
+    assert.deepEqual(bridgeMessagesAfterDisable.at(-1).details, { suppressed: true });
+    assert.equal(typeof state.lazyLoadSuppressRestorer, "function");
   } finally {
+    if (typeof state.lazyLoadSuppressRestorer === "function") {
+      state.lazyLoadSuppressRestorer();
+    }
     state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
     if (typeof originalChrome === "undefined") {
       delete globalThis.chrome;

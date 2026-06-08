@@ -6119,7 +6119,6 @@ export function finishPageInspectionUiAfterRender() {
 
 function removeOverlay() {
   setPageInspectionUiActive(false);
-  restorePageInspectionLazyLoadingSuppression();
   if (state.overlay) {
     state.overlay.removeEventListener("mousemove", handleMouseMove, true);
     state.overlay.removeEventListener("click", handleClick, true);
@@ -10143,7 +10142,6 @@ export function disable(options = {}) {
   } else {
     state.disabledUnsavedDraft = null;
   }
-  restorePageInspectionLazyLoadingSuppression();
   state.enabled = false;
   state.baseUrl = "";
   state.currentPageType = "";
