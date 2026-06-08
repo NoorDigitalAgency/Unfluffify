@@ -2912,8 +2912,8 @@ function requestContentActivation(tabId, attempt = 0) {
   if (!tabId) {
     return;
   }
-  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, { frameId: 0 }, (response) => {
-    if ((chrome.runtime.lastError || !response || response.ok === false) && attempt < 3) {
+  chrome.tabs.sendMessage(tabId, { type: "activateContentMain" }, { frameId: 0 }, () => {
+    if (chrome.runtime.lastError && attempt < 3) {
       setTimeout(() => requestContentActivation(tabId, attempt + 1), 200);
       return;
     }

@@ -2139,7 +2139,6 @@ function renderMarkingView({state: view, actions: handlers}) {
   if (markingMode && view.markingPreviewVisible) {
     // 2. Show Content List - review the latest AI run results (stays in place).
     mergedControlsSectionChildren.push(
-      h("div", { key: "marking-preview-divider", class: "section-divider", role: "separator" }),
       h(
         "button",
         {

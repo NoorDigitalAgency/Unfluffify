@@ -1887,13 +1887,6 @@ function getCurrentPageMarkingsFingerprint() {
   return fingerprintPageMarkingEntry(state.currentDraftEntry);
 }
 
-function hasCurrentDraftMarkingChangesAgainstSaved() {
-  return (
-    fingerprintPageMarkingEntry(state.currentDraftEntry) !==
-    fingerprintPageMarkingEntry(state.currentSavedEntry)
-  );
-}
-
 function isAiRunUpToDateForCurrentMarkings() {
   return (
     state.aiRunMarkingsFingerprint !== null &&
@@ -5229,13 +5222,12 @@ async function refreshUiInner(options = {}) {
       reconciliationPending: pageSaveReconciliationPending
     }
   );
-  const currentDraftHasMarkingChanges = hasCurrentDraftMarkingChangesAgainstSaved();
   const currentPageHasPendingChanges = hasCurrentPagePendingChanges(
     pageMarkings,
     backendSavedPageMarkings,
     {
       pageUrl,
-      currentDraftDirty: currentDraftHasMarkingChanges,
+      currentDraftDirty: state.currentDraftDirty,
       reconciliationPending: pageSaveReconciliationPending
     }
   );
@@ -7354,14 +7346,7 @@ async function handleEnableToggle(event) {
           await refreshUi();
           return;
         }
-        const contentReady = await ensureContentReadyForRenderModeInspection(tab.id);
-        if (!contentReady) {
-          uiModule.showToast(PopupText.helper.activateFailedOnPage);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
+        await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
         setSpinnerMessage(spinnerKey, PopupText.overlay.applyingDeviceEmulation);
         const mobileSimulationReady = await ensureEditorMobileSimulation();
         if (!mobileSimulationReady) {
