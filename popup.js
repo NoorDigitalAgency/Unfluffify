@@ -4486,7 +4486,6 @@ async function refreshUiInner(options = {}) {
   if (state.currentBaseUrl !== previousBaseUrl) {
     state.aiSelectorsComputedSinceLastSubmit = false;
     state.aiSelectorsComputedBaseUrl = "";
-    state.basePageMenuOpen = false;
     state.renderModeEditMode = false;
     state.renderModeSummaryOpen = false;
     state.renderModeDetectionInFlight = false;
@@ -4536,7 +4535,6 @@ async function refreshUiInner(options = {}) {
     currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
     configMenuOpen: state.configMenuOpen,
-    basePageMenuOpen: state.basePageMenuOpen,
     previewActive,
     previewItems,
     previewFocusedXpath,
@@ -5501,6 +5499,7 @@ async function refreshUiInner(options = {}) {
     sessionHasPendingChanges,
     pageHasPendingChanges: currentPageHasPendingChanges,
     sessionRequiresAiRun,
+    pageHasSavedBaseline: hasBackendSavedPageMarking(backendSavedPageMarkings, pageUrl),
     reconciliation: state.currentPageSaveReconciliation
   });
   nextViewState.pageSaveDisabled = pageSaveUiState.pageSaveDisabled;
@@ -5648,24 +5647,6 @@ async function refreshUiInner(options = {}) {
       alertOnCurrentReplacement: false
     }).then();
   }
-
-  const basePageUrlSet = new Set(
-    Object.keys(configs).filter((url) => {
-      if (typeof url !== "string" || !url) {
-        return false;
-      }
-      const normalized = config.normalizeConfig(url, configs[url]).config;
-      return Boolean(normalizeSiteIdValue(normalized.siteId));
-    })
-  );
-  if (state.currentBaseUrl && liveSiteId) {
-    basePageUrlSet.add(state.currentBaseUrl);
-  }
-  const basePageUrls = Array.from(basePageUrlSet)
-    .sort((left, right) => left.localeCompare(right))
-    .map((url) => ({ url }));
-  nextViewState.basePageUrls = basePageUrls;
-  nextViewState.basePageUrlsEmptyText = ViewText.basePageUrlsEmpty;
 
   const nextTodoExpansionKey = buildTodoExpansionContextKey(currentTabId, state.currentBaseUrl);
   const currentTodoExpansionKey = state.currentTodoExpansionKey;
@@ -6250,7 +6231,6 @@ async function handleRenderModeEditToggle() {
 
 async function handleOpenRenderModeSection() {
   uiModule.setConfigMenuOpen(false);
-  uiModule.setBasePageMenuOpen(false);
   state.renderModeEditMode = true;
   state.renderModeSummaryOpen = true;
   await refreshUi({ useBusyOverlay: false });
@@ -6955,7 +6935,6 @@ async function handlePropertyLockRejectSuggestion() {
 
 function handleConfigToggle(event) {
   event.stopPropagation();
-  uiModule.setBasePageMenuOpen(false);
   uiModule.setTodoControlsMenuOpen(false);
   uiModule.setConfigMenuOpen(!state.configMenuOpen);
 }
@@ -6964,22 +6943,10 @@ function handleConfigMenuClick(event) {
   event.stopPropagation();
 }
 
-function handleBasePageMenuToggle(event) {
-  event.stopPropagation();
-  uiModule.setConfigMenuOpen(false);
-  uiModule.setTodoControlsMenuOpen(false);
-  uiModule.setBasePageMenuOpen(!state.basePageMenuOpen);
-}
-
-function handleBasePageMenuClick(event) {
-  event.stopPropagation();
-}
-
 function handleTodoControlsMenuToggle(event) {
   event.stopPropagation();
   const view = uiModule.getViewState();
   uiModule.setConfigMenuOpen(false);
-  uiModule.setBasePageMenuOpen(false);
   uiModule.setTodoControlsMenuOpen(!Boolean(view.todoControlsMenuOpen));
 }
 
@@ -7023,7 +6990,6 @@ function handleConfigurationExtrasToggle() {
 
 async function handleOpenConfigurationView() {
   uiModule.setConfigMenuOpen(false);
-  uiModule.setBasePageMenuOpen(false);
   clearRemoteConfigRetryTimer();
   state.currentView = uiModule.View.Configuration;
   collapseTodoListForAutoCollapse();
@@ -7195,11 +7161,6 @@ async function navigateActiveTabToUrlWithTodoCollapse(url) {
 }
 
 async function handleMarkedPageNavigate(url) {
-  await navigateActiveTabToUrlWithTodoCollapse(url);
-}
-
-async function handleBasePageNavigate(url) {
-  uiModule.setBasePageMenuOpen(false);
   await navigateActiveTabToUrlWithTodoCollapse(url);
 }
 
@@ -7813,17 +7774,29 @@ async function applyPostSaveSilentTransition() {
   // scratch to the defaults -> CSS/AI selector baseline (the just-saved session
   // explicit deltas are dropped from the overlay), the mode switches marking ->
   // silent highlighting, and the user stays in silent until Enable Marking
-  // re-enters marking from scratch. The page already drops to silent on save, so
-  // do NOT re-issue an enable message to the content script; only align the popup
-  // + tab state.
+  // re-enters marking from scratch.
   const baseUrl = state.currentBaseUrl;
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
   // Reset the content-side page entry to the saved baseline so its draft is no
-  // longer dirty (Discard detects no pending changes).
+  // longer dirty (Discard detects no pending changes). This runs while marking
+  // is still enabled so the forceReloadPageEntry branch reseeds the baseline.
   if (baseUrl) {
     await messages.sendTabMessageWithRetry({
       type: "configUpdated",
       baseUrl,
       forceReloadPageEntry: true
+    }, 2);
+  }
+  // Deterministically drop the CONTENT script out of marking mode into silent
+  // highlighting. Without this the page stays in marking mode after save while
+  // the popup shows silent controls, so the buttons never reset to silent/idle.
+  if (tabId !== null) {
+    await messages.sendTabMessageWithRetry({
+      type: "setEnabled",
+      enabled: false,
+      pageType: ""
     }, 2);
   }
   state.currentDraftDirty = false;
@@ -8827,8 +8800,6 @@ async function init() {
     onDeviceScaleChange: handleDeviceScaleChange,
     onConfigToggle: handleConfigToggle,
     onConfigMenuClick: handleConfigMenuClick,
-    onBasePageMenuToggle: handleBasePageMenuToggle,
-    onBasePageMenuClick: handleBasePageMenuClick,
     onTodoControlsMenuToggle: handleTodoControlsMenuToggle,
     onTodoControlsMenuClick: handleTodoControlsMenuClick,
     onTodoSectionToggle: handleTodoSectionToggle,
@@ -8907,8 +8878,7 @@ async function init() {
     onExplicitExcludeRemove: handleExplicitExcludeRemove,
     onExplicitIncludeView: handleExplicitIncludeView,
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
-    onMarkedPageNavigate: handleMarkedPageNavigate,
-    onBasePageNavigate: handleBasePageNavigate
+    onMarkedPageNavigate: handleMarkedPageNavigate
   });
   ensureRemoteSupportPopupMediaChannel();
 
@@ -8942,14 +8912,12 @@ async function init() {
 
   document.addEventListener("click", () => {
     uiModule.setConfigMenuOpen(false);
-    uiModule.setBasePageMenuOpen(false);
     uiModule.setTodoControlsMenuOpen(false);
     uiModule.setThemeMenuOpen(false);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       uiModule.setConfigMenuOpen(false);
-      uiModule.setBasePageMenuOpen(false);
       uiModule.setTodoControlsMenuOpen(false);
       uiModule.setThemeMenuOpen(false);
     }

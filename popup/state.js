@@ -42,7 +42,6 @@ export const state = {
   // null means no successful run for the current page since enabling marking.
   aiRunMarkingsFingerprint: null,
   configMenuOpen: false,
-  basePageMenuOpen: false,
   currentTodoExpansionKey: "",
   todoExpansionStateByContext: new Map(),
   renderModeSummaryOpen: false,

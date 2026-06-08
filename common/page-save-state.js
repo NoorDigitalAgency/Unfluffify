@@ -30,6 +30,7 @@ export function buildPageSaveUiState(options = {}) {
     sessionHasPendingChanges = false,
     pageHasPendingChanges = sessionHasPendingChanges,
     sessionRequiresAiRun = false,
+    pageHasSavedBaseline = true,
     reconciliation = null
   } = options;
 
@@ -44,10 +45,15 @@ export function buildPageSaveUiState(options = {}) {
 
   const pageSaveMobileSimulationRequiredVisible = false;
 
+  // Discard reverts the page entry to the backend-saved baseline. When no saved
+  // baseline exists yet (e.g. the only "pending changes" are auto-seeded marks
+  // from CSS/AI selectors on first enable), there is nothing meaningful to
+  // revert to, so Discard stays disabled until a real baseline has been saved.
   const pageRevertDisabled =
     !pageControlsVisible ||
     pageSaveReconciliationPending ||
-    !pageHasPendingChanges;
+    !pageHasPendingChanges ||
+    !pageHasSavedBaseline;
 
   let pageDraftStatusText = "";
   let pageDraftStatusTone = "muted";

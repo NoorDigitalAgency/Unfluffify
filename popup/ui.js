@@ -103,9 +103,6 @@ const initialViewState = {
   todoSubsectionsExpanded: {},
   todoAutoCollapse: true,
   todoListVisible: false,
-  basePageUrls: [],
-  basePageUrlsEmptyText: ViewText.basePageUrlsEmpty,
-  basePageMenuOpen: false,
   endpointUrlValue: "",
   endpointUrlReadOnly: true,
   endpointSetVisible: true,
@@ -599,48 +596,6 @@ function syncBlockingUiCurtainDom() {
     timerElement.textContent = curtain.timerText || "";
     timerElement.hidden = !curtain.timerText;
   }
-}
-
-function renderBasePageMenu(view, handlers) {
-  return h(
-    "div",
-    {
-      class: "section-menu base-page-menu",
-      role: "menu",
-      hidden: !view.basePageMenuOpen,
-      onClick: handlers.onBasePageMenuClick
-    },
-    (view.basePageUrls.length
-      ? view.basePageUrls.map((item) =>
-          h(
-            "button",
-            {
-              key: item.url,
-              type: "button",
-              role: "menuitem",
-              disabled: item.url === view.currentBaseUrl,
-              onClick: (event) => {
-                event.stopPropagation();
-                handlers.onBasePageNavigate(item.url);
-              }
-            },
-            h(
-              "span",
-              { class: "section-menu__label", title: item.url },
-              item.url
-            ),
-            item.url === view.currentBaseUrl
-              ? h("span", { class: "section-menu__status" }, PopupText.markedPages.currentBadge)
-              : icon("arrow-right")
-          )
-        )
-      : h(
-          "div",
-          { class: "section-menu__empty" },
-          view.basePageUrlsEmptyText
-        )
-    )
-  );
 }
 
 function renderPropertyLockIndicator(view, handlers) {
@@ -1799,24 +1754,6 @@ function App({ state: view, actions: handlers }) {
                   title: view.baseUrlInputValue || PopupText.baseUrl.placeholder
                 },
                 view.baseUrlInputValue || PopupText.baseUrl.placeholder
-              ),
-              h(
-                "div",
-                { class: "section-header-actions property-url-actions" },
-                h(
-                  "button",
-                  {
-                    id: "base-page-menu-toggle",
-                    type: "button",
-                    class: "header-menu-toggle",
-                    "aria-haspopup": "menu",
-                    "aria-expanded": view.basePageMenuOpen ? "true" : "false",
-                    title: PopupText.tooltips.basePageUrls,
-                    onClick: handlers.onBasePageMenuToggle
-                  },
-                  icon("dots-vertical")
-                ),
-                renderBasePageMenu(view, handlers)
               )
             )
           ),
@@ -2792,12 +2729,10 @@ function normalizeViewState(nextViewState) {
     normalizedViewState = {
       ...normalizedViewState,
       configMenuOpen: false,
-      basePageMenuOpen: false,
       todoControlsMenuOpen: false,
       themeMenuOpen: false
     };
     state.configMenuOpen = false;
-    state.basePageMenuOpen = false;
   }
   return normalizedViewState.todoListVisible
     ? filterTodoSubsectionsExpanded(normalizedViewState)
@@ -2892,14 +2827,6 @@ export function setConfigMenuOpen(open) {
   setViewState({ configMenuOpen: open, themeMenuOpen: false });
 }
 
-export function setBasePageMenuOpen(open) {
-  if (state.basePageMenuOpen === open) {
-    return;
-  }
-  state.basePageMenuOpen = open;
-  setViewState({ basePageMenuOpen: open, themeMenuOpen: false });
-}
-
 export function setThemeMenuOpen(open, placement = "bottom") {
   const normalizedOpen = Boolean(open);
   const normalizedPlacement = placement === "top" ? "top" : "bottom";
@@ -2910,12 +2837,10 @@ export function setThemeMenuOpen(open, placement = "bottom") {
     return;
   }
   state.configMenuOpen = false;
-  state.basePageMenuOpen = false;
   setViewState({
     themeMenuOpen: normalizedOpen,
     themeMenuPlacement: normalizedPlacement,
     configMenuOpen: false,
-    basePageMenuOpen: false,
     todoControlsMenuOpen: false
   });
 }

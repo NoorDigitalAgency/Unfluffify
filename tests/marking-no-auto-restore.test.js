@@ -40,6 +40,23 @@ test("disableExtensionOnTopLevelNavigation clears the reload restore scope witho
   assert.doesNotMatch(block, /setReloadRestoreTabState\(tabId,/);
 });
 
+test("disableExtensionOnTopLevelNavigation never preserves marking for same-base navigations", () => {
+  // Editor-mobile-only contract: every top-level navigation/reload is a fresh
+  // start. The handler must ALWAYS disable marking when enabled - it must not
+  // short-circuit and keep marking alive for same-base navigations, which would
+  // re-seed a stale marking session on reload and corrupt the clean initial
+  // load reveal/freeze flow.
+  const block = extractFunctionBody(
+    backgroundSource,
+    "async function disableExtensionOnTopLevelNavigation",
+    "chrome.webNavigation.onCommitted"
+  );
+
+  assert.doesNotMatch(block, /preserveEnabledOnNavigation/);
+  assert.doesNotMatch(block, /isPageWithinBaseUrl/);
+  assert.match(block, /await utils\.disableExtensionForTab\(tabId\);/);
+});
+
 test("background sweeps stale transfer-payload keys on service-worker start", () => {
   // sweepStaleTransferPayloads must be defined and called at module scope
   // so orphaned session-storage keys from aborted AI runs are cleaned up.

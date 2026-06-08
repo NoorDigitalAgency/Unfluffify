@@ -62,6 +62,9 @@ test("a successful save transitions the popup from marking to silent mode", () =
   assert.match(fnBody, /state\.currentDraftDirty = false;/);
   // Align popup + tab state to silent via the shared helper.
   assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
+  // Deterministically drop the CONTENT script out of marking into silent so the
+  // page does not stay in marking mode after save (buttons reset to silent/idle).
+  assert.match(fnBody, /type: "setEnabled",\s*enabled: false/);
 });
 
 test("aligning to silent mode clears the popup toggle without touching content", () => {

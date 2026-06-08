@@ -758,14 +758,6 @@ button.property-lock__button {
   white-space: nowrap;
 }
 
-.property-url-actions {
-  align-self: stretch;
-}
-
-.property-url-actions .section-menu-button {
-  height: 100%;
-}
-
 .render-mode-section {
   display: grid;
   gap: 12px;

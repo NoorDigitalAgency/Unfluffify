@@ -133,6 +133,33 @@ test("keeps session save available while disabling discard when only another pag
   assert.equal(state.pageRevertDisabled, true);
 });
 
+test("disables discard when the page is dirty but has no saved baseline to revert to", () => {
+  const state = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    pageHasPendingChanges: true,
+    sessionRequiresAiRun: true,
+    pageHasSavedBaseline: false,
+    reconciliation: null
+  });
+
+  assert.equal(state.pageRevertDisabled, true);
+  assert.equal(state.pageDraftStatusText, PopupText.page.statusRunAiBeforeSaving);
+});
+
+test("enables discard once a saved baseline exists for the dirty page", () => {
+  const state = buildPageSaveUiState({
+    pageControlsVisible: true,
+    sessionHasPendingChanges: true,
+    pageHasPendingChanges: true,
+    sessionRequiresAiRun: false,
+    pageHasSavedBaseline: true,
+    reconciliation: null
+  });
+
+  assert.equal(state.pageRevertDisabled, false);
+});
+
 test("clears status text when page controls are hidden", () => {
   const state = buildPageSaveUiState({
     pageControlsVisible: false,

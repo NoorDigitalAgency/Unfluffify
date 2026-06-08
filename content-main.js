@@ -8289,6 +8289,11 @@ export function main() {
         const draftEntry = core.getDraftPageEntry(pageUrl);
         const savedEntry = core.getSavedPageEntry(pageUrl);
         const forceReloadPageEntry = Boolean(message.forceReloadPageEntry);
+        // Respond only AFTER the draft merge/reseed has fully settled so the
+        // popup's follow-up getPageDraftStatus reads the final markings entry.
+        // Responding early (while this work runs in a detached .then) made the
+        // post-AI-run fingerprint capture race the reshaped entry, which broke
+        // State C (Run AI wrongly re-enabled, Save/Show List disabled).
         core.loadConfig(state.baseUrl).then(async (loadedConfig) => {
           const backendSavedPageMarkings = await config.getBackendSavedPageMarkings(state.baseUrl);
           const backendEntry = core.findPageMarkingEntry(
@@ -8313,12 +8318,18 @@ export function main() {
             core.scheduleRender();
             core.notifyDraftStatus(pageUrl);
           }
+        }).then(() => {
+          runPropertyLockSync({ forceSiteIdRefresh: true });
+          sendResponse({ ok: true });
+        }).catch(() => {
+          runPropertyLockSync({ forceSiteIdRefresh: true });
+          sendResponse({ ok: true });
         });
-      } else {
-        clearAiPreviewState();
-        core.disable();
-        refreshSilentHighlightings().then();
+        return true;
       }
+      clearAiPreviewState();
+      core.disable();
+      refreshSilentHighlightings().then();
       runPropertyLockSync({ forceSiteIdRefresh: true });
       sendResponse({ ok: true });
       return;

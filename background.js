@@ -2775,15 +2775,12 @@ async function disableExtensionOnTopLevelNavigation(details) {
   if (!state || !state.enabled) {
     return;
   }
-  const navigationUrl = typeof details.url === "string" ? details.url : "";
-  const preserveEnabledOnNavigation = Boolean(
-    state.baseUrl &&
-      navigationUrl &&
-      utils.isPageWithinBaseUrl(navigationUrl, state.baseUrl)
-  );
-  if (preserveEnabledOnNavigation) {
-    return;
-  }
+  // Editor-mobile-only contract: marking never survives a navigation or reload.
+  // Every top-level navigation/reload is a fresh start — marking is turned OFF
+  // and the tab returns to its just-loaded posture (silent mode if the property
+  // has backend-saved markings, otherwise idle). Do NOT preserve enabled state
+  // for same-base navigations; preserving it re-seeds a stale marking session on
+  // reload and corrupts the clean initial-load reveal/freeze flow.
   await clearReloadRestoreTabState(tabId);
   await utils.disableExtensionForTab(tabId);
 }
