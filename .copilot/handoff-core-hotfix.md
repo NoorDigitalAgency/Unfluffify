@@ -329,6 +329,53 @@ Cluster 3 - mode transitions / temporary state reset:
     re-enable. Deterministic validation: focused node tests pass (96/96), with
     added assertions in `tests/device-emulation-lifecycle.test.js` and
     `tests/popup-marking-refresh.test.js`.
+  - #21 marking-mode button states wrong after a clean AI run + preview exit
+     (surfaced by #17 fix landing in marking mode) ........ IN PROGRESS
+    (2026-06-08). Symptom (owner-reported): after a successful AI run and
+    exiting the content-list preview, the popup now correctly returns to
+    MARKING mode (per the #17 fix) but the four marking-mode controls are
+    inverted: Run AI content detection is ENABLED, Show Content List is
+    DISABLED, Save Session is DISABLED (and Discard state is incidental).
+    Expected per owner's product logic: Run AI runs ONCE, then the user checks
+    results; if good they Save (concludes the round, clears the page temp
+    data, exits to silent mode, reapplies inclusions/exclusions from the latest
+    CSS selectors); otherwise they keep editing markings and Run AI again.
+    Discard returns the current page's markings to the session-start baseline.
+
+    Confirmed correct truth table (marking mode; in scope; not busy; not
+    reconciling):
+      A. Fresh marking enable (no changes, no run):
+         Run AI ENABLED, Show Content List DISABLED, Save DISABLED,
+         Discard DISABLED.
+      B. After a mark/unmark change (not yet run for these markings):
+         Run AI ENABLED, Show Content List DISABLED, Save DISABLED
+         (must run AI), Discard ENABLED.
+      C. After a clean AI run, still in marking (<- the bug state):
+         Run AI DISABLED (already ran), Show Content List ENABLED,
+         Save ENABLED, Discard ENABLED.
+      D. Reconciliation / server-sync pending: all four DISABLED.
+      E. AI run in flight (busy): all four DISABLED.
+
+    Root cause (two divergent signals on return to marking mode):
+      1. `aiRunUpToDate` (`isAiRunUpToDateForCurrentMarkings`) evaluates FALSE
+         after preview-exit refresh because the run's marking fingerprint no
+         longer matches the live `currentDraftEntry` -> wrongly ENABLES Run AI
+         (`computeButtonDisabled`) and DISABLES Show Content List
+         (`markingPreviewDisabled`).
+      2. `sessionRequiresAiRun` (`doesSessionRequireAiRun`) evaluates TRUE
+         because the content draft still reports dirty (`currentDraftDirty`)
+         after the run -> wrongly DISABLES Save (`buildPageSaveUiState`) and
+         shows "Run AI before saving".
+    Previously masked because preview-exit used to land in SILENT mode (where
+    these three controls are not shown); the #17 fix made exit land in MARKING
+    mode and exposed the inverted gating.
+
+    Plan: smallest reconciliation-based fix so a successful AI run leaves the
+    state consistent on return to marking mode (run fingerprint still matches
+    -> `aiRunUpToDate` true; draft no longer dirty -> `sessionRequiresAiRun`
+    false), rendering State C correctly. Add deterministic `node --test`
+    coverage for States A/B/C/D, then LIVE-verify the four control states in a
+    real Run-AI -> preview -> exit flow before declaring solved.
 
 Cluster 4 - property-lock countdown / lock-loss loop:
 - #10 "return within XXs" resets to 30 after 0 and loops ... OPEN

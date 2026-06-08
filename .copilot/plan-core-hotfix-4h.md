@@ -153,6 +153,16 @@ SESSION 3 root-cause lead remains superseded by live fix data:
 Next single task: follow the owner-set priority queue below, one issue at a
 time, while preserving restored R1/R2/R3 behavior.
 
+ACTIVE (2026-06-08): #21 marking-mode button states after a clean AI run +
+preview exit (now lands in marking mode per the #17 fix). Owner-confirmed
+truth table A-E recorded in `handoff-core-hotfix.md` (#21). Expected State C
+(after a clean run, still in marking): Run AI DISABLED, Show Content List
+ENABLED, Save Session ENABLED, Discard ENABLED. Fix is reconciliation-based
+(keep the AI-run marking fingerprint matching + clear draft-dirty so
+`aiRunUpToDate` is true and `sessionRequiresAiRun` is false on return to
+marking). Add A/B/C/D unit tests, then LIVE-verify the four controls in a real
+Run-AI -> preview -> exit flow before marking solved.
+
 Owner-set priority order (2026-06-08):
 1. #6
 2. #7
@@ -217,6 +227,7 @@ Per-task ratings (OPEN issues only; FIXED ones need no rating):
 | #18 temp changes not discarded on enable after silent landing | MEDIUM | medium | yes | Tied to #17/#15. |
 | #15 saved data used on enable -> wrong dirty/discard state | MEDIUM | medium | yes | |
 | #19 "Preview in desktop mode" shown after silent landing | EASY | low-medium | yes | Conditional-UI; overlaps #14. |
+| #21 marking-mode button states wrong after clean AI run + preview exit | MEDIUM | medium | yes | IN PROGRESS (2026-06-08). Surfaced by #17 fix landing in marking mode. Confirmed truth table A-E (see handoff #21). Bug = State C inverted: Run AI enabled / Show Content List disabled / Save disabled. Root cause: `aiRunUpToDate` false + `sessionRequiresAiRun` true on return to marking after a clean run. Fix: keep run fingerprint matching and draft non-dirty so State C renders correctly; add A/B/C/D unit tests; live-verify the four controls before closing. |
 | #14 "Preview in desktop mode" visibility/enable/note rules | EASY | low-medium | partial | Mostly view-flag logic; can unit-test the gating. |
 | #10 lock countdown resets to 30 and loops | MEDIUM | medium | yes | Cluster 4 timer/state loop. |
 | #11 refresh during countdown -> read-only config, back disabled | MEDIUM | medium | yes | |
