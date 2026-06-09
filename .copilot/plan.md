@@ -12,6 +12,17 @@ core workflow.
 This is the active plan. Previous main-plan and hotfix-plan work is backlogged in
 `.copilot/backlog.md`.
 
+## Successor Architecture Refactor
+
+The next planned architecture track is the service-worker authority refactor.
+Use these documents before making implementation changes:
+
+1. `.copilot/service-worker-authority-refactor-plan.md`
+2. `.copilot/handoff-service-worker-authority-refactor.md`
+
+This refactor explicitly protects the 11 always-on core features, including
+reveal/freeze and lazy-loading stopping/restoration.
+
 ## Debug Continuation Plan (Cross-Environment)
 
 Status as of 2026-06-09:
