@@ -4,9 +4,7 @@ export const WORLD_MESSAGE_TYPES = Object.freeze({
   SPINNER_SET: "ufSpinnerSet",
   SPINNER_REMOVE: "ufSpinnerRemove",
   SPINNER_CLEAR: "ufSpinnerClear",
-  BACKGROUND_STATE: "ufBackgroundState",
-  TRACE_SET: "ufTraceSet",
-  CONTENT_TRACE_SET: "setWorldTraceEnabled"
+  BACKGROUND_STATE: "ufBackgroundState"
 });
 
 export const WORLD_PORTS = Object.freeze({

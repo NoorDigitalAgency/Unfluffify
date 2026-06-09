@@ -1,4 +1,5 @@
 import {SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./constants.js";
+import { isDebugFlagEnabled } from "./feature-flags.js";
 
 /**
  * Checks if the content script has been injected into a specific tab.
@@ -112,21 +113,74 @@ function makeInvalidatedRuntimeResponse(error) {
   };
 }
 
+function isFullWorldMessagingLoggingEnabled() {
+  return isDebugFlagEnabled("fullWorldMessagingLogging");
+}
+
+function getMessageTypeForLog(message) {
+  return message && typeof message.type === "string" ? message.type : "";
+}
+
+function logRuntimeMessage(direction, message, details = {}) {
+  if (!isFullWorldMessagingLoggingEnabled()) {
+    return;
+  }
+  try {
+    console.debug("[world-trace][runtime]", direction, {
+      type: getMessageTypeForLog(message),
+      ...details
+    });
+  } catch {
+    // Logging must never affect message delivery.
+  }
+}
+
 export function sendRuntimeMessage(message) {
+  logRuntimeMessage("send", message);
   try {
     const promise = chrome.runtime.sendMessage(message);
     if (promise && typeof promise.then === "function") {
-      return promise.catch((error) => {
-        if (isExtensionContextInvalidatedError(error)) {
-          return makeInvalidatedRuntimeResponse(error);
-        }
-        throw error;
-      });
+      return promise
+        .then((response) => {
+          logRuntimeMessage("response", message, {
+            ok: Boolean(response && response.ok),
+            contextInvalidated: Boolean(response && response.contextInvalidated)
+          });
+          return response;
+        })
+        .catch((error) => {
+          if (isExtensionContextInvalidatedError(error)) {
+            const invalidatedResponse = makeInvalidatedRuntimeResponse(error);
+            logRuntimeMessage("response", message, {
+              ok: false,
+              contextInvalidated: true,
+              error: invalidatedResponse.error
+            });
+            return invalidatedResponse;
+          }
+          logRuntimeMessage("error", message, {
+            ok: false,
+            contextInvalidated: false,
+            error: getErrorMessage(error)
+          });
+          throw error;
+        });
     }
   } catch (error) {
     if (isExtensionContextInvalidatedError(error)) {
-      return Promise.resolve(makeInvalidatedRuntimeResponse(error));
+      const invalidatedResponse = makeInvalidatedRuntimeResponse(error);
+      logRuntimeMessage("response", message, {
+        ok: false,
+        contextInvalidated: true,
+        error: invalidatedResponse.error
+      });
+      return Promise.resolve(invalidatedResponse);
     }
+    logRuntimeMessage("error", message, {
+      ok: false,
+      contextInvalidated: false,
+      error: getErrorMessage(error)
+    });
     return Promise.reject(error);
   }
   return new Promise((resolve, reject) => {
@@ -140,20 +194,41 @@ export function sendRuntimeMessage(message) {
           return;
         }
         if (lastError) {
-          resolve({
+          const failureResponse = {
             ok: false,
             error: getErrorMessage(lastError),
             contextInvalidated: isExtensionContextInvalidatedError(lastError)
+          };
+          logRuntimeMessage("response", message, {
+            ok: false,
+            contextInvalidated: Boolean(failureResponse.contextInvalidated),
+            error: failureResponse.error
           });
+          resolve(failureResponse);
           return;
         }
+        logRuntimeMessage("response", message, {
+          ok: Boolean(response && response.ok),
+          contextInvalidated: Boolean(response && response.contextInvalidated)
+        });
         resolve(response);
       });
     } catch (error) {
       if (isExtensionContextInvalidatedError(error)) {
-        resolve(makeInvalidatedRuntimeResponse(error));
+        const invalidatedResponse = makeInvalidatedRuntimeResponse(error);
+        logRuntimeMessage("response", message, {
+          ok: false,
+          contextInvalidated: true,
+          error: invalidatedResponse.error
+        });
+        resolve(invalidatedResponse);
         return;
       }
+      logRuntimeMessage("error", message, {
+        ok: false,
+        contextInvalidated: false,
+        error: getErrorMessage(error)
+      });
       reject(error);
     }
   });

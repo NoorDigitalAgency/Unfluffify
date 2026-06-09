@@ -35,6 +35,7 @@ import {
 } from "./common/emulation.js";
 import {
   FEATURE_DISABLED_REASON,
+  isDebugFlagEnabled,
   isFeatureEnabled
 } from "./common/feature-flags.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
@@ -1373,25 +1374,23 @@ async function preparePageTypeAssignmentsSnapshot(options = {}) {
 function ensureTraceState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
-    return { enabled: false, events: [] };
+    return { events: [] };
   }
   if (!tabWorldTraceStateByTabId.has(normalizedTabId)) {
     tabWorldTraceStateByTabId.set(normalizedTabId, {
-      enabled: false,
       events: []
     });
   }
   return tabWorldTraceStateByTabId.get(normalizedTabId);
 }
 
-function isWorldTraceEnabled(tabId) {
-  const traceState = ensureTraceState(tabId);
-  return Boolean(traceState && traceState.enabled);
+function isWorldTraceEnabled() {
+  return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
 function appendWorldTraceEvent(tabId, channel, event, payload = null) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId || !isWorldTraceEnabled(normalizedTabId)) {
+  if (!normalizedTabId || !isWorldTraceEnabled()) {
     return;
   }
   const traceState = ensureTraceState(normalizedTabId);
@@ -1422,57 +1421,6 @@ function appendWorldTraceEvent(tabId, channel, event, payload = null) {
   } catch {
     // Trace logging must never break runtime behavior.
   }
-}
-
-function setWorldTraceEnabled(tabId, enabled) {
-  if (!isFeatureEnabled("traceDiagnostics")) {
-    return buildFeatureDisabledResponse("traceDiagnostics");
-  }
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId) {
-    return buildBrokerState(normalizedTabId);
-  }
-  const traceState = ensureTraceState(normalizedTabId);
-  traceState.enabled = Boolean(enabled);
-  traceState.events = [];
-  const recordTraceEvent = (channel, event, payload) => {
-    traceState.events.push({
-      at: Date.now(),
-      channel,
-      event,
-      payload: payload && typeof payload === "object" ? payload : null
-    });
-    if (traceState.events.length > WORLD_TRACE_EVENT_LIMIT) {
-      traceState.events.splice(0, traceState.events.length - WORLD_TRACE_EVENT_LIMIT);
-    }
-  };
-  if (!traceState.enabled) {
-    recordTraceEvent("trace", "disabled", {
-      type: WORLD_MESSAGE_TYPES.TRACE_SET,
-      message: "Trace Mode disabled"
-    });
-  } else {
-    recordTraceEvent("trace", "enabled", {
-      type: WORLD_MESSAGE_TYPES.TRACE_SET,
-      message: "Trace Mode enabled"
-    });
-    appendWorldTraceEvent(normalizedTabId, "trace", "enabled", {
-      type: WORLD_MESSAGE_TYPES.TRACE_SET,
-      message: "Trace Mode enabled"
-    });
-  }
-  chrome.tabs.sendMessage(
-    normalizedTabId,
-    {
-      type: WORLD_MESSAGE_TYPES.CONTENT_TRACE_SET,
-      enabled: traceState.enabled
-    },
-    () => {
-      void chrome.runtime.lastError;
-    }
-  );
-  broadcastBrokerState(normalizedTabId);
-  return buildBrokerState(normalizedTabId);
 }
 
 function normalizeBrokerTabId(value) {
@@ -1647,7 +1595,7 @@ function buildBrokerState(tabId) {
     tabId: normalizedTabId,
     lifecycle: normalizedTabId ? (tabLifecycleStateByTabId.get(normalizedTabId) || null) : null,
     spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : [],
-    traceEnabled: Boolean(traceState && traceState.enabled),
+    traceEnabled: isWorldTraceEnabled(),
     traceEvents: traceState && Array.isArray(traceState.events) ? [...traceState.events] : []
   };
 }
@@ -2061,6 +2009,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (isDebugFlagEnabled("fullWorldMessagingLogging")) {
+    try {
+      console.debug("[world-trace][background] runtime:inbound", {
+        type: message.type,
+        tabId: Number.isFinite(sender && sender.tab && sender.tab.id)
+          ? Math.trunc(sender.tab.id)
+          : null,
+        frameId: Number.isFinite(sender && sender.frameId)
+          ? Math.trunc(sender.frameId)
+          : null
+      });
+    } catch {
+      // Debug logging must never break runtime behavior.
+    }
+  }
+
   if (REMOTE_SUPPORT_MESSAGE_TYPES.has(message.type)) {
     if (!isFeatureEnabled("remoteSupport")) {
       sendResponse(buildFeatureDisabledResponse("remoteSupport"));
@@ -2386,20 +2350,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(clearBackgroundSpinnerQueue(getMessageTabId(message, sender), {
       transientOnly: Boolean(message.transientOnly)
     }));
-    return;
-  }
-
-  if (message.type === WORLD_MESSAGE_TYPES.TRACE_SET) {
-    if (!isFeatureEnabled("traceDiagnostics")) {
-      sendResponse(buildFeatureDisabledResponse("traceDiagnostics"));
-      return;
-    }
-    const tabId = getMessageTabId(message, sender);
-    appendWorldTraceEvent(tabId, "trace", "set-requested", {
-      type: WORLD_MESSAGE_TYPES.TRACE_SET,
-      message: Boolean(message.enabled) ? "enable" : "disable"
-    });
-    sendResponse(setWorldTraceEnabled(tabId, Boolean(message.enabled)));
     return;
   }
 
@@ -3172,6 +3122,20 @@ sweepStaleTransferPayloads().then();
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "activateContentForTab") {
     return;
+  }
+  if (isDebugFlagEnabled("fullWorldMessagingLogging")) {
+    try {
+      console.debug("[world-trace][background] runtime:inbound", {
+        type: message.type,
+        tabId: Number.isFinite(message && message.tabId)
+          ? Math.trunc(message.tabId)
+          : (Number.isFinite(sender && sender.tab && sender.tab.id)
+            ? Math.trunc(sender.tab.id)
+            : null)
+      });
+    } catch {
+      // Debug logging must never break runtime behavior.
+    }
   }
   const tabId = message.tabId || (sender.tab && sender.tab.id);
   if (!tabId) {

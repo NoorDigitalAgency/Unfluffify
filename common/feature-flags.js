@@ -9,8 +9,13 @@ export const FEATURE_FLAGS = Object.freeze({
   appearanceCustomization: false,
   cacheAndUnregisterTools: false,
   propertyLockCollaboration: false,
-  previewExpandedStates: false,
-  ufDebugSpinnerQueue: true
+  previewExpandedStates: false
+});
+
+export const DEBUG_FLAGS = Object.freeze({
+  ufDebugSpinnerQueue: true,
+  fullWorldMessagingLogging: false,
+  worldTraceEnabled: false
 });
 
 export function isFeatureEnabled(flagName) {
@@ -20,4 +25,13 @@ export function isFeatureEnabled(flagName) {
 
 export function getFeatureFlags() {
   return Object.freeze({ ...FEATURE_FLAGS });
+}
+
+export function isDebugFlagEnabled(flagName) {
+  return Object.prototype.hasOwnProperty.call(DEBUG_FLAGS, flagName) &&
+    DEBUG_FLAGS[flagName] === true;
+}
+
+export function getDebugFlags() {
+  return Object.freeze({ ...DEBUG_FLAGS });
 }

@@ -1,13 +1,14 @@
 import * as utils from "../common/utilities.js";
 import * as stateModule from "./state.js";
 import { WORLD_MESSAGE_TYPES } from "../common/world-messaging-contract.js";
+import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function shouldTraceWorldMessaging() {
-  return Boolean(state.traceModeEnabled);
+  return isDebugFlagEnabled("fullWorldMessagingLogging") || Boolean(state.traceModeEnabled);
 }
 
 function logPopupMessageTrace(direction, details = {}) {

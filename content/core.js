@@ -4203,6 +4203,9 @@ export async function revealPageContentBeforeMotionPause(
       }
     }
   } finally {
+    // Reveal may arm lazy-loading suppression mid-run; always restore it when
+    // the inspection walk exits so silent/normal flows do not stay suppressed.
+    restorePageInspectionLazyLoadingSuppression();
     removePageInspectionStyle();
   }
   return visited;

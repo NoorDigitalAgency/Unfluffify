@@ -20,7 +20,7 @@ import {
   getRenderModeOptionIcon,
   getRenderModeOptionLabel
 } from "./render-mode.js";
-import { FEATURE_FLAGS } from "../common/feature-flags.js";
+import { FEATURE_FLAGS, isDebugFlagEnabled } from "../common/feature-flags.js";
 
 export { ViewText } from "../common/text.js";
 
@@ -596,7 +596,7 @@ function getBlockingUiCurtainState(view) {
 let lastPopupBlockerLogSignature = "";
 
 function isPopupBlockerDebugEnabled() {
-  if (FEATURE_FLAGS.ufDebugSpinnerQueue === true) {
+  if (isDebugFlagEnabled("ufDebugSpinnerQueue")) {
     return true;
   }
   try {

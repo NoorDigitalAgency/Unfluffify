@@ -1,6 +1,10 @@
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
-import { FEATURE_DISABLED_REASON, isFeatureEnabled } from "./common/feature-flags.js";
+import {
+  FEATURE_DISABLED_REASON,
+  isDebugFlagEnabled,
+  isFeatureEnabled
+} from "./common/feature-flags.js";
 import * as utils from "./common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -225,9 +229,16 @@ let silentHighlightEditorActivationIdCounter = 0;
 let renderModeInspectionActive = false;
 let renderModeInspectionWatchdogTimer = 0;
 let lifecycleOperationCounter = 0;
-let worldTraceEnabled = false;
 let silentSelectorAnnotatedNodes = new Set();
 let aiPreviewClickableNodes = new Set();
+
+function isWorldTraceEnabled() {
+  return isDebugFlagEnabled("worldTraceEnabled");
+}
+
+function isFullWorldMessagingLoggingEnabled() {
+  return isDebugFlagEnabled("fullWorldMessagingLogging");
+}
 
 function isPropertyLockCollaborationEnabled() {
   return isFeatureEnabled("propertyLockCollaboration");
@@ -846,7 +857,7 @@ function sendRuntimeMessageSafely(message) {
 
   return Promise.resolve()
     .then(() => {
-      if (worldTraceEnabled) {
+      if (isWorldTraceEnabled() || isFullWorldMessagingLoggingEnabled()) {
         try {
           console.debug("[world-trace][content] runtime:send", {
             type: message && message.type ? message.type : ""
@@ -858,7 +869,7 @@ function sendRuntimeMessageSafely(message) {
     })
     .then(() => utils.sendRuntimeMessage(message))
     .then((response) => {
-      if (worldTraceEnabled) {
+      if (isWorldTraceEnabled() || isFullWorldMessagingLoggingEnabled()) {
         try {
           console.debug("[world-trace][content] runtime:response", {
             type: message && message.type ? message.type : "",
@@ -890,7 +901,7 @@ function createLifecycleOperationId(kind) {
 }
 
 function isPageBlockerDebugEnabled() {
-  if (isFeatureEnabled("ufDebugSpinnerQueue")) {
+  if (isDebugFlagEnabled("ufDebugSpinnerQueue")) {
     return true;
   }
   try {
@@ -943,7 +954,7 @@ function emitLifecycleEvent(event = {}) {
     source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle"
   };
   logPageBlockerReason(normalizedEvent);
-  if (worldTraceEnabled) {
+  if (isWorldTraceEnabled()) {
     try {
       console.debug("[world-trace][content] lifecycle:emit", {
         kind: normalizedEvent && normalizedEvent.kind ? normalizedEvent.kind : "",
@@ -971,7 +982,7 @@ function emitLifecycleEvent(event = {}) {
 }
 
 function logContentDiagnostic(level, ...args) {
-  if (!worldTraceEnabled) {
+  if (!isWorldTraceEnabled()) {
     return;
   }
   try {
@@ -8088,23 +8099,7 @@ export function main() {
     if (!message || !message.type) {
       return;
     }
-    if (message.type === WORLD_MESSAGE_TYPES.CONTENT_TRACE_SET) {
-      worldTraceEnabled = Boolean(message.enabled);
-      if (worldTraceEnabled) {
-        try {
-          console.debug("[world-trace][content] trace:set", {
-            enabled: true,
-            pageUrl: location.href
-          });
-        } catch {
-          // Ignore trace logging failures.
-        }
-      }
-      sendResponse({ ok: true, enabled: worldTraceEnabled });
-      return;
-    }
-
-    if (worldTraceEnabled) {
+    if (isWorldTraceEnabled() || isFullWorldMessagingLoggingEnabled()) {
       try {
         console.debug("[world-trace][content] runtime:inbound", {
           type: message.type,

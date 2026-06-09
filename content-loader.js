@@ -75,8 +75,8 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
       const featureFlags = await import(chrome.runtime.getURL("common/feature-flags.js"));
       return Boolean(
         featureFlags &&
-        typeof featureFlags.isFeatureEnabled === "function" &&
-        featureFlags.isFeatureEnabled("ufDebugSpinnerQueue")
+        typeof featureFlags.isDebugFlagEnabled === "function" &&
+        featureFlags.isDebugFlagEnabled("ufDebugSpinnerQueue")
       );
     } catch {
       return false;
@@ -86,7 +86,7 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
   // Debug hook: when debug mode is active, expose this tab's ID via a DOM
   // dataset attribute so Playwright can read it with:
   //   page.evaluate(() => document.documentElement.dataset.ufDebugTabId)
-  // Activate through FEATURE_FLAGS.ufDebugSpinnerQueue or by setting the legacy
+  // Activate through DEBUG_FLAGS.ufDebugSpinnerQueue or by setting the legacy
   // localStorage.ufDebugSpinnerQueue = "1" override on the page.
   isDebugSpinnerQueueEnabled().then((enabled) => {
     try {

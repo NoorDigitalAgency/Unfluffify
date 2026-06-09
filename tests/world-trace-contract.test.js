@@ -10,27 +10,23 @@ const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
 
-test("world messaging contract exposes trace message types", () => {
-  assert.match(contractSource, /TRACE_SET: "ufTraceSet"/);
-  assert.match(contractSource, /CONTENT_TRACE_SET: "setWorldTraceEnabled"/);
+test("world messaging contract no longer exposes runtime trace toggle message types", () => {
+  assert.doesNotMatch(contractSource, /TRACE_SET:/);
+  assert.doesNotMatch(contractSource, /CONTENT_TRACE_SET:/);
 });
 
-test("background persists per-tab trace state and propagates trace enablement to content", () => {
+test("background keeps trace enablement fixed from feature and debug flags", () => {
   assert.match(backgroundSource, /const tabWorldTraceStateByTabId = new Map\(\);/);
-  assert.match(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
-  assert.match(backgroundSource, /if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{\s*return buildFeatureDisabledResponse\("traceDiagnostics"\);\s*\}/);
-  assert.match(backgroundSource, /type: WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET,/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{/);
-  assert.match(
-    backgroundSource,
-    /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?sendResponse\(buildFeatureDisabledResponse\("traceDiagnostics"\)\);[\s\S]*?return;/
-  );
+  assert.match(backgroundSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
+  assert.match(backgroundSource, /traceEnabled: isWorldTraceEnabled\(\),/);
+  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
+  assert.doesNotMatch(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
+  assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
+  assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET/);
   assert.match(backgroundSource, /snapshot-requested/);
-  assert.match(backgroundSource, /set-requested/);
   assert.match(backgroundSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
   assert.match(backgroundSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
   assert.match(backgroundSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
-  assert.match(backgroundSource, /traceEnabled: Boolean\(traceState && traceState\.enabled\),/);
   assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 
@@ -54,11 +50,8 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.doesNotMatch(textSource, /traceModeHint:/);
 
   assert.match(popupSource, /async function handleTraceModeToggle\(event\) \{/);
-  assert.match(
-    popupSource,
-    /if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?traceEvents: \[\][\s\S]*?traceEventCount: 0[\s\S]*?return;/
-  );
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
+  assert.match(popupSource, /event\.currentTarget\.checked = Boolean\(state\.traceModeEnabled\);/);
+  assert.doesNotMatch(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
   assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
   assert.match(popupSource, /state\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(snapshot\.traceEnabled\);/);
   assert.match(popupSource, /state\.traceEvents = traceDiagnosticsEnabled && Array\.isArray\(snapshot\.traceEvents\) \? \[\.\.\.snapshot\.traceEvents\] : \[\];/);
@@ -66,17 +59,14 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.match(popupSource, /nextViewState\.traceEventCount = nextViewState\.traceEvents\.length;/);
   assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
   assert.match(popupSource, /nextViewState\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(state\.traceModeEnabled\);/);
-  assert.match(popupSource, /const GLOBAL_TRACE_MODE_KEY = "globalTraceModeEnabled";/);
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);
-  assert.match(popupSource, /async function loadTraceModeSetting\(\) \{\s*if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{\s*return false;\s*\}/);
-  assert.match(popupSource, /async function persistTraceModeSetting\(enabled\) \{/);
-  assert.match(popupSource, /async function persistTraceModeSetting\(enabled\) \{\s*if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{\s*return;\s*\}/);
-  assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{\s*if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
-  assert.match(popupSource, /await persistTraceModeSetting\(enabled\)\.catch\(\(\) => null\);/);
+  assert.match(popupSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
+  assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
+  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE,/);
   assert.match(popupSource, /state\.traceModeEnabled = await loadTraceModeSetting\(\)\.catch\(\(\) => false\);/);
   assert.match(popupSource, /await applyTraceModePreferenceToTab\(initTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
-  assert.match(popupSource, /await applyTraceModePreferenceToTab\(newTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
-  assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);\s*state\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(changes\[GLOBAL_TRACE_MODE_KEY\]\.newValue\);/);
+  assert.doesNotMatch(popupSource, /await applyTraceModePreferenceToTab\(newTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
+  assert.doesNotMatch(popupSource, /GLOBAL_TRACE_MODE_KEY/);
   assert.match(popupUiSource, /trace-events-panel/);
   assert.match(popupUiSource, /id: "trace-events-output"/);
   assert.match(popupUiSource, /Boolean\(view\.traceModeEnabled\)/);
@@ -97,9 +87,9 @@ test("popup message transport logs world traffic when trace mode is enabled", ()
   assert.match(popupMessagesSource, /tab:send/);
 });
 
-test("content supports runtime trace toggling and traces inbound\/outbound world traffic", () => {
-  assert.match(contentSource, /let worldTraceEnabled = false;/);
-  assert.match(contentSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET\) \{/);
+test("content uses fixed trace flag and traces inbound\/outbound world traffic", () => {
+  assert.match(contentSource, /function isWorldTraceEnabled\(\) \{\s*return isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
+  assert.doesNotMatch(contentSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET\) \{/);
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:inbound/);
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:send/);
   assert.match(contentSource, /\[world-trace\]\[content\] lifecycle:emit/);

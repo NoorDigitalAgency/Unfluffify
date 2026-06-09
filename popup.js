@@ -21,7 +21,12 @@
 import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
-import { FEATURE_DISABLED_REASON, getFeatureFlags, isFeatureEnabled } from "./common/feature-flags.js";
+import {
+  FEATURE_DISABLED_REASON,
+  getFeatureFlags,
+  isDebugFlagEnabled,
+  isFeatureEnabled
+} from "./common/feature-flags.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
@@ -751,7 +756,6 @@ const OBSERVER_REMOTE_CONFIG_REFRESH_INTERVAL_MS = 60 * 1000;
 const TODO_EXPANSION_CONTEXT_LIMIT = 200;
 const GLOBAL_THEME_KEY = "globalTheme";
 const GLOBAL_THEME_MODE_KEY = "globalThemeMode";
-const GLOBAL_TRACE_MODE_KEY = "globalTraceModeEnabled";
 const THEME_DEFAULT = "nordic";
 const THEME_MODE_DEFAULT = "system";
 const THEME_MODE_SYSTEM = "system";
@@ -880,7 +884,7 @@ function setUiBusyFromCurrentSpinner() {
 }
 
 function isPopupSpinnerDebugEnabled() {
-  if (isFeatureEnabled("ufDebugSpinnerQueue")) {
+  if (isDebugFlagEnabled("ufDebugSpinnerQueue")) {
     return true;
   }
   try {
@@ -936,7 +940,7 @@ function syncUiBusyFromBrokerState() {
 }
 
 function isWorldTraceEnabled() {
-  return isFeatureEnabled("traceDiagnostics") && Boolean(state.traceModeEnabled);
+  return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
 function logWorldTrace(eventName, details = {}) {
@@ -1090,38 +1094,9 @@ async function restoreSpinnerQueueFromBackground(tabId) {
 }
 
 async function handleTraceModeToggle(event) {
-  if (!isFeatureEnabled("traceDiagnostics")) {
-    state.traceModeEnabled = false;
-    if (event && event.currentTarget) {
-      event.currentTarget.checked = false;
-    }
-    uiModule.setViewState({ traceModeEnabled: false, traceEvents: [], traceEventCount: 0 });
-    return;
+  if (event && event.currentTarget) {
+    event.currentTarget.checked = Boolean(state.traceModeEnabled);
   }
-  const enabled = Boolean(event && event.currentTarget && event.currentTarget.checked);
-  const previousEnabled = Boolean(state.traceModeEnabled);
-  state.traceModeEnabled = enabled;
-  uiModule.setViewState({ traceModeEnabled: enabled });
-  const tabId = state.currentTab && state.currentTab.id;
-  if (!tabId) {
-    state.traceModeEnabled = previousEnabled;
-    uiModule.setViewState({ traceModeEnabled: previousEnabled });
-    uiModule.showToast("Trace Mode requires an active tab.");
-    return;
-  }
-  const response = await messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.TRACE_SET,
-    tabId,
-    enabled
-  }).catch(() => null);
-  if (!response || !response.ok) {
-    state.traceModeEnabled = previousEnabled;
-    uiModule.setViewState({ traceModeEnabled: previousEnabled });
-    uiModule.showToast("Unable to update Trace Mode.");
-    return;
-  }
-  applyBackgroundStateSnapshot(response);
-  await persistTraceModeSetting(enabled).catch(() => null);
 }
 
 function connectBackgroundStatePort(tabId) {
@@ -1605,23 +1580,11 @@ async function ensureThemeSettings() {
 }
 
 async function loadTraceModeSetting() {
-  if (!isFeatureEnabled("traceDiagnostics")) {
-    return false;
-  }
-  const stored = await utils.storageGet(chrome.storage.sync, [GLOBAL_TRACE_MODE_KEY]);
-  return Boolean(stored && stored[GLOBAL_TRACE_MODE_KEY]);
-}
-
-async function persistTraceModeSetting(enabled) {
-  if (!isFeatureEnabled("traceDiagnostics")) {
-    return;
-  }
-  await utils.storageSet(chrome.storage.sync, {
-    [GLOBAL_TRACE_MODE_KEY]: Boolean(enabled)
-  });
+  return isFeatureEnabled("traceDiagnostics") && isDebugFlagEnabled("worldTraceEnabled");
 }
 
 async function applyTraceModePreferenceToTab(tabId, enabled) {
+  void enabled;
   if (!isFeatureEnabled("traceDiagnostics")) {
     state.traceModeEnabled = false;
     state.traceEvents = [];
@@ -1632,9 +1595,8 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
     return null;
   }
   const response = await messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.TRACE_SET,
-    tabId,
-    enabled: Boolean(enabled)
+    type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
+    tabId
   }).catch(() => null);
   if (response && response.ok) {
     applyBackgroundStateSnapshot(response);
@@ -2195,6 +2157,9 @@ function hasConfirmedRenderModeForBaseUrl(configs, baseUrl) {
 
 function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConfig) {
   const suggestionKey = `${state.currentBaseUrl || ""}|${pageUrl || ""}`;
+  if (!state.currentBaseUrlHasConfirmedRenderMode) {
+    return RENDER_MODE_UNDETERMINED;
+  }
   if (
     state.renderModeSuggestedKey === suggestionKey &&
     state.renderModeSuggestedValue
@@ -4003,7 +3968,7 @@ async function ensureContentReadyForRenderModeInspection(tabId) {
   // Keep the ready wait bounded so the render-mode popup spinner does not sit
   // for too long on slow reloads (notably the Without JavaScript path), while
   // still giving content-main a fair chance to come up post-navigation.
-  const maxAttempts = 12;
+  const maxAttempts = 30;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
     const status = await messages.sendTabMessageToTab(tabId, {
@@ -9350,7 +9315,6 @@ async function init() {
       try {
         connectBackgroundStatePort(newTabId);
         await restoreSpinnerQueueFromBackground(newTabId);
-        await applyTraceModePreferenceToTab(newTabId, state.traceModeEnabled).catch(() => null);
       } catch {
         // Restoration failure is non-fatal; queue remains empty for this tab.
       }
@@ -9458,7 +9422,7 @@ async function init() {
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "sync") {
-      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY] || changes[GLOBAL_TRACE_MODE_KEY]) {
+      if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
         const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");
         if (!appearanceCustomizationEnabled && (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY])) {
           resetDisabledAppearanceCustomization();
@@ -9472,22 +9436,6 @@ async function init() {
           state.currentThemeMode = normalizeThemeModeValue(
             changes[GLOBAL_THEME_MODE_KEY].newValue
           );
-        }
-        if (changes[GLOBAL_TRACE_MODE_KEY]) {
-          const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
-          state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(changes[GLOBAL_TRACE_MODE_KEY].newValue);
-          if (!traceDiagnosticsEnabled) {
-            state.traceEvents = [];
-          }
-          uiModule.setViewState({
-            traceModeEnabled: state.traceModeEnabled,
-            traceEvents: traceDiagnosticsEnabled ? uiModule.getViewState().traceEvents : [],
-            traceEventCount: traceDiagnosticsEnabled ? uiModule.getViewState().traceEventCount : 0
-          });
-          const tabId = state.currentTab && state.currentTab.id;
-          if (traceDiagnosticsEnabled && tabId) {
-            applyTraceModePreferenceToTab(tabId, state.traceModeEnabled).catch(() => null);
-          }
         }
         if (appearanceCustomizationEnabled) {
           applyPopupTheme(state.currentTheme, state.currentThemeMode);
