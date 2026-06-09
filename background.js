@@ -93,6 +93,7 @@ import {
   dispatchBackgroundCommand,
   registerBackgroundCommand
 } from "./background/command-router.js";
+import { createSpinnerOperations } from "./background/spinner-operations.js";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS,
@@ -1677,14 +1678,7 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
 }
 
 function getSpinnerQueueForTab(tabId) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId) {
-    return null;
-  }
-  if (!tabSpinnerQueueByTabId.has(normalizedTabId)) {
-    tabSpinnerQueueByTabId.set(normalizedTabId, new Map());
-  }
-  return tabSpinnerQueueByTabId.get(normalizedTabId);
+  return spinnerOperations.getSpinnerQueueForTab(tabId);
 }
 
 function serializeSpinnerQueue(tabId) {
@@ -1715,6 +1709,19 @@ function buildBrokerState(tabId) {
     traceEvents: traceState && Array.isArray(traceState.events) ? [...traceState.events] : []
   };
 }
+
+const spinnerOperations = createSpinnerOperations({
+  queueByTabId: tabSpinnerQueueByTabId,
+  normalizeTabId: normalizeBrokerTabId,
+  appendTrace: appendWorldTraceEvent,
+  broadcastState: broadcastBrokerState,
+  buildState: buildBrokerState,
+  updateRuntimeSpinnerQueue(tabId, queue) {
+    updateTabRuntime(tabId, {
+      spinnerQueue: queue
+    });
+  }
+});
 
 function broadcastBrokerState(tabId) {
   const normalizedTabId = normalizeBrokerTabId(tabId);
@@ -1813,90 +1820,23 @@ function clearNavInspectCurtain(normalizedTabId) {
 }
 
 function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId || !key) {
-    return buildBrokerState(normalizedTabId);
-  }
-  const queue = getSpinnerQueueForTab(normalizedTabId);
-  queue.set(String(key), {
-    message: typeof entry.message === "string" ? entry.message : "",
-    persistent: Boolean(entry.persistent),
-    owner: typeof entry.owner === "string" ? entry.owner : SPINNER_OWNERS.POPUP,
-    reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
-    source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker",
-    startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now()
-  });
-  updateTabRuntime(normalizedTabId, {
-    spinnerQueue: queue
-  });
-  appendWorldTraceEvent(normalizedTabId, "spinner", "set", {
-    type: WORLD_MESSAGE_TYPES.SPINNER_SET,
-    key: String(key),
-    message: typeof entry.message === "string" ? entry.message : "",
+  return spinnerOperations.setBackgroundSpinnerEntry(tabId, key, {
+    ...entry,
     reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
     source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker"
   });
-  broadcastBrokerState(normalizedTabId);
-  return buildBrokerState(normalizedTabId);
 }
 
 function removeBackgroundSpinnerEntry(tabId, key) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId || !key) {
-    return buildBrokerState(normalizedTabId);
-  }
-  const queue = getSpinnerQueueForTab(normalizedTabId);
-  queue.delete(String(key));
-  if (queue.size === 0) {
-    tabSpinnerQueueByTabId.delete(normalizedTabId);
-  }
-  updateTabRuntime(normalizedTabId, {
-    spinnerQueue: queue
-  });
-  appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
-    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-    key: String(key),
-    message: String(key),
-    reason: "spinner-removed",
-    source: "background-spinner-broker"
-  });
-  broadcastBrokerState(normalizedTabId);
-  return buildBrokerState(normalizedTabId);
+  return spinnerOperations.removeBackgroundSpinnerEntry(tabId, key);
 }
 
 function clearBackgroundSpinnerQueue(tabId, options = {}) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId) {
-    return buildBrokerState(normalizedTabId);
-  }
-  const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
-  if (!queue) {
-    return buildBrokerState(normalizedTabId);
-  }
-  const transientOnly = Boolean(options.transientOnly);
-  if (transientOnly) {
-    [...queue.entries()].forEach(([key, entry]) => {
-      if (!entry || !entry.persistent) {
-        queue.delete(key);
-      }
-    });
-    if (queue.size === 0) {
-      tabSpinnerQueueByTabId.delete(normalizedTabId);
-    }
-  } else {
-    tabSpinnerQueueByTabId.delete(normalizedTabId);
-  }
-  updateTabRuntime(normalizedTabId, {
-    spinnerQueue: tabSpinnerQueueByTabId.get(normalizedTabId) || new Map()
-  });
-  appendWorldTraceEvent(normalizedTabId, "spinner", "clear", {
-    type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
-    message: transientOnly ? "transient-only" : "all",
-    reason: transientOnly ? "clear-transient-spinners" : "clear-all-spinners",
-    source: "background-spinner-broker"
-  });
-  broadcastBrokerState(normalizedTabId);
-  return buildBrokerState(normalizedTabId);
+  return spinnerOperations.clearBackgroundSpinnerQueue(tabId, options);
+}
+
+async function withBackgroundTabSpinner(tabId, descriptor, work) {
+  return spinnerOperations.withTabSpinner(tabId, descriptor, work);
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -2202,7 +2142,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(buildFeatureDisabledResponse("cacheAndUnregisterTools"));
       return;
     }
-    clearBrowsingDataForOrigin(message.origin)
+    const spinnerTabId = message.tabId || (sender && sender.tab && sender.tab.id);
+    const runClear = spinnerTabId
+      ? withBackgroundTabSpinner(
+        spinnerTabId,
+        {
+          key: "clear-cache",
+          message: "Clearing cache...",
+          owner: SPINNER_OWNERS.POPUP,
+          reason: "clear-cache",
+          source: "background-command"
+        },
+        async () => clearBrowsingDataForOrigin(message.origin)
+      )
+      : clearBrowsingDataForOrigin(message.origin);
+    runClear
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, error: "Unable to clear cache" }));
     return true;
