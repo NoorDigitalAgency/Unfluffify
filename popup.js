@@ -1084,6 +1084,11 @@ async function restoreSpinnerQueueFromBackground(tabId) {
   if (!tabId) {
     return;
   }
+  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+  if (viewState && viewState.state && viewState.state.ok) {
+    applyBackgroundStateSnapshot(viewState.state);
+    return;
+  }
   const response = await messages.sendRuntimeMessage({
     type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
     tabId
@@ -1593,6 +1598,11 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
   }
   if (!tabId) {
     return null;
+  }
+  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+  if (viewState && viewState.state && viewState.state.ok) {
+    applyBackgroundStateSnapshot(viewState.state);
+    return viewState.state;
   }
   const response = await messages.sendRuntimeMessage({
     type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,

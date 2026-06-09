@@ -137,3 +137,76 @@ test("deleting one tab runtime does not affect another", () => {
   assert.equal(recreated.tabId, 4001);
   assert.equal(recreated.contentReady, false);
 });
+
+test("popup snapshot command is tab-scoped", async () => {
+  registerBackgroundCommand("POPUP_GET_TAB_VIEW_STATE", async (context) => ({
+    state: {
+      ok: true,
+      tabId: context.tabId,
+      runtime: getTabRuntimeSnapshot(context.tabId)
+    }
+  }));
+
+  updateTabRuntime(5101, {
+    mode: "marking",
+    contentReady: true,
+    lastKnownContentState: {
+      url: "https://example.com/a"
+    }
+  });
+  updateTabRuntime(5102, {
+    mode: "silent",
+    contentReady: false,
+    lastKnownContentState: {
+      url: "https://example.com/b"
+    }
+  });
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_GET_TAB_VIEW_STATE",
+      tabId: 5101
+    }),
+    {},
+    { requireTabForTypes: new Set(["POPUP_GET_TAB_VIEW_STATE"]) }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.state.tabId, 5101);
+  assert.equal(reply.result.state.runtime.tabId, 5101);
+  assert.equal(reply.result.state.runtime.mode, "marking");
+  assert.notEqual(reply.result.state.runtime.tabId, 5102);
+});
+
+test("popup snapshot reads runtime without mutating it", async () => {
+  registerBackgroundCommand("POPUP_GET_TAB_VIEW_STATE", async (context) => ({
+    state: {
+      ok: true,
+      tabId: context.tabId,
+      runtime: getTabRuntimeSnapshot(context.tabId)
+    }
+  }));
+
+  updateTabRuntime(6201, {
+    contentReady: true,
+    mode: "inspection",
+    operation: {
+      id: "op-6201",
+      kind: "render-mode-inspection"
+    }
+  });
+
+  const before = getTabRuntimeSnapshot(6201);
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "POPUP_GET_TAB_VIEW_STATE",
+      tabId: 6201
+    }),
+    {},
+    { requireTabForTypes: new Set(["POPUP_GET_TAB_VIEW_STATE"]) }
+  );
+  const after = getTabRuntimeSnapshot(6201);
+
+  assert.equal(reply.ok, true);
+  assert.deepEqual(after, before);
+});

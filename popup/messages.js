@@ -1,9 +1,11 @@
 import * as utils from "../common/utilities.js";
+import { requestRuntime } from "../common/async-messaging.js";
 import * as stateModule from "./state.js";
 import { WORLD_MESSAGE_TYPES } from "../common/world-messaging-contract.js";
 import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
+const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,6 +71,21 @@ export function setTabState(tabId, tabState, scope = null) {
     scope,
     state: tabState && typeof tabState === "object" ? tabState : {}
   });
+}
+
+export function requestPopupTabViewState(tabId, options = {}) {
+  if (!tabId) {
+    return Promise.resolve(null);
+  }
+  return requestRuntime({
+    type: POPUP_GET_TAB_VIEW_STATE_COMMAND,
+    payload: {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 3000
+  }).then((result) => (
+    result && typeof result === "object" ? result : null
+  )).catch(() => null);
 }
 
 export function sendTabMessage(message) {

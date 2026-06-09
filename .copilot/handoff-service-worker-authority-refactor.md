@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09 (implementation checkpoints through Phase 5 ready to checkpoint)
+Last updated: 2026-06-09 (implementation checkpoints through Phase 6A ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -65,9 +65,8 @@ Completed and pushed checkpoints:
        - `node --test tests/content-command-router.test.js` passed.
        - Full suite remained on the single known baseline failure at this phase.
 
-Current in-progress phase (ready for checkpoint commit/push at this handoff update):
-
-1. Phase 5 (page-world relay through content)
+6. Phase 5 checkpoint commit `f9651a0`
+   - Message: `feat(page-world): relay motion commands through content`
     - Added:
        - `common/page-world-protocol.js`
        - `content/page-world-relay.js`
@@ -84,18 +83,37 @@ Current in-progress phase (ready for checkpoint commit/push at this handoff upda
           restore in finally on both success and thrown reveal paths.
        - `tests/page-motion-bridge-isolation.test.js` now guards relay-first
           architecture with compatibility fallback.
-    - Verification in working tree before checkpoint commit:
+    - Verification at checkpoint:
        - `node --test tests/page-world-relay.test.js tests/page-motion-freeze-bridge.test.js tests/page-motion-bridge-isolation.test.js tests/core-motion-pause.test.js` passed (33/33).
        - Core guard suite from Phase 0 list passed (220/220).
        - Full suite passed (675/675).
        - Historical Phase 0 lazy-load assertion mismatch is now resolved by the
           Phase 5 contract tests that enforce suppression restore in finally.
 
+Current in-progress phase (ready for checkpoint commit/push at this handoff update):
+
+1. Phase 6A (popup tab view snapshot from background)
+    - Updated:
+       - `popup/messages.js` adds `requestPopupTabViewState(tabId)` using
+          envelope request/reply through background command
+          `POPUP_GET_TAB_VIEW_STATE`.
+       - `popup.js` startup/tab-switch snapshot restore path now requests
+          `POPUP_GET_TAB_VIEW_STATE` first and applies returned background
+          snapshot without mutating background state; legacy
+          `GET_BACKGROUND_STATE` path remains as compatibility fallback.
+       - `tests/background-command-router.test.js` adds tab-scoped snapshot and
+          non-mutating snapshot-read guards.
+       - `tests/popup-background-snapshot.test.js` adds popup snapshot-command
+          route guards.
+    - Verification in working tree before checkpoint commit:
+       - `node --test tests/background-command-router.test.js tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js` passed (55/55).
+       - Full suite passed (679/679).
+
 ## Resume From Here
 
-Next strict phase to implement after the Phase 5 checkpoint push:
+Next strict phase to implement after the Phase 6A checkpoint push:
 
-1. Phase 6A: popup tab view snapshot from background.
+1. Phase 6B: marking activation orchestration in background.
 
 Recommended first commands to resume immediately after pull:
 
@@ -132,7 +150,7 @@ As of this handoff:
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 6A popup snapshot migration to background authority.
+7. Next work is Phase 6B marking activation orchestration in background.
 
 ## First Commands For A Future Implementer
 
