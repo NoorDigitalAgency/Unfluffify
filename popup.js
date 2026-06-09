@@ -21,6 +21,7 @@
 import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
+import { getFeatureFlags, isFeatureEnabled } from "./common/feature-flags.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
@@ -972,6 +973,14 @@ async function restoreSpinnerQueueFromBackground(tabId) {
 }
 
 async function handleTraceModeToggle(event) {
+  if (!isFeatureEnabled("traceDiagnostics")) {
+    state.traceModeEnabled = false;
+    if (event && event.currentTarget) {
+      event.currentTarget.checked = false;
+    }
+    uiModule.setViewState({ traceModeEnabled: false, traceEvents: [], traceEventCount: 0 });
+    return;
+  }
   const enabled = Boolean(event && event.currentTarget && event.currentTarget.checked);
   const previousEnabled = Boolean(state.traceModeEnabled);
   state.traceModeEnabled = enabled;
@@ -1372,11 +1381,12 @@ async function persistDesktopPreviewEnabled(tabId, enabled) {
   if (!tabId) {
     return;
   }
+  const normalizedEnabled = isFeatureEnabled("desktopPreview") && Boolean(enabled);
   await messages.setTabState(tabId, {
     active: true,
-    desktopPreviewEnabled: Boolean(enabled)
+    desktopPreviewEnabled: normalizedEnabled
   }, "initial");
-  state.currentDesktopPreviewEnabled = Boolean(enabled);
+  state.currentDesktopPreviewEnabled = normalizedEnabled;
 }
 
 function resolveRelativeEndpoint(baseUrl, path) {
@@ -2044,6 +2054,9 @@ function getSuggestedRenderModeForPage(pageUrl, sourceConfig = state.currentConf
 }
 
 function shouldAutoDetectRenderMode(sourceConfig) {
+  if (!isFeatureEnabled("renderModeAutoDetection")) {
+    return false;
+  }
   if (!sourceConfig || typeof sourceConfig !== "object") {
     return false;
   }
@@ -4186,8 +4199,9 @@ async function refreshUiInner(options = {}) {
   );
   const aiComputeRunActive =
     state.aiRequestInFlight === "compute" || state.aiComputeStartPending;
+  const desktopPreviewFeatureEnabled = isFeatureEnabled("desktopPreview");
   state.currentDesktopPreviewEnabled = Boolean(
-    initialTabState && initialTabState.desktopPreviewEnabled
+    desktopPreviewFeatureEnabled && initialTabState && initialTabState.desktopPreviewEnabled
   );
   state.propertyLockOffCandidateDeadlineAt =
     initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
@@ -4522,23 +4536,31 @@ async function refreshUiInner(options = {}) {
 
   const view = uiModule.getViewState();
   const refs = uiModule.getRefs();
-  const remoteSupportState = await fetchRemoteSupportState();
+  const remoteSupportFeatureEnabled = isFeatureEnabled("remoteSupport");
+  if (!remoteSupportFeatureEnabled) {
+    resetDisabledRemoteSupportState();
+  }
+  const remoteSupportState = remoteSupportFeatureEnabled ? await fetchRemoteSupportState() : null;
   state.remoteSupportState = remoteSupportState;
-  const remoteSupportPageVisible = isRemoteSupportPageUrl(pageUrl, configEndpointValue);
-  const scopedRemoteSupportState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  const remoteSupportViewLocked = shouldLockRemoteSupportConfigurationView(
-    remoteSupportPageVisible,
-    remoteSupportState,
-    currentTabId
-  );
+  const remoteSupportPageVisible = remoteSupportFeatureEnabled && isRemoteSupportPageUrl(pageUrl, configEndpointValue);
+  const scopedRemoteSupportState = remoteSupportFeatureEnabled
+    ? scopeRemoteSupportStateToTab(remoteSupportState, currentTabId)
+    : {};
+  const remoteSupportViewLocked = remoteSupportFeatureEnabled &&
+    shouldLockRemoteSupportConfigurationView(
+      remoteSupportPageVisible,
+      remoteSupportState,
+      currentTabId
+    );
   const nextViewState = {
     currentPageUrl: pageUrl || ViewText.unavailable,
     currentBaseUrl: state.currentBaseUrl,
+    featureFlags: getFeatureFlags(),
     configMenuOpen: state.configMenuOpen,
     previewActive,
     previewItems,
     previewFocusedXpath,
-    previewShowAllCategories,
+    previewShowAllCategories: isFeatureEnabled("previewExpandedStates") && previewShowAllCategories,
     previewBlocked: previewActive,
     previewBlockedMessage: previewActive
       ? PopupText.preview.blockedActive
@@ -4548,10 +4570,12 @@ async function refreshUiInner(options = {}) {
   nextViewState.remoteSupportSessionActive = Boolean(scopedRemoteSupportState.active);
   nextViewState.remoteSupportMode = remoteSupportMode;
   nextViewState.remoteSupportRole = scopedRemoteSupportState.role || "";
-  nextViewState.remoteSupportVisible = Boolean(tokenValue);
+  nextViewState.remoteSupportVisible = remoteSupportFeatureEnabled && Boolean(tokenValue);
   nextViewState.remoteSupportRequested = Boolean(scopedRemoteSupportState.supportCode);
   nextViewState.remoteSupportCode = scopedRemoteSupportState.supportCode || "";
-  nextViewState.remoteSupportJoinCode = state.remoteSupportJoinCode || view.remoteSupportJoinCode || "";
+  nextViewState.remoteSupportJoinCode = remoteSupportFeatureEnabled
+    ? state.remoteSupportJoinCode || view.remoteSupportJoinCode || ""
+    : "";
   nextViewState.remoteSupportPageVisible = remoteSupportPageVisible;
   nextViewState.remoteSupportConnected = Boolean(scopedRemoteSupportState.connected);
   nextViewState.remoteSupportStreaming = Boolean(scopedRemoteSupportState.streaming);
@@ -4562,8 +4586,8 @@ async function refreshUiInner(options = {}) {
   nextViewState.remoteSupportSoundAvailable = Boolean(scopedRemoteSupportState.supporteeAudioAvailable);
   nextViewState.remoteSupportSoundEnabled = Boolean(scopedRemoteSupportState.supporteeAudioEnabled);
   nextViewState.remoteSupportDockState = normalizeRemoteSupportDockState(scopedRemoteSupportState.dockState);
-  nextViewState.remoteSupportLocalCameraActive = Boolean(state.remoteSupportLocalCameraActive);
-  nextViewState.remoteSupportRemoteCameraActive = Boolean(state.remoteSupportRemoteCameraActive);
+  nextViewState.remoteSupportLocalCameraActive = remoteSupportFeatureEnabled && Boolean(state.remoteSupportLocalCameraActive);
+  nextViewState.remoteSupportRemoteCameraActive = remoteSupportFeatureEnabled && Boolean(state.remoteSupportRemoteCameraActive);
   nextViewState.remoteSupportPreviewImage = Boolean(scopedRemoteSupportState.active)
     ? state.remoteSupportLastFrame || ""
     : "";
@@ -5281,8 +5305,9 @@ async function refreshUiInner(options = {}) {
     : configurationComplete
       ? ""
       : PopupText.configuration.continueSetupNotice;
-  nextViewState.traceModeEnabled = Boolean(state.traceModeEnabled);
-  nextViewState.traceEvents = Array.isArray(state.traceEvents) ? state.traceEvents : [];
+  const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
+  nextViewState.traceModeEnabled = traceDiagnosticsEnabled && Boolean(state.traceModeEnabled);
+  nextViewState.traceEvents = traceDiagnosticsEnabled && Array.isArray(state.traceEvents) ? state.traceEvents : [];
   nextViewState.traceEventCount = nextViewState.traceEvents.length;
   nextViewState.remoteSupportAutoFocus = remoteSupportViewLocked;
 
@@ -5302,6 +5327,7 @@ async function refreshUiInner(options = {}) {
     renderModeReady &&
     !isEnabled;
   const desktopPreviewVisible = Boolean(
+    desktopPreviewFeatureEnabled &&
     silentModeActive &&
     currentTabId &&
     tabInScope &&
@@ -5453,8 +5479,10 @@ async function refreshUiInner(options = {}) {
   nextViewState.endpointInputDisabled = configurationUiDisabled;
   nextViewState.endpointSetDisabled = configurationUiDisabled;
   nextViewState.endpointEditDisabled = configurationUiDisabled;
-  nextViewState.clearDomainCacheDisabled = state.clearDomainCacheDisabled;
+  nextViewState.clearDomainCacheDisabled =
+    !isFeatureEnabled("cacheAndUnregisterTools") || state.clearDomainCacheDisabled;
   nextViewState.unregisterCurrentTabDisabled =
+    !isFeatureEnabled("cacheAndUnregisterTools") ||
     state.unregisterCurrentTabDisabled || !state.currentTab || !state.currentTab.id;
   nextViewState.computeButtonText =
     state.aiRequestInFlight === "compute"
@@ -6297,7 +6325,57 @@ function handleLoginPasswordKeyDown(event) {
   );
 }
 
+function resetDisabledRemoteSupportState() {
+  state.remoteSupportState = null;
+  state.remoteSupportJoinCode = "";
+  state.remoteSupportLastFrame = "";
+  state.remoteSupportLocalCameraActive = false;
+  state.remoteSupportRemoteCameraActive = false;
+  stopRemoteSupportCameraMediaStreams();
+  uiModule.setViewState({
+    remoteSupportVisible: false,
+    remoteSupportPageVisible: false,
+    remoteSupportAutoFocus: false,
+    remoteSupportSessionActive: false,
+    remoteSupportMode: "inactive",
+    remoteSupportRole: "",
+    remoteSupportRequested: false,
+    remoteSupportCode: "",
+    remoteSupportJoinCode: "",
+    remoteSupportRequestLoading: false,
+    remoteSupportJoinLoading: false,
+    remoteSupportConnected: false,
+    remoteSupportStreaming: false,
+    remoteSupportCameraAvailable: false,
+    remoteSupportCameraEnabled: false,
+    remoteSupportMicrophoneAvailable: false,
+    remoteSupportMicrophoneEnabled: false,
+    remoteSupportSoundAvailable: false,
+    remoteSupportSoundEnabled: false,
+    remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+    remoteSupportLocalCameraActive: false,
+    remoteSupportRemoteCameraActive: false,
+    remoteSupportPreviewImage: "",
+    remoteSupportStatusText: "",
+    remoteSupportInactivityCountdownActive: false,
+    remoteSupportInactivitySecondsRemaining: 0,
+    remoteSupportInactivityCountdownText: "0:00",
+    remoteSupportError: ""
+  });
+}
+
+function shouldBlockRemoteSupportFeature() {
+  if (isFeatureEnabled("remoteSupport")) {
+    return false;
+  }
+  resetDisabledRemoteSupportState();
+  return true;
+}
+
 function syncRemoteSupportViewState(remoteSupportState = null) {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
@@ -6397,6 +6475,9 @@ function buildRemoteSupportStatusText(stateValue) {
 }
 
 function ensureRemoteSupportPopupMediaChannel() {
+  if (!isFeatureEnabled("remoteSupport")) {
+    return null;
+  }
   if (remoteSupportPopupMediaChannel || typeof BroadcastChannel !== "function") {
     return remoteSupportPopupMediaChannel;
   }
@@ -6481,6 +6562,9 @@ function ensureRemoteSupportPopupMediaChannel() {
   return remoteSupportPopupMediaChannel;
 }
 async function fetchRemoteSupportState(tabId = state.currentTab && state.currentTab.id) {
+  if (shouldBlockRemoteSupportFeature()) {
+    return null;
+  }
   const response = await messages.sendRuntimeMessage({
     type: "getRemoteSupportState",
     tabId: Number.isFinite(tabId) ? tabId : undefined
@@ -6492,6 +6576,9 @@ async function fetchRemoteSupportState(tabId = state.currentTab && state.current
 }
 
 async function requireRemoteSupportSetup() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return null;
+  }
   if (!await helpers.ensureActiveTab({ requireId: true, requireUrl: true })) {
     return null;
   }
@@ -6508,6 +6595,9 @@ async function requireRemoteSupportSetup() {
 }
 
 async function handleRemoteSupportRequest() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   uiModule.setViewState({ remoteSupportRequestLoading: true });
   try {
     const setup = await requireRemoteSupportSetup();
@@ -6534,6 +6624,9 @@ async function handleRemoteSupportRequest() {
 }
 
 function handleRemoteSupportJoinCodeInput(event) {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const value = event && event.target && typeof event.target.value === "string"
     ? event.target.value.trim().toUpperCase()
     : "";
@@ -6542,6 +6635,9 @@ function handleRemoteSupportJoinCodeInput(event) {
 }
 
 async function handleRemoteSupportJoin() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   uiModule.setViewState({ remoteSupportJoinLoading: true });
   try {
     const setup = await requireRemoteSupportSetup();
@@ -6573,6 +6669,9 @@ async function handleRemoteSupportJoin() {
 }
 
 async function setRemoteSupportDockState(dockState) {
+  if (shouldBlockRemoteSupportFeature()) {
+    return { ok: false, reason: "feature_disabled", feature: "remoteSupport" };
+  }
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : undefined;
@@ -6593,6 +6692,9 @@ async function setRemoteSupportDockState(dockState) {
 }
 
 async function openRemoteSupportDockPiP() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const scopedRemoteSupportState = scopeRemoteSupportStateToTab(
     state.remoteSupportState,
     state.currentTab && Number.isFinite(state.currentTab.id) ? state.currentTab.id : null
@@ -6710,10 +6812,16 @@ function syncRemoteSupportDockPiPWindow() {
 }
 
 async function handleRemoteSupportDockExternalize() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   await openRemoteSupportDockPiP();
 }
 
 async function handleRemoteSupportEnd() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : undefined;
@@ -6733,6 +6841,9 @@ async function handleRemoteSupportEnd() {
 }
 
 async function handleRemoteSupportContinue() {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : undefined;
@@ -6754,6 +6865,9 @@ async function handleRemoteSupportContinue() {
 }
 
 async function handleRemoteSupportLocalMediaToggle(control) {
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
+  }
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : undefined;
@@ -6821,6 +6935,9 @@ async function handleRemoteSupportErrorDismiss(event) {
   }
   if (event && typeof event.stopPropagation === "function") {
     event.stopPropagation();
+  }
+  if (shouldBlockRemoteSupportFeature()) {
+    return;
   }
 
   const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
@@ -7360,6 +7477,9 @@ async function handleEnableToggle(event) {
 }
 
 async function handleDeviceEmulationEnabledToggle(event) {
+  if (!isFeatureEnabled("deviceEmulationToggle")) {
+    return;
+  }
   if (uiModule.getViewState().toggleEnabled) {
     return;
   }
@@ -7381,6 +7501,9 @@ async function handleDeviceEmulationEnabledToggle(event) {
 }
 
 async function handleDesktopPreviewEnabledToggle(event) {
+  if (!isFeatureEnabled("desktopPreview")) {
+    return;
+  }
   const desiredEnabled = event && event.currentTarget
     ? Boolean(event.currentTarget.checked)
     : uiModule.getViewState().desktopPreviewEnabled;
@@ -7480,6 +7603,9 @@ async function handleDeviceScaleChange(event) {
 
 async function handleClearDomainCache() {
   uiModule.setConfigMenuOpen(false);
+  if (!isFeatureEnabled("cacheAndUnregisterTools")) {
+    return;
+  }
   const tab = await helpers.ensureActiveTab({
     requireUrl: true,
     toastOnMissing: PopupText.cache.toastNoActiveTab
@@ -7529,6 +7655,9 @@ async function handleClearDomainCache() {
 
 async function handleUnregisterCurrentTab() {
   uiModule.setConfigMenuOpen(false);
+  if (!isFeatureEnabled("cacheAndUnregisterTools")) {
+    return;
+  }
   const tab = await helpers.ensureActiveTab({
     requireId: true,
     toastOnMissing: PopupText.unregister.toastNoActiveTab
@@ -8710,6 +8839,7 @@ function buildPreviewViewState(previewState) {
   const previewMode = typeof (previewState && previewState.mode) === "string"
     ? previewState.mode
     : "";
+  const previewExpandedStatesEnabled = isFeatureEnabled("previewExpandedStates");
   return {
     previewActive: Boolean(previewState && previewState.active && previewMode === "preview"),
     previewItems: normalizePreviewItems(previewState && previewState.items),
@@ -8717,6 +8847,7 @@ function buildPreviewViewState(previewState) {
       ? previewState.focusedXpath
       : "",
     previewShowAllCategories: Boolean(
+      previewExpandedStatesEnabled &&
       previewState &&
       previewState.active &&
       previewMode === "preview" &&
@@ -8726,6 +8857,10 @@ function buildPreviewViewState(previewState) {
 }
 
 async function handlePreviewShowAllCategoriesChange(event) {
+  if (!isFeatureEnabled("previewExpandedStates")) {
+    uiModule.setViewState({ previewShowAllCategories: false });
+    return;
+  }
   const nextChecked = Boolean(event && event.target && event.target.checked);
   const previousChecked = Boolean(uiModule.getViewState().previewShowAllCategories);
   uiModule.setViewState({ previewShowAllCategories: nextChecked });
@@ -8880,9 +9015,14 @@ async function init() {
     onExplicitIncludeRemove: handleExplicitIncludeRemove,
     onMarkedPageNavigate: handleMarkedPageNavigate
   });
-  ensureRemoteSupportPopupMediaChannel();
+  if (isFeatureEnabled("remoteSupport")) {
+    ensureRemoteSupportPopupMediaChannel();
+  }
 
   uiModule.onViewStateChange((viewState) => {
+    if (!isFeatureEnabled("remoteSupport")) {
+      return;
+    }
     if (
       viewState.remoteSupportMode === REMOTE_SUPPORT_MODE_BEING_SUPPORTED &&
       viewState.remoteSupportSessionActive &&
@@ -8927,6 +9067,9 @@ async function init() {
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
     if (key !== "e" && key !== "s" && key !== "m") {
+      return;
+    }
+    if (key === "m" && !isFeatureEnabled("desktopPreview")) {
       return;
     }
     event.preventDefault();

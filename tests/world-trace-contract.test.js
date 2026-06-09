@@ -26,7 +26,8 @@ test("background persists per-tab trace state and propagates trace enablement to
   assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 
-test("popup exposes trace mode toggle and syncs with background state", () => {
+test("popup keeps trace diagnostics behind a disabled feature flag", () => {
+  assert.match(popupUiSource, /if \(isPopupFeatureEnabled\(view, "traceDiagnostics"\)\) \{/);
   assert.match(popupUiSource, /id: "trace-mode-enabled"/);
   assert.match(popupUiSource, /onChange: handlers\.onTraceModeToggle/);
   assert.match(textSource, /traceModeLabel:/);
@@ -34,12 +35,17 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.doesNotMatch(textSource, /traceModeHint:/);
 
   assert.match(popupSource, /async function handleTraceModeToggle\(event\) \{/);
+  assert.match(
+    popupSource,
+    /if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?traceEvents: \[\][\s\S]*?traceEventCount: 0[\s\S]*?return;/
+  );
   assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.TRACE_SET,/);
   assert.match(popupSource, /state\.traceModeEnabled = Boolean\(snapshot\.traceEnabled\);/);
   assert.match(popupSource, /state\.traceEvents = Array\.isArray\(snapshot\.traceEvents\) \? \[\.\.\.snapshot\.traceEvents\] : \[\];/);
-  assert.match(popupSource, /nextViewState\.traceEvents = Array\.isArray\(state\.traceEvents\) \? state\.traceEvents : \[\];/);
+  assert.match(popupSource, /nextViewState\.traceEvents = traceDiagnosticsEnabled && Array\.isArray\(state\.traceEvents\) \? state\.traceEvents : \[\];/);
   assert.match(popupSource, /nextViewState\.traceEventCount = nextViewState\.traceEvents\.length;/);
-  assert.match(popupSource, /nextViewState\.traceModeEnabled = Boolean\(state\.traceModeEnabled\);/);
+  assert.match(popupSource, /const traceDiagnosticsEnabled = isFeatureEnabled\("traceDiagnostics"\);/);
+  assert.match(popupSource, /nextViewState\.traceModeEnabled = traceDiagnosticsEnabled && Boolean\(state\.traceModeEnabled\);/);
   assert.match(popupSource, /const GLOBAL_TRACE_MODE_KEY = "globalTraceModeEnabled";/);
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);
   assert.match(popupSource, /async function persistTraceModeSetting\(enabled\) \{/);
@@ -54,8 +60,8 @@ test("popup exposes trace mode toggle and syncs with background state", () => {
   assert.doesNotMatch(popupUiSource, /trace-events-list/);
 });
 
-test("diagnostics section renders after optional remote support section", () => {
-  const diagnosticsIndex = popupUiSource.indexOf("diagnosticsSectionTitle");
+test("diagnostics feature gate stays after optional remote support section", () => {
+  const diagnosticsIndex = popupUiSource.indexOf("isPopupFeatureEnabled(view, \"traceDiagnostics\")");
   const remoteSupportPushIndex = popupUiSource.indexOf("sections.push(renderRemoteSupportSection");
   assert.ok(remoteSupportPushIndex > -1);
   assert.ok(diagnosticsIndex > remoteSupportPushIndex);

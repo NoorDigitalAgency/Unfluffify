@@ -137,7 +137,7 @@ test("desktop preview persists on initial tab state and clears itself on debugge
   );
 
   assert.match(setTabStateBlock, /if \(Object\.prototype\.hasOwnProperty\.call\(message\.state, "desktopPreviewEnabled"\)\) \{/);
-  assert.match(setTabStateBlock, /nextState\.desktopPreviewEnabled = Boolean\(message\.state\.desktopPreviewEnabled\);/);
+  assert.match(setTabStateBlock, /nextState\.desktopPreviewEnabled = isFeatureEnabled\("desktopPreview"\) &&\s*Boolean\(message\.state\.desktopPreviewEnabled\);/);
   assert.match(detachBlock, /const initialState = await utils\.getTabState\(source\.tabId, "initial"\);/);
   assert.match(detachBlock, /if \(initialState && initialState\.desktopPreviewEnabled\) \{/);
   assert.match(detachBlock, /desktopPreviewEnabled: false/);
@@ -184,7 +184,7 @@ test("desktop preview visibility is gated by silent mode", () => {
 
   assert.match(
     source,
-    /const desktopPreviewVisible = Boolean\(\s*silentModeActive &&[\s\S]*?hasStoredSelectors/
+    /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&[\s\S]*?hasStoredSelectors/
   );
 });
 
@@ -373,6 +373,8 @@ test("default mobile helper preserves stored per-session choices", () => {
   assert.match(helperBlock, /enabled:\s*true/);
   assert.match(helperBlock, /mode:\s*"mobile"/);
   assert.match(helperBlock, /recalculateScale:\s*true/);
+  assert.match(emulationSource, /!current\.enabled && !isFeatureEnabled\("deviceEmulationToggle"\)/);
+  assert.match(emulationSource, /current\.mode === "desktop" && !isFeatureEnabled\("desktopPreview"\)/);
 });
 
 test("render mode cleanup preserves an active mobile simulation choice", () => {

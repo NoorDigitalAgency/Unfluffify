@@ -1,5 +1,6 @@
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
+import { isFeatureEnabled } from "./common/feature-flags.js";
 import * as utils from "./common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -728,6 +729,15 @@ function stopRemoteSupportMediaQuieting() {
 }
 
 function applyRemoteSupportSessionState(remoteSupportStateLike) {
+  if (!isFeatureEnabled("remoteSupport")) {
+    remoteSupportMode = "inactive";
+    remoteSupportRole = "";
+    remoteSupportIncludePayloads = false;
+    stopRemoteSupportMediaQuieting();
+    syncPageTelemetryBridgeLifecycle();
+    syncRemoteSupportTerminateButton();
+    return;
+  }
   const remoteSupportState =
     remoteSupportStateLike && typeof remoteSupportStateLike === "object"
       ? remoteSupportStateLike
@@ -851,6 +861,9 @@ function logContentDiagnostic(level, ...args) {
 }
 
 function forwardPageTelemetryMessage(message) {
+  if (!isFeatureEnabled("remoteSupport")) {
+    return;
+  }
   if (!message || typeof message !== "object") {
     return;
   }
@@ -1084,6 +1097,10 @@ function syncPageTelemetryBridgeLifecycle() {
 }
 
 async function syncRemoteSupportSessionStateFromBackground() {
+  if (!isFeatureEnabled("remoteSupport")) {
+    applyRemoteSupportSessionState(null);
+    return;
+  }
   try {
     const response = await chrome.runtime.sendMessage({
       type: "getRemoteSupportState"
@@ -1099,7 +1116,8 @@ async function syncRemoteSupportSessionStateFromBackground() {
 }
 
 function isRemoteSupportSupportPage() {
-  return Boolean(document.querySelector(REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR));
+  return isFeatureEnabled("remoteSupport") &&
+    Boolean(document.querySelector(REMOTE_SUPPORT_SUPPORT_PAGE_META_SELECTOR));
 }
 
 function ensureRemoteSupportTerminateButton() {
@@ -2925,6 +2943,9 @@ async function isPageSaveHotkeyAllowedOnPage() {
 }
 
 async function toggleDeviceEmulationFromPage() {
+  if (!isFeatureEnabled("deviceEmulationToggle")) {
+    return;
+  }
   if (deviceEmulationHotkeyBusy) {
     return;
   }
@@ -7734,8 +7755,10 @@ export function main() {
     getIncludePayloads: () => remoteSupportIncludePayloads
   });
 
-  initializeRemoteSupportSupportPage();
-  syncRemoteSupportSessionStateFromBackground().then();
+  if (isFeatureEnabled("remoteSupport")) {
+    initializeRemoteSupportSupportPage();
+    syncRemoteSupportSessionStateFromBackground().then();
+  }
   runPropertyLockSync({ forceSiteIdRefresh: true });
 
   core.refreshFromTabState().then(async () => {
@@ -7783,6 +7806,9 @@ export function main() {
     }
     const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
     if (key !== "e" && key !== "m") {
+      return;
+    }
+    if (key === "m" && !isFeatureEnabled("deviceEmulationToggle")) {
       return;
     }
     event.preventDefault();

@@ -20,6 +20,7 @@ import {
   getRenderModeOptionIcon,
   getRenderModeOptionLabel
 } from "./render-mode.js";
+import { FEATURE_FLAGS } from "../common/feature-flags.js";
 
 export { ViewText } from "../common/text.js";
 
@@ -37,6 +38,7 @@ export const View = {
 
 const initialViewState = {
   currentView: View.Configuration,
+  featureFlags: FEATURE_FLAGS,
   configurationContinueDisabled: true,
   configurationBackDisabled: true,
   configurationExtrasExpanded: false,
@@ -266,6 +268,14 @@ function toneUtilityClass(tone) {
     default:
       return "u-tone-muted";
   }
+}
+
+export function isPopupFeatureEnabled(view, flagName) {
+  const featureFlags = view && typeof view.featureFlags === "object"
+    ? view.featureFlags
+    : {};
+  return Object.prototype.hasOwnProperty.call(FEATURE_FLAGS, flagName) &&
+    featureFlags[flagName] === true;
 }
 
 function warningNoticeClass(...extraClasses) {
@@ -876,7 +886,7 @@ function renderThemeModeButtons(view, handlers) {
 }
 
 function renderRemoteSupportSection(view, handlers) {
-  if (!view.remoteSupportVisible) {
+  if (!isPopupFeatureEnabled(view, "remoteSupport") || !view.remoteSupportVisible) {
     return null;
   }
 
@@ -1559,27 +1569,29 @@ function renderPreviewSidebar(view, handlers) {
         icon("exit-to-app")
       )
     ),
-    h(
-      "label",
-      {
-        class: classNames(
-          "preview-sidebar__toggle",
-          openingPreview && "preview-sidebar__toggle--disabled"
-        ),
-        title: PopupText.preview.showAllCategoriesTitle
-      },
-      h(
-        "span",
-        { class: "preview-sidebar__toggle-text" },
-        PopupText.preview.showAllCategoriesLabel
-      ),
-      h("input", {
-        type: "checkbox",
-        checked: view.previewShowAllCategories,
-        disabled: openingPreview || !view.previewActive,
-        onChange: handlers.onPreviewShowAllCategoriesChange
-      })
-    ),
+    isPopupFeatureEnabled(view, "previewExpandedStates")
+      ? h(
+          "label",
+          {
+            class: classNames(
+              "preview-sidebar__toggle",
+              openingPreview && "preview-sidebar__toggle--disabled"
+            ),
+            title: PopupText.preview.showAllCategoriesTitle
+          },
+          h(
+            "span",
+            { class: "preview-sidebar__toggle-text" },
+            PopupText.preview.showAllCategoriesLabel
+          ),
+          h("input", {
+            type: "checkbox",
+            checked: view.previewShowAllCategories,
+            disabled: openingPreview || !view.previewActive,
+            onChange: handlers.onPreviewShowAllCategoriesChange
+          })
+        )
+      : null,
     h(
       "div",
       { class: "hint preview-sidebar__hint" },
@@ -1595,10 +1607,13 @@ function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
   const previewVisible = view.previewBlocked || view.previewActive;
   const configurationView = view.currentView === View.Configuration;
+  const remoteSupportFeatureEnabled = isPopupFeatureEnabled(view, "remoteSupport");
   const remoteControllerVisible =
+    remoteSupportFeatureEnabled &&
     view.remoteSupportMode === "supporting" &&
     view.remoteSupportSessionActive;
   const remoteSupportedVisible =
+    remoteSupportFeatureEnabled &&
     view.remoteSupportMode === "being_supported" &&
     view.remoteSupportSessionActive;
 
@@ -1611,17 +1626,19 @@ function App({ state: view, actions: handlers }) {
       h(
         "div",
         { class: "close-bar u-flex u-items-center u-gap-3" },
-        h(
-          "button",
-          {
-            id: "close-tab",
-            type: "button",
-            class: "close-button",
-            title: PopupText.unregister.closeButtonTitle,
-            disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
-            onClick: handlers.onUnregisterCurrentTab
-          }
-        ),
+        isPopupFeatureEnabled(view, "cacheAndUnregisterTools")
+          ? h(
+              "button",
+              {
+                id: "close-tab",
+                type: "button",
+                class: "close-button",
+                title: PopupText.unregister.closeButtonTitle,
+                disabled: view.unregisterCurrentTabDisabled || previewVisible || configurationView || remoteControllerVisible,
+                onClick: handlers.onUnregisterCurrentTab
+              }
+            )
+          : null,
         remoteSupportedVisible
           ? h(
               "button",
@@ -1715,20 +1732,24 @@ function App({ state: view, actions: handlers }) {
                             h("span", { class: "section-menu__label" }, PopupText.renderMode.menuAction)
                           )
                         : null,
-                      h("div", { class: "config-divider", role: "separator" }),
-                      h(
-                        "button",
-                        {
-                          id: "clear-domain-cache",
-                          type: "button",
-                          role: "menuitem",
-                          class: "danger",
-                          disabled: view.clearDomainCacheDisabled,
-                          onClick: handlers.onClearDomainCache
-                        },
-                        icon("trash-can-outline"),
-                        h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
-                      )
+                      isPopupFeatureEnabled(view, "cacheAndUnregisterTools")
+                        ? [
+                            h("div", { class: "config-divider", role: "separator" }),
+                            h(
+                              "button",
+                              {
+                                id: "clear-domain-cache",
+                                type: "button",
+                                role: "menuitem",
+                                class: "danger",
+                                disabled: view.clearDomainCacheDisabled,
+                                onClick: handlers.onClearDomainCache
+                              },
+                              icon("trash-can-outline"),
+                              h("span", { class: "section-menu__label" }, PopupText.cache.menuAction)
+                            )
+                          ]
+                        : null
                     )
                   ]
             )
@@ -1780,7 +1801,7 @@ function App({ state: view, actions: handlers }) {
           : view.currentView === View.Configuration
             ? renderConfigurationView({ state: view, actions: handlers })
             : null,
-      view.desktopPreviewVisible
+      isPopupFeatureEnabled(view, "desktopPreview") && view.desktopPreviewVisible
         ? h(
             Fragment,
             { key: "desktop-preview-section" },
@@ -2282,50 +2303,60 @@ function renderConfigurationExtrasSection(view, handlers) {
       return `${at}  ${channel} / ${name}${summary ? `  ${summary}` : ""}`;
     });
   const traceLogValue = traceLines.join("\n");
-  const sections = [renderConfigurationAppearanceSection(view, handlers)];
+  const sections = [];
 
-  if (view.remoteSupportVisible) {
+  if (isPopupFeatureEnabled(view, "appearanceCustomization")) {
+    sections.push(renderConfigurationAppearanceSection(view, handlers));
+  }
+
+  if (isPopupFeatureEnabled(view, "remoteSupport") && view.remoteSupportVisible) {
     sections.push(renderRemoteSupportSection({ ...view, remoteSupportEmbedded: true }, handlers));
   }
 
-  sections.push(
-    h(
-      "section",
-      { class: "config-extra-subsection" },
-      h("div", { class: "section-title" }, icon("timeline-text-outline", "field-icon"), PopupText.configuration.diagnosticsSectionTitle),
+  if (isPopupFeatureEnabled(view, "traceDiagnostics")) {
+    sections.push(
       h(
-        "label",
-        { class: "row" },
-        h("span", { class: "row-label" }, icon("bug-outline", "row-icon"), PopupText.configuration.traceModeLabel),
-        h("input", {
-          id: "trace-mode-enabled",
-          type: "checkbox",
-          checked: Boolean(view.traceModeEnabled),
-          onChange: handlers.onTraceModeToggle
-        })
-      ),
-      Boolean(view.traceModeEnabled)
-        ? h(
-            "div",
-            { class: "trace-events-panel" },
-            h(
+        "section",
+        { class: "config-extra-subsection" },
+        h("div", { class: "section-title" }, icon("timeline-text-outline", "field-icon"), PopupText.configuration.diagnosticsSectionTitle),
+        h(
+          "label",
+          { class: "row" },
+          h("span", { class: "row-label" }, icon("bug-outline", "row-icon"), PopupText.configuration.traceModeLabel),
+          h("input", {
+            id: "trace-mode-enabled",
+            type: "checkbox",
+            checked: Boolean(view.traceModeEnabled),
+            onChange: handlers.onTraceModeToggle
+          })
+        ),
+        Boolean(view.traceModeEnabled)
+          ? h(
               "div",
-              { class: "trace-events-panel__header" },
-              icon("format-list-bulleted", "trace-events-panel__icon"),
-              h("span", { class: "trace-events-panel__label" }, "Trace events"),
-              h("span", { class: "trace-events-panel__badge" }, String(Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length))
-            ),
-            h("textarea", {
-              id: "trace-events-output",
-              class: "trace-events-output",
-              readOnly: true,
-              value: traceLogValue,
-              rows: 8
-            })
-          )
-        : null
-    )
-  );
+              { class: "trace-events-panel" },
+              h(
+                "div",
+                { class: "trace-events-panel__header" },
+                icon("format-list-bulleted", "trace-events-panel__icon"),
+                h("span", { class: "trace-events-panel__label" }, "Trace events"),
+                h("span", { class: "trace-events-panel__badge" }, String(Number.isFinite(view.traceEventCount) ? view.traceEventCount : traceEvents.length))
+              ),
+              h("textarea", {
+                id: "trace-events-output",
+                class: "trace-events-output",
+                readOnly: true,
+                value: traceLogValue,
+                rows: 8
+              })
+            )
+          : null
+      )
+    );
+  }
+
+  if (!sections.length) {
+    return null;
+  }
 
   return h(
     "section",

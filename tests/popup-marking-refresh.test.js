@@ -156,14 +156,15 @@ test("popup mirrors the cross-property editor cooldown from initial tab state an
 test("desktop preview is a separate popup section that disables marking entry while active", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
-  const desktopToggleBody = popupSource.match(
-    /async function handleDesktopPreviewEnabledToggle\(event\) \{([\s\S]*?)\n\}/
-  )[1];
+  const desktopToggleStart = popupSource.indexOf("async function handleDesktopPreviewEnabledToggle(event) {");
+  const desktopToggleEnd = popupSource.indexOf("function handleDeviceScaleInput", desktopToggleStart);
+  assert.ok(desktopToggleStart >= 0 && desktopToggleEnd > desktopToggleStart);
+  const desktopToggleBody = popupSource.slice(desktopToggleStart, desktopToggleEnd);
 
-  assert.match(popupSource, /state\.currentDesktopPreviewEnabled = Boolean\(\s*initialTabState && initialTabState\.desktopPreviewEnabled\s*\);/);
+  assert.match(popupSource, /state\.currentDesktopPreviewEnabled = Boolean\(\s*desktopPreviewFeatureEnabled && initialTabState && initialTabState\.desktopPreviewEnabled\s*\);/);
   assert.match(
     popupSource,
-    /const desktopPreviewVisible = Boolean\(\s*silentModeActive &&/
+    /const desktopPreviewVisible = Boolean\(\s*desktopPreviewFeatureEnabled &&\s*silentModeActive &&/
   );
   assert.match(popupSource, /const desktopPreviewActive = Boolean\(\s*desktopPreviewVisible && state\.currentDesktopPreviewEnabled\s*\);/);
   assert.match(popupSource, /nextViewState\.desktopPreviewVisible = desktopPreviewVisible;/);
@@ -175,11 +176,12 @@ test("desktop preview is a separate popup section that disables marking entry wh
     popupSource,
     /nextViewState\.toggleEnabledDisabled =[\s\S]*?\(!navigationInspectionPending && \(!siteIdReady \|\| !renderModeReady \|\| pageTypeUiBlocked\)\)[\s\S]*?desktopPreviewActive;/
   );
+  assert.match(desktopToggleBody, /if \(!isFeatureEnabled\("desktopPreview"\)\) \{\s*return;\s*\}/);
   assert.match(desktopToggleBody, /if \(desiredEnabled && uiModule\.getViewState\(\)\.toggleEnabled\) \{/);
   assert.match(desktopToggleBody, /await handleEnableToggle\(\{ currentTarget: \{ checked: false \} \}\);/);
   assert.match(desktopToggleBody, /const targetMode = desiredEnabled \? "desktop" : "mobile";/);
   assert.match(desktopToggleBody, /await persistDesktopPreviewEnabled\(tab\.id, desiredEnabled\);/);
-  assert.match(uiSource, /view\.desktopPreviewVisible/);
+  assert.match(uiSource, /isPopupFeatureEnabled\(view, "desktopPreview"\) && view\.desktopPreviewVisible/);
   assert.match(uiSource, /id: "desktop-preview-enabled"/);
   assert.match(uiSource, /PopupText\.device\.desktopPreviewLabel/);
   assert.match(uiSource, /view\.desktopPreviewNoticeVisible/);

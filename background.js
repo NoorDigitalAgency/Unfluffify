@@ -33,6 +33,10 @@ import {
   reconcileDeviceEmulationState,
   updateDeviceEmulation
 } from "./common/emulation.js";
+import {
+  FEATURE_DISABLED_REASON,
+  isFeatureEnabled
+} from "./common/feature-flags.js";
 import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
 import * as constants from "./common/constants.js";
 import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
@@ -93,6 +97,15 @@ const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "remoteSupportExtensionTelemetry",
   "remoteSupportTransportEvent"
 ]);
+
+function buildFeatureDisabledResponse(featureName) {
+  return {
+    ok: false,
+    reason: FEATURE_DISABLED_REASON,
+    feature: featureName,
+    error: "Feature disabled"
+  };
+}
 
 const PROPERTY_LOCK_MESSAGE_TYPES = new Set([
   "getPropertyLockState",
@@ -1824,6 +1837,9 @@ initPropertyLockBackground();
 installExtensionTelemetry({
   source: "worker",
   sendTelemetry(message) {
+    if (!isFeatureEnabled("remoteSupport")) {
+      return Promise.resolve(buildFeatureDisabledResponse("remoteSupport"));
+    }
     return handleRemoteSupportBackgroundMessage(message, {});
   }
 });
@@ -2024,6 +2040,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (REMOTE_SUPPORT_MESSAGE_TYPES.has(message.type)) {
+    if (!isFeatureEnabled("remoteSupport")) {
+      sendResponse(buildFeatureDisabledResponse("remoteSupport"));
+      return;
+    }
     handleRemoteSupportBackgroundMessage(message, sender)
       .then((result) => {
         sendResponse(result || { ok: false, error: "Remote support request failed" });
@@ -2053,6 +2073,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "clearBrowsingDataForOrigin") {
+    if (!isFeatureEnabled("cacheAndUnregisterTools")) {
+      sendResponse(buildFeatureDisabledResponse("cacheAndUnregisterTools"));
+      return;
+    }
     clearBrowsingDataForOrigin(message.origin)
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false, error: "Unable to clear cache" }));
@@ -2226,6 +2250,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "requestRenderModeDetection") {
+    if (!isFeatureEnabled("renderModeAutoDetection")) {
+      sendResponse(buildFeatureDisabledResponse("renderModeAutoDetection"));
+      return;
+    }
     requestRenderModeDetection({
       endpointValue: message.endpointValue,
       tokenValue: message.tokenValue,
@@ -2419,7 +2447,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             nextState.pageType = typeof message.state.pageType === "string" ? message.state.pageType : "";
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "desktopPreviewEnabled")) {
-            nextState.desktopPreviewEnabled = Boolean(message.state.desktopPreviewEnabled);
+            nextState.desktopPreviewEnabled = isFeatureEnabled("desktopPreview") &&
+              Boolean(message.state.desktopPreviewEnabled);
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockOffCandidateDeadlineAt")) {
             nextState.propertyLockOffCandidateDeadlineAt = Number.isFinite(message.state.propertyLockOffCandidateDeadlineAt)
@@ -2490,7 +2519,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })
       .then((result) => {
         if (!result.ok) {
-          sendResponse({ ok: false, error: result.error || "Device emulation failed" });
+          sendResponse({
+            ok: false,
+            error: result.error || "Device emulation failed",
+            reason: result.reason || (result.feature ? FEATURE_DISABLED_REASON : undefined),
+            feature: result.feature
+          });
           return;
         }
         sendResponse({ ok: true, state: result.state });
@@ -2515,7 +2549,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })
       .then((result) => {
         if (!result.ok) {
-          sendResponse({ ok: false, error: result.error || "Device emulation failed" });
+          sendResponse({
+            ok: false,
+            error: result.error || "Device emulation failed",
+            reason: result.reason || (result.feature ? FEATURE_DISABLED_REASON : undefined),
+            feature: result.feature
+          });
           return;
         }
         sendResponse({ ok: true, state: result.state });
@@ -2560,6 +2599,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "unregisterTabAndReload") {
+    if (!isFeatureEnabled("cacheAndUnregisterTools")) {
+      sendResponse(buildFeatureDisabledResponse("cacheAndUnregisterTools"));
+      return;
+    }
     const tabId = message.tabId || (sender.tab && sender.tab.id);
     if (!tabId) {
       sendResponse({ ok: false, error: "Missing tab" });

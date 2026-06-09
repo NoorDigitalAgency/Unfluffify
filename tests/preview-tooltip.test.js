@@ -11,12 +11,12 @@ test("preview sidebar buttons expose each detected content xpath as the button t
   );
 });
 
-test("preview sidebar renders a checkbox that switches to the expanded content-state list", () => {
+test("preview sidebar gates the expanded content-state checkbox behind a feature flag", () => {
   const source = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 
   assert.match(
     source,
-    /type: "checkbox",[\s\S]*?checked: view\.previewShowAllCategories,[\s\S]*?onChange: handlers\.onPreviewShowAllCategoriesChange/
+    /isPopupFeatureEnabled\(view, "previewExpandedStates"\)[\s\S]*?type: "checkbox",[\s\S]*?checked: view\.previewShowAllCategories,[\s\S]*?onChange: handlers\.onPreviewShowAllCategoriesChange[\s\S]*?: null/
   );
   assert.match(
     source,
@@ -60,7 +60,15 @@ test("popup.js sends preview list mode changes to the content script and normali
 
   assert.match(
     source,
+    /const previewExpandedStatesEnabled = isFeatureEnabled\("previewExpandedStates"\);[\s\S]*?previewShowAllCategories: Boolean\([\s\S]*?previewExpandedStatesEnabled &&[\s\S]*?previewState\.showAllCategories/
+  );
+  assert.match(
+    source,
     /function buildPreviewViewState\(previewState\) \{[\s\S]*?previewShowAllCategories:[\s\S]*?previewState\.showAllCategories/
+  );
+  assert.match(
+    source,
+    /async function handlePreviewShowAllCategoriesChange\(event\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?previewShowAllCategories: false[\s\S]*?return;/
   );
   assert.match(
     source,

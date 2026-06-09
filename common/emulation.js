@@ -3,6 +3,10 @@ import {
   DEVICE_EMULATION_PRESETS,
   DEVICE_SCALE_DEFAULTS
 } from "./constants.js";
+import {
+  FEATURE_DISABLED_REASON,
+  isFeatureEnabled
+} from "./feature-flags.js";
 import { storageGet, storageSet } from "./utilities.js";
 
 const deviceEmulationQueueByTabId = new Map();
@@ -45,6 +49,16 @@ function normalizeDeviceEmulationState(value) {
     enabled: Boolean(value.enabled),
     mode,
     scale: normalizeDeviceScale(value.scale, mode)
+  };
+}
+
+function buildFeatureDisabledResult(featureName, state = null) {
+  return {
+    ok: false,
+    reason: FEATURE_DISABLED_REASON,
+    feature: featureName,
+    error: "Feature disabled",
+    state
   };
 }
 
@@ -210,6 +224,18 @@ async function isDebuggerAttachedToTab(tabId) {
 
 export async function reconcileDeviceEmulationState(tabId) {
   const current = await getDeviceEmulationState(tabId);
+  if (
+    (!current.enabled && !isFeatureEnabled("deviceEmulationToggle")) ||
+    (current.mode === "desktop" && !isFeatureEnabled("desktopPreview"))
+  ) {
+    const restored = await updateDeviceEmulation(tabId, {
+      enabled: true,
+      mode: "mobile",
+      scale: DEVICE_SCALE_DEFAULTS.mobile,
+      recalculateScale: true
+    });
+    return restored && restored.ok && restored.state ? restored.state : current;
+  }
   if (!current.enabled) {
     return current;
   }
@@ -302,6 +328,14 @@ async function clearDeviceEmulation(tabId) {
 export async function updateDeviceEmulation(tabId, updates) {
   return runDeviceEmulationOperation(tabId, async () => {
     const current = await getDeviceEmulationState(tabId);
+    if (
+      updates &&
+      Object.prototype.hasOwnProperty.call(updates, "enabled") &&
+      updates.enabled === false &&
+      !isFeatureEnabled("deviceEmulationToggle")
+    ) {
+      return buildFeatureDisabledResult("deviceEmulationToggle", current);
+    }
     const next = {
       ...current,
       ...updates
@@ -310,6 +344,10 @@ export async function updateDeviceEmulation(tabId, updates) {
     delete next.recalculateScale;
     next.mode = normalizeDeviceMode(next.mode);
     next.scale = normalizeDeviceScale(next.scale, next.mode);
+
+    if (next.mode === "desktop" && !isFeatureEnabled("desktopPreview")) {
+      return buildFeatureDisabledResult("desktopPreview", current);
+    }
 
     if (!next.enabled) {
       await clearDeviceEmulation(tabId);
