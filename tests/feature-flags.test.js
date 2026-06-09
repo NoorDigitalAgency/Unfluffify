@@ -57,7 +57,7 @@ test("getFeatureFlags returns an immutable copy", () => {
 });
 
 test("popup refresh exposes a feature flag snapshot in view state", () => {
-  assert.match(popupSource, /import \{ getFeatureFlags, isFeatureEnabled \} from "\.\/common\/feature-flags\.js";/);
+  assert.match(popupSource, /import \{ FEATURE_DISABLED_REASON, getFeatureFlags, isFeatureEnabled \} from "\.\/common\/feature-flags\.js";/);
   assert.match(popupSource, /featureFlags: getFeatureFlags\(\),/);
 });
 

@@ -60,6 +60,10 @@ import {
   normalizeLockStateMessage,
   createInactiveLockState
 } from "./property-lock.js";
+import {
+  FEATURE_DISABLED_REASON,
+  isFeatureEnabled
+} from "./feature-flags.js";
 import * as utils from "./utilities.js";
 
 /**
@@ -130,6 +134,52 @@ class PropertyLockConnectionRuntime {
 const lockConnections = new Map(); // `${siteId}:${clientId}` → PropertyLockConnectionRuntime
 const contentScriptPorts = new Map(); // portId → {port, siteId, clientId, connectionKey, tabId}
 let portIdCounter = 0;
+const PROPERTY_LOCK_FEATURE_NAME = "propertyLockCollaboration";
+
+function buildDisabledPropertyLockResponse() {
+  return {
+    ok: false,
+    reason: FEATURE_DISABLED_REASON,
+    feature: PROPERTY_LOCK_FEATURE_NAME,
+    error: "Feature disabled"
+  };
+}
+
+function isPropertyLockCollaborationEnabled() {
+  return isFeatureEnabled(PROPERTY_LOCK_FEATURE_NAME);
+}
+
+function disposeAllPropertyLockConnections() {
+  for (const [portId, portEntry] of contentScriptPorts.entries()) {
+    contentScriptPorts.delete(portId);
+    if (portEntry) {
+      portEntry.siteId = null;
+      portEntry.clientId = "";
+      portEntry.connectionKey = "";
+      if (portEntry.port) {
+        try {
+          portEntry.port.disconnect();
+        } catch (error) {
+          // Port may already be closed.
+        }
+      }
+    }
+  }
+  for (const [connectionKey, runtime] of lockConnections.entries()) {
+    if (runtime) {
+      runtime.dispose();
+    }
+    lockConnections.delete(connectionKey);
+  }
+}
+
+function ensurePropertyLockBackgroundActive() {
+  if (isPropertyLockCollaborationEnabled()) {
+    return true;
+  }
+  disposeAllPropertyLockConnections();
+  return false;
+}
 
 function buildConnectionKey(siteId, clientId) {
   const normalizedSiteId = normalizePropertyLockSiteId(siteId);
@@ -227,6 +277,9 @@ function releaseAndDisposeConnection(connectionKey, options = {}) {
  * Sets up port listener for content script connections.
  */
 export function initPropertyLockBackground() {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return;
+  }
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name === PROPERTY_LOCK_PORT_NAME) {
       handlePropertyLockPortConnect(port);
@@ -238,6 +291,14 @@ export function initPropertyLockBackground() {
  * Handle a new connection from content script.
  */
 function handlePropertyLockPortConnect(port) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    try {
+      port.disconnect();
+    } catch (error) {
+      // Port may already be closed.
+    }
+    return;
+  }
   const portId = ++portIdCounter;
   let siteId = null;
   let clientId = "";
@@ -257,6 +318,18 @@ function handlePropertyLockPortConnect(port) {
   };
 
   function onPortMessage(message) {
+    if (!ensurePropertyLockBackgroundActive()) {
+      try {
+        port.postMessage({
+          type: PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
+          connectionStatus: PROPERTY_LOCK_CONNECTION_UNAVAILABLE,
+          error: FEATURE_DISABLED_REASON
+        });
+      } catch (error) {
+        // Port may already be closed.
+      }
+      return;
+    }
     if (!message || typeof message !== "object") {
       return;
     }
@@ -407,6 +480,9 @@ function handlePropertyLockPortConnect(port) {
 }
 
 export function handlePropertyLockBackgroundTabRemoved(tabId) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return;
+  }
   const normalizedTabId = Number.isFinite(tabId) ? Math.trunc(tabId) : null;
   if (normalizedTabId === null) {
     return;
@@ -447,6 +523,9 @@ function markRuntimeActive(runtime) {
  * Create if missing, reuse if the same page session reconnects.
  */
 function ensureConnectionForClient(siteId, clientId) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return null;
+  }
   siteId = normalizePropertyLockSiteId(siteId);
   clientId = normalizePropertyLockClientId(clientId);
   const connectionKey = buildConnectionKey(siteId, clientId);
@@ -487,6 +566,9 @@ function setConnectionStatus(runtime, status, error = "") {
  * Establish WebSocket connection for a runtime.
  */
 function connectWebSocket(runtime) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return;
+  }
   if (runtime.isConnected || runtime.socket || !hasContentPortsForConnection(runtime.connectionKey)) {
     return;
   }
@@ -697,6 +779,9 @@ async function checkNetworkConnectivity(runtime) {
 }
 
 function startConnectionLossWatch(runtime, reason) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return;
+  }
   if (!runtime || runtime.connectionLossTimer) {
     return;
   }
@@ -892,6 +977,9 @@ function debounceActivity(connectionKey) {
  * Schedule WebSocket reconnect with exponential backoff.
  */
 function scheduleReconnect(runtime) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return;
+  }
   if (lockConnections.get(runtime.connectionKey) !== runtime || !hasContentPortsForConnection(runtime.connectionKey)) {
     return;
   }
@@ -942,6 +1030,16 @@ function scheduleDisconnectCheck(connectionKey) {
  * Handle getPropertyLockState message from popup.
  */
 export async function handleGetPropertyLockState(message, sender) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return {
+      state: createInactiveLockState(),
+      clientId: "",
+      identity: "",
+      name: "",
+      connectionStatus: PROPERTY_LOCK_CONNECTION_INACTIVE,
+      error: FEATURE_DISABLED_REASON
+    };
+  }
   const siteId = normalizePropertyLockSiteId(message.siteId);
   if (!siteId) {
     return { state: createInactiveLockState() };
@@ -999,6 +1097,9 @@ function findRuntimeForRequest(message, sender) {
 }
 
 function handlePropertyLockCommand(message, sender) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return buildDisabledPropertyLockResponse();
+  }
   const runtime = findRuntimeForRequest(message, sender);
   if (!runtime || !runtime.isConnected) {
     return { ok: false };
@@ -1051,6 +1152,9 @@ function handlePropertyLockCommand(message, sender) {
  * Message handler for all property lock background messages.
  */
 export async function handlePropertyLockBackgroundMessage(message, sender) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return buildDisabledPropertyLockResponse();
+  }
   if (!message || !message.type) {
     return { ok: false };
   }
@@ -1080,6 +1184,9 @@ export async function handlePropertyLockBackgroundMessage(message, sender) {
 }
 
 function handlePageDraftStatusMessage(message, sender) {
+  if (!ensurePropertyLockBackgroundActive()) {
+    return buildDisabledPropertyLockResponse();
+  }
   const senderTabId = sender && sender.tab && Number.isFinite(sender.tab.id)
     ? Math.trunc(sender.tab.id)
     : null;

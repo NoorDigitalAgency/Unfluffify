@@ -609,7 +609,7 @@ function syncBlockingUiCurtainDom() {
 }
 
 function renderPropertyLockIndicator(view, handlers) {
-  if (!view.propertyLockVisible) {
+  if (!isPopupFeatureEnabled(view, "propertyLockCollaboration") || !view.propertyLockVisible) {
     return null;
   }
 

@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  FEATURE_DISABLED_REASON,
+  FEATURE_FLAGS,
+  isFeatureEnabled
+} from "../common/feature-flags.js";
+
+import {
   PROPERTY_LOCK_BACKGROUND_STATE_UPDATE,
   PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS,
   PROPERTY_LOCK_CONTENT_CONTINUE,
@@ -237,84 +243,7 @@ async function flushAsyncWork() {
   await Promise.resolve();
 }
 
-test("property lock keeps a same-site runtime alive when a new port reconnects within the grace window", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalWebSocket = globalThis.WebSocket;
-  const timerController = createFakeTimerController();
-  const FakeWebSocket = createFakeWebSocketClass();
-  const { chromeMock, connectPort } = createChromeMock({
-    globalStageBase: "stage.example.test",
-    globalToken: "secret-token"
-  });
-
-  globalThis.chrome = chromeMock;
-  globalThis.WebSocket = FakeWebSocket;
-
-  try {
-    const {
-      initPropertyLockBackground,
-      handleGetPropertyLockState
-    } = await loadPropertyLockBackgroundModule();
-    initPropertyLockBackground();
-
-    const firstPort = connectPort();
-    firstPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 101,
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 1);
-    assert.equal(
-      FakeWebSocket.instances[0].url,
-      "wss://stage.example.test/property-lock?token=secret-token"
-    );
-
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_LOCK_STATE,
-      state: PROPERTY_LOCK_STATE_LOCKED,
-      editorIdentity: "editor@example.test",
-      editorName: "Editor",
-      isEditor: false,
-      isRecentEditor: false,
-      expiresAtUtc: "",
-      secondsRemaining: null
-    });
-
-    firstPort.emitMessage({ type: PROPERTY_LOCK_CONTENT_DISCONNECT, siteId: 101 });
-    firstPort.disconnect();
-
-    const duringGrace = await handleGetPropertyLockState({ siteId: 101 }, {});
-    assert.equal(duringGrace.state.state, PROPERTY_LOCK_STATE_LOCKED);
-    assert.equal(duringGrace.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-
-    timerController.advance(PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS - 1);
-
-    const secondPort = connectPort();
-    secondPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 101,
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    timerController.advance(1);
-
-    assert.equal(FakeWebSocket.instances.length, 1);
-    assert.deepEqual(FakeWebSocket.instances[0].closeCalls, []);
-
-    const afterReconnect = await handleGetPropertyLockState({ siteId: 101 }, {});
-    assert.equal(afterReconnect.state.state, PROPERTY_LOCK_STATE_LOCKED);
-    assert.equal(afterReconnect.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-  } finally {
-    timerController.restore();
-    globalThis.chrome = originalChrome;
-    globalThis.WebSocket = originalWebSocket;
-  }
-});
-
-test("property lock releases the editor immediately when the tab is removed", async () => {
+test("property lock runtime stays inert when feature flag is disabled", async () => {
   const originalChrome = globalThis.chrome;
   const originalWebSocket = globalThis.WebSocket;
   const FakeWebSocket = createFakeWebSocketClass();
@@ -327,346 +256,58 @@ test("property lock releases the editor immediately when the tab is removed", as
   globalThis.WebSocket = FakeWebSocket;
 
   try {
+    assert.equal(FEATURE_FLAGS.propertyLockCollaboration, false);
+    assert.equal(isFeatureEnabled("propertyLockCollaboration"), false);
+
     const {
       initPropertyLockBackground,
       handleGetPropertyLockState,
+      handlePropertyLockBackgroundMessage,
       handlePropertyLockBackgroundTabRemoved
     } = await loadPropertyLockBackgroundModule();
+
     initPropertyLockBackground();
 
-    const port = connectPort({ tabId: 77 });
+    const port = connectPort({ tabId: 33 });
     port.emitMessage({
       type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 707,
-      clientId: "client-a",
-      pageUrl: "https://example.test/a",
-      hasUnsavedChanges: false
+      siteId: 303,
+      clientId: "client-a"
     });
     await flushAsyncWork();
 
-    FakeWebSocket.instances[0].onopen();
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_SUBSCRIBED,
-      identity: "editor@example.test",
-      name: "Editor"
-    });
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_LOCK_STATE,
-      state: PROPERTY_LOCK_STATE_LOCKED,
-      editorIdentity: "editor@example.test",
-      editorClientId: "client-a",
-      editorName: "Editor",
-      isEditor: true,
-      isRecentEditor: false,
-      expiresAtUtc: "",
-      secondsRemaining: null
-    });
+    assert.equal(FakeWebSocket.instances.length, 0);
 
-    handlePropertyLockBackgroundTabRemoved(77);
-
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).type, "release_lock");
-    assert.deepEqual(FakeWebSocket.instances[0].closeCalls, [1000]);
-
-    const state = await handleGetPropertyLockState({ siteId: 707, tabId: 77 }, {});
+    const state = await handleGetPropertyLockState({ siteId: 303, tabId: 33 }, {});
     assert.equal(state.state.state, PROPERTY_LOCK_STATE_UNLOCKED);
     assert.equal(state.connectionStatus, PROPERTY_LOCK_CONNECTION_INACTIVE);
-  } finally {
-    globalThis.chrome = originalChrome;
-    globalThis.WebSocket = originalWebSocket;
-  }
-});
+    assert.equal(state.error, FEATURE_DISABLED_REASON);
 
-test("property lock opens a new runtime for a different site immediately and drops the old one after the grace window", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalWebSocket = globalThis.WebSocket;
-  const timerController = createFakeTimerController();
-  const FakeWebSocket = createFakeWebSocketClass();
-  const { chromeMock, connectPort } = createChromeMock({
-    globalStageBase: "stage.example.test",
-    globalToken: "secret-token"
-  });
-  globalThis.chrome = chromeMock;
-  globalThis.WebSocket = FakeWebSocket;
-
-  try {
-    const {
-      initPropertyLockBackground,
-      handleGetPropertyLockState
-    } = await loadPropertyLockBackgroundModule();
-    initPropertyLockBackground();
-
-    const firstPort = connectPort();
-    firstPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 101,
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_LOCK_STATE,
-      state: PROPERTY_LOCK_STATE_LOCKED,
-      editorIdentity: "editor@example.test",
-      editorName: "Editor",
-      isEditor: false,
-      isRecentEditor: false,
-      expiresAtUtc: "",
-      secondsRemaining: null
-    });
-
-    firstPort.emitMessage({ type: PROPERTY_LOCK_CONTENT_DISCONNECT, siteId: 101 });
-    firstPort.disconnect();
-
-    const secondPort = connectPort();
-    secondPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 202,
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 2);
-
-    const oldSiteDuringGrace = await handleGetPropertyLockState({ siteId: 101 }, {});
-    assert.equal(oldSiteDuringGrace.state.state, PROPERTY_LOCK_STATE_LOCKED);
-    assert.equal(oldSiteDuringGrace.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-
-    timerController.advance(PROPERTY_LOCK_PORT_DISCONNECT_DELAY_MS);
-
-    assert.deepEqual(FakeWebSocket.instances[0].closeCalls, [1000]);
-    assert.deepEqual(FakeWebSocket.instances[1].closeCalls, []);
-
-    const oldSiteAfterGrace = await handleGetPropertyLockState({ siteId: 101 }, {});
-    assert.equal(oldSiteAfterGrace.state.state, PROPERTY_LOCK_STATE_UNLOCKED);
-    assert.equal(oldSiteAfterGrace.connectionStatus, PROPERTY_LOCK_CONNECTION_INACTIVE);
-
-    const newSiteState = await handleGetPropertyLockState({ siteId: 202 }, {});
-    assert.equal(newSiteState.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-  } finally {
-    timerController.restore();
-    globalThis.chrome = originalChrome;
-    globalThis.WebSocket = originalWebSocket;
-  }
-});
-
-test("property lock accepts numeric string site IDs and rejects invalid connect messages", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalWebSocket = globalThis.WebSocket;
-  const FakeWebSocket = createFakeWebSocketClass();
-  const { chromeMock, connectPort } = createChromeMock({
-    globalStageBase: "stage.example.test",
-    globalToken: "secret-token"
-  });
-
-  globalThis.chrome = chromeMock;
-  globalThis.WebSocket = FakeWebSocket;
-
-  try {
-    const { initPropertyLockBackground, handleGetPropertyLockState } = await loadPropertyLockBackgroundModule();
-    initPropertyLockBackground();
-
-    const invalidPort = connectPort();
-    invalidPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: "not-a-site"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 0);
-    assert.equal(invalidPort.postedMessages[0].type, "propertyLockConnectionStatus");
-    assert.equal(invalidPort.postedMessages[0].error, "invalid_site_id");
-
-    const missingClientPort = connectPort();
-    missingClientPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: "303"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 0);
-    assert.equal(missingClientPort.postedMessages[0].type, "propertyLockConnectionStatus");
-    assert.equal(missingClientPort.postedMessages[0].error, "invalid_client_id");
-
-    const validPort = connectPort();
-    validPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: "303",
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 1);
-    const state = await handleGetPropertyLockState({ siteId: "303" }, {});
-    assert.equal(state.connectionStatus, PROPERTY_LOCK_CONNECTION_CONNECTING);
-  } finally {
-    globalThis.chrome = originalChrome;
-    globalThis.WebSocket = originalWebSocket;
-  }
-});
-
-test("property lock sends stable client session metadata to the server", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalWebSocket = globalThis.WebSocket;
-  const timerController = createFakeTimerController();
-  const FakeWebSocket = createFakeWebSocketClass();
-  const { chromeMock, connectPort } = createChromeMock({
-    globalStageBase: "stage.example.test",
-    globalToken: "secret-token"
-  });
-
-  globalThis.chrome = chromeMock;
-  globalThis.WebSocket = FakeWebSocket;
-
-  try {
-    const { initPropertyLockBackground } = await loadPropertyLockBackgroundModule();
-    initPropertyLockBackground();
-
-    const port = connectPort();
-    port.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 404,
-      clientId: "client-a",
-      pageUrl: "https://example.test/a",
-      hasUnsavedChanges: false
-    });
-    await flushAsyncWork();
-
-    FakeWebSocket.instances[0].onopen();
-
-    assert.deepEqual(FakeWebSocket.instances[0].sentMessages[0], {
-      type: PROPERTY_LOCK_WS_SUBSCRIBE,
-      siteId: 404,
-      clientId: "client-a",
-      pageUrl: "https://example.test/a",
-      hasUnsavedChanges: false
-    });
-    assert.deepEqual(FakeWebSocket.instances[0].sentMessages[1], {
-      type: PROPERTY_LOCK_WS_CLIENT_STATUS,
-      siteId: 404,
-      clientId: "client-a",
-      pageUrl: "https://example.test/a",
-      hasUnsavedChanges: false
-    });
-
-    port.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_DRAFT_STATUS,
-      hasUnsavedChanges: true,
-      pageUrl: "https://example.test/a"
-    });
-    port.emitMessage({
+    const commandResponse = await handlePropertyLockBackgroundMessage({
       type: PROPERTY_LOCK_CONTENT_CONTINUE,
-      force: true,
-      discardPrevious: true
-    });
-
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-2).type, PROPERTY_LOCK_WS_CLIENT_STATUS);
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-2).hasUnsavedChanges, true);
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).type, PROPERTY_LOCK_WS_CONTINUE_EDITING);
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).clientId, "client-a");
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).force, true);
-    assert.equal(FakeWebSocket.instances[0].sentMessages.at(-1).discardPrevious, true);
-  } finally {
-    timerController.restore();
-    globalThis.chrome = originalChrome;
-    globalThis.WebSocket = originalWebSocket;
-  }
-});
-
-test("property lock rotates duplicated tab client IDs and routes popup state by tab", async () => {
-  const originalChrome = globalThis.chrome;
-  const originalWebSocket = globalThis.WebSocket;
-  const timerController = createFakeTimerController();
-  const FakeWebSocket = createFakeWebSocketClass();
-  const { chromeMock, connectPort } = createChromeMock({
-    globalStageBase: "stage.example.test",
-    globalToken: "secret-token"
-  });
-
-  globalThis.chrome = chromeMock;
-  globalThis.WebSocket = FakeWebSocket;
-
-  try {
-    const {
-      initPropertyLockBackground,
-      handleGetPropertyLockState
-    } = await loadPropertyLockBackgroundModule();
-    initPropertyLockBackground();
-
-    const firstPort = connectPort({ tabId: 11 });
-    firstPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 505,
+      siteId: 303,
       clientId: "client-a"
+    }, {
+      tab: { id: 33 }
     });
-    await flushAsyncWork();
-    FakeWebSocket.instances[0].onopen();
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_SUBSCRIBED,
-      identity: "editor@example.test",
-      name: "Editor"
+    assert.equal(commandResponse.ok, false);
+    assert.equal(commandResponse.reason, FEATURE_DISABLED_REASON);
+    assert.equal(commandResponse.feature, "propertyLockCollaboration");
+
+    const draftResponse = await handlePropertyLockBackgroundMessage({
+      type: "pageDraftChanged",
+      pageUrl: "https://example.test/page",
+      dirty: true
+    }, {
+      tab: { id: 33 }
     });
-    FakeWebSocket.instances[0].emitMessage({
-      type: PROPERTY_LOCK_WS_LOCK_STATE,
-      state: PROPERTY_LOCK_STATE_LOCKED,
-      editorIdentity: "editor@example.test",
-      editorClientId: "client-a",
-      editorName: "Editor",
-      isEditor: true,
-      isRecentEditor: false,
-      expiresAtUtc: "",
-      secondsRemaining: null
-    });
+    assert.equal(draftResponse.ok, false);
+    assert.equal(draftResponse.reason, FEATURE_DISABLED_REASON);
+    assert.equal(draftResponse.feature, "propertyLockCollaboration");
 
-    const secondPort = connectPort({ tabId: 22 });
-    secondPort.emitMessage({
-      type: PROPERTY_LOCK_CONTENT_CONNECT,
-      siteId: 505,
-      clientId: "client-a"
-    });
-    await flushAsyncWork();
-
-    assert.equal(FakeWebSocket.instances.length, 2);
-
-    const secondConnectUpdate = secondPort.postedMessages.find((message) =>
-      message &&
-      message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE &&
-      message.message &&
-      message.message.type === PROPERTY_LOCK_BACKGROUND_CONNECTION_STATUS
-    );
-    const rotatedClientId = secondConnectUpdate && typeof secondConnectUpdate.clientId === "string"
-      ? secondConnectUpdate.clientId
-      : "";
-    assert.ok(rotatedClientId);
-    assert.notEqual(rotatedClientId, "client-a");
-
-    FakeWebSocket.instances[1].onopen();
-    FakeWebSocket.instances[1].emitMessage({
-      type: PROPERTY_LOCK_WS_SUBSCRIBED,
-      identity: "editor@example.test",
-      name: "Editor"
-    });
-    FakeWebSocket.instances[1].emitMessage({
-      type: PROPERTY_LOCK_WS_LOCK_STATE,
-      state: PROPERTY_LOCK_STATE_LOCKED,
-      editorIdentity: "editor@example.test",
-      editorClientId: "client-a",
-      editorName: "Editor",
-      isEditor: true,
-      isRecentEditor: false,
-      expiresAtUtc: "",
-      secondsRemaining: null
-    });
-
-    const firstState = await handleGetPropertyLockState({ siteId: 505, tabId: 11 }, {});
-    const secondState = await handleGetPropertyLockState({ siteId: 505, tabId: 22, clientId: "client-a" }, {});
-
-    assert.equal(firstState.clientId, "client-a");
-    assert.equal(firstState.state.isEditor, true);
-    assert.equal(secondState.clientId, rotatedClientId);
-    assert.equal(secondState.state.isEditor, false);
-    assert.equal(secondState.state.isSameUserEditor, true);
+    handlePropertyLockBackgroundTabRemoved(33);
+    assert.equal(FakeWebSocket.instances.length, 0);
   } finally {
-    timerController.restore();
     globalThis.chrome = originalChrome;
     globalThis.WebSocket = originalWebSocket;
   }

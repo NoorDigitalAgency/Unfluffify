@@ -21,7 +21,7 @@
 import * as chromeHelpers from "./popup/chrome-helpers.js";
 import * as config from "./common/config.js";
 import * as constants from "./common/constants.js";
-import { getFeatureFlags, isFeatureEnabled } from "./common/feature-flags.js";
+import { FEATURE_DISABLED_REASON, getFeatureFlags, isFeatureEnabled } from "./common/feature-flags.js";
 import * as emulation from "./popup/emulation.js";
 import * as uiModule from "./popup/ui.js";
 import {
@@ -142,6 +142,17 @@ installExtensionTelemetry({
   getIncludePayloads: () => getPopupTelemetryIncludePayloads(state)
 });
 
+function isPropertyLockCollaborationEnabled() {
+  return isFeatureEnabled("propertyLockCollaboration");
+}
+
+function resetDisabledPropertyLockState() {
+  clearPropertyLockOffCandidateRefreshTimer();
+  resetPropertyLockState();
+  state.propertyLockState = createInactiveLockState();
+  state.propertyLockEditorBootstrapPending = false;
+}
+
 function resetPropertyLockState() {
   state.propertyLockSiteId = null;
   state.propertyLockState = null;
@@ -164,6 +175,7 @@ function resetPropertyLockState() {
   state.propertyLockRecoveryBaseUrl = "";
   state.propertyLockRecoveryClientId = "";
   state.propertyLockRecoveryDeadlineAt = 0;
+  state.propertyLockEditorBootstrapPending = false;
 }
 
 function clearPropertyLockTransientState() {
@@ -188,6 +200,10 @@ function clearPropertyLockOffCandidateRefreshTimer() {
 }
 
 function syncPropertyLockOffCandidateRefreshTimer(active) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    clearPropertyLockOffCandidateRefreshTimer();
+    return;
+  }
   if (!active) {
     clearPropertyLockOffCandidateRefreshTimer();
     return;
@@ -213,6 +229,9 @@ function syncPropertyLockOffCandidateRefreshTimer(active) {
 }
 
 async function persistPropertyLockRecoveryMetadata(tabId, recoveryState = {}) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    return;
+  }
   if (!Number.isFinite(tabId)) {
     return;
   }
@@ -234,6 +253,10 @@ async function persistPropertyLockRecoveryMetadata(tabId, recoveryState = {}) {
 }
 
 function applyPropertyLockState(lockStateLike) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   state.propertyLockState = normalizeLockStateMessage(lockStateLike || createInactiveLockState(), {
     ownIdentity: state.propertyLockIdentity,
     clientId: state.propertyLockClientId
@@ -242,6 +265,9 @@ function applyPropertyLockState(lockStateLike) {
 }
 
 function queueEditorBootstrapOnLockTransition(previousLockState, nextLockState) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    return;
+  }
   if (
     previousLockState &&
     !previousLockState.isEditor &&
@@ -253,6 +279,11 @@ function queueEditorBootstrapOnLockTransition(previousLockState, nextLockState) 
 }
 
 function applyPropertyLockConnectionStatus(status, error = "") {
+  if (!isPropertyLockCollaborationEnabled()) {
+    state.propertyLockConnectionStatus = PROPERTY_LOCK_CONNECTION_INACTIVE;
+    state.propertyLockConnectionError = "";
+    return;
+  }
   state.propertyLockConnectionStatus = typeof status === "string" && status
     ? status
     : PROPERTY_LOCK_CONNECTION_INACTIVE;
@@ -260,6 +291,10 @@ function applyPropertyLockConnectionStatus(status, error = "") {
 }
 
 function applyPropertyLockServerMessage(serverMessage, siteId = null) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return false;
+  }
   if (!serverMessage || typeof serverMessage !== "object") {
     return false;
   }
@@ -343,6 +378,9 @@ function applyPropertyLockServerMessage(serverMessage, siteId = null) {
 }
 
 function isPropertyLockBlockingEditing() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    return false;
+  }
   const lockState = state.propertyLockState;
   if (
     state.propertyLockSiteId &&
@@ -358,7 +396,10 @@ function isPropertyLockBlockingEditing() {
 }
 
 function buildPropertyLockViewState() {
-  const lockState = state.propertyLockState || createInactiveLockState();
+  const propertyLockFeatureEnabled = isPropertyLockCollaborationEnabled();
+  const lockState = propertyLockFeatureEnabled
+    ? (state.propertyLockState || createInactiveLockState())
+    : createInactiveLockState();
   const editorName = lockState.editorName || "Someone";
   const sameUserEditor = Boolean(lockState.isSameUserEditor);
   const otherTabHasUnsavedChanges = Boolean(lockState.otherTabHasUnsavedChanges);
@@ -369,7 +410,7 @@ function buildPropertyLockViewState() {
   const crossPropertySecondsRemaining = state.propertyLockRecoveryDeadlineAt > Date.now()
     ? Math.max(0, Math.ceil((state.propertyLockRecoveryDeadlineAt - Date.now()) / 1000))
     : 0;
-  const visible = Boolean(state.propertyLockSiteId);
+  const visible = propertyLockFeatureEnabled && Boolean(state.propertyLockSiteId);
   const viewState = {
     propertyLockVisible: visible,
     propertyLockTone: "muted",
@@ -557,6 +598,13 @@ function buildPropertyLockViewState() {
 }
 
 async function fetchPropertyLockState(siteId) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    return {
+      state: createInactiveLockState(),
+      connectionStatus: PROPERTY_LOCK_CONNECTION_INACTIVE,
+      error: FEATURE_DISABLED_REASON
+    };
+  }
   const normalizedSiteId = normalizeSiteIdValue(siteId);
   if (!normalizedSiteId) {
     return null;
@@ -588,6 +636,10 @@ async function fetchPropertyLockState(siteId) {
 }
 
 async function refreshPropertyLockSnapshot(siteId, options = {}) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return createInactiveLockState();
+  }
   const { skipFetch = false } = options;
   const normalizedSiteId = normalizeSiteIdValue(siteId);
   if (!normalizedSiteId) {
@@ -636,6 +688,13 @@ async function refreshPropertyLockSnapshot(siteId, options = {}) {
 }
 
 async function sendPropertyLockCommand(type, payload = {}) {
+  if (!isPropertyLockCollaborationEnabled()) {
+    return {
+      ok: false,
+      reason: FEATURE_DISABLED_REASON,
+      feature: "propertyLockCollaboration"
+    };
+  }
   const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
   if (!siteId) {
     return { ok: false };
@@ -661,6 +720,11 @@ async function sendPropertyLockCommand(type, payload = {}) {
 
 async function reconcilePropertyLockAfterCommand(options = {}) {
   const { useBusyOverlay = false } = options;
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    await refreshUi({ useBusyOverlay });
+    return;
+  }
   const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
   if (siteId) {
     await refreshPropertyLockSnapshot(siteId).catch(() => null);
@@ -4040,6 +4104,11 @@ async function completeRenderModeInspectionReloadFollowUp(tabId, operationId = "
 }
 
 async function reconcilePropertyLockAfterRenderModeReload() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    await refreshUi({ useBusyOverlay: false, skipPropertyLockFetch: true });
+    return;
+  }
   const siteId = normalizeSiteIdValue(state.propertyLockSiteId);
   if (!siteId) {
     return;
@@ -4231,26 +4300,30 @@ async function refreshUiInner(options = {}) {
   state.currentDesktopPreviewEnabled = Boolean(
     desktopPreviewFeatureEnabled && initialTabState && initialTabState.desktopPreviewEnabled
   );
-  state.propertyLockOffCandidateDeadlineAt =
-    initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
-      ? Number(initialTabState.propertyLockOffCandidateDeadlineAt)
-      : 0;
-  state.propertyLockRecoverySiteId =
-    initialTabState && Number.isFinite(initialTabState.propertyLockRecoverySiteId)
-      ? Number(initialTabState.propertyLockRecoverySiteId)
-      : null;
-  state.propertyLockRecoveryBaseUrl =
-    initialTabState && typeof initialTabState.propertyLockRecoveryBaseUrl === "string"
-      ? initialTabState.propertyLockRecoveryBaseUrl
-      : "";
-  state.propertyLockRecoveryClientId =
-    initialTabState && typeof initialTabState.propertyLockRecoveryClientId === "string"
-      ? initialTabState.propertyLockRecoveryClientId
-      : "";
-  state.propertyLockRecoveryDeadlineAt =
-    initialTabState && Number.isFinite(initialTabState.propertyLockRecoveryDeadlineAt)
-      ? Number(initialTabState.propertyLockRecoveryDeadlineAt)
-      : 0;
+  if (isPropertyLockCollaborationEnabled()) {
+    state.propertyLockOffCandidateDeadlineAt =
+      initialTabState && Number.isFinite(initialTabState.propertyLockOffCandidateDeadlineAt)
+        ? Number(initialTabState.propertyLockOffCandidateDeadlineAt)
+        : 0;
+    state.propertyLockRecoverySiteId =
+      initialTabState && Number.isFinite(initialTabState.propertyLockRecoverySiteId)
+        ? Number(initialTabState.propertyLockRecoverySiteId)
+        : null;
+    state.propertyLockRecoveryBaseUrl =
+      initialTabState && typeof initialTabState.propertyLockRecoveryBaseUrl === "string"
+        ? initialTabState.propertyLockRecoveryBaseUrl
+        : "";
+    state.propertyLockRecoveryClientId =
+      initialTabState && typeof initialTabState.propertyLockRecoveryClientId === "string"
+        ? initialTabState.propertyLockRecoveryClientId
+        : "";
+    state.propertyLockRecoveryDeadlineAt =
+      initialTabState && Number.isFinite(initialTabState.propertyLockRecoveryDeadlineAt)
+        ? Number(initialTabState.propertyLockRecoveryDeadlineAt)
+        : 0;
+  } else {
+    resetDisabledPropertyLockState();
+  }
   const persistedRecoveryState = {
     siteId: state.propertyLockRecoverySiteId,
     baseUrl: state.propertyLockRecoveryBaseUrl,
@@ -4393,12 +4466,12 @@ async function refreshUiInner(options = {}) {
         getCurrentPageCandidateState(pageUrl, propertyPageTypes).status === "candidate"
         ? currentSiteId
         : null;
-      if (bootstrapCandidateSiteId) {
+      if (bootstrapCandidateSiteId && isPropertyLockCollaborationEnabled()) {
         await refreshPropertyLockSnapshot(bootstrapCandidateSiteId, {
           skipFetch: skipPropertyLockFetch
         });
       } else {
-        resetPropertyLockState();
+        resetDisabledPropertyLockState();
       }
       const editorOwnsCurrentProperty = Boolean(
         bootstrapCandidateSiteId &&
@@ -4865,10 +4938,13 @@ async function refreshUiInner(options = {}) {
     pageUrl,
     propertyPageTypes
   );
-  const propertyLockScopeSiteId =
-    state.propertyLockRecoveryDeadlineAt > Date.now() && state.propertyLockRecoverySiteId
-      ? state.propertyLockRecoverySiteId
-      : liveSiteId;
+  const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled()
+    ? (
+      state.propertyLockRecoveryDeadlineAt > Date.now() && state.propertyLockRecoverySiteId
+        ? state.propertyLockRecoverySiteId
+        : liveSiteId
+    )
+    : null;
   if (propertyLockScopeSiteId && state.currentBaseUrl && tokenValue) {
     await refreshPropertyLockSnapshot(propertyLockScopeSiteId, {
       skipFetch: skipPropertyLockFetch
@@ -4878,9 +4954,9 @@ async function refreshUiInner(options = {}) {
       skipFetch: skipPropertyLockFetch
     });
   } else {
-    resetPropertyLockState();
+    resetDisabledPropertyLockState();
   }
-  if (currentTabId) {
+  if (currentTabId && isPropertyLockCollaborationEnabled()) {
     const activeEditorSiteId = normalizeSiteIdValue(liveSiteId || state.propertyLockSiteId);
     const recoverySiteId = normalizeSiteIdValue(
       state.propertyLockRecoverySiteId || persistedRecoveryState.siteId
@@ -7022,11 +7098,19 @@ async function handleRemoteSupportErrorDismiss(event) {
 }
 
 async function handlePropertyLockTake() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
   await reconcilePropertyLockAfterCommand();
 }
 
 async function handlePropertyLockSuggest() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_SUGGEST);
   state.propertyLockSuggestionPending = true;
   state.propertyLockSuggestionRejected = false;
@@ -7034,6 +7118,10 @@ async function handlePropertyLockSuggest() {
 }
 
 async function handlePropertyLockContinue() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_CONTINUE);
   state.propertyLockInactivityWarningVisible = false;
   state.propertyLockSecondsRemaining = null;
@@ -7042,6 +7130,10 @@ async function handlePropertyLockContinue() {
 }
 
 async function handlePropertyLockForceContinue() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   await sendPropertyLockCommand(PROPERTY_LOCK_CONTENT_CONTINUE, {
     force: true,
     discardPrevious: true
@@ -7053,6 +7145,10 @@ async function handlePropertyLockForceContinue() {
 }
 
 async function handlePropertyLockAcceptSuggestion() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   const suggestionId = state.propertyLockSuggestionId;
   if (!suggestionId) {
     return;
@@ -7088,6 +7184,10 @@ async function handlePropertyLockAcceptSuggestion() {
 }
 
 async function handlePropertyLockRejectSuggestion() {
+  if (!isPropertyLockCollaborationEnabled()) {
+    resetDisabledPropertyLockState();
+    return;
+  }
   const suggestionId = state.propertyLockSuggestionId;
   if (!suggestionId) {
     return;
@@ -9355,6 +9455,11 @@ async function init() {
       return;
     }
     if (message && message.type === PROPERTY_LOCK_BACKGROUND_STATE_UPDATE) {
+      if (!isPropertyLockCollaborationEnabled()) {
+        resetDisabledPropertyLockState();
+        uiModule.setViewState(buildPropertyLockViewState());
+        return;
+      }
       const messageSiteId = normalizeSiteIdValue(message.siteId);
       const messageTabId = Number.isFinite(message.tabId) ? Math.trunc(message.tabId) : null;
       if (

@@ -1836,7 +1836,9 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 initRemoteSupportBackground();
-initPropertyLockBackground();
+if (isFeatureEnabled("propertyLockCollaboration")) {
+  initPropertyLockBackground();
+}
 installExtensionTelemetry({
   source: "worker",
   sendTelemetry(message) {
@@ -2058,6 +2060,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (PROPERTY_LOCK_MESSAGE_TYPES.has(message.type)) {
+    if (!isFeatureEnabled("propertyLockCollaboration")) {
+      sendResponse(buildFeatureDisabledResponse("propertyLockCollaboration"));
+      return;
+    }
     handlePropertyLockBackgroundMessage(message, sender)
       .then((result) => {
         sendResponse(result || { ok: false });
@@ -2458,29 +2464,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               Boolean(message.state.desktopPreviewEnabled);
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockOffCandidateDeadlineAt")) {
-            nextState.propertyLockOffCandidateDeadlineAt = Number.isFinite(message.state.propertyLockOffCandidateDeadlineAt)
-              ? Number(message.state.propertyLockOffCandidateDeadlineAt)
-              : 0;
+            if (isFeatureEnabled("propertyLockCollaboration")) {
+              nextState.propertyLockOffCandidateDeadlineAt = Number.isFinite(message.state.propertyLockOffCandidateDeadlineAt)
+                ? Number(message.state.propertyLockOffCandidateDeadlineAt)
+                : 0;
+            } else {
+              nextState.propertyLockOffCandidateDeadlineAt = 0;
+            }
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoverySiteId")) {
-            nextState.propertyLockRecoverySiteId = Number.isFinite(message.state.propertyLockRecoverySiteId)
-              ? Number(message.state.propertyLockRecoverySiteId)
-              : null;
+            if (isFeatureEnabled("propertyLockCollaboration")) {
+              nextState.propertyLockRecoverySiteId = Number.isFinite(message.state.propertyLockRecoverySiteId)
+                ? Number(message.state.propertyLockRecoverySiteId)
+                : null;
+            } else {
+              nextState.propertyLockRecoverySiteId = null;
+            }
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryBaseUrl")) {
-            nextState.propertyLockRecoveryBaseUrl = typeof message.state.propertyLockRecoveryBaseUrl === "string"
-              ? message.state.propertyLockRecoveryBaseUrl
-              : "";
+            if (isFeatureEnabled("propertyLockCollaboration")) {
+              nextState.propertyLockRecoveryBaseUrl = typeof message.state.propertyLockRecoveryBaseUrl === "string"
+                ? message.state.propertyLockRecoveryBaseUrl
+                : "";
+            } else {
+              nextState.propertyLockRecoveryBaseUrl = "";
+            }
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryClientId")) {
-            nextState.propertyLockRecoveryClientId = typeof message.state.propertyLockRecoveryClientId === "string"
-              ? message.state.propertyLockRecoveryClientId
-              : "";
+            if (isFeatureEnabled("propertyLockCollaboration")) {
+              nextState.propertyLockRecoveryClientId = typeof message.state.propertyLockRecoveryClientId === "string"
+                ? message.state.propertyLockRecoveryClientId
+                : "";
+            } else {
+              nextState.propertyLockRecoveryClientId = "";
+            }
           }
           if (Object.prototype.hasOwnProperty.call(message.state, "propertyLockRecoveryDeadlineAt")) {
-            nextState.propertyLockRecoveryDeadlineAt = Number.isFinite(message.state.propertyLockRecoveryDeadlineAt)
-              ? Number(message.state.propertyLockRecoveryDeadlineAt)
-              : 0;
+            if (isFeatureEnabled("propertyLockCollaboration")) {
+              nextState.propertyLockRecoveryDeadlineAt = Number.isFinite(message.state.propertyLockRecoveryDeadlineAt)
+                ? Number(message.state.propertyLockRecoveryDeadlineAt)
+                : 0;
+            } else {
+              nextState.propertyLockRecoveryDeadlineAt = 0;
+            }
           }
         } else {
           nextState = {
@@ -2802,7 +2828,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearTrackedTabSessionState(tabId, { includeDeviceState: true }).then();
-  handlePropertyLockBackgroundTabRemoved(tabId);
+  if (isFeatureEnabled("propertyLockCollaboration")) {
+    handlePropertyLockBackgroundTabRemoved(tabId);
+  }
   handleRemoteSupportTabRemoved(tabId).then();
   tabLifecycleStateByTabId.delete(tabId);
   tabSpinnerQueueByTabId.delete(tabId);
