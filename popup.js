@@ -7624,12 +7624,17 @@ async function handleEnableToggle(event) {
         // run yet for the current markings), Save/Preview start disabled.
         resetAiRunMarkingsFingerprint();
       } else {
-        await messages.setTabState(tab.id, {
-          enabled: false,
+        const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
           baseUrl: baseUrlValue,
           pageType: ""
         });
-        await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false, pageType: "" });
+        if (!disableResponse || !disableResponse.ok) {
+          uiModule.setViewState({ toggleEnabled: true });
+          setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+          uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
+          await refreshUi();
+          return;
+        }
       }
       await refreshUi();
     },

@@ -146,11 +146,13 @@ const WORLD_TRACE_EVENT_LIMIT = 160;
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING",
+  TAB_DEACTIVATE_MARKING: "TAB_DEACTIVATE_MARKING",
   POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
   BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING,
+  BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING,
   BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
 ]);
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
@@ -548,6 +550,102 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (conte
         tabId: normalizedTabId,
         baseUrl,
         pageType,
+        runtime: getTabRuntimeSnapshot(normalizedTabId),
+        state: await utils.getTabState(normalizedTabId)
+      };
+    }
+  );
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for deactivation command"
+    );
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(normalizedTabId);
+  } catch {
+    tab = null;
+  }
+  if (!tab || !tab.id) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Target tab is unavailable",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const requestedBaseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const operationId = typeof payload?.operationId === "string" && payload.operationId
+    ? payload.operationId
+    : `deactivation:${normalizedTabId}:${Date.now()}`;
+
+  return withBackgroundTabSpinner(
+    normalizedTabId,
+    {
+      key: `deactivate-marking:${normalizedTabId}`,
+      message: "Disabling marking...",
+      owner: SPINNER_OWNERS.POPUP,
+      reason: "tab-deactivate-marking",
+      source: "background-command-router",
+      persistent: false
+    },
+    async ({ update }) => {
+      await update({
+        message: "Disabling marking...",
+        reason: "tab-deactivate-marking-content",
+        source: "background-command-router"
+      });
+
+      updateLifecycleState(normalizedTabId, {
+        operationId,
+        kind: LIFECYCLE_KINDS.MODE,
+        phase: LIFECYCLE_PHASES.STARTED,
+        busy: true,
+        message: "Disabling marking..."
+      });
+
+      const existingState = await utils.getTabState(normalizedTabId);
+      const existingBaseUrl = existingState && typeof existingState.baseUrl === "string"
+        ? existingState.baseUrl
+        : "";
+      const baseUrl = requestedBaseUrl || existingBaseUrl;
+
+      await utils.setTabState(normalizedTabId, {
+        enabled: false,
+        baseUrl,
+        pageType: ""
+      });
+      updateTabRuntime(normalizedTabId, {
+        mode: "silent"
+      });
+
+      const disableResponse = await sendContentMessageToTab(normalizedTabId, {
+        type: "setEnabled",
+        enabled: false,
+        pageType: "",
+        operationId
+      });
+
+      updateLifecycleState(normalizedTabId, {
+        operationId,
+        kind: LIFECYCLE_KINDS.MODE,
+        phase: LIFECYCLE_PHASES.FINISHED,
+        busy: false,
+        message: ""
+      });
+
+      return {
+        ok: true,
+        tabId: normalizedTabId,
+        baseUrl,
+        pageType: "",
+        contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
         runtime: getTabRuntimeSnapshot(normalizedTabId),
         state: await utils.getTabState(normalizedTabId)
       };

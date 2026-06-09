@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09 (implementation checkpoints through Phase 6B ready to checkpoint)
+Last updated: 2026-06-09 (implementation checkpoints through Phase 6C ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -108,9 +108,8 @@ Completed and pushed checkpoints:
        - `node --test tests/background-command-router.test.js tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js` passed (55/55).
        - Full suite passed (679/679).
 
-Current in-progress phase (ready for checkpoint commit/push at this handoff update):
-
-1. Phase 6B (marking activation orchestration in background)
+8. Phase 6B checkpoint commit `941e6f9`
+   - Message: `feat(background): orchestrate marking activation`
     - Updated:
        - `background.js` adds tab-scoped command `TAB_ACTIVATE_MARKING` in
           background command router.
@@ -127,16 +126,37 @@ Current in-progress phase (ready for checkpoint commit/push at this handoff upda
           - `tests/background-marking-activation.test.js`
           - `tests/device-emulation-lifecycle.test.js`
           - `tests/popup-marking-refresh.test.js`
-    - Verification in working tree before checkpoint commit:
+    - Verification at checkpoint:
        - `node --test tests/background-marking-activation.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/content-activation-order.test.js` passed (80/80).
        - `node --test tests/device-emulation-lifecycle.test.js tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js` passed (74/74).
        - Full suite passed (683/683).
 
+Current in-progress phase (ready for checkpoint commit/push at this handoff update):
+
+1. Phase 6C (marking deactivation orchestration in background)
+    - Updated:
+       - `background.js` adds tab-scoped command `TAB_DEACTIVATE_MARKING` in
+          background command router.
+       - Deactivation command validates tab availability, wraps operation in
+          `withBackgroundTabSpinner`, updates lifecycle mode state, writes tab
+          state disabled, and sends content `setEnabled: false` to the
+          requested tab only.
+       - `popup.js` marking-disable path now sends only
+          `messages.requestTabDeactivateMarking(...)` for deactivation intent.
+       - `popup/messages.js` adds command helper
+          `requestTabDeactivateMarking(tabId, payload)` with normalized failure
+          details (`code`, `error`).
+       - Tests updated:
+          - `tests/background-marking-activation.test.js`.
+    - Verification in working tree before checkpoint commit:
+       - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/device-emulation-lifecycle.test.js tests/background-command-router.test.js` passed (84/84).
+       - Full suite passed (686/686).
+
 ## Resume From Here
 
-Next strict phase to implement after the Phase 6B checkpoint push:
+Next strict phase to implement after the Phase 6C checkpoint push:
 
-1. Phase 6C: marking deactivation orchestration in background.
+1. Phase 6D: render-mode inspection orchestration in background.
 
 Recommended first commands to resume immediately after pull:
 
@@ -168,13 +188,14 @@ As of this handoff:
    - lifecycle broker
    - page-motion freeze executeScript bridge
    - AI persistence/background network pieces
-4. Popup snapshot and marking activation now route through background commands;
+4. Popup snapshot, marking activation, and marking deactivation now route
+   through background commands;
    popup still directly orchestrates several remaining workflows.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 6C marking deactivation orchestration in background.
+7. Next work is Phase 6D render-mode inspection orchestration in background.
 
 ## First Commands For A Future Implementer
 
