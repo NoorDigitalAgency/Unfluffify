@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 
 import {
   createSanitizedPageSnapshot,
-  disable,
   pausePageMotion,
   refreshPageMotionPause,
   revealPageContentBeforeMotionPause,
@@ -759,7 +758,7 @@ test("page inspection reveal repeats bottom scrolls while lazy layout growth inc
   }
 });
 
-test("page inspection reveal keeps page-world lazy-load suppression active until marking is disabled", async () => {
+test("page inspection reveal restores page-world lazy-load suppression in finally on success", async () => {
   const dom = installMotionDom();
   const originalChrome = globalThis.chrome;
   const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
@@ -810,15 +809,86 @@ test("page inspection reveal keeps page-world lazy-load suppression active until
 
     const bridgeMessages = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
     assert.equal(dom.document.getElementById(PAGE_MOTION_PAUSE_SCRIPT_ID), null);
-    assert.equal(bridgeMessages.at(-1).command, "setLazyLoadingSuppressed");
-    assert.deepEqual(bridgeMessages.at(-1).details, { suppressed: true });
+    const suppressionCommands = bridgeMessages.filter((message) => message.command === "setLazyLoadingSuppressed");
+    assert.ok(suppressionCommands.length >= 2);
+    assert.deepEqual(suppressionCommands.at(0).details, { suppressed: true });
+    assert.deepEqual(suppressionCommands.at(-1).details, { suppressed: false });
+    assert.equal(state.lazyLoadSuppressRestorer, null);
+  } finally {
+    if (typeof state.lazyLoadSuppressRestorer === "function") {
+      state.lazyLoadSuppressRestorer();
+    }
+    state.lazyLoadSuppressRestorer = previousLazyLoadSuppressRestorer;
+    if (typeof originalChrome === "undefined") {
+      delete globalThis.chrome;
+    } else {
+      globalThis.chrome = originalChrome;
+    }
+    dom.restore();
+  }
+});
 
-    disable();
+test("page inspection reveal restores page-world lazy-load suppression in finally on thrown reveal", async () => {
+  const dom = installMotionDom();
+  const originalChrome = globalThis.chrome;
+  const previousLazyLoadSuppressRestorer = state.lazyLoadSuppressRestorer;
+  const runtimeMessages = [];
+  dom.html.clientHeight = 500;
+  dom.html.scrollHeight = 3000;
+  dom.body.clientHeight = 500;
+  dom.body.scrollHeight = 3000;
+  dom.window.innerHeight = 500;
+  let expansionCount = 0;
+  let scrollCount = 0;
+  const originalScrollTo = dom.window.scrollTo.bind(dom.window);
+  dom.window.scrollTo = (xOrOptions, y) => {
+    scrollCount += 1;
+    if (scrollCount === 2) {
+      throw new Error("forced-reveal-failure");
+    }
+    originalScrollTo(xOrOptions, y);
+    const actualY = typeof xOrOptions === "object" && xOrOptions !== null
+      ? Number(xOrOptions.top) || 0
+      : Number(y) || 0;
+    const maxScrollY = Math.max(0, dom.html.scrollHeight - dom.window.innerHeight);
+    if (actualY >= maxScrollY && expansionCount < 1) {
+      expansionCount += 1;
+      dom.html.scrollHeight += 1500;
+      dom.body.scrollHeight += 1500;
+    }
+  };
+  globalThis.chrome = {
+    runtime: {
+      getURL(path) {
+        return `chrome-extension://unfluffify/${path}`;
+      },
+      sendMessage(message) {
+        runtimeMessages.push(message);
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
 
-    const bridgeMessagesAfterDisable = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
-    assert.equal(bridgeMessagesAfterDisable.at(-1).command, "setLazyLoadingSuppressed");
-    assert.deepEqual(bridgeMessagesAfterDisable.at(-1).details, { suppressed: true });
-    assert.equal(typeof state.lazyLoadSuppressRestorer, "function");
+  try {
+    state.lazyLoadSuppressRestorer = null;
+
+    await assert.rejects(
+      revealPageContentBeforeMotionPause(
+        "bottom",
+        4,
+        0,
+        () => true,
+        { scrollEndTimeoutMs: 0 }
+      ),
+      /forced-reveal-failure/
+    );
+
+    const bridgeMessages = runtimeMessages.filter((message) => message.type === "pageMotionFreezeControl");
+    const suppressionCommands = bridgeMessages.filter((message) => message.command === "setLazyLoadingSuppressed");
+    assert.ok(suppressionCommands.length >= 2);
+    assert.deepEqual(suppressionCommands.at(0).details, { suppressed: true });
+    assert.deepEqual(suppressionCommands.at(-1).details, { suppressed: false });
+    assert.equal(state.lazyLoadSuppressRestorer, null);
   } finally {
     if (typeof state.lazyLoadSuppressRestorer === "function") {
       state.lazyLoadSuppressRestorer();

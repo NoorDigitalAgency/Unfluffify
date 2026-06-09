@@ -102,6 +102,7 @@ import {
   dispatchContentCommand,
   registerContentCommand
 } from "./content/content-command-router.js";
+import { initializePageWorldRelay } from "./content/page-world-relay.js";
 import {
   MESSAGE_ERROR_CODES,
   MESSAGE_TARGETS,
@@ -8269,6 +8270,11 @@ export function main() {
   }
   state.initialized = true;
   registerContentCommandHandlersOnce();
+
+  initializePageWorldRelay().catch(() => {
+    // Best-effort initialization. Core operations keep a background relay
+    // fallback if page-world relay handshakes are unavailable.
+  });
 
   // A render-mode inspection flag persisted in sessionStorage survives the
   // inspection reload. If this document booted with it already set, arm the

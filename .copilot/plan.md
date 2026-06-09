@@ -29,9 +29,11 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 2. Phase 1 complete and pushed (`76693d0`).
 3. Phase 2 complete and pushed (`25923df`).
 4. Phase 3 complete and pushed (`241bbc1`).
-5. Phase 4 is currently in progress in working tree; see
-   `.copilot/handoff-service-worker-authority-refactor.md` for exact resume
-   point and verification status.
+5. Phase 4 complete and pushed (`3f3c17b`).
+6. Phase 5 implemented and verified in working tree; checkpoint commit/push is
+   pending in this session.
+7. Next strict phase after Phase 5 push: Phase 6A (popup tab snapshot from
+   background).
 
 ## Debug Continuation Plan (Cross-Environment)
 

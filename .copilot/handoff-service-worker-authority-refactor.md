@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09 (implementation checkpoints through Phase 4 in progress)
+Last updated: 2026-06-09 (implementation checkpoints through Phase 5 ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -54,18 +54,56 @@ Completed and pushed checkpoints:
        - `node --test tests/background-spinner-operations.test.js tests/world-trace-contract.test.js` passed.
        - Full suite remained on the single known baseline failure.
 
-Current in-progress phase (not yet checkpoint-committed at this handoff update):
-
-1. Phase 4 (content command executor boundary)
+5. Phase 4 checkpoint commit `3f3c17b`
+    - Message: `feat(content): route page commands through executor`
     - Added:
        - `content/content-command-router.js`
        - `tests/content-command-router.test.js`
-    - `content-main.js` now registers content command handlers for envelope
-       dispatch while preserving legacy message handling.
-    - Verification in-progress state:
+    - `content-main.js` registers content command handlers for envelope
+       dispatch while preserving legacy message handling for compatibility.
+    - Verification at checkpoint:
        - `node --test tests/content-command-router.test.js` passed.
-       - Full suite run still at one known baseline failure in
-          `tests/core-motion-pause.test.js` lazy-load suppression assertion.
+       - Full suite remained on the single known baseline failure at this phase.
+
+Current in-progress phase (ready for checkpoint commit/push at this handoff update):
+
+1. Phase 5 (page-world relay through content)
+    - Added:
+       - `common/page-world-protocol.js`
+       - `content/page-world-relay.js`
+       - `tests/page-world-relay.test.js`
+    - Updated:
+       - `common/page-motion-freeze-bridge.js` now serves nonce-scoped relay
+          requests and replies in MAIN world while preserving byte-identical
+          `runPageMotionFreezeControl` body contract.
+       - `content/core.js` now routes page-motion commands relay-first through
+          content->page-world with deterministic request/reply and keeps
+          background executeScript fallback for compatibility.
+       - `content-main.js` best-effort initializes relay session on startup.
+       - `tests/core-motion-pause.test.js` now guards lazy-load suppression
+          restore in finally on both success and thrown reveal paths.
+       - `tests/page-motion-bridge-isolation.test.js` now guards relay-first
+          architecture with compatibility fallback.
+    - Verification in working tree before checkpoint commit:
+       - `node --test tests/page-world-relay.test.js tests/page-motion-freeze-bridge.test.js tests/page-motion-bridge-isolation.test.js tests/core-motion-pause.test.js` passed (33/33).
+       - Core guard suite from Phase 0 list passed (220/220).
+       - Full suite passed (675/675).
+       - Historical Phase 0 lazy-load assertion mismatch is now resolved by the
+          Phase 5 contract tests that enforce suppression restore in finally.
+
+## Resume From Here
+
+Next strict phase to implement after the Phase 5 checkpoint push:
+
+1. Phase 6A: popup tab view snapshot from background.
+
+Recommended first commands to resume immediately after pull:
+
+```bash
+git status --short
+git log --oneline -n 3
+node --test tests/background-command-router.test.js tests/popup-marking-refresh.test.js
+```
 
 ## Read This First
 
@@ -91,9 +129,10 @@ As of this handoff:
    - AI persistence/background network pieces
 4. The popup still directly orchestrates many content workflows.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
-6. Page-world freeze/lazy-loading suppression exists and is currently invoked
-   through background executeScript plumbing.
-7. The next work is architectural implementation, not more planning.
+6. Page-world freeze/lazy-loading suppression now supports deterministic
+   content->page-world relay with nonce-scoped request/reply; background
+   executeScript remains as compatibility fallback.
+7. Next work is Phase 6A popup snapshot migration to background authority.
 
 ## First Commands For A Future Implementer
 

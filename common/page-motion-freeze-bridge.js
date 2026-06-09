@@ -561,10 +561,139 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
   return buildResult();
 }
 
+  const PAGE_WORLD_RELAY_CHANNEL = "unfluffify:page-world-relay:v1";
+  const PAGE_WORLD_RELAY_REQUEST_KIND = "request";
+  const PAGE_WORLD_RELAY_RESPONSE_KIND = "response";
+  const PAGE_WORLD_RELAY_STATE_KEY = "__unfluffifyPageWorldRelayBridgeState";
+  const PAGE_WORLD_COMMAND_ARM = "PAGE_WORLD_ARM";
+  const PAGE_WORLD_COMMAND_SET_MOTION_PAUSED = "PAGE_WORLD_SET_MOTION_PAUSED";
+  const PAGE_WORLD_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "PAGE_WORLD_SET_LAZY_LOADING_SUPPRESSED";
+  const PAGE_WORLD_COMMAND_DESTROY = "PAGE_WORLD_DESTROY";
+
+  function getRelayBridgeState() {
+    if (!window[PAGE_WORLD_RELAY_STATE_KEY] || typeof window[PAGE_WORLD_RELAY_STATE_KEY] !== "object") {
+      Object.defineProperty(window, PAGE_WORLD_RELAY_STATE_KEY, {
+        value: {
+          nonce: ""
+        },
+        configurable: true,
+        enumerable: false,
+        writable: false
+      });
+    }
+    return window[PAGE_WORLD_RELAY_STATE_KEY];
+  }
+
+  function postRelayResponse(request, response) {
+    if (typeof window.postMessage !== "function") {
+      return;
+    }
+    window.postMessage({
+      channel: PAGE_WORLD_RELAY_CHANNEL,
+      kind: PAGE_WORLD_RELAY_RESPONSE_KIND,
+      id: request.id,
+      nonce: request.nonce,
+      command: request.command,
+      ...response
+    }, "*");
+  }
+
+  function mapRelayCommand(command) {
+    if (command === PAGE_WORLD_COMMAND_ARM) {
+      return "arm";
+    }
+    if (command === PAGE_WORLD_COMMAND_SET_MOTION_PAUSED) {
+      return "setPaused";
+    }
+    if (command === PAGE_WORLD_COMMAND_SET_LAZY_LOADING_SUPPRESSED) {
+      return "setLazyLoadingSuppressed";
+    }
+    if (command === PAGE_WORLD_COMMAND_DESTROY) {
+      return "destroy";
+    }
+    return "";
+  }
+
+  function handlePageWorldRelayRequest(event) {
+    if (!event || event.source !== window) {
+      return;
+    }
+    const request = event.data;
+    if (!request || typeof request !== "object") {
+      return;
+    }
+    if (request.channel !== PAGE_WORLD_RELAY_CHANNEL || request.kind !== PAGE_WORLD_RELAY_REQUEST_KIND) {
+      return;
+    }
+    if (typeof request.id !== "string" || !request.id) {
+      return;
+    }
+    if (typeof request.command !== "string" || !request.command) {
+      postRelayResponse(request, {
+        ok: false,
+        code: "invalid_message",
+        error: "Missing relay command"
+      });
+      return;
+    }
+
+    const relayState = getRelayBridgeState();
+    if (request.command === PAGE_WORLD_COMMAND_ARM) {
+      if (typeof request.nonce !== "string" || !request.nonce) {
+        postRelayResponse(request, {
+          ok: false,
+          code: "invalid_message",
+          error: "Missing relay nonce"
+        });
+        return;
+      }
+      relayState.nonce = request.nonce;
+    } else if (!relayState.nonce || request.nonce !== relayState.nonce) {
+      postRelayResponse(request, {
+        ok: false,
+        code: "invalid_message",
+        error: "Relay nonce mismatch"
+      });
+      return;
+    }
+
+    const mappedCommand = mapRelayCommand(request.command);
+    if (!mappedCommand) {
+      postRelayResponse(request, {
+        ok: false,
+        code: "handler_not_found",
+        error: `Unknown relay command: ${request.command}`
+      });
+      return;
+    }
+
+    const details = request.payload && typeof request.payload === "object"
+      ? request.payload
+      : null;
+    const result = runPageMotionFreezeControl(mappedCommand, details);
+    if (!result || result.ok !== true) {
+      postRelayResponse(request, {
+        ok: false,
+        code: "handler_failed",
+        error: (result && result.error) || "Page-world control failed",
+        details: result && typeof result === "object" ? result : {}
+      });
+      return;
+    }
+
+    postRelayResponse(request, {
+      ok: true,
+      result
+    });
+  }
+
   try {
     // Arm the lazy-loading interception at document_start so the wrappers are in
     // place before the page creates its own observers/scroll listeners.
     runPageMotionFreezeControl("arm", null);
+    if (typeof window.addEventListener === "function") {
+      window.addEventListener("message", handlePageWorldRelayRequest, false);
+    }
   } catch (error) {
     // Best-effort early arming; the executeScript toggle path still applies the
     // pause/suppression flags if arming did not run for any reason.

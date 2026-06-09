@@ -12,12 +12,14 @@ test("page motion bridge is not bootstrapped by the content loader", () => {
   assert.doesNotMatch(source, /ensurePageMotionFreezeBootstrapScript/);
 });
 
-test("content core sends page motion controls through background instead of postMessage", () => {
+test("content core uses page-world relay with background fallback", () => {
   const source = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
+  assert.match(source, /initializePageWorldRelay/);
+  assert.match(source, /requestPageWorldCommand/);
   assert.match(source, /type:\s*"pageMotionFreezeControl"/);
   assert.match(source, /utils\.sendRuntimeMessage\(message\)/);
-  assert.doesNotMatch(source, /window\.postMessage/);
+  assert.match(source, /\.catch\(\(\) => sendPageMotionFreezeControlThroughBackground/);
   assert.doesNotMatch(source, /unfluffify:page-motion-freeze-control:v1/);
   assert.doesNotMatch(source, /common\/page-motion-freeze\.js/);
   assert.doesNotMatch(source, /PAGE_MOTION_PAUSE_SCRIPT_ID/);

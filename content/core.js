@@ -31,6 +31,12 @@ import {
   invalidateSharedSelectorCache
 } from "./shared-selector-cache.js";
 import { shouldRetainIncludedSource } from "./silent-highlight-rules.js";
+import {
+  initializePageWorldRelay,
+  isPageWorldRelayReady,
+  requestPageWorldCommand
+} from "./page-world-relay.js";
+import { PAGE_WORLD_COMMANDS } from "../common/page-world-protocol.js";
 
 export const state = {
   enabled: false,
@@ -182,6 +188,7 @@ const PAGE_MOTION_PAUSE_INDICATOR_CLASS = "uf-page-motion-pause-indicator";
 const PAGE_MOTION_PAUSE_ROOT_CLASS = "uf-page-motion-paused";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED = "setPaused";
 const PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED = "setLazyLoadingSuppressed";
+const PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS = 1200;
 const PAGE_MOTION_PAUSE_LOCK_ATTR = "data-uf-motion-lock-id";
 const PAGE_MOTION_ICON_FONT_FAMILY = "Unfluffify Material Design Icons";
 const MATERIAL_DESIGN_ICONS_FONT_PATH = "assets/materialdesignicons-webfont.woff2";
@@ -236,6 +243,7 @@ const PAGE_MOTION_REVEAL_INTERACTION_ATTRIBUTE_NAMES = new Set(["data-ix", "data
 const PAGE_MOTION_PAUSE_INLINE_STYLE_RE = /(^|;|\s)(animation|transition|transform|translate|rotate|scale|offset|opacity|filter|clip-path|top|right|bottom|left)\s*:/i;
 let pageMotionFreezeTimersPaused = false;
 let pageMotionFreezeLazyLoadingSuppressed = false;
+let pageMotionRelayInitializationPromise = null;
 const PAGE_MOTION_PAUSE_BASE_LOCK_PROPERTIES = [
   "transform",
   "translate",
@@ -4420,6 +4428,60 @@ function removePageMotionPauseIndicator() {
 }
 
 function sendPageMotionFreezeControl(command, details = null) {
+  if (typeof command !== "string" || !command) {
+    return Promise.resolve();
+  }
+
+  const normalizedDetails = details && typeof details === "object" ? details : {};
+  const relayCommand = mapPageMotionFreezeCommandToRelay(command);
+  if (relayCommand && canUsePageWorldRelayTransport()) {
+    return ensurePageMotionRelaySession()
+      .then(() => requestPageWorldCommand(relayCommand, normalizedDetails, {
+        timeoutMs: PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS
+      }))
+      .catch(() => sendPageMotionFreezeControlThroughBackground(command, normalizedDetails));
+  }
+
+  return sendPageMotionFreezeControlThroughBackground(command, normalizedDetails);
+}
+
+function canUsePageWorldRelayTransport() {
+  return typeof window !== "undefined"
+    && typeof window.postMessage === "function"
+    && typeof window.addEventListener === "function";
+}
+
+function mapPageMotionFreezeCommandToRelay(command) {
+  if (command === PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_PAUSED) {
+    return PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED;
+  }
+  if (command === PAGE_MOTION_PAUSE_CONTROL_COMMAND_SET_LAZY_LOADING_SUPPRESSED) {
+    return PAGE_WORLD_COMMANDS.SET_LAZY_LOADING_SUPPRESSED;
+  }
+  return "";
+}
+
+function ensurePageMotionRelaySession() {
+  if (isPageWorldRelayReady()) {
+    return Promise.resolve();
+  }
+  if (pageMotionRelayInitializationPromise) {
+    return pageMotionRelayInitializationPromise;
+  }
+  pageMotionRelayInitializationPromise = initializePageWorldRelay({
+    timeoutMs: PAGE_MOTION_PAUSE_RELAY_TIMEOUT_MS
+  })
+    .then(() => {
+      pageMotionRelayInitializationPromise = null;
+    })
+    .catch((error) => {
+      pageMotionRelayInitializationPromise = null;
+      throw error;
+    });
+  return pageMotionRelayInitializationPromise;
+}
+
+function sendPageMotionFreezeControlThroughBackground(command, details = null) {
   if (
     !globalThis.chrome ||
     !chrome.runtime ||
