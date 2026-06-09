@@ -23,6 +23,16 @@ Use these documents before making implementation changes:
 This refactor explicitly protects the 11 always-on core features, including
 reveal/freeze and lazy-loading stopping/restoration.
 
+Current implementation checkpoint status (branch `refactor/service-worker-authority`):
+
+1. Phase 0 complete and pushed (`bb90fc3`).
+2. Phase 1 complete and pushed (`76693d0`).
+3. Phase 2 complete and pushed (`25923df`).
+4. Phase 3 complete and pushed (`241bbc1`).
+5. Phase 4 is currently in progress in working tree; see
+   `.copilot/handoff-service-worker-authority-refactor.md` for exact resume
+   point and verification status.
+
 ## Debug Continuation Plan (Cross-Environment)
 
 Status as of 2026-06-09:

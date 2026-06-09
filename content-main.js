@@ -98,6 +98,16 @@ import {
   LIFECYCLE_PHASES,
   WORLD_MESSAGE_TYPES
 } from "./common/world-messaging-contract.js";
+import {
+  dispatchContentCommand,
+  registerContentCommand
+} from "./content/content-command-router.js";
+import {
+  MESSAGE_ERROR_CODES,
+  MESSAGE_TARGETS,
+  createFailureEnvelope,
+  isRequestEnvelope
+} from "./common/message-protocol.js";
 
 const { state } = core;
 
@@ -7976,12 +7986,289 @@ function restartPropertyLockBannerCountdown() {
   }, 1000);
 }
 
+let contentCommandHandlersRegistered = false;
+
+function getCurrentContentMode() {
+  return state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT;
+}
+
+async function handleSetEnabledCommand(message = {}) {
+  if (message.enabled) {
+    if (isPropertyLockInteractionBlocked()) {
+      return { ok: false, locked: true };
+    }
+    const operationId = typeof message.operationId === "string" && message.operationId
+      ? message.operationId
+      : createLifecycleOperationId(LIFECYCLE_KINDS.ACTIVATION);
+    emitLifecycleEvent({
+      operationId,
+      kind: LIFECYCLE_KINDS.ACTIVATION,
+      phase: LIFECYCLE_PHASES.STARTED,
+      busy: true,
+      message: "Inspecting page..."
+    });
+    sendPropertyLockMessage(PROPERTY_LOCK_CONTENT_TAKE_LOCK);
+    state.currentPageType = typeof message.pageType === "string" ? message.pageType : state.currentPageType || "";
+    stopSilentHighlightingObserver();
+    clearSilentHighlightingMarks();
+    setSilentHighlightingsActive(false);
+
+    try {
+      const skipInitialReveal = !Boolean(message.performInitialReveal);
+      const reconciliation = core.getPageSaveReconciliationState(location.href);
+      if (reconciliation && reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON) {
+        await core.clearPageSaveReconciliation(message.baseUrl || state.baseUrl || "", location.href);
+      }
+      await core.enableForBaseUrl(message.baseUrl, { skipInitialReveal });
+      refreshEnabledAiHighlights();
+      emitLifecycleEvent({
+        operationId,
+        kind: LIFECYCLE_KINDS.ACTIVATION,
+        phase: LIFECYCLE_PHASES.FINISHED,
+        busy: false,
+        message: "",
+        contentMode: getCurrentContentMode(),
+        markingEnabled: Boolean(state.enabled)
+      });
+      return { ok: true };
+    } catch {
+      emitLifecycleEvent({
+        operationId,
+        kind: LIFECYCLE_KINDS.ACTIVATION,
+        phase: LIFECYCLE_PHASES.FAILED,
+        busy: false,
+        message: "",
+        contentMode: getCurrentContentMode(),
+        markingEnabled: Boolean(state.enabled)
+      });
+      return { ok: false };
+    }
+  }
+
+  state.currentPageType = "";
+  clearAiPreviewState();
+  core.disable();
+  emitLifecycleEvent({
+    operationId: createLifecycleOperationId(LIFECYCLE_KINDS.MODE),
+    kind: LIFECYCLE_KINDS.MODE,
+    phase: LIFECYCLE_PHASES.FINISHED,
+    busy: false,
+    message: "",
+    contentMode: CONTENT_MODES.SILENT,
+    markingEnabled: false
+  });
+  await refreshSilentHighlightings();
+  return { ok: true };
+}
+
+function handleGetInspectionStatusCommand() {
+  const pageUrl = location.href;
+  const reconciliation = core.getPageSaveReconciliationState(pageUrl);
+  const reconciliationPending = core.isPageSaveReconciliationPending(pageUrl);
+  const inspectionActive = core.isPageInspectionUiActive();
+  const silentHighlightPreparationActive = Boolean(
+    reconciliation &&
+    reconciliation.reason === SILENT_HIGHLIGHTING_PREPARATION_REASON
+  );
+  const editorPreparationPending = Boolean(
+    silentHighlightPreparationActive ||
+    silentHighlightEditorActivationPromise
+  );
+  const lockClaimPending = Boolean(propertyLockEditorClaimPending);
+  const inspectionPending = inspectionActive || editorPreparationPending || reconciliationPending;
+  return {
+    ok: true,
+    active: inspectionActive,
+    pending: inspectionPending,
+    renderModeInspectionActive: isRenderModeInspectionActive(),
+    markingEnabled: Boolean(state.enabled),
+    mode: getCurrentContentMode(),
+    lockClaimPending,
+    pendingReason: reconciliation && (reconciliationPending || editorPreparationPending)
+      ? reconciliation.reason || "pending"
+      : ""
+  };
+}
+
+function handleRenderModeInspectionBeginCommand(message = {}) {
+  setRenderModeInspectionActive(true);
+  cancelSilentHighlightEditorActivation();
+  emitLifecycleEvent({
+    operationId: typeof message.operationId === "string" && message.operationId
+      ? message.operationId
+      : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION),
+    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+    phase: LIFECYCLE_PHASES.STARTED,
+    busy: true,
+    message: "Inspecting page..."
+  });
+  return { ok: true };
+}
+
+async function handleRunRenderModeRevealOnceCommand(message = {}) {
+  const operationId = typeof message.operationId === "string" && message.operationId
+    ? message.operationId
+    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
+  setRenderModeInspectionActive(true);
+  cancelSilentHighlightEditorActivation();
+  const pageUrl = location.href;
+  const baseUrl = message.baseUrl || await resolveBaseUrlForCurrentPage();
+  if (!baseUrl || !utils.isPageWithinBaseUrl(pageUrl, baseUrl)) {
+    core.finishPageInspectionUi();
+    emitLifecycleEvent({
+      operationId,
+      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+      phase: LIFECYCLE_PHASES.FAILED,
+      busy: false,
+      message: ""
+    });
+    return { ok: false };
+  }
+
+  const revealId = ++silentHighlightEditorActivationIdCounter;
+  silentHighlightEditorRevealInFlight = revealId;
+  const isStillCurrent = () =>
+    renderModeInspectionActive &&
+    silentHighlightEditorRevealInFlight === revealId &&
+    location.href === pageUrl &&
+    utils.isPageWithinBaseUrl(location.href, baseUrl);
+
+  emitLifecycleEvent({
+    operationId,
+    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+    phase: LIFECYCLE_PHASES.REVEAL_STARTED,
+    busy: true,
+    message: "Inspecting page..."
+  });
+  armRenderModeInspectionWatchdog();
+
+  try {
+    const prepared = await core.warmupSilentHighlightingBeforeMotionPause(
+      baseUrl,
+      pageUrl,
+      SILENT_HIGHLIGHTING_MOTION_PAUSE_REASON,
+      {
+        keepUiActive: true,
+        onRevealProgress: () => {
+          if (renderModeInspectionActive) {
+            armRenderModeInspectionWatchdog();
+          }
+        }
+      }
+    );
+    if (renderModeInspectionActive) {
+      armRenderModeInspectionWatchdog();
+    }
+    if (!prepared || !isStillCurrent()) {
+      core.finishPageInspectionUi();
+      emitLifecycleEvent({
+        operationId,
+        kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+        phase: LIFECYCLE_PHASES.FAILED,
+        busy: false,
+        message: ""
+      });
+      return { ok: false };
+    }
+    emitLifecycleEvent({
+      operationId,
+      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+      phase: LIFECYCLE_PHASES.REVEAL_FINISHED,
+      busy: true,
+      message: "Inspecting page..."
+    });
+    return { ok: true, pageUrl };
+  } catch {
+    core.finishPageInspectionUi();
+    return { ok: false };
+  }
+}
+
+async function handleCaptureRenderModeInspectionHtmlCommand(message = {}) {
+  const operationId = typeof message.operationId === "string" && message.operationId
+    ? message.operationId
+    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
+  if (isRenderModeInspectionActive()) {
+    armRenderModeInspectionWatchdog();
+  }
+  try {
+    const snapshot = createCurrentPageSnapshot();
+    const rawHtml = await fetchCurrentPageRawHtml(location.href);
+    core.finishPageInspectionUi();
+    emitLifecycleEvent({
+      operationId,
+      kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+      phase: LIFECYCLE_PHASES.HTML_CAPTURED,
+      busy: true,
+      message: "Inspecting page..."
+    });
+    return {
+      ok: Boolean(snapshot && snapshot.renderedHtml && typeof rawHtml === "string"),
+      pageUrl: location.href,
+      renderedHtml: snapshot && typeof snapshot.renderedHtml === "string" ? snapshot.renderedHtml : "",
+      rawHtml: typeof rawHtml === "string" ? rawHtml : "",
+      renderMode: snapshot && typeof snapshot.renderMode === "string" ? snapshot.renderMode : ""
+    };
+  } catch {
+    core.finishPageInspectionUi();
+    return { ok: false };
+  }
+}
+
+function handleRenderModeInspectionEndCommand(message = {}) {
+  const operationId = typeof message.operationId === "string" && message.operationId
+    ? message.operationId
+    : createLifecycleOperationId(LIFECYCLE_KINDS.RENDER_MODE_INSPECTION);
+  setRenderModeInspectionActive(false);
+  if (silentHighlightEditorRevealInFlight) {
+    silentHighlightEditorRevealInFlight = 0;
+  }
+  core.finishPageInspectionUi();
+  if (propertyLockBannerMode === "editor_inspection_reconnecting") {
+    updatePropertyLockBannerMode();
+    renderPropertyLockBanner();
+  }
+  emitLifecycleEvent({
+    operationId,
+    kind: LIFECYCLE_KINDS.RENDER_MODE_INSPECTION,
+    phase: LIFECYCLE_PHASES.FINISHED,
+    busy: false,
+    message: ""
+  });
+  return { ok: true };
+}
+
+function handleHideConsentForInspectionCommand() {
+  const hiddenCount = core.hideConsentElements();
+  return { ok: true, hiddenCount };
+}
+
+function registerContentCommandHandlersOnce() {
+  if (contentCommandHandlersRegistered) {
+    return;
+  }
+  contentCommandHandlersRegistered = true;
+
+  registerContentCommand("activateContentMain", async () => ({
+    ok: true,
+    initialized: Boolean(state.initialized)
+  }));
+  registerContentCommand("setEnabled", async (_context, payload) => handleSetEnabledCommand(payload));
+  registerContentCommand("getInspectionStatus", async () => handleGetInspectionStatusCommand());
+  registerContentCommand("renderModeInspectionBegin", async (_context, payload) => handleRenderModeInspectionBeginCommand(payload));
+  registerContentCommand("runRenderModeRevealOnce", async (_context, payload) => handleRunRenderModeRevealOnceCommand(payload));
+  registerContentCommand("captureRenderModeInspectionHtml", async (_context, payload) => handleCaptureRenderModeInspectionHtmlCommand(payload));
+  registerContentCommand("renderModeInspectionEnd", async (_context, payload) => handleRenderModeInspectionEndCommand(payload));
+  registerContentCommand("hideConsentForInspection", async () => handleHideConsentForInspectionCommand());
+}
+
 
 export function main() {
   if (state.initialized) {
     return;
   }
   state.initialized = true;
+  registerContentCommandHandlersOnce();
 
   // A render-mode inspection flag persisted in sessionStorage survives the
   // inspection reload. If this document booted with it already set, arm the
@@ -8108,6 +8395,28 @@ export function main() {
       } catch {
         // Ignore trace logging failures.
       }
+    }
+
+    if (isRequestEnvelope(message) && message.target === MESSAGE_TARGETS.CONTENT) {
+      const expectsReply = message.expectsReply !== false;
+      const dispatchPromise = dispatchContentCommand(message, _sender, {
+        pageUrl: () => location.href,
+        mode: () => getCurrentContentMode()
+      });
+      if (!expectsReply) {
+        dispatchPromise.catch(() => {});
+        return;
+      }
+      dispatchPromise
+        .then((reply) => sendResponse(reply))
+        .catch((error) => {
+          sendResponse(createFailureEnvelope(
+            message,
+            MESSAGE_ERROR_CODES.HANDLER_FAILED,
+            (error && error.message) || "Content command failed"
+          ));
+        });
+      return true;
     }
 
     if (isRemoteSupportSupportPage() && message.type === "remoteSupportViewerTransportStart") {

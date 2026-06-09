@@ -1,9 +1,71 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09
+Last updated: 2026-06-09 (implementation checkpoints through Phase 4 in progress)
 Branch at document creation: main
-Implementation status: NOT STARTED
-Document commit scope: planning and handoff only
+Implementation status: IN PROGRESS
+Document commit scope: planning + active implementation handoff updates
+
+## Implementation Checkpoints (2026-06-09)
+
+Branch used for implementation and pushes:
+
+1. `refactor/service-worker-authority`
+
+Completed and pushed checkpoints:
+
+1. Phase 0 checkpoint commit `bb90fc3`
+    - Message: `docs(refactor): record phase-0 baseline verification`
+    - Baseline failure documented before implementation:
+       `tests/core-motion-pause.test.js` lazy-load suppression assertion mismatch.
+
+2. Phase 1 checkpoint commit `76693d0`
+    - Message: `feat(messaging): add acknowledged async request wrapper`
+    - Added:
+       - `common/message-protocol.js`
+       - `common/async-messaging.js`
+       - `tests/async-messaging.test.js`
+    - Verification at checkpoint:
+       - `node --test tests/async-messaging.test.js tests/utilities-runtime.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+3. Phase 2 checkpoint commit `25923df`
+    - Message: `feat(background): add tab-scoped command router`
+    - Added:
+       - `background/command-router.js`
+       - `background/tab-runtime.js`
+       - `tests/background-command-router.test.js`
+    - Integrated envelope-only dispatch path in `background.js` with per-tab
+       command ledger and runtime bridge.
+    - Verification at checkpoint:
+       - `node --test tests/background-command-router.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+4. Phase 3 checkpoint commit `241bbc1`
+    - Message: `feat(background): centralize async spinner operations`
+    - Added:
+       - `background/spinner-operations.js`
+       - `tests/background-spinner-operations.test.js`
+    - Extracted spinner queue mutation helpers in `background.js` to module-based
+       operations and added `withTabSpinner` wrapper.
+    - Low-risk migration applied:
+       - `clearBrowsingDataForOrigin` now uses `withBackgroundTabSpinner` when
+          `tabId` is available.
+    - Verification at checkpoint:
+       - `node --test tests/background-spinner-operations.test.js tests/world-trace-contract.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+Current in-progress phase (not yet checkpoint-committed at this handoff update):
+
+1. Phase 4 (content command executor boundary)
+    - Added:
+       - `content/content-command-router.js`
+       - `tests/content-command-router.test.js`
+    - `content-main.js` now registers content command handlers for envelope
+       dispatch while preserving legacy message handling.
+    - Verification in-progress state:
+       - `node --test tests/content-command-router.test.js` passed.
+       - Full suite run still at one known baseline failure in
+          `tests/core-motion-pause.test.js` lazy-load suppression assertion.
 
 ## Read This First
 
