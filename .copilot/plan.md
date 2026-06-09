@@ -12,6 +12,109 @@ core workflow.
 This is the active plan. Previous main-plan and hotfix-plan work is backlogged in
 `.copilot/backlog.md`.
 
+## Debug Continuation Plan (Cross-Environment)
+
+Status as of 2026-06-09:
+
+1. Spinner/blocking diagnostics are now standardized across popup, background,
+   and content lifecycle paths.
+2. The diagnostic gate is now a build-time feature flag:
+   `FEATURE_FLAGS.ufDebugSpinnerQueue = true`.
+3. Legacy manual override remains supported:
+   `localStorage.ufDebugSpinnerQueue = "1"`.
+4. Popup blocker logging dedupe no longer keys on countdown text, so timer
+   ticks do not spam logs.
+5. Background spinner broker now persists and echoes metadata:
+   `reason`, `source`, `startedAt`, and per-event `key`.
+
+Implementation commits already applied:
+
+- `60a780b` — gates spinner diagnostics with feature flags and reduces blocker
+  log spam.
+
+Scope boundary:
+
+1. This debug work is observability-only and must not change marking-contract
+   behavior, save semantics, selector precedence, or core user flows.
+2. If a debug change appears to alter business behavior, treat it as a blocker
+   and revert/fix before continuing to new phases.
+
+### Cross-Environment Resume Checklist
+
+Run this checklist first on any machine before continuing development.
+
+1. Confirm branch and revision:
+   - `git rev-parse --abbrev-ref HEAD` should be `main`.
+   - `git log --oneline -n 1` should include `60a780b` or a descendant.
+2. Sync the latest changes:
+   - `git fetch origin`
+   - `git pull --ff-only`
+3. Install dependencies exactly from lockfile:
+   - `npm ci`
+4. Run baseline tests:
+   - `npm test`
+5. If tests fail in a new environment, do not start feature edits until the
+   environment-specific failure is isolated and documented.
+
+### Debug Signal Contract (Must Stay Stable)
+
+If further debug work is required, preserve these contracts exactly.
+
+1. Popup busy curtain debug payload must include:
+   - `message`, `reason`, `source`, `spinnerKey`, `timerText`
+2. Popup blocker dedupe signature must include:
+   - `message`, `reason`, `source`, `spinnerKey`
+   - and must exclude `timerText`.
+3. Content lifecycle debug events must normalize `reason` and `source` before
+   trace emission.
+4. Background spinner serialization must preserve `reason`, `source`, and
+   `startedAt` for snapshots.
+
+### Quick Validation Commands
+
+Use these commands for fast confidence after any debug-related edit.
+
+1. Focused contracts:
+   - `npm test -- tests/feature-flags.test.js tests/popup-marking-refresh.test.js tests/world-trace-contract.test.js`
+2. Full regression sweep:
+   - `npm test`
+
+Expected current baseline:
+
+1. Focused contracts pass.
+2. Full suite passes.
+3. No repeated popup blocker logs triggered solely by countdown timer updates.
+
+### Manual Browser Verification (Any Host)
+
+Use one staging page and verify logs in both popup and page consoles.
+
+1. Keep feature flag default enabled (`ufDebugSpinnerQueue: true`).
+2. Trigger a blocking flow (for example, page inspection or AI run).
+3. Confirm popup logs include `[popup-blocker]` entries with `reason/source`.
+4. Confirm page logs include `[page-blocker]` entries with normalized
+   `reason/source` and lifecycle context.
+5. Confirm timer text can change without generating repeated blocker logs when
+   all non-timer fields remain unchanged.
+
+### Known Portability Notes
+
+1. `ufDebugSpinnerQueue` is now environment-stable by default because it is
+   feature-flag-driven, not storage-dependent.
+2. LocalStorage override is best-effort and should be treated as a temporary
+   diagnostic control, not a source of truth.
+3. `manifest.json` now exposes `common/feature-flags.js` as a web-accessible
+   resource for content-side debug gating.
+
+### Next Debug Backlog (Only If User Requests)
+
+1. Add a small runtime counter metric for deduped popup blocker log skips
+   (diagnostic-only, no user-facing behavior change).
+2. Add a smoke test that asserts countdown updates do not emit additional
+   blocker logs when signature fields are unchanged.
+3. Consider consolidating popup/page debug-gate checks into one shared helper to
+   reduce drift risk.
+
 ## Confirmed Core Features
 
 These features must remain unflagged and usable throughout this work:
