@@ -147,14 +147,26 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING",
   TAB_DEACTIVATE_MARKING: "TAB_DEACTIVATE_MARKING",
+  TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION",
+  TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE",
+  TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
+  TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION",
+  TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION",
   POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
   BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING,
   BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING,
+  BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION,
+  BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE,
+  BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
+  BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
+  BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
 ]);
+const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
+const RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS = 15000;
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
   $domainId: Int!,
@@ -359,6 +371,212 @@ function normalizeActivationBaseUrl(value) {
     return "";
   }
   return utils.normalizeCanonicalBaseUrl(value) || utils.normalizeBaseUrl(value) || value.trim();
+}
+
+function normalizeRenderModeOperationId(payload, tabId) {
+  if (payload && typeof payload.operationId === "string" && payload.operationId) {
+    return payload.operationId;
+  }
+  return `render-mode-inspection:${tabId}:${Date.now()}`;
+}
+
+async function waitForTabLoadStartInBackground(tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) {
+  if (!tabId) {
+    return false;
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(Boolean(value));
+    };
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) {
+        return;
+      }
+      if (
+        (changeInfo && changeInfo.status === "loading") ||
+        (changeInfo && typeof changeInfo.url === "string" && changeInfo.url)
+      ) {
+        finish(true);
+      }
+    };
+    const timeoutId = setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId)
+      .then((tab) => {
+        if (tab && tab.status === "loading") {
+          finish(true);
+        }
+      })
+      .catch(() => {
+        finish(false);
+      });
+  });
+}
+
+async function waitForTabLoadCompleteInBackground(
+  tabId,
+  timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+  options = {}
+) {
+  if (!tabId) {
+    return false;
+  }
+  const awaitNextLoad = Boolean(options && options.awaitNextLoad);
+  return new Promise((resolve) => {
+    let settled = false;
+    let sawLoading = !awaitNextLoad;
+
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(Boolean(value));
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) {
+        return;
+      }
+      if (changeInfo && changeInfo.status === "loading") {
+        sawLoading = true;
+        return;
+      }
+      if (changeInfo && changeInfo.status === "complete" && sawLoading) {
+        finish(true);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId)
+      .then((tab) => {
+        if (!awaitNextLoad && tab && tab.status === "complete") {
+          finish(true);
+        }
+      })
+      .catch(() => {
+        finish(false);
+      });
+  });
+}
+
+async function ensureContentReadyForRenderModeInspectionInBackground(tabId) {
+  if (!tabId) {
+    return false;
+  }
+  const maxAttempts = 30;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const bootstrap = await ensureContentMainForTab(tabId);
+    if (bootstrap && bootstrap.ok) {
+      const status = await sendContentMessageToTab(tabId, {
+        type: "getInspectionStatus"
+      });
+      if (status && status.ok) {
+        return true;
+      }
+    }
+    if (attempt + 1 < maxAttempts) {
+      await waitForBackgroundRetryDelay(250);
+    }
+  }
+  return false;
+}
+
+async function sendRenderModeInspectionEndWithRetry(tabId, operationId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await ensureContentMainForTab(tabId).catch(() => ({ ok: false }));
+    const response = await sendContentMessageToTab(tabId, {
+      type: "renderModeInspectionEnd",
+      operationId
+    });
+    if (response && response.ok) {
+      return true;
+    }
+    if (attempt + 1 < 3) {
+      await waitForBackgroundRetryDelay(250);
+    }
+  }
+  return false;
+}
+
+async function runRenderModeInspectionBeginStep(tabId, operationId) {
+  const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
+  if (!contentReady) {
+    return { ok: false, error: "Content activation failed" };
+  }
+  const beginResponse = await sendContentMessageToTab(tabId, {
+    type: "renderModeInspectionBegin",
+    operationId
+  });
+  if (!beginResponse || !beginResponse.ok) {
+    return { ok: false, error: (beginResponse && beginResponse.error) || "Unable to begin render mode inspection" };
+  }
+  updateTabRuntime(tabId, {
+    mode: "inspection"
+  });
+  return { ok: true };
+}
+
+async function runRenderModeRevealFreezeStep(tabId, baseUrl, operationId) {
+  const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
+  if (!contentReady) {
+    return { ok: false, error: "Content activation failed" };
+  }
+  const response = await sendContentMessageToTab(tabId, {
+    type: "runRenderModeRevealOnce",
+    baseUrl,
+    operationId
+  });
+  if (!response || !response.ok) {
+    return { ok: false, error: (response && response.error) || "Unable to inspect page" };
+  }
+  return {
+    ok: true,
+    pageUrl: typeof response.pageUrl === "string" ? response.pageUrl : ""
+  };
+}
+
+async function runRenderModeCaptureHtmlStep(tabId, baseUrl, operationId) {
+  const contentReady = await ensureContentReadyForRenderModeInspectionInBackground(tabId);
+  if (!contentReady) {
+    return { ok: false, error: "Content activation failed" };
+  }
+  const response = await sendContentMessageToTab(tabId, {
+    type: "captureRenderModeInspectionHtml",
+    baseUrl,
+    operationId
+  });
+  if (!response || !response.ok) {
+    return { ok: false, error: (response && response.error) || "Unable to capture render mode HTML" };
+  }
+  const hideResponse = await sendContentMessageToTab(tabId, {
+    type: "hideConsentForInspection"
+  });
+  return {
+    ok: true,
+    pageUrl: typeof response.pageUrl === "string" ? response.pageUrl : "",
+    renderedHtml: typeof response.renderedHtml === "string" ? response.renderedHtml : "",
+    rawHtml: typeof response.rawHtml === "string" ? response.rawHtml : "",
+    renderMode: typeof response.renderMode === "string" ? response.renderMode : "",
+    hiddenCount: hideResponse && Number.isFinite(hideResponse.hiddenCount)
+      ? Number(hideResponse.hiddenCount)
+      : 0
+  };
 }
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
@@ -649,6 +867,274 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
         runtime: getTabRuntimeSnapshot(normalizedTabId),
         state: await utils.getTabState(normalizedTabId)
       };
+    }
+  );
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for render mode inspection"
+    );
+  }
+  const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
+  const beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
+  if (!beginResult.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      beginResult.error || "Unable to begin render mode inspection",
+      { tabId: normalizedTabId }
+    );
+  }
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    operationId,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for render mode reveal"
+    );
+  }
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  if (!baseUrl) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Missing base URL for render mode reveal",
+      { tabId: normalizedTabId }
+    );
+  }
+  const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
+  const revealResult = await runRenderModeRevealFreezeStep(normalizedTabId, baseUrl, operationId);
+  if (!revealResult.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      revealResult.error || "Unable to inspect page",
+      { tabId: normalizedTabId }
+    );
+  }
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    operationId,
+    pageUrl: revealResult.pageUrl || ""
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for render mode capture"
+    );
+  }
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
+  const captureResult = await runRenderModeCaptureHtmlStep(normalizedTabId, baseUrl, operationId);
+  if (!captureResult.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      captureResult.error || "Unable to capture render mode HTML",
+      { tabId: normalizedTabId }
+    );
+  }
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    operationId,
+    pageUrl: captureResult.pageUrl || "",
+    renderedHtml: captureResult.renderedHtml || "",
+    rawHtml: captureResult.rawHtml || "",
+    renderMode: captureResult.renderMode || "",
+    hiddenCount: Number(captureResult.hiddenCount || 0)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for render mode inspection end"
+    );
+  }
+  const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
+  const endAcknowledged = await sendRenderModeInspectionEndWithRetry(normalizedTabId, operationId);
+  if (!endAcknowledged) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      "Unable to end render mode inspection",
+      { tabId: normalizedTabId }
+    );
+  }
+  const tabState = await utils.getTabState(normalizedTabId);
+  updateTabRuntime(normalizedTabId, {
+    mode: tabState && tabState.enabled ? "marking" : "silent"
+  });
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    operationId,
+    endAcknowledged,
+    runtime: getTabRuntimeSnapshot(normalizedTabId),
+    state: tabState
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for render mode inspection"
+    );
+  }
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  if (!baseUrl) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Missing base URL for render mode inspection",
+      { tabId: normalizedTabId }
+    );
+  }
+  const operationId = normalizeRenderModeOperationId(payload, normalizedTabId);
+  const javaScriptDisabled = Boolean(payload && payload.javaScriptDisabled);
+
+  return withBackgroundTabSpinner(
+    normalizedTabId,
+    {
+      key: `render-mode-inspection:${normalizedTabId}`,
+      message: "Inspecting page...",
+      owner: SPINNER_OWNERS.POPUP,
+      reason: "tab-render-mode-inspection",
+      source: "background-command-router",
+      persistent: false
+    },
+    async ({ update }) => {
+      let commandResult = {
+        ok: false,
+        tabId: normalizedTabId,
+        operationId,
+        loadStarted: false,
+        reloadResult: {
+          ok: false,
+          error: "Unable to reload page for render mode inspection"
+        },
+        followUpCompleted: false,
+        followUpError: "Unable to inspect page",
+        inspectionSnapshot: null,
+        endAcknowledged: false
+      };
+
+      try {
+        const beginResult = await runRenderModeInspectionBeginStep(normalizedTabId, operationId);
+        if (!beginResult.ok) {
+          commandResult.followUpError = beginResult.error || "Unable to begin render mode inspection";
+          return commandResult;
+        }
+
+        await update({
+          message: "Inspecting page...",
+          reason: "tab-render-mode-reload",
+          source: "background-command-router"
+        });
+
+        const loadStartPromise = waitForTabLoadStartInBackground(
+          normalizedTabId,
+          RENDER_MODE_INSPECTION_START_TIMEOUT_MS
+        );
+        const reloadResult = await utils.reloadPageWithJavaScriptControl(
+          normalizedTabId,
+          javaScriptDisabled
+        );
+        const loadStarted = await loadStartPromise;
+
+        Object.assign(commandResult, {
+          loadStarted,
+          reloadResult: reloadResult && typeof reloadResult === "object"
+            ? reloadResult
+            : { ok: false, error: "Unable to reload page for render mode inspection" }
+        });
+
+        if (!commandResult.reloadResult.ok || !loadStarted) {
+          commandResult.followUpError =
+            (commandResult.reloadResult && commandResult.reloadResult.error) ||
+            "Unable to reload page for render mode inspection";
+          return commandResult;
+        }
+
+        const loadCompleted = await waitForTabLoadCompleteInBackground(
+          normalizedTabId,
+          RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
+        );
+        if (!loadCompleted) {
+          commandResult.followUpError = "Render mode inspection timed out while waiting for page load";
+          return commandResult;
+        }
+
+        await update({
+          message: "Inspecting page...",
+          reason: "tab-render-mode-reveal",
+          source: "background-command-router"
+        });
+
+        const revealResult = await runRenderModeRevealFreezeStep(
+          normalizedTabId,
+          baseUrl,
+          operationId
+        );
+        if (!revealResult.ok) {
+          commandResult.followUpError = revealResult.error || "Unable to inspect page";
+          return commandResult;
+        }
+
+        const captureResult = await runRenderModeCaptureHtmlStep(
+          normalizedTabId,
+          baseUrl,
+          operationId
+        );
+        if (!captureResult.ok) {
+          commandResult.followUpError = captureResult.error || "Unable to capture render mode HTML";
+          return commandResult;
+        }
+
+        Object.assign(commandResult, {
+          ok: true,
+          followUpCompleted: true,
+          followUpError: "",
+          inspectionSnapshot: {
+            pageUrl: captureResult.pageUrl || "",
+            renderedHtml: captureResult.renderedHtml || "",
+            rawHtml: captureResult.rawHtml || "",
+            renderMode: captureResult.renderMode || "",
+            hiddenCount: Number(captureResult.hiddenCount || 0)
+          }
+        });
+        return commandResult;
+      } finally {
+        const endAcknowledged = await sendRenderModeInspectionEndWithRetry(
+          normalizedTabId,
+          operationId
+        );
+        const tabState = await utils.getTabState(normalizedTabId);
+        updateTabRuntime(normalizedTabId, {
+          mode: tabState && tabState.enabled ? "marking" : "silent"
+        });
+        Object.assign(commandResult, {
+          endAcknowledged,
+          runtime: getTabRuntimeSnapshot(normalizedTabId),
+          state: tabState
+        });
+      }
     }
   );
 });

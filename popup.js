@@ -6168,43 +6168,48 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
 
   await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
     state.renderModeInspectionActive = true;
-    await messages.sendTabMessageToTab(tabId, {
-      type: "renderModeInspectionBegin",
-      operationId
-    }).catch(() => null);
     try {
-      const loadStartPromise = waitForTabLoadStart(
-        tabId,
-        RENDER_MODE_INSPECTION_START_TIMEOUT_MS
-      );
-      const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
-      const loadStarted = await loadStartPromise;
-      const outcome = resolveRenderModeInspectionReloadOutcome(result, loadStarted, javaScriptDisabled);
+      const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
+        baseUrl: state.currentBaseUrl,
+        javaScriptDisabled,
+        operationId
+      });
+      const inspectionResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
+        ? inspectionResponse.result
+        : null;
+      const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
+        ? inspectionResult.reloadResult
+        : {
+          ok: false,
+          error: (inspectionResponse && inspectionResponse.error) || PopupText.renderMode.toastInspectReloadFailed
+        };
+      const loadStarted = Boolean(inspectionResult && inspectionResult.loadStarted);
+      const outcome = resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled);
       if (!outcome.ok) {
         uiModule.showToast(outcome.toast);
         return;
       }
 
-      const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId, operationId);
+      const followUpCompleted = Boolean(inspectionResult && inspectionResult.followUpCompleted);
       if (followUpCompleted) {
+        const snapshot = inspectionResult && inspectionResult.inspectionSnapshot && typeof inspectionResult.inspectionSnapshot === "object"
+          ? inspectionResult.inspectionSnapshot
+          : null;
+        if (snapshot) {
+          rememberRenderModeInspectionSnapshot(
+            state.currentBaseUrl,
+            snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
+            snapshot
+          );
+        }
+        await reconcilePropertyLockAfterRenderModeReload();
+        scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
+          reconcileRenderModeNavSpinner: true
+        });
         await refreshUi({ useBusyOverlay: false });
       }
       uiModule.showToast(outcome.toast);
     } finally {
-      await ensureContentReadyForRenderModeInspection(tabId).catch(() => false);
-      for (let endAttempt = 0; endAttempt < 3; endAttempt += 1) {
-        const endResponse = await messages.sendTabMessageToTab(tabId, {
-          type: "renderModeInspectionEnd",
-          operationId
-        }).catch(() => null);
-        if (endResponse && endResponse.ok) {
-          break;
-        }
-        if (endAttempt + 1 < 3) {
-          await messages.delay(250);
-          await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
-        }
-      }
       state.renderModeInspectionActive = false;
       uiModule.setViewState(buildPropertyLockViewState());
     }

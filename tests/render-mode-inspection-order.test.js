@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
@@ -14,79 +15,59 @@ function extractSourceBlock(source, startNeedle, endNeedle) {
   return source.slice(start, end);
 }
 
-test("render mode reload begins inspection before reload and always clears it", () => {
+test("render mode reload delegates inspection orchestration to background", () => {
   const block = extractSourceBlock(
     popupSource,
     "async function runRenderModeInspectionReload",
     "async function normalizeRenderModeDebuggerPage"
   );
 
-  const beginIndex = block.indexOf('type: "renderModeInspectionBegin"');
-  const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled)");
-  const followUpIndex = block.indexOf("const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId, operationId)");
-  const refreshIndex = block.indexOf("await refreshUi({ useBusyOverlay: false })", followUpIndex);
-  const finallyIndex = block.indexOf("} finally {");
-  const endIndex = block.indexOf('type: "renderModeInspectionEnd"', finallyIndex);
-  const operationIdIndex = block.indexOf("const operationId = `render-mode-inspection:${tabId}:${Date.now()}`;");
+  assert.match(block, /const operationId = `render-mode-inspection:\$\{tabId\}:\$\{Date\.now\(\)\}`;/);
+  assert.match(block, /messages\.requestTabRunRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/);
+  assert.match(block, /const outcome = resolveRenderModeInspectionReloadOutcome\(reloadResult, loadStarted, javaScriptDisabled\);/);
+  assert.match(block, /if \(followUpCompleted\) \{[\s\S]*?rememberRenderModeInspectionSnapshot\([\s\S]*?await reconcilePropertyLockAfterRenderModeReload\(\);/);
+  assert.doesNotMatch(block, /completeRenderModeInspectionReloadFollowUp\(/);
+  assert.doesNotMatch(block, /type: "renderModeInspectionBegin"/);
+  assert.doesNotMatch(block, /type: "renderModeInspectionEnd"/);
+});
 
-  assert.ok(operationIdIndex > -1);
+test("background render mode command preserves reveal -> capture -> consent-hide ordering", () => {
+  const block = extractSourceBlock(
+    backgroundSource,
+    "registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION",
+    "function maybeGetCommandPayloadForLedger"
+  );
+
+  const beginIndex = block.indexOf("runRenderModeInspectionBeginStep(");
+  const reloadIndex = block.indexOf("utils.reloadPageWithJavaScriptControl(");
+  const loadCompleteIndex = block.indexOf("waitForTabLoadCompleteInBackground(");
+  const revealIndex = block.indexOf("runRenderModeRevealFreezeStep(");
+  const captureIndex = block.indexOf("runRenderModeCaptureHtmlStep(");
+  const endIndex = block.indexOf("sendRenderModeInspectionEndWithRetry(");
+
   assert.ok(beginIndex > -1);
-  assert.ok(beginIndex > operationIdIndex);
   assert.ok(reloadIndex > beginIndex);
-  assert.ok(followUpIndex > reloadIndex);
-  assert.ok(refreshIndex > followUpIndex);
-  assert.ok(finallyIndex > refreshIndex);
-  assert.ok(endIndex > finallyIndex);
-  assert.doesNotMatch(block, /void completeRenderModeInspectionReloadFollowUp/);
-});
-
-test("render mode follow-up captures clean HTML only after reveal and before hide/reconcile", () => {
-  const block = extractSourceBlock(
-    popupSource,
-    "async function completeRenderModeInspectionReloadFollowUp",
-    "async function reconcilePropertyLockAfterRenderModeReload"
-  );
-
-  const loadIndex = block.indexOf("waitForTabLoadComplete(");
-  const readyIndex = block.indexOf("ensureContentReadyForRenderModeInspection(tabId)");
-  const revealIndex = block.indexOf('type: "runRenderModeRevealOnce"');
-  const captureIndex = block.indexOf('type: "captureRenderModeInspectionHtml"');
-  const rememberIndex = block.indexOf("rememberRenderModeInspectionSnapshot(");
-  const hideIndex = block.indexOf("await hideConsentForRenderModeInspection(tabId)");
-  const reconcileIndex = block.indexOf("await reconcilePropertyLockAfterRenderModeReload()");
-  const staleClearIndex = block.indexOf("scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl", reconcileIndex);
-
-  assert.ok(loadIndex > -1);
-  assert.ok(readyIndex > loadIndex);
-  assert.ok(revealIndex > readyIndex);
+  assert.ok(loadCompleteIndex > reloadIndex);
+  assert.ok(revealIndex > loadCompleteIndex);
   assert.ok(captureIndex > revealIndex);
-  assert.ok(rememberIndex > captureIndex);
-  assert.ok(hideIndex > rememberIndex);
-  assert.ok(reconcileIndex > hideIndex);
-  assert.ok(staleClearIndex > reconcileIndex);
-  assert.match(block, /reconcileRenderModeNavSpinner: true/);
+  assert.ok(endIndex > captureIndex);
+  assert.match(
+    backgroundSource,
+    /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{[\s\S]*?captureRenderModeInspectionHtml[\s\S]*?hideConsentForInspection/
+  );
 });
 
-test("render mode inspection waits for content-main before lifecycle messages", () => {
+test("background render mode orchestration waits for content readiness", () => {
   const readyBlock = extractSourceBlock(
-    popupSource,
-    "async function ensureContentReadyForRenderModeInspection",
-    "async function waitForTabLoadStart"
-  );
-  const reloadBlock = extractSourceBlock(
-    popupSource,
-    "async function runRenderModeInspectionReload",
-    "async function normalizeRenderModeDebuggerPage"
+    backgroundSource,
+    "async function ensureContentReadyForRenderModeInspectionInBackground",
+    "async function sendRenderModeInspectionEndWithRetry"
   );
 
-  assert.match(readyBlock, /type: "activateContentForTab", tabId/);
+  assert.match(readyBlock, /const bootstrap = await ensureContentMainForTab\(tabId\);/);
   assert.match(readyBlock, /type: "getInspectionStatus"/);
   assert.match(readyBlock, /if \(status && status\.ok\) \{[\s\S]*?return true;/);
-  assert.match(readyBlock, /messages\.delay\(250\)/);
-  assert.match(
-    reloadBlock,
-    /finally \{[\s\S]*?await ensureContentReadyForRenderModeInspection\(tabId\)\.catch\(\(\) => false\);[\s\S]*?type: "renderModeInspectionEnd"/
-  );
+  assert.match(readyBlock, /await waitForBackgroundRetryDelay\(250\);/);
 });
 
 test("render mode auto detection consumes the explicit inspection snapshot", () => {

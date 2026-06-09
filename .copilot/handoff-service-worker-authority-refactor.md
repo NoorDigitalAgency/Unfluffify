@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09 (implementation checkpoints through Phase 6C ready to checkpoint)
+Last updated: 2026-06-09 (implementation checkpoints through Phase 6D ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -131,9 +131,8 @@ Completed and pushed checkpoints:
        - `node --test tests/device-emulation-lifecycle.test.js tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js` passed (74/74).
        - Full suite passed (683/683).
 
-Current in-progress phase (ready for checkpoint commit/push at this handoff update):
-
-1. Phase 6C (marking deactivation orchestration in background)
+9. Phase 6C checkpoint commit `562115f`
+   - Message: `feat(background): orchestrate marking deactivation`
     - Updated:
        - `background.js` adds tab-scoped command `TAB_DEACTIVATE_MARKING` in
           background command router.
@@ -148,22 +147,50 @@ Current in-progress phase (ready for checkpoint commit/push at this handoff upda
           details (`code`, `error`).
        - Tests updated:
           - `tests/background-marking-activation.test.js`.
-    - Verification in working tree before checkpoint commit:
+    - Verification at checkpoint:
        - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/device-emulation-lifecycle.test.js tests/background-command-router.test.js` passed (84/84).
        - Full suite passed (686/686).
 
+Current in-progress phase (ready for checkpoint commit/push at this handoff update):
+
+1. Phase 6D (render-mode inspection orchestration in background)
+    - Updated:
+       - `background.js` adds tab-scoped commands:
+          - `TAB_BEGIN_RENDER_MODE_INSPECTION`
+          - `TAB_RUN_REVEAL_FREEZE`
+          - `TAB_CAPTURE_RENDER_MODE_HTML`
+          - `TAB_END_RENDER_MODE_INSPECTION`
+          - orchestration command `TAB_RUN_RENDER_MODE_INSPECTION`.
+       - Background now owns render-mode inspection flow: begin -> reload
+          (JS on/off) -> wait load/content-ready -> reveal/freeze -> capture ->
+          consent hide -> end, all under tab-scoped spinner orchestration.
+       - `popup.js` render-mode inspection now sends a single intent through
+          `messages.requestTabRunRenderModeInspection(...)` and uses returned
+          inspection snapshot for local reconciliation.
+       - `popup/messages.js` adds `requestTabRunRenderModeInspection`.
+       - Tests added/updated:
+          - `tests/background-render-mode-inspection.test.js`
+          - `tests/render-mode-inspection-order.test.js`
+          - `tests/popup-render-mode.test.js`
+          - `tests/property-lock-render-mode.test.js`
+          - `tests/feature-flags.test.js`
+    - Verification in working tree before checkpoint commit:
+       - `node --test tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js tests/popup-marking-refresh.test.js` passed (69/69).
+       - `node --test tests/feature-flags.test.js tests/property-lock-render-mode.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js` passed (38/38).
+       - Full suite passed (690/690).
+
 ## Resume From Here
 
-Next strict phase to implement after the Phase 6C checkpoint push:
+Next strict phase to implement after the Phase 6D checkpoint push:
 
-1. Phase 6D: render-mode inspection orchestration in background.
+1. Phase 6E: AI run orchestration in background.
 
 Recommended first commands to resume immediately after pull:
 
 ```bash
 git status --short
 git log --oneline -n 3
-node --test tests/background-command-router.test.js tests/popup-marking-refresh.test.js
+node --test tests/background-render-mode-inspection.test.js tests/popup-render-mode.test.js tests/render-mode-inspection-order.test.js
 ```
 
 ## Read This First
@@ -188,14 +215,15 @@ As of this handoff:
    - lifecycle broker
    - page-motion freeze executeScript bridge
    - AI persistence/background network pieces
-4. Popup snapshot, marking activation, and marking deactivation now route
+4. Popup snapshot, marking activation/deactivation, and render-mode inspection
+   now route
    through background commands;
    popup still directly orchestrates several remaining workflows.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 6D render-mode inspection orchestration in background.
+7. Next work is Phase 6E AI run orchestration in background.
 
 ## First Commands For A Future Implementer
 

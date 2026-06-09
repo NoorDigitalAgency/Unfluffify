@@ -33,10 +33,11 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 6. Phase 5 complete and pushed (`f9651a0`).
 7. Phase 6A complete and pushed (`f96c58b`).
 8. Phase 6B complete and pushed (`941e6f9`).
-9. Phase 6C implemented and verified in working tree; checkpoint commit/push is
-   pending in this session.
-10. Next strict phase after Phase 6C push: Phase 6D (render-mode inspection
-    orchestration in background).
+9. Phase 6C complete and pushed (`562115f`).
+10. Phase 6D implemented and verified in working tree; checkpoint commit/push
+   is pending in this session.
+11. Next strict phase after Phase 6D push: Phase 6E (AI run orchestration in
+   background).
 
 ## Debug Continuation Plan (Cross-Environment)
 

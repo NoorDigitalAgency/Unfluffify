@@ -94,42 +94,23 @@ test("render mode inspection reload waits for the full explicit inspection follo
     "async function runRenderModeInspectionReload",
     "async function normalizeRenderModeDebuggerPage"
   );
-  const followUpBlock = extractSourceBlock(
-    popupSource,
-    "async function completeRenderModeInspectionReloadFollowUp",
-    "async function runRenderModeInspectionReload"
-  );
 
   assert.match(
     inspectionBlock,
-    /const loadStartPromise = waitForTabLoadStart\(\s*tabId,\s*RENDER_MODE_INSPECTION_START_TIMEOUT_MS\s*\);/
+    /messages\.requestTabRunRenderModeInspection\(tabId, \{[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?javaScriptDisabled,[\s\S]*?operationId/
   );
   assert.match(
     inspectionBlock,
-    /const loadStarted = await loadStartPromise;[\s\S]*?resolveRenderModeInspectionReloadOutcome\(result,\s*loadStarted,\s*javaScriptDisabled\)/
+    /const loadStarted = Boolean\(inspectionResult && inspectionResult\.loadStarted\);[\s\S]*?resolveRenderModeInspectionReloadOutcome\(reloadResult,\s*loadStarted,\s*javaScriptDisabled\)/
   );
   assert.match(
     inspectionBlock,
-    /const operationId = `render-mode-inspection:\$\{tabId\}:\$\{Date\.now\(\)\}`;[\s\S]*?type: "renderModeInspectionBegin",[\s\S]*?operationId[\s\S]*?try \{[\s\S]*?const followUpCompleted = await completeRenderModeInspectionReloadFollowUp\(tabId, operationId\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);[\s\S]*?\} finally \{[\s\S]*?type: "renderModeInspectionEnd",[\s\S]*?operationId/
+    /const followUpCompleted = Boolean\(inspectionResult && inspectionResult\.followUpCompleted\);[\s\S]*?if \(followUpCompleted\) \{[\s\S]*?rememberRenderModeInspectionSnapshot\([\s\S]*?await reconcilePropertyLockAfterRenderModeReload\(\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);/
   );
-  assert.doesNotMatch(inspectionBlock, /void completeRenderModeInspectionReloadFollowUp/);
-  assert.match(
-    followUpBlock,
-    /waitForTabLoadComplete\(\s*tabId,\s*RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS\s*\)/
-  );
-  assert.match(followUpBlock, /ensureContentReadyForRenderModeInspection\(tabId\)/);
-  assert.match(followUpBlock, /type: "runRenderModeRevealOnce"/);
-  assert.match(followUpBlock, /type: "captureRenderModeInspectionHtml"/);
-  assert.match(
-    followUpBlock,
-    /await hideConsentForRenderModeInspection\(tabId\);/
-  );
-  // After the reload, the popup reconciles the property lock so it stops showing
-  // "disconnected" once the content re-claims the lock (#9).
-  assert.match(
-    followUpBlock,
-    /await reconcilePropertyLockAfterRenderModeReload\(\);/
-  );
+  assert.doesNotMatch(inspectionBlock, /type: "renderModeInspectionBegin"/);
+  assert.doesNotMatch(inspectionBlock, /type: "runRenderModeRevealOnce"/);
+  assert.doesNotMatch(inspectionBlock, /type: "captureRenderModeInspectionHtml"/);
+  assert.doesNotMatch(inspectionBlock, /type: "renderModeInspectionEnd"/);
 });
 
 test("the property lock is reconciled (polled until reconnected) after a render-mode reload", () => {
