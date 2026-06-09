@@ -83,6 +83,22 @@ import {
   aiSelectorSetsEqual,
   normalizeAiSelectorSet
 } from "./common/selector-set.js";
+import {
+  appendTabCommandLedger,
+  deleteTabRuntime,
+  getTabRuntimeSnapshot,
+  updateTabRuntime
+} from "./background/tab-runtime.js";
+import {
+  dispatchBackgroundCommand,
+  registerBackgroundCommand
+} from "./background/command-router.js";
+import {
+  MESSAGE_ERROR_CODES,
+  MESSAGE_TARGETS,
+  createFailureEnvelope,
+  isRequestEnvelope
+} from "./common/message-protocol.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -126,6 +142,14 @@ const tabWorldTraceStateByTabId = new Map();
 const aiComputeLockExpiresAtByTabId = new Map();
 const pageMotionFreezeControlQueueByTarget = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
+const BACKGROUND_COMMANDS = Object.freeze({
+  TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
+  POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
+});
+const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
+  BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
+  BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
+]);
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
 mutation updateScrapingConditions(
   $domainId: Int!,
@@ -316,6 +340,98 @@ async function ensureContentMainForTab(tabId) {
     }
   }
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
+}
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
+  const result = await ensureContentMainForTab(context.tabId);
+  updateTabRuntime(context.tabId, {
+    contentReady: Boolean(result && result.ok)
+  });
+  return {
+    ...result,
+    runtime: getTabRuntimeSnapshot(context.tabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (context) => {
+  return {
+    state: buildBrokerState(context.tabId),
+    runtime: getTabRuntimeSnapshot(context.tabId)
+  };
+});
+
+function maybeGetCommandPayloadForLedger(message) {
+  if (!isDebugFlagEnabled("fullWorldMessagingLogging")) {
+    return undefined;
+  }
+  if (!message || !message.payload || typeof message.payload !== "object") {
+    return undefined;
+  }
+  return message.payload;
+}
+
+function recordBackgroundCommandLedger(message, sender, reply, startedAt) {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  const tabId = getMessageTabId(message, sender);
+  if (!tabId) {
+    return;
+  }
+  const finishedAt = Date.now();
+  appendTabCommandLedger(tabId, {
+    id: typeof message.id === "string" ? message.id : "",
+    type: typeof message.type === "string" ? message.type : "",
+    startedAt,
+    finishedAt,
+    durationMs: Math.max(0, finishedAt - startedAt),
+    status: reply && reply.ok ? "ok" : "error",
+    errorCode: reply && !reply.ok && typeof reply.code === "string" ? reply.code : "",
+    payload: maybeGetCommandPayloadForLedger(message)
+  });
+}
+
+function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
+  if (!isRequestEnvelope(message) || message.target !== MESSAGE_TARGETS.BACKGROUND) {
+    return false;
+  }
+  const startedAt = Date.now();
+  const expectsReply = message.expectsReply !== false;
+  const dispatch = dispatchBackgroundCommand(message, sender, {
+    requireTabForTypes: TAB_SCOPED_BACKGROUND_COMMANDS
+  });
+
+  if (!expectsReply) {
+    dispatch
+      .then((reply) => {
+        recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      })
+      .catch((error) => {
+        const reply = createFailureEnvelope(
+          message,
+          MESSAGE_ERROR_CODES.HANDLER_FAILED,
+          (error && error.message) || "Background command failed"
+        );
+        recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      });
+    return false;
+  }
+
+  dispatch
+    .then((reply) => {
+      recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      sendResponse(reply);
+    })
+    .catch((error) => {
+      const reply = createFailureEnvelope(
+        message,
+        MESSAGE_ERROR_CODES.HANDLER_FAILED,
+        (error && error.message) || "Background command failed"
+      );
+      recordBackgroundCommandLedger(message, sender, reply, startedAt);
+      sendResponse(reply);
+    });
+  return true;
 }
 
 async function setAiComputeLockForTab(tabId, active, expiresAt = 0, baseUrl = "") {
@@ -1666,6 +1782,9 @@ function updateLifecycleState(tabId, event = {}) {
     updatedAt: Date.now()
   };
   tabLifecycleStateByTabId.set(normalizedTabId, next);
+  updateTabRuntime(normalizedTabId, {
+    lifecycle: next
+  });
   appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", next);
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
@@ -1682,6 +1801,9 @@ function clearNavInspectCurtain(normalizedTabId) {
   if (queue.size === 0) {
     tabSpinnerQueueByTabId.delete(normalizedTabId);
   }
+  updateTabRuntime(normalizedTabId, {
+    spinnerQueue: queue
+  });
   appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
     type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
     message: SPINNER_KEYS.NAV_INSPECT,
@@ -1704,6 +1826,9 @@ function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
     source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker",
     startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now()
   });
+  updateTabRuntime(normalizedTabId, {
+    spinnerQueue: queue
+  });
   appendWorldTraceEvent(normalizedTabId, "spinner", "set", {
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key: String(key),
@@ -1725,6 +1850,9 @@ function removeBackgroundSpinnerEntry(tabId, key) {
   if (queue.size === 0) {
     tabSpinnerQueueByTabId.delete(normalizedTabId);
   }
+  updateTabRuntime(normalizedTabId, {
+    spinnerQueue: queue
+  });
   appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
     type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
     key: String(key),
@@ -1758,6 +1886,9 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
   } else {
     tabSpinnerQueueByTabId.delete(normalizedTabId);
   }
+  updateTabRuntime(normalizedTabId, {
+    spinnerQueue: tabSpinnerQueueByTabId.get(normalizedTabId) || new Map()
+  });
   appendWorldTraceEvent(normalizedTabId, "spinner", "clear", {
     type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
     message: transientOnly ? "transient-only" : "all",
@@ -2023,6 +2154,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch {
       // Debug logging must never break runtime behavior.
     }
+  }
+
+  if (handleBackgroundCommandEnvelope(message, sender, sendResponse)) {
+    return true;
   }
 
   if (REMOTE_SUPPORT_MESSAGE_TYPES.has(message.type)) {
@@ -2806,6 +2941,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabSpinnerQueueByTabId.delete(tabId);
   tabWorldTraceStateByTabId.delete(tabId);
   aiComputeLockExpiresAtByTabId.delete(tabId);
+  deleteTabRuntime(tabId);
 });
 
 async function disableExtensionOnTopLevelNavigation(details) {
