@@ -62,6 +62,7 @@
         "common/config.js",
         "common/constants.js",
         "common/extension-telemetry.js",
+        "common/feature-flags.js",
         "common/page-telemetry.js",
         "common/lynx-checklist.js",
         "common/lynx-live-pages.js",

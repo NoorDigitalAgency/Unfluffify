@@ -27,8 +27,22 @@ test("background persists per-tab trace state and propagates trace enablement to
   );
   assert.match(backgroundSource, /snapshot-requested/);
   assert.match(backgroundSource, /set-requested/);
+  assert.match(backgroundSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
+  assert.match(backgroundSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
+  assert.match(backgroundSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
   assert.match(backgroundSource, /traceEnabled: Boolean\(traceState && traceState\.enabled\),/);
   assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
+});
+
+test("background spinner broker preserves blocking reason metadata", () => {
+  assert.match(backgroundSource, /reason: entry && typeof entry\.reason === "string" \? entry\.reason : ""/);
+  assert.match(backgroundSource, /source: entry && typeof entry\.source === "string" \? entry\.source : ""/);
+  assert.match(backgroundSource, /startedAt: entry && Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : 0/);
+  assert.match(backgroundSource, /reason: typeof entry\.reason === "string" && entry\.reason \? entry\.reason : `spinner:\$\{String\(key\)\}`/);
+  assert.match(backgroundSource, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "background-spinner-broker"/);
+  assert.match(backgroundSource, /reason: message\.reason,/);
+  assert.match(backgroundSource, /source: message\.source,/);
+  assert.match(backgroundSource, /startedAt: message\.startedAt/);
 });
 
 test("popup keeps trace diagnostics behind a disabled feature flag", () => {
@@ -89,4 +103,9 @@ test("content supports runtime trace toggling and traces inbound\/outbound world
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:inbound/);
   assert.match(contentSource, /\[world-trace\]\[content\] runtime:send/);
   assert.match(contentSource, /\[world-trace\]\[content\] lifecycle:emit/);
+  assert.match(contentSource, /function logPageBlockerReason\(event = \{\}\) \{/);
+  assert.match(contentSource, /console\.debug\("\[page-blocker\]", event\.busy \? "start-or-update" : "clear"/);
+  assert.match(contentSource, /reason: normalizePageBlockingReason\(event\)/);
+  assert.match(contentSource, /reason: normalizedEvent\.reason \|\| ""/);
+  assert.match(contentSource, /source: normalizedEvent\.source \|\| ""/);
 });

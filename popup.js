@@ -840,7 +840,49 @@ function currentSpinnerMessage() {
   return [...popupSpinnerQueue.values()].at(-1).message;
 }
 
+function currentSpinnerSnapshot() {
+  if (popupSpinnerQueue.size === 0) {
+    return null;
+  }
+  const [key, entry] = [...popupSpinnerQueue.entries()].at(-1);
+  return { key, entry };
+}
+
+function normalizeSpinnerReason(reason, key, message) {
+  if (typeof reason === "string" && reason.trim()) {
+    return reason.trim();
+  }
+  if (typeof key === "string" && key.trim()) {
+    return `spinner:${key.trim()}`;
+  }
+  if (typeof message === "string" && message.trim()) {
+    return `message:${message.trim()}`;
+  }
+  return "popup-spinner";
+}
+
+function buildSpinnerBusyDetails(key, entry) {
+  const spinnerEntry = entry && typeof entry === "object" ? entry : {};
+  return {
+    reason: normalizeSpinnerReason(spinnerEntry.reason, key, spinnerEntry.message),
+    source: typeof spinnerEntry.source === "string" && spinnerEntry.source ? spinnerEntry.source : "popup-spinner",
+    spinnerKey: typeof key === "string" ? key : ""
+  };
+}
+
+function setUiBusyFromCurrentSpinner() {
+  const snapshot = currentSpinnerSnapshot();
+  if (!snapshot) {
+    uiModule.setUiBusy(false);
+    return;
+  }
+  uiModule.setUiBusy(true, snapshot.entry.message || "", buildSpinnerBusyDetails(snapshot.key, snapshot.entry));
+}
+
 function isPopupSpinnerDebugEnabled() {
+  if (isFeatureEnabled("ufDebugSpinnerQueue")) {
+    return true;
+  }
   try {
     return Boolean(window && window.localStorage && window.localStorage.getItem("ufDebugSpinnerQueue") === "1");
   } catch {
@@ -876,13 +918,17 @@ function getCurrentPopupTabId() {
 function syncUiBusyFromBrokerState() {
   if (popupSpinnerQueue.size > 0) {
     popupSpinnerVisible = true;
-    uiModule.setUiBusy(true, currentSpinnerMessage());
+    setUiBusyFromCurrentSpinner();
     return;
   }
   const lifecycleBusy = Boolean(popupBackgroundLifecycle && popupBackgroundLifecycle.busy);
   if (lifecycleBusy) {
     popupSpinnerVisible = false;
-    uiModule.setUiBusy(true, popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait);
+    uiModule.setUiBusy(true, popupBackgroundLifecycle.message || PopupText.overlay.pleaseWait, {
+      reason: normalizeSpinnerReason(popupBackgroundLifecycle.reason, popupBackgroundLifecycle.kind || "lifecycle", popupBackgroundLifecycle.message),
+      source: "background-lifecycle",
+      spinnerKey: ""
+    });
     return;
   }
   popupSpinnerVisible = false;
@@ -924,7 +970,10 @@ function applyBackgroundStateSnapshot(snapshot) {
     }
     popupSpinnerQueue.set(entry.key, {
       message: typeof entry.message === "string" ? entry.message : "",
-      persistent: Boolean(entry.persistent)
+      persistent: Boolean(entry.persistent),
+      reason: normalizeSpinnerReason(entry.reason, entry.key, entry.message),
+      source: typeof entry.source === "string" && entry.source ? entry.source : "background-broker",
+      startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now()
     });
     if (tabId) {
       popupSpinnerKeyTabIds.set(entry.key, tabId);
@@ -986,7 +1035,10 @@ function syncSpinnerEntryToBackground(key) {
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
     key,
     message: expectedMessage,
-    persistent: expectedPersistent
+    persistent: expectedPersistent,
+    reason: normalizeSpinnerReason(entry.reason, key, expectedMessage),
+    source: typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner",
+    startedAt: Number.isFinite(entry.startedAt) ? entry.startedAt : Date.now()
   }, {
     shouldApplySnapshot
   });
@@ -1131,6 +1183,11 @@ function pushSpinner(key, message, options = {}) {
   const effectiveKey = (typeof key === "string" && key) ? key : crypto.randomUUID();
   const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
   const persistent = Boolean(options.persistent);
+  const source = typeof options.source === "string" && options.source.trim()
+    ? options.source.trim()
+    : "popup-spinner";
+  const reason = normalizeSpinnerReason(options.reason, effectiveKey, msg);
+  const startedAt = Date.now();
   const isUpdate = popupSpinnerQueue.has(effectiveKey);
   const tabId = state.currentTab && state.currentTab.id;
 
@@ -1151,19 +1208,21 @@ function pushSpinner(key, message, options = {}) {
       existing.message = msg;
     }
     existing.persistent = persistent;
+    existing.reason = reason;
+    existing.source = source;
     if (popupSpinnerTimer) {
       window.clearTimeout(popupSpinnerTimer);
       popupSpinnerTimer = 0;
       if (!popupSpinnerVisible) {
         popupSpinnerVisible = true;
-        uiModule.setUiBusy(true, currentSpinnerMessage());
+        setUiBusyFromCurrentSpinner();
       } else {
-        uiModule.setUiBusy(true, currentSpinnerMessage());
+        setUiBusyFromCurrentSpinner();
       }
     } else if (popupSpinnerVisible) {
       const topKey = [...popupSpinnerQueue.keys()].at(-1);
       if (topKey === effectiveKey) {
-        uiModule.setUiBusy(true, currentSpinnerMessage());
+        setUiBusyFromCurrentSpinner();
       }
     }
     if (tabId) {
@@ -1174,15 +1233,15 @@ function pushSpinner(key, message, options = {}) {
     return effectiveKey;
   }
 
-  popupSpinnerQueue.set(effectiveKey, { message: msg, persistent });
+  popupSpinnerQueue.set(effectiveKey, { message: msg, persistent, reason, source, startedAt });
   armSpinnerWatchdog(effectiveKey);
   if (tabId) {
     popupSpinnerKeyTabIds.set(effectiveKey, tabId);
   }
 
   if (popupSpinnerVisible) {
-    logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent });
-    uiModule.setUiBusy(true, currentSpinnerMessage());
+    logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
+    setUiBusyFromCurrentSpinner();
     syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
     return effectiveKey;
   }
@@ -1195,7 +1254,8 @@ function pushSpinner(key, message, options = {}) {
           return;
         }
         popupSpinnerVisible = true;
-        uiModule.setUiBusy(true, currentSpinnerMessage());
+        logPopupSpinnerDebug("push:delayed-show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
+        setUiBusyFromCurrentSpinner();
         syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
       }, delayMs);
     }
@@ -1207,8 +1267,8 @@ function pushSpinner(key, message, options = {}) {
     popupSpinnerTimer = 0;
   }
   popupSpinnerVisible = true;
-  logPopupSpinnerDebug("push:show", { key: effectiveKey, message: msg, persistent });
-  uiModule.setUiBusy(true, currentSpinnerMessage());
+  logPopupSpinnerDebug("push:show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
+  setUiBusyFromCurrentSpinner();
   if (tabId) {
     popupSpinnerKeyTabIds.set(effectiveKey, tabId);
   }
@@ -1225,15 +1285,17 @@ function setSpinnerMessage(key, message) {
     return;
   }
   entry.message = message.trim();
+  entry.reason = normalizeSpinnerReason(entry.reason, key, entry.message);
+  entry.source = typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner";
   // Message change = progress; reset the fail-open watchdog for this key.
   armSpinnerWatchdog(key);
-  logPopupSpinnerDebug("set-message", { key, message: entry.message });
+  logPopupSpinnerDebug("set-message", { key, message: entry.message, reason: entry.reason, source: entry.source });
   const tabId = state.currentTab && state.currentTab.id;
   syncSpinnerEntryToBackground(key).catch(() => {});
   if (popupSpinnerVisible) {
     const topKey = [...popupSpinnerQueue.keys()].at(-1);
     if (topKey === key) {
-      uiModule.setUiBusy(true, message.trim());
+      setUiBusyFromCurrentSpinner();
     }
   }
 }
@@ -1374,7 +1436,7 @@ function popSpinner(key) {
   removeSpinnerEntryFromBackground(key, mappedTabId || getCurrentPopupTabId()).catch(() => {});
   if (popupSpinnerQueue.size > 0) {
     if (popupSpinnerVisible) {
-      uiModule.setUiBusy(true, currentSpinnerMessage());
+      setUiBusyFromCurrentSpinner();
       syncUiBusyFromBrokerState();
     }
     return;
@@ -8152,7 +8214,11 @@ async function handlePageSave() {
         await refreshUi();
         return;
       }
-      uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice);
+      uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice, {
+        reason: "page-save-remote-config-retry",
+        source: "popup-page-save",
+        spinnerKey: ""
+      });
       await waitForRetryDelay(retryDelayMs);
       retryDelayMs = Math.min(retryDelayMs * 2, PAGE_SAVE_SYNC_MAX_RETRY_DELAY_MS);
     }

@@ -386,7 +386,7 @@ test("session save terminal retry failure leaves the local draft dirty for retry
   )[1];
   const terminalFailureStart = handlePageSaveBody.indexOf("if (attempt + 1 >= PAGE_SAVE_SYNC_MAX_ATTEMPTS)");
   const terminalFailureEnd = handlePageSaveBody.indexOf(
-    "uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice)",
+    "uiModule.setUiBusy(true, PopupText.status.remoteServerRetryNotice",
     terminalFailureStart
   );
   assert.ok(terminalFailureStart > -1);
@@ -553,6 +553,16 @@ test("popup blocks the interface with a spinner while page inspection is running
   assert.match(uiSource, /^function syncBlockingUiCurtainDom\(\) \{/m);
   assert.match(uiSource, /document\.body\.classList\.toggle\("is-busy", curtain\.visible\)/);
   assert.match(uiSource, /function setUiBusy\([\s\S]*?try \{[\s\S]*?setViewState\(patch\);[\s\S]*?\} catch[\s\S]*?syncBlockingUiCurtainDom\(\);/);
+  assert.match(uiSource, /busyReason: isBusy && details && typeof details\.reason === "string" \? details\.reason : ""/);
+  assert.match(uiSource, /console\.debug\("\[popup-blocker\]", eventName/);
+  assert.match(uiSource, /note: PopupText\.overlay\.busyHint,[\s\S]*?reason: view\.busyReason \|\| "popup-busy"/);
+  assert.match(uiSource, /let lastPopupBlockerLogSignature = "";/);
+  assert.match(
+    uiSource,
+    /const signature = \[\s*curtain\.message \|\| "",\s*curtain\.reason \|\| "",\s*curtain\.source \|\| "",\s*curtain\.spinnerKey \|\| ""\s*\]\.join\("\|"\);/
+  );
+  assert.match(uiSource, /function App\(\{ state: view, actions: handlers \}\) \{\s*const curtain = getBlockingUiCurtainState\(view\);\s*logPopupBlockerReason\("render", curtain\);/);
+  assert.match(uiSource, /if \(!curtain\.visible\) \{\s*lastPopupBlockerLogSignature = "";\s*return;\s*\}/);
   // A stale "Inspecting page..." curtain is cleared once the spinner queue
   // drains and the content side reports no pending inspection.
   assert.match(source, /function scheduleStaleInspectionBusyClear\(/);
@@ -573,8 +583,10 @@ test("popup spinner queue pushSpinner returns key and handles delays correctly",
   assert.match(pushBody, /suppressIfActive[\s\S]*?return null;/);
   // delay path sets timer and returns effectiveKey
   assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?popupSpinnerTimer[\s\S]*?return effectiveKey;/);
-  // immediate show path sets popupSpinnerVisible and calls setUiBusy
-  assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?uiModule\.setUiBusy\(true/);
+  // immediate show path sets popupSpinnerVisible and applies reason-aware busy details.
+  assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?setUiBusyFromCurrentSpinner\(\)/);
+  assert.match(pushBody, /const reason = normalizeSpinnerReason\(options\.reason, effectiveKey, msg\);/);
+  assert.match(pushBody, /const source = typeof options\.source === "string"/);
   // upsert path updates in-place without re-checking suppressIfActive
   assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
   assert.match(pushBody, /syncSpinnerEntryToBackground\(effectiveKey\)/);
@@ -603,6 +615,9 @@ test("popup delegates spinner queue state to the background broker", () => {
 
   assert.match(setBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_SET/);
   assert.match(setBody, /persistent: expectedPersistent/);
+  assert.match(setBody, /reason: normalizeSpinnerReason\(entry\.reason, key, expectedMessage\)/);
+  assert.match(setBody, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "popup-spinner"/);
+  assert.match(setBody, /startedAt: Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : Date\.now\(\)/);
   assert.match(clearBody, /type: WORLD_MESSAGE_TYPES\.SPINNER_CLEAR/);
   assert.match(clearBody, /transientOnly: Boolean\(options\.transientOnly\)/);
   assert.doesNotMatch(source, /spinnerQueue:<tabId>/);

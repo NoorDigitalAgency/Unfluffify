@@ -235,6 +235,9 @@ const initialViewState = {
   remoteSupportError: "",
   isBusy: false,
   busyMessage: "",
+  busyReason: "",
+  busySource: "",
+  busySpinnerKey: "",
   toastMessage: "",
   toastVisible: false
 };
@@ -524,6 +527,9 @@ function getBlockingUiCurtainState(view) {
       mode: "busy",
       message: view.busyMessage || PopupText.overlay.loadingPopup,
       note: PopupText.overlay.busyHint,
+      reason: view.busyReason || "popup-busy",
+      source: view.busySource || "popup",
+      spinnerKey: view.busySpinnerKey || "",
       timerText: ""
     };
   }
@@ -533,6 +539,9 @@ function getBlockingUiCurtainState(view) {
       mode: "busy",
       message: PopupText.overlay.computingSelectors,
       note: view.aiRunSpinnerNote || PopupText.overlay.busyHint,
+      reason: "ai-run-compute",
+      source: "popup-view-state",
+      spinnerKey: "",
       timerText: view.aiRunCountdownVisible ? view.aiRunCountdownText : ""
     };
   }
@@ -542,6 +551,9 @@ function getBlockingUiCurtainState(view) {
       mode: "busy",
       message: PopupText.overlay.submittingSelectors,
       note: PopupText.overlay.busyHint,
+      reason: "send-to-lynx-save",
+      source: "popup-view-state",
+      spinnerKey: "",
       timerText: ""
     };
   }
@@ -551,6 +563,9 @@ function getBlockingUiCurtainState(view) {
       mode: "busy",
       message: PopupText.overlay.workingWithAi,
       note: PopupText.overlay.busyHint,
+      reason: "ai-controls-busy",
+      source: "popup-view-state",
+      spinnerKey: "",
       timerText: ""
     };
   }
@@ -560,6 +575,9 @@ function getBlockingUiCurtainState(view) {
       mode: "busy",
       message: PopupText.overlay.applyingDeviceEmulation,
       note: PopupText.overlay.busyHint,
+      reason: "device-emulation-applying",
+      source: "popup-view-state",
+      spinnerKey: "",
       timerText: ""
     };
   }
@@ -568,8 +586,55 @@ function getBlockingUiCurtainState(view) {
     mode: "busy",
     message: "",
     note: "",
+    reason: "",
+    source: "",
+    spinnerKey: "",
     timerText: ""
   };
+}
+
+let lastPopupBlockerLogSignature = "";
+
+function isPopupBlockerDebugEnabled() {
+  if (FEATURE_FLAGS.ufDebugSpinnerQueue === true) {
+    return true;
+  }
+  try {
+    return Boolean(window && window.localStorage && window.localStorage.getItem("ufDebugSpinnerQueue") === "1");
+  } catch {
+    return false;
+  }
+}
+
+function logPopupBlockerReason(eventName, curtain) {
+  if (!curtain) {
+    return;
+  }
+  if (!curtain.visible) {
+    lastPopupBlockerLogSignature = "";
+    return;
+  }
+  const signature = [
+    curtain.message || "",
+    curtain.reason || "",
+    curtain.source || "",
+    curtain.spinnerKey || ""
+  ].join("|");
+  if (signature === lastPopupBlockerLogSignature || !isPopupBlockerDebugEnabled()) {
+    return;
+  }
+  lastPopupBlockerLogSignature = signature;
+  try {
+    console.debug("[popup-blocker]", eventName, {
+      message: curtain.message || "",
+      reason: curtain.reason || "",
+      source: curtain.source || "",
+      spinnerKey: curtain.spinnerKey || "",
+      timerText: curtain.timerText || ""
+    });
+  } catch {
+    // Debug logging must never break popup rendering.
+  }
 }
 
 // Direct DOM reconciliation for the blocking busy curtain. Preact owns the
@@ -585,6 +650,7 @@ function syncBlockingUiCurtainDom() {
   if (document.body) {
     document.body.classList.toggle("is-busy", curtain.visible);
   }
+  logPopupBlockerReason("sync", curtain);
   const curtainElement = document.getElementById("ui-curtain");
   if (!curtainElement) {
     return;
@@ -1605,6 +1671,7 @@ function renderPreviewSidebar(view, handlers) {
 
 function App({ state: view, actions: handlers }) {
   const curtain = getBlockingUiCurtainState(view);
+  logPopupBlockerReason("render", curtain);
   const previewVisible = view.previewBlocked || view.previewActive;
   const configurationView = view.currentView === View.Configuration;
   const remoteSupportFeatureEnabled = isPopupFeatureEnabled(view, "remoteSupport");
@@ -2815,10 +2882,13 @@ export function showToast(message) {
   }, 1800);
 }
 
-export function setUiBusy(isBusy, message = "") {
+export function setUiBusy(isBusy, message = "", details = {}) {
   const patch = {
     isBusy: Boolean(isBusy),
-    busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : ""
+    busyMessage: isBusy ? (message || PopupText.overlay.pleaseWait) : "",
+    busyReason: isBusy && details && typeof details.reason === "string" ? details.reason : "",
+    busySource: isBusy && details && typeof details.source === "string" ? details.source : "",
+    busySpinnerKey: isBusy && details && typeof details.spinnerKey === "string" ? details.spinnerKey : ""
   };
   try {
     setViewState(patch);

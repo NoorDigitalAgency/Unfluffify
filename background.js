@@ -1406,7 +1406,10 @@ function appendWorldTraceEvent(tabId, channel, event, payload = null) {
         phase: payload.phase || "",
         operationId: payload.operationId || "",
         busy: Object.prototype.hasOwnProperty.call(payload, "busy") ? Boolean(payload.busy) : undefined,
-        message: typeof payload.message === "string" ? payload.message : ""
+        message: typeof payload.message === "string" ? payload.message : "",
+        reason: typeof payload.reason === "string" ? payload.reason : "",
+        source: typeof payload.source === "string" ? payload.source : "",
+        key: typeof payload.key === "string" ? payload.key : ""
       }
       : null
   };
@@ -1629,7 +1632,10 @@ function serializeSpinnerQueue(tabId) {
     key,
     message: entry && typeof entry.message === "string" ? entry.message : "",
     persistent: Boolean(entry && entry.persistent),
-    owner: entry && typeof entry.owner === "string" ? entry.owner : ""
+    owner: entry && typeof entry.owner === "string" ? entry.owner : "",
+    reason: entry && typeof entry.reason === "string" ? entry.reason : "",
+    source: entry && typeof entry.source === "string" ? entry.source : "",
+    startedAt: entry && Number.isFinite(entry.startedAt) ? entry.startedAt : 0
   }));
 }
 
@@ -1745,11 +1751,17 @@ function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
   queue.set(String(key), {
     message: typeof entry.message === "string" ? entry.message : "",
     persistent: Boolean(entry.persistent),
-    owner: typeof entry.owner === "string" ? entry.owner : SPINNER_OWNERS.POPUP
+    owner: typeof entry.owner === "string" ? entry.owner : SPINNER_OWNERS.POPUP,
+    reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
+    source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker",
+    startedAt: Number.isFinite(entry.startedAt) ? Number(entry.startedAt) : Date.now()
   });
   appendWorldTraceEvent(normalizedTabId, "spinner", "set", {
     type: WORLD_MESSAGE_TYPES.SPINNER_SET,
-    message: typeof entry.message === "string" ? entry.message : ""
+    key: String(key),
+    message: typeof entry.message === "string" ? entry.message : "",
+    reason: typeof entry.reason === "string" && entry.reason ? entry.reason : `spinner:${String(key)}`,
+    source: typeof entry.source === "string" && entry.source ? entry.source : "background-spinner-broker"
   });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
@@ -1767,7 +1779,10 @@ function removeBackgroundSpinnerEntry(tabId, key) {
   }
   appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
     type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-    message: String(key)
+    key: String(key),
+    message: String(key),
+    reason: "spinner-removed",
+    source: "background-spinner-broker"
   });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
@@ -1797,7 +1812,9 @@ function clearBackgroundSpinnerQueue(tabId, options = {}) {
   }
   appendWorldTraceEvent(normalizedTabId, "spinner", "clear", {
     type: WORLD_MESSAGE_TYPES.SPINNER_CLEAR,
-    message: transientOnly ? "transient-only" : "all"
+    message: transientOnly ? "transient-only" : "all",
+    reason: transientOnly ? "clear-transient-spinners" : "clear-all-spinners",
+    source: "background-spinner-broker"
   });
   broadcastBrokerState(normalizedTabId);
   return buildBrokerState(normalizedTabId);
@@ -2351,7 +2368,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       {
         message: message.message,
         persistent: message.persistent,
-        owner: message.owner
+        owner: message.owner,
+        reason: message.reason,
+        source: message.source,
+        startedAt: message.startedAt
       }
     ));
     return;

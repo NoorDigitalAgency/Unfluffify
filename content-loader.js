@@ -59,16 +59,40 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
     return true;
   });
 
+  async function isDebugSpinnerQueueEnabled() {
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.localStorage &&
+        window.localStorage.getItem("ufDebugSpinnerQueue") === "1"
+      ) {
+        return true;
+      }
+    } catch {
+      // Fall through to the build-time feature flag.
+    }
+    try {
+      const featureFlags = await import(chrome.runtime.getURL("common/feature-flags.js"));
+      return Boolean(
+        featureFlags &&
+        typeof featureFlags.isFeatureEnabled === "function" &&
+        featureFlags.isFeatureEnabled("ufDebugSpinnerQueue")
+      );
+    } catch {
+      return false;
+    }
+  }
+
   // Debug hook: when debug mode is active, expose this tab's ID via a DOM
   // dataset attribute so Playwright can read it with:
   //   page.evaluate(() => document.documentElement.dataset.ufDebugTabId)
-  // Activate by setting localStorage.ufDebugSpinnerQueue = "1" on the page.
-  try {
-    if (
-      typeof window !== "undefined" &&
-      window.localStorage &&
-      window.localStorage.getItem("ufDebugSpinnerQueue") === "1"
-    ) {
+  // Activate through FEATURE_FLAGS.ufDebugSpinnerQueue or by setting the legacy
+  // localStorage.ufDebugSpinnerQueue = "1" override on the page.
+  isDebugSpinnerQueueEnabled().then((enabled) => {
+    try {
+      if (!enabled) {
+        return;
+      }
       chrome.runtime.sendMessage({ type: "getTabState" }, (response) => {
         if (
           response &&
@@ -79,8 +103,8 @@ if (!globalThis.__unfluffifyContentLoaderInitialized) {
           document.documentElement.dataset.ufDebugTabId = String(response.tabId);
         }
       });
+    } catch {
+      // Best-effort debug hook; never block normal extension operation.
     }
-  } catch {
-    // Best-effort debug hook; never block normal extension operation.
-  }
+  }).catch(() => {});
 }

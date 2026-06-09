@@ -25,17 +25,23 @@ const EXPECTED_FLAGS = [
   "appearanceCustomization",
   "cacheAndUnregisterTools",
   "propertyLockCollaboration",
-  "previewExpandedStates"
+  "previewExpandedStates",
+  "ufDebugSpinnerQueue"
 ];
+
+const EXPECTED_DISABLED_FLAGS = EXPECTED_FLAGS.filter((flagName) => flagName !== "ufDebugSpinnerQueue");
 
 test("feature flags expose the confirmed disabled stabilization set", () => {
   assert.equal(FEATURE_DISABLED_REASON, "feature_disabled");
   assert.deepEqual(Object.keys(FEATURE_FLAGS), EXPECTED_FLAGS);
 
-  for (const flagName of EXPECTED_FLAGS) {
+  for (const flagName of EXPECTED_DISABLED_FLAGS) {
     assert.equal(FEATURE_FLAGS[flagName], false, `${flagName} should default disabled`);
     assert.equal(isFeatureEnabled(flagName), false, `${flagName} should not be enabled`);
   }
+
+  assert.equal(FEATURE_FLAGS.ufDebugSpinnerQueue, true);
+  assert.equal(isFeatureEnabled("ufDebugSpinnerQueue"), true);
 });
 
 test("unknown feature flags are disabled", () => {

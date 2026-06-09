@@ -889,16 +889,71 @@ function createLifecycleOperationId(kind) {
   return `${kind || "operation"}:${Date.now()}:${lifecycleOperationCounter}`;
 }
 
+function isPageBlockerDebugEnabled() {
+  if (isFeatureEnabled("ufDebugSpinnerQueue")) {
+    return true;
+  }
+  try {
+    return Boolean(window && window.localStorage && window.localStorage.getItem("ufDebugSpinnerQueue") === "1");
+  } catch {
+    return false;
+  }
+}
+
+function normalizePageBlockingReason(event = {}) {
+  if (typeof event.reason === "string" && event.reason.trim()) {
+    return event.reason.trim();
+  }
+  if (typeof event.kind === "string" && event.kind.trim()) {
+    return `lifecycle:${event.kind.trim()}`;
+  }
+  if (typeof event.message === "string" && event.message.trim()) {
+    return `message:${event.message.trim()}`;
+  }
+  return "page-lifecycle-blocker";
+}
+
+function logPageBlockerReason(event = {}) {
+  if (!isPageBlockerDebugEnabled()) {
+    return;
+  }
+  const hasBusy = Object.prototype.hasOwnProperty.call(event || {}, "busy");
+  if (!hasBusy) {
+    return;
+  }
+  try {
+    console.debug("[page-blocker]", event.busy ? "start-or-update" : "clear", {
+      reason: normalizePageBlockingReason(event),
+      source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle",
+      kind: event && event.kind ? event.kind : "",
+      phase: event && event.phase ? event.phase : "",
+      operationId: event && event.operationId ? event.operationId : "",
+      message: event && event.message ? event.message : "",
+      pageUrl: location.href
+    });
+  } catch {
+    // Debug logging must never break page behavior.
+  }
+}
+
 function emitLifecycleEvent(event = {}) {
+  const normalizedEvent = {
+    ...event,
+    reason: normalizePageBlockingReason(event),
+    source: typeof event.source === "string" && event.source ? event.source : "content-lifecycle"
+  };
+  logPageBlockerReason(normalizedEvent);
   if (worldTraceEnabled) {
     try {
       console.debug("[world-trace][content] lifecycle:emit", {
-        kind: event && event.kind ? event.kind : "",
-        phase: event && event.phase ? event.phase : "",
-        operationId: event && event.operationId ? event.operationId : "",
-        busy: Object.prototype.hasOwnProperty.call(event || {}, "busy")
-          ? Boolean(event.busy)
-          : undefined
+        kind: normalizedEvent && normalizedEvent.kind ? normalizedEvent.kind : "",
+        phase: normalizedEvent && normalizedEvent.phase ? normalizedEvent.phase : "",
+        operationId: normalizedEvent && normalizedEvent.operationId ? normalizedEvent.operationId : "",
+        busy: Object.prototype.hasOwnProperty.call(normalizedEvent || {}, "busy")
+          ? Boolean(normalizedEvent.busy)
+          : undefined,
+        reason: normalizedEvent.reason || "",
+        source: normalizedEvent.source || ""
       });
     } catch {
       // Ignore trace logging failures.
@@ -910,7 +965,7 @@ function emitLifecycleEvent(event = {}) {
       contentMode: state.enabled ? CONTENT_MODES.MARKING : CONTENT_MODES.SILENT,
       markingEnabled: Boolean(state.enabled),
       pageUrl: location.href,
-      ...event
+      ...normalizedEvent
     }
   });
 }

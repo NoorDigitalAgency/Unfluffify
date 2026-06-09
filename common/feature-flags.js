@@ -9,7 +9,8 @@ export const FEATURE_FLAGS = Object.freeze({
   appearanceCustomization: false,
   cacheAndUnregisterTools: false,
   propertyLockCollaboration: false,
-  previewExpandedStates: false
+  previewExpandedStates: false,
+  ufDebugSpinnerQueue: true
 });
 
 export function isFeatureEnabled(flagName) {
