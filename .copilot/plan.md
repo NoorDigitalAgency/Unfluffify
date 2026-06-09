@@ -115,6 +115,167 @@ Use one staging page and verify logs in both popup and page consoles.
 3. Consider consolidating popup/page debug-gate checks into one shared helper to
    reduce drift risk.
 
+## Synced Session Plan (Acapedia Collaborative Regression)
+
+Sync source: `/memories/session/plan.md`
+Sync timestamp: 2026-06-09
+Sync intent: keep repository plan and session-memory plan aligned so work can
+resume in another environment without missing diagnostics context.
+
+### Completion Snapshot
+
+Status values:
+
+- DONE: implemented and validated.
+- READY: plan finalized, pending collaborative execution.
+- BLOCKED: requires user decision or environment prerequisites.
+
+Current state:
+
+1. Spinner diagnostic instrumentation and gating: DONE.
+2. Collaborative Acapedia issue-discovery execution: READY.
+3. Live write actions (AI run, Send to Lynx): BLOCKED until explicit user
+   approval in-session.
+
+Spinner track marked done with evidence:
+
+1. Popup blocker dedupe no longer includes timer text.
+2. Spinner diagnostics are feature-flag gated through
+   `FEATURE_FLAGS.ufDebugSpinnerQueue` with legacy storage override retained.
+3. Popup/page/background diagnostics now preserve or emit structured reason
+   metadata (`reason`, `source`, `spinnerKey` or `key`, `startedAt` where
+   applicable).
+4. Validation passed:
+   - Focused contracts:
+     `npm test -- tests/feature-flags.test.js tests/popup-marking-refresh.test.js tests/world-trace-contract.test.js`
+   - Full suite:
+     `npm test`
+   - Last known full-suite baseline: 648/648 pass.
+5. Implementation commit:
+   - `60a780b` (`feat(debug): gate spinner diagnostics and reduce blocker log spam`).
+
+### Collaborative Acapedia Plan (Synced)
+
+#### Phase 1 - Issue Discovery And Logging Baseline (READY)
+
+Goals:
+
+1. Capture all regressions and blockers before any new fixes.
+2. Capture explicit reason logs for every blocking spinner/curtain.
+
+Procedure:
+
+1. Confirm branch/build and run `npm test` once to set baseline.
+2. Open `https://acapedia.no/` and bind popup to page tab.
+3. Enable and capture logs from popup console, page console, and service worker
+   console.
+4. Build a live issue register with per-issue evidence:
+   - reproduction step
+   - expected vs observed
+   - relevant logs
+   - network signal (if applicable)
+   - screenshot/evidence id
+   - blocker severity
+5. For each blocking spinner/curtain, capture:
+   - surface (`popup`, `page`, `background-brokered`)
+   - key/spinner id (if available)
+   - visible message
+   - reason/source
+   - tab id
+   - start time and clear behavior
+6. Do not fix during this phase; stop after first complete issue list.
+
+Spinner evidence checklist for this phase:
+
+1. Popup blocker logs include `[popup-blocker]` with reason/source.
+2. Page blocker logs include `[page-blocker]` with normalized reason/source.
+3. Timer countdown updates do not produce duplicate blocker logs when signature
+   fields are unchanged.
+
+#### Phase 2 - Collaborative Environment Setup (READY)
+
+Prerequisites:
+
+1. User enters credentials/JWT manually; no secrets persisted in plan, memory,
+   or logs.
+2. User confirms whether live backend writes are allowed.
+
+Procedure:
+
+1. Configure endpoints in popup UI as needed:
+   - Configuration Endpoint: `https://unfluffify.lynxdev.se`
+   - AI Endpoint: `https://unfluffify.dnscdn.se:8443`
+   - Stage Base: `a.lynxdev.se`
+2. Confirm login state before moving forward.
+3. If auth fails, record as issue and pause for user direction.
+
+#### Phase 3 - Core Popup And Configuration Smoke (READY)
+
+Checks:
+
+1. Popup opens and configuration/login views are reachable.
+2. Optional disabled extras remain absent/inert.
+3. Any blocking curtain has reason/source evidence.
+
+#### Phase 4 - Page Detection, Mobile Emulation, Manual Render Mode (READY)
+
+Checks:
+
+1. Default mobile simulation remains active.
+2. Manual render-mode controls are present and functional.
+3. Inspecting/navigation spinner transitions show reasoned logs.
+4. Auto-detection endpoint path remains inactive while disabled.
+
+#### Phase 5 - Marking Workflow On Acapedia (READY)
+
+Checks:
+
+1. Marking mode enables and reveal/freeze path behaves.
+2. Overlays and marking state changes work.
+3. Property-lock disabled collaboration surfaces do not block core marking.
+4. Spinner reason logs captured for inspection/reveal/lazy-settle paths.
+
+#### Phase 6 - Preview Lists And Todo List (READY)
+
+Checks:
+
+1. Marking preview list path works.
+2. Silent preview list path works when data exists.
+3. Todo List state matches candidate/page-type status.
+4. `previewExpandedStates` disabled feature remains non-activatable.
+
+#### Phase 7 - AI Run And Send To Lynx (BLOCKED pending user approval)
+
+Checks when approved:
+
+1. AI run lifecycle logs and blocker reasons are captured.
+2. AI outputs flow into preview paths correctly.
+3. Send to Lynx request/response and blocker evidence captured.
+
+If not approved:
+
+1. Record these paths as intentionally not executed.
+2. Validate only readiness/gating state.
+
+#### Phase 8 - Triage And Fix Planning (READY after issue capture)
+
+Rules:
+
+1. Group issues by layer (popup/content/background/network/feature flags).
+2. Prioritize blockers first.
+3. Propose one focused fix plan per issue.
+4. User selects fix target before implementation.
+
+### Cross-Environment Handoff Guardrails
+
+Before resuming on another machine:
+
+1. Pull latest `main` and verify commit ancestry includes `60a780b`.
+2. Run focused debug contracts and full suite.
+3. Preserve this synced phase ordering; do not jump to fixes before Phase 1
+   evidence capture.
+4. Keep secrets out of repo files, memory notes, screenshots, and transcripts.
+
 ## Confirmed Core Features
 
 These features must remain unflagged and usable throughout this work:
