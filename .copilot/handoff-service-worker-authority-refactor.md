@@ -50,6 +50,35 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 If any baseline test fails before edits, stop and document it here or in a new
 handoff update. Do not begin the refactor on top of unexplained failures.
 
+## Phase 0 Baseline Execution (2026-06-09)
+
+Executed on branch `refactor/service-worker-authority` from `main` head
+`3457176` after `git fetch origin` and `git pull --ff-only`.
+
+Commands executed:
+
+```bash
+npm ci
+node --test
+node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+```
+
+Baseline result:
+
+1. Full suite: 649 passed, 1 failed.
+2. Focused suite: 218 passed, 1 failed.
+3. Same failing pre-existing test in both runs:
+   - `tests/core-motion-pause.test.js`
+   - test name: `page inspection reveal keeps page-world lazy-load suppression active until marking is disabled`
+   - assertion mismatch: expected `{ suppressed: true }`, got `{ suppressed: false }`
+
+Interpretation:
+
+1. Failure is pre-existing before Phase 1 edits.
+2. Refactor can proceed only with this known baseline failure tracked.
+3. Each later phase must confirm this failure is unchanged unless that phase
+   intentionally fixes this behavior.
+
 ## Protected 11 Checklist
 
 Every phase must preserve these always-on behaviors. Lazy-loading stopping is
