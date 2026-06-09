@@ -1,6 +1,6 @@
 import * as core from "./content/core.js";
 import * as config from "./common/config.js";
-import { isFeatureEnabled } from "./common/feature-flags.js";
+import { FEATURE_DISABLED_REASON, isFeatureEnabled } from "./common/feature-flags.js";
 import * as utils from "./common/utilities.js";
 import {
   DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
@@ -2318,6 +2318,11 @@ function setAiPreviewItemSets(defaultItems, expandedItems, options = {}) {
 }
 
 function setAiPreviewExpandedMode(active) {
+  if (!isFeatureEnabled("previewExpandedStates")) {
+    aiPreviewState.showAllCategories = false;
+    setAiPreviewItems(aiPreviewState.defaultItems, { preserveFocusedXpath: true });
+    return false;
+  }
   if (!aiPreviewState.active || aiPreviewState.mode !== "preview") {
     return false;
   }
@@ -8225,7 +8230,7 @@ export function main() {
         previousEnabled: Boolean(aiPreviewState.previousEnabled),
         restoreMarkingOnExit: Boolean(aiPreviewState.restoreMarkingOnExit),
         previousBaseUrl: aiPreviewState.previousBaseUrl || "",
-        showAllCategories: aiPreviewState.showAllCategories,
+        showAllCategories: isFeatureEnabled("previewExpandedStates") && aiPreviewState.showAllCategories,
         items: aiPreviewState.items.map((item) => ({
           xpath: item.xpath,
           text: item.text,
@@ -8238,6 +8243,25 @@ export function main() {
     }
 
     if (message.type === "setAiPreviewExpandedMode") {
+      if (!isFeatureEnabled("previewExpandedStates")) {
+        setAiPreviewExpandedMode(false);
+        sendResponse({
+          ok: false,
+          reason: FEATURE_DISABLED_REASON,
+          feature: "previewExpandedStates",
+          active: aiPreviewState.active,
+          mode: aiPreviewState.mode || "",
+          showAllCategories: false,
+          items: aiPreviewState.items.map((item) => ({
+            xpath: item.xpath,
+            text: item.text,
+            title: item.title,
+            kind: item.kind
+          })),
+          focusedXpath: aiPreviewState.focusedXpath
+        });
+        return;
+      }
       const updated = setAiPreviewExpandedMode(Boolean(message.active));
       sendResponse({
         ok: updated,

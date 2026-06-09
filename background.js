@@ -1422,6 +1422,9 @@ function appendWorldTraceEvent(tabId, channel, event, payload = null) {
 }
 
 function setWorldTraceEnabled(tabId, enabled) {
+  if (!isFeatureEnabled("traceDiagnostics")) {
+    return buildFeatureDisabledResponse("traceDiagnostics");
+  }
   const normalizedTabId = normalizeBrokerTabId(tabId);
   if (!normalizedTabId) {
     return buildBrokerState(normalizedTabId);
@@ -2361,6 +2364,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === WORLD_MESSAGE_TYPES.TRACE_SET) {
+    if (!isFeatureEnabled("traceDiagnostics")) {
+      sendResponse(buildFeatureDisabledResponse("traceDiagnostics"));
+      return;
+    }
     const tabId = getMessageTabId(message, sender);
     appendWorldTraceEvent(tabId, "trace", "set-requested", {
       type: WORLD_MESSAGE_TYPES.TRACE_SET,

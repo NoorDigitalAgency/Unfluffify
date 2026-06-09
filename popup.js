@@ -826,7 +826,7 @@ function syncUiBusyFromBrokerState() {
 }
 
 function isWorldTraceEnabled() {
-  return Boolean(state.traceModeEnabled);
+  return isFeatureEnabled("traceDiagnostics") && Boolean(state.traceModeEnabled);
 }
 
 function logWorldTrace(eventName, details = {}) {
@@ -849,8 +849,9 @@ function applyBackgroundStateSnapshot(snapshot) {
     return;
   }
   popupBackgroundLifecycle = snapshot.lifecycle || null;
-  state.traceModeEnabled = Boolean(snapshot.traceEnabled);
-  state.traceEvents = Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
+  const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
+  state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(snapshot.traceEnabled);
+  state.traceEvents = traceDiagnosticsEnabled && Array.isArray(snapshot.traceEvents) ? [...snapshot.traceEvents] : [];
   popupSpinnerQueue.clear();
   popupSpinnerKeyTabIds.clear();
   (Array.isArray(snapshot.spinnerQueue) ? snapshot.spinnerQueue : []).forEach((entry) => {
@@ -1436,6 +1437,17 @@ function applyPopupTheme(themeValue, modeValue) {
     normalizedMode === THEME_MODE_SYSTEM ? "light dark" : normalizedMode;
 }
 
+function resetDisabledAppearanceCustomization() {
+  state.currentTheme = THEME_DEFAULT;
+  state.currentThemeMode = THEME_MODE_DEFAULT;
+  applyPopupTheme(state.currentTheme, state.currentThemeMode);
+  uiModule.setViewState({
+    themeValue: state.currentTheme,
+    themeModeValue: state.currentThemeMode,
+    themeMenuOpen: false
+  });
+}
+
 async function loadThemeSettings() {
   const stored = await utils.storageGet(chrome.storage.sync, [
     GLOBAL_THEME_KEY,
@@ -1455,6 +1467,10 @@ async function persistThemeSettings(themeValue, themeModeValue) {
 }
 
 async function ensureThemeSettings() {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   const { themeValue, themeModeValue } = await loadThemeSettings();
   state.currentTheme = themeValue;
   state.currentThemeMode = themeModeValue;
@@ -1463,17 +1479,29 @@ async function ensureThemeSettings() {
 }
 
 async function loadTraceModeSetting() {
+  if (!isFeatureEnabled("traceDiagnostics")) {
+    return false;
+  }
   const stored = await utils.storageGet(chrome.storage.sync, [GLOBAL_TRACE_MODE_KEY]);
   return Boolean(stored && stored[GLOBAL_TRACE_MODE_KEY]);
 }
 
 async function persistTraceModeSetting(enabled) {
+  if (!isFeatureEnabled("traceDiagnostics")) {
+    return;
+  }
   await utils.storageSet(chrome.storage.sync, {
     [GLOBAL_TRACE_MODE_KEY]: Boolean(enabled)
   });
 }
 
 async function applyTraceModePreferenceToTab(tabId, enabled) {
+  if (!isFeatureEnabled("traceDiagnostics")) {
+    state.traceModeEnabled = false;
+    state.traceEvents = [];
+    uiModule.setViewState({ traceModeEnabled: false, traceEvents: [], traceEventCount: 0 });
+    return null;
+  }
   if (!tabId) {
     return null;
   }
@@ -5863,6 +5891,10 @@ function handleStageBaseInput(event) {
 }
 
 async function handleThemeInput(event) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   const nextThemeValue = normalizeThemeValue(
     event && event.target ? event.target.value : state.currentTheme
   );
@@ -5870,6 +5902,10 @@ async function handleThemeInput(event) {
 }
 
 async function applyThemeValue(nextThemeValue) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   state.currentTheme = nextThemeValue;
   applyPopupTheme(state.currentTheme, state.currentThemeMode);
   uiModule.setViewState({
@@ -5894,6 +5930,10 @@ function getThemeMenuPlacement() {
 }
 
 function handleThemeMenuToggle(event) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   event.stopPropagation();
   const view = uiModule.getViewState();
   uiModule.setThemeMenuOpen(!view.themeMenuOpen, getThemeMenuPlacement());
@@ -5911,6 +5951,7 @@ function handleThemeMenuKeyDown(event) {
   if (
     indexDelta === null ||
     !options.length ||
+    !isFeatureEnabled("appearanceCustomization") ||
     uiModule.getViewState().themeControlsDisabled
   ) {
     return;
@@ -5930,10 +5971,18 @@ function handleThemeMenuKeyDown(event) {
 }
 
 async function handleThemeOptionSelect(value) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   await applyThemeValue(normalizeThemeValue(value));
 }
 
 async function cycleTheme(direction) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   const options = Array.isArray(THEME_OPTIONS) ? THEME_OPTIONS : [];
   if (!options.length) {
     return;
@@ -5962,6 +6011,10 @@ async function handleThemeNext() {
 }
 
 async function handleThemeModeInput(event) {
+  if (!isFeatureEnabled("appearanceCustomization")) {
+    resetDisabledAppearanceCustomization();
+    return;
+  }
   const nextThemeModeValue = normalizeThemeModeValue(
     event && (event.currentTarget || event.target)
       ? (event.currentTarget || event.target).value
@@ -9240,25 +9293,39 @@ async function init() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "sync") {
       if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY] || changes[GLOBAL_TRACE_MODE_KEY]) {
-        if (changes[GLOBAL_THEME_KEY]) {
+        const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");
+        if (!appearanceCustomizationEnabled && (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY])) {
+          resetDisabledAppearanceCustomization();
+        }
+        if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_KEY]) {
           state.currentTheme = normalizeThemeValue(
             changes[GLOBAL_THEME_KEY].newValue
           );
         }
-        if (changes[GLOBAL_THEME_MODE_KEY]) {
+        if (appearanceCustomizationEnabled && changes[GLOBAL_THEME_MODE_KEY]) {
           state.currentThemeMode = normalizeThemeModeValue(
             changes[GLOBAL_THEME_MODE_KEY].newValue
           );
         }
         if (changes[GLOBAL_TRACE_MODE_KEY]) {
-          state.traceModeEnabled = Boolean(changes[GLOBAL_TRACE_MODE_KEY].newValue);
-          uiModule.setViewState({ traceModeEnabled: state.traceModeEnabled });
+          const traceDiagnosticsEnabled = isFeatureEnabled("traceDiagnostics");
+          state.traceModeEnabled = traceDiagnosticsEnabled && Boolean(changes[GLOBAL_TRACE_MODE_KEY].newValue);
+          if (!traceDiagnosticsEnabled) {
+            state.traceEvents = [];
+          }
+          uiModule.setViewState({
+            traceModeEnabled: state.traceModeEnabled,
+            traceEvents: traceDiagnosticsEnabled ? uiModule.getViewState().traceEvents : [],
+            traceEventCount: traceDiagnosticsEnabled ? uiModule.getViewState().traceEventCount : 0
+          });
           const tabId = state.currentTab && state.currentTab.id;
-          if (tabId) {
+          if (traceDiagnosticsEnabled && tabId) {
             applyTraceModePreferenceToTab(tabId, state.traceModeEnabled).catch(() => null);
           }
         }
-        applyPopupTheme(state.currentTheme, state.currentThemeMode);
+        if (appearanceCustomizationEnabled) {
+          applyPopupTheme(state.currentTheme, state.currentThemeMode);
+        }
         scheduleRefresh();
       }
       return;

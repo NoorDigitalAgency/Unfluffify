@@ -87,6 +87,25 @@ test("low-risk optional popup extras are gated by disabled flags", () => {
   assert.match(popupUiSource, /if \(!sections\.length\) \{\s*return null;\s*\}/);
 });
 
+test("disabled optional state cannot leak through hidden controls", () => {
+  assert.match(popupSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && Boolean\(state\.traceModeEnabled\);\s*\}/);
+  assert.match(popupSource, /async function loadTraceModeSetting\(\) \{\s*if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{\s*return false;\s*\}/);
+  assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{\s*if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
+  assert.match(
+    backgroundSource,
+    /if \(message\.type === WORLD_MESSAGE_TYPES\.TRACE_SET\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?buildFeatureDisabledResponse\("traceDiagnostics"\)/
+  );
+
+  assert.match(popupSource, /function resetDisabledAppearanceCustomization\(\) \{[\s\S]*?state\.currentTheme = THEME_DEFAULT;[\s\S]*?state\.currentThemeMode = THEME_MODE_DEFAULT;[\s\S]*?applyPopupTheme\(state\.currentTheme, state\.currentThemeMode\);/);
+  assert.match(popupSource, /async function ensureThemeSettings\(\) \{\s*if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{[\s\S]*?resetDisabledAppearanceCustomization\(\);[\s\S]*?return;/);
+  assert.match(popupSource, /async function applyThemeValue\(nextThemeValue\) \{\s*if \(!isFeatureEnabled\("appearanceCustomization"\)\) \{/);
+  assert.match(popupSource, /const appearanceCustomizationEnabled = isFeatureEnabled\("appearanceCustomization"\);[\s\S]*?if \(!appearanceCustomizationEnabled && \(changes\[GLOBAL_THEME_KEY\] \|\| changes\[GLOBAL_THEME_MODE_KEY\]\)\) \{/);
+
+  assert.match(contentMainSource, /import \{ FEATURE_DISABLED_REASON, isFeatureEnabled \} from "\.\/common\/feature-flags\.js";/);
+  assert.match(contentMainSource, /function setAiPreviewExpandedMode\(active\) \{\s*if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;/);
+  assert.match(contentMainSource, /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?reason: FEATURE_DISABLED_REASON,[\s\S]*?feature: "previewExpandedStates"/);
+});
+
 test("desktop preview and manual device switching are gated at runtime", () => {
   assert.match(
     popupSource,

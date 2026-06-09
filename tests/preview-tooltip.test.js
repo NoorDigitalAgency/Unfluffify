@@ -47,11 +47,11 @@ test("content-main tracks separate default and expanded preview item sets", () =
   );
   assert.match(
     source,
-    /function setAiPreviewExpandedMode\(active\) \{[\s\S]*?aiPreviewState\.showAllCategories = Boolean\(active\);[\s\S]*?aiPreviewState\.showAllCategories[\s\S]*?aiPreviewState\.expandedItems[\s\S]*?aiPreviewState\.defaultItems/
+    /function setAiPreviewExpandedMode\(active\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?aiPreviewState\.showAllCategories = false;[\s\S]*?return false;[\s\S]*?aiPreviewState\.showAllCategories = Boolean\(active\);[\s\S]*?aiPreviewState\.showAllCategories[\s\S]*?aiPreviewState\.expandedItems[\s\S]*?aiPreviewState\.defaultItems/
   );
   assert.match(
     source,
-    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?showAllCategories: aiPreviewState\.showAllCategories,[\s\S]*?title: item\.title,[\s\S]*?kind: item\.kind/
+    /if \(message\.type === "setAiPreviewExpandedMode"\) \{[\s\S]*?if \(!isFeatureEnabled\("previewExpandedStates"\)\) \{[\s\S]*?reason: FEATURE_DISABLED_REASON,[\s\S]*?feature: "previewExpandedStates",[\s\S]*?showAllCategories: false,[\s\S]*?return;[\s\S]*?showAllCategories: aiPreviewState\.showAllCategories,[\s\S]*?title: item\.title,[\s\S]*?kind: item\.kind/
   );
 });
 
