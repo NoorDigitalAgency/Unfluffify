@@ -145,10 +145,12 @@ const pageMotionFreezeControlQueueByTarget = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
+  TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING",
   POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
+  BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING,
   BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
 ]);
 const UPDATE_SCRAPING_CONDITIONS_MUTATION = `
@@ -343,6 +345,20 @@ async function ensureContentMainForTab(tabId) {
   return { ok: false, tabId: normalizedTabId, error: "Content activation failed" };
 }
 
+function createBackgroundCommandError(code, message, details = {}) {
+  const error = new Error(message || "Background command failed");
+  error.code = typeof code === "string" && code ? code : MESSAGE_ERROR_CODES.HANDLER_FAILED;
+  error.details = details && typeof details === "object" ? details : {};
+  return error;
+}
+
+function normalizeActivationBaseUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return utils.normalizeCanonicalBaseUrl(value) || utils.normalizeBaseUrl(value) || value.trim();
+}
+
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
   const result = await ensureContentMainForTab(context.tabId);
   updateTabRuntime(context.tabId, {
@@ -359,6 +375,184 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE, async (c
     state: buildBrokerState(context.tabId),
     runtime: getTabRuntimeSnapshot(context.tabId)
   };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for activation command"
+    );
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(normalizedTabId);
+  } catch {
+    tab = null;
+  }
+  if (!tab || !tab.id) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Target tab is unavailable",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const pageType = typeof payload?.pageType === "string" ? payload.pageType : "";
+  const tabUrl = typeof tab.url === "string" ? tab.url : "";
+
+  if (!baseUrl) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Missing base URL for activation",
+      { tabId: normalizedTabId }
+    );
+  }
+  if (!utils.isPageWithinBaseUrl(tabUrl, baseUrl)) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Active tab URL is outside selected base URL",
+      {
+        tabId: normalizedTabId,
+        baseUrl,
+        tabUrl
+      }
+    );
+  }
+  if (Boolean(payload && payload.desktopPreviewEnabled)) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.FEATURE_DISABLED,
+      "Disable desktop preview before enabling marking",
+      { tabId: normalizedTabId, desktopPreviewEnabled: true }
+    );
+  }
+
+  const operationId = typeof payload?.operationId === "string" && payload.operationId
+    ? payload.operationId
+    : `activation:${normalizedTabId}:${Date.now()}`;
+
+  return withBackgroundTabSpinner(
+    normalizedTabId,
+    {
+      key: `activate-marking:${normalizedTabId}`,
+      message: "Inspecting page...",
+      owner: SPINNER_OWNERS.POPUP,
+      reason: "tab-activate-marking",
+      source: "background-command-router",
+      persistent: false
+    },
+    async ({ update }) => {
+      await update({
+        message: "Applying device emulation...",
+        reason: "tab-activate-marking-device",
+        source: "background-command-router"
+      });
+
+      const mobileState = await ensureDefaultMobileEmulationForTab(normalizedTabId, tabUrl);
+      if (!mobileState) {
+        throw createBackgroundCommandError(
+          MESSAGE_ERROR_CODES.HANDLER_FAILED,
+          "Unable to prepare mobile simulation",
+          { tabId: normalizedTabId }
+        );
+      }
+
+      await update({
+        message: "Inspecting page...",
+        reason: "tab-activate-marking-content",
+        source: "background-command-router"
+      });
+
+      const bootstrap = await ensureContentMainForTab(normalizedTabId);
+      if (!bootstrap || !bootstrap.ok) {
+        throw createBackgroundCommandError(
+          MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+          (bootstrap && bootstrap.error) || "Content activation failed",
+          { tabId: normalizedTabId }
+        );
+      }
+
+      await utils.setTabState(normalizedTabId, {
+        enabled: true,
+        baseUrl,
+        pageType
+      });
+      updateTabRuntime(normalizedTabId, {
+        contentReady: true,
+        mode: "marking"
+      });
+
+      updateLifecycleState(normalizedTabId, {
+        operationId,
+        kind: LIFECYCLE_KINDS.ACTIVATION,
+        phase: LIFECYCLE_PHASES.STARTED,
+        busy: true,
+        message: "Inspecting page..."
+      });
+
+      const enableResponse = await sendContentMessageToTab(normalizedTabId, {
+        type: "setEnabled",
+        enabled: true,
+        baseUrl,
+        pageType,
+        performInitialReveal: true,
+        operationId
+      });
+
+      if (!enableResponse || !enableResponse.ok) {
+        await utils.setTabState(normalizedTabId, {
+          enabled: false,
+          baseUrl,
+          pageType: ""
+        });
+        updateTabRuntime(normalizedTabId, {
+          mode: "silent"
+        });
+        updateLifecycleState(normalizedTabId, {
+          operationId,
+          kind: LIFECYCLE_KINDS.ACTIVATION,
+          phase: LIFECYCLE_PHASES.FAILED,
+          busy: false,
+          message: ""
+        });
+        if (enableResponse && enableResponse.locked) {
+          return context.replyFail(
+            MESSAGE_ERROR_CODES.FEATURE_DISABLED,
+            "Editing is currently locked",
+            {
+              locked: true,
+              tabId: normalizedTabId
+            }
+          );
+        }
+        throw createBackgroundCommandError(
+          MESSAGE_ERROR_CODES.HANDLER_FAILED,
+          (enableResponse && enableResponse.error) || "Unable to activate marking",
+          { tabId: normalizedTabId }
+        );
+      }
+
+      updateLifecycleState(normalizedTabId, {
+        operationId,
+        kind: LIFECYCLE_KINDS.ACTIVATION,
+        phase: LIFECYCLE_PHASES.FINISHED,
+        busy: false,
+        message: ""
+      });
+
+      return {
+        ok: true,
+        tabId: normalizedTabId,
+        baseUrl,
+        pageType,
+        runtime: getTabRuntimeSnapshot(normalizedTabId),
+        state: await utils.getTabState(normalizedTabId)
+      };
+    }
+  );
 });
 
 function maybeGetCommandPayloadForLedger(message) {

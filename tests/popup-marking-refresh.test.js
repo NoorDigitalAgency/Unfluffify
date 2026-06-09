@@ -771,13 +771,13 @@ test("observer remote config polling stays passive-only and runs once a minute",
   );
 });
 
-test("marking enable does not send a redundant force refresh after setEnabled", () => {
+test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
   )[1];
 
-  assert.match(enableBody, /type: "setEnabled"[\s\S]*enabled: true/);
+  assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
   assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
 });
 
@@ -793,9 +793,9 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
   assert.match(
     enableBody,
-    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/
+    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?baseUrl: effectiveBaseUrl/
   );
-  assert.match(enableBody, /performInitialReveal: true/);
+  assert.match(enableBody, /desktopPreviewEnabled: Boolean\(uiModule\.getViewState\(\)\.desktopPreviewEnabled\)/);
   assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
 });
 

@@ -7602,48 +7602,19 @@ async function handleEnableToggle(event) {
           await refreshUi();
           return;
         }
-        const injectResult = await helpers.injectContentScriptIfNeeded();
-        if (!injectResult.ok) {
-          uiModule.showToast(injectResult.error || PopupText.helper.activateFailedOnPage);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
-        setSpinnerMessage(spinnerKey, PopupText.overlay.applyingDeviceEmulation);
-        const mobileSimulationReady = await ensureEditorMobileSimulation();
-        if (!mobileSimulationReady) {
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        await messages.setTabState(tab.id, {
-          enabled: true,
-          baseUrl: effectiveBaseUrl,
-          pageType: currentPageTypeKey
-        });
         setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
-        const enableResponse = await messages.sendTabMessageWithRetry({
-          type: "setEnabled",
-          enabled: true,
+        const enableResponse = await messages.requestTabActivateMarking(tab.id, {
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey,
-          performInitialReveal: true
+          desktopPreviewEnabled: Boolean(uiModule.getViewState().desktopPreviewEnabled)
         });
         if (!enableResponse || !enableResponse.ok) {
-          await messages.setTabState(tab.id, {
-            enabled: false,
-            baseUrl: effectiveBaseUrl,
-            pageType: ""
-          });
           uiModule.setViewState({ toggleEnabled: false });
           clearLastPopupEnabled();
-          if (enableResponse && enableResponse.locked) {
+          if (enableResponse.locked) {
             uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
           } else {
-            uiModule.showToast(PopupText.helper.activateFailedOnPage);
+            uiModule.showToast(enableResponse.error || PopupText.helper.activateFailedOnPage);
           }
           await refreshUi();
           return;

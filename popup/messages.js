@@ -6,6 +6,7 @@ import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
 const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
+const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -86,6 +87,36 @@ export function requestPopupTabViewState(tabId, options = {}) {
   }).then((result) => (
     result && typeof result === "object" ? result : null
   )).catch(() => null);
+}
+
+export function requestTabActivateMarking(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_ACTIVATE_MARKING_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 15000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to activate marking",
+      locked: Boolean(reply && reply.details && reply.details.locked),
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
 }
 
 export function sendTabMessage(message) {

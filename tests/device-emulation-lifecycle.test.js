@@ -104,7 +104,7 @@ test("extension activation enables default mobile emulation for fresh tab sessio
   assert.match(helperBlock, /ensureDefaultMobileDeviceEmulation\(tabId\)/);
 });
 
-test("marking enable forces mobile simulation before content activation and locks the popup device toggle", () => {
+test("marking enable delegates mobile simulation prep to TAB_ACTIVATE_MARKING and keeps popup device toggle locked", () => {
   const enableBlock = extractSourceBlock(
     popupSource,
     "async function handleEnableToggle(event) {",
@@ -116,11 +116,13 @@ test("marking enable forces mobile simulation before content activation and lock
     "function renderConfigurationView"
   );
 
-  assert.match(popupSource, /async function ensureEditorMobileSimulation\(\) \{/);
-  assert.match(enableBlock, /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.applyingDeviceEmulation\);/);
-  assert.match(enableBlock, /const mobileSimulationReady = await ensureEditorMobileSimulation\(\);/);
-  assert.match(enableBlock, /if \(!mobileSimulationReady\) \{/);
-  assert.match(enableBlock, /await messages\.setTabState\(tab\.id, \{\s*enabled: true,/);
+  assert.match(enableBlock, /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);/);
+  assert.match(enableBlock, /messages\.requestTabActivateMarking\(tab\.id, \{/);
+  assert.match(enableBlock, /desktopPreviewEnabled: Boolean\(uiModule\.getViewState\(\)\.desktopPreviewEnabled\)/);
+  assert.doesNotMatch(enableBlock, /ensureEditorMobileSimulation\(/);
+  assert.doesNotMatch(enableBlock, /messages\.setTabState\(tab\.id, \{\s*enabled: true,/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_ACTIVATE_MARKING/);
+  assert.match(backgroundSource, /ensureDefaultMobileEmulationForTab\(normalizedTabId, tabUrl\)/);
   assert.match(popupSource, /nextViewState\.deviceControlsDisabled = Boolean\(state\.deviceControlsDisabled \|\| isEnabled\);/);
 });
 
