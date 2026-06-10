@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 7 ready to checkpoint)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 8 ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -221,37 +221,70 @@ Completed and pushed checkpoints:
       - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js tests/ai-run.test.js` passed (98/98).
       - Full suite passed (692/692).
 
+13. Phase 7 checkpoint commit `6b2b9ac`
+   - Message: `refactor(popup): remove direct content orchestration`
+   - Updated:
+      - `background.js` adds tab-scoped bridge command `TAB_CONTENT_REQUEST`
+         so popup requests are routed through background command authority.
+      - `popup/messages.js` no longer uses direct
+         `chrome.tabs.sendMessage`; `sendTabMessage*` helpers now use runtime
+         envelope requests through `TAB_CONTENT_REQUEST`.
+      - `README.md` message-passing note now states:
+         `Popup ↔ Service Worker ↔ Content Script ↔ Page World`.
+      - Added architecture guard test `tests/popup-authority-boundary.test.js`
+         to block direct popup tab messaging regression.
+   - Verification at checkpoint:
+      - `node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js tests/device-emulation-lifecycle.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js` passed (111/111).
+      - Full suite passed (694/694).
+
 Current in-progress phase (ready for checkpoint commit/push at this handoff update):
 
-1. Phase 7 (remove direct popup-to-content authority)
+1. Phase 8 (test suite upgrade)
     - Updated:
-       - `background.js` adds tab-scoped bridge command `TAB_CONTENT_REQUEST`
-          so popup requests are routed through background command authority.
-       - `popup/messages.js` no longer uses direct `chrome.tabs.sendMessage`;
-          `sendTabMessage*` helpers now use runtime envelope requests through
-          `TAB_CONTENT_REQUEST`.
-       - `README.md` message-passing note now states:
-          `Popup ↔ Service Worker ↔ Content Script ↔ Page World`.
-       - Added architecture guard test `tests/popup-authority-boundary.test.js`
-          to block direct popup tab messaging regression.
+       - Added behavioral coverage `tests/tab-runtime.test.js` for tab runtime
+          isolation and command-ledger tab scoping without source-shape regex.
+       - Added/updated inventory section for source-shape guard classification
+          (keep/replace/delete-after-replacement).
        - Tests updated:
-          - `tests/popup-authority-boundary.test.js`
+          - `tests/tab-runtime.test.js`
     - Verification in working tree before checkpoint commit:
-       - `node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js tests/device-emulation-lifecycle.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js` passed (111/111).
-       - Full suite passed (694/694).
+       - `node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js` passed (13/13).
+       - Full suite passed (698/698).
+
+### Phase 8 Test Inventory (Initial)
+
+Keep (structural boundary guards):
+
+1. `tests/page-motion-freeze-bridge.test.js` (byte-identity + bridge contract).
+2. `tests/manifest-permissions.test.js` (manifest and web-accessible-resource
+   boundaries).
+3. `tests/popup-authority-boundary.test.js` (forbidden direct popup tab
+   messaging boundary).
+
+Replace (syntax-shape heavy, behavior replacement target):
+
+1. `tests/background-marking-activation.test.js`.
+2. `tests/popup-marking-refresh.test.js` sections that only assert source
+   string presence.
+3. `tests/preview-tooltip.test.js` popup source-shape assertions.
+
+Delete after replacement proves equivalent guard:
+
+1. Source-shape sections in files listed under Replace once behavioral tests
+   exist and fail on the pre-refactor broken behavior.
 
 ## Resume From Here
 
-Next strict phase to implement after the Phase 7 checkpoint push:
+Next strict phase to implement after the Phase 8 checkpoint push:
 
-1. Phase 8: test suite upgrade.
+1. Phase 9: tab isolation hardening.
 
 Recommended first commands to resume immediately after pull:
 
 ```bash
 git status --short
 git log --oneline -n 3
-node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js
+node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js
 ```
 
 ## Read This First
@@ -287,7 +320,7 @@ As of this handoff:
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 8.
+7. Next work is Phase 9.
 
 ## First Commands For A Future Implementer
 
