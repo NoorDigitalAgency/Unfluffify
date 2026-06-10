@@ -38,9 +38,11 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 11. Phase 6E complete and pushed (`e43e609`).
 12. Phase 6F complete and pushed (`06cc6bd`).
 13. Phase 7 complete and pushed (`6b2b9ac`).
-14. Phase 8 implemented and verified in working tree; checkpoint commit/push
+14. Phase 8 complete and pushed (`ee4c0c0`).
+15. Phase 9 implemented and verified in working tree; checkpoint commit/push
    is pending in this session.
-15. Next strict phase after Phase 8 push: Phase 9 (tab isolation hardening).
+16. Next strict phase after Phase 9 push: Phase 10 (cleanup and
+   documentation).
 
 ## Debug Continuation Plan (Cross-Environment)
 

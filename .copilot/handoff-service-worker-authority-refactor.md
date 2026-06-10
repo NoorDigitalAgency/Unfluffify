@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 8 ready to checkpoint)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 9 ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -239,17 +239,35 @@ Completed and pushed checkpoints:
 
 Current in-progress phase (ready for checkpoint commit/push at this handoff update):
 
-1. Phase 8 (test suite upgrade)
+14. Phase 8 checkpoint commit `ee4c0c0`
+   - Message: `test(background): add tab runtime behavioral coverage`
+   - Updated:
+      - Added behavioral coverage `tests/tab-runtime.test.js` for tab runtime
+         isolation and command-ledger tab scoping without source-shape regex.
+      - Added/updated inventory section for source-shape guard classification
+         (keep/replace/delete-after-replacement).
+   - Verification at checkpoint:
+      - `node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js` passed (13/13).
+      - Full suite passed (698/698).
+
+Current in-progress phase (ready for checkpoint commit/push at this handoff update):
+
+1. Phase 9 (tab isolation hardening)
     - Updated:
-       - Added behavioral coverage `tests/tab-runtime.test.js` for tab runtime
-          isolation and command-ledger tab scoping without source-shape regex.
-       - Added/updated inventory section for source-shape guard classification
-          (keep/replace/delete-after-replacement).
+       - Added `tests/tab-isolation-hardening.test.js` with explicit guards
+          for tab isolation:
+          - same-URL tab runtime mode separation
+          - spinner queue isolation per tab
+          - lifecycle update isolation per tab
+          - page-world nonce/command resolution scoped by tabId
+          - shared siteId without tab-UI state merge
+          - debugTabId popup snapshot scoping
+          - tab removal cleanup isolation
        - Tests updated:
-          - `tests/tab-runtime.test.js`
+          - `tests/tab-isolation-hardening.test.js`
     - Verification in working tree before checkpoint commit:
-       - `node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js` passed (13/13).
-       - Full suite passed (698/698).
+       - `node --test tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (21/21).
+       - Full suite passed (705/705).
 
 ### Phase 8 Test Inventory (Initial)
 
@@ -275,16 +293,16 @@ Delete after replacement proves equivalent guard:
 
 ## Resume From Here
 
-Next strict phase to implement after the Phase 8 checkpoint push:
+Next strict phase to implement after the Phase 9 checkpoint push:
 
-1. Phase 9: tab isolation hardening.
+1. Phase 10: cleanup and documentation.
 
 Recommended first commands to resume immediately after pull:
 
 ```bash
 git status --short
 git log --oneline -n 3
-node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js
+node --test tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js
 ```
 
 ## Read This First
@@ -320,7 +338,7 @@ As of this handoff:
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 9.
+7. Next work is Phase 10.
 
 ## First Commands For A Future Implementer
 
