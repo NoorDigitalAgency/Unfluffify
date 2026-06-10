@@ -1,21 +1,31 @@
-# Unfluffify Feature-Flag Stabilization Plan
+# Unfluffify Active Architecture Plan
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ## Objective
 
-Stabilize the extension by putting every non-core or conflict-prone feature
-behind exactly one feature flag and leaving those flags disabled for now. The
-active product surface must stay small, predictable, and centered on the current
-core workflow.
+Continue the post-service-worker architecture cleanup by first hardening the two
+review findings from the completed authority refactor, then centralizing Chrome
+storage access behind managed domain stores.
 
-This is the active plan. Previous main-plan and hotfix-plan work is backlogged in
-`.copilot/backlog.md`.
+Previous feature-flag stabilization, main-plan, and hotfix-plan work remains
+available as historical context or backlog. Do not resume older tracks unless
+the user explicitly asks for them.
 
 ## Successor Architecture Refactor
 
-The next planned architecture track is the service-worker authority refactor.
+The service-worker authority refactor is complete through Phase 10 and merged to
+`main`. The next active architecture track is the storage-access layer refactor,
+which starts with the two post-review hardening findings and then centralizes
+Chrome storage access by domain.
+
 Use these documents before making implementation changes:
+
+1. `.copilot/storage-access-layer-plan.md`
+2. `.copilot/handoff-storage-access-layer.md`
+
+Do not resume the old service-worker authority implementation track unless the
+user explicitly asks for it. Historical documents remain available for context:
 
 1. `.copilot/service-worker-authority-refactor-plan.md`
 2. `.copilot/handoff-service-worker-authority-refactor.md`
@@ -23,7 +33,7 @@ Use these documents before making implementation changes:
 This refactor explicitly protects the 11 always-on core features, including
 reveal/freeze and lazy-loading stopping/restoration.
 
-Current implementation checkpoint status (branch `refactor/service-worker-authority`):
+Historical implementation checkpoint status (branch `refactor/service-worker-authority`):
 
 1. Phase 0 complete and pushed (`bb90fc3`).
 2. Phase 1 complete and pushed (`76693d0`).
@@ -43,6 +53,16 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 16. Phase 10 complete and pushed (`8cef302`) with cleanup/documentation,
    focused validation (98/98), and full suite validation (705/705).
 17. Refactor track is complete unless new scope is explicitly added.
+
+Post-review successor status (2026-06-10):
+
+1. Review of `d286355` found no blocking functional issues.
+2. `npm test` passed with 707/707 tests.
+3. Two mandatory first fixes are planned:
+   - background command source/tab-id policy enforcement
+   - command ledger payload redaction
+4. Storage migration sequence is planned in detail in
+   `.copilot/storage-access-layer-plan.md`.
 
 ## Debug Continuation Plan (Cross-Environment)
 

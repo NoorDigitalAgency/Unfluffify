@@ -49,6 +49,10 @@
 - Popup tab-runtime snapshots must flow through the background command
   `POPUP_GET_TAB_VIEW_STATE`; do not reintroduce popup fallback reads through
   `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`.
+- The next architecture track is `.copilot/storage-access-layer-plan.md`:
+  first harden command source/tab-id policy and command-ledger redaction, then
+  centralize Chrome storage through domain stores instead of raw scattered
+  `chrome.storage` or `utils.storage*` calls.
 
 ## AI Submission Rules
 

@@ -1,9 +1,26 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 10 complete)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 10 complete;
+successor storage-access track planned)
 Branch at document creation: main
 Implementation status: COMPLETE
 Document commit scope: planning + active implementation handoff updates
+
+## Successor Track
+
+The service-worker authority refactor is complete. The next active architecture
+track is the storage-access layer refactor:
+
+1. `.copilot/storage-access-layer-plan.md`
+2. `.copilot/handoff-storage-access-layer.md`
+
+That successor track starts with the two post-review hardening findings:
+
+1. Enforce background command source and tab-id policy per command.
+2. Redact command ledger payloads before storing debug payload summaries.
+
+Do not continue editing this service-worker authority handoff as the active
+implementation checklist unless the user explicitly reopens this track.
 
 ## Implementation Checkpoints (2026-06-09)
 
