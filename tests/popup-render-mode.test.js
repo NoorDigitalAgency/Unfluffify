@@ -256,6 +256,6 @@ test("popup init performs its first refresh without the generic busy curtain", (
 
   assert.match(
     initBlock,
-    /state\.tokenValidationTimer = window\.setInterval\([\s\S]*?TOKEN_VALIDATION_INTERVAL_MS\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);/
+    /state\.tokenValidationTimer = popupTimers\.setInterval\("token-validation",[\s\S]*?TOKEN_VALIDATION_INTERVAL_MS\);[\s\S]*?await refreshUi\(\{ useBusyOverlay: false \}\);/
   );
 });

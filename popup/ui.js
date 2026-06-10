@@ -21,12 +21,14 @@ import {
   getRenderModeOptionLabel
 } from "./render-mode.js";
 import { FEATURE_FLAGS, isDebugFlagEnabled } from "../common/feature-flags.js";
+import { createPopupTimerGroup } from "./timers.js";
 
 export { ViewText } from "../common/text.js";
 
 const { state } = stateModule;
 
 const refs = {};
+let uiTimers = null;
 const initialLynxChecklistState = createInitialLynxChecklistState();
 let lastPreviewScrolledXpath = "";
 let lastRemoteSupportSectionScrollKey = "";
@@ -2876,6 +2878,15 @@ export function getRefs() {
 
 export function showToast(message) {
   setViewState({ toastMessage: message, toastVisible: true });
+  if (!uiTimers && typeof window !== "undefined") {
+    uiTimers = createPopupTimerGroup({ windowRef: window });
+  }
+  if (uiTimers) {
+    state.toastTimer = uiTimers.setTimeout("toast", () => {
+      setViewState({ toastVisible: false });
+    }, 1800);
+    return;
+  }
   clearTimeout(state.toastTimer);
   state.toastTimer = setTimeout(() => {
     setViewState({ toastVisible: false });

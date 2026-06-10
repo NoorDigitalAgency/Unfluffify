@@ -153,6 +153,9 @@ import {
   syncRemoteSupportViewState as syncRemoteSupportViewStateOperation
 } from "./popup/remote-support-ui.js";
 import {
+  createPopupTimerGroup
+} from "./popup/timers.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -438,6 +441,7 @@ let remoteSupportLocalCameraMediaStream = null;
 let remoteSupportRemoteCameraCanvas = null;
 let remoteSupportRemoteCameraCtx = null;
 let remoteSupportRemoteCameraMediaStream = null;
+const popupTimers = createPopupTimerGroup({ windowRef: window });
 
 function isEditableTarget(el) {
   if (!el) return false;
@@ -1199,10 +1203,8 @@ function resetPropertyPageTypesState() {
 }
 
 function clearPropertyPageTypesRefreshTimer() {
-  if (state.propertyPageTypesRefreshTimer) {
-    window.clearInterval(state.propertyPageTypesRefreshTimer);
-    state.propertyPageTypesRefreshTimer = 0;
-  }
+  popupTimers.clear("property-page-types-refresh");
+  state.propertyPageTypesRefreshTimer = 0;
   state.propertyPageTypesRefreshKey = "";
 }
 
@@ -1228,7 +1230,7 @@ function schedulePropertyPageTypesRefresh(options = {}) {
   }
   clearPropertyPageTypesRefreshTimer();
   state.propertyPageTypesRefreshKey = refreshKey;
-  state.propertyPageTypesRefreshTimer = window.setInterval(() => {
+  state.propertyPageTypesRefreshTimer = popupTimers.setInterval("property-page-types-refresh", () => {
     helpers.loadGlobalAiSettings().then(({ tokenValue: nextTokenValue, stageBaseValue }) => {
       return ensurePropertyPageTypes({
         siteId: normalizedSiteId,
@@ -7715,9 +7717,9 @@ async function init() {
   });
 
   if (state.tokenValidationTimer) {
-    window.clearInterval(state.tokenValidationTimer);
+    popupTimers.clear("token-validation");
   }
-  state.tokenValidationTimer = window.setInterval(async () => {
+  state.tokenValidationTimer = popupTimers.setInterval("token-validation", async () => {
     const isValid = await validateStoredToken({ force: true, showToastOnInvalid: true });
     if (!isValid) {
       await refreshUi();
@@ -7725,6 +7727,9 @@ async function init() {
   }, TOKEN_VALIDATION_INTERVAL_MS);
 
   await refreshUi({ useBusyOverlay: false });
+}
+
+init();
 }
 
 init();

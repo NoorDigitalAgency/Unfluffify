@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B7 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -74,7 +74,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 6. Phase B5 - popup/page-reconciliation.js: DONE.
 7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): DONE.
 8. Phase B7 - popup/remote-support-ui.js: DONE.
-9. Phase B8 - popup/timers.js (hardening): IN_PROGRESS.
+9. Phase B8 - popup/timers.js (hardening): DONE.
 
 ### Track C — Content (peripheral only) — starts after Track B is merged
 
@@ -298,11 +298,18 @@ Phase B7 - remote support UI extraction:
    Focused: node --test tests/popup-remote-support-ui.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 65 pass / 0 fail
    Full:    npm test -> 832 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  4356ea8 refactor(popup): extract remote support UI
+
+Phase B8 - grouped popup timers hardening:
+   Files:   popup/timers.js; popup.js; popup/ui.js; tests/popup-timers.test.js; tests/popup-render-mode.test.js
+   Focused: node --test tests/popup-timers.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/popup-decomposition-boundary.test.js -> 66 pass / 0 fail
+   Full:    npm test -> 835 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B7 with:
-`refactor(popup): extract remote support UI`, then proceed to Track B Phase B8
-(`popup/timers.js`). Do not start Track C until Track B is complete and merged.
+Commit and push Track B Phase B8 with:
+`refactor(popup): group popup timers`, then proceed to Track C Phase C0
+(content baseline + boundary guard + manifest allowlist assert).
