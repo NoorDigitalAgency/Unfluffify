@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-7 complete, Phase 8 in progress)
-Document commit scope: Phase 8 non-popup caller slice handoff refresh
+Implementation status: IN_PROGRESS (Phases 0-8 complete, Phase 9 next)
+Document commit scope: Phase 8 closure and test-hardening handoff refresh
 
 ## Read This First
 
@@ -49,8 +49,8 @@ As of this handoff:
    `background.js` and popup runtime payload cleanup in `popup.js`.
 16. Phase 8 non-popup caller slice is implemented for content-side property-page
    type fetch runtime payload ownership.
-17. Next strict implementation step is to complete any remaining credential-bearing
-   runtime message payload cleanup and then close Phase 8.
+17. Phase 8 credential payload cleanup is complete and validated.
+18. Next strict implementation step is to start Phase 9 (Tab Session Store).
 
 ## Review Findings To Fix First
 
@@ -158,7 +158,7 @@ Current phase status:
 6. Phase 5 - Transfer payload store: DONE.
 7. Phase 6 - Settings store read path: DONE.
 8. Phase 7 - Settings store write path: DONE.
-9. Phase 8 - Background-owned credentials for network commands: IN_PROGRESS.
+9. Phase 8 - Background-owned credentials for network commands: DONE.
 10. Phase 9 - Tab session store: TODO.
 11. Phase 10 - Device emulation storage boundary: TODO.
 12. Phase 11 - Config store write queue: TODO.
@@ -178,6 +178,16 @@ Result:
 2. 0 failed.
 
 Focused validation executed for Phase 8 non-popup caller slice:
+
+1. `node --test tests/selector-suppression.test.js tests/popup-marking-refresh.test.js tests/ai-run.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 80 passed.
+2. 0 failed.
+
+Focused validation executed for Phase 8 closure hardening:
 
 1. `node --test tests/selector-suppression.test.js tests/popup-marking-refresh.test.js tests/ai-run.test.js`
 2. `npm test`

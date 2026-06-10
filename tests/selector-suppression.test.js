@@ -57,14 +57,24 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 test("background owns the live-page GraphQL transport handlers", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundResolveStart = backgroundSource.indexOf("async function resolveLivePageSiteId(options = {}) {");
+  const backgroundResolveEnd = backgroundSource.indexOf("function normalizeBaseUrlFromDomainName", backgroundResolveStart);
+  const backgroundDispatchResolveStart = backgroundSource.indexOf("if (message.type === \"resolveLivePageSiteId\") {");
+  const backgroundDispatchResolveEnd = backgroundSource.indexOf("if (message.type === \"fetchLivePagePropertyPageTypes\") {", backgroundDispatchResolveStart);
   const popupResolveStart = popupSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
   const popupResolveEnd = popupSource.indexOf("function mergeSelectorSetForBaseUrlMigration", popupResolveStart);
   const popupFetchStart = popupSource.indexOf("async function fetchPropertyPageTypesFromGraphql(options = {}) {");
   const popupFetchEnd = popupSource.indexOf("async function ensurePropertyPageTypes", popupFetchStart);
+  assert.ok(backgroundResolveStart > -1);
+  assert.ok(backgroundResolveEnd > backgroundResolveStart);
+  assert.ok(backgroundDispatchResolveStart > -1);
+  assert.ok(backgroundDispatchResolveEnd > backgroundDispatchResolveStart);
   assert.ok(popupResolveStart > -1);
   assert.ok(popupResolveEnd > popupResolveStart);
   assert.ok(popupFetchStart > -1);
   assert.ok(popupFetchEnd > popupFetchStart);
+  const backgroundResolveBlock = backgroundSource.slice(backgroundResolveStart, backgroundResolveEnd);
+  const backgroundDispatchResolveBlock = backgroundSource.slice(backgroundDispatchResolveStart, backgroundDispatchResolveEnd);
   const popupResolveBlock = popupSource.slice(popupResolveStart, popupResolveEnd);
   const popupFetchBlock = popupSource.slice(popupFetchStart, popupFetchEnd);
 
@@ -77,6 +87,10 @@ test("background owns the live-page GraphQL transport handlers", () => {
   assert.match(backgroundSource, /signature: buildPropertyPageTypesSignature\(normalized\.pageTypes\)/);
   assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
+  assert.match(backgroundResolveBlock, /resolveBackgroundNetworkCredentials\(\{[\s\S]*?stageBase: options\.stageBase,[\s\S]*?tokenValue: options\.tokenValue/);
+  assert.match(backgroundResolveBlock, /const tokenValue = credentials\.tokenValue;/);
+  assert.match(backgroundResolveBlock, /\.{3}\(tokenValue \? \{ Authorization: `Bearer \$\{tokenValue\}` \} : \{\}\)/);
+  assert.doesNotMatch(backgroundDispatchResolveBlock, /tokenValue: message\.tokenValue/);
   assert.match(popupResolveBlock, /type: "resolveLivePageSiteId"/);
   assert.doesNotMatch(popupResolveBlock, /tokenValue/);
   assert.doesNotMatch(popupResolveBlock, /fetch\(|URL_SEARCH_INFO_QUERY|maybeUpdateStoredTokenFromResponse/);
