@@ -12,14 +12,14 @@ test("popup scheduleRefresh uses the quiet refresh path", () => {
 });
 
 test("quiet popup refresh skips redundant property lock fetches", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
   const refreshSource = source.match(
-    /async function refreshPropertyLockSnapshot\(siteId, options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function sendPropertyLockCommand/
+    /export async function refreshPropertyLockSnapshot\(deps, siteId, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function sendPropertyLockCommand/
   )[1];
 
   assert.match(refreshSource, /const \{ skipFetch = false \} = options;/);
   assert.match(refreshSource, /if \(skipFetch && state\.propertyLockState\) \{\s*return state\.propertyLockState;\s*\}/);
-  assert.match(refreshSource, /const lockResponse = await fetchPropertyLockState\(normalizedSiteId\);/);
+  assert.match(refreshSource, /const lockResponse = await deps\.fetchPropertyLockState\(normalizedSiteId\);/);
 });
 
 test("explicit include and exclude removals use the quiet refresh path", () => {
@@ -116,22 +116,24 @@ test("same-property non-candidate pages keep silent mode and property-lock scope
 
 test("popup mirrors the off-candidate editor countdown from initial tab state", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 
-  assert.match(popupSource, /function syncPropertyLockOffCandidateRefreshTimer\(active\) \{/);
-  assert.match(popupSource, /state\.propertyLockOffCandidateRefreshTimer = window\.setInterval\(\(\) => \{/);
+  assert.match(propertyLockUiSource, /export function syncPropertyLockOffCandidateRefreshTimer\(deps, active\) \{/);
+  assert.match(propertyLockUiSource, /state\.propertyLockOffCandidateRefreshTimer = deps\.windowRef\.setInterval\(\(\) => \{/);
   assert.match(popupSource, /state\.propertyLockOffCandidateDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockOffCandidateDeadlineAt\)/);
   assert.match(
     popupSource,
     /syncPropertyLockOffCandidateRefreshTimer\(\s*Boolean\([\s\S]*state\.propertyLockOffCandidateDeadlineAt[\s\S]*state\.propertyLockRecoveryDeadlineAt[\s\S]*\)\s*\);/
   );
-  assert.match(popupSource, /if \(offCandidateSecondsRemaining > 0\) \{/);
-  assert.match(popupSource, /propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
+  assert.match(propertyLockUiSource, /if \(offCandidateSecondsRemaining > 0\) \{/);
+  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupOffCandidateWarning\(offCandidateSecondsRemaining\)/);
   assert.match(backgroundSource, /nextState\.propertyLockOffCandidateDeadlineAt = Number\.isFinite\(message\.state\.propertyLockOffCandidateDeadlineAt\)/);
 });
 
 test("popup mirrors the cross-property editor cooldown from initial tab state and recovery scope", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 
   assert.match(popupSource, /const persistedRecoveryState = \{\s*siteId: state\.propertyLockRecoverySiteId,\s*baseUrl: state\.propertyLockRecoveryBaseUrl,\s*clientId: state\.propertyLockRecoveryClientId,\s*deadlineAt: state\.propertyLockRecoveryDeadlineAt\s*\};/);
@@ -144,10 +146,10 @@ test("popup mirrors the cross-property editor cooldown from initial tab state an
   assert.match(popupSource, /state\.propertyLockRecoveryClientId =\s*initialTabState && typeof initialTabState\.propertyLockRecoveryClientId === "string"/);
   assert.match(popupSource, /state\.propertyLockRecoveryDeadlineAt =\s*initialTabState && Number\.isFinite\(initialTabState\.propertyLockRecoveryDeadlineAt\)/);
   assert.match(popupSource, /const propertyLockScopeSiteId = isPropertyLockCollaborationEnabled\(\)\s*\?[\s\S]*?state\.propertyLockRecoveryDeadlineAt > Date\.now\(\) && state\.propertyLockRecoverySiteId[\s\S]*?state\.propertyLockRecoverySiteId\s*:\s*liveSiteId[\s\S]*?: null;/);
-  assert.match(popupSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
+  assert.match(propertyLockUiSource, /state\.propertyLockRecoverySiteId === normalizedSiteId\s*\?\s*state\.propertyLockRecoveryClientId/);
   assert.match(popupSource, /if \(hasPersistedRecoverySession && isOutsideRecoveryBaseUrl\) \{\s*const nextRecoveryDeadlineAt = recoveryDeadlineAt > Date\.now\(\)\s*\?\s*recoveryDeadlineAt\s*:\s*Date\.now\(\) \+ PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS;/);
-  assert.match(popupSource, /if \(crossPropertySecondsRemaining > 0\) \{/);
-  assert.match(popupSource, /propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
+  assert.match(propertyLockUiSource, /if \(crossPropertySecondsRemaining > 0\) \{/);
+  assert.match(propertyLockUiSource, /deps\.propertyLockText\.popupCrossPropertyWarning\(crossPropertySecondsRemaining\)/);
   assert.match(backgroundSource, /nextState\.propertyLockRecoverySiteId = Number\.isFinite\(message\.state\.propertyLockRecoverySiteId\)/);
   assert.match(backgroundSource, /nextState\.propertyLockRecoveryClientId = typeof message\.state\.propertyLockRecoveryClientId === "string"/);
   assert.match(backgroundSource, /nextState\.propertyLockRecoveryDeadlineAt = Number\.isFinite\(message\.state\.propertyLockRecoveryDeadlineAt\)/);

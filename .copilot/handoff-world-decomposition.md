@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B5 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B6 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -72,8 +72,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 4. Phase B3 - popup/remote-config.js: DONE.
 5. Phase B4 - popup/render-mode-inspection.js: DONE.
 6. Phase B5 - popup/page-reconciliation.js: DONE.
-7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): IN_PROGRESS.
-8. Phase B7 - popup/remote-support-ui.js: TODO.
+7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): DONE.
+8. Phase B7 - popup/remote-support-ui.js: IN_PROGRESS.
 9. Phase B8 - popup/timers.js (hardening): TODO.
 
 ### Track C — Content (peripheral only) — starts after Track B is merged
@@ -284,12 +284,19 @@ Phase B5 - page save reconciliation extraction:
    Focused: node --test tests/popup-page-reconciliation.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js -> 67 pass / 0 fail
    Full:    npm test -> 823 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  324a958 refactor(popup): extract page save reconciliation
+
+Phase B6 - property lock UI extraction:
+   Files:   popup/property-lock-ui.js; popup.js; tests/popup-property-lock-ui.test.js; tests/popup-decomposition-boundary.test.js; tests/property-lock.test.js; tests/property-lock-render-mode.test.js; tests/popup-marking-refresh.test.js
+   Focused: node --test tests/popup-property-lock-ui.test.js tests/popup-decomposition-boundary.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 98 pass / 0 fail
+   Full:    npm test -> 828 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B5 with:
-`refactor(popup): extract page save reconciliation`, then proceed to Track B
-Phase B6 (`popup/property-lock-ui.js`). Do not start Track C until Track B is
-complete and merged.
+Commit and push Track B Phase B6 with:
+`refactor(popup): extract property lock UI`, then proceed to Track B Phase B7
+(`popup/remote-support-ui.js`). Do not start Track C until Track B is complete
+and merged.

@@ -419,13 +419,14 @@ test("background remote merges reconcile page markings by timestamp without wipi
 });
 
 test("popup only skips periodic remote loads for the active editor tab and includes the routed client hint", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const fetchStart = source.indexOf("async function fetchPropertyLockState");
-  const fetchEnd = source.indexOf("async function sendPropertyLockCommand", fetchStart);
+  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
+  const fetchStart = source.indexOf("export async function fetchPropertyLockState");
+  const fetchEnd = source.indexOf("export async function refreshPropertyLockSnapshot", fetchStart);
   const fetchSource = source.slice(fetchStart, fetchEnd);
-  const skipStart = source.indexOf("function shouldSkipRemoteConfigLoadForPropertyEditor");
-  const skipEnd = source.indexOf("function updateLoginActionState", skipStart);
-  const skipSource = source.slice(skipStart, skipEnd);
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const skipStart = popupSource.indexOf("function shouldSkipRemoteConfigLoadForPropertyEditor");
+  const skipEnd = popupSource.indexOf("function updateLoginActionState", skipStart);
+  const skipSource = popupSource.slice(skipStart, skipEnd);
 
   assert.match(fetchSource, /clientId: clientIdHint \|\| ""/);
   assert.match(skipSource, /state\.propertyLockState &&[\s\S]*state\.propertyLockState\.isEditor/);
@@ -433,21 +434,21 @@ test("popup only skips periodic remote loads for the active editor tab and inclu
 });
 
 test("popup property lock commands refresh draft status and reconcile lock state", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const commandStart = source.indexOf("async function sendPropertyLockCommand");
-  const commandEnd = source.indexOf("async function reconcilePropertyLockAfterCommand", commandStart);
+  const source = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
+  const commandStart = source.indexOf("export async function sendPropertyLockCommand");
+  const commandEnd = source.indexOf("export async function reconcilePropertyLockAfterCommand", commandStart);
   const commandSource = source.slice(commandStart, commandEnd);
-  const reconcileStart = source.indexOf("async function reconcilePropertyLockAfterCommand");
-  const reconcileEnd = source.indexOf("const TOKEN_VALIDATION_INTERVAL_MS", reconcileStart);
-  const reconcileSource = source.slice(reconcileStart, reconcileEnd);
+  const reconcileStart = source.indexOf("export async function reconcilePropertyLockAfterCommand");
+  const reconcileSource = source.slice(reconcileStart);
+  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
-  assert.match(commandSource, /await refreshCurrentPageRuntimeStatus\(\)\.catch\(\(\) => null\);/);
-  assert.match(reconcileSource, /await refreshPropertyLockSnapshot\(siteId\)\.catch\(\(\) => null\);/);
-  assert.match(reconcileSource, /uiModule\.setViewState\(buildPropertyLockViewState\(\)\);/);
-  assert.match(reconcileSource, /await refreshUi\(\{ useBusyOverlay \}\);/);
-  assert.match(source, /async function handlePropertyLockTake\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(source, /async function handlePropertyLockContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(source, /async function handlePropertyLockForceContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(source, /async function handlePropertyLockAcceptSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
-  assert.match(source, /async function handlePropertyLockRejectSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(commandSource, /await deps\.refreshCurrentPageRuntimeStatus\(\)\.catch\(\(\) => null\);/);
+  assert.match(reconcileSource, /await deps\.refreshPropertyLockSnapshot\(siteId\)\.catch\(\(\) => null\);/);
+  assert.match(reconcileSource, /deps\.setViewState\(deps\.buildPropertyLockViewState\(\)\);/);
+  assert.match(reconcileSource, /await deps\.refreshUi\(\{ useBusyOverlay \}\);/);
+  assert.match(popupSource, /async function handlePropertyLockTake\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(popupSource, /async function handlePropertyLockContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(popupSource, /async function handlePropertyLockForceContinue\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(popupSource, /async function handlePropertyLockAcceptSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
+  assert.match(popupSource, /async function handlePropertyLockRejectSuggestion\(\) \{[\s\S]*?await reconcilePropertyLockAfterCommand\(\);[\s\S]*?\}/);
 });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const propertyLockUiSource = readFileSync(new URL("../popup/property-lock-ui.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const textSource = readFileSync(new URL("../common/text.js", import.meta.url), "utf8");
 
@@ -33,9 +34,9 @@ test("render-mode reload reclaims the property lock before polling snapshots", (
 
 test("popup suppresses the disconnect countdown while render-mode inspection is active", () => {
   const viewBlock = extractSourceBlock(
-    popupSource,
-    "function buildPropertyLockViewState",
-    "async function fetchPropertyLockState"
+    propertyLockUiSource,
+    "export function buildPropertyLockViewState",
+    "export async function fetchPropertyLockState"
   );
   const reloadBlock = extractSourceBlock(
     popupSource,
