@@ -115,6 +115,14 @@ import {
   syncBaseConfigToServer as syncBaseConfigToServerOperation
 } from "./popup/remote-config.js";
 import {
+  completeRenderModeInspectionReloadFollowUp as completeRenderModeInspectionReloadFollowUpOperation,
+  detectRenderModeViaEndpoint as detectRenderModeViaEndpointOperation,
+  maybeAutoDetectRenderMode as maybeAutoDetectRenderModeOperation,
+  normalizeRenderModeDetectionResult as normalizeRenderModeDetectionResultOperation,
+  waitForTabLoadComplete as waitForTabLoadCompleteOperation,
+  waitForTabLoadStart as waitForTabLoadStartOperation
+} from "./popup/render-mode-inspection.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -983,6 +991,55 @@ const loadRemoteConfigForCurrentPage = (options = {}) =>
   loadRemoteConfigForCurrentPageOperation(getRemoteConfigDeps(), options);
 const syncBaseConfigToServer = (options = {}) =>
   syncBaseConfigToServerOperation(getRemoteConfigDeps(), options);
+
+function getRenderModeInspectionDeps() {
+  return {
+    state,
+    config,
+    PopupText,
+    RENDER_MODE_DETECTION_MAX_ATTEMPTS,
+    RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY,
+    RENDER_MODE_INSPECTION_START_TIMEOUT_MS,
+    RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+    RENDER_MODE_UNDETERMINED,
+    windowRef: window,
+    chromeRef: chrome,
+    messages,
+    shouldAutoDetectRenderMode,
+    getCurrentRenderModeInspectionSnapshot,
+    getSuggestedRenderModeForPage,
+    markRenderModeUndetermined,
+    loadGlobalAiSettings: () => helpers.loadGlobalAiSettings(),
+    runWithSpinner,
+    normalizeUiRenderModeValue,
+    buildTransferPayloadKey,
+    putTransferPayload,
+    waitForRetryDelay,
+    getRetryDelayMs,
+    isRetryableHttpStatus,
+    ensureContentReadyForRenderModeInspection,
+    rememberRenderModeInspectionSnapshot,
+    hideConsentForRenderModeInspection,
+    reconcilePropertyLockAfterRenderModeReload,
+    scheduleStaleInspectionBusyClear
+  };
+}
+
+const normalizeRenderModeDetectionResult = (payload) =>
+  normalizeRenderModeDetectionResultOperation(getRenderModeInspectionDeps(), payload);
+const maybeAutoDetectRenderMode = (pageUrl) =>
+  maybeAutoDetectRenderModeOperation(getRenderModeInspectionDeps(), pageUrl);
+const detectRenderModeViaEndpoint = (options = {}) =>
+  detectRenderModeViaEndpointOperation(getRenderModeInspectionDeps(), options);
+const waitForTabLoadStart = (tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) =>
+  waitForTabLoadStartOperation(getRenderModeInspectionDeps(), tabId, timeoutMs);
+const waitForTabLoadComplete = (
+  tabId,
+  timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
+  options = {}
+) => waitForTabLoadCompleteOperation(getRenderModeInspectionDeps(), tabId, timeoutMs, options);
+const completeRenderModeInspectionReloadFollowUp = (tabId, operationId = "") =>
+  completeRenderModeInspectionReloadFollowUpOperation(getRenderModeInspectionDeps(), tabId, operationId);
 
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
@@ -1944,83 +2001,6 @@ function rememberRenderModeInspectionSnapshot(baseUrl, pageUrl, snapshot) {
   return true;
 }
 
-async function maybeAutoDetectRenderMode(pageUrl) {
-  if (
-    !pageUrl ||
-    !state.currentBaseUrl ||
-    !state.currentConfig ||
-    !shouldAutoDetectRenderMode(state.currentConfig)
-  ) {
-    const fallbackRenderMode = config.getConfigRenderMode(state.currentConfig);
-    state.renderModeSuggestedKey = "";
-    state.renderModeSuggestedValue = fallbackRenderMode;
-    state.renderModeDetectionUnsure = false;
-    state.renderModeDetectionAccuracy = Number.NaN;
-    return fallbackRenderMode;
-  }
-
-  const detectionKey = `${state.currentBaseUrl}|${pageUrl}`;
-  const inspectionSnapshot = getCurrentRenderModeInspectionSnapshot(detectionKey);
-  if (!inspectionSnapshot) {
-    state.renderModeSuggestedKey = detectionKey;
-    state.renderModeSuggestedValue = RENDER_MODE_UNDETERMINED;
-    state.renderModeDetectionUnsure = false;
-    state.renderModeDetectionAccuracy = Number.NaN;
-    state.renderModeUndeterminedNoticeKey = "";
-    return RENDER_MODE_UNDETERMINED;
-  }
-  if (state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
-    return getSuggestedRenderModeForPage(pageUrl);
-  }
-  if (!state.renderModeDetectionInFlight && state.renderModeDetectionKey === detectionKey) {
-    return getSuggestedRenderModeForPage(pageUrl);
-  }
-
-  state.renderModeDetectionInFlight = true;
-  state.renderModeDetectionKey = detectionKey;
-  state.renderModeSuggestedKey = detectionKey;
-  state.renderModeDetectionUnsure = false;
-  state.renderModeDetectionAccuracy = Number.NaN;
-  state.renderModeUndeterminedNoticeKey = "";
-  try {
-    const { tokenValue, endpointValue } = await helpers.loadGlobalAiSettings();
-    if (!inspectionSnapshot.renderedHtml || typeof inspectionSnapshot.rawHtml !== "string") {
-      markRenderModeUndetermined(detectionKey);
-      return RENDER_MODE_UNDETERMINED;
-    }
-
-    const detectionResult = await runWithSpinner(
-      null,
-      PopupText.overlay.detectingRenderMode,
-      () => detectRenderModeViaEndpoint({
-        endpointValue,
-        tokenValue,
-        rawHtml: inspectionSnapshot.rawHtml,
-        renderedHtml: inspectionSnapshot.renderedHtml
-      }),
-      { delayMs: 0 }
-    );
-    if (!detectionResult.ok) {
-      markRenderModeUndetermined(detectionKey);
-      return RENDER_MODE_UNDETERMINED;
-    }
-    if (detectionResult.result === "unsure") {
-      markRenderModeUndetermined(detectionKey);
-      return RENDER_MODE_UNDETERMINED;
-    }
-    state.renderModeDetectionUnsure = false;
-    state.renderModeDetectionAccuracy = detectionResult.accuracy;
-    state.renderModeUndeterminedNoticeKey = "";
-    state.renderModeSuggestedValue = config.normalizeRenderMode(detectionResult.result);
-    return state.renderModeSuggestedValue;
-  } catch {
-    markRenderModeUndetermined(detectionKey);
-    return RENDER_MODE_UNDETERMINED;
-  } finally {
-    state.renderModeDetectionInFlight = false;
-  }
-}
-
 function createConfigSyncHeaders(token) {
   const headers = { "Content-Type": "application/json" };
   if (token) {
@@ -2684,6 +2664,7 @@ function scheduleNavigationInspectionSettlePoll(tabId, baseUrl) {
     return;
   }
   clearNavigationInspectionSettlePoll(tabId);
+
   let attempt = 0;
   const maxAttempts = 30;
   const run = async () => {
@@ -2843,84 +2824,6 @@ function setRemoteConfigConnectionIssue(active) {
 function setPreviewBlocked(active, message = ViewText.previewBlockedDefault) {
   uiModule.setPreviewBlocked(active, message);
 }
-
-function normalizeRenderModeDetectionResult(payload) {
-  if (!payload || typeof payload !== "object") {
-    return { result: "", accuracy: Number.NaN };
-  }
-  const accuracy = Number(payload.accuracy);
-  if (!Number.isFinite(accuracy)) {
-    return { result: "", accuracy: Number.NaN };
-  }
-  if (accuracy < RENDER_MODE_DETECTION_MIN_ENDPOINT_ACCURACY) {
-    return { result: "unsure", accuracy };
-  }
-  if (typeof payload.rendered !== "boolean") {
-    return { result: "", accuracy };
-  }
-  return {
-    result: payload.rendered ? "rendered" : "static",
-    accuracy
-  };
-}
-
-async function detectRenderModeViaEndpoint(options = {}) {
-  const {
-    rawHtml = "",
-    renderedHtml = ""
-  } = options;
-  if (!rawHtml || !renderedHtml) {
-    return { ok: false, result: "", accuracy: Number.NaN };
-  }
-  for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const requestPayloadKey = buildTransferPayloadKey("render-mode-request");
-      const stored = await putTransferPayload("render-mode-request", {
-        rawHtml,
-        renderedHtml
-      }, {
-        payloadKey: requestPayloadKey
-      });
-      if (!stored.ok) {
-        throw new Error("Unable to persist render-mode request payload");
-      }
-      const response = await messages.sendRuntimeMessage({
-        type: "requestRenderModeDetection",
-        payloadKey: requestPayloadKey
-      });
-      if (!response || response.ok !== true) {
-        if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
-          await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
-          continue;
-        }
-        return { ok: false, result: "", accuracy: Number.NaN };
-      }
-      if (response.status === "error") {
-        if (
-          attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS &&
-          isRetryableHttpStatus(response.httpStatus)
-        ) {
-          await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
-          continue;
-        }
-        return { ok: false, result: "", accuracy: Number.NaN };
-      }
-      const normalizedResult = normalizeRenderModeDetectionResult(response.payload);
-      if (!normalizedResult.result) {
-        return { ok: false, result: "", accuracy: Number.NaN };
-      }
-      return { ok: true, ...normalizedResult };
-    } catch (error) {
-      if (attempt + 1 < RENDER_MODE_DETECTION_MAX_ATTEMPTS) {
-        await waitForRetryDelay(getRetryDelayMs(attempt, 350, 1800));
-        continue;
-      }
-      return { ok: false, result: "", accuracy: Number.NaN };
-    }
-  }
-  return { ok: false, result: "", accuracy: Number.NaN };
-}
-
 
 function clearObserverRemoteConfigRefreshTimer() {
   if (!state.observerRemoteConfigRefreshTimer) {
@@ -3153,152 +3056,6 @@ async function ensureContentReadyForRenderModeInspection(tabId) {
     }
   }
   return false;
-}
-
-async function waitForTabLoadStart(tabId, timeoutMs = RENDER_MODE_INSPECTION_START_TIMEOUT_MS) {
-  if (!tabId) {
-    return false;
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-
-    const finish = (value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      window.clearTimeout(timeoutId);
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      resolve(value);
-    };
-
-    const onUpdated = (updatedTabId, changeInfo) => {
-      if (updatedTabId !== tabId) {
-        return;
-      }
-      if (
-        (changeInfo && changeInfo.status === "loading") ||
-        (changeInfo && typeof changeInfo.url === "string" && changeInfo.url)
-      ) {
-        finish(true);
-      }
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      finish(false);
-    }, timeoutMs);
-
-    chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        finish(false);
-        return;
-      }
-      if (tab && tab.status === "loading") {
-        finish(true);
-      }
-    });
-  });
-}
-
-async function waitForTabLoadComplete(
-  tabId,
-  timeoutMs = RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS,
-  options = {}
-) {
-  if (!tabId) {
-    return false;
-  }
-
-  const awaitNextLoad = Boolean(options && options.awaitNextLoad);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let sawLoading = !awaitNextLoad;
-
-    const finish = (value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      window.clearTimeout(timeoutId);
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      resolve(value);
-    };
-
-    const onUpdated = (updatedTabId, changeInfo) => {
-      if (updatedTabId !== tabId) {
-        return;
-      }
-      if (changeInfo && changeInfo.status === "loading") {
-        sawLoading = true;
-        return;
-      }
-      if (changeInfo && changeInfo.status === "complete" && sawLoading) {
-        finish(true);
-      }
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      finish(false);
-    }, timeoutMs);
-
-    chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        finish(false);
-        return;
-      }
-      if (!awaitNextLoad && tab && tab.status === "complete") {
-        finish(true);
-      }
-    });
-  });
-}
-
-async function completeRenderModeInspectionReloadFollowUp(tabId, operationId = "") {
-  const loadCompleted = await waitForTabLoadComplete(
-    tabId,
-    RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
-  );
-  if (!loadCompleted) {
-    return false;
-  }
-  const contentReady = await ensureContentReadyForRenderModeInspection(tabId);
-  if (!contentReady) {
-    return false;
-  }
-  const revealResponse = await messages.sendTabMessageToTab(tabId, {
-    type: "runRenderModeRevealOnce",
-    baseUrl: state.currentBaseUrl,
-    operationId
-  });
-  if (!revealResponse || !revealResponse.ok) {
-    return false;
-  }
-  const htmlResponse = await messages.sendTabMessageToTab(tabId, {
-    type: "captureRenderModeInspectionHtml",
-    baseUrl: state.currentBaseUrl,
-    operationId
-  });
-  if (!htmlResponse || !htmlResponse.ok) {
-    return false;
-  }
-  rememberRenderModeInspectionSnapshot(
-    state.currentBaseUrl,
-    htmlResponse.pageUrl || (state.currentTab && state.currentTab.url) || "",
-    htmlResponse
-  );
-  await hideConsentForRenderModeInspection(tabId);
-  // The reload tore down the page, so the content script's property-lock port
-  // disconnected and re-claims after re-injection. Reconcile the popup view so it
-  // stops showing "disconnected" once the connection is re-established (#9).
-  await reconcilePropertyLockAfterRenderModeReload();
-  scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
-    reconcileRenderModeNavSpinner: true
-  });
-  return true;
 }
 
 async function reconcilePropertyLockAfterRenderModeReload() {

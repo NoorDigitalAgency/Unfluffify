@@ -538,11 +538,11 @@ test("remote config save delegates transport to background and hydrates the resp
 });
 
 test("render-mode detection delegates the heavy html transport to background", () => {
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/render-mode-inspection.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const detectBody = popupSource.match(
-    /async function detectRenderModeViaEndpoint\(options = \{\}\) \{([\s\S]*?)\n\}\n\s*function clearObserverRemoteConfigRefreshTimer/
+    /export async function detectRenderModeViaEndpoint\(deps, options = \{\}\) \{([\s\S]*?)\n\}\n\nexport async function maybeAutoDetectRenderMode/
   )[1];
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
@@ -550,11 +550,11 @@ test("render-mode detection delegates the heavy html transport to background", (
   assert.match(remoteNetworkSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
   assert.match(backgroundSource, /if \(message\.type === "requestRenderModeDetection"\) \{/);
   assert.match(detectBody, /type: "requestRenderModeDetection"/);
-  assert.match(detectBody, /const requestPayloadKey = buildTransferPayloadKey\("render-mode-request"\);/);
-  assert.match(detectBody, /const stored = await putTransferPayload\("render-mode-request", \{/);
+  assert.match(detectBody, /const requestPayloadKey = deps\.buildTransferPayloadKey\("render-mode-request"\);/);
+  assert.match(detectBody, /const stored = await deps\.putTransferPayload\("render-mode-request", \{/);
   assert.match(detectBody, /rawHtml,/);
   assert.match(detectBody, /renderedHtml/);
-  assert.match(detectBody, /normalizeRenderModeDetectionResult\(response\.payload\)/);
+  assert.match(detectBody, /normalizeRenderModeDetectionResult\(deps, response\.payload\)/);
   assert.doesNotMatch(detectBody, /fetch\(detectUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
 });
 

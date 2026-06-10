@@ -72,14 +72,15 @@ test("background render mode orchestration waits for content readiness", () => {
 });
 
 test("render mode auto detection consumes the explicit inspection snapshot", () => {
+  const renderModePopupSource = readFileSync(new URL("../popup/render-mode-inspection.js", import.meta.url), "utf8");
   const block = extractSourceBlock(
-    popupSource,
-    "async function maybeAutoDetectRenderMode",
-    "function createConfigSyncHeaders"
+    renderModePopupSource,
+    "export async function maybeAutoDetectRenderMode",
+    "export async function waitForTabLoadStart"
   );
 
-  assert.match(block, /const inspectionSnapshot = getCurrentRenderModeInspectionSnapshot\(detectionKey\);/);
-  assert.match(block, /if \(!inspectionSnapshot\) \{[\s\S]*?return RENDER_MODE_UNDETERMINED;/);
+  assert.match(block, /const inspectionSnapshot = deps\.getCurrentRenderModeInspectionSnapshot\(detectionKey\);/);
+  assert.match(block, /if \(!inspectionSnapshot\) \{[\s\S]*?return deps\.RENDER_MODE_UNDETERMINED;/);
   assert.match(block, /rawHtml: inspectionSnapshot\.rawHtml/);
   assert.match(block, /renderedHtml: inspectionSnapshot\.renderedHtml/);
   assert.doesNotMatch(block, /type: "collectPageData"/);

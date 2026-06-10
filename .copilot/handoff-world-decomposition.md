@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B3 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B4 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -70,8 +70,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 2. Phase B1 - popup/spinner.js: DONE.
 3. Phase B2 - popup/site-resolution.js: DONE.
 4. Phase B3 - popup/remote-config.js: DONE.
-5. Phase B4 - popup/render-mode-inspection.js: IN_PROGRESS.
-6. Phase B5 - popup/page-reconciliation.js: TODO.
+5. Phase B4 - popup/render-mode-inspection.js: DONE.
+6. Phase B5 - popup/page-reconciliation.js: IN_PROGRESS.
 7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): TODO.
 8. Phase B7 - popup/remote-support-ui.js: TODO.
 9. Phase B8 - popup/timers.js (hardening): TODO.
@@ -270,12 +270,19 @@ Phase B3 - remote config sync extraction:
    Focused: node --test tests/popup-remote-config.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/property-lock.test.js tests/popup-ai-run-gating.test.js -> 98 pass / 0 fail
    Full:    npm test -> 815 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  25e5baf refactor(popup): extract remote config sync
+
+Phase B4 - render-mode inspection extraction:
+   Files:   popup/render-mode-inspection.js; popup.js; tests/popup-render-mode-inspection.test.js; tests/popup-decomposition-boundary.test.js; tests/render-mode-inspection-order.test.js; tests/popup-marking-refresh.test.js; tests/popup-render-mode.test.js
+   Focused: node --test tests/popup-render-mode-inspection.test.js tests/popup-decomposition-boundary.test.js tests/render-mode-inspection-order.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js tests/background-render-mode-inspection.test.js -> 74 pass / 0 fail
+   Full:    npm test -> 819 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B3 with:
-`refactor(popup): extract remote config sync`, then proceed to Track B Phase B4
-(`popup/render-mode-inspection.js`). Do not start Track C until Track B is
+Commit and push Track B Phase B4 with:
+`refactor(popup): extract render-mode inspection`, then proceed to Track B Phase
+B5 (`popup/page-reconciliation.js`). Do not start Track C until Track B is
 complete and merged.

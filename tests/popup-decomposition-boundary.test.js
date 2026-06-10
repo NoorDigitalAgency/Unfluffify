@@ -33,6 +33,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertImportsPopupModule("spinner");
   assertImportsPopupModule("site-resolution");
   assertImportsPopupModule("remote-config");
+  assertImportsPopupModule("render-mode-inspection");
   assertImportsPopupModule("ai-run");
   assertImportsPopupModule("render-mode");
   assertImportsPopupModule("state");
@@ -55,4 +56,9 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertPopupDoesNotDefine("scheduleRemoteConfigRetry");
   assertPopupDoesNotDefine("loadRemoteConfigForCurrentPage");
   assertPopupDoesNotDefine("syncBaseConfigToServer");
+  assertPopupDoesNotDefine("maybeAutoDetectRenderMode");
+  assertPopupDoesNotDefine("detectRenderModeViaEndpoint");
+  assertPopupDoesNotDefine("waitForTabLoadStart");
+  assertPopupDoesNotDefine("waitForTabLoadComplete");
+  assertPopupDoesNotDefine("completeRenderModeInspectionReloadFollowUp");
 });
