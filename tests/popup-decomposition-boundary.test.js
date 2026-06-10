@@ -31,6 +31,7 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertImportsPopupModule("messages");
   assertImportsPopupModule("helpers");
   assertImportsPopupModule("spinner");
+  assertImportsPopupModule("site-resolution");
   assertImportsPopupModule("ai-run");
   assertImportsPopupModule("render-mode");
   assertImportsPopupModule("state");
@@ -45,4 +46,9 @@ test("popup decomposition guard: baseline popup modules are imported", () => {
   assertPopupDoesNotDefine("setSpinnerMessage");
   assertPopupDoesNotDefine("popSpinner");
   assertPopupDoesNotDefine("runWithSpinner");
+  assertPopupDoesNotDefine("fetchPropertyPageTypesFromGraphql");
+  assertPopupDoesNotDefine("ensurePropertyPageTypes");
+  assertPopupDoesNotDefine("resolveSiteIdFromGraphql");
+  assertPopupDoesNotDefine("mergeConfigEntriesForResolvedBaseUrl");
+  assertPopupDoesNotDefine("ensureBaseUrlSiteId");
 });

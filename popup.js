@@ -103,6 +103,13 @@ import {
   setSpinnerMessage as setSpinnerMessageOperation
 } from "./popup/spinner.js";
 import {
+  ensureBaseUrlSiteId as ensureBaseUrlSiteIdOperation,
+  ensurePropertyPageTypes as ensurePropertyPageTypesOperation,
+  fetchPropertyPageTypesFromGraphql as fetchPropertyPageTypesFromGraphqlOperation,
+  mergeConfigEntriesForResolvedBaseUrl as mergeConfigEntriesForResolvedBaseUrlOperation,
+  resolveSiteIdFromGraphql as resolveSiteIdFromGraphqlOperation
+} from "./popup/site-resolution.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -907,6 +914,37 @@ const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
 const runWithSpinner = (key, message, task, options = {}) =>
   runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
+function getSiteResolutionDeps() {
+  return {
+    PopupText,
+    ViewText,
+    showToast: (message) => {
+      uiModule.showToast(message);
+    },
+    propertyPageTypesRefreshIntervalMs: PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS,
+    getPropertyPageTypesRequest: () => propertyPageTypesRequest,
+    setPropertyPageTypesRequest: (nextRequest) => {
+      propertyPageTypesRequest = nextRequest;
+    }
+  };
+}
+
+const fetchPropertyPageTypesFromGraphql = (options = {}) =>
+  fetchPropertyPageTypesFromGraphqlOperation(getSiteResolutionDeps(), options);
+const ensurePropertyPageTypes = (options = {}) =>
+  ensurePropertyPageTypesOperation(getSiteResolutionDeps(), options);
+const resolveSiteIdFromGraphql = (options = {}) =>
+  resolveSiteIdFromGraphqlOperation(getSiteResolutionDeps(), options);
+const mergeConfigEntriesForResolvedBaseUrl = (resolvedBaseUrl, preferredEntry, existingEntry) =>
+  mergeConfigEntriesForResolvedBaseUrlOperation(
+    getSiteResolutionDeps(),
+    resolvedBaseUrl,
+    preferredEntry,
+    existingEntry
+  );
+const ensureBaseUrlSiteId = (options = {}) =>
+  ensureBaseUrlSiteIdOperation(getSiteResolutionDeps(), options);
+
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
   return {
@@ -1443,23 +1481,6 @@ function buildPageMarkingKey(url, pageType) {
   return `${normalizedPageType}|${normalizedUrl}`;
 }
 
-function buildPropertyPageTypesSignature(pageTypes) {
-  return JSON.stringify(
-    Array.isArray(pageTypes)
-      ? pageTypes.map((pageType) => [
-          pageType && typeof pageType.key === "string" ? pageType.key : "",
-          Array.isArray(pageType && pageType.candidates)
-            ? pageType.candidates.map((candidate) => [
-                candidate && typeof candidate.url === "string" ? candidate.url : "",
-                Number.isFinite(candidate && candidate.wordsCount) ? candidate.wordsCount : 0,
-                Boolean(candidate && candidate.duplicate) ? 1 : 0
-              ])
-            : []
-        ])
-      : []
-  );
-}
-
 function resetPropertyPageTypesState() {
   state.propertyPageTypes = [];
   state.propertyPageTypesDuplicateUrls = [];
@@ -1479,138 +1500,6 @@ function clearPropertyPageTypesRefreshTimer() {
     state.propertyPageTypesRefreshTimer = 0;
   }
   state.propertyPageTypesRefreshKey = "";
-}
-
-async function fetchPropertyPageTypesFromGraphql(options = {}) {
-  const {
-    siteId = null,
-    stageBase = "",
-    tokenValue = ""
-  } = options;
-  const normalizedSiteId = normalizeSiteIdValue(siteId);
-  const normalizedStageBase = normalizeStageBase(stageBase);
-  if (!normalizedSiteId || !normalizedStageBase) {
-    return { ok: false, pageTypes: [], duplicateUrls: [], error: "" };
-  }
-  const response = await messages.sendRuntimeMessage({
-    type: "fetchLivePagePropertyPageTypes",
-    siteId: normalizedSiteId,
-    stageBase: normalizedStageBase,
-    tokenValue
-  });
-  if (!response || !response.ok) {
-    return {
-      ok: false,
-      pageTypes: [],
-      duplicateUrls: [],
-      error: response && typeof response.reason === "string" && response.reason
-        ? response.reason
-        : PopupText.pageTypes.refreshFailed
-    };
-  }
-  return {
-    ok: true,
-    pageTypes: Array.isArray(response.pageTypes) ? response.pageTypes : [],
-    duplicateUrls: Array.isArray(response.duplicateUrls) ? response.duplicateUrls : [],
-    signature: typeof response.signature === "string"
-      ? response.signature
-      : buildPropertyPageTypesSignature(response.pageTypes)
-  };
-}
-
-async function ensurePropertyPageTypes(options = {}) {
-  const {
-    siteId = null,
-    stageBase = "",
-    tokenValue = "",
-    force = false,
-    notifyOnChange = false
-  } = options;
-  const normalizedSiteId = normalizeSiteIdValue(siteId);
-  const normalizedStageBase = normalizeStageBase(stageBase);
-  if (!normalizedSiteId || !normalizedStageBase || !tokenValue) {
-    resetPropertyPageTypesState();
-    return { ok: false, skipped: true, pageTypes: [], duplicateUrls: [], changed: false };
-  }
-  const cacheKey = `${normalizedStageBase}|${normalizedSiteId}`;
-  const cacheFresh =
-    !force &&
-    state.propertyPageTypesSiteId === normalizedSiteId &&
-    state.propertyPageTypesStageBase === normalizedStageBase &&
-    state.propertyPageTypesFetchedAt > 0 &&
-    Date.now() - state.propertyPageTypesFetchedAt < PROPERTY_PAGE_TYPES_REFRESH_INTERVAL_MS &&
-    !state.propertyPageTypesLastError;
-  if (cacheFresh) {
-    return {
-      ok: true,
-      pageTypes: state.propertyPageTypes,
-      duplicateUrls: state.propertyPageTypesDuplicateUrls,
-      changed: false,
-      fromCache: true
-    };
-  }
-  if (propertyPageTypesRequest && propertyPageTypesRequest.key === cacheKey) {
-    return propertyPageTypesRequest.promise;
-  }
-  const request = fetchPropertyPageTypesFromGraphql({
-    siteId: normalizedSiteId,
-    stageBase: normalizedStageBase,
-    tokenValue
-  }).then((result) => {
-    if (!result.ok) {
-      state.propertyPageTypesLastError = result.error || PopupText.pageTypes.refreshFailed;
-      if (
-        state.propertyPageTypesSiteId === normalizedSiteId &&
-        state.propertyPageTypesStageBase === normalizedStageBase &&
-        Array.isArray(state.propertyPageTypes)
-      ) {
-        return {
-          ok: true,
-          pageTypes: state.propertyPageTypes,
-          duplicateUrls: state.propertyPageTypesDuplicateUrls,
-          changed: false,
-          stale: true,
-          error: state.propertyPageTypesLastError
-        };
-      }
-      return {
-        ok: false,
-        pageTypes: [],
-        duplicateUrls: [],
-        changed: false,
-        error: state.propertyPageTypesLastError
-      };
-    }
-    const previousSignature = state.propertyPageTypesSignature;
-    const nextSignature = result.signature || "";
-    const changed = Boolean(previousSignature) && previousSignature !== nextSignature;
-    state.propertyPageTypes = result.pageTypes;
-    state.propertyPageTypesDuplicateUrls = result.duplicateUrls;
-    state.propertyPageTypesSiteId = normalizedSiteId;
-    state.propertyPageTypesStageBase = normalizedStageBase;
-    state.propertyPageTypesSignature = nextSignature;
-    state.propertyPageTypesFetchedAt = Date.now();
-    state.propertyPageTypesLastError = "";
-    if (changed && notifyOnChange) {
-      uiModule.showToast(PopupText.pageTypes.updatedToast);
-    }
-    return {
-      ok: true,
-      pageTypes: state.propertyPageTypes,
-      duplicateUrls: state.propertyPageTypesDuplicateUrls,
-      changed,
-      stale: false
-    };
-  }).finally(() => {
-    if (propertyPageTypesRequest && propertyPageTypesRequest.key === cacheKey) {
-      propertyPageTypesRequest = null;
-    }
-  });
-  propertyPageTypesRequest = {
-    key: cacheKey,
-    promise: request
-  };
-  return request;
 }
 
 function schedulePropertyPageTypesRefresh(options = {}) {
@@ -1857,48 +1746,6 @@ function resetAiRunMarkingsFingerprint() {
   state.aiRunMarkingsFingerprint = null;
 }
 
-async function resolveSiteIdFromGraphql(options = {}) {
-  const {
-    stageBase = "",
-    lookupUrl = ""
-  } = options;
-  const normalizedStageBase = normalizeStageBase(stageBase);
-  if (!normalizedStageBase || !lookupUrl) {
-    return { ok: false, siteId: null, baseUrl: "", notFound: false };
-  }
-  try {
-    const response = await messages.sendRuntimeMessage({
-      type: "resolveLivePageSiteId",
-      stageBase: normalizedStageBase,
-      pageUrl: lookupUrl
-    });
-    if (!response || !response.ok) {
-      return { ok: false, siteId: null, baseUrl: "", notFound: false };
-    }
-    const candidate = normalizeSiteIdValue(response.siteId);
-    const baseUrl = typeof response.baseUrl === "string" ? response.baseUrl : "";
-    if (!candidate) {
-      return {
-        ok: true,
-        siteId: null,
-        baseUrl,
-        notFound: Boolean(response.notFound)
-      };
-    }
-    if (!baseUrl) {
-      return { ok: false, siteId: null, baseUrl: "", notFound: false };
-    }
-    return {
-      ok: true,
-      siteId: candidate,
-      baseUrl,
-      notFound: false
-    };
-  } catch (error) {
-    return { ok: false, siteId: null, baseUrl: "", notFound: false };
-  }
-}
-
 function mergeSelectorSetForBaseUrlMigration(
   preferredSelectorSet,
   preferredUpdatedAt,
@@ -2133,209 +1980,6 @@ async function maybeAutoDetectRenderMode(pageUrl) {
   } finally {
     state.renderModeDetectionInFlight = false;
   }
-}
-
-function mergeConfigEntriesForResolvedBaseUrl(resolvedBaseUrl, preferredEntry, existingEntry) {
-  const preferred = config.normalizeConfig(resolvedBaseUrl, preferredEntry).config;
-  const existing = config.normalizeConfig(resolvedBaseUrl, existingEntry).config;
-  const mergedPageMarkings = config.mergePageMarkingsByTimestamp(
-    existing.pageMarkings,
-    preferred.pageMarkings
-  ).pageMarkings;
-  const selectors = config.mergeConfigSelectorStateByTimestamp(
-    existing.selectors,
-    existing.selectorsUpdatedAt,
-    existing.submittedSelectorsFingerprint,
-    preferred.selectors,
-    preferred.selectorsUpdatedAt,
-    preferred.submittedSelectorsFingerprint
-  );
-  const renderMode = config.mergeRenderModeByTimestamp(
-    preferred.renderMode,
-    preferred.renderModeUpdatedAt,
-    existing.renderMode,
-    existing.renderModeUpdatedAt
-  );
-  const merged = {
-    ...existing,
-    ...preferred,
-    siteId:
-      normalizeSiteIdValue(preferred.siteId) ||
-      normalizeSiteIdValue(existing.siteId) ||
-      null,
-    renderMode: renderMode.renderMode,
-    renderModeUpdatedAt: renderMode.updatedAt,
-    pageMarkings: mergedPageMarkings,
-    selectors: selectors.selectorSet,
-    selectorsUpdatedAt: selectors.updatedAt,
-    submittedSelectorsFingerprint: selectors.submittedFingerprint
-  };
-  return config.normalizeConfig(resolvedBaseUrl, merged).config;
-}
-
-async function ensureBaseUrlSiteId(options = {}) {
-  const {
-    baseUrl = "",
-    stageBase = "",
-    tokenValue = "",
-    configs = null,
-    pageUrl = "",
-    persist = true
-  } = options;
-  const shouldPersist = persist !== false;
-  const requestedBaseUrl =
-    utils.normalizeCanonicalBaseUrl(baseUrl) ||
-    utils.normalizeBaseUrl(baseUrl) ||
-    (typeof baseUrl === "string" ? baseUrl : "");
-  if (!requestedBaseUrl) {
-    return {
-      ok: false,
-      siteId: null,
-      baseUrl: "",
-      reason: ViewText.noMappedBaseUrlOrSiteId
-    };
-  }
-  const sourceConfigs = configs || await config.getConfigs();
-  const normalizedConfig = config.normalizeConfig(
-    requestedBaseUrl,
-    sourceConfigs[requestedBaseUrl]
-  );
-  if (!sourceConfigs[requestedBaseUrl] || normalizedConfig.changed) {
-    sourceConfigs[requestedBaseUrl] = normalizedConfig.config;
-    if (shouldPersist) {
-      await config.saveConfigs(sourceConfigs);
-    }
-  }
-  const existingSiteId = normalizeSiteIdValue(sourceConfigs[requestedBaseUrl].siteId);
-  if (existingSiteId) {
-    state.siteIdLookupByBaseUrl.set(requestedBaseUrl, existingSiteId);
-    return {
-      ok: true,
-      siteId: existingSiteId,
-      baseUrl: requestedBaseUrl,
-      configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
-    };
-  }
-  const normalizedStageBase = normalizeStageBase(stageBase);
-  if (!normalizedStageBase) {
-    return {
-      ok: false,
-      siteId: null,
-      baseUrl: requestedBaseUrl,
-      reason: PopupText.configuration.stageBaseRequiredBeforeContinuing,
-      configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
-    };
-  }
-  if (state.siteIdLookupByBaseUrl.has(requestedBaseUrl)) {
-    const cached = normalizeSiteIdValue(state.siteIdLookupByBaseUrl.get(requestedBaseUrl));
-    if (cached) {
-      if (shouldPersist) {
-        sourceConfigs[requestedBaseUrl] = await config.updateConfig(requestedBaseUrl, (target) => {
-          target.siteId = cached;
-        });
-      } else {
-        const normalizedCached = config.normalizeConfig(
-          requestedBaseUrl,
-          sourceConfigs[requestedBaseUrl]
-        ).config;
-        normalizedCached.siteId = cached;
-        sourceConfigs[requestedBaseUrl] = normalizedCached;
-      }
-      return {
-        ok: true,
-        siteId: cached,
-        baseUrl: requestedBaseUrl,
-        configs: sourceConfigs,
-        config: sourceConfigs[requestedBaseUrl]
-      };
-    }
-    // Cached null values should not permanently block retries.
-    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
-  }
-  // Query with the current page URL if provided (for language-specific sites),
-  // otherwise use the requested base URL
-  const queryUrl = pageUrl && typeof pageUrl === "string" ? pageUrl : requestedBaseUrl;
-  const lookupResult = await resolveSiteIdFromGraphql({
-    stageBase: normalizedStageBase,
-    lookupUrl: queryUrl,
-    tokenValue
-  });
-  if (!lookupResult.ok) {
-    return {
-      ok: false,
-      siteId: null,
-      baseUrl: requestedBaseUrl,
-      reason: PopupText.status.unableToResolveDomainId,
-      configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
-    };
-  }
-  const resolvedBaseUrl =
-    utils.normalizeCanonicalBaseUrl(lookupResult.baseUrl) ||
-    utils.normalizeBaseUrl(lookupResult.baseUrl) ||
-    requestedBaseUrl;
-  const resolvedSiteId = normalizeSiteIdValue(lookupResult.siteId);
-  if (!resolvedSiteId) {
-    return {
-      ok: false,
-      siteId: null,
-      baseUrl: resolvedBaseUrl,
-      reason: ViewText.noDomainIdForBaseUrl,
-      configs: sourceConfigs,
-      config: sourceConfigs[requestedBaseUrl]
-    };
-  }
-  state.siteIdLookupByBaseUrl.set(resolvedBaseUrl, resolvedSiteId);
-  if (requestedBaseUrl !== resolvedBaseUrl) {
-    state.siteIdLookupByBaseUrl.delete(requestedBaseUrl);
-  }
-  let didChangeConfigs = false;
-  if (requestedBaseUrl !== resolvedBaseUrl) {
-    const mergedConfig = mergeConfigEntriesForResolvedBaseUrl(
-      resolvedBaseUrl,
-      sourceConfigs[requestedBaseUrl],
-      sourceConfigs[resolvedBaseUrl]
-    );
-    sourceConfigs[resolvedBaseUrl] = mergedConfig;
-    if (Object.prototype.hasOwnProperty.call(sourceConfigs, requestedBaseUrl)) {
-      delete sourceConfigs[requestedBaseUrl];
-    }
-    didChangeConfigs = true;
-  } else {
-    const normalizedCurrent = config.normalizeConfig(
-      resolvedBaseUrl,
-      sourceConfigs[resolvedBaseUrl]
-    );
-    if (
-      !sourceConfigs[resolvedBaseUrl] ||
-      normalizedCurrent.changed ||
-      normalizeSiteIdValue(normalizedCurrent.config.siteId) !== resolvedSiteId
-    ) {
-      sourceConfigs[resolvedBaseUrl] = normalizedCurrent.config;
-      didChangeConfigs = true;
-    }
-  }
-  const resolvedConfig = config.normalizeConfig(
-    resolvedBaseUrl,
-    sourceConfigs[resolvedBaseUrl]
-  ).config;
-  if (normalizeSiteIdValue(resolvedConfig.siteId) !== resolvedSiteId) {
-    resolvedConfig.siteId = resolvedSiteId;
-    sourceConfigs[resolvedBaseUrl] = resolvedConfig;
-    didChangeConfigs = true;
-  }
-  if (shouldPersist && didChangeConfigs) {
-    await config.saveConfigs(sourceConfigs);
-  }
-  return {
-    ok: true,
-    siteId: resolvedSiteId,
-    baseUrl: resolvedBaseUrl,
-    configs: sourceConfigs,
-    config: sourceConfigs[resolvedBaseUrl]
-  };
 }
 
 function createConfigSyncHeaders(token) {

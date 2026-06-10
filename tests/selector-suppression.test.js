@@ -57,15 +57,15 @@ test("content-main routes live-page GraphQL lookups through background runtime m
 test("background owns the live-page GraphQL transport handlers", () => {
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const livePageClientSource = readFileSync(new URL("../background/live-page-client.js", import.meta.url), "utf8");
-  const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("../popup/site-resolution.js", import.meta.url), "utf8");
   const backgroundDispatchResolveStart = backgroundSource.indexOf("if (message.type === \"resolveLivePageSiteId\") {");
   const backgroundDispatchResolveEnd = backgroundSource.indexOf("if (message.type === \"fetchLivePagePropertyPageTypes\") {", backgroundDispatchResolveStart);
   const livePageResolveStart = livePageClientSource.indexOf("export async function resolveLivePageSiteId(options = {}) {");
   const livePageResolveEnd = livePageClientSource.indexOf("export async function fetchLivePagePropertyPageTypes(options = {}) {", livePageResolveStart);
-  const popupResolveStart = popupSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
-  const popupResolveEnd = popupSource.indexOf("function mergeSelectorSetForBaseUrlMigration", popupResolveStart);
-  const popupFetchStart = popupSource.indexOf("async function fetchPropertyPageTypesFromGraphql(options = {}) {");
-  const popupFetchEnd = popupSource.indexOf("async function ensurePropertyPageTypes", popupFetchStart);
+  const popupResolveStart = popupSource.indexOf("export async function resolveSiteIdFromGraphql(_deps, options = {}) {");
+  const popupResolveEnd = popupSource.indexOf("export function mergeConfigEntriesForResolvedBaseUrl", popupResolveStart);
+  const popupFetchStart = popupSource.indexOf("export async function fetchPropertyPageTypesFromGraphql(_deps, options = {}) {");
+  const popupFetchEnd = popupSource.indexOf("export async function ensurePropertyPageTypes", popupFetchStart);
   assert.ok(backgroundDispatchResolveStart > -1);
   assert.ok(backgroundDispatchResolveEnd > backgroundDispatchResolveStart);
   assert.ok(livePageResolveStart > -1);

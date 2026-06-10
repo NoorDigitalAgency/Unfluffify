@@ -75,7 +75,7 @@ test("render mode auto detection consumes the explicit inspection snapshot", () 
   const block = extractSourceBlock(
     popupSource,
     "async function maybeAutoDetectRenderMode",
-    "function mergeConfigEntriesForResolvedBaseUrl"
+    "function createConfigSyncHeaders"
   );
 
   assert.match(block, /const inspectionSnapshot = getCurrentRenderModeInspectionSnapshot\(detectionKey\);/);
