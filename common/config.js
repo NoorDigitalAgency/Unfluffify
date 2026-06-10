@@ -32,6 +32,7 @@ const SELECTOR_SET_UPDATED_AT_FIELD = "selectorsUpdatedAt";
 const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
 const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
+const configWriteQueueByBaseUrl = new Map();
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
 export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "",
@@ -1217,29 +1218,57 @@ export async function saveConfigs(configs) {
   await idbSet({ configs: normalizedConfigs });
 }
 
+function getConfigQueueKey(baseUrl) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || (typeof baseUrl === "string" ? baseUrl : "");
+  return typeof normalizedBaseUrl === "string" ? normalizedBaseUrl : "";
+}
+
+async function queueConfigWrite(baseUrl, work) {
+  const queueKey = getConfigQueueKey(baseUrl);
+  if (!queueKey) {
+    return work();
+  }
+  const previous = configWriteQueueByBaseUrl.get(queueKey) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(work);
+  configWriteQueueByBaseUrl.set(queueKey, next);
+  try {
+    return await next;
+  } finally {
+    if (configWriteQueueByBaseUrl.get(queueKey) === next) {
+      configWriteQueueByBaseUrl.delete(queueKey);
+    }
+  }
+}
+
 export async function ensureConfig(baseUrl) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
-  const configs = await getConfigs();
-  if (!configs[normalizedBaseUrl]) {
-    const defaultConfig = createDefaultConfig(normalizedBaseUrl);
-    configs[normalizedBaseUrl] = defaultConfig;
-    await saveConfigs(configs);
-    return defaultConfig;
-  }
-  const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
-  if (changed) {
-    configs[normalizedBaseUrl] = config;
-    await saveConfigs(configs);
-  }
-  return config;
+  return queueConfigWrite(normalizedBaseUrl, async () => {
+    const configs = await getConfigs();
+    if (!configs[normalizedBaseUrl]) {
+      const defaultConfig = createDefaultConfig(normalizedBaseUrl);
+      configs[normalizedBaseUrl] = defaultConfig;
+      await saveConfigs(configs);
+      return defaultConfig;
+    }
+    const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
+    if (changed) {
+      configs[normalizedBaseUrl] = config;
+      await saveConfigs(configs);
+    }
+    return config;
+  });
 }
 
 export async function updateConfig(baseUrl, updater) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
-  const configs = await getConfigs();
-  const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
-  updater(config);
-  configs[normalizedBaseUrl] = config;
-  await saveConfigs(configs);
-  return config;
+  return queueConfigWrite(normalizedBaseUrl, async () => {
+    const configs = await getConfigs();
+    const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
+    updater(config);
+    configs[normalizedBaseUrl] = config;
+    await saveConfigs(configs);
+    return config;
+  });
 }
