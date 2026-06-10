@@ -103,6 +103,13 @@ import {
   createFailureEnvelope,
   isRequestEnvelope
 } from "./common/message-protocol.js";
+import {
+  consumeTransferPayload,
+  getTransferPayload,
+  putTransferPayload,
+  removeTransferPayload,
+  sweepStaleTransferPayloads
+} from "./background/transfer-payload-store.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -634,12 +641,13 @@ async function refineAiRunPayloadXpathsInBackground(payloadKey) {
   if (!sourcePayloadKey) {
     return { ok: false, error: "Missing AI run payload" };
   }
-  const payloadStore = await utils.storageGet(chrome.storage.session, sourcePayloadKey).catch(() => ({}));
-  const payload = payloadStore && typeof payloadStore === "object"
-    ? payloadStore[sourcePayloadKey]
-    : null;
-  if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
-    await utils.storageRemove(chrome.storage.session, sourcePayloadKey).catch(() => null);
+  const loaded = await getTransferPayload(sourcePayloadKey, {
+    expectedType: "object",
+    removeInvalid: true
+  });
+  const payload = loaded && loaded.ok ? loaded.payload : null;
+  if (!payload || !Array.isArray(payload.pages)) {
+    await removeTransferPayload(sourcePayloadKey);
     return { ok: false, error: "Unable to prepare AI payload" };
   }
   const refinedPayload = {
@@ -654,14 +662,15 @@ async function refineAiRunPayloadXpathsInBackground(payloadKey) {
       };
     })
   };
-  const refinedPayloadKey = buildRemoteConfigPayloadKey("ai-run-start-refined");
-  await utils.storageSet(chrome.storage.session, {
-    [refinedPayloadKey]: refinedPayload
-  });
-  await utils.storageRemove(chrome.storage.session, sourcePayloadKey).catch(() => null);
+  const stored = await putTransferPayload("ai-run-start-refined", refinedPayload);
+  if (!stored.ok) {
+    await removeTransferPayload(sourcePayloadKey);
+    return { ok: false, error: "Unable to prepare AI payload" };
+  }
+  await removeTransferPayload(sourcePayloadKey);
   return {
     ok: true,
-    payloadKey: refinedPayloadKey
+    payloadKey: stored.payloadKey
   };
 }
 
@@ -670,11 +679,8 @@ async function loadAiRunSelectorSetFromPayloadKey(payloadKey) {
   if (!resultPayloadKey) {
     return null;
   }
-  const payloadStore = await utils.storageGet(chrome.storage.session, resultPayloadKey).catch(() => ({}));
-  const payload = payloadStore && typeof payloadStore === "object"
-    ? payloadStore[resultPayloadKey]
-    : null;
-  await utils.storageRemove(chrome.storage.session, resultPayloadKey).catch(() => null);
+  const loaded = await consumeTransferPayload(resultPayloadKey, { expectedType: "object" });
+  const payload = loaded && loaded.ok ? loaded.payload : null;
   if (
     !payload ||
     typeof payload !== "object" ||
@@ -2253,42 +2259,6 @@ async function submitSelectorSetGraphqlUpdate(options = {}) {
   }
 }
 
-// Prefix shared between background and popup so the sweep covers both sides.
-const TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-";
-// Keys older than 5 minutes are orphaned (any live AI run/config flow finishes
-// well within that window). Sweep runs on service-worker initialisation only.
-const TRANSFER_PAYLOAD_MAX_AGE_MS = 5 * 60_000;
-
-function buildRemoteConfigPayloadKey(scope = "load") {
-  const normalizedScope = typeof scope === "string" && scope.trim()
-    ? scope.trim()
-    : "payload";
-  return `${TRANSFER_PAYLOAD_KEY_PREFIX}${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
-async function sweepStaleTransferPayloads() {
-  try {
-    const allSession = await utils.storageGet(chrome.storage.session, null).catch(() => ({}));
-    if (!allSession || typeof allSession !== "object") {
-      return;
-    }
-    const staleKeys = Object.keys(allSession).filter((key) => {
-      if (!key.startsWith(TRANSFER_PAYLOAD_KEY_PREFIX)) {
-        return false;
-      }
-      // Key format: remote-config-<scope>:<timestamp>:<random>
-      const parts = key.split(":");
-      const ts = parts.length >= 2 ? Number(parts[1]) : NaN;
-      return Number.isFinite(ts) && Date.now() - ts > TRANSFER_PAYLOAD_MAX_AGE_MS;
-    });
-    if (staleKeys.length) {
-      await utils.storageRemove(chrome.storage.session, staleKeys).catch(() => null);
-    }
-  } catch {
-    // Best-effort sweep; ignore errors.
-  }
-}
-
 function collectStoredPageMarkingItems(pageMarkings, baseUrl = "") {
   const items = [];
   Object.entries(pageMarkings && typeof pageMarkings === "object" ? pageMarkings : {}).forEach(([url, entry]) => {
@@ -2609,9 +2579,11 @@ async function loadRemoteConfigSnapshot(options = {}) {
     } catch {
       payload = null;
     }
-    const payloadKey = buildRemoteConfigPayloadKey();
-    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
-    return { ok: true, status: "ok", payloadKey };
+    const stored = await putTransferPayload("load", payload);
+    if (!stored.ok) {
+      return { ok: false };
+    }
+    return { ok: true, status: "ok", payloadKey: stored.payloadKey };
   } catch {
     return { ok: false };
   }
@@ -2627,10 +2599,8 @@ async function saveRemoteConfigSnapshot(options = {}) {
   }
   let requestPayload = null;
   try {
-    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
-    requestPayload = payloadStore && typeof payloadStore === "object"
-      ? payloadStore[requestPayloadKey]
-      : null;
+    const loaded = await getTransferPayload(requestPayloadKey, { expectedType: "object" });
+    requestPayload = loaded && loaded.ok ? loaded.payload : null;
     if (!requestPayload || typeof requestPayload !== "object") {
       return { ok: false, skipped: true };
     }
@@ -2655,13 +2625,15 @@ async function saveRemoteConfigSnapshot(options = {}) {
     if (!payload || typeof payload !== "object") {
       return { ok: true, status: "empty", payloadKey: "" };
     }
-    const responsePayloadKey = buildRemoteConfigPayloadKey("save-response");
-    await utils.storageSet(chrome.storage.session, { [responsePayloadKey]: payload });
-    return { ok: true, status: "ok", payloadKey: responsePayloadKey };
+    const stored = await putTransferPayload("save-response", payload);
+    if (!stored.ok) {
+      return { ok: false };
+    }
+    return { ok: true, status: "ok", payloadKey: stored.payloadKey };
   } catch {
     return { ok: false };
   } finally {
-    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+    await removeTransferPayload(requestPayloadKey);
   }
 }
 
@@ -2674,10 +2646,8 @@ async function requestRenderModeDetection(options = {}) {
     return { ok: false, skipped: true };
   }
   try {
-    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
-    const payload = payloadStore && typeof payloadStore === "object"
-      ? payloadStore[requestPayloadKey]
-      : null;
+    const loaded = await getTransferPayload(requestPayloadKey, { expectedType: "object" });
+    const payload = loaded && loaded.ok ? loaded.payload : null;
     if (!payload || typeof payload !== "object") {
       return { ok: false, skipped: true };
     }
@@ -2700,7 +2670,7 @@ async function requestRenderModeDetection(options = {}) {
   } catch {
     return { ok: false };
   } finally {
-    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+    await removeTransferPayload(requestPayloadKey);
   }
 }
 
@@ -2713,10 +2683,8 @@ async function submitPageTypeAssignments(options = {}) {
     return { ok: false, skipped: true };
   }
   try {
-    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
-    const payload = payloadStore && typeof payloadStore === "object"
-      ? payloadStore[requestPayloadKey]
-      : null;
+    const loaded = await getTransferPayload(requestPayloadKey, { expectedType: "array" });
+    const payload = loaded && loaded.ok ? loaded.payload : null;
     if (!Array.isArray(payload) || !payload.length) {
       return { ok: false, skipped: true };
     }
@@ -2733,7 +2701,7 @@ async function submitPageTypeAssignments(options = {}) {
   } catch {
     return { ok: false };
   } finally {
-    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+    await removeTransferPayload(requestPayloadKey);
   }
 }
 
@@ -2746,10 +2714,8 @@ async function requestAiRunStartSnapshot(options = {}) {
     return { ok: false, skipped: true };
   }
   try {
-    const payloadStore = await utils.storageGet(chrome.storage.session, requestPayloadKey).catch(() => ({}));
-    const payload = payloadStore && typeof payloadStore === "object"
-      ? payloadStore[requestPayloadKey]
-      : null;
+    const loaded = await getTransferPayload(requestPayloadKey, { expectedType: "object" });
+    const payload = loaded && loaded.ok ? loaded.payload : null;
     const response = await fetch(computeSelectorsUrl, {
       method: "POST",
       headers: createBackgroundJsonHeaders(tokenValue),
@@ -2767,7 +2733,7 @@ async function requestAiRunStartSnapshot(options = {}) {
   } catch {
     return { ok: false };
   } finally {
-    await utils.storageRemove(chrome.storage.session, requestPayloadKey).catch(() => null);
+    await removeTransferPayload(requestPayloadKey);
   }
 }
 
@@ -2807,9 +2773,11 @@ async function requestAiRunResultSnapshot(options = {}) {
     ) {
       return { ok: false };
     }
-    const payloadKey = buildRemoteConfigPayloadKey("ai-run-result");
-    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
-    return { ok: true, payloadKey };
+    const stored = await putTransferPayload("ai-run-result", payload);
+    if (!stored.ok) {
+      return { ok: false };
+    }
+    return { ok: true, payloadKey: stored.payloadKey };
   } catch {
     return { ok: false };
   }
@@ -2929,18 +2897,19 @@ async function prepareAiRunPayloadSnapshot(options = {}) {
         renderedXPaths: buildAiSubmissionXpaths(entry)
       };
     });
-    const payloadKey = buildRemoteConfigPayloadKey("ai-run-prepare");
-    await utils.storageSet(chrome.storage.session, {
-      [payloadKey]: {
-        baseUrl,
-        renderMode: currentRenderMode,
-        defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
-        pages
-      }
-    });
+    const payload = {
+      baseUrl,
+      renderMode: currentRenderMode,
+      defaultExclusionSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
+      pages
+    };
+    const stored = await putTransferPayload("ai-run-prepare", payload);
+    if (!stored.ok) {
+      return { ok: false };
+    }
     return {
       ok: true,
-      payloadKey,
+      payloadKey: stored.payloadKey,
       requiresRawXPathRefinement: currentRenderMode === "static"
     };
   } catch {
@@ -3020,9 +2989,11 @@ async function preparePageTypeAssignmentsSnapshot(options = {}) {
         pageType: item.pageType
       };
     });
-    const payloadKey = buildRemoteConfigPayloadKey("assign-page-types-prepare");
-    await utils.storageSet(chrome.storage.session, { [payloadKey]: payload });
-    return { ok: true, payloadKey };
+    const stored = await putTransferPayload("assign-page-types-prepare", payload);
+    if (!stored.ok) {
+      return { ok: false };
+    }
+    return { ok: true, payloadKey: stored.payloadKey };
   } catch {
     return { ok: false };
   }

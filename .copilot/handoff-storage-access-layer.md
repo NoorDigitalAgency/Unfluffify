@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-2 committed; Phases 3-4 complete locally, not yet committed)
-Document commit scope: implementation handoff refresh after Phase 4 execution
+Implementation status: IN_PROGRESS (Phases 0-5 implemented and validated)
+Document commit scope: implementation handoff refresh after Phase 5 execution
 
 ## Read This First
 
@@ -40,7 +40,8 @@ As of this handoff:
 8. Phase 2 command-ledger payload redaction is implemented and validated.
 9. Phase 3 storage-access inventory guard is implemented and validated.
 10. Phase 4 low-level storage wrapper extraction is implemented and validated.
-11. Storage-domain migration beyond wrapper extraction has not started yet.
+11. Phase 5 transfer payload store extraction is implemented and validated.
+12. Next strict implementation step is Phase 6 settings store read-path migration.
 
 ## Review Findings To Fix First
 
@@ -145,7 +146,7 @@ Current phase status:
 3. Phase 2 - Redact command ledger payloads: DONE.
 4. Phase 3 - Add storage access inventory guard: DONE.
 5. Phase 4 - Extract low-level storage core: DONE.
-6. Phase 5 - Transfer payload store: TODO.
+6. Phase 5 - Transfer payload store: DONE.
 7. Phase 6 - Settings store read path: TODO.
 8. Phase 7 - Settings store write path: TODO.
 9. Phase 8 - Background-owned credentials for network commands: TODO.
@@ -156,7 +157,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation after Phase 4 implementation:
+Last known validation after Phase 5 implementation:
 
 ```bash
 npm test
@@ -164,7 +165,17 @@ npm test
 
 Result:
 
-1. 722 tests passed.
+1. 727 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 5:
+
+1. `node --test tests/transfer-payload-store.test.js tests/ai-run.test.js tests/popup-marking-refresh.test.js tests/render-mode-inspection-order.test.js tests/marking-no-auto-restore.test.js tests/storage-access-boundary.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 78 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 4:
@@ -258,6 +269,29 @@ What changed:
    - `scripts/**`
 2. Added explicit bucket classification with comments for:
    - approved wrapper modules
+
+## Phase 5 Implementation Delta
+
+Files changed:
+
+1. `background/transfer-payload-store.js` (new)
+2. `background.js`
+3. `tests/transfer-payload-store.test.js` (new)
+4. `tests/storage-access-boundary.test.js`
+5. `tests/marking-no-auto-restore.test.js`
+6. `tests/popup-marking-refresh.test.js`
+
+What changed:
+
+1. Added dedicated transfer payload store helpers for:
+   - key build/parse
+   - put/get/consume/remove
+   - stale key sweep
+   - payload summary
+2. Rewired `background.js` transfer-payload workflows to use the store helpers.
+3. Removed inline transfer-payload key/sweep utilities from `background.js`.
+4. Updated storage boundary inventory to classify the new wrapper module.
+5. Added focused tests for transfer payload store contracts and updated source-shape tests.
    - current migration debt
    - smoke/orchestration access
 3. Added guard assertions so every raw storage finding maps to exactly one

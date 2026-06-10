@@ -484,7 +484,7 @@ test("remote config load delegates transport to background and hydrates the payl
 
   assert.match(backgroundSource, /async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
-  assert.match(backgroundSource, /await utils\.storageSet\(chrome\.storage\.session, \{ \[payloadKey\]: payload \}\);/);
+  assert.match(backgroundSource, /const stored = await putTransferPayload\("load", payload\);/);
   assert.match(backgroundSource, /async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "replaceServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
@@ -506,7 +506,8 @@ test("remote config save delegates transport to background and hydrates the resp
   assert.match(backgroundSource, /async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
   assert.match(backgroundSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
-  assert.match(backgroundSource, /await utils\.storageRemove\(chrome\.storage\.session, requestPayloadKey\)\.catch\(\(\) => null\);/);
+  assert.match(backgroundSource, /const loaded = await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\);/);
+  assert.match(backgroundSource, /await removeTransferPayload\(requestPayloadKey\);/);
   assert.match(backgroundSource, /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "mergeServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);

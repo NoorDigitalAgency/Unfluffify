@@ -96,7 +96,8 @@ function sortFindings(findings) {
 // Bucket: approved wrapper modules. These are the current generic adapter files
 // that are expected to contain direct storage access before Phase 4 extraction.
 const APPROVED_WRAPPER_FILES = new Set([
-  "common/storage-core.js"
+  "common/storage-core.js",
+  "background/transfer-payload-store.js"
 ]);
 
 // Bucket: current migration debt. These files are expected to be moved phase-by-phase.
@@ -126,7 +127,7 @@ const PAGE_LOCAL_STORAGE_FILES = new Set([
 ]);
 
 // TODO by migration phase:
-// Phase 5: remove transfer payload debt from background.js and popup.js.
+// Phase 5: remove transfer payload debt from popup.js.
 // Phase 6-8: migrate sync settings and credential reads into settings-store boundaries.
 // Phase 9: migrate tab session state helpers out of common/utilities.js call sites.
 // Phase 10: isolate device emulation storage behind one domain boundary.

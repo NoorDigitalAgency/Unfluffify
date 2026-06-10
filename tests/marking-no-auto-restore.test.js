@@ -6,6 +6,10 @@ const backgroundSource = readFileSync(
   new URL("../background.js", import.meta.url),
   "utf8"
 );
+const transferPayloadStoreSource = readFileSync(
+  new URL("../background/transfer-payload-store.js", import.meta.url),
+  "utf8"
+);
 
 function extractFunctionBody(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -58,19 +62,20 @@ test("disableExtensionOnTopLevelNavigation never preserves marking for same-base
 });
 
 test("background sweeps stale transfer-payload keys on service-worker start", () => {
-  // sweepStaleTransferPayloads must be defined and called at module scope
-  // so orphaned session-storage keys from aborted AI runs are cleaned up.
-  assert.match(backgroundSource, /async function sweepStaleTransferPayloads\(\)/);
-  assert.match(backgroundSource, /TRANSFER_PAYLOAD_MAX_AGE_MS/);
+  // Sweep must run at module scope from background startup, while key/TTL
+  // logic lives in the dedicated transfer payload store module.
+  assert.match(transferPayloadStoreSource, /export async function sweepStaleTransferPayloads\(options = \{\}\)/);
+  assert.match(transferPayloadStoreSource, /TRANSFER_PAYLOAD_KEY_PREFIX = "remote-config-"/);
+  assert.match(transferPayloadStoreSource, /const DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = 5 \* 60_000/);
   assert.match(backgroundSource, /sweepStaleTransferPayloads\(\)\.then\(\)/);
-  // Both key builders use the same prefix so the sweep covers popup keys too.
-  const bgKeyBuilder = backgroundSource.match(
-    /function buildRemoteConfigPayloadKey[\s\S]{0,300}return `\${TRANSFER_PAYLOAD_KEY_PREFIX}/
+  // Key format remains prefixed with remote-config- for cross-surface cleanup.
+  const storeKeyBuilder = transferPayloadStoreSource.match(
+    /export function buildTransferPayloadKey\(scope = "payload"\)[\s\S]{0,500}return `\${TRANSFER_PAYLOAD_KEY_PREFIX}/
   );
-  assert.ok(bgKeyBuilder, "background key builder must use TRANSFER_PAYLOAD_KEY_PREFIX");
+  assert.ok(storeKeyBuilder, "transfer payload key builder must use TRANSFER_PAYLOAD_KEY_PREFIX");
   // Max age is generous enough for any live flow but short enough to clean up crashes.
-  const ageMatch = backgroundSource.match(/TRANSFER_PAYLOAD_MAX_AGE_MS = (\d+) \* 60_000/);
-  assert.ok(ageMatch, "TRANSFER_PAYLOAD_MAX_AGE_MS must be defined as N * 60_000");
+  const ageMatch = transferPayloadStoreSource.match(/DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS = (\d+) \* 60_000/);
+  assert.ok(ageMatch, "DEFAULT_TRANSFER_PAYLOAD_MAX_AGE_MS must be defined as N * 60_000");
   const minutes = Number(ageMatch[1]);
   assert.ok(minutes >= 2 && minutes <= 30, `max age should be 2-30 min; got ${minutes}`);
 });
