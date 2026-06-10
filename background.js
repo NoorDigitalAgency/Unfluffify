@@ -2126,8 +2126,7 @@ async function resolveBackgroundNetworkCredentials(options = {}) {
   return {
     endpointValue: requestedEndpoint || fallbackEndpoint || "",
     tokenValue: requestedToken || settings.tokenValue || "",
-    stageBaseValue: requestedStageBase || settings.stageBaseValue || "",
-    fromSettings: !requestedEndpoint || !requestedToken
+    stageBaseValue: requestedStageBase || settings.stageBaseValue || ""
   };
 }
 

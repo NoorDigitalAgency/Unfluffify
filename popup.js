@@ -5845,8 +5845,6 @@ async function maybeResumePersistedAiRun() {
     let statusResult;
     try {
       statusResult = await requestAiRunStatus({
-        endpointValue,
-        tokenValue,
         sessionId: persistedRun.sessionId
       });
     } catch {
@@ -5889,8 +5887,6 @@ async function maybeResumePersistedAiRun() {
       let result;
       try {
         result = await requestAiRunResult({
-          endpointValue,
-          tokenValue,
           sessionId: persistedRun.sessionId
         });
       } catch {
@@ -8158,9 +8154,7 @@ async function requestAiRunStart({
   return { ok: true, sessionId: response.sessionId.trim() };
 }
 
-async function requestAiRunStatus({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
-  void endpointValue;
-  void tokenValue;
+async function requestAiRunStatus({ sessionId = "" } = {}) {
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunStatus",
     sessionId
@@ -8168,9 +8162,7 @@ async function requestAiRunStatus({ endpointValue = "", tokenValue = "", session
   return response && typeof response === "object" ? response : { ok: false };
 }
 
-async function requestAiRunResult({ endpointValue = "", tokenValue = "", sessionId = "" } = {}) {
-  void endpointValue;
-  void tokenValue;
+async function requestAiRunResult({ sessionId = "" } = {}) {
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunResultSnapshot",
     sessionId
@@ -8300,8 +8292,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
     let statusResult;
     try {
       statusResult = await requestAiRunStatus({
-        endpointValue,
-        tokenValue,
         sessionId
       });
     } catch {
@@ -8332,8 +8322,6 @@ async function continueAiRunPolling({ endpointValue = "", tokenValue = "", curre
     let result;
     try {
         result = await requestAiRunResult({
-          endpointValue,
-          tokenValue,
           sessionId
         });
     } catch {

@@ -319,9 +319,11 @@ test("AI run start, status polling, and result transport use background messagin
   assert.match(startBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \|\| \{\} \}\);/);
   assert.match(statusBlock, /type: "requestAiRunStatus"/);
   assert.match(statusBlock, /messages\.sendRuntimeMessage/);
+  assert.doesNotMatch(statusBlock, /endpointValue|tokenValue/);
   assert.doesNotMatch(statusBlock, /fetch\(|parseAiRunStatusResponse|maybeUpdateStoredTokenFromResponse/);
   assert.doesNotMatch(startBlock, /fetch\(computeSelectorsUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
   assert.match(resultBlock, /type: "requestAiRunResultSnapshot"/);
+  assert.doesNotMatch(resultBlock, /endpointValue|tokenValue/);
   assert.match(resultBlock, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
   assert.match(resultBlock, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
   assert.doesNotMatch(resultBlock, /fetch\(resultUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
