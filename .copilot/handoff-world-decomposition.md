@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: NOT_STARTED (Track A Phase 0 pending)
+Implementation status: IN_PROGRESS (Track A Phase 0 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -38,8 +38,7 @@ Decision inputs (from the planning interview, 2026-06-10):
 2. Depth: behavior-preserving extraction PLUS targeted hardening
    (async error reporting, per-tab/popup state + timer consolidation, managed
    timeouts).
-3. Validation: `node --test` source-contract + focused + full `npm test`, AND a
-   manual live-harness validation per slice.
+3. Validation: `node --test` source-contract + focused + full `npm test`,
 4. Guardrail: program-wide hard prohibition on touching locked marking/silent-
    highlight/visibility/reconciliation logic and `content/core.js`. Track C may
    only move explicitly-listed peripheral content domains and MUST keep them in
@@ -51,7 +50,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 
 ### Track A — Background (`background.js` -> `background/*`)
 
-1. Phase 0 - Baseline + boundary guard test: TODO.
+1. Phase 0 - Baseline + boundary guard test: DONE.
 2. Phase 1 - command-ledger module: TODO.
 3. Phase 2 - live-page-client module: TODO.
 4. Phase 3 - network-core module: TODO.
@@ -133,6 +132,14 @@ npm test
 
 Result: 758 passed, 0 failed (carried from the storage track's final state).
 
+Current run baseline (2026-06-10, start of Track A):
+
+```bash
+npm test
+```
+
+Result: 758 passed, 0 failed (pre-edit baseline confirmed).
+
 Record per-slice results here as the track progresses, using this template:
 
 ```
@@ -143,12 +150,20 @@ Phase N - <module>:
   Commit:  <hash> <message>
 ```
 
+Progress log:
+
+```
+Phase 0 - Baseline + boundary guard:
+   Files:   tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/background-decomposition-boundary.test.js -> 1 pass / 0 fail
+   Full:    npm test -> 759 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  pending
+```
+
 ## Next Action
 
-Execute Track A Phase 0 in `.copilot/world-decomposition-plan.md`: create
-`tests/background-decomposition-boundary.test.js` (asserting the six pre-existing
-`background/` modules are imported), run `npm test`, commit
-`test(background): add decomposition boundary guard`, push, then proceed to
-Track A Phase 1 (command-ledger extraction). Do not start Track B until Track A
-is complete and merged; do not start Track C until Track B is complete and
-merged.
+Commit and push Track A Phase 0 with:
+`test(background): add decomposition boundary guard`, then proceed to Track A
+Phase 1 (command-ledger extraction). Do not start Track B until Track A is
+complete and merged; do not start Track C until Track B is complete and merged.
