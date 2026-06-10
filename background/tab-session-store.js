@@ -131,12 +131,16 @@ export async function getTabState(tabId, scope = null, options = {}) {
   return useNormalization ? normalizeTabSessionState(value) : value;
 }
 
-export async function setTabState(tabId, state, scope = null) {
+export async function setTabState(tabId, state, scope = null, options = {}) {
   const key = getTabStateKey(tabId, scope);
   if (!key) {
     return;
   }
   const normalizedState = normalizeTabSessionState(state);
+  if (options && options.skipQueue) {
+    await storageSet(chrome.storage.session, { [key]: normalizedState });
+    return;
+  }
   await queueTabSessionWrite(tabId, () => storageSet(chrome.storage.session, { [key]: normalizedState }));
 }
 

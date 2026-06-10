@@ -156,6 +156,35 @@ test("tab-session-store queues writes per tab", async () => {
   assert.deepEqual(order, ["first:start", "first:end", "second"]);
 });
 
+test("runtime-style queued tab-state merges preserve overlapping field updates", async () => {
+  await withChrome(createChrome(), async () => {
+    const applyRuntimeLikeStatePatch = (tabId, patch, scope = null) =>
+      queueTabSessionWrite(tabId, async () => {
+        const existingState = await getTabState(tabId, scope);
+        const existing = existingState && typeof existingState === "object"
+          ? existingState
+          : {};
+        await setTabState(tabId, { ...existing, ...patch }, scope, { skipQueue: true });
+      });
+
+    await setTabState(303, {
+      enabled: true,
+      baseUrl: "https://example.com"
+    });
+
+    await Promise.all([
+      applyRuntimeLikeStatePatch(303, { pageType: "candidate" }),
+      applyRuntimeLikeStatePatch(303, { desktopPreviewEnabled: true })
+    ]);
+
+    const finalState = await getTabState(303);
+    assert.equal(finalState.enabled, true);
+    assert.equal(finalState.baseUrl, "https://example.com");
+    assert.equal(finalState.pageType, "candidate");
+    assert.equal(finalState.desktopPreviewEnabled, true);
+  });
+});
+
 test("tab-session-store script-injected state toggles per tab", async () => {
   await withChrome(createChrome(), async () => {
     assert.equal(await isScriptInjected(77), false);

@@ -256,12 +256,20 @@ test("popup chrome helpers route privileged tab and browsing-data APIs through b
 test("setTabState no longer mirrors enabled sessions into reload restore state", () => {
   // Phase 2 retired auto-restore. setTabState now just writes the key and
   // returns; it does not populate or clear the restore scope.
+  const backgroundSetTabStateBlock = extractSourceBlock(
+    backgroundSource,
+    'if (message.type === "setTabState") {',
+    'if (message.type === "setDeviceEmulation") {'
+  );
   const setTabStateBlock = extractSourceBlock(
     utilitiesSource,
     "export async function setTabState(tabId, state, scope = null) {",
     "export async function clearTabState"
   );
 
+  assert.match(backgroundSetTabStateBlock, /queueTabSessionWrite\(tabId, async \(\) => \{/);
+  assert.match(backgroundSetTabStateBlock, /const existingState = await getStoredTabState\(tabId, scope\);/);
+  assert.match(backgroundSetTabStateBlock, /await setStoredTabState\(tabId, nextState, scope, \{ skipQueue: true \}\);/);
   assert.match(setTabStateBlock, /await setStoredTabState\(tabId, state, scope\);/);
   // No restore-scope write or clear
   assert.doesNotMatch(setTabStateBlock, /restoreKey/);

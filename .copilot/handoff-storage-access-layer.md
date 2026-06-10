@@ -3,7 +3,7 @@
 Last updated: 2026-06-10
 Branch at document creation: main
 Implementation status: IN_PROGRESS (Phases 0-9 complete, Phase 10 next)
-Document commit scope: Phase 9 tab-session-store migration completion
+Document commit scope: Phase 9 runtime merge queue hardening
 
 ## Read This First
 
@@ -51,7 +51,8 @@ As of this handoff:
    type fetch runtime payload ownership.
 17. Phase 8 credential payload cleanup is complete and validated.
 18. Phase 9 tab-session-store migration is complete and validated.
-19. Next strict implementation step is to start Phase 10 (Device Emulation Storage Boundary).
+19. Phase 9 runtime `setTabState` merge path now serializes read-merge-write updates per tab.
+20. Next strict implementation step is to start Phase 10 (Device Emulation Storage Boundary).
 
 ## Review Findings To Fix First
 
@@ -175,7 +176,17 @@ npm test
 
 Result:
 
-1. 749 tests passed.
+1. 750 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 9 runtime merge queue hardening:
+
+1. `node --test tests/tab-session-store.test.js tests/device-emulation-lifecycle.test.js tests/background-marking-activation.test.js tests/tab-isolation-hardening.test.js tests/storage-access-boundary.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 50 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 9 tab-session-store migration:

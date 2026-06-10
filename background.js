@@ -113,8 +113,11 @@ import {
 import { getGlobalAiSettings } from "./common/settings-store.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
+  getTabState as getStoredTabState,
   getTabStateKey,
-  parseTabStateStorageKey
+  parseTabStateStorageKey,
+  queueTabSessionWrite,
+  setTabState as setStoredTabState
 } from "./background/tab-session-store.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
@@ -4095,8 +4098,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const scope = typeof message.scope === "string" && message.scope ? message.scope : null;
-    utils.getTabState(tabId, scope)
-      .then((existingState) => {
+    queueTabSessionWrite(tabId, async () => {
+        const existingState = await getStoredTabState(tabId, scope);
         const existing = existingState && typeof existingState === "object"
           ? existingState
           : {};
@@ -4174,16 +4177,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             nextState.pageType = typeof message.pageType === "string" ? message.pageType : "";
           }
         }
-        return utils.setTabState(tabId, nextState, scope)
-          .then(() => {
-            if (scope) {
-              return;
-            }
-            // Per the editor-mobile-only contract, marking enabled state does
-            // not survive a navigation/refresh. Skip mirroring into the reload
-            // restore scope; always clear any stale restore entry instead.
-            return clearReloadRestoreTabState(tabId);
-          });
+        await setStoredTabState(tabId, nextState, scope, { skipQueue: true });
+        if (scope) {
+          return;
+        }
+        // Per the editor-mobile-only contract, marking enabled state does
+        // not survive a navigation/refresh. Skip mirroring into the reload
+        // restore scope; always clear any stale restore entry instead.
+        await clearReloadRestoreTabState(tabId);
       })
       .then(() => {
         utils.updateActionForTab(tabId).then();
