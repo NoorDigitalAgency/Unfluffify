@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 1 complete)
+Implementation status: IN_PROGRESS (Track A Phase 2 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -52,7 +52,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 
 1. Phase 0 - Baseline + boundary guard test: DONE.
 2. Phase 1 - command-ledger module: DONE.
-3. Phase 2 - live-page-client module: TODO.
+3. Phase 2 - live-page-client module: DONE.
 4. Phase 3 - network-core module: TODO.
 5. Phase 4 - remote-network module: TODO.
 6. Phase 5 - remote-config-sync module: TODO.
@@ -165,12 +165,19 @@ Phase 1 - command-ledger module:
    Focused: node --test tests/command-ledger.test.js tests/background-command-hardening.test.js tests/background-decomposition-boundary.test.js -> 7 pass / 0 fail
    Full:    npm test -> 762 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  84adabe refactor(background): extract command ledger redaction
+
+Phase 2 - live-page-client module:
+   Files:   background/live-page-client.js; background.js; tests/live-page-client.test.js; tests/selector-suppression.test.js; tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/live-page-client.test.js tests/selector-suppression.test.js tests/background-decomposition-boundary.test.js -> 24 pass / 0 fail
+   Full:    npm test -> 767 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 1 with:
-`refactor(background): extract command ledger redaction`, then proceed to Track A
-Phase 2 (live-page-client extraction). Do not start Track B until Track A is
+Commit and push Track A Phase 2 with:
+`refactor(background): extract live-page client`, then proceed to Track A
+Phase 3 (network-core extraction). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

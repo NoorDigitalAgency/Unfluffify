@@ -27,6 +27,7 @@ function assertBackgroundDoesNotDefine(functionName) {
 test("background decomposition guard: baseline background modules are imported", () => {
   assertImportsBackgroundModule("command-router");
   assertImportsBackgroundModule("command-ledger");
+  assertImportsBackgroundModule("live-page-client");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -37,4 +38,8 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("summarizeLargeString");
   assertBackgroundDoesNotDefine("redactCommandPayloadValueForLedger");
   assertBackgroundDoesNotDefine("redactCommandPayloadForLedger");
+  assertBackgroundDoesNotDefine("resolveLivePageSiteId");
+  assertBackgroundDoesNotDefine("normalizeBaseUrlFromDomainName");
+  assertBackgroundDoesNotDefine("buildPropertyPageTypesSignature");
+  assertBackgroundDoesNotDefine("fetchLivePagePropertyPageTypes");
 });
