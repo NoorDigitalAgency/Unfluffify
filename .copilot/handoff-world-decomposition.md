@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B6 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B7 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -73,8 +73,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 5. Phase B4 - popup/render-mode-inspection.js: DONE.
 6. Phase B5 - popup/page-reconciliation.js: DONE.
 7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): DONE.
-8. Phase B7 - popup/remote-support-ui.js: IN_PROGRESS.
-9. Phase B8 - popup/timers.js (hardening): TODO.
+8. Phase B7 - popup/remote-support-ui.js: DONE.
+9. Phase B8 - popup/timers.js (hardening): IN_PROGRESS.
 
 ### Track C — Content (peripheral only) — starts after Track B is merged
 
@@ -291,12 +291,18 @@ Phase B6 - property lock UI extraction:
    Focused: node --test tests/popup-property-lock-ui.test.js tests/popup-decomposition-boundary.test.js tests/property-lock.test.js tests/property-lock-render-mode.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 98 pass / 0 fail
    Full:    npm test -> 828 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  1dbd3a2 refactor(popup): extract property lock UI
+
+Phase B7 - remote support UI extraction:
+   Files:   popup/remote-support-ui.js; popup.js; tests/popup-remote-support-ui.test.js; tests/popup-decomposition-boundary.test.js
+   Focused: node --test tests/popup-remote-support-ui.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 65 pass / 0 fail
+   Full:    npm test -> 832 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B6 with:
-`refactor(popup): extract property lock UI`, then proceed to Track B Phase B7
-(`popup/remote-support-ui.js`). Do not start Track C until Track B is complete
-and merged.
+Commit and push Track B Phase B7 with:
+`refactor(popup): extract remote support UI`, then proceed to Track B Phase B8
+(`popup/timers.js`). Do not start Track C until Track B is complete and merged.

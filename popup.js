@@ -147,6 +147,12 @@ import {
   syncPropertyLockOffCandidateRefreshTimer as syncPropertyLockOffCandidateRefreshTimerOperation
 } from "./popup/property-lock-ui.js";
 import {
+  handleRemoteSupportJoin as handleRemoteSupportJoinOperation,
+  handleRemoteSupportJoinCodeInput as handleRemoteSupportJoinCodeInputOperation,
+  handleRemoteSupportRequest as handleRemoteSupportRequestOperation,
+  syncRemoteSupportViewState as syncRemoteSupportViewStateOperation
+} from "./popup/remote-support-ui.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -305,6 +311,40 @@ const sendPropertyLockCommand = (type, payload = {}) =>
   sendPropertyLockCommandOperation(getPropertyLockUiDeps(), type, payload);
 const reconcilePropertyLockAfterCommand = (options = {}) =>
   reconcilePropertyLockAfterCommandOperation(getPropertyLockUiDeps(), options);
+
+function getRemoteSupportUiDeps() {
+  return {
+    PopupText,
+    REMOTE_SUPPORT_DOCK_STATE_EMBEDDED,
+    shouldBlockRemoteSupportFeature,
+    scopeRemoteSupportStateToTab,
+    buildRemoteSupportStatusText,
+    normalizeRemoteSupportDockState,
+    formatRemoteSupportCountdown,
+    stopRemoteSupportCameraMediaStreams,
+    requireRemoteSupportSetup,
+    sendRuntimeMessage: (payload) => messages.sendRuntimeMessage(payload),
+    refreshUi: (options) => refreshUi(options),
+    getViewState: () => uiModule.getViewState(),
+    setViewState: (viewState) => {
+      uiModule.setViewState(viewState);
+    },
+    showToast: (message) => {
+      uiModule.showToast(message);
+    },
+    syncRemoteSupportViewState: (remoteSupportState) =>
+      syncRemoteSupportViewState(remoteSupportState)
+  };
+}
+
+const syncRemoteSupportViewState = (remoteSupportState = null) =>
+  syncRemoteSupportViewStateOperation(getRemoteSupportUiDeps(), remoteSupportState);
+const handleRemoteSupportRequest = () =>
+  handleRemoteSupportRequestOperation(getRemoteSupportUiDeps());
+const handleRemoteSupportJoinCodeInput = (event) =>
+  handleRemoteSupportJoinCodeInputOperation(getRemoteSupportUiDeps(), event);
+const handleRemoteSupportJoin = () =>
+  handleRemoteSupportJoinOperation(getRemoteSupportUiDeps());
 
 const TOKEN_VALIDATION_INTERVAL_MS = 600 * 1000;
 const POPUP_BUSY_OVERLAY_DELAY_MS = 180;
@@ -5017,50 +5057,6 @@ function shouldBlockRemoteSupportFeature() {
   return true;
 }
 
-function syncRemoteSupportViewState(remoteSupportState = null) {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const currentTabId = state.currentTab && Number.isFinite(state.currentTab.id)
-    ? state.currentTab.id
-    : null;
-  const nextState = scopeRemoteSupportStateToTab(remoteSupportState, currentTabId);
-  const statusText = buildRemoteSupportStatusText(nextState);
-  uiModule.setViewState({
-    remoteSupportSessionActive: Boolean(nextState.active),
-    remoteSupportMode: nextState.mode || "inactive",
-    remoteSupportRole: nextState.role || "",
-    remoteSupportRequested: Boolean(nextState.supportCode),
-    remoteSupportCode: nextState.supportCode || "",
-    remoteSupportConnected: Boolean(nextState.connected),
-    remoteSupportStreaming: Boolean(nextState.streaming),
-    remoteSupportCameraAvailable: Boolean(nextState.supporteeCameraAvailable),
-    remoteSupportCameraEnabled: Boolean(nextState.supporteeCameraEnabled),
-    remoteSupportMicrophoneAvailable: Boolean(nextState.supporteeMicrophoneAvailable),
-    remoteSupportMicrophoneEnabled: Boolean(nextState.supporteeMicrophoneEnabled),
-    remoteSupportSoundAvailable: Boolean(nextState.supporteeAudioAvailable),
-    remoteSupportSoundEnabled: Boolean(nextState.supporteeAudioEnabled),
-    remoteSupportDockState: normalizeRemoteSupportDockState(nextState.dockState),
-    remoteSupportLocalCameraActive: Boolean(state.remoteSupportLocalCameraActive),
-    remoteSupportRemoteCameraActive: Boolean(state.remoteSupportRemoteCameraActive),
-    remoteSupportPreviewImage: Boolean(nextState.active) ? state.remoteSupportLastFrame || "" : "",
-    remoteSupportStatusText: statusText,
-    remoteSupportInactivityCountdownActive: Boolean(nextState.inactivityCountdownActive),
-    remoteSupportInactivitySecondsRemaining: Math.max(0, Math.trunc(Number(nextState.inactivitySecondsRemaining) || 0)),
-    remoteSupportInactivityCountdownText: formatRemoteSupportCountdown(nextState.inactivitySecondsRemaining),
-    remoteSupportError: nextState.error || ""
-  });
-  if (!nextState.active) {
-    state.remoteSupportLocalCameraActive = false;
-    state.remoteSupportRemoteCameraActive = false;
-    stopRemoteSupportCameraMediaStreams();
-    uiModule.setViewState({
-      remoteSupportLocalCameraActive: false,
-      remoteSupportRemoteCameraActive: false,
-      remoteSupportDockState: REMOTE_SUPPORT_DOCK_STATE_EMBEDDED
-    });
-  }
-}
 
 function stopMediaStreamTracks(stream) {
   if (!stream || typeof stream.getTracks !== "function") {
@@ -5237,80 +5233,6 @@ async function requireRemoteSupportSetup() {
     return null;
   }
   return { tokenValue, configEndpointValue };
-}
-
-async function handleRemoteSupportRequest() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  uiModule.setViewState({ remoteSupportRequestLoading: true });
-  try {
-    const setup = await requireRemoteSupportSetup();
-    if (!setup || !state.currentTab || !state.currentTab.id) {
-      return;
-    }
-    const response = await messages.sendRuntimeMessage({
-      type: "remoteSupportRequestCode",
-      endpointValue: setup.configEndpointValue,
-      tokenValue: setup.tokenValue,
-      tabId: state.currentTab.id,
-      pageUrl: state.currentTab.url || ""
-    });
-    if (!response || !response.ok) {
-      uiModule.showToast((response && response.error) || "Unable to request support code");
-      return;
-    }
-    state.remoteSupportState = response.state || null;
-    syncRemoteSupportViewState(state.remoteSupportState);
-    await refreshUi();
-  } finally {
-    uiModule.setViewState({ remoteSupportRequestLoading: false });
-  }
-}
-
-function handleRemoteSupportJoinCodeInput(event) {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  const value = event && event.target && typeof event.target.value === "string"
-    ? event.target.value.trim().toUpperCase()
-    : "";
-  state.remoteSupportJoinCode = value;
-  uiModule.setViewState({ remoteSupportJoinCode: value });
-}
-
-async function handleRemoteSupportJoin() {
-  if (shouldBlockRemoteSupportFeature()) {
-    return;
-  }
-  uiModule.setViewState({ remoteSupportJoinLoading: true });
-  try {
-    const setup = await requireRemoteSupportSetup();
-    if (!setup || !state.currentTab || !state.currentTab.id) {
-      return;
-    }
-    const supportCode = (uiModule.getViewState().remoteSupportJoinCode || "").trim();
-    if (!supportCode) {
-      uiModule.showToast(PopupText.configuration.remoteSupportJoinCodePlaceholder);
-      return;
-    }
-    const response = await messages.sendRuntimeMessage({
-      type: "remoteSupportJoin",
-      endpointValue: setup.configEndpointValue,
-      tokenValue: setup.tokenValue,
-      tabId: state.currentTab.id,
-      supportCode
-    });
-    if (!response || !response.ok) {
-      uiModule.showToast((response && response.error) || "Unable to join support session");
-      return;
-    }
-    state.remoteSupportState = response.state || null;
-    syncRemoteSupportViewState(state.remoteSupportState);
-    await refreshUi();
-  } finally {
-    uiModule.setViewState({ remoteSupportJoinLoading: false });
-  }
 }
 
 async function setRemoteSupportDockState(dockState) {
