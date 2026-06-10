@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 11 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B pending)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -62,7 +62,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): DONE.
 11. Phase 10 - async error reporting (hardening): DONE.
 12. Phase 11 - per-tab state consolidation (hardening): DONE.
-13. Phase 12 - managed timeouts (hardening, optional last): TODO.
+13. Phase 12 - managed timeouts (hardening, optional last): DONE.
 
 ### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
 
@@ -235,12 +235,19 @@ Phase 11 - per-tab state consolidation (hardening):
    Focused: node --test tests/background-tab-state.test.js tests/background-decomposition-boundary.test.js tests/tab-isolation-hardening.test.js tests/page-motion-bridge-isolation.test.js tests/world-trace-contract.test.js -> 21 pass / 0 fail
    Full:    npm test -> 795 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  835750b refactor(background): consolidate per-tab state ownership
+
+Phase 12 - managed timeouts (hardening):
+   Files:   background/managed-timeouts.js; background/render-mode-inspector.js; background/ai-run-orchestrator.js; background.js; tests/background-managed-timeouts.test.js; tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/background-managed-timeouts.test.js tests/render-mode-inspector.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/ai-run-orchestrator.test.js tests/ai-run.test.js tests/background-decomposition-boundary.test.js -> 34 pass / 0 fail
+   Full:    npm test -> 798 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 11 with:
-`refactor(background): consolidate per-tab state ownership`, then proceed to Track A
-Phase 12 (managed timeouts hardening). Do not start Track B until Track A is
-complete and merged; do not start Track C until Track B is complete and merged.
+Commit and push Track A Phase 12 with:
+`refactor(background): add managed timeout groups`, then begin Track B Phase B0
+(popup baseline + boundary guard). Do not start Track C until Track B is
+complete and merged.

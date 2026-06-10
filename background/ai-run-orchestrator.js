@@ -23,8 +23,16 @@ function defaultIsPageWithinBaseUrl() {
   return false;
 }
 
-function defaultWaitForBackgroundRetryDelay() {
-  return Promise.resolve();
+function defaultCreateManagedTimeoutGroup() {
+  return {
+    set(fn, ms) {
+      return setTimeout(fn, ms);
+    },
+    clear(handle) {
+      clearTimeout(handle);
+    },
+    clearAll() {}
+  };
 }
 
 export function createAiRunOrchestrator(options = {}) {
@@ -105,9 +113,9 @@ export function createAiRunOrchestrator(options = {}) {
   const refineXPathEntries = typeof options.refineXPathEntries === "function"
     ? options.refineXPathEntries
     : (_renderedHtml, _rawHtml, renderedXPaths) => renderedXPaths;
-  const waitForBackgroundRetryDelay = typeof options.waitForBackgroundRetryDelay === "function"
-    ? options.waitForBackgroundRetryDelay
-    : defaultWaitForBackgroundRetryDelay;
+  const createManagedTimeoutGroup = typeof options.createManagedTimeoutGroup === "function"
+    ? options.createManagedTimeoutGroup
+    : defaultCreateManagedTimeoutGroup;
   const getAiRunResumeExpiresAt = typeof options.getAiRunResumeExpiresAt === "function"
     ? options.getAiRunResumeExpiresAt
     : () => Date.now() + 30_000;
@@ -414,6 +422,7 @@ export function createAiRunOrchestrator(options = {}) {
   }
 
   async function runAiCommandForTab(tabId, payload, update) {
+    const timeoutGroup = createManagedTimeoutGroup();
     const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
     const currentPageUrl = typeof payload?.currentPageUrl === "string"
       ? payload.currentPageUrl.trim()
@@ -552,7 +561,10 @@ export function createAiRunOrchestrator(options = {}) {
 
       while (Date.now() < deadlineAt) {
         const remainingMs = Math.max(0, deadlineAt - Date.now());
-        await waitForBackgroundRetryDelay(Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs));
+        const pollDelayMs = Math.min(aiRunPollIntervalMs, remainingMs || aiRunPollIntervalMs);
+        await new Promise((resolve) => {
+          timeoutGroup.set(resolve, pollDelayMs);
+        });
         if (siteId) {
           const heartbeat = await refreshAiRunHeartbeat({
             tabId,
@@ -649,6 +661,7 @@ export function createAiRunOrchestrator(options = {}) {
         error: "AI run timed out"
       };
     } finally {
+      timeoutGroup.clearAll();
       await clearPersistedAiRunRecord().catch(() => null);
       if (initialLockSet) {
         await setAiComputeLockForTab(tabId, false, 0, baseUrl).catch(() => null);

@@ -47,6 +47,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("ai-run-orchestrator");
   assertImportsBackgroundModule("async-tasks");
   assertImportsBackgroundModule("background-tab-state");
+  assertImportsBackgroundModule("managed-timeouts");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");

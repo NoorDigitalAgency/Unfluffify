@@ -12,6 +12,18 @@ function defaultWaitForBackgroundRetryDelay() {
 
 function defaultUpdateTabRuntime() {}
 
+function defaultCreateManagedTimeoutGroup() {
+  return {
+    set(fn, ms) {
+      return setTimeout(fn, ms);
+    },
+    clear(handle) {
+      clearTimeout(handle);
+    },
+    clearAll() {}
+  };
+}
+
 export function createRenderModeInspector(options = {}) {
   const sendContentMessageToTab = typeof options.sendContentMessageToTab === "function"
     ? options.sendContentMessageToTab
@@ -25,6 +37,9 @@ export function createRenderModeInspector(options = {}) {
   const updateTabRuntime = typeof options.updateTabRuntime === "function"
     ? options.updateTabRuntime
     : defaultUpdateTabRuntime;
+  const createManagedTimeoutGroup = typeof options.createManagedTimeoutGroup === "function"
+    ? options.createManagedTimeoutGroup
+    : defaultCreateManagedTimeoutGroup;
   const startTimeoutMs = Number.isFinite(options.startTimeoutMs) && options.startTimeoutMs > 0
     ? Math.trunc(options.startTimeoutMs)
     : 8000;
@@ -44,13 +59,15 @@ export function createRenderModeInspector(options = {}) {
       return false;
     }
     return new Promise((resolve) => {
+      const timeoutGroup = createManagedTimeoutGroup();
       let settled = false;
       const finish = (value) => {
         if (settled) {
           return;
         }
         settled = true;
-        clearTimeout(timeoutId);
+        timeoutGroup.clear(timeoutId);
+        timeoutGroup.clearAll();
         chrome.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
@@ -65,7 +82,7 @@ export function createRenderModeInspector(options = {}) {
           finish(true);
         }
       };
-      const timeoutId = setTimeout(() => {
+      const timeoutId = timeoutGroup.set(() => {
         finish(false);
       }, timeoutMs);
       chrome.tabs.onUpdated.addListener(onUpdated);
@@ -91,6 +108,7 @@ export function createRenderModeInspector(options = {}) {
     }
     const awaitNextLoad = Boolean(options && options.awaitNextLoad);
     return new Promise((resolve) => {
+      const timeoutGroup = createManagedTimeoutGroup();
       let settled = false;
       let sawLoading = !awaitNextLoad;
 
@@ -99,7 +117,8 @@ export function createRenderModeInspector(options = {}) {
           return;
         }
         settled = true;
-        clearTimeout(timeoutId);
+        timeoutGroup.clear(timeoutId);
+        timeoutGroup.clearAll();
         chrome.tabs.onUpdated.removeListener(onUpdated);
         resolve(Boolean(value));
       };
@@ -117,7 +136,7 @@ export function createRenderModeInspector(options = {}) {
         }
       };
 
-      const timeoutId = setTimeout(() => {
+      const timeoutId = timeoutGroup.set(() => {
         finish(false);
       }, timeoutMs);
 

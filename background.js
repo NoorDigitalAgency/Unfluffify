@@ -138,6 +138,7 @@ import { createPopupStateBroker } from "./background/popup-state-broker.js";
 import { createRenderModeInspector } from "./background/render-mode-inspector.js";
 import { createAiRunOrchestrator } from "./background/ai-run-orchestrator.js";
 import { runBackgroundTask } from "./background/async-tasks.js";
+import { createManagedTimeoutGroup } from "./background/managed-timeouts.js";
 import {
   aiComputeLockExpiresAtByTabId,
   disposeTabState,
@@ -420,6 +421,7 @@ const renderModeInspector = createRenderModeInspector({
   ensureContentMainForTab,
   waitForBackgroundRetryDelay,
   updateTabRuntime,
+  createManagedTimeoutGroup,
   startTimeoutMs: RENDER_MODE_INSPECTION_START_TIMEOUT_MS,
   loadTimeoutMs: RENDER_MODE_INSPECTION_LOAD_TIMEOUT_MS
 });
@@ -457,12 +459,12 @@ const aiRunOrchestrator = createAiRunOrchestrator({
   setTabState: utils.setTabState,
   updateActionForTab: utils.updateActionForTab,
   refineXPathEntries,
-  waitForBackgroundRetryDelay,
   getAiRunResumeExpiresAt,
   configStore,
   defaultExcludedImmutableSelectors: constants.DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS,
   aiRunTimeoutMs: AI_RUN_TIMEOUT_MS,
-  aiRunPollIntervalMs: AI_RUN_POLL_INTERVAL_MS
+  aiRunPollIntervalMs: AI_RUN_POLL_INTERVAL_MS,
+  createManagedTimeoutGroup
 });
 const getAiRunCurrentPageEntry = aiRunOrchestrator.getAiRunCurrentPageEntry;
 const isAiRunCurrentPageSnapshotMissing = aiRunOrchestrator.isAiRunCurrentPageSnapshotMissing;
