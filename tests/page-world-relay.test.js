@@ -183,6 +183,54 @@ test("page-world relay rejects requests with nonce mismatch", async () => {
   });
 });
 
+test("page-world relay rejects responses with command mismatch", async () => {
+  await withRelayHarness({ installBridge: false }, async () => {
+    const onMessage = (event) => {
+      const data = event && event.data;
+      if (
+        !data
+        || data.channel !== PAGE_WORLD_RELAY_CHANNEL
+        || data.kind !== PAGE_WORLD_RELAY_MESSAGE_KINDS.REQUEST
+      ) {
+        return;
+      }
+
+      const responseCommand = data.command === PAGE_WORLD_COMMANDS.ARM
+        ? data.command
+        : PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED;
+
+      window.postMessage({
+        channel: PAGE_WORLD_RELAY_CHANNEL,
+        kind: PAGE_WORLD_RELAY_MESSAGE_KINDS.RESPONSE,
+        id: data.id,
+        nonce: data.nonce,
+        command: responseCommand,
+        ok: true,
+        result: {}
+      }, "*");
+    };
+
+    window.addEventListener("message", onMessage);
+    try {
+      await initializePageWorldRelay({ timeoutMs: 40 });
+      await assert.rejects(
+        requestPageWorldCommand(
+          PAGE_WORLD_COMMANDS.SET_LAZY_LOADING_SUPPRESSED,
+          { suppressed: true },
+          { timeoutMs: 40 }
+        ),
+        (error) => error
+          && error.code === "invalid_message"
+          && error.details
+          && error.details.expectedCommand === PAGE_WORLD_COMMANDS.SET_LAZY_LOADING_SUPPRESSED
+          && error.details.receivedCommand === PAGE_WORLD_COMMANDS.SET_MOTION_PAUSED
+      );
+    } finally {
+      window.removeEventListener("message", onMessage);
+    }
+  });
+});
+
 test("page-world relay initialization times out when bridge does not reply", async () => {
   await withRelayHarness({ installBridge: false }, async () => {
     await assert.rejects(

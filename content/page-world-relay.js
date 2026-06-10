@@ -87,6 +87,18 @@ function handleRelayMessage(event) {
     return;
   }
 
+  if (pending.command && data.command !== pending.command) {
+    pending.reject(createRelayError(
+      MESSAGE_ERROR_CODES.INVALID_MESSAGE,
+      "Page-world relay response command mismatch",
+      {
+        expectedCommand: pending.command,
+        receivedCommand: data.command
+      }
+    ));
+    return;
+  }
+
   if (data.ok) {
     pending.resolve(data.result && typeof data.result === "object" ? data.result : {});
     return;
@@ -151,7 +163,8 @@ function sendRelayRequest(command, payload = {}, options = {}) {
       resolve,
       reject,
       timer,
-      nonce: relaySession.nonce
+      nonce: relaySession.nonce,
+      command
     });
 
     try {
