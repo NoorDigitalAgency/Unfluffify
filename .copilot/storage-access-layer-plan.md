@@ -983,10 +983,11 @@ function queueConfigWrite(baseUrl, work) { ... }
 4. If `ensureConfig` writes defaults, ensure concurrent default creation does
    not overwrite a newer queued update.
 5. Add tests:
-   - two concurrent `updateConfig` calls on the same base URL preserve both
-     changes
-   - concurrent updates on different base URLs do not block each other longer
-     than necessary
+    - two concurrent `updateConfig` calls on the same base URL preserve both
+       changes
+    - concurrent updates on different base URLs preserve both final entries;
+       because configs are persisted as one IndexedDB object, final persistence
+       may serialize and merge each entry into the latest snapshot
    - normalization/merge tests still pass
 6. Do not alter page-marking merge precedence or timestamp behavior.
 

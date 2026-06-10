@@ -33,6 +33,7 @@ const SUBMITTED_SELECTORS_FINGERPRINT_FIELD = "submittedSelectorsFingerprint";
 const PAGE_SAVE_RECONCILIATIONS_KEY = "pageSaveReconciliations";
 const BACKEND_SAVED_PAGE_MARKINGS_KEY = "backendSavedPageMarkings";
 const configWriteQueueByBaseUrl = new Map();
+let configPersistenceQueue = Promise.resolve();
 export const PAGE_SAVE_RECONCILIATION_STATUS_PENDING = "pending";
 export const NON_BLOCKING_PAGE_SAVE_RECONCILIATION_REASONS = new Set([
   "",
@@ -1209,13 +1210,41 @@ export async function getConfigs() {
   return normalizedConfigs;
 }
 
-export async function saveConfigs(configs) {
+function normalizeConfigsForStorage(configs) {
   const normalizedConfigs = {};
   Object.entries(configs || {}).forEach(([key, value]) => {
     const normalizedKey = normalizeBaseUrl(key) || key;
     normalizedConfigs[normalizedKey] = normalizeConfig(normalizedKey, value).config;
   });
+  return normalizedConfigs;
+}
+
+async function saveConfigsDirect(configs) {
+  const normalizedConfigs = normalizeConfigsForStorage(configs);
   await idbSet({ configs: normalizedConfigs });
+}
+
+async function queueConfigPersistence(work) {
+  const next = configPersistenceQueue
+    .catch(() => {})
+    .then(work);
+  configPersistenceQueue = next;
+  return next;
+}
+
+export async function saveConfigs(configs) {
+  await queueConfigPersistence(() => saveConfigsDirect(configs));
+}
+
+async function saveConfigEntry(baseUrl, config) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl) || baseUrl;
+  return queueConfigPersistence(async () => {
+    const configs = await getConfigs();
+    const normalizedConfig = normalizeConfig(normalizedBaseUrl, config).config;
+    configs[normalizedBaseUrl] = normalizedConfig;
+    await saveConfigsDirect(configs);
+    return normalizedConfig;
+  });
 }
 
 function getConfigQueueKey(baseUrl) {
@@ -1248,14 +1277,11 @@ export async function ensureConfig(baseUrl) {
     const configs = await getConfigs();
     if (!configs[normalizedBaseUrl]) {
       const defaultConfig = createDefaultConfig(normalizedBaseUrl);
-      configs[normalizedBaseUrl] = defaultConfig;
-      await saveConfigs(configs);
-      return defaultConfig;
+      return saveConfigEntry(normalizedBaseUrl, defaultConfig);
     }
     const { config, changed } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     if (changed) {
-      configs[normalizedBaseUrl] = config;
-      await saveConfigs(configs);
+      return saveConfigEntry(normalizedBaseUrl, config);
     }
     return config;
   });
@@ -1267,8 +1293,6 @@ export async function updateConfig(baseUrl, updater) {
     const configs = await getConfigs();
     const { config } = normalizeConfig(normalizedBaseUrl, configs[normalizedBaseUrl]);
     updater(config);
-    configs[normalizedBaseUrl] = config;
-    await saveConfigs(configs);
-    return config;
+    return saveConfigEntry(normalizedBaseUrl, config);
   });
 }

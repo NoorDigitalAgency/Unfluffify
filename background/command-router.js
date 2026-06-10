@@ -9,8 +9,10 @@ import {
 const backgroundCommandHandlers = new Map();
 const TAB_ID_POLICIES = new Set([
   "message-or-sender",
+  "sender-or-message",
   "message",
-  "sender"
+  "sender",
+  "none"
 ]);
 
 function isNonEmptyString(value) {
@@ -114,24 +116,55 @@ function normalizeFrameId(message, sender) {
   return 0;
 }
 
-function normalizeTabId(message, sender, tabIdPolicy = "message-or-sender") {
-  const candidates = [];
-  if (tabIdPolicy === "message" || tabIdPolicy === "message-or-sender") {
-    candidates.push(message && message.tabId);
+function normalizePositiveTabId(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
   }
-  if (tabIdPolicy === "sender" || tabIdPolicy === "message-or-sender") {
-    candidates.push(sender && sender.tab && sender.tab.id);
+  const normalized = Math.trunc(numeric);
+  return normalized > 0 ? normalized : 0;
+}
+
+function resolveTabId(message, sender, tabIdPolicy = "message-or-sender") {
+  if (tabIdPolicy === "none") {
+    return { tabId: 0, tabIdSource: "none" };
   }
+  const messageTabId = normalizePositiveTabId(message && message.tabId);
+  const senderTabId = normalizePositiveTabId(sender && sender.tab && sender.tab.id);
+  const candidates = tabIdPolicy === "sender-or-message"
+    ? [
+        { tabId: senderTabId, tabIdSource: "sender" },
+        { tabId: messageTabId, tabIdSource: "message" }
+      ]
+    : tabIdPolicy === "sender"
+      ? [{ tabId: senderTabId, tabIdSource: "sender" }]
+      : tabIdPolicy === "message"
+        ? [{ tabId: messageTabId, tabIdSource: "message" }]
+        : [
+            { tabId: messageTabId, tabIdSource: "message" },
+            { tabId: senderTabId, tabIdSource: "sender" }
+          ];
   for (const candidate of candidates) {
-    const numeric = Number(candidate);
-    if (Number.isFinite(numeric)) {
-      const normalized = Math.trunc(numeric);
-      if (normalized > 0) {
-        return normalized;
-      }
+    if (candidate.tabId) {
+      return candidate;
     }
   }
-  return 0;
+  return { tabId: 0, tabIdSource: "none" };
+}
+
+function isSenderPolicyTabSpoofAttempt(message, sender, context) {
+  if (!context || context.policy !== "sender") {
+    return false;
+  }
+  if (context.source !== "content" && context.source !== "page") {
+    return false;
+  }
+  const messageTabId = normalizePositiveTabId(message && message.tabId);
+  if (!messageTabId) {
+    return false;
+  }
+  const senderTabId = normalizePositiveTabId(sender && sender.tab && sender.tab.id);
+  return !senderTabId || messageTabId !== senderTabId;
 }
 
 export function registerBackgroundCommand(type, handler) {
@@ -149,7 +182,10 @@ export function registerBackgroundCommand(type, handler) {
 }
 
 export function createCommandContext(message, sender, options = {}) {
-  const tabId = normalizeTabId(message, sender, options.tabIdPolicy);
+  const policy = TAB_ID_POLICIES.has(options.tabIdPolicy)
+    ? options.tabIdPolicy
+    : "message-or-sender";
+  const { tabId, tabIdSource } = resolveTabId(message, sender, policy);
   const frameId = normalizeFrameId(message, sender);
   const requestId = typeof message.id === "string" ? message.id : "";
   const source = isNonEmptyString(options.source)
@@ -160,6 +196,8 @@ export function createCommandContext(message, sender, options = {}) {
     sender,
     source,
     tabId,
+    tabIdSource,
+    policy,
     frameId,
     requestId,
     replyOk(result = {}) {
@@ -223,6 +261,18 @@ export async function dispatchBackgroundCommand(message, sender, options = {}) {
         type: message.type,
         source: context.source,
         requestedSource: normalizeMessageSource(message)
+      }
+    ));
+  }
+
+  if (isSenderPolicyTabSpoofAttempt(message, sender, context)) {
+    return notifyDispatched(options, context, context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_MESSAGE,
+      "Sender-scoped command cannot use message tab id",
+      {
+        type: message.type,
+        source: context.source,
+        tabIdSource: context.tabIdSource
       }
     ));
   }

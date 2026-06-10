@@ -170,7 +170,7 @@ test("concurrent updateConfig calls on the same base URL preserve both updates",
   });
 });
 
-test("concurrent updateConfig calls on different base URLs can proceed independently", async () => {
+test("concurrent updateConfig calls on different base URLs preserve both updates", async () => {
   const baseA = "https://queue-a.example";
   const baseB = "https://queue-b.example";
   const holdBaseASet = createDeferred();
@@ -188,7 +188,7 @@ test("concurrent updateConfig calls on different base URLs can proceed independe
   });
 
   await withNonExtensionRuntime(bridge.chromeMock, async () => {
-    const { updateConfig } = await loadConfigModule();
+    const { getConfigs, updateConfig } = await loadConfigModule();
 
     const first = updateConfig(baseA, (config) => {
       config.siteId = 1;
@@ -198,20 +198,16 @@ test("concurrent updateConfig calls on different base URLs can proceed independe
     });
 
     await waitFor(
-      () => bridge.calls.some((call) => {
-        if (call.type !== "idbSet:start") {
-          return false;
-        }
-        const configs = call.items && call.items.configs && typeof call.items.configs === "object"
-          ? call.items.configs
-          : {};
-        return Object.prototype.hasOwnProperty.call(configs, baseB);
-      }),
-      "base B write to start while base A is delayed"
+      () => bridge.calls.some((call) => call.type === "idbSet:start"),
+      "base A write to start"
     );
 
     holdBaseASet.resolve();
     await Promise.all([first, second]);
+
+    const configs = await getConfigs();
+    assert.equal(configs[baseA].siteId, 1);
+    assert.equal(configs[baseB].siteId, 2);
   });
 });
 

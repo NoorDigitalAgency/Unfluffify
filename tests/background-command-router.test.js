@@ -77,7 +77,7 @@ test("command registration can enforce allowed sources", async () => {
   assert.equal(reply.code, "invalid_message");
 });
 
-test("content commands can resolve tab id from sender instead of message", async () => {
+test("content commands can resolve tab id from sender instead of matching message tab", async () => {
   registerBackgroundCommand(
     "CONTENT_SENDER_TAB",
     async (context) => ({ resolvedTabId: context.tabId }),
@@ -92,6 +92,64 @@ test("content commands can resolve tab id from sender instead of message", async
     createEnvelope({
       type: "CONTENT_SENDER_TAB",
       source: "content",
+      tabId: 6207
+    }),
+    {
+      tab: { id: 6207 }
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 6207);
+});
+
+test("content sender-policy commands reject spoofed message tab ids", async () => {
+  registerBackgroundCommand(
+    "CONTENT_SENDER_TAB_STRICT",
+    async () => ({ ok: true }),
+    {
+      allowedSources: ["content"],
+      tabIdPolicy: "sender",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "CONTENT_SENDER_TAB_STRICT",
+      source: "content",
+      tabId: 9991
+    }),
+    {
+      tab: { id: 6207 }
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, false);
+  assert.equal(reply.code, "invalid_message");
+});
+
+test("sender-or-message policy prefers sender tab and records policy metadata", async () => {
+  registerBackgroundCommand(
+    "SENDER_OR_MESSAGE",
+    async (context) => ({
+      resolvedTabId: context.tabId,
+      tabIdSource: context.tabIdSource,
+      policy: context.policy
+    }),
+    {
+      allowedSources: ["content"],
+      tabIdPolicy: "sender-or-message",
+      requireTab: true
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "SENDER_OR_MESSAGE",
+      source: "content",
       tabId: 9991
     }),
     {
@@ -102,6 +160,39 @@ test("content commands can resolve tab id from sender instead of message", async
 
   assert.equal(reply.ok, true);
   assert.equal(reply.result.resolvedTabId, 6207);
+  assert.equal(reply.result.tabIdSource, "sender");
+  assert.equal(reply.result.policy, "sender-or-message");
+});
+
+test("none tab policy treats commands as unscoped", async () => {
+  registerBackgroundCommand(
+    "UNTABBED",
+    async (context) => ({
+      resolvedTabId: context.tabId,
+      tabIdSource: context.tabIdSource,
+      policy: context.policy
+    }),
+    {
+      allowedSources: ["popup"],
+      tabIdPolicy: "none"
+    }
+  );
+
+  const reply = await dispatchBackgroundCommand(
+    createEnvelope({
+      type: "UNTABBED",
+      tabId: 8801
+    }),
+    {
+      url: "chrome-extension://test-id/popup.html"
+    },
+    { requireTabForTypes: new Set() }
+  );
+
+  assert.equal(reply.ok, true);
+  assert.equal(reply.result.resolvedTabId, 0);
+  assert.equal(reply.result.tabIdSource, "none");
+  assert.equal(reply.result.policy, "none");
 });
 
 test("popup-only command rejects content sender spoofing popup source", async () => {

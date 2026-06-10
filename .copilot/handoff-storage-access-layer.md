@@ -62,6 +62,8 @@ As of this handoff:
 27. `common/utilities.js::disableExtensionForTab` now delegates live tab-state and script-injected cleanup to tab-session-store helpers instead of constructing/removing session keys directly.
 28. `tests/storage-access-boundary.test.js` now keeps the current Chrome storage migration-debt bucket empty; new production raw storage access must live in an approved storage/domain module.
 29. Residual page-local `localStorage` / `sessionStorage` usage remains separately tracked and out of scope for the Chrome storage phase.
+30. Post-review hardening fixed the config cross-base lost-update race by merging queued entry writes into the latest stored configs snapshot before whole-object persistence.
+31. Post-review hardening completed the command-router policy surface for `sender-or-message`, `none`, `tabIdSource`, and `policy` context metadata.
 
 ## Review Findings To Fix First
 
@@ -231,6 +233,20 @@ Focused result:
 Full-suite result:
 
 1. 755 passed.
+2. 0 failed.
+
+Focused validation executed for post-review config queue and command-router policy hardening:
+
+1. `node --test tests/config-store-queue.test.js tests/background-command-router.test.js tests/background-command-hardening.test.js tests/tab-isolation-hardening.test.js`
+
+Focused result:
+
+1. 27 passed.
+2. 0 failed.
+
+Full-suite result:
+
+1. 758 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 12 strict boundary enforcement slice:
