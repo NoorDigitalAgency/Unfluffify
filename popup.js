@@ -2019,8 +2019,7 @@ function resetAiRunMarkingsFingerprint() {
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
-    lookupUrl = "",
-    tokenValue = ""
+    lookupUrl = ""
   } = options;
   const normalizedStageBase = normalizeStageBase(stageBase);
   if (!normalizedStageBase || !lookupUrl) {
@@ -2030,8 +2029,7 @@ async function resolveSiteIdFromGraphql(options = {}) {
     const response = await messages.sendRuntimeMessage({
       type: "resolveLivePageSiteId",
       stageBase: normalizedStageBase,
-      pageUrl: lookupUrl,
-      tokenValue
+      pageUrl: lookupUrl
     });
     if (!response || !response.ok) {
       return { ok: false, siteId: null, baseUrl: "", notFound: false };

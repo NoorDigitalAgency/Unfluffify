@@ -2097,8 +2097,7 @@ async function loadGlobalAiSettingsForContent() {
 async function resolveSiteIdFromGraphql(options = {}) {
   const {
     stageBase = "",
-    pageUrl = "",
-    tokenValue = ""
+    pageUrl = ""
   } = options;
   if (!stageBase || !pageUrl) {
     return null;
@@ -2108,8 +2107,7 @@ async function resolveSiteIdFromGraphql(options = {}) {
     response = await utils.sendRuntimeMessage({
       type: "resolveLivePageSiteId",
       stageBase,
-      pageUrl,
-      tokenValue
+      pageUrl
     });
   } catch (error) {
     return null;

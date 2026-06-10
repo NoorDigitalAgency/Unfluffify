@@ -23,6 +23,11 @@ test("core render path and silent highlighting both honor selector suppression x
 
 test("content-main routes live-page GraphQL lookups through background runtime messages", () => {
   const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
+  const resolveSiteIdStart = contentSource.indexOf("async function resolveSiteIdFromGraphql(options = {}) {");
+  const resolveSiteIdEnd = contentSource.indexOf("function extractUrlPathAndHostname", resolveSiteIdStart);
+  assert.ok(resolveSiteIdStart > -1);
+  assert.ok(resolveSiteIdEnd > resolveSiteIdStart);
+  const resolveSiteIdBlock = contentSource.slice(resolveSiteIdStart, resolveSiteIdEnd);
   const fetchPageTypesStart = contentSource.indexOf("async function fetchPropertyPageTypesForSiteId(siteId, stageBaseValue, tokenValue) {");
   const fetchPageTypesEnd = contentSource.indexOf("async function resolveCurrentLivePageTarget", fetchPageTypesStart);
   assert.ok(fetchPageTypesStart > -1);
@@ -37,6 +42,7 @@ test("content-main routes live-page GraphQL lookups through background runtime m
     contentSource,
     /async function resolveSiteIdFromGraphql\(options = \{\}\) \{[\s\S]*?fetch\(/
   );
+  assert.doesNotMatch(resolveSiteIdBlock, /utils\.sendRuntimeMessage\(\{[\s\S]*?tokenValue[\s\S]*?\}\);/);
   assert.match(
     contentSource,
     /async function fetchPropertyPageTypesForSiteId\(siteId, stageBaseValue, tokenValue\) \{[\s\S]*?utils\.sendRuntimeMessage\(\{[\s\S]*?type: "fetchLivePagePropertyPageTypes"/
@@ -72,6 +78,7 @@ test("background owns the live-page GraphQL transport handlers", () => {
   assert.match(backgroundSource, /if \(message\.type === "resolveLivePageSiteId"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "fetchLivePagePropertyPageTypes"\) \{/);
   assert.match(popupResolveBlock, /type: "resolveLivePageSiteId"/);
+  assert.doesNotMatch(popupResolveBlock, /tokenValue/);
   assert.doesNotMatch(popupResolveBlock, /fetch\(|URL_SEARCH_INFO_QUERY|maybeUpdateStoredTokenFromResponse/);
   assert.doesNotMatch(popupSource, /function normalizeBaseUrlFromDomainName/);
   assert.match(popupFetchBlock, /type: "fetchLivePagePropertyPageTypes"/);

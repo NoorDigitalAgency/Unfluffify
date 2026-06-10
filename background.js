@@ -3479,9 +3479,14 @@ installExtensionTelemetry({
 console.info("Unfluffify background worker ready");
 
 async function resolveLivePageSiteId(options = {}) {
-  const stageBase = typeof options.stageBase === "string" ? options.stageBase : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    stageBase: options.stageBase,
+    tokenValue: options.tokenValue,
+    endpointPreference: "ai"
+  });
+  const stageBase = credentials.stageBaseValue;
   const pageUrl = typeof options.pageUrl === "string" ? options.pageUrl.trim() : "";
-  const tokenValue = typeof options.tokenValue === "string" ? options.tokenValue.trim() : "";
+  const tokenValue = credentials.tokenValue;
   const graphqlEndpoint = buildGraphqlEndpointFromStageBase(stageBase);
   if (!graphqlEndpoint || !pageUrl) {
     return { ok: false, siteId: null };
@@ -4389,8 +4394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "resolveLivePageSiteId") {
     resolveLivePageSiteId({
       stageBase: message.stageBase,
-      pageUrl: message.pageUrl,
-      tokenValue: message.tokenValue
+      pageUrl: message.pageUrl
     })
       .then((result) => {
         sendResponse(result || { ok: false, siteId: null });

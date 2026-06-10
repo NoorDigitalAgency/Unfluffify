@@ -166,7 +166,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation after Phase 8 second-slice implementation:
+Last known validation after Phase 8 non-popup caller slice implementation:
 
 ```bash
 npm test
@@ -174,7 +174,7 @@ npm test
 
 Result:
 
-1. 741 tests passed.
+1. 742 tests passed.
 2. 0 failed.
 
 Focused validation executed for Phase 8 non-popup caller slice:
