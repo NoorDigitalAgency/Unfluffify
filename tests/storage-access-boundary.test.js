@@ -16,7 +16,7 @@ const EXCLUDED_PATH_PREFIXES = [
 ];
 
 const JS_FILE_PATTERN = /\.(?:c|m)?js$/i;
-const STORAGE_ACCESS_PATTERN = /(chrome\.storage\.|utils\.storage(?:Get|Set|Remove)\(|\bstorage(?:Get|Set|Remove)\()/;
+const STORAGE_ACCESS_PATTERN = /(chrome\.storage\.|utils\.storage(?:Get|Set|Remove|Clear)\(|\bstorage(?:Get|Set|Remove|Clear)\()/;
 const PAGE_LOCAL_STORAGE_PATTERN = /\bwindow\.(?:localStorage|sessionStorage)\b/;
 
 function toRepoPath(absolutePath) {

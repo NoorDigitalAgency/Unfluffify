@@ -348,7 +348,7 @@ Steps:
 5. Run baseline tests:
    - `npm test`
 6. Run focused authority/storage discovery commands:
-   - `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove)|localStorage|sessionStorage|storage\.onChanged' .`
+   - `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove|Clear)|localStorage|sessionStorage|storage\.onChanged' .`
    - `rg -n --glob '!.tmp/**' 'registerBackgroundCommand|dispatchBackgroundCommand|getMessageTabId|maybeGetCommandPayloadForLedger' background.js background/command-router.js background/tab-runtime.js`
 7. If any baseline test fails before edits, stop and update
    `.copilot/handoff-storage-access-layer.md` before implementation.
@@ -1013,7 +1013,7 @@ Files to edit:
 Implementation steps:
 
 1. Run:
-   - `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove)|storage\.onChanged' .`
+   - `rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove|Clear)|storage\.onChanged' .`
 2. For each remaining raw call, classify:
    - approved storage module
    - test fixture
@@ -1073,7 +1073,7 @@ Each implementation commit must include:
 Use these when resuming or auditing progress.
 
 ```bash
-rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove)|storage\.onChanged' .
+rg -n --glob '!.tmp/**' 'chrome\.storage|utils\.storage(Get|Set|Remove|Clear)|storage\.onChanged' .
 rg -n --glob '!.tmp/**' 'localStorage|sessionStorage' .
 rg -n --glob '!.tmp/**' 'globalToken|globalEndpoint|globalConfigEndpoint|globalStageBase|tokenValue|password' .
 rg -n --glob '!.tmp/**' 'remote-config-|payloadKey|buildRemoteConfigPayloadKey|sweepStaleTransferPayloads' .
