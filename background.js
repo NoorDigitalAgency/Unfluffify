@@ -1857,6 +1857,7 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
     dispatch
       .then((reply) => {
         recordBackgroundCommandLedger(message, sender, reply, startedAt);
+        sendResponse(undefined);
       })
       .catch((error) => {
         const reply = createFailureEnvelope(
@@ -1865,8 +1866,9 @@ function handleBackgroundCommandEnvelope(message, sender, sendResponse) {
           (error && error.message) || "Background command failed"
         );
         recordBackgroundCommandLedger(message, sender, reply, startedAt);
+        sendResponse(undefined);
       });
-    return false;
+    return true;
   }
 
   dispatch
