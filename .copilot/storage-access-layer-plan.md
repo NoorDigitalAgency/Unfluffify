@@ -1,9 +1,9 @@
 # Storage Access Layer Refactor Plan
 
 Last updated: 2026-06-10
-Status: READY FOR IMPLEMENTATION
-Scope: architectural refactor plan only; no implementation has started in this
-document commit.
+Status: IMPLEMENTED
+Scope: completed architectural refactor plan; future work should keep the
+strict Chrome storage boundary test passing.
 
 ## Purpose
 

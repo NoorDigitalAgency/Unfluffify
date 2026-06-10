@@ -53,6 +53,11 @@
   first harden command source/tab-id policy and command-ledger redaction, then
   centralize Chrome storage through domain stores instead of raw scattered
   `chrome.storage` or `utils.storage*` calls.
+- Chrome storage access is now restricted to approved storage/domain modules
+  guarded by `tests/storage-access-boundary.test.js`; background, popup, and
+  content production paths should call domain helpers rather than direct
+  `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
+  `sessionStorage` usage is tracked separately from this Chrome storage rule.
 
 ## AI Submission Rules
 

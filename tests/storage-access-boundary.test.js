@@ -100,20 +100,14 @@ const APPROVED_WRAPPER_FILES = new Set([
   "background/transfer-payload-store.js",
   "background/ai-run-record-store.js",
   "common/settings-store.js",
-  "background/tab-session-store.js"
+  "background/tab-session-store.js",
+  "common/emulation.js"
 ]);
 
-// Bucket: current migration debt. These files are expected to be moved phase-by-phase.
-const CURRENT_MIGRATION_DEBT_FILES = new Set([
-  "background.js",
-  "popup.js",
-  "popup/helpers.js",
-  "content-main.js",
-  "common/emulation.js",
-  "common/property-lock-background.js",
-  "common/lynx-live-pages.js",
-  "common/utilities.js"
-]);
+// Bucket: current migration debt. Phase 12 keeps this empty so any new raw
+// Chrome storage access in real source files fails until it is routed through
+// an approved storage/domain module.
+const CURRENT_MIGRATION_DEBT_FILES = new Set();
 
 // Bucket: smoke/orchestration access. This track intentionally excludes
 // orchestration/scripts from scanning in Phase 3, so this bucket should remain empty
@@ -128,14 +122,6 @@ const PAGE_LOCAL_STORAGE_FILES = new Set([
   "popup.js",
   "popup/ui.js"
 ]);
-
-// TODO by migration phase:
-// Phase 5: remove transfer payload debt from popup.js.
-// Phase 6: move remaining settings reads to settings-store boundaries.
-// Phase 8: migrate background credential ownership.
-// Phase 9: migrate background tab session call sites to tab-session-store.
-// Phase 10: isolate device emulation storage behind one domain boundary.
-// Phase 12: remove all remaining migration debt buckets and enforce strict raw-storage boundary.
 
 test("storage boundary inventory buckets every raw storage access", () => {
   const files = collectJavaScriptFiles(REPO_ROOT);
@@ -188,7 +174,7 @@ test("storage boundary inventory buckets every raw storage access", () => {
   );
 
   assert.ok(bucketCounts.approvedWrapperModules > 0, "approved wrapper bucket should not be empty");
-  assert.ok(bucketCounts.currentMigrationDebt > 0, "current migration debt bucket should not be empty");
+  assert.equal(bucketCounts.currentMigrationDebt, 0, "current migration debt bucket must stay empty");
 });
 
 test("page-local localStorage/sessionStorage usage stays in tracked files", () => {

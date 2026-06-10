@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-11 complete, Phase 12 in progress)
-Document commit scope: Phase 12 listener and tab cleanup boundary slice
+Implementation status: COMPLETE (Phases 0-12 complete)
+Document commit scope: Phase 12 strict boundary enforcement slice
 
 ## Read This First
 
@@ -54,13 +54,14 @@ As of this handoff:
 19. Phase 9 runtime `setTabState` merge path now serializes read-merge-write updates per tab.
 20. Phase 10 device emulation storage boundary is complete and validated.
 21. Phase 11 config write queue is complete and validated.
-22. Phase 12 strict boundary cleanup is in progress.
+22. Phase 12 strict boundary cleanup is complete and validated.
 23. Transfer payload calls in popup/background now route through `background/transfer-payload-store.js` helpers.
 24. Background persisted AI-run records now route through `background/ai-run-record-store.js` helpers.
 25. Background restore-scope cleanup now routes through `clearTabStateScope` in `background/tab-session-store.js`.
 26. Popup and background storage-change listeners now route through `addStorageChangeListener` in `common/storage-core.js` via `common/utilities.js`.
 27. `common/utilities.js::disableExtensionForTab` now delegates live tab-state and script-injected cleanup to tab-session-store helpers instead of constructing/removing session keys directly.
-28. Next strict implementation step is to continue Phase 12 by reviewing the remaining storage-boundary bucket policy and deciding whether broad migration-debt buckets can be collapsed to approved domain modules only.
+28. `tests/storage-access-boundary.test.js` now keeps the current Chrome storage migration-debt bucket empty; new production raw storage access must live in an approved storage/domain module.
+29. Residual page-local `localStorage` / `sessionStorage` usage remains separately tracked and out of scope for the Chrome storage phase.
 
 ## Review Findings To Fix First
 
@@ -172,7 +173,7 @@ Current phase status:
 10. Phase 9 - Tab session store: DONE.
 11. Phase 10 - Device emulation storage boundary: DONE.
 12. Phase 11 - Config store write queue: DONE.
-13. Phase 12 - Remove remaining raw Chrome storage debt: IN_PROGRESS.
+13. Phase 12 - Remove remaining raw Chrome storage debt: DONE.
 
 ## Validation Baseline
 
@@ -225,6 +226,21 @@ Focused validation executed for Phase 12 listener/tab cleanup boundary slice:
 Focused result:
 
 1. 85 passed.
+2. 0 failed.
+
+Full-suite result:
+
+1. 755 passed.
+2. 0 failed.
+
+Focused validation executed for Phase 12 strict boundary enforcement slice:
+
+1. `node --test tests/storage-access-boundary.test.js tests/device-emulation-lifecycle.test.js tests/settings-store.test.js tests/transfer-payload-store.test.js tests/tab-session-store.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 53 passed.
 2. 0 failed.
 
 Full-suite result:
