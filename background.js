@@ -27,10 +27,12 @@ import * as utils from "./common/utilities.js";
 import * as configStore from "./common/config.js";
 import { runPageMotionFreezeControl } from "./common/page-motion-freeze-control.js";
 import {
+  clearDeviceEmulationState,
   clearDeviceEmulationAfterNavigation,
   ensureDefaultMobileDeviceEmulation,
   getDeviceEmulationState,
   reconcileDeviceEmulationState,
+  setDeviceEmulationEnabled,
   updateDeviceEmulation
 } from "./common/emulation.js";
 import {
@@ -38,7 +40,6 @@ import {
   isDebugFlagEnabled,
   isFeatureEnabled
 } from "./common/feature-flags.js";
-import { DEVICE_EMULATION_PREFIX } from "./common/constants.js";
 import * as constants from "./common/constants.js";
 import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
 import { buildLynxChecklistAssignments } from "./common/lynx-checklist.js";
@@ -4574,9 +4575,7 @@ chrome.debugger.onDetach.addListener(async (source) => {
   if (!state.enabled) {
     return;
   }
-  await chrome.storage.session.set({
-    [`${DEVICE_EMULATION_PREFIX}${source.tabId}`]: { ...state, enabled: false }
-  });
+  await setDeviceEmulationEnabled(source.tabId, false);
 });
 
 async function refreshActionIconsForWindow(windowId) {
@@ -4615,12 +4614,8 @@ async function clearTrackedTabSessionState(tabId, options = {}) {
     includeRestoreScope: true,
     includeScriptInjected: true
   });
-  const keysToRemove = [];
   if (includeDeviceState) {
-    keysToRemove.push(`${DEVICE_EMULATION_PREFIX}${tabId}`);
-  }
-  if (keysToRemove.length) {
-    await utils.storageRemove(chrome.storage.session, keysToRemove);
+    await clearDeviceEmulationState(tabId);
   }
 }
 

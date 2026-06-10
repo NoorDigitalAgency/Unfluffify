@@ -68,9 +68,7 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   assert.match(helperBlock, /await clearStoredTrackedTabSessionState\(tabId, \{/);
   assert.match(helperBlock, /includeRestoreScope: true/);
   assert.match(helperBlock, /includeScriptInjected: true/);
-  assert.match(helperBlock, /const keysToRemove = \[\];/);
-  assert.match(helperBlock, /if \(includeDeviceState\) \{\s*keysToRemove\.push\(`\$\{DEVICE_EMULATION_PREFIX\}\$\{tabId\}`\);\s*\}/);
-  assert.match(helperBlock, /if \(keysToRemove\.length\) \{\s*await utils\.storageRemove\(chrome\.storage\.session, keysToRemove\);\s*\}/);
+  assert.match(helperBlock, /if \(includeDeviceState\) \{\s*await clearDeviceEmulationState\(tabId\);\s*\}/);
   assert.match(onRemovedBlock, /clearTrackedTabSessionState\(tabId, \{ includeDeviceState: true \}\)\.then\(\);/);
 });
 
@@ -145,6 +143,8 @@ test("desktop preview persists on initial tab state and clears itself on debugge
   assert.match(detachBlock, /if \(initialState && initialState\.desktopPreviewEnabled\) \{/);
   assert.match(detachBlock, /desktopPreviewEnabled: false/);
   assert.match(detachBlock, /mode: "mobile"/);
+  assert.match(detachBlock, /await setDeviceEmulationEnabled\(source\.tabId, false\);/);
+  assert.doesNotMatch(detachBlock, /chrome\.storage\.session\.set/);
 });
 
 test("desktop preview section is rendered outside renderMarkingView so it is view-independent", () => {
@@ -444,6 +444,10 @@ test("device emulation debugger operations serialize per tab", () => {
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.set\(queueKey, next\);/);
   assert.match(queueBlock, /if \(deviceEmulationQueueByTabId\.get\(queueKey\) === next\) \{/);
   assert.match(queueBlock, /deviceEmulationQueueByTabId\.delete\(queueKey\);/);
+  assert.match(emulationSource, /export async function setDeviceEmulationEnabled\(tabId, enabled\) \{/);
+  assert.match(emulationSource, /export async function clearDeviceEmulationState\(tabId\) \{/);
+  assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, async \(\) => \{/);
+  assert.match(emulationSource, /runDeviceEmulationOperation\(tabId, \(\) => storageRemove\(chrome\.storage\.session, key\)\)/);
   assert.match(updateBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
   assert.match(cleanupBlock, /return runDeviceEmulationOperation\(tabId, async \(\) => \{/);
 });

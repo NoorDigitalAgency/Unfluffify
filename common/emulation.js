@@ -7,7 +7,7 @@ import {
   FEATURE_DISABLED_REASON,
   isFeatureEnabled
 } from "./feature-flags.js";
-import { storageGet, storageSet } from "./utilities.js";
+import { storageGet, storageRemove, storageSet } from "./utilities.js";
 
 const deviceEmulationQueueByTabId = new Map();
 
@@ -161,6 +161,29 @@ export async function hasStoredDeviceEmulationState(tabId) {
 async function setDeviceEmulationState(tabId, state) {
   const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
   await storageSet(chrome.storage.session, { [key]: state });
+}
+
+export async function setDeviceEmulationEnabled(tabId, enabled) {
+  if (!tabId) {
+    return null;
+  }
+  return runDeviceEmulationOperation(tabId, async () => {
+    const current = await getDeviceEmulationState(tabId);
+    const next = {
+      ...current,
+      enabled: Boolean(enabled)
+    };
+    await setDeviceEmulationState(tabId, next);
+    return next;
+  });
+}
+
+export async function clearDeviceEmulationState(tabId) {
+  if (!tabId) {
+    return;
+  }
+  const key = `${DEVICE_EMULATION_PREFIX}${tabId}`;
+  await runDeviceEmulationOperation(tabId, () => storageRemove(chrome.storage.session, key));
 }
 
 function getDeviceEmulationQueueKey(tabId) {
