@@ -3,7 +3,7 @@
 Last updated: 2026-06-10
 Branch at document creation: main
 Implementation status: IN_PROGRESS (Phases 0-11 complete, Phase 12 in progress)
-Document commit scope: Phase 12 AI-run persisted record cleanup slice
+Document commit scope: Phase 12 listener and tab cleanup boundary slice
 
 ## Read This First
 
@@ -57,7 +57,10 @@ As of this handoff:
 22. Phase 12 strict boundary cleanup is in progress.
 23. Transfer payload calls in popup/background now route through `background/transfer-payload-store.js` helpers.
 24. Background persisted AI-run records now route through `background/ai-run-record-store.js` helpers.
-25. Next strict implementation step is to continue Phase 12 by migrating the remaining raw storage call in background tab cleanup and tightening bucket policy.
+25. Background restore-scope cleanup now routes through `clearTabStateScope` in `background/tab-session-store.js`.
+26. Popup and background storage-change listeners now route through `addStorageChangeListener` in `common/storage-core.js` via `common/utilities.js`.
+27. `common/utilities.js::disableExtensionForTab` now delegates live tab-state and script-injected cleanup to tab-session-store helpers instead of constructing/removing session keys directly.
+28. Next strict implementation step is to continue Phase 12 by reviewing the remaining storage-boundary bucket policy and deciding whether broad migration-debt buckets can be collapsed to approved domain modules only.
 
 ## Review Findings To Fix First
 
@@ -212,6 +215,21 @@ Focused validation executed for Phase 12 AI-run persisted record cleanup slice:
 Focused result:
 
 1. 18 passed.
+2. 0 failed.
+
+Focused validation executed for Phase 12 listener/tab cleanup boundary slice:
+
+1. `node --test tests/storage-access-boundary.test.js tests/device-emulation-lifecycle.test.js tests/marking-no-auto-restore.test.js tests/popup-marking-refresh.test.js tests/tab-session-store.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 85 passed.
+2. 0 failed.
+
+Full-suite result:
+
+1. 755 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 9 runtime merge queue hardening:

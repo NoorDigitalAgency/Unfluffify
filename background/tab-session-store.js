@@ -160,6 +160,14 @@ export async function clearTabState(tabId, options = {}) {
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, keysToRemove));
 }
 
+export async function clearTabStateScope(tabId, scope = null) {
+  const key = getTabStateKey(tabId, scope);
+  if (!key) {
+    return;
+  }
+  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
+}
+
 export async function isScriptInjected(tabId) {
   const key = getScriptInjectedKey(tabId);
   if (!key) {
@@ -176,6 +184,14 @@ export async function setScriptInjected(tabId, injected) {
   }
   if (injected) {
     await queueTabSessionWrite(tabId, () => storageSet(chrome.storage.session, { [key]: true }));
+    return;
+  }
+  await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));
+}
+
+export async function clearScriptInjected(tabId) {
+  const key = getScriptInjectedKey(tabId);
+  if (!key) {
     return;
   }
   await queueTabSessionWrite(tabId, () => storageRemove(chrome.storage.session, key));

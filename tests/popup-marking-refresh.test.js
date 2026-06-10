@@ -750,7 +750,7 @@ test("tab activation does not end persisted inspection overlay before old-tab sp
 test("popup unload clears navigation inspection settle polls", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const beforeUnloadBlock = source.match(
-    /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n  \}\);\n\n  chrome\.storage\.onChanged/
+    /window\.addEventListener\("beforeunload", \(\) => \{([\s\S]*?)\n  \}\);\n\n  utils\.addStorageChangeListener/
   )[1];
 
   assert.match(beforeUnloadBlock, /clearNavigationInspectionSettlePollsExcept\(\);/);

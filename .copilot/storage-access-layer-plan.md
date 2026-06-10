@@ -167,6 +167,7 @@ export function storageSet(area, items);
 export function storageRemove(area, keys);
 export function storageClear(area);
 export function isChromeStorageArea(value);
+export function addStorageChangeListener(listener);
 ```
 
 Rules:
@@ -177,6 +178,8 @@ Rules:
 3. Do not normalize domain values here.
 4. Keep `common/utilities.js` re-exporting these helpers during migration so old
    imports do not break.
+5. Keep `chrome.storage.onChanged` listener registration inside this low-level
+   boundary helper or a domain store that owns its cache invalidation.
 
 ### `common/settings-store.js`
 
@@ -239,8 +242,10 @@ export function normalizeTabSessionState(value);
 export async function getTabState(tabId, scope = null, options = {});
 export async function setTabState(tabId, state, scope = null);
 export async function clearTabState(tabId, options = {});
+export async function clearTabStateScope(tabId, scope = null);
 export async function isScriptInjected(tabId);
 export async function setScriptInjected(tabId, injected);
+export async function clearScriptInjected(tabId);
 export async function clearTrackedTabSessionState(tabId, options = {});
 export function queueTabSessionWrite(tabId, work);
 ```

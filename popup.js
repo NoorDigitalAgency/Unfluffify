@@ -9224,7 +9224,7 @@ async function init() {
     }
   });
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
+  utils.addStorageChangeListener((changes, areaName) => {
     if (areaName === "sync") {
       if (changes[GLOBAL_THEME_KEY] || changes[GLOBAL_THEME_MODE_KEY]) {
         const appearanceCustomizationEnabled = isFeatureEnabled("appearanceCustomization");

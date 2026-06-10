@@ -161,3 +161,14 @@ export const storageClear = (area) =>
       reject(error);
     }
   });
+
+export function addStorageChangeListener(listener) {
+  if (!globalThis.chrome || !chrome.storage || !chrome.storage.onChanged) {
+    return false;
+  }
+  if (typeof chrome.storage.onChanged.addListener !== "function") {
+    return false;
+  }
+  chrome.storage.onChanged.addListener(listener);
+  return true;
+}

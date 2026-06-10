@@ -1,5 +1,6 @@
 import { isDebugFlagEnabled } from "./feature-flags.js";
 import {
+  addStorageChangeListener,
   getStorageAreaName,
   isChromeStorageArea,
   storageClear,
@@ -8,16 +9,17 @@ import {
   storageSet
 } from "./storage-core.js";
 import {
+  clearScriptInjected as clearStoredScriptInjectedState,
+  clearTabStateScope,
   clearTabState as clearTabSessionState,
-  getScriptInjectedKey,
   getTabState as getStoredTabState,
-  getTabStateKey,
   isScriptInjected as getScriptInjectedState,
   setScriptInjected as setStoredScriptInjectedState,
   setTabState as setStoredTabState
 } from "../background/tab-session-store.js";
 
 export {
+  addStorageChangeListener,
   getStorageAreaName,
   isChromeStorageArea,
   storageClear,
@@ -61,9 +63,10 @@ export async function injectContentScript(tabId) {
 
 // Browser utilities
 export async function disableExtensionForTab(tabId) {
-  const tabKey = getTabStateKey(tabId);
-  const scriptKey = getScriptInjectedKey(tabId);
-  await storageRemove(chrome.storage.session, [tabKey, scriptKey].filter((key) => key));
+  await Promise.all([
+    clearTabStateScope(tabId),
+    clearStoredScriptInjectedState(tabId)
+  ]);
   await updateActionForTab(tabId);
   try {
     await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });

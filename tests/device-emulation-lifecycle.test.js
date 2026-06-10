@@ -56,7 +56,7 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   const helperBlock = extractSourceBlock(
     backgroundSource,
     "async function clearTrackedTabSessionState(tabId, options = {}) {",
-    "function getReloadRestoreTabStateKey"
+    "async function clearReloadRestoreTabState(tabId) {"
   );
   const onRemovedBlock = extractSourceBlock(
     backgroundSource,
@@ -304,7 +304,7 @@ test("completed reload reactivates live enabled tabs without restore scope fallb
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
     "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
-    "chrome.storage.onChanged.addListener"
+    "utils.addStorageChangeListener"
   );
 
   assert.match(backgroundSource, /const TAB_RESTORE_SCOPE = "restore";/);
@@ -340,13 +340,15 @@ test("successful same-base restore activation clears restore intent after conten
   assert.match(restoreBlock, /clearReloadRestoreTabStateAfterActivation\(tabId, tabState\)\.catch\(\(\) => \{\}\);/);
   assert.doesNotMatch(clearBlock, /getReloadRestoreTabState|restoreState|await getTabUrl/);
   assert.match(clearBlock, /await clearReloadRestoreTabState\(tabId\);/);
+  assert.match(backgroundSource, /await clearTabStateScope\(tabId, TAB_RESTORE_SCOPE\);/);
+  assert.doesNotMatch(backgroundSource, /getReloadRestoreTabStateKey/);
 });
 
 test("completed navigation clears marking when the new page leaves the saved base URL", () => {
   const onUpdatedBlock = extractSourceBlock(
     backgroundSource,
     "chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
-    "chrome.storage.onChanged.addListener"
+    "utils.addStorageChangeListener"
   );
 
   assert.match(onUpdatedBlock, /!utils\.isPageWithinBaseUrl\(tab\.url \|\| "", tabState\.baseUrl\)/);

@@ -119,8 +119,8 @@ import {
 import { getGlobalAiSettings } from "./common/settings-store.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
+  clearTabStateScope,
   getTabState as getStoredTabState,
-  getTabStateKey,
   parseTabStateStorageKey,
   queueTabSessionWrite,
   setTabState as setStoredTabState
@@ -4593,15 +4593,11 @@ async function clearTrackedTabSessionState(tabId, options = {}) {
   }
 }
 
-function getReloadRestoreTabStateKey(tabId) {
-  return getTabStateKey(tabId, TAB_RESTORE_SCOPE);
-}
-
 async function clearReloadRestoreTabState(tabId) {
   if (!tabId) {
     return;
   }
-  await utils.storageRemove(chrome.storage.session, [getReloadRestoreTabStateKey(tabId)]);
+  await clearTabStateScope(tabId, TAB_RESTORE_SCOPE);
 }
 
 async function clearReloadRestoreTabStateAfterActivation(tabId, tabState) {
@@ -4746,7 +4742,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   restoreEnabledStateForTab(tabId, tabState);
 });
 
-chrome.storage.onChanged.addListener((changes, areaName) => {
+utils.addStorageChangeListener((changes, areaName) => {
   if (areaName !== "session") {
     return;
   }
