@@ -72,7 +72,7 @@ test("popup.js sends preview list mode changes to the content script and normali
   );
   assert.match(
     source,
-    /async function handlePreviewShowAllCategoriesChange\(event\) \{[\s\S]*?type: "setAiPreviewExpandedMode",[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(response\)\);/
+    /async function handlePreviewShowAllCategoriesChange\(event\) \{[\s\S]*?messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{[\s\S]*?active: nextChecked[\s\S]*?uiModule\.setViewState\(buildPreviewViewState\(response\.result\.previewState \|\| null\)\);/
   );
 });
 

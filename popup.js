@@ -1084,12 +1084,9 @@ async function restoreSpinnerQueueFromBackground(tabId) {
   if (!tabId) {
     return;
   }
-  const response = await messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
-    tabId
-  }).catch(() => null);
-  if (response && response.ok) {
-    applyBackgroundStateSnapshot(response);
+  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+  if (viewState && viewState.state && viewState.state.ok) {
+    applyBackgroundStateSnapshot(viewState.state);
   }
 }
 
@@ -1594,13 +1591,10 @@ async function applyTraceModePreferenceToTab(tabId, enabled) {
   if (!tabId) {
     return null;
   }
-  const response = await messages.sendRuntimeMessage({
-    type: WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE,
-    tabId
-  }).catch(() => null);
-  if (response && response.ok) {
-    applyBackgroundStateSnapshot(response);
-    return response;
+  const viewState = await messages.requestPopupTabViewState(tabId).catch(() => null);
+  if (viewState && viewState.state && viewState.state.ok) {
+    applyBackgroundStateSnapshot(viewState.state);
+    return viewState.state;
   }
   return null;
 }
@@ -6158,43 +6152,48 @@ async function runRenderModeInspectionReload(javaScriptDisabled) {
 
   await runWithSpinner(null, PopupText.overlay.pleaseWait, async () => {
     state.renderModeInspectionActive = true;
-    await messages.sendTabMessageToTab(tabId, {
-      type: "renderModeInspectionBegin",
-      operationId
-    }).catch(() => null);
     try {
-      const loadStartPromise = waitForTabLoadStart(
-        tabId,
-        RENDER_MODE_INSPECTION_START_TIMEOUT_MS
-      );
-      const result = await utils.reloadPageWithJavaScriptControl(tabId, javaScriptDisabled);
-      const loadStarted = await loadStartPromise;
-      const outcome = resolveRenderModeInspectionReloadOutcome(result, loadStarted, javaScriptDisabled);
+      const inspectionResponse = await messages.requestTabRunRenderModeInspection(tabId, {
+        baseUrl: state.currentBaseUrl,
+        javaScriptDisabled,
+        operationId
+      });
+      const inspectionResult = inspectionResponse && inspectionResponse.ok && inspectionResponse.result
+        ? inspectionResponse.result
+        : null;
+      const reloadResult = inspectionResult && inspectionResult.reloadResult && typeof inspectionResult.reloadResult === "object"
+        ? inspectionResult.reloadResult
+        : {
+          ok: false,
+          error: (inspectionResponse && inspectionResponse.error) || PopupText.renderMode.toastInspectReloadFailed
+        };
+      const loadStarted = Boolean(inspectionResult && inspectionResult.loadStarted);
+      const outcome = resolveRenderModeInspectionReloadOutcome(reloadResult, loadStarted, javaScriptDisabled);
       if (!outcome.ok) {
         uiModule.showToast(outcome.toast);
         return;
       }
 
-      const followUpCompleted = await completeRenderModeInspectionReloadFollowUp(tabId, operationId);
+      const followUpCompleted = Boolean(inspectionResult && inspectionResult.followUpCompleted);
       if (followUpCompleted) {
+        const snapshot = inspectionResult && inspectionResult.inspectionSnapshot && typeof inspectionResult.inspectionSnapshot === "object"
+          ? inspectionResult.inspectionSnapshot
+          : null;
+        if (snapshot) {
+          rememberRenderModeInspectionSnapshot(
+            state.currentBaseUrl,
+            snapshot.pageUrl || (state.currentTab && state.currentTab.url) || "",
+            snapshot
+          );
+        }
+        await reconcilePropertyLockAfterRenderModeReload();
+        scheduleStaleInspectionBusyClear(tabId, state.currentBaseUrl, {
+          reconcileRenderModeNavSpinner: true
+        });
         await refreshUi({ useBusyOverlay: false });
       }
       uiModule.showToast(outcome.toast);
     } finally {
-      await ensureContentReadyForRenderModeInspection(tabId).catch(() => false);
-      for (let endAttempt = 0; endAttempt < 3; endAttempt += 1) {
-        const endResponse = await messages.sendTabMessageToTab(tabId, {
-          type: "renderModeInspectionEnd",
-          operationId
-        }).catch(() => null);
-        if (endResponse && endResponse.ok) {
-          break;
-        }
-        if (endAttempt + 1 < 3) {
-          await messages.delay(250);
-          await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId }).catch(() => null);
-        }
-      }
       state.renderModeInspectionActive = false;
       uiModule.setViewState(buildPropertyLockViewState());
     }
@@ -7592,48 +7591,19 @@ async function handleEnableToggle(event) {
           await refreshUi();
           return;
         }
-        const injectResult = await helpers.injectContentScriptIfNeeded();
-        if (!injectResult.ok) {
-          uiModule.showToast(injectResult.error || PopupText.helper.activateFailedOnPage);
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        await messages.sendRuntimeMessage({ type: "activateContentForTab", tabId: tab.id });
-        setSpinnerMessage(spinnerKey, PopupText.overlay.applyingDeviceEmulation);
-        const mobileSimulationReady = await ensureEditorMobileSimulation();
-        if (!mobileSimulationReady) {
-          uiModule.setViewState({ toggleEnabled: false });
-          clearLastPopupEnabled();
-          await refreshUi();
-          return;
-        }
-        await messages.setTabState(tab.id, {
-          enabled: true,
-          baseUrl: effectiveBaseUrl,
-          pageType: currentPageTypeKey
-        });
         setSpinnerMessage(spinnerKey, PopupText.overlay.pageInspection);
-        const enableResponse = await messages.sendTabMessageWithRetry({
-          type: "setEnabled",
-          enabled: true,
+        const enableResponse = await messages.requestTabActivateMarking(tab.id, {
           baseUrl: effectiveBaseUrl,
           pageType: currentPageTypeKey,
-          performInitialReveal: true
+          desktopPreviewEnabled: Boolean(uiModule.getViewState().desktopPreviewEnabled)
         });
         if (!enableResponse || !enableResponse.ok) {
-          await messages.setTabState(tab.id, {
-            enabled: false,
-            baseUrl: effectiveBaseUrl,
-            pageType: ""
-          });
           uiModule.setViewState({ toggleEnabled: false });
           clearLastPopupEnabled();
-          if (enableResponse && enableResponse.locked) {
+          if (enableResponse?.locked) {
             uiModule.showToast(propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone"));
           } else {
-            uiModule.showToast(PopupText.helper.activateFailedOnPage);
+            uiModule.showToast(enableResponse?.error || PopupText.helper.activateFailedOnPage);
           }
           await refreshUi();
           return;
@@ -7643,12 +7613,17 @@ async function handleEnableToggle(event) {
         // run yet for the current markings), Save/Preview start disabled.
         resetAiRunMarkingsFingerprint();
       } else {
-        await messages.setTabState(tab.id, {
-          enabled: false,
+        const disableResponse = await messages.requestTabDeactivateMarking(tab.id, {
           baseUrl: baseUrlValue,
           pageType: ""
         });
-        await messages.sendTabMessageWithRetry({ type: "setEnabled", enabled: false, pageType: "" });
+        if (!disableResponse || !disableResponse.ok) {
+          uiModule.setViewState({ toggleEnabled: true });
+          setLastPopupEnabled(true, buildPopupEnabledContext(tab, state.currentBaseUrl));
+          uiModule.showToast((disableResponse && disableResponse.error) || "Unable to disable marking");
+          await refreshUi();
+          return;
+        }
       }
       await refreshUi();
     },
@@ -8088,25 +8063,9 @@ async function applyPostSaveSilentTransition() {
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  // Reset the content-side page entry to the saved baseline so its draft is no
-  // longer dirty (Discard detects no pending changes). This runs while marking
-  // is still enabled so the forceReloadPageEntry branch reseeds the baseline.
-  if (baseUrl) {
-    await messages.sendTabMessageWithRetry({
-      type: "configUpdated",
-      baseUrl,
-      forceReloadPageEntry: true
-    }, 2);
-  }
-  // Deterministically drop the CONTENT script out of marking mode into silent
-  // highlighting. Without this the page stays in marking mode after save while
-  // the popup shows silent controls, so the buttons never reset to silent/idle.
+  // Reset + mode drop are owned by background command authority for this tab.
   if (tabId !== null) {
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: false,
-      pageType: ""
-    }, 2);
+    await messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
   }
   state.currentDraftDirty = false;
   await alignPopupToSilentMode();
@@ -8213,11 +8172,12 @@ async function applyLocalPageDiscard() {
       targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
     }
   });
-  await messages.sendTabMessageWithRetry({
-    type: "configUpdated",
-    baseUrl,
-    forceReloadPageEntry: true
-  }, 2);
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (tabId !== null) {
+    await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
+  }
   await clearCurrentPageSaveReconciliation();
   state.aiSelectorsComputedSinceLastSubmit = false;
   state.aiSelectorsComputedBaseUrl = "";
@@ -8368,11 +8328,13 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   // Save/Preview enable until the next mark/unmark change.
   captureAiRunMarkingsFingerprint();
 
-  const previewResponse = await messages.sendTabMessage({
-    type: "showAiPreview",
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const previewResponse = await messages.requestTabShowAiPreview(tabId, {
     selectorSet
   });
-  const previewOpened = Boolean(previewResponse && previewResponse.ok);
+  const previewOpened = Boolean(previewResponse && previewResponse.ok && previewResponse.result);
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
   state.lastConfigSaveStatusTone = "warning";
@@ -8385,12 +8347,27 @@ async function failAiRun(message = PopupText.ai.runFailed) {
   uiModule.showToast(message);
 }
 
-function getAiSnapshotFailureMessage(response) {
-  if (response && response.reconciliationPending) {
+function getAiRunCommandFailureMessage(response) {
+  const details = response && response.details && typeof response.details === "object"
+    ? response.details
+    : {};
+  if (details.reconciliationPending) {
     return PopupText.page.statusServerSyncPending;
   }
-  if (response && response.locked) {
+  if (details.locked) {
     return propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone");
+  }
+  if (details.reason === "missing_current_page") {
+    return PopupText.ai.saveCurrentPageBeforeComputing;
+  }
+  if (details.reason === "missing_saved_pages") {
+    return PopupText.ai.savePagesBeforeComputing;
+  }
+  if (details.reason === "timed_out") {
+    return PopupText.ai.runTimedOut;
+  }
+  if (response && typeof response.error === "string" && response.error) {
+    return response.error;
   }
   return PopupText.ai.saveCurrentPageBeforeComputing;
 }
@@ -8537,111 +8514,38 @@ async function handleComputeSelectors() {
     });
     await waitForPopupUiPaint();
     try {
-      const initialLockExpiresAt = getAiRunResumeExpiresAt();
-      state.aiRunResumeExpiresAt = initialLockExpiresAt;
-      const initialLockApplied = await syncAiComputeLock(true, initialLockExpiresAt);
-      if (!initialLockApplied) {
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      await waitForPopupUiPaint();
-
-      if (currentPageNeedsSnapshot) {
-        const snapshotResponse = await messages.sendTabMessage({
-          type: "capturePageSnapshot",
-          baseUrl: state.currentBaseUrl,
-          pageType: state.currentPageTypeKey || "",
-          persist: true
-        });
-        if (!snapshotResponse || !snapshotResponse.ok) {
-          await failAiRun(getAiSnapshotFailureMessage(snapshotResponse));
-          return;
-        }
-        state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-        pageMarkings = state.currentConfig.pageMarkings || {};
-        currentPageEntry = pageMarkings[currentPageUrl];
-        if (
-          !currentPageEntry ||
-          typeof currentPageEntry !== "object" ||
-          typeof currentPageEntry.renderedHtml !== "string" ||
-          !currentPageEntry.renderedHtml ||
-          !Array.isArray(currentPageEntry.submissionXpaths) ||
-          currentPageEntry.submissionXpaths.length === 0
-        ) {
-          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-          return;
-        }
-      }
-
-      const preparedPayload = await messages.sendRuntimeMessage({
-        type: "prepareAiRunPayloadSnapshot",
+      const tabId = state.currentTab && state.currentTab.id;
+      const aiRunResponse = await messages.requestTabRunAi(tabId, {
         baseUrl: state.currentBaseUrl,
         currentPageUrl,
-        currentRenderMode
-      });
-      if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
-        if (preparedPayload && preparedPayload.reason === "missing_current_page") {
-          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-          return;
-        }
-        if (preparedPayload && preparedPayload.reason === "missing_saved_pages") {
-          await failAiRun(PopupText.ai.savePagesBeforeComputing);
-          return;
-        }
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      let startPayloadKey = preparedPayload.payloadKey;
-      if (preparedPayload.requiresRawXPathRefinement) {
-        const payloadStore = await utils.storageGet(chrome.storage.session, preparedPayload.payloadKey).catch(() => ({}));
-        const payload = payloadStore && typeof payloadStore === "object"
-          ? payloadStore[preparedPayload.payloadKey]
-          : null;
-        await utils.storageRemove(chrome.storage.session, preparedPayload.payloadKey).catch(() => null);
-        if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
-          await failAiRun(PopupText.ai.runFailed);
-          return;
-        }
-        const refinedPayload = {
-          ...payload,
-          pages: payload.pages.map((page) => {
-            const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
-            const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-            const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
-            return {
-              ...page,
-              rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
-            };
-          })
-        };
-        startPayloadKey = buildRemoteConfigTransferKey("ai-run-start-refined");
-        await utils.storageSet(chrome.storage.session, { [startPayloadKey]: refinedPayload });
-      }
-      const startResult = await requestAiRunStart({
+        pageType: state.currentPageTypeKey || "",
+        currentRenderMode,
         endpointValue,
         tokenValue,
-        payloadKey: startPayloadKey
-      });
-      if (!startResult.ok || !startResult.sessionId) {
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      state.aiRunSessionId = startResult.sessionId;
-      state.aiRunPhase = "running";
-      const heartbeat = await refreshAiRunHeartbeat({
-        sessionId: startResult.sessionId,
         siteId,
         deadlineAt
       });
-      if (!heartbeat) {
+      if (!aiRunResponse || !aiRunResponse.ok || !aiRunResponse.result) {
+        await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));
+        return;
+      }
+
+      const runResult = aiRunResponse.result;
+      if (!Array.isArray(runResult.selectorSet?.exclusionSelectors) || !Array.isArray(runResult.selectorSet?.inclusionSelectors)) {
         await failAiRun(PopupText.ai.runFailed);
         return;
       }
-      await continueAiRunPolling({
-        endpointValue,
-        tokenValue,
-        currentPageUrl
+
+      state.aiRunSessionId = typeof runResult.sessionId === "string" ? runResult.sessionId : "";
+      state.aiRunPhase = "done";
+      const { previewOpened } = await applyComputedSelectorSet(normalizeAiSelectorSet(runResult.selectorSet), {
+        currentPageUrl,
+        tokenValue
       });
+      await stopAiRun({ unlockPage: false });
+      if (!previewOpened) {
+        await refreshUi();
+      }
     } catch {
       await failAiRun(PopupText.ai.runFailed);
     }
@@ -8934,11 +8838,13 @@ async function handlePreviewLatest() {
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-    const response = await messages.sendTabMessage({
-      type: "showAiPreview",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
@@ -8980,11 +8886,13 @@ async function handleMarkingPreview() {
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-    const response = await messages.sendTabMessage({
-      type: "showAiPreview",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
@@ -8999,8 +8907,11 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const response = await messages.sendTabMessage({ type: "closeAiPreview" });
-  if (!response || !response.ok) {
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const response = await messages.requestTabCloseAiPreview(tabId);
+  if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.preview.exitFailed);
   }
 }
@@ -9053,14 +8964,16 @@ async function handlePreviewShowAllCategoriesChange(event) {
     return;
   }
   try {
-    const response = await messages.sendTabMessage({
-      type: "setAiPreviewExpandedMode",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabSetAiPreviewExpandedMode(tabId, {
       active: nextChecked
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.updateFailed);
     }
-    uiModule.setViewState(buildPreviewViewState(response));
+    uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
     uiModule.showToast((error && error.message) || PopupText.preview.updateFailed);
@@ -9073,11 +8986,13 @@ async function handlePreviewItemFocus(xpath) {
     return;
   }
   uiModule.setViewState({ previewFocusedXpath: xpath });
-  const response = await messages.sendTabMessage({
-    type: "focusElement",
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const response = await messages.requestTabFocusPreviewElement(tabId, {
     xpath
   });
-  if (!response || !response.ok) {
+  if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.explicitSelection.focusFailed);
     await refreshUi();
   }

@@ -23,6 +23,27 @@ Use these documents before making implementation changes:
 This refactor explicitly protects the 11 always-on core features, including
 reveal/freeze and lazy-loading stopping/restoration.
 
+Current implementation checkpoint status (branch `refactor/service-worker-authority`):
+
+1. Phase 0 complete and pushed (`bb90fc3`).
+2. Phase 1 complete and pushed (`76693d0`).
+3. Phase 2 complete and pushed (`25923df`).
+4. Phase 3 complete and pushed (`241bbc1`).
+5. Phase 4 complete and pushed (`3f3c17b`).
+6. Phase 5 complete and pushed (`f9651a0`).
+7. Phase 6A complete and pushed (`f96c58b`).
+8. Phase 6B complete and pushed (`941e6f9`).
+9. Phase 6C complete and pushed (`562115f`).
+10. Phase 6D complete and pushed (`c536f66`).
+11. Phase 6E complete and pushed (`e43e609`).
+12. Phase 6F complete and pushed (`06cc6bd`).
+13. Phase 7 complete and pushed (`6b2b9ac`).
+14. Phase 8 complete and pushed (`ee4c0c0`).
+15. Phase 9 complete and pushed (`5c81356`).
+16. Phase 10 complete and pushed (`8cef302`) with cleanup/documentation,
+   focused validation (98/98), and full suite validation (705/705).
+17. Refactor track is complete unless new scope is explicitly added.
+
 ## Debug Continuation Plan (Cross-Environment)
 
 Status as of 2026-06-09:

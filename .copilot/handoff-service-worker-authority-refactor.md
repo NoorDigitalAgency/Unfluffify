@@ -1,9 +1,330 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10 (implementation checkpoints through Phase 10 complete)
 Branch at document creation: main
-Implementation status: NOT STARTED
-Document commit scope: planning and handoff only
+Implementation status: COMPLETE
+Document commit scope: planning + active implementation handoff updates
+
+## Implementation Checkpoints (2026-06-09)
+
+Branch used for implementation and pushes:
+
+1. `refactor/service-worker-authority`
+
+Completed and pushed checkpoints:
+
+1. Phase 0 checkpoint commit `bb90fc3`
+    - Message: `docs(refactor): record phase-0 baseline verification`
+    - Baseline failure documented before implementation:
+       `tests/core-motion-pause.test.js` lazy-load suppression assertion mismatch.
+
+2. Phase 1 checkpoint commit `76693d0`
+    - Message: `feat(messaging): add acknowledged async request wrapper`
+    - Added:
+       - `common/message-protocol.js`
+       - `common/async-messaging.js`
+       - `tests/async-messaging.test.js`
+    - Verification at checkpoint:
+       - `node --test tests/async-messaging.test.js tests/utilities-runtime.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+3. Phase 2 checkpoint commit `25923df`
+    - Message: `feat(background): add tab-scoped command router`
+    - Added:
+       - `background/command-router.js`
+       - `background/tab-runtime.js`
+       - `tests/background-command-router.test.js`
+    - Integrated envelope-only dispatch path in `background.js` with per-tab
+       command ledger and runtime bridge.
+    - Verification at checkpoint:
+       - `node --test tests/background-command-router.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+4. Phase 3 checkpoint commit `241bbc1`
+    - Message: `feat(background): centralize async spinner operations`
+    - Added:
+       - `background/spinner-operations.js`
+       - `tests/background-spinner-operations.test.js`
+    - Extracted spinner queue mutation helpers in `background.js` to module-based
+       operations and added `withTabSpinner` wrapper.
+    - Low-risk migration applied:
+       - `clearBrowsingDataForOrigin` now uses `withBackgroundTabSpinner` when
+          `tabId` is available.
+    - Verification at checkpoint:
+       - `node --test tests/background-spinner-operations.test.js tests/world-trace-contract.test.js` passed.
+       - Full suite remained on the single known baseline failure.
+
+5. Phase 4 checkpoint commit `3f3c17b`
+    - Message: `feat(content): route page commands through executor`
+    - Added:
+       - `content/content-command-router.js`
+       - `tests/content-command-router.test.js`
+    - `content-main.js` registers content command handlers for envelope
+       dispatch while preserving legacy message handling for compatibility.
+    - Verification at checkpoint:
+       - `node --test tests/content-command-router.test.js` passed.
+       - Full suite remained on the single known baseline failure at this phase.
+
+6. Phase 5 checkpoint commit `f9651a0`
+   - Message: `feat(page-world): relay motion commands through content`
+    - Added:
+       - `common/page-world-protocol.js`
+       - `content/page-world-relay.js`
+       - `tests/page-world-relay.test.js`
+    - Updated:
+       - `common/page-motion-freeze-bridge.js` now serves nonce-scoped relay
+          requests and replies in MAIN world while preserving byte-identical
+          `runPageMotionFreezeControl` body contract.
+       - `content/core.js` now routes page-motion commands relay-first through
+          content->page-world with deterministic request/reply and keeps
+          background executeScript fallback for compatibility.
+       - `content-main.js` best-effort initializes relay session on startup.
+       - `tests/core-motion-pause.test.js` now guards lazy-load suppression
+          restore in finally on both success and thrown reveal paths.
+       - `tests/page-motion-bridge-isolation.test.js` now guards relay-first
+          architecture with compatibility fallback.
+    - Verification at checkpoint:
+       - `node --test tests/page-world-relay.test.js tests/page-motion-freeze-bridge.test.js tests/page-motion-bridge-isolation.test.js tests/core-motion-pause.test.js` passed (33/33).
+       - Core guard suite from Phase 0 list passed (220/220).
+       - Full suite passed (675/675).
+       - Historical Phase 0 lazy-load assertion mismatch is now resolved by the
+          Phase 5 contract tests that enforce suppression restore in finally.
+
+7. Phase 6A checkpoint commit `f96c58b`
+   - Message: `feat(popup): load tab view state from background`
+    - Updated:
+       - `popup/messages.js` adds `requestPopupTabViewState(tabId)` using
+          envelope request/reply through background command
+          `POPUP_GET_TAB_VIEW_STATE`.
+       - `popup.js` startup/tab-switch snapshot restore path now requests
+          `POPUP_GET_TAB_VIEW_STATE` first and applies returned background
+          snapshot without mutating background state; legacy
+          `GET_BACKGROUND_STATE` path remains as compatibility fallback.
+       - `tests/background-command-router.test.js` adds tab-scoped snapshot and
+          non-mutating snapshot-read guards.
+       - `tests/popup-background-snapshot.test.js` adds popup snapshot-command
+          route guards.
+    - Verification at checkpoint:
+       - `node --test tests/background-command-router.test.js tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js` passed (55/55).
+       - Full suite passed (679/679).
+
+8. Phase 6B checkpoint commit `941e6f9`
+   - Message: `feat(background): orchestrate marking activation`
+    - Updated:
+       - `background.js` adds tab-scoped command `TAB_ACTIVATE_MARKING` in
+          background command router.
+       - Activation command now validates tab/baseUrl scope, blocks while
+          desktop preview is active, applies default mobile simulation,
+          bootstraps content, sets tab state, and sends content `setEnabled`
+          with `performInitialReveal: true` under `withBackgroundTabSpinner`.
+       - `popup.js` marking-enable path now sends only
+          `messages.requestTabActivateMarking(...)` for activation intent.
+       - `popup/messages.js` adds command helper
+          `requestTabActivateMarking(tabId, payload)` with normalized failure
+          details (`locked`, `code`, `error`).
+       - Tests updated/added:
+          - `tests/background-marking-activation.test.js`
+          - `tests/device-emulation-lifecycle.test.js`
+          - `tests/popup-marking-refresh.test.js`
+    - Verification at checkpoint:
+       - `node --test tests/background-marking-activation.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/content-activation-order.test.js` passed (80/80).
+       - `node --test tests/device-emulation-lifecycle.test.js tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js` passed (74/74).
+       - Full suite passed (683/683).
+
+9. Phase 6C checkpoint commit `562115f`
+   - Message: `feat(background): orchestrate marking deactivation`
+    - Updated:
+       - `background.js` adds tab-scoped command `TAB_DEACTIVATE_MARKING` in
+          background command router.
+       - Deactivation command validates tab availability, wraps operation in
+          `withBackgroundTabSpinner`, updates lifecycle mode state, writes tab
+          state disabled, and sends content `setEnabled: false` to the
+          requested tab only.
+       - `popup.js` marking-disable path now sends only
+          `messages.requestTabDeactivateMarking(...)` for deactivation intent.
+       - `popup/messages.js` adds command helper
+          `requestTabDeactivateMarking(tabId, payload)` with normalized failure
+          details (`code`, `error`).
+       - Tests updated:
+          - `tests/background-marking-activation.test.js`.
+    - Verification at checkpoint:
+       - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/device-emulation-lifecycle.test.js tests/background-command-router.test.js` passed (84/84).
+       - Full suite passed (686/686).
+
+10. Phase 6D checkpoint commit `c536f66`
+   - Message: `feat(background): orchestrate render-mode inspection`
+   - Updated:
+      - `background.js` adds tab-scoped commands:
+         - `TAB_BEGIN_RENDER_MODE_INSPECTION`
+         - `TAB_RUN_REVEAL_FREEZE`
+         - `TAB_CAPTURE_RENDER_MODE_HTML`
+         - `TAB_END_RENDER_MODE_INSPECTION`
+         - orchestration command `TAB_RUN_RENDER_MODE_INSPECTION`.
+      - Background now owns render-mode inspection flow: begin -> reload
+         (JS on/off) -> wait load/content-ready -> reveal/freeze -> capture ->
+         consent hide -> end, all under tab-scoped spinner orchestration.
+      - `popup.js` render-mode inspection now sends a single intent through
+         `messages.requestTabRunRenderModeInspection(...)` and uses returned
+         inspection snapshot for local reconciliation.
+      - `popup/messages.js` adds `requestTabRunRenderModeInspection`.
+      - Tests added/updated:
+         - `tests/background-render-mode-inspection.test.js`
+         - `tests/render-mode-inspection-order.test.js`
+         - `tests/popup-render-mode.test.js`
+         - `tests/property-lock-render-mode.test.js`
+         - `tests/feature-flags.test.js`
+   - Verification at checkpoint:
+      - `node --test tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js tests/popup-marking-refresh.test.js` passed (69/69).
+      - `node --test tests/feature-flags.test.js tests/property-lock-render-mode.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js` passed (38/38).
+      - Full suite passed (690/690).
+
+11. Phase 6E checkpoint commit `e43e609`
+   - Message: `feat(background): orchestrate ai run command`
+   - Updated:
+      - `background.js` adds tab-scoped orchestration command `TAB_RUN_AI`.
+      - Background now owns AI run flow end-to-end for a tab: optional
+         current-page snapshot capture, payload preparation, optional raw XPath
+         refinement, AI run start, status polling, result fetch, selector-set
+         load, and compute-lock lifecycle/heartbeat handling.
+      - `popup.js` AI compute path now sends a single intent through
+         `messages.requestTabRunAi(...)` and applies returned selector sets
+         locally.
+      - `popup/messages.js` adds `requestTabRunAi`.
+      - Tests updated:
+         - `tests/ai-run.test.js`
+   - Verification at checkpoint:
+      - `node --test tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js` passed (77/77).
+      - Full suite passed (690/690).
+
+12. Phase 6F checkpoint commit `06cc6bd`
+   - Message: `feat(background): orchestrate save discard preview surfaces`
+   - Updated:
+      - `background.js` adds tab-scoped commands for save/discard + preview
+         surfaces:
+         - `TAB_APPLY_POST_SAVE_TRANSITION`
+         - `TAB_APPLY_LOCAL_DISCARD`
+         - `TAB_SHOW_AI_PREVIEW`
+         - `TAB_CLOSE_AI_PREVIEW`
+         - `TAB_SET_AI_PREVIEW_EXPANDED_MODE`
+         - `TAB_FOCUS_PREVIEW_ELEMENT`
+      - `popup/messages.js` adds command helpers for the new tab-scoped
+         surfaces.
+      - `popup.js` now routes post-save transition, local discard refresh,
+         marking preview, silent preview, preview exit, preview expanded-mode
+         toggle, and preview item focus through background command intents.
+      - Tests updated:
+         - `tests/background-marking-activation.test.js`
+         - `tests/popup-marking-refresh.test.js`
+         - `tests/popup-ai-run-gating.test.js`
+         - `tests/preview-tooltip.test.js`
+   - Verification at checkpoint:
+      - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js tests/ai-run.test.js` passed (98/98).
+      - Full suite passed (692/692).
+
+13. Phase 7 checkpoint commit `6b2b9ac`
+   - Message: `refactor(popup): remove direct content orchestration`
+   - Updated:
+      - `background.js` adds tab-scoped bridge command `TAB_CONTENT_REQUEST`
+         so popup requests are routed through background command authority.
+      - `popup/messages.js` no longer uses direct
+         `chrome.tabs.sendMessage`; `sendTabMessage*` helpers now use runtime
+         envelope requests through `TAB_CONTENT_REQUEST`.
+      - `README.md` message-passing note now states:
+         `Popup ↔ Service Worker ↔ Content Script ↔ Page World`.
+      - Added architecture guard test `tests/popup-authority-boundary.test.js`
+         to block direct popup tab messaging regression.
+   - Verification at checkpoint:
+      - `node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js tests/device-emulation-lifecycle.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js` passed (111/111).
+      - Full suite passed (694/694).
+
+14. Phase 8 checkpoint commit `ee4c0c0`
+   - Message: `test(background): add tab runtime behavioral coverage`
+   - Updated:
+      - Added behavioral coverage `tests/tab-runtime.test.js` for tab runtime
+         isolation and command-ledger tab scoping without source-shape regex.
+      - Added/updated inventory section for source-shape guard classification
+         (keep/replace/delete-after-replacement).
+   - Verification at checkpoint:
+      - `node --test tests/tab-runtime.test.js tests/background-command-router.test.js tests/popup-authority-boundary.test.js` passed (13/13).
+      - Full suite passed (698/698).
+
+15. Phase 9 checkpoint commit `5c81356`
+   - Message: `test(background): guard tab-scoped command isolation`
+   - Updated:
+      - Added `tests/tab-isolation-hardening.test.js` with explicit guards
+         for tab isolation:
+         - same-URL tab runtime mode separation
+         - spinner queue isolation per tab
+         - lifecycle update isolation per tab
+         - page-world nonce/command resolution scoped by tabId
+         - shared siteId without tab-UI state merge
+         - debugTabId popup snapshot scoping
+         - tab removal cleanup isolation
+   - Verification at checkpoint:
+      - `node --test tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (21/21).
+      - Full suite passed (705/705).
+
+16. Phase 10 checkpoint commit `8cef302`
+   - Message: `refactor: centralize tab command authority in service worker`
+   - Updated:
+      - Removed legacy popup fallback path using
+         `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`; popup snapshot and
+         trace-state sync now rely on `POPUP_GET_TAB_VIEW_STATE` command
+         snapshots only.
+      - Added snapshot-requested world trace logging to
+         `POPUP_GET_TAB_VIEW_STATE` command execution path in `background.js`.
+      - Removed legacy `GET_BACKGROUND_STATE` world message constant from
+         `common/world-messaging-contract.js`.
+      - Repaired malformed `popup/messages.js` runtime wrapper block and
+         retained command-routed messaging helpers.
+      - Updated architecture and contract docs:
+         - `README.md` message-passing notes
+         - `.copilot/knowledge.md` architecture decisions
+      - Updated tests to guard the cleanup contract:
+         - `tests/feature-flags.test.js`
+         - `tests/lifecycle-broker.test.js`
+         - `tests/popup-marking-refresh.test.js`
+         - `tests/world-trace-contract.test.js`
+   - Verification at checkpoint:
+      - `node --check popup/messages.js` passed.
+      - `node --test tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js tests/feature-flags.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/tab-runtime.test.js tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js` passed (98/98).
+      - Full suite passed (705/705).
+
+### Phase 8 Test Inventory (Initial)
+
+Keep (structural boundary guards):
+
+1. `tests/page-motion-freeze-bridge.test.js` (byte-identity + bridge contract).
+2. `tests/manifest-permissions.test.js` (manifest and web-accessible-resource
+   boundaries).
+3. `tests/popup-authority-boundary.test.js` (forbidden direct popup tab
+   messaging boundary).
+
+Replace (syntax-shape heavy, behavior replacement target):
+
+1. `tests/background-marking-activation.test.js`.
+2. `tests/popup-marking-refresh.test.js` sections that only assert source
+   string presence.
+3. `tests/preview-tooltip.test.js` popup source-shape assertions.
+
+Delete after replacement proves equivalent guard:
+
+1. Source-shape sections in files listed under Replace once behavioral tests
+   exist and fail on the pre-refactor broken behavior.
+
+## Resume From Here
+
+Next strict step after the Phase 10 checkpoint push:
+
+1. Close the refactor track unless new scope is explicitly added.
+
+Recommended first commands to resume immediately after pull:
+
+```bash
+git status --short
+git log --oneline -n 3
+node --test tests/popup-background-snapshot.test.js tests/popup-marking-refresh.test.js tests/feature-flags.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/tab-runtime.test.js tests/tab-isolation-hardening.test.js tests/background-command-router.test.js tests/background-spinner-operations.test.js tests/popup-authority-boundary.test.js
+```
 
 ## Read This First
 
@@ -27,11 +348,18 @@ As of this handoff:
    - lifecycle broker
    - page-motion freeze executeScript bridge
    - AI persistence/background network pieces
-4. The popup still directly orchestrates many content workflows.
+4. Popup snapshot, marking activation/deactivation, render-mode inspection,
+   AI run orchestration, save/discard/preview tab-surface orchestration, and
+   popup content-message bridging
+   now route
+   through background commands;
+   architecture guard coverage now blocks regression to direct popup
+   `chrome.tabs.sendMessage` usage.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
-6. Page-world freeze/lazy-loading suppression exists and is currently invoked
-   through background executeScript plumbing.
-7. The next work is architectural implementation, not more planning.
+6. Page-world freeze/lazy-loading suppression now supports deterministic
+   content->page-world relay with nonce-scoped request/reply; background
+   executeScript remains as compatibility fallback.
+7. Refactor track is complete through Phase 10.
 
 ## First Commands For A Future Implementer
 
@@ -49,6 +377,35 @@ node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/
 
 If any baseline test fails before edits, stop and document it here or in a new
 handoff update. Do not begin the refactor on top of unexplained failures.
+
+## Phase 0 Baseline Execution (2026-06-09)
+
+Executed on branch `refactor/service-worker-authority` from `main` head
+`3457176` after `git fetch origin` and `git pull --ff-only`.
+
+Commands executed:
+
+```bash
+npm ci
+node --test
+node --test tests/core-visibility.test.js tests/core-motion-pause.test.js tests/core-scheduling.test.js tests/marking-rules.test.js tests/popup-marking-refresh.test.js tests/selector-suppression.test.js tests/silent-highlight-annotations.test.js tests/silent-highlight-rules.test.js tests/submission-rules.test.js
+```
+
+Baseline result:
+
+1. Full suite: 649 passed, 1 failed.
+2. Focused suite: 218 passed, 1 failed.
+3. Same failing pre-existing test in both runs:
+   - `tests/core-motion-pause.test.js`
+   - test name: `page inspection reveal keeps page-world lazy-load suppression active until marking is disabled`
+   - assertion mismatch: expected `{ suppressed: true }`, got `{ suppressed: false }`
+
+Interpretation:
+
+1. Failure is pre-existing before Phase 1 edits.
+2. Refactor can proceed only with this known baseline failure tracked.
+3. Each later phase must confirm this failure is unchanged unless that phase
+   intentionally fixes this behavior.
 
 ## Protected 11 Checklist
 

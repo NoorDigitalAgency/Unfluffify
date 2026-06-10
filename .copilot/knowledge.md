@@ -46,6 +46,9 @@
 - The supportee's actual Chrome side panel remains the authoritative Unfluffify sidebar during a session.
 - Page reflection is a live Chrome-window visual stream, not DOM mirroring.
 - Remote support sessions explicitly start with `page` and `sidebar` RTC data channels at the app layer.
+- Popup tab-runtime snapshots must flow through the background command
+  `POPUP_GET_TAB_VIEW_STATE`; do not reintroduce popup fallback reads through
+  `WORLD_MESSAGE_TYPES.GET_BACKGROUND_STATE`.
 
 ## AI Submission Rules
 

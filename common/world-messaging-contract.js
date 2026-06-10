@@ -1,6 +1,5 @@
 export const WORLD_MESSAGE_TYPES = Object.freeze({
   LIFECYCLE_EVENT: "ufLifecycleEvent",
-  GET_BACKGROUND_STATE: "getUfBackgroundState",
   SPINNER_SET: "ufSpinnerSet",
   SPINNER_REMOVE: "ufSpinnerRemove",
   SPINNER_CLEAR: "ufSpinnerClear",

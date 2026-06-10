@@ -19,7 +19,7 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
   assert.match(backgroundSource, /const tabWorldTraceStateByTabId = new Map\(\);/);
   assert.match(backgroundSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(backgroundSource, /traceEnabled: isWorldTraceEnabled\(\),/);
-  assert.match(backgroundSource, /if \(message\.type === WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE\) \{/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.POPUP_GET_TAB_VIEW_STATE, async \(context\) => \{/);
   assert.doesNotMatch(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.CONTENT_TRACE_SET/);
@@ -62,7 +62,8 @@ test("popup keeps trace diagnostics behind a disabled feature flag", () => {
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{/);
   assert.match(popupSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
   assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE,/);
+  assert.match(popupSource, /messages\.requestPopupTabViewState\(tabId\)/);
+  assert.doesNotMatch(popupSource, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(popupSource, /state\.traceModeEnabled = await loadTraceModeSetting\(\)\.catch\(\(\) => false\);/);
   assert.match(popupSource, /await applyTraceModePreferenceToTab\(initTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);
   assert.doesNotMatch(popupSource, /await applyTraceModePreferenceToTab\(newTabId, state\.traceModeEnabled\)\.catch\(\(\) => null\);/);

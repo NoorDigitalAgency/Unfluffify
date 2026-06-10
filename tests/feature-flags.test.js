@@ -127,7 +127,7 @@ test("disabled optional state cannot leak through hidden controls", () => {
   assert.match(popupSource, /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(popupSource, /async function loadTraceModeSetting\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/);
   assert.match(popupSource, /async function applyTraceModePreferenceToTab\(tabId, enabled\) \{[\s\S]*?if \(!isFeatureEnabled\("traceDiagnostics"\)\) \{[\s\S]*?traceModeEnabled: false[\s\S]*?return null;/);
-  assert.match(popupSource, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE,/);
+  assert.match(popupSource, /messages\.requestPopupTabViewState\(tabId\)/);
   assert.match(
     backgroundSource,
     /function isWorldTraceEnabled\(\) \{\s*return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);\s*\}/
@@ -189,10 +189,12 @@ test("render mode auto detection is blocked while manual inspection remains", ()
     backgroundSource,
     /if \(message\.type === "requestRenderModeDetection"\) \{[\s\S]*?if \(!isFeatureEnabled\("renderModeAutoDetection"\)\) \{[\s\S]*?sendResponse\(buildFeatureDisabledResponse\("renderModeAutoDetection"\)\);/
   );
-  assert.match(popupSource, /type: "renderModeInspectionBegin"/);
-  assert.match(popupSource, /type: "runRenderModeRevealOnce"/);
-  assert.match(popupSource, /type: "captureRenderModeInspectionHtml"/);
-  assert.match(popupSource, /type: "renderModeInspectionEnd"/);
+  assert.match(popupSource, /requestTabRunRenderModeInspection\(/);
+  assert.match(backgroundSource, /TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION"/);
+  assert.match(backgroundSource, /TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION"/);
+  assert.match(backgroundSource, /TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE"/);
+  assert.match(backgroundSource, /TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML"/);
+  assert.match(backgroundSource, /TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION"/);
 });
 
 test("cache and unregister tools are hidden and blocked when disabled", () => {

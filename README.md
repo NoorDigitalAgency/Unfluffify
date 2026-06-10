@@ -214,9 +214,12 @@ This extension uses Chrome's Manifest V3 (the current standard):
 ### Message Passing
 
 Communication flow:
-- Popup ↔ Background ↔ Content Script ↔ Page
+- Popup ↔ Service Worker ↔ Content Script ↔ Page World
 
-Message types include state queries, updates, device emulation commands, and data syncing.
+Command-routing notes:
+- Popup tab snapshots are requested via the background command `POPUP_GET_TAB_VIEW_STATE`.
+- Popup-to-content requests are routed through the background command `TAB_CONTENT_REQUEST`.
+- Legacy popup fallback messaging for `GET_BACKGROUND_STATE` is removed from the active architecture.
 
 ## Code Quality
 

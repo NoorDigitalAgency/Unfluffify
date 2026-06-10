@@ -206,7 +206,7 @@ test("marking-mode Preview Contents stays separate from silent Preview and Send 
   assert.match(markingPreviewBody, /if \(!view\.markingPreviewVisible \|\| view\.markingPreviewDisabled\) \{/);
   assert.match(markingPreviewBody, /await refreshCurrentPageRuntimeStatus\(\);/);
   assert.match(markingPreviewBody, /const selectorSet = getLatestAvailableSelectorsFromConfig\(\);/);
-  assert.match(markingPreviewBody, /type: "showAiPreview"/);
+  assert.match(markingPreviewBody, /messages\.requestTabShowAiPreview\(tabId, \{/);
   assert.doesNotMatch(markingPreviewBody, /silentModeActive/);
   assert.doesNotMatch(markingPreviewBody, /openLynxChecklistPopover|submitSelectorSetToServer|syncBaseConfigToServer/);
   assert.doesNotMatch(markingPreviewBody, /setCurrentPageSaveReconciliation|markCurrentPageSaveReconciliationDirty/);
@@ -318,6 +318,7 @@ test("page-type refresh change copy is documented in shared text", () => {
 
 test("session save uploads all local page markings while default sync stays backend-scoped", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const handlePageSaveBody = source.match(
     /async function handlePageSave\(\) \{([\s\S]*?)\n\}\n\nasync function handlePageRevert/
   )[1];
@@ -371,7 +372,12 @@ test("session save uploads all local page markings while default sync stays back
     applyLocalPageDiscardBody,
     /findBackendSavedPageMarkingEntry\(backendSavedPageMarkings, pageUrl\)/
   );
-  assert.match(applyLocalPageDiscardBody, /forceReloadPageEntry: true/);
+  assert.match(applyLocalPageDiscardBody, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_LOCAL_DISCARD, async \(context, payload\) => \{/);
+  assert.match(backgroundSource, /type: "configUpdated",[\s\S]*?forceReloadPageEntry: true/);
+  assert.match(source, /await messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
+  assert.match(backgroundSource, /type: "setEnabled",[\s\S]*?enabled: false/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /loadRemoteConfigForCurrentPage/);
   assert.doesNotMatch(applyLocalPageDiscardBody, /validateStoredToken/);
   assert.match(applyLocalPageDiscardBody, /await clearCurrentPageSaveReconciliation\(\);/);
@@ -654,8 +660,9 @@ test("popup restores spinner state from background current state", () => {
     /function applyBackgroundStateSnapshot\(snapshot\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(restoreBody, /type: WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
-  assert.match(restoreBody, /applyBackgroundStateSnapshot\(response\)/);
+  assert.match(restoreBody, /messages\.requestPopupTabViewState\(tabId\)/);
+  assert.match(restoreBody, /applyBackgroundStateSnapshot\(viewState\.state\)/);
+  assert.doesNotMatch(restoreBody, /WORLD_MESSAGE_TYPES\.GET_BACKGROUND_STATE/);
   assert.match(applyBody, /popupSpinnerQueue\.clear\(\);/);
   assert.match(applyBody, /Array\.isArray\(snapshot\.spinnerQueue\)/);
   assert.match(applyBody, /popupSpinnerQueue\.set\(entry\.key/);
@@ -771,13 +778,13 @@ test("observer remote config polling stays passive-only and runs once a minute",
   );
 });
 
-test("marking enable does not send a redundant force refresh after setEnabled", () => {
+test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_MARKING", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/
   )[1];
 
-  assert.match(enableBody, /type: "setEnabled"[\s\S]*enabled: true/);
+  assert.match(enableBody, /messages\.requestTabActivateMarking\(tab\.id, \{/);
   assert.doesNotMatch(enableBody, /type: "forceRefresh"/);
 });
 
@@ -793,9 +800,9 @@ test("marking enable upgrades the popup spinner to page inspection during reveal
   assert.match(runWithSpinnerBody, /return await task\(pushed\);/);
   assert.match(
     enableBody,
-    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.sendTabMessageWithRetry\(\{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: true/
+    /setSpinnerMessage\(spinnerKey, PopupText\.overlay\.pageInspection\);[\s\S]*?const enableResponse = await messages\.requestTabActivateMarking\(tab\.id, \{[\s\S]*?baseUrl: effectiveBaseUrl/
   );
-  assert.match(enableBody, /performInitialReveal: true/);
+  assert.match(enableBody, /desktopPreviewEnabled: Boolean\(uiModule\.getViewState\(\)\.desktopPreviewEnabled\)/);
   assert.match(enableBody, /await waitForEnableMarkingInspectionToSettle\(tab\.id, effectiveBaseUrl\);/);
 });
 

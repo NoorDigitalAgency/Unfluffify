@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const uiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 const stateSource = readFileSync(new URL("../popup/state.js", import.meta.url), "utf8");
 
@@ -57,14 +58,14 @@ test("a successful save transitions the popup from marking to silent mode", () =
   const fnBody = popupSource.match(
     /async function applyPostSaveSilentTransition\(\) \{([\s\S]*?)\n\}/
   )[1];
-  // Reset the content page entry to the saved baseline (drop session deltas).
-  assert.match(fnBody, /forceReloadPageEntry: true/);
+  // The post-save content transition is delegated to background command authority.
+  assert.match(fnBody, /await messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\);/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
+  assert.match(backgroundSource, /type: "configUpdated",[\s\S]*?forceReloadPageEntry: true/);
+  assert.match(backgroundSource, /type: "setEnabled",[\s\S]*?enabled: false/);
   assert.match(fnBody, /state\.currentDraftDirty = false;/);
   // Align popup + tab state to silent via the shared helper.
   assert.match(fnBody, /await alignPopupToSilentMode\(\);/);
-  // Deterministically drop the CONTENT script out of marking into silent so the
-  // page does not stay in marking mode after save (buttons reset to silent/idle).
-  assert.match(fnBody, /type: "setEnabled",\s*enabled: false/);
 });
 
 test("aligning to silent mode clears the popup toggle without touching content", () => {
@@ -217,9 +218,9 @@ test("#21 a clean AI run captures the fingerprint from the committed content dra
     fnBody,
     /configUpdated[\s\S]*?await refreshCurrentPageRuntimeStatus\(\);[\s\S]*?captureAiRunMarkingsFingerprint\(\);/
   );
-  // The capture must happen before the preview opens (showAiPreview).
+  // The capture must happen before the preview command intent is sent.
   const captureIndex = fnBody.indexOf("captureAiRunMarkingsFingerprint();");
-  const previewIndex = fnBody.indexOf("showAiPreview");
+  const previewIndex = fnBody.indexOf("requestTabShowAiPreview");
   assert.ok(captureIndex > -1 && previewIndex > -1 && captureIndex < previewIndex);
 });
 

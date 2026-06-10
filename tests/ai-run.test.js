@@ -86,19 +86,23 @@ test("AI compute shows busy feedback and locks marking before payload work", () 
   const body = match[1];
   const activeIndex = body.indexOf("setAiRunActiveState({");
   const firstPaintIndex = body.indexOf("await waitForPopupUiPaint();", activeIndex);
-  const lockIndex = body.indexOf("await syncAiComputeLock(true, initialLockExpiresAt);", firstPaintIndex);
-  const secondPaintIndex = body.indexOf("await waitForPopupUiPaint();", lockIndex);
-  const snapshotIndex = body.indexOf("type: \"capturePageSnapshot\"", secondPaintIndex);
-  const prepareIndex = body.indexOf("type: \"prepareAiRunPayloadSnapshot\"", secondPaintIndex);
-  const refineIndex = body.indexOf("rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)", prepareIndex);
+  const runCommandIndex = body.indexOf("messages.requestTabRunAi(tabId, {", firstPaintIndex);
+
+  const runAiStart = backgroundSource.indexOf("async function runAiCommandForTab(tabId, payload, update) {");
+  const runAiEnd = backgroundSource.indexOf("registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT", runAiStart);
+  assert.ok(runAiStart > -1, "runAiCommandForTab should exist");
+  assert.ok(runAiEnd > runAiStart, "runAiCommandForTab block should terminate before command registration");
+  const runAiBlock = backgroundSource.slice(runAiStart, runAiEnd);
+  const lockIndex = runAiBlock.indexOf("await setAiComputeLockForTab(");
+  const prepareIndex = runAiBlock.indexOf("await prepareAiRunPayloadSnapshot({", lockIndex);
 
   assert.ok(activeIndex >= 0, "AI run state should be activated");
   assert.ok(firstPaintIndex > activeIndex, "popup should yield for busy feedback before locking");
-  assert.ok(lockIndex > firstPaintIndex, "marking should be locked after busy feedback is visible");
-  assert.ok(secondPaintIndex > lockIndex, "popup should yield after marking is locked");
-  assert.ok(snapshotIndex > secondPaintIndex, "current-page snapshot capture should wait for visible feedback");
-  assert.ok(prepareIndex > secondPaintIndex, "AI payload preparation should wait for visible feedback");
-  assert.ok(refineIndex > prepareIndex, "XPath refinement should remain behind the busy feedback");
+  assert.ok(runCommandIndex > firstPaintIndex, "AI command should run after busy feedback is visible");
+  assert.ok(lockIndex > -1, "background command should lock compute mode");
+  assert.ok(prepareIndex > lockIndex, "background should prepare payload after locking");
+  assert.match(backgroundSource, /TAB_RUN_AI: "TAB_RUN_AI"/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /async function prepareAiRunPayloadSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /fetchStaticPageHtmlForBackground/);
 });
@@ -113,37 +117,47 @@ test("AI compute builds the request from stored local page snapshots only", () =
   assert.ok(match, "handleComputeSelectors body should be found");
   const body = match[1];
 
-  assert.match(
-    body,
-    /let pageMarkings = state\.currentConfig\.pageMarkings \|\| \{\};/
-  );
+  assert.match(body, /const currentPageNeedsSnapshot =/);
   assert.match(
     body,
     /const currentPageNeedsSnapshot =\s*[\s\S]*?state\.currentDraftDirty[\s\S]*?!currentPageEntry[\s\S]*?!currentPageHtml[\s\S]*?!hasCurrentSubmissionXpaths/
   );
+  assert.match(body, /messages\.requestTabRunAi\(tabId, \{/);
   assert.match(
     body,
-    /type: "capturePageSnapshot"[\s\S]*?persist: true/
+    /baseUrl: state\.currentBaseUrl,[\s\S]*?currentPageUrl,[\s\S]*?pageType: state\.currentPageTypeKey \|\| "",[\s\S]*?currentRenderMode/
   );
   assert.doesNotMatch(
     body,
-    /snapshotResponse\.(renderedHtml|rawHtml|submissionXpaths|pageMarkings|xpaths)/
+    /type: "capturePageSnapshot"|type: "prepareAiRunPayloadSnapshot"|type: "requestAiRunStartSnapshot"|type: "requestAiRunStatus"|type: "requestAiRunResultSnapshot"/
   );
   assert.match(
-    body,
-    /type: "prepareAiRunPayloadSnapshot"[\s\S]*?baseUrl: state\.currentBaseUrl,[\s\S]*?currentPageUrl,[\s\S]*?currentRenderMode/
+    backgroundSource,
+    /type: "capturePageSnapshot"[\s\S]*?persist: true/
   );
   assert.match(
-    body,
+    backgroundSource,
+    /await prepareAiRunPayloadSnapshot\(\{[\s\S]*?baseUrl,[\s\S]*?currentPageUrl,[\s\S]*?currentRenderMode/
+  );
+  assert.match(
+    backgroundSource,
     /preparedPayload\.requiresRawXPathRefinement/
   );
   assert.match(
-    body,
-    /await utils\.storageGet\(chrome\.storage\.session, preparedPayload\.payloadKey\)/
+    backgroundSource,
+    /refineAiRunPayloadXpathsInBackground\(startPayloadKey\)/
   );
   assert.match(
-    body,
-    /startPayloadKey = buildRemoteConfigTransferKey\("ai-run-start-refined"\)/
+    backgroundSource,
+    /await requestAiRunStartSnapshot\(/ 
+  );
+  assert.match(
+    backgroundSource,
+    /await requestAiRunStatus\(/ 
+  );
+  assert.match(
+    backgroundSource,
+    /await requestAiRunResultSnapshot\(/ 
   );
   assert.match(
     backgroundSource,
@@ -173,7 +187,7 @@ test("AI compute builds the request from stored local page snapshots only", () =
 
 test("AI compute reports specific snapshot preparation blockers", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const failureStart = source.indexOf("function getAiSnapshotFailureMessage");
+  const failureStart = source.indexOf("function getAiRunCommandFailureMessage");
   const failureEnd = source.indexOf("async function continueAiRunPolling", failureStart);
   const computeMatch = source.match(
     /async function handleComputeSelectors\(\) \{([\s\S]*?)\n\}\n\nasync function postPageTypeAssignmentsToAiServer/
@@ -185,10 +199,12 @@ test("AI compute reports specific snapshot preparation blockers", () => {
   const failureSource = source.slice(failureStart, failureEnd);
   const computeBody = computeMatch[1];
 
-  assert.match(failureSource, /if \(response && response\.reconciliationPending\) \{[\s\S]*?return PopupText\.page\.statusServerSyncPending;/);
-  assert.match(failureSource, /if \(response && response\.locked\) \{[\s\S]*?propertyLockText\.lockedInteractionBlockedToast/);
-  assert.match(failureSource, /return PopupText\.ai\.saveCurrentPageBeforeComputing;/);
-  assert.match(computeBody, /await failAiRun\(getAiSnapshotFailureMessage\(snapshotResponse\)\);/);
+  assert.match(failureSource, /if \(details\.reconciliationPending\) \{[\s\S]*?PopupText\.page\.statusServerSyncPending/);
+  assert.match(failureSource, /if \(details\.locked\) \{[\s\S]*?propertyLockText\.lockedInteractionBlockedToast/);
+  assert.match(failureSource, /if \(details\.reason === "missing_current_page"\)/);
+  assert.match(failureSource, /if \(details\.reason === "missing_saved_pages"\)/);
+  assert.match(failureSource, /if \(details\.reason === "timed_out"\)/);
+  assert.match(computeBody, /await failAiRun\(getAiRunCommandFailureMessage\(aiRunResponse\)\);/);
 });
 
 test("AI run recovery metadata is persisted through background", () => {
@@ -228,7 +244,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
   const popupHeartbeatBlock = popupSource.slice(heartbeatStart, heartbeatEnd);
   const contentComputeLockBlock = contentSource.slice(computeLockStart, computeLockEnd);
 
-  assert.match(backgroundSource, /function sendContentMessageToTab\(tabId, message, timeoutMs = 3000\) \{/);
+  assert.match(backgroundSource, /function sendContentMessageToTab\(tabId, message, timeoutMs = 15000\) \{/);
   assert.match(backgroundSource, /Content message timed out/);
   assert.match(backgroundSource, /if \(settled\) \{[\s\S]*?return;[\s\S]*?\}/);
   assert.match(backgroundSource, /async function ensureContentMainForTab\(tabId\) \{/);
@@ -279,9 +295,11 @@ test("AI run start, status polling, and result transport use background messagin
   assert.match(backgroundSource, /async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function requestAiRunStatus\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunStartSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunStatus"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunResultSnapshot"\) \{/);
+  assert.match(popupSource, /messages\.requestTabRunAi\(tabId, \{/);
   assert.match(backgroundSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
   assert.match(startBlock, /type: "requestAiRunStartSnapshot"/);
   assert.match(startBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \|\| \{\} \}\);/);
