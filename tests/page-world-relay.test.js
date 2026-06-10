@@ -191,3 +191,18 @@ test("page-world relay initialization times out when bridge does not reply", asy
     );
   });
 });
+
+test("page-world relay initialization is concurrency-safe", async () => {
+  await withRelayHarness({ installBridge: true }, async () => {
+    // Call initializePageWorldRelay twice concurrently
+    const [result1, result2] = await Promise.all([
+      initializePageWorldRelay({ timeoutMs: 40 }),
+      initializePageWorldRelay({ timeoutMs: 40 })
+    ]);
+
+    // Both should succeed and return the same nonce
+    assert.equal(result1.ok, true);
+    assert.equal(result2.ok, true);
+    assert.equal(result1.nonce, result2.nonce);
+  });
+});

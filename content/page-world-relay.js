@@ -12,6 +12,7 @@ const FALLBACK_REQUEST_PREFIX = "uf-page-world";
 let relaySession = null;
 let relayRequestCounter = 0;
 let relayListenerInstalled = false;
+let initializationInFlight = null;
 const pendingRelayRequests = new Map();
 
 function createRelayError(code, message, details = {}) {
@@ -189,24 +190,38 @@ export async function initializePageWorldRelay(options = {}) {
     };
   }
 
-  const timeoutMs = normalizeTimeoutMs(options.timeoutMs, DEFAULT_RELAY_TIMEOUT_MS);
-  relaySession = {
-    nonce: createRequestId(),
-    timeoutMs,
-    ready: false
-  };
-
-  try {
-    await sendRelayRequest(PAGE_WORLD_COMMANDS.ARM, {}, { timeoutMs });
-    relaySession.ready = true;
-    return {
-      ok: true,
-      nonce: relaySession.nonce
-    };
-  } catch (error) {
-    relaySession = null;
-    throw error;
+  // If initialization is already in flight, return the same promise to avoid
+  // overwriting relaySession/nonce before the first ARM handshake completes
+  if (initializationInFlight) {
+    return initializationInFlight;
   }
+
+  const timeoutMs = normalizeTimeoutMs(options.timeoutMs, DEFAULT_RELAY_TIMEOUT_MS);
+  
+  // Store the initialization promise so concurrent callers get the same promise
+  initializationInFlight = (async () => {
+    relaySession = {
+      nonce: createRequestId(),
+      timeoutMs,
+      ready: false
+    };
+
+    try {
+      await sendRelayRequest(PAGE_WORLD_COMMANDS.ARM, {}, { timeoutMs });
+      relaySession.ready = true;
+      return {
+        ok: true,
+        nonce: relaySession.nonce
+      };
+    } catch (error) {
+      relaySession = null;
+      throw error;
+    } finally {
+      initializationInFlight = null;
+    }
+  })();
+
+  return initializationInFlight;
 }
 
 export function isPageWorldRelayReady() {
@@ -242,6 +257,7 @@ export function __resetPageWorldRelayForTests() {
     }
   }
   relaySession = null;
+  initializationInFlight = null;
   relayRequestCounter = 0;
   if (relayListenerInstalled && typeof window !== "undefined" && typeof window.removeEventListener === "function") {
     window.removeEventListener("message", handleRelayMessage);
