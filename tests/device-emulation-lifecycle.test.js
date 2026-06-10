@@ -212,7 +212,7 @@ test("popup delegates active tab context resolution to the background", () => {
   const backgroundResolveBlock = extractSourceBlock(
     backgroundSource,
     "async function resolvePopupTabContext(message = {}, sender = {}) {",
-    "function getSpinnerQueueForTab"
+    "const popupStateBroker = createPopupStateBroker"
   );
   const loadActiveTabBlock = popupMessagesSource.match(
     /export async function loadActiveTab\(\) \{([\s\S]*?)\n\}/

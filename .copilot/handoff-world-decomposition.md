@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 6 complete)
+Implementation status: IN_PROGRESS (Track A Phase 7 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -57,7 +57,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 5. Phase 4 - remote-network module: DONE.
 6. Phase 5 - remote-config-sync module: DONE.
 7. Phase 6 - world-trace module: DONE.
-8. Phase 7 - popup-state-broker module (HIGH RISK): TODO.
+8. Phase 7 - popup-state-broker module (HIGH RISK): DONE.
 9. Phase 8 - render-mode-inspector module: TODO.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): TODO.
 11. Phase 10 - async error reporting (hardening): TODO.
@@ -200,12 +200,19 @@ Phase 6 - world-trace module:
    Focused: node --test tests/feature-flags.test.js tests/world-trace.test.js tests/world-trace-contract.test.js tests/background-decomposition-boundary.test.js -> 23 pass / 0 fail
    Full:    npm test -> 783 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  5529707 refactor(background): extract world trace store
+
+Phase 7 - popup-state-broker module:
+   Files:   background/popup-state-broker.js; background.js; tests/popup-state-broker.test.js; tests/lifecycle-broker.test.js; tests/world-trace-contract.test.js; tests/device-emulation-lifecycle.test.js; tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/device-emulation-lifecycle.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/popup-state-broker.test.js tests/background-decomposition-boundary.test.js -> 41 pass / 0 fail
+   Full:    npm test -> 786 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 6 with:
-`refactor(background): extract world trace store`, then proceed to Track A
-Phase 7 (popup-state-broker extraction). Do not start Track B until Track A is
+Commit and push Track A Phase 7 with:
+`refactor(background): extract popup state broker`, then proceed to Track A
+Phase 8 (render-mode-inspector extraction). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

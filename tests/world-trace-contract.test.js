@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
 const worldTraceSource = readFileSync(new URL("../background/world-trace.js", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const popupUiSource = readFileSync(new URL("../popup/ui.js", import.meta.url), "utf8");
 const popupMessagesSource = readFileSync(new URL("../popup/messages.js", import.meta.url), "utf8");
@@ -25,7 +26,7 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
   assert.match(worldTraceSource, /export const WORLD_TRACE_EVENT_LIMIT = 160;/);
   assert.match(worldTraceSource, /export function createWorldTrace\(options = \{\}\) \{/);
   assert.match(worldTraceSource, /return isFeatureEnabled\("traceDiagnostics"\) && isDebugFlagEnabled\("worldTraceEnabled"\);/);
-  assert.match(backgroundSource, /traceEnabled: isWorldTraceEnabled\(\),/);
+  assert.match(popupStateBrokerSource, /traceEnabled: isWorldTraceEnabled\(\),/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.POPUP_GET_TAB_VIEW_STATE, async \(context\) => \{/);
   assert.doesNotMatch(backgroundSource, /function setWorldTraceEnabled\(tabId, enabled\) \{/);
   assert.doesNotMatch(backgroundSource, /WORLD_MESSAGE_TYPES\.TRACE_SET/);
@@ -34,13 +35,13 @@ test("background keeps trace enablement fixed from feature and debug flags", () 
   assert.match(worldTraceSource, /reason: typeof payload\.reason === "string" \? payload\.reason : ""/);
   assert.match(worldTraceSource, /source: typeof payload\.source === "string" \? payload\.source : ""/);
   assert.match(worldTraceSource, /key: typeof payload\.key === "string" \? payload\.key : ""/);
-  assert.match(backgroundSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
+  assert.match(popupStateBrokerSource, /traceEvents: traceState && Array\.isArray\(traceState\.events\) \? \[\.\.\.traceState\.events\] : \[\]/);
 });
 
 test("background spinner broker preserves blocking reason metadata", () => {
-  assert.match(backgroundSource, /reason: entry && typeof entry\.reason === "string" \? entry\.reason : ""/);
-  assert.match(backgroundSource, /source: entry && typeof entry\.source === "string" \? entry\.source : ""/);
-  assert.match(backgroundSource, /startedAt: entry && Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : 0/);
+  assert.match(popupStateBrokerSource, /reason: entry && typeof entry\.reason === "string" \? entry\.reason : ""/);
+  assert.match(popupStateBrokerSource, /source: entry && typeof entry\.source === "string" \? entry\.source : ""/);
+  assert.match(popupStateBrokerSource, /startedAt: entry && Number\.isFinite\(entry\.startedAt\) \? entry\.startedAt : 0/);
   assert.match(backgroundSource, /reason: typeof entry\.reason === "string" && entry\.reason \? entry\.reason : `spinner:\$\{String\(key\)\}`/);
   assert.match(backgroundSource, /source: typeof entry\.source === "string" && entry\.source \? entry\.source : "background-spinner-broker"/);
   assert.match(backgroundSource, /reason: message\.reason,/);

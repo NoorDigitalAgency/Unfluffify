@@ -59,11 +59,8 @@ import {
   LIFECYCLE_KINDS,
   LIFECYCLE_PHASES,
   SPINNER_OWNERS,
-  SPINNER_KEYS,
   WORLD_MESSAGE_TYPES,
-  WORLD_PORTS,
-  isLifecycleTerminalPhase,
-  isCurtainBearingLifecycleKind
+  WORLD_PORTS
 } from "./common/world-messaging-contract.js";
 import {
   AI_RUN_POLL_INTERVAL_MS,
@@ -137,6 +134,7 @@ import {
   createWorldTrace,
   WORLD_TRACE_EVENT_LIMIT
 } from "./background/world-trace.js";
+import { createPopupStateBroker } from "./background/popup-state-broker.js";
 import {
   clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
   clearTabStateScope,
@@ -2256,38 +2254,22 @@ async function resolvePopupTabContext(message = {}, sender = {}) {
   return { ok: Boolean(tabs[0] && tabs[0].id), tab: tabs[0] || null, source: tabs[0] ? "activeTab" : "none" };
 }
 
-function getSpinnerQueueForTab(tabId) {
-  return spinnerOperations.getSpinnerQueueForTab(tabId);
-}
-
-function serializeSpinnerQueue(tabId) {
-  const queue = tabSpinnerQueueByTabId.get(tabId);
-  if (!queue || queue.size === 0) {
-    return [];
-  }
-  return [...queue.entries()].map(([key, entry]) => ({
-    key,
-    message: entry && typeof entry.message === "string" ? entry.message : "",
-    persistent: Boolean(entry && entry.persistent),
-    owner: entry && typeof entry.owner === "string" ? entry.owner : "",
-    reason: entry && typeof entry.reason === "string" ? entry.reason : "",
-    source: entry && typeof entry.source === "string" ? entry.source : "",
-    startedAt: entry && Number.isFinite(entry.startedAt) ? entry.startedAt : 0
-  }));
-}
-
-function buildBrokerState(tabId) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  const traceState = ensureTraceState(normalizedTabId);
-  return {
-    ok: Boolean(normalizedTabId),
-    tabId: normalizedTabId,
-    lifecycle: normalizedTabId ? (tabLifecycleStateByTabId.get(normalizedTabId) || null) : null,
-    spinnerQueue: normalizedTabId ? serializeSpinnerQueue(normalizedTabId) : [],
-    traceEnabled: isWorldTraceEnabled(),
-    traceEvents: traceState && Array.isArray(traceState.events) ? [...traceState.events] : []
-  };
-}
+const popupStateBroker = createPopupStateBroker({
+  lifecycleStateByTabId: tabLifecycleStateByTabId,
+  spinnerQueueByTabId: tabSpinnerQueueByTabId,
+  popupStatePortsByTabId,
+  normalizeTabId: normalizeBrokerTabId,
+  appendTrace: appendWorldTraceEvent,
+  ensureTraceState,
+  isWorldTraceEnabled,
+  updateRuntime: updateTabRuntime
+});
+const getSpinnerQueueForTab = popupStateBroker.getSpinnerQueueForTab;
+const serializeSpinnerQueue = popupStateBroker.serializeSpinnerQueue;
+const buildBrokerState = popupStateBroker.buildBrokerState;
+const broadcastBrokerState = popupStateBroker.broadcastBrokerState;
+const updateLifecycleState = popupStateBroker.updateLifecycleState;
+const clearNavInspectCurtain = popupStateBroker.clearNavInspectCurtain;
 
 const spinnerOperations = createSpinnerOperations({
   queueByTabId: tabSpinnerQueueByTabId,
@@ -2301,102 +2283,6 @@ const spinnerOperations = createSpinnerOperations({
     });
   }
 });
-
-function broadcastBrokerState(tabId) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId) {
-    return;
-  }
-  const ports = popupStatePortsByTabId.get(normalizedTabId);
-  if (!ports || ports.size === 0) {
-    return;
-  }
-  const state = buildBrokerState(normalizedTabId);
-  ports.forEach((port) => {
-    try {
-      port.postMessage({ type: WORLD_MESSAGE_TYPES.BACKGROUND_STATE, state });
-    } catch {
-      ports.delete(port);
-    }
-  });
-}
-
-function updateLifecycleState(tabId, event = {}) {
-  const normalizedTabId = normalizeBrokerTabId(tabId);
-  if (!normalizedTabId || !event || typeof event !== "object") {
-    return buildBrokerState(normalizedTabId);
-  }
-  const previous = tabLifecycleStateByTabId.get(normalizedTabId) || {};
-  const eventOperationId = typeof event.operationId === "string" && event.operationId
-    ? event.operationId
-    : "";
-  const eventPhase = typeof event.phase === "string" && event.phase ? event.phase : "";
-  const eventKind = typeof event.kind === "string" && event.kind ? event.kind : "";
-  const isTerminalEvent = isLifecycleTerminalPhase(eventPhase);
-  if (
-    eventOperationId &&
-    previous.operationId &&
-    eventOperationId !== previous.operationId &&
-    isTerminalEvent
-  ) {
-    // Superseded terminal lifecycle events must not tear down the current
-    // operation's navigation-inspection curtain. Ignore stale terminal events
-    // entirely and keep the active operation authoritative.
-    return buildBrokerState(normalizedTabId);
-  }
-  // Authoritative curtain teardown: a terminal curtain-bearing event
-  // (inspection/activation finished/failed) means that operation's persistent
-  // navigation-inspection curtain is now stale, so drop it for this tab.
-  // Routine terminal kinds (content-ready, which fires on every load) are
-  // excluded so unrelated curtains are untouched.
-  const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind(eventKind);
-  if (clearsCurtain) {
-    clearNavInspectCurtain(normalizedTabId);
-  }
-  const operationId = eventOperationId
-    ? event.operationId
-    : previous.operationId || `lifecycle:${normalizedTabId}:${Date.now()}`;
-  const hasBusy = Object.prototype.hasOwnProperty.call(event, "busy");
-  const next = {
-    ...previous,
-    ...event,
-    operationId,
-    kind: typeof event.kind === "string" && event.kind ? event.kind : previous.kind || LIFECYCLE_KINDS.UNKNOWN,
-    phase: eventPhase || previous.phase || LIFECYCLE_PHASES.UNKNOWN,
-    message: typeof event.message === "string" ? event.message : previous.message || "",
-    busy: hasBusy ? Boolean(event.busy) : Boolean(previous.busy),
-    updatedAt: Date.now()
-  };
-  tabLifecycleStateByTabId.set(normalizedTabId, next);
-  updateTabRuntime(normalizedTabId, {
-    lifecycle: next
-  });
-  appendWorldTraceEvent(normalizedTabId, "lifecycle", "state-update", next);
-  broadcastBrokerState(normalizedTabId);
-  return buildBrokerState(normalizedTabId);
-}
-
-// Drop the persistent navigation-inspection curtain spinner for a tab. Returns
-// true if an entry was actually removed. Used by the authoritative
-// terminal-lifecycle curtain teardown in updateLifecycleState.
-function clearNavInspectCurtain(normalizedTabId) {
-  const queue = tabSpinnerQueueByTabId.get(normalizedTabId);
-  if (!queue || !queue.delete(SPINNER_KEYS.NAV_INSPECT)) {
-    return false;
-  }
-  if (queue.size === 0) {
-    tabSpinnerQueueByTabId.delete(normalizedTabId);
-  }
-  updateTabRuntime(normalizedTabId, {
-    spinnerQueue: queue
-  });
-  appendWorldTraceEvent(normalizedTabId, "spinner", "remove", {
-    type: WORLD_MESSAGE_TYPES.SPINNER_REMOVE,
-    message: SPINNER_KEYS.NAV_INSPECT,
-    reason: "lifecycle-terminal"
-  });
-  return true;
-}
 
 function setBackgroundSpinnerEntry(tabId, key, entry = {}) {
   return spinnerOperations.setBackgroundSpinnerEntry(tabId, key, {

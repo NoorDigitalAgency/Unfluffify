@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const popupStateBrokerSource = readFileSync(new URL("../background/popup-state-broker.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const contractSource = readFileSync(new URL("../common/world-messaging-contract.js", import.meta.url), "utf8");
@@ -23,13 +24,16 @@ test("background owns per-tab lifecycle and spinner current state", () => {
   assert.match(backgroundSource, /const tabLifecycleStateByTabId = new Map\(\);/);
   assert.match(backgroundSource, /const tabSpinnerQueueByTabId = new Map\(\);/);
   assert.match(backgroundSource, /const popupStatePortsByTabId = new Map\(\);/);
-  assert.match(backgroundSource, /function updateLifecycleState\(tabId, event = \{\}\) \{/);
+  assert.match(backgroundSource, /from "\.\/background\/popup-state-broker\.js"/);
+  assert.match(backgroundSource, /const popupStateBroker = createPopupStateBroker\(\{/);
+  assert.match(backgroundSource, /const updateLifecycleState = popupStateBroker\.updateLifecycleState;/);
+  assert.match(popupStateBrokerSource, /function updateLifecycleState\(tabId, event = \{\}\) \{/);
   assert.match(backgroundSource, /function setBackgroundSpinnerEntry\(tabId, key, entry = \{\}\) \{/);
   assert.match(backgroundSource, /function removeBackgroundSpinnerEntry\(tabId, key\) \{/);
   assert.match(backgroundSource, /function clearBackgroundSpinnerQueue\(tabId, options = \{\}\) \{/);
-  assert.match(backgroundSource, /const hasBusy = Object\.prototype\.hasOwnProperty\.call\(event, "busy"\);/);
-  assert.match(backgroundSource, /busy: hasBusy \? Boolean\(event\.busy\) : Boolean\(previous\.busy\)/);
-  assert.match(backgroundSource, /eventOperationId !== previous\.operationId[\s\S]*?isTerminalEvent[\s\S]*?return buildBrokerState\(normalizedTabId\);/);
+  assert.match(popupStateBrokerSource, /const hasBusy = Object\.prototype\.hasOwnProperty\.call\(event, "busy"\);/);
+  assert.match(popupStateBrokerSource, /busy: hasBusy \? Boolean\(event\.busy\) : Boolean\(previous\.busy\)/);
+  assert.match(popupStateBrokerSource, /eventOperationId !== previous\.operationId[\s\S]*?isTerminalEvent[\s\S]*?return buildBrokerState\(normalizedTabId\);/);
 });
 
 test("background authoritatively tears down the navigation-inspection curtain on terminal lifecycle", () => {
@@ -42,18 +46,18 @@ test("background authoritatively tears down the navigation-inspection curtain on
   // The terminal-curtain clear is gated on a curtain-bearing kind so routine
   // terminal events (content-ready on every load) never drop the curtain.
   assert.match(
-    backgroundSource,
+    popupStateBrokerSource,
     /const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind\(eventKind\);/
   );
   assert.match(
-    backgroundSource,
+    popupStateBrokerSource,
     /if \(clearsCurtain\) \{[\s\S]*?clearNavInspectCurtain\(normalizedTabId\);[\s\S]*?\}/
   );
-  assert.match(backgroundSource, /function clearNavInspectCurtain\(normalizedTabId\) \{[\s\S]*?queue\.delete\(SPINNER_KEYS\.NAV_INSPECT\)[\s\S]*?\}/);
+  assert.match(popupStateBrokerSource, /function clearNavInspectCurtain\(normalizedTabId\) \{[\s\S]*?queue\.delete\(SPINNER_KEYS\.NAV_INSPECT\)[\s\S]*?\}/);
   // Superseded terminal events are ignored before curtain teardown so a stale
   // operation cannot clear the active operation's navInspect curtain.
   assert.match(
-    backgroundSource,
+    popupStateBrokerSource,
     /eventOperationId !== previous\.operationId &&[\s\S]*?isTerminalEvent[\s\S]*?\) \{[\s\S]*?return buildBrokerState\(normalizedTabId\);[\s\S]*?const clearsCurtain = isTerminalEvent && isCurtainBearingLifecycleKind\(eventKind\);/
   );
   // Transient spinners remain popup-session scoped: the last port disconnect
