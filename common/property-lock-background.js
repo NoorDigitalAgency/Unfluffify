@@ -65,6 +65,7 @@ import {
   isFeatureEnabled
 } from "./feature-flags.js";
 import * as utils from "./utilities.js";
+import { getPropertyLockConnectionSettings } from "./settings-store.js";
 
 /**
  * WebSocket connection runtime for a single siteId.
@@ -575,13 +576,9 @@ function connectWebSocket(runtime) {
 
   setConnectionStatus(runtime, PROPERTY_LOCK_CONNECTION_CONNECTING);
 
-  utils.storageGet(chrome.storage.sync, {
-    globalConfigEndpoint: "",
-    globalStageBase: "",
-    globalToken: ""
-  }).then((items) => {
-    const endpointBase = items.globalConfigEndpoint || items.globalStageBase || "";
-    const token = items.globalToken || "";
+  getPropertyLockConnectionSettings().then((settings) => {
+    const endpointBase = settings.endpointBase;
+    const token = settings.tokenValue;
 
     const wssUrl = buildPropertyLockWssUrl(endpointBase, token);
     if (!wssUrl) {

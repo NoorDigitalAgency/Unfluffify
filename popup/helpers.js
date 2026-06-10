@@ -4,6 +4,7 @@ import * as stateModule from "./state.js";
 import { PopupText, ViewText, formatScalePercent } from "../common/text.js";
 import * as uiModule from "./ui.js";
 import * as utils from "../common/utilities.js";
+import { getGlobalAiSettings } from "../common/settings-store.js";
 
 const { state } = stateModule;
 
@@ -122,21 +123,7 @@ export async function updateDeviceEmulation({
 }
 
 export async function loadGlobalAiSettings() {
-  const [tokenResult, endpointResult, configEndpointResult, stageBaseResult] =
-    await Promise.all([
-      utils.storageGet(chrome.storage.sync, "globalToken"),
-      utils.storageGet(chrome.storage.sync, "globalEndpoint"),
-      utils.storageGet(chrome.storage.sync, "globalConfigEndpoint"),
-      utils.storageGet(chrome.storage.sync, "globalStageBase")
-    ]);
-  return {
-    tokenValue: (tokenResult && tokenResult.globalToken) || "",
-    endpointValue: (endpointResult && endpointResult.globalEndpoint) || "",
-    configEndpointValue:
-      (configEndpointResult && configEndpointResult.globalConfigEndpoint) || "",
-    stageBaseValue:
-      (stageBaseResult && stageBaseResult.globalStageBase) || ""
-  };
+  return getGlobalAiSettings();
 }
 
 export async function requireAiCredentials() {

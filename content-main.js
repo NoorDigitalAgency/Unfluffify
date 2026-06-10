@@ -109,6 +109,7 @@ import {
   createFailureEnvelope,
   isRequestEnvelope
 } from "./common/message-protocol.js";
+import { getGlobalAiSettings } from "./common/settings-store.js";
 
 const { state } = core;
 
@@ -2085,15 +2086,11 @@ function initializeRemoteSupportSupportPage() {
 }
 
 async function loadGlobalAiSettingsForContent() {
-  const stored = await utils.storageGet(chrome.storage.sync, {
-    globalStageBase: "",
-    globalToken: "",
-    globalConfigEndpoint: ""
-  });
+  const settings = await getGlobalAiSettings();
   return {
-    stageBaseValue: typeof stored.globalStageBase === "string" ? stored.globalStageBase.trim() : "",
-    tokenValue: typeof stored.globalToken === "string" ? stored.globalToken.trim() : "",
-    configEndpointValue: typeof stored.globalConfigEndpoint === "string" ? stored.globalConfigEndpoint.trim() : ""
+    stageBaseValue: settings.stageBaseValue,
+    tokenValue: settings.tokenValue,
+    configEndpointValue: settings.configEndpointValue
   };
 }
 
