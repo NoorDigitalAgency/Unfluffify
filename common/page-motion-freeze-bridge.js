@@ -647,6 +647,14 @@ function runPageMotionFreezeControl(command = "setPaused", details = null) {
         });
         return;
       }
+      if (relayState.nonce && relayState.nonce !== request.nonce) {
+        postRelayResponse(request, {
+          ok: false,
+          code: "invalid_message",
+          error: "Relay already armed with different nonce"
+        });
+        return;
+      }
       relayState.nonce = request.nonce;
     } else if (!relayState.nonce || request.nonce !== relayState.nonce) {
       postRelayResponse(request, {
