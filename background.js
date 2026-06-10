@@ -313,7 +313,7 @@ async function clearPersistedAiRunRecord() {
   await utils.storageRemove(chrome.storage.session, AI_RUN_PERSIST_KEY);
 }
 
-function sendContentMessageToTab(tabId, message, timeoutMs = 3000) {
+function sendContentMessageToTab(tabId, message, timeoutMs = 15000) {
   return new Promise((resolve) => {
     const normalizedTabId = normalizeBrokerTabId(tabId);
     if (!normalizedTabId) {
@@ -331,7 +331,7 @@ function sendContentMessageToTab(tabId, message, timeoutMs = 3000) {
     };
     const timeoutId = setTimeout(() => {
       finish({ ok: false, error: "Content message timed out" });
-    }, Math.max(1, Number(timeoutMs) || 3000));
+    }, Math.max(1, Number(timeoutMs) || 15000));
     try {
       chrome.tabs.sendMessage(normalizedTabId, message, { frameId: 0 }, (response) => {
         if (chrome.runtime.lastError) {
