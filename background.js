@@ -72,7 +72,9 @@ import {
   isCurtainBearingLifecycleKind
 } from "./common/world-messaging-contract.js";
 import {
+  AI_RUN_POLL_INTERVAL_MS,
   AI_RUN_PERSIST_KEY,
+  AI_RUN_TIMEOUT_MS,
   buildAiSubmissionXpaths,
   getAiRunResumeExpiresAt,
   normalizePersistedAiRunRecord,
@@ -152,6 +154,7 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
   TAB_END_RENDER_MODE_INSPECTION: "TAB_END_RENDER_MODE_INSPECTION",
   TAB_RUN_RENDER_MODE_INSPECTION: "TAB_RUN_RENDER_MODE_INSPECTION",
+  TAB_RUN_AI: "TAB_RUN_AI",
   POPUP_GET_TAB_VIEW_STATE: "POPUP_GET_TAB_VIEW_STATE"
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
@@ -163,6 +166,7 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
   BACKGROUND_COMMANDS.TAB_END_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION,
+  BACKGROUND_COMMANDS.TAB_RUN_AI,
   BACKGROUND_COMMANDS.POPUP_GET_TAB_VIEW_STATE
 ]);
 const RENDER_MODE_INSPECTION_START_TIMEOUT_MS = 8000;
@@ -577,6 +581,329 @@ async function runRenderModeCaptureHtmlStep(tabId, baseUrl, operationId) {
       ? Number(hideResponse.hiddenCount)
       : 0
   };
+}
+
+function getAiRunCurrentPageEntry(currentConfig, currentPageUrl) {
+  if (!currentConfig || typeof currentConfig !== "object") {
+    return null;
+  }
+  const pageMarkings = currentConfig.pageMarkings;
+  if (!pageMarkings || typeof pageMarkings !== "object") {
+    return null;
+  }
+  const entry = pageMarkings[currentPageUrl];
+  return entry && typeof entry === "object" ? entry : null;
+}
+
+function isAiRunCurrentPageSnapshotMissing(currentConfig, currentPageUrl) {
+  const entry = getAiRunCurrentPageEntry(currentConfig, currentPageUrl);
+  if (!entry) {
+    return true;
+  }
+  if (typeof entry.renderedHtml !== "string" || !entry.renderedHtml) {
+    return true;
+  }
+  if (!Array.isArray(entry.submissionXpaths) || entry.submissionXpaths.length === 0) {
+    return true;
+  }
+  return false;
+}
+
+async function refineAiRunPayloadXpathsInBackground(payloadKey) {
+  const sourcePayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
+  if (!sourcePayloadKey) {
+    return { ok: false, error: "Missing AI run payload" };
+  }
+  const payloadStore = await utils.storageGet(chrome.storage.session, sourcePayloadKey).catch(() => ({}));
+  const payload = payloadStore && typeof payloadStore === "object"
+    ? payloadStore[sourcePayloadKey]
+    : null;
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
+    await utils.storageRemove(chrome.storage.session, sourcePayloadKey).catch(() => null);
+    return { ok: false, error: "Unable to prepare AI payload" };
+  }
+  const refinedPayload = {
+    ...payload,
+    pages: payload.pages.map((page) => {
+      const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
+      const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
+      const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
+      return {
+        ...page,
+        rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
+      };
+    })
+  };
+  const refinedPayloadKey = buildRemoteConfigPayloadKey("ai-run-start-refined");
+  await utils.storageSet(chrome.storage.session, {
+    [refinedPayloadKey]: refinedPayload
+  });
+  await utils.storageRemove(chrome.storage.session, sourcePayloadKey).catch(() => null);
+  return {
+    ok: true,
+    payloadKey: refinedPayloadKey
+  };
+}
+
+async function loadAiRunSelectorSetFromPayloadKey(payloadKey) {
+  const resultPayloadKey = typeof payloadKey === "string" ? payloadKey.trim() : "";
+  if (!resultPayloadKey) {
+    return null;
+  }
+  const payloadStore = await utils.storageGet(chrome.storage.session, resultPayloadKey).catch(() => ({}));
+  const payload = payloadStore && typeof payloadStore === "object"
+    ? payloadStore[resultPayloadKey]
+    : null;
+  await utils.storageRemove(chrome.storage.session, resultPayloadKey).catch(() => null);
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !Array.isArray(payload.exclusionSelectors) ||
+    !Array.isArray(payload.inclusionSelectors)
+  ) {
+    return null;
+  }
+  return normalizeAiSelectorSet(payload);
+}
+
+async function runAiCommandForTab(tabId, payload, update) {
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const currentPageUrl = typeof payload?.currentPageUrl === "string"
+    ? payload.currentPageUrl.trim()
+    : "";
+  const pageType = typeof payload?.pageType === "string" ? payload.pageType : "";
+  const currentRenderMode = typeof payload?.currentRenderMode === "string"
+    ? payload.currentRenderMode.trim()
+    : "";
+  const endpointValue = typeof payload?.endpointValue === "string"
+    ? payload.endpointValue.trim()
+    : "";
+  const tokenValue = typeof payload?.tokenValue === "string" ? payload.tokenValue : "";
+  const requestedSiteId = normalizeSiteIdValue(payload && payload.siteId);
+  const requestedDeadlineAt = Number(payload && payload.deadlineAt);
+  const deadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > Date.now()
+    ? requestedDeadlineAt
+    : Date.now() + AI_RUN_TIMEOUT_MS;
+
+  if (!baseUrl || !currentPageUrl || !endpointValue || !tokenValue) {
+    return {
+      ok: false,
+      reason: "invalid_request",
+      error: "Missing AI run parameters"
+    };
+  }
+
+  let initialLockSet = false;
+  try {
+    const initialLock = await setAiComputeLockForTab(
+      tabId,
+      true,
+      getAiRunResumeExpiresAt(),
+      baseUrl
+    );
+    if (!initialLock || !initialLock.ok) {
+      return {
+        ok: false,
+        reason: "compute_lock_failed",
+        error: (initialLock && initialLock.error) || "AI compute lock failed"
+      };
+    }
+    initialLockSet = true;
+
+    await update({
+      message: "Computing selectors...",
+      reason: "tab-run-ai-snapshot",
+      source: "background-command-router"
+    });
+
+    let currentConfig = await configStore.ensureConfig(baseUrl);
+    const needsSnapshot = isAiRunCurrentPageSnapshotMissing(currentConfig, currentPageUrl);
+    if (needsSnapshot) {
+      const snapshotResponse = await sendContentMessageToTab(tabId, {
+        type: "capturePageSnapshot",
+        baseUrl,
+        pageType,
+        persist: true
+      });
+      if (!snapshotResponse || !snapshotResponse.ok) {
+        return {
+          ok: false,
+          reason: "snapshot_capture_failed",
+          error: (snapshotResponse && snapshotResponse.error) || "Unable to capture page snapshot",
+          reconciliationPending: Boolean(snapshotResponse && snapshotResponse.reconciliationPending),
+          locked: Boolean(snapshotResponse && snapshotResponse.locked)
+        };
+      }
+      currentConfig = await configStore.ensureConfig(baseUrl);
+      if (isAiRunCurrentPageSnapshotMissing(currentConfig, currentPageUrl)) {
+        return {
+          ok: false,
+          reason: "missing_current_page",
+          error: "Current page snapshot is unavailable"
+        };
+      }
+    }
+
+    await update({
+      message: "Computing selectors...",
+      reason: "tab-run-ai-prepare",
+      source: "background-command-router"
+    });
+
+    const preparedPayload = await prepareAiRunPayloadSnapshot({
+      baseUrl,
+      currentPageUrl,
+      currentRenderMode
+    });
+    if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
+      return {
+        ok: false,
+        reason: (preparedPayload && preparedPayload.reason) || "prepare_failed",
+        error: "Unable to prepare AI payload"
+      };
+    }
+
+    let startPayloadKey = preparedPayload.payloadKey;
+    if (preparedPayload.requiresRawXPathRefinement) {
+      const refined = await refineAiRunPayloadXpathsInBackground(startPayloadKey);
+      if (!refined || !refined.ok || !refined.payloadKey) {
+        return {
+          ok: false,
+          reason: "refine_failed",
+          error: (refined && refined.error) || "Unable to prepare AI payload"
+        };
+      }
+      startPayloadKey = refined.payloadKey;
+    }
+
+    const startResult = await requestAiRunStartSnapshot({
+      endpointValue,
+      tokenValue,
+      payloadKey: startPayloadKey
+    });
+    if (!startResult || !startResult.ok || !startResult.sessionId) {
+      return {
+        ok: false,
+        reason: "start_failed",
+        error: "Unable to start AI run"
+      };
+    }
+
+    const sessionId = String(startResult.sessionId || "").trim();
+    if (!sessionId) {
+      return {
+        ok: false,
+        reason: "start_failed",
+        error: "Unable to start AI run"
+      };
+    }
+
+    const siteId = requestedSiteId || normalizeSiteIdValue(currentConfig && currentConfig.siteId);
+
+    while (Date.now() < deadlineAt) {
+      const remainingMs = Math.max(0, deadlineAt - Date.now());
+      await waitForBackgroundRetryDelay(Math.min(AI_RUN_POLL_INTERVAL_MS, remainingMs || AI_RUN_POLL_INTERVAL_MS));
+      if (siteId) {
+        const heartbeat = await refreshAiRunHeartbeat({
+          tabId,
+          sessionId,
+          siteId,
+          deadlineAt,
+          baseUrl
+        }).catch(() => null);
+        if (!heartbeat || !heartbeat.ok) {
+          return {
+            ok: false,
+            reason: "heartbeat_failed",
+            error: (heartbeat && heartbeat.error) || "AI run heartbeat failed"
+          };
+        }
+      }
+
+      let statusResult = null;
+      try {
+        statusResult = await requestAiRunStatus({
+          endpointValue,
+          tokenValue,
+          sessionId
+        });
+      } catch {
+        statusResult = { ok: false };
+      }
+      if (!statusResult || statusResult.notFound) {
+        return {
+          ok: false,
+          reason: "not_found",
+          error: "AI run no longer exists"
+        };
+      }
+      if (!statusResult.ok) {
+        return {
+          ok: false,
+          reason: "status_failed",
+          error: "Unable to read AI run status"
+        };
+      }
+      if (statusResult.status === "running") {
+        continue;
+      }
+      if (statusResult.status === "error") {
+        return {
+          ok: false,
+          reason: "run_error",
+          error: "AI run failed"
+        };
+      }
+
+      const resultSnapshot = await requestAiRunResultSnapshot({
+        endpointValue,
+        tokenValue,
+        sessionId
+      });
+      if (!resultSnapshot || resultSnapshot.notFound) {
+        return {
+          ok: false,
+          reason: "not_found",
+          error: "AI run no longer exists"
+        };
+      }
+      if (!resultSnapshot.ok || !resultSnapshot.payloadKey) {
+        return {
+          ok: false,
+          reason: "result_failed",
+          error: "Unable to fetch AI run result"
+        };
+      }
+
+      const selectorSet = await loadAiRunSelectorSetFromPayloadKey(resultSnapshot.payloadKey);
+      if (!selectorSet) {
+        return {
+          ok: false,
+          reason: "result_invalid",
+          error: "AI run result is invalid"
+        };
+      }
+
+      return {
+        ok: true,
+        sessionId,
+        selectorSet,
+        siteId,
+        deadlineAt
+      };
+    }
+
+    return {
+      ok: false,
+      reason: "timed_out",
+      error: "AI run timed out"
+    };
+  } finally {
+    await clearPersistedAiRunRecord().catch(() => null);
+    if (initialLockSet) {
+      await setAiComputeLockForTab(tabId, false, 0, baseUrl).catch(() => null);
+    }
+  }
 }
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (context) => {
@@ -1135,6 +1462,69 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_RENDER_MODE_INSPECTION, as
           state: tabState
         });
       }
+    }
+  );
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_RUN_AI, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for AI run"
+    );
+  }
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(normalizedTabId);
+  } catch {
+    tab = null;
+  }
+  if (!tab || !tab.id) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Target tab is unavailable",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  return withBackgroundTabSpinner(
+    normalizedTabId,
+    {
+      key: `run-ai:${normalizedTabId}`,
+      message: "Computing selectors...",
+      owner: SPINNER_OWNERS.POPUP,
+      reason: "tab-run-ai",
+      source: "background-command-router",
+      persistent: false
+    },
+    async ({ update }) => {
+      const result = await runAiCommandForTab(normalizedTabId, payload, update);
+      if (!result || !result.ok) {
+        return context.replyFail(
+          result && result.reason === "timed_out"
+            ? MESSAGE_ERROR_CODES.TIMEOUT
+            : MESSAGE_ERROR_CODES.HANDLER_FAILED,
+          (result && result.error) || "Unable to run AI",
+          {
+            tabId: normalizedTabId,
+            reason: result && result.reason ? result.reason : "handler_failed",
+            reconciliationPending: Boolean(result && result.reconciliationPending),
+            locked: Boolean(result && result.locked)
+          }
+        );
+      }
+      return {
+        ok: true,
+        tabId: normalizedTabId,
+        sessionId: result.sessionId,
+        selectorSet: result.selectorSet,
+        deadlineAt: result.deadlineAt,
+        siteId: result.siteId || null,
+        runtime: getTabRuntimeSnapshot(normalizedTabId),
+        state: await utils.getTabState(normalizedTabId)
+      };
     }
   );
 });

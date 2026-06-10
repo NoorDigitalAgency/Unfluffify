@@ -8376,12 +8376,27 @@ async function failAiRun(message = PopupText.ai.runFailed) {
   uiModule.showToast(message);
 }
 
-function getAiSnapshotFailureMessage(response) {
-  if (response && response.reconciliationPending) {
+function getAiRunCommandFailureMessage(response) {
+  const details = response && response.details && typeof response.details === "object"
+    ? response.details
+    : {};
+  if (details.reconciliationPending) {
     return PopupText.page.statusServerSyncPending;
   }
-  if (response && response.locked) {
+  if (details.locked) {
     return propertyLockText.lockedInteractionBlockedToast(state.propertyLockState?.editorName || "Someone");
+  }
+  if (details.reason === "missing_current_page") {
+    return PopupText.ai.saveCurrentPageBeforeComputing;
+  }
+  if (details.reason === "missing_saved_pages") {
+    return PopupText.ai.savePagesBeforeComputing;
+  }
+  if (details.reason === "timed_out") {
+    return PopupText.ai.runTimedOut;
+  }
+  if (response && typeof response.error === "string" && response.error) {
+    return response.error;
   }
   return PopupText.ai.saveCurrentPageBeforeComputing;
 }
@@ -8528,111 +8543,38 @@ async function handleComputeSelectors() {
     });
     await waitForPopupUiPaint();
     try {
-      const initialLockExpiresAt = getAiRunResumeExpiresAt();
-      state.aiRunResumeExpiresAt = initialLockExpiresAt;
-      const initialLockApplied = await syncAiComputeLock(true, initialLockExpiresAt);
-      if (!initialLockApplied) {
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      await waitForPopupUiPaint();
-
-      if (currentPageNeedsSnapshot) {
-        const snapshotResponse = await messages.sendTabMessage({
-          type: "capturePageSnapshot",
-          baseUrl: state.currentBaseUrl,
-          pageType: state.currentPageTypeKey || "",
-          persist: true
-        });
-        if (!snapshotResponse || !snapshotResponse.ok) {
-          await failAiRun(getAiSnapshotFailureMessage(snapshotResponse));
-          return;
-        }
-        state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
-        pageMarkings = state.currentConfig.pageMarkings || {};
-        currentPageEntry = pageMarkings[currentPageUrl];
-        if (
-          !currentPageEntry ||
-          typeof currentPageEntry !== "object" ||
-          typeof currentPageEntry.renderedHtml !== "string" ||
-          !currentPageEntry.renderedHtml ||
-          !Array.isArray(currentPageEntry.submissionXpaths) ||
-          currentPageEntry.submissionXpaths.length === 0
-        ) {
-          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-          return;
-        }
-      }
-
-      const preparedPayload = await messages.sendRuntimeMessage({
-        type: "prepareAiRunPayloadSnapshot",
+      const tabId = state.currentTab && state.currentTab.id;
+      const aiRunResponse = await messages.requestTabRunAi(tabId, {
         baseUrl: state.currentBaseUrl,
         currentPageUrl,
-        currentRenderMode
-      });
-      if (!preparedPayload || preparedPayload.ok !== true || !preparedPayload.payloadKey) {
-        if (preparedPayload && preparedPayload.reason === "missing_current_page") {
-          await failAiRun(PopupText.ai.saveCurrentPageBeforeComputing);
-          return;
-        }
-        if (preparedPayload && preparedPayload.reason === "missing_saved_pages") {
-          await failAiRun(PopupText.ai.savePagesBeforeComputing);
-          return;
-        }
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      let startPayloadKey = preparedPayload.payloadKey;
-      if (preparedPayload.requiresRawXPathRefinement) {
-        const payloadStore = await utils.storageGet(chrome.storage.session, preparedPayload.payloadKey).catch(() => ({}));
-        const payload = payloadStore && typeof payloadStore === "object"
-          ? payloadStore[preparedPayload.payloadKey]
-          : null;
-        await utils.storageRemove(chrome.storage.session, preparedPayload.payloadKey).catch(() => null);
-        if (!payload || typeof payload !== "object" || !Array.isArray(payload.pages)) {
-          await failAiRun(PopupText.ai.runFailed);
-          return;
-        }
-        const refinedPayload = {
-          ...payload,
-          pages: payload.pages.map((page) => {
-            const renderedHtml = page && typeof page.renderedHtml === "string" ? page.renderedHtml : "";
-            const rawHtml = page && typeof page.rawHtml === "string" ? page.rawHtml : "";
-            const renderedXPaths = Array.isArray(page && page.renderedXPaths) ? page.renderedXPaths : [];
-            return {
-              ...page,
-              rawXPaths: refineXPathEntries(renderedHtml, rawHtml, renderedXPaths)
-            };
-          })
-        };
-        startPayloadKey = buildRemoteConfigTransferKey("ai-run-start-refined");
-        await utils.storageSet(chrome.storage.session, { [startPayloadKey]: refinedPayload });
-      }
-      const startResult = await requestAiRunStart({
+        pageType: state.currentPageTypeKey || "",
+        currentRenderMode,
         endpointValue,
         tokenValue,
-        payloadKey: startPayloadKey
-      });
-      if (!startResult.ok || !startResult.sessionId) {
-        await failAiRun(PopupText.ai.runFailed);
-        return;
-      }
-      state.aiRunSessionId = startResult.sessionId;
-      state.aiRunPhase = "running";
-      const heartbeat = await refreshAiRunHeartbeat({
-        sessionId: startResult.sessionId,
         siteId,
         deadlineAt
       });
-      if (!heartbeat) {
+      if (!aiRunResponse || !aiRunResponse.ok || !aiRunResponse.result) {
+        await failAiRun(getAiRunCommandFailureMessage(aiRunResponse));
+        return;
+      }
+
+      const runResult = aiRunResponse.result;
+      if (!Array.isArray(runResult.selectorSet?.exclusionSelectors) || !Array.isArray(runResult.selectorSet?.inclusionSelectors)) {
         await failAiRun(PopupText.ai.runFailed);
         return;
       }
-      await continueAiRunPolling({
-        endpointValue,
-        tokenValue,
-        currentPageUrl
+
+      state.aiRunSessionId = typeof runResult.sessionId === "string" ? runResult.sessionId : "";
+      state.aiRunPhase = "done";
+      const { previewOpened } = await applyComputedSelectorSet(normalizeAiSelectorSet(runResult.selectorSet), {
+        currentPageUrl,
+        tokenValue
       });
+      await stopAiRun({ unlockPage: false });
+      if (!previewOpened) {
+        await refreshUi();
+      }
     } catch {
       await failAiRun(PopupText.ai.runFailed);
     }

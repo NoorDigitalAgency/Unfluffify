@@ -9,6 +9,7 @@ const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 const TAB_DEACTIVATE_MARKING_COMMAND = "TAB_DEACTIVATE_MARKING";
 const TAB_RUN_RENDER_MODE_INSPECTION_COMMAND = "TAB_RUN_RENDER_MODE_INSPECTION";
+const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -174,6 +175,35 @@ export function requestTabRunRenderModeInspection(tabId, payload = {}, options =
       ok: false,
       code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
       error: (error && error.message) || (reply && reply.error) || "Unable to inspect render mode",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabRunAi(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_RUN_AI_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 540000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to run AI",
       details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
     };
   });
