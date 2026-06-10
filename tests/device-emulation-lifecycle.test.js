@@ -65,11 +65,12 @@ test("background centralizes tracked tab-session cleanup with optional device-st
   );
 
   assert.match(helperBlock, /const \{ includeDeviceState = false \} = options;/);
-  assert.match(helperBlock, /await utils\.clearTabState\(tabId\);/);
-  assert.match(helperBlock, /await clearReloadRestoreTabState\(tabId\);/);
-  assert.match(helperBlock, /const keysToRemove = \[\s*`\$\{SCRIPT_INJECTED_PREFIX\}\$\{tabId\}`\s*\];/);
+  assert.match(helperBlock, /await clearStoredTrackedTabSessionState\(tabId, \{/);
+  assert.match(helperBlock, /includeRestoreScope: true/);
+  assert.match(helperBlock, /includeScriptInjected: true/);
+  assert.match(helperBlock, /const keysToRemove = \[\];/);
   assert.match(helperBlock, /if \(includeDeviceState\) \{\s*keysToRemove\.push\(`\$\{DEVICE_EMULATION_PREFIX\}\$\{tabId\}`\);\s*\}/);
-  assert.match(helperBlock, /await utils\.storageRemove\(chrome\.storage\.session, keysToRemove\);/);
+  assert.match(helperBlock, /if \(keysToRemove\.length\) \{\s*await utils\.storageRemove\(chrome\.storage\.session, keysToRemove\);\s*\}/);
   assert.match(onRemovedBlock, /clearTrackedTabSessionState\(tabId, \{ includeDeviceState: true \}\)\.then\(\);/);
 });
 
@@ -261,7 +262,7 @@ test("setTabState no longer mirrors enabled sessions into reload restore state",
     "export async function clearTabState"
   );
 
-  assert.match(setTabStateBlock, /await storageSet\(chrome\.storage\.session, \{\[key\]: nextState\}\);/);
+  assert.match(setTabStateBlock, /await setStoredTabState\(tabId, state, scope\);/);
   // No restore-scope write or clear
   assert.doesNotMatch(setTabStateBlock, /restoreKey/);
   assert.doesNotMatch(setTabStateBlock, /TAB_STATE_PREFIX.*restore/);
@@ -284,9 +285,7 @@ test("shared clearTabState removes initial tab lifecycle state as well as live t
     'if (message.type === "setTabState") {'
   );
 
-  assert.match(clearTabStateBlock, /const key = `\$\{TAB_STATE_PREFIX\}\$\{tabId\}`;/);
-  assert.match(clearTabStateBlock, /const initialKey = `\$\{TAB_STATE_PREFIX\}initial:\$\{tabId\}`;/);
-  assert.match(clearTabStateBlock, /await storageRemove\(chrome\.storage\.session, \[key, initialKey\]\);/);
+  assert.match(clearTabStateBlock, /await clearTabSessionState\(tabId\);/);
   assert.match(clearMessageBlock, /utils\.clearTabState\(message\.tabId\)/);
   assert.match(clearMessageBlock, /clearReloadRestoreTabState\(message\.tabId\)/);
   assert.match(clearRestoreMessageBlock, /clearReloadRestoreTabState\(tabId\)/);

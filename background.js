@@ -38,7 +38,7 @@ import {
   isDebugFlagEnabled,
   isFeatureEnabled
 } from "./common/feature-flags.js";
-import {DEVICE_EMULATION_PREFIX, SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./common/constants.js";
+import { DEVICE_EMULATION_PREFIX } from "./common/constants.js";
 import * as constants from "./common/constants.js";
 import { normalizePropertyPageTypes } from "./common/lynx-checklist.js";
 import { buildLynxChecklistAssignments } from "./common/lynx-checklist.js";
@@ -111,6 +111,11 @@ import {
   sweepStaleTransferPayloads
 } from "./background/transfer-payload-store.js";
 import { getGlobalAiSettings } from "./common/settings-store.js";
+import {
+  clearTrackedTabSessionState as clearStoredTrackedTabSessionState,
+  getTabStateKey,
+  parseTabStateStorageKey
+} from "./background/tab-session-store.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -4605,19 +4610,21 @@ async function clearTrackedTabSessionState(tabId, options = {}) {
     return;
   }
   const { includeDeviceState = false } = options;
-  await utils.clearTabState(tabId);
-  await clearReloadRestoreTabState(tabId);
-  const keysToRemove = [
-    `${SCRIPT_INJECTED_PREFIX}${tabId}`
-  ];
+  await clearStoredTrackedTabSessionState(tabId, {
+    includeRestoreScope: true,
+    includeScriptInjected: true
+  });
+  const keysToRemove = [];
   if (includeDeviceState) {
     keysToRemove.push(`${DEVICE_EMULATION_PREFIX}${tabId}`);
   }
-  await utils.storageRemove(chrome.storage.session, keysToRemove);
+  if (keysToRemove.length) {
+    await utils.storageRemove(chrome.storage.session, keysToRemove);
+  }
 }
 
 function getReloadRestoreTabStateKey(tabId) {
-  return `${TAB_STATE_PREFIX}${TAB_RESTORE_SCOPE}:${tabId}`;
+  return getTabStateKey(tabId, TAB_RESTORE_SCOPE);
 }
 
 async function clearReloadRestoreTabState(tabId) {
@@ -4774,13 +4781,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
   Object.keys(changes).forEach((key) => {
-    if (!key.startsWith(TAB_STATE_PREFIX)) {
+    const parsed = parseTabStateStorageKey(key);
+    if (!parsed || !parsed.tabId) {
       return;
     }
-    const tabId = Number(key.slice(TAB_STATE_PREFIX.length));
-    if (!Number.isNaN(tabId)) {
-      utils.updateActionForTab(tabId).then();
-    }
+    utils.updateActionForTab(parsed.tabId).then();
   });
 });
 

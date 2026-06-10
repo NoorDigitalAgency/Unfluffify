@@ -1,4 +1,3 @@
-import {SCRIPT_INJECTED_PREFIX, TAB_STATE_PREFIX} from "./constants.js";
 import { isDebugFlagEnabled } from "./feature-flags.js";
 import {
   getStorageAreaName,
@@ -8,6 +7,15 @@ import {
   storageRemove,
   storageSet
 } from "./storage-core.js";
+import {
+  clearTabState as clearTabSessionState,
+  getScriptInjectedKey,
+  getTabState as getStoredTabState,
+  getTabStateKey,
+  isScriptInjected as getScriptInjectedState,
+  setScriptInjected as setStoredScriptInjectedState,
+  setTabState as setStoredTabState
+} from "../background/tab-session-store.js";
 
 export {
   getStorageAreaName,
@@ -25,26 +33,7 @@ export {
  * @returns {Promise<boolean>} True if the script is injected, false otherwise
  */
 export async function isScriptInjected(tabId) {
-  const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
-  return Boolean(result[key]);
-}
-
-/**
- * Marks a tab as having the content script injected (internal use only).
- * @async
- * @private
- * @param {number} tabId - The Chrome tab ID
- * @param {boolean} injected - Whether the script is injected
- * @returns {Promise<void>}
- */
-async function setScriptInjected(tabId, injected) {
-  const key = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  if (injected) {
-    await storageSet(chrome.storage.session, { [key]: true });
-  } else {
-    await storageRemove(chrome.storage.session, key);
-  }
+  return getScriptInjectedState(tabId);
 }
 
 /**
@@ -63,7 +52,7 @@ export async function injectContentScript(tabId) {
       target: { tabId },
       files: ["content-loader.js"]
     });
-    await setScriptInjected(tabId, true);
+    await setStoredScriptInjectedState(tabId, true);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message || "Script injection failed" };
@@ -72,9 +61,9 @@ export async function injectContentScript(tabId) {
 
 // Browser utilities
 export async function disableExtensionForTab(tabId) {
-  const tabKey = `${TAB_STATE_PREFIX}${tabId}`;
-  const scriptKey = `${SCRIPT_INJECTED_PREFIX}${tabId}`;
-  await storageRemove(chrome.storage.session, [tabKey, scriptKey]);
+  const tabKey = getTabStateKey(tabId);
+  const scriptKey = getScriptInjectedKey(tabId);
+  await storageRemove(chrome.storage.session, [tabKey, scriptKey].filter((key) => key));
   await updateActionForTab(tabId);
   try {
     await chrome.tabs.sendMessage(tabId, { type: "setEnabled", enabled: false });
@@ -671,37 +660,15 @@ export async function idbRemove(keys) {
 
 // Tab state utilities
 export async function getTabState(tabId, scope = null) {
-  const key = `${TAB_STATE_PREFIX}${(scope ? `${scope}:` : '')}${tabId}`;
-  const result = await storageGet(chrome.storage.session, key);
-  const value = result[key] || null;
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-  if (typeof value.baseUrl === "string" && value.baseUrl) {
-    const normalizedBaseUrl = normalizeBaseUrl(value.baseUrl);
-    if (normalizedBaseUrl && normalizedBaseUrl !== value.baseUrl) {
-      return { ...value, baseUrl: normalizedBaseUrl };
-    }
-  }
-  return value;
+  return getStoredTabState(tabId, scope);
 }
 
 export async function setTabState(tabId, state, scope = null) {
-  const key = `${TAB_STATE_PREFIX}${(scope ? `${scope}:` : '')}${tabId}`;
-  let nextState = state;
-  if (nextState && typeof nextState === "object" && typeof nextState.baseUrl === "string") {
-    const normalizedBaseUrl = normalizeBaseUrl(nextState.baseUrl);
-    if (normalizedBaseUrl || nextState.baseUrl === "") {
-      nextState = { ...nextState, baseUrl: normalizedBaseUrl };
-    }
-  }
-  await storageSet(chrome.storage.session, {[key]: nextState});
+  await setStoredTabState(tabId, state, scope);
 }
 
 export async function clearTabState(tabId) {
-  const key = `${TAB_STATE_PREFIX}${tabId}`;
-  const initialKey = `${TAB_STATE_PREFIX}initial:${tabId}`;
-  await storageRemove(chrome.storage.session, [key, initialKey]);
+  await clearTabSessionState(tabId);
 }
 
 // Action icon utilities

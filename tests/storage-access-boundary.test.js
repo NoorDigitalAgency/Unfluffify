@@ -98,7 +98,8 @@ function sortFindings(findings) {
 const APPROVED_WRAPPER_FILES = new Set([
   "common/storage-core.js",
   "background/transfer-payload-store.js",
-  "common/settings-store.js"
+  "common/settings-store.js",
+  "background/tab-session-store.js"
 ]);
 
 // Bucket: current migration debt. These files are expected to be moved phase-by-phase.
@@ -131,7 +132,7 @@ const PAGE_LOCAL_STORAGE_FILES = new Set([
 // Phase 5: remove transfer payload debt from popup.js.
 // Phase 6: move remaining settings reads to settings-store boundaries.
 // Phase 8: migrate background credential ownership.
-// Phase 9: migrate tab session state helpers out of common/utilities.js call sites.
+// Phase 9: migrate background tab session call sites to tab-session-store.
 // Phase 10: isolate device emulation storage behind one domain boundary.
 // Phase 12: remove all remaining migration debt buckets and enforce strict raw-storage boundary.
 
