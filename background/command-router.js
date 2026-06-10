@@ -277,7 +277,7 @@ export async function dispatchBackgroundCommand(message, sender, options = {}) {
     ));
   }
 
-  const requiresTab = commandOptions.requireTab || requireTabForTypes.has(message.type);
+  const requiresTab = context.policy !== "none" && (commandOptions.requireTab || requireTabForTypes.has(message.type));
   if (requiresTab && !context.tabId) {
     return notifyDispatched(options, context, context.replyFail(
       MESSAGE_ERROR_CODES.INVALID_TAB,

@@ -186,7 +186,7 @@ test("none tab policy treats commands as unscoped", async () => {
     {
       url: "chrome-extension://test-id/popup.html"
     },
-    { requireTabForTypes: new Set() }
+    { requireTabForTypes: new Set(["UNTABBED"]) }
   );
 
   assert.equal(reply.ok, true);
