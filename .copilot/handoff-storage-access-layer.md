@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-7 implemented and validated)
-Document commit scope: implementation handoff refresh after Phase 7 execution
+Implementation status: IN_PROGRESS (Phases 0-7 complete, Phase 8 in progress)
+Document commit scope: Phase 8 first-slice handoff refresh
 
 ## Read This First
 
@@ -43,7 +43,10 @@ As of this handoff:
 11. Phase 5 transfer payload store extraction is implemented and validated.
 12. Phase 6 settings store read-path migration is implemented and validated.
 13. Phase 7 settings store write-path migration is implemented and validated.
-14. Next strict implementation step is Phase 8 background-owned credential migration.
+14. Phase 8 credential migration first slice is implemented and validated for
+   `TAB_RUN_AI`.
+15. Next strict implementation step is to continue Phase 8 migration for the
+   remaining credential-bearing runtime message paths.
 
 ## Review Findings To Fix First
 
@@ -151,7 +154,7 @@ Current phase status:
 6. Phase 5 - Transfer payload store: DONE.
 7. Phase 6 - Settings store read path: DONE.
 8. Phase 7 - Settings store write path: DONE.
-9. Phase 8 - Background-owned credentials for network commands: TODO.
+9. Phase 8 - Background-owned credentials for network commands: IN_PROGRESS.
 10. Phase 9 - Tab session store: TODO.
 11. Phase 10 - Device emulation storage boundary: TODO.
 12. Phase 11 - Config store write queue: TODO.
@@ -159,7 +162,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation after Phase 7 implementation:
+Last known validation after Phase 8 first-slice implementation:
 
 ```bash
 npm test
@@ -167,7 +170,17 @@ npm test
 
 Result:
 
-1. 740 tests passed.
+1. 741 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 8 first slice:
+
+1. `node --test tests/ai-run.test.js tests/popup-marking-refresh.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 61 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 7:

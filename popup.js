@@ -8420,7 +8420,7 @@ async function handleComputeSelectors() {
     if (!credentials) {
       return;
     }
-    const { endpointValue, tokenValue } = credentials;
+    const { tokenValue } = credentials;
 
     state.currentConfig = await config.ensureConfig(state.currentBaseUrl);
     const currentPageUrl = (state.currentTab && state.currentTab.url) || "";
@@ -8464,8 +8464,6 @@ async function handleComputeSelectors() {
         currentPageUrl,
         pageType: state.currentPageTypeKey || "",
         currentRenderMode,
-        endpointValue,
-        tokenValue,
         siteId,
         deadlineAt
       });

@@ -110,6 +110,7 @@ import {
   removeTransferPayload,
   sweepStaleTransferPayloads
 } from "./background/transfer-payload-store.js";
+import { getGlobalAiSettings } from "./common/settings-store.js";
 
 const REMOTE_SUPPORT_MESSAGE_TYPES = new Set([
   "getRemoteSupportState",
@@ -704,10 +705,13 @@ async function runAiCommandForTab(tabId, payload, update) {
   const currentRenderMode = typeof payload?.currentRenderMode === "string"
     ? payload.currentRenderMode.trim()
     : "";
-  const endpointValue = typeof payload?.endpointValue === "string"
-    ? payload.endpointValue.trim()
-    : "";
-  const tokenValue = typeof payload?.tokenValue === "string" ? payload.tokenValue : "";
+  const credentials = await resolveBackgroundNetworkCredentials({
+    endpointValue: payload && payload.endpointValue,
+    tokenValue: payload && payload.tokenValue,
+    endpointPreference: "ai"
+  });
+  const endpointValue = credentials.endpointValue;
+  const tokenValue = credentials.tokenValue;
   const requestedSiteId = normalizeSiteIdValue(payload && payload.siteId);
   const requestedDeadlineAt = Number(payload && payload.deadlineAt);
   const deadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > Date.now()
@@ -2100,6 +2104,26 @@ function createBackgroundJsonHeaders(tokenValue = "") {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
+}
+
+async function resolveBackgroundNetworkCredentials(options = {}) {
+  const requestedEndpoint = typeof options.endpointValue === "string" ? options.endpointValue.trim() : "";
+  const requestedToken = typeof options.tokenValue === "string" ? options.tokenValue : "";
+  const endpointPreference = typeof options.endpointPreference === "string"
+    ? options.endpointPreference
+    : "ai";
+  const settings = await getGlobalAiSettings({ useCache: true }).catch(() => ({
+    tokenValue: "",
+    endpointValue: "",
+    configEndpointValue: ""
+  }));
+  const fallbackEndpoint = endpointPreference === "config"
+    ? settings.configEndpointValue
+    : settings.endpointValue;
+  return {
+    endpointValue: requestedEndpoint || fallbackEndpoint || "",
+    tokenValue: requestedToken || settings.tokenValue || ""
+  };
 }
 
 function buildValidateEndpointFromStageBase(stageBase) {
