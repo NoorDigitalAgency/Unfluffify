@@ -43,10 +43,19 @@ import {
 import {
   buildGraphqlEndpointFromStageBase,
   getCurrentPageCandidateState,
-  maybeUpdateStoredTokenFromResponse,
   normalizeSiteIdValue,
   normalizeStageBase
 } from "./common/lynx-live-pages.js";
+import {
+  clearGlobalToken,
+  getGlobalToken,
+  getThemeSettings,
+  saveGlobalConfigEndpoint,
+  saveGlobalEndpoint,
+  saveGlobalStageBase,
+  saveLoginSettings,
+  setThemeSettings
+} from "./common/settings-store.js";
 import {
   PopupText,
   ViewText,
@@ -1496,17 +1505,6 @@ function resolveRelativeEndpoint(baseUrl, path) {
   }
 }
 
-function getEndpointOrigin(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  try {
-    return new URL(value).origin.toLowerCase();
-  } catch (error) {
-    return "";
-  }
-}
-
 function normalizeThemeValue(value) {
   if (typeof value !== "string") {
     return THEME_DEFAULT;
@@ -1547,20 +1545,16 @@ function resetDisabledAppearanceCustomization() {
 }
 
 async function loadThemeSettings() {
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    GLOBAL_THEME_KEY,
-    GLOBAL_THEME_MODE_KEY
-  ]);
-  return {
-    themeValue: normalizeThemeValue(stored && stored[GLOBAL_THEME_KEY]),
-    themeModeValue: normalizeThemeModeValue(stored && stored[GLOBAL_THEME_MODE_KEY])
-  };
+  return getThemeSettings({
+    normalizeThemeValue,
+    normalizeThemeModeValue
+  });
 }
 
 async function persistThemeSettings(themeValue, themeModeValue) {
-  await utils.storageSet(chrome.storage.sync, {
-    [GLOBAL_THEME_KEY]: normalizeThemeValue(themeValue),
-    [GLOBAL_THEME_MODE_KEY]: normalizeThemeModeValue(themeModeValue)
+  await setThemeSettings(themeValue, themeModeValue, {
+    normalizeThemeValue,
+    normalizeThemeModeValue
   });
 }
 
@@ -2514,10 +2508,7 @@ function createConfigSyncHeaders(token) {
 }
 
 async function getStoredGlobalToken(options = {}) {
-  const { trim = false } = options;
-  const stored = await utils.storageGet(chrome.storage.sync, "globalToken");
-  const token = stored && typeof stored.globalToken === "string" ? stored.globalToken : "";
-  return trim ? token.trim() : token;
+  return getGlobalToken(options);
 }
 
 function formatSyncStatusTimestamp(value = Date.now()) {
@@ -3799,7 +3790,7 @@ function updateLoginActionState(patch = {}) {
 }
 
 async function invalidateTokenAndLockConfiguration(showToast = true) {
-  await utils.storageSet(chrome.storage.sync, { globalToken: "" });
+  await clearGlobalToken();
   state.currentView = uiModule.View.Configuration;
   state.configViewLocked = true;
   uiModule.setViewState({
@@ -7858,25 +7849,8 @@ async function handleConfigEndpointSet() {
     uiModule.showToast(PopupText.configuration.endpointEnterValid);
     return;
   }
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalConfigEndpoint",
-    "globalToken"
-  ]);
-  const previousEndpoint =
-    stored && typeof stored.globalConfigEndpoint === "string"
-      ? stored.globalConfigEndpoint.trim()
-      : "";
-  const hadToken = Boolean(stored && stored.globalToken);
-  const endpointOriginChanged =
-    getEndpointOrigin(previousEndpoint) &&
-    getEndpointOrigin(endpointValue) &&
-    getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(endpointValue);
-  const shouldResetToken = hadToken && endpointOriginChanged;
-  await utils.storageSet(chrome.storage.sync, {
-    globalConfigEndpoint: endpointValue,
-    globalToken: shouldResetToken ? "" : (stored.globalToken || "")
-  });
-  if (shouldResetToken) {
+  const saveResult = await saveGlobalConfigEndpoint(endpointValue);
+  if (saveResult.tokenCleared) {
     state.lastTokenValidationAt = 0;
     state.siteIdLookupByBaseUrl.clear();
     setRemoteConfigConnectionIssue(false);
@@ -7904,25 +7878,8 @@ async function handleEndpointSet() {
     uiModule.showToast(PopupText.configuration.aiEndpointEnterValid);
     return;
   }
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalEndpoint",
-    "globalToken"
-  ]);
-  const previousEndpoint =
-    stored && typeof stored.globalEndpoint === "string"
-      ? stored.globalEndpoint.trim()
-      : "";
-  const hadToken = Boolean(stored && stored.globalToken);
-  const endpointOriginChanged =
-    getEndpointOrigin(previousEndpoint) &&
-    getEndpointOrigin(endpointValue) &&
-    getEndpointOrigin(previousEndpoint) !== getEndpointOrigin(endpointValue);
-  const shouldResetToken = hadToken && endpointOriginChanged;
-  await utils.storageSet(chrome.storage.sync, {
-    globalEndpoint: endpointValue,
-    globalToken: shouldResetToken ? "" : (stored.globalToken || "")
-  });
-  if (shouldResetToken) {
+  const saveResult = await saveGlobalEndpoint(endpointValue);
+  if (saveResult.tokenCleared) {
     state.lastTokenValidationAt = 0;
     setRemoteConfigConnectionIssue(false);
     uiModule.showToast(PopupText.configuration.aiEndpointChangedLoginRequired);
@@ -7944,20 +7901,10 @@ async function handleStageBaseSet() {
     uiModule.showToast(PopupText.configuration.stageBaseEnterValid);
     return;
   }
-  const stored = await utils.storageGet(chrome.storage.sync, [
-    "globalStageBase",
-    "globalToken"
-  ]);
-  const previousStageBase = normalizeStageBase((stored && stored.globalStageBase) || "");
-  const hasToken = Boolean(stored && stored.globalToken);
-  await utils.storageSet(chrome.storage.sync, {
-    globalStageBase: normalized,
-    globalToken:
-      previousStageBase !== normalized && hasToken ? "" : stored.globalToken || ""
-  });
+  const saveResult = await saveGlobalStageBase(normalized);
   state.stageBaseEditMode = false;
   state.siteIdLookupByBaseUrl.clear();
-  if (previousStageBase !== normalized && hasToken) {
+  if (saveResult.tokenCleared) {
     uiModule.showToast(PopupText.configuration.stageBaseChangedLoginRequired);
   }
   await maybeSwitchToMarkingView();
@@ -8014,10 +7961,7 @@ async function handleLoginAction() {
       if (!token) {
         loginFailureMessage = PopupText.authentication.toastResponseMissingToken;
       } else {
-        await utils.storageSet(chrome.storage.sync, {
-          globalStageBase: stageBase,
-          globalToken: token
-        });
+        await saveLoginSettings({ stageBase, token });
         uiModule.setViewState({ loginPasswordValue: "" });
         loginSucceeded = true;
       }

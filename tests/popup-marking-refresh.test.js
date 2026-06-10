@@ -471,7 +471,7 @@ test("login delegates the auth transport to background while popup keeps token p
   assert.match(backgroundSource, /if \(message\.type === "requestAuthLogin"\) \{/);
   assert.match(loginBody, /type: "requestAuthLogin"/);
   assert.match(loginBody, /messages\.sendRuntimeMessage/);
-  assert.match(loginBody, /await utils\.storageSet\(chrome\.storage\.sync, \{[\s\S]*?globalStageBase: stageBase,[\s\S]*?globalToken: token[\s\S]*?\}\);/);
+  assert.match(loginBody, /await saveLoginSettings\(\{ stageBase, token \}\);/);
   assert.doesNotMatch(loginBody, /fetch\(|buildLoginEndpointFromStageBase|maybeUpdateStoredTokenFromResponse/);
 });
 

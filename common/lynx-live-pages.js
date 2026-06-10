@@ -1,4 +1,4 @@
-import * as utils from "./utilities.js";
+import { setGlobalToken } from "./settings-store.js";
 
 import { normalizeCandidatePageUrl } from "./lynx-checklist.js";
 
@@ -111,7 +111,7 @@ export async function maybeUpdateStoredTokenFromResponse(response, currentToken 
     return updatedToken;
   }
   try {
-    await utils.storageSet(chrome.storage.sync, { globalToken: updatedToken });
+    await setGlobalToken(updatedToken);
   } catch {
     // Ignore storage update errors so the calling request flow continues.
   }

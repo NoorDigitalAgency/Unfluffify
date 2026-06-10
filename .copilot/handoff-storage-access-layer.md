@@ -2,8 +2,8 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Phases 0-6 implemented and validated)
-Document commit scope: implementation handoff refresh after Phase 6 execution
+Implementation status: IN_PROGRESS (Phases 0-7 implemented and validated)
+Document commit scope: implementation handoff refresh after Phase 7 execution
 
 ## Read This First
 
@@ -42,7 +42,8 @@ As of this handoff:
 10. Phase 4 low-level storage wrapper extraction is implemented and validated.
 11. Phase 5 transfer payload store extraction is implemented and validated.
 12. Phase 6 settings store read-path migration is implemented and validated.
-13. Next strict implementation step is Phase 7 settings store write-path migration.
+13. Phase 7 settings store write-path migration is implemented and validated.
+14. Next strict implementation step is Phase 8 background-owned credential migration.
 
 ## Review Findings To Fix First
 
@@ -149,7 +150,7 @@ Current phase status:
 5. Phase 4 - Extract low-level storage core: DONE.
 6. Phase 5 - Transfer payload store: DONE.
 7. Phase 6 - Settings store read path: DONE.
-8. Phase 7 - Settings store write path: TODO.
+8. Phase 7 - Settings store write path: DONE.
 9. Phase 8 - Background-owned credentials for network commands: TODO.
 10. Phase 9 - Tab session store: TODO.
 11. Phase 10 - Device emulation storage boundary: TODO.
@@ -158,7 +159,7 @@ Current phase status:
 
 ## Validation Baseline
 
-Last known validation after Phase 6 implementation:
+Last known validation after Phase 7 implementation:
 
 ```bash
 npm test
@@ -166,7 +167,17 @@ npm test
 
 Result:
 
-1. 733 tests passed.
+1. 740 tests passed.
+2. 0 failed.
+
+Focused validation executed for Phase 7:
+
+1. `node --test tests/settings-store.test.js tests/popup-marking-refresh.test.js tests/feature-flags.test.js`
+2. `npm test`
+
+Focused result:
+
+1. 71 passed.
 2. 0 failed.
 
 Focused validation executed for Phase 6:
@@ -323,6 +334,26 @@ What changed:
 4. Delegated popup, content, and property-lock background settings reads to the shared settings store.
 5. Added settings-store tests for batched read shape, normalization, cache behavior, invalidation, and token redaction summaries.
 6. Updated storage-boundary approved-wrapper list to include the new settings store module.
+
+## Phase 7 Implementation Delta
+
+Files changed:
+
+1. `common/settings-store.js`
+2. `popup.js`
+3. `common/lynx-live-pages.js`
+4. `tests/settings-store.test.js`
+5. `tests/popup-marking-refresh.test.js`
+6. `tests/storage-access-boundary.test.js`
+
+What changed:
+
+1. Added settings-store write helpers for global token, endpoints, stage base, and login persistence.
+2. Added theme settings read/write helpers in settings-store and delegated popup theme persistence to the store.
+3. Migrated popup endpoint/stage/login/token-clear write paths to settings-store helpers while preserving token-reset behavior.
+4. Migrated `maybeUpdateStoredTokenFromResponse` token persistence to settings-store.
+5. Expanded settings-store tests for write-path token-reset rules, login persistence, token clear scope, and theme normalization.
+6. Updated popup source-shape test expectations and storage-boundary phase TODO notes.
    - current migration debt
    - smoke/orchestration access
 3. Added guard assertions so every raw storage finding maps to exactly one

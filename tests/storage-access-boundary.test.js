@@ -130,7 +130,7 @@ const PAGE_LOCAL_STORAGE_FILES = new Set([
 // TODO by migration phase:
 // Phase 5: remove transfer payload debt from popup.js.
 // Phase 6: move remaining settings reads to settings-store boundaries.
-// Phase 7-8: migrate settings writes and background credential ownership.
+// Phase 8: migrate background credential ownership.
 // Phase 9: migrate tab session state helpers out of common/utilities.js call sites.
 // Phase 10: isolate device emulation storage behind one domain boundary.
 // Phase 12: remove all remaining migration debt buckets and enforce strict raw-storage boundary.

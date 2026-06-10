@@ -7,6 +7,7 @@ function createChromeSyncMock(initialItems = {}) {
   const storageItems = { ...initialItems };
   const changeListeners = [];
   const getCalls = [];
+  const setCalls = [];
 
   const chromeMock = {
     runtime: { lastError: null },
@@ -33,6 +34,13 @@ function createChromeSyncMock(initialItems = {}) {
             return;
           }
           callback({ ...storageItems });
+        },
+        set(items, callback) {
+          setCalls.push(items || {});
+          Object.assign(storageItems, items || {});
+          if (typeof callback === "function") {
+            callback();
+          }
         }
       },
       onChanged: {
@@ -47,6 +55,7 @@ function createChromeSyncMock(initialItems = {}) {
     chromeMock,
     storageItems,
     getCalls,
+    setCalls,
     emitSyncChange(changes) {
       changeListeners.forEach((listener) => listener(changes, "sync"));
     },
@@ -212,6 +221,133 @@ test("property lock connection settings prefer config endpoint over stage base",
     assert.deepEqual(settings, {
       endpointBase: "https://config.example.test",
       tokenValue: "secret-token"
+    });
+  });
+});
+
+test("settings store clears token when config endpoint origin changes", async () => {
+  const mock = createChromeSyncMock({
+    globalConfigEndpoint: "https://old-config.example.test/load",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveGlobalConfigEndpoint } = await loadSettingsStoreModule();
+    const result = await saveGlobalConfigEndpoint("https://new-config.example.test/load");
+
+    assert.equal(result.tokenCleared, true);
+    assert.equal(mock.storageItems.globalConfigEndpoint, "https://new-config.example.test/load");
+    assert.equal(mock.storageItems.globalToken, "");
+  });
+});
+
+test("settings store preserves token when config endpoint origin is unchanged", async () => {
+  const mock = createChromeSyncMock({
+    globalConfigEndpoint: "https://config.example.test/load",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveGlobalConfigEndpoint } = await loadSettingsStoreModule();
+    const result = await saveGlobalConfigEndpoint("https://config.example.test/save");
+
+    assert.equal(result.tokenCleared, false);
+    assert.equal(mock.storageItems.globalToken, "secret-token");
+  });
+});
+
+test("settings store clears token when AI endpoint origin changes", async () => {
+  const mock = createChromeSyncMock({
+    globalEndpoint: "https://old-ai.example.test/selectors",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveGlobalEndpoint } = await loadSettingsStoreModule();
+    const result = await saveGlobalEndpoint("https://new-ai.example.test/selectors");
+
+    assert.equal(result.tokenCleared, true);
+    assert.equal(mock.storageItems.globalToken, "");
+  });
+});
+
+test("settings store clears token when stage base changes", async () => {
+  const mock = createChromeSyncMock({
+    globalStageBase: "stage-a.example.test",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveGlobalStageBase } = await loadSettingsStoreModule();
+    const result = await saveGlobalStageBase("stage-b.example.test");
+
+    assert.equal(result.tokenCleared, true);
+    assert.equal(mock.storageItems.globalToken, "");
+  });
+});
+
+test("settings store saveLoginSettings writes stage base and token", async () => {
+  const mock = createChromeSyncMock({});
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveLoginSettings } = await loadSettingsStoreModule();
+    await saveLoginSettings({
+      stageBase: "stage.example.test",
+      token: "secret-token"
+    });
+
+    assert.deepEqual(mock.setCalls.at(-1), {
+      globalStageBase: "stage.example.test",
+      globalToken: "secret-token"
+    });
+  });
+});
+
+test("settings store clearGlobalToken only clears token", async () => {
+  const mock = createChromeSyncMock({
+    globalStageBase: "stage.example.test",
+    globalEndpoint: "https://api.example.test",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { clearGlobalToken } = await loadSettingsStoreModule();
+    await clearGlobalToken();
+
+    assert.equal(mock.storageItems.globalToken, "");
+    assert.equal(mock.storageItems.globalStageBase, "stage.example.test");
+    assert.equal(mock.storageItems.globalEndpoint, "https://api.example.test");
+  });
+});
+
+test("settings store theme helpers normalize with provided defaults", async () => {
+  const mock = createChromeSyncMock({
+    globalTheme: "invalid-theme",
+    globalThemeMode: "invalid-mode"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { getThemeSettings, setThemeSettings } = await loadSettingsStoreModule();
+    const loaded = await getThemeSettings({
+      normalizeThemeValue: (value) => (value === "forest" ? "forest" : "moonlight"),
+      normalizeThemeModeValue: (value) => (value === "light" ? "light" : "system")
+    });
+    assert.deepEqual(loaded, {
+      themeValue: "moonlight",
+      themeModeValue: "system"
+    });
+
+    const saved = await setThemeSettings("forest", "light", {
+      normalizeThemeValue: (value) => (value === "forest" ? "forest" : "moonlight"),
+      normalizeThemeModeValue: (value) => (value === "light" ? "light" : "system")
+    });
+    assert.deepEqual(saved, {
+      themeValue: "forest",
+      themeModeValue: "light"
+    });
+    assert.deepEqual(mock.setCalls.at(-1), {
+      globalTheme: "forest",
+      globalThemeMode: "light"
     });
   });
 });
