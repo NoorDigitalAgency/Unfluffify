@@ -36,10 +36,10 @@ Current implementation checkpoint status (branch `refactor/service-worker-author
 9. Phase 6C complete and pushed (`562115f`).
 10. Phase 6D complete and pushed (`c536f66`).
 11. Phase 6E complete and pushed (`e43e609`).
-12. Phase 6F implemented and verified in working tree; checkpoint commit/push
+12. Phase 6F complete and pushed (`06cc6bd`).
+13. Phase 7 implemented and verified in working tree; checkpoint commit/push
    is pending in this session.
-13. Next strict phase after Phase 6F push: Phase 7 (remove direct
-   popup-to-content authority).
+14. Next strict phase after Phase 7 push: Phase 8 (test suite upgrade).
 
 ## Debug Continuation Plan (Cross-Environment)
 

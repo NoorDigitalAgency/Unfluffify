@@ -214,7 +214,7 @@ This extension uses Chrome's Manifest V3 (the current standard):
 ### Message Passing
 
 Communication flow:
-- Popup ↔ Background ↔ Content Script ↔ Page
+- Popup ↔ Service Worker ↔ Content Script ↔ Page World
 
 Message types include state queries, updates, device emulation commands, and data syncing.
 

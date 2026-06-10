@@ -6,6 +6,7 @@ import { isDebugFlagEnabled } from "../common/feature-flags.js";
 
 const { state } = stateModule;
 const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
+const TAB_CONTENT_REQUEST_COMMAND = "TAB_CONTENT_REQUEST";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 const TAB_DEACTIVATE_MARKING_COMMAND = "TAB_DEACTIVATE_MARKING";
 const TAB_APPLY_POST_SAVE_TRANSITION_COMMAND = "TAB_APPLY_POST_SAVE_TRANSITION";
@@ -389,58 +390,47 @@ export function requestTabRunAi(tabId, payload = {}, options = {}) {
 }
 
 export function sendTabMessage(message) {
-  return new Promise((resolve) => {
-    if (!state.currentTab || !state.currentTab.id) {
-      resolve(null);
-      return;
-    }
-    chrome.tabs.sendMessage(state.currentTab.id, message, { frameId: 0 }, (response) => {
-      if (chrome.runtime.lastError) {
-        logPopupMessageTrace("tab:error", {
-          tabId: state.currentTab.id,
-          type: message && message.type ? message.type : "",
-          error: chrome.runtime.lastError.message || ""
-        });
-        resolve(null);
-        return;
-      }
-      logPopupMessageTrace("tab:response", {
-        tabId: state.currentTab.id,
-        type: message && message.type ? message.type : "",
-        ok: Boolean(response && response.ok)
-      });
-      resolve(response);
-    });
-  });
+  const tabId = state.currentTab && state.currentTab.id;
+  if (!tabId) {
+    return Promise.resolve(null);
+  }
+  return sendTabMessageToTab(tabId, message);
 }
 
 export function sendTabMessageToTab(tabId, message) {
-  return new Promise((resolve) => {
-    if (!tabId) {
-      resolve(null);
-      return;
+  if (!tabId) {
+    return Promise.resolve(null);
+  }
+  logPopupMessageTrace("tab:send", {
+    tabId,
+    type: message && message.type ? message.type : ""
+  });
+  return requestRuntime({
+    type: TAB_CONTENT_REQUEST_COMMAND,
+    payload: {
+      message: message && typeof message === "object" ? message : {},
+      timeoutMs: 3000
     }
-    logPopupMessageTrace("tab:send", {
+  }, {
+    tabId,
+    timeoutMs: 5000
+  }).then((result) => {
+    const response = result && typeof result === "object" && result.response && typeof result.response === "object"
+      ? result.response
+      : null;
+    logPopupMessageTrace("tab:response", {
       tabId,
-      type: message && message.type ? message.type : ""
+      type: message && message.type ? message.type : "",
+      ok: Boolean(response && response.ok)
     });
-    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (response) => {
-      if (chrome.runtime.lastError) {
-        logPopupMessageTrace("tab:error", {
-          tabId,
-          type: message && message.type ? message.type : "",
-          error: chrome.runtime.lastError.message || ""
-        });
-        resolve(null);
-        return;
-      }
-      logPopupMessageTrace("tab:response", {
-        tabId,
-        type: message && message.type ? message.type : "",
-        ok: Boolean(response && response.ok)
-      });
-      resolve(response);
+    return response;
+  }).catch((error) => {
+    logPopupMessageTrace("tab:error", {
+      tabId,
+      type: message && message.type ? message.type : "",
+      error: (error && error.message) || ""
     });
+    return null;
   });
 }
 

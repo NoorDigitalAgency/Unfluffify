@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 6F ready to checkpoint)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 7 ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -196,44 +196,62 @@ Completed and pushed checkpoints:
       - `node --test tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js` passed (77/77).
       - Full suite passed (690/690).
 
+12. Phase 6F checkpoint commit `06cc6bd`
+   - Message: `feat(background): orchestrate save discard preview surfaces`
+   - Updated:
+      - `background.js` adds tab-scoped commands for save/discard + preview
+         surfaces:
+         - `TAB_APPLY_POST_SAVE_TRANSITION`
+         - `TAB_APPLY_LOCAL_DISCARD`
+         - `TAB_SHOW_AI_PREVIEW`
+         - `TAB_CLOSE_AI_PREVIEW`
+         - `TAB_SET_AI_PREVIEW_EXPANDED_MODE`
+         - `TAB_FOCUS_PREVIEW_ELEMENT`
+      - `popup/messages.js` adds command helpers for the new tab-scoped
+         surfaces.
+      - `popup.js` now routes post-save transition, local discard refresh,
+         marking preview, silent preview, preview exit, preview expanded-mode
+         toggle, and preview item focus through background command intents.
+      - Tests updated:
+         - `tests/background-marking-activation.test.js`
+         - `tests/popup-marking-refresh.test.js`
+         - `tests/popup-ai-run-gating.test.js`
+         - `tests/preview-tooltip.test.js`
+   - Verification at checkpoint:
+      - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js tests/ai-run.test.js` passed (98/98).
+      - Full suite passed (692/692).
+
 Current in-progress phase (ready for checkpoint commit/push at this handoff update):
 
-1. Phase 6F (save, discard, preview, and send surfaces)
+1. Phase 7 (remove direct popup-to-content authority)
     - Updated:
-       - `background.js` adds tab-scoped commands for save/discard + preview
-          surfaces:
-          - `TAB_APPLY_POST_SAVE_TRANSITION`
-          - `TAB_APPLY_LOCAL_DISCARD`
-          - `TAB_SHOW_AI_PREVIEW`
-          - `TAB_CLOSE_AI_PREVIEW`
-          - `TAB_SET_AI_PREVIEW_EXPANDED_MODE`
-          - `TAB_FOCUS_PREVIEW_ELEMENT`
-       - `popup/messages.js` adds command helpers for the new tab-scoped
-          surfaces.
-       - `popup.js` now routes post-save transition, local discard refresh,
-          marking preview, silent preview, preview exit, preview expanded-mode
-          toggle, and preview item focus through background command intents.
+       - `background.js` adds tab-scoped bridge command `TAB_CONTENT_REQUEST`
+          so popup requests are routed through background command authority.
+       - `popup/messages.js` no longer uses direct `chrome.tabs.sendMessage`;
+          `sendTabMessage*` helpers now use runtime envelope requests through
+          `TAB_CONTENT_REQUEST`.
+       - `README.md` message-passing note now states:
+          `Popup ↔ Service Worker ↔ Content Script ↔ Page World`.
+       - Added architecture guard test `tests/popup-authority-boundary.test.js`
+          to block direct popup tab messaging regression.
        - Tests updated:
-          - `tests/background-marking-activation.test.js`
-          - `tests/popup-marking-refresh.test.js`
-          - `tests/popup-ai-run-gating.test.js`
-          - `tests/preview-tooltip.test.js`
+          - `tests/popup-authority-boundary.test.js`
     - Verification in working tree before checkpoint commit:
-       - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js tests/ai-run.test.js` passed (98/98).
-       - Full suite passed (692/692).
+       - `node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js tests/device-emulation-lifecycle.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js` passed (111/111).
+       - Full suite passed (694/694).
 
 ## Resume From Here
 
-Next strict phase to implement after the Phase 6F checkpoint push:
+Next strict phase to implement after the Phase 7 checkpoint push:
 
-1. Phase 7: remove direct popup-to-content authority.
+1. Phase 8: test suite upgrade.
 
 Recommended first commands to resume immediately after pull:
 
 ```bash
 git status --short
 git log --oneline -n 3
-node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js
+node --test tests/popup-authority-boundary.test.js tests/background-command-router.test.js tests/popup-marking-refresh.test.js tests/popup-mode-sync.test.js
 ```
 
 ## Read This First
@@ -259,15 +277,17 @@ As of this handoff:
    - page-motion freeze executeScript bridge
    - AI persistence/background network pieces
 4. Popup snapshot, marking activation/deactivation, render-mode inspection,
-   AI run orchestration, and save/discard/preview tab-surface orchestration
+   AI run orchestration, save/discard/preview tab-surface orchestration, and
+   popup content-message bridging
    now route
    through background commands;
-   Phase 7 will remove remaining direct popup-to-content authority.
+   architecture guard coverage now blocks regression to direct popup
+   `chrome.tabs.sendMessage` usage.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 7.
+7. Next work is Phase 8.
 
 ## First Commands For A Future Implementer
 

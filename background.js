@@ -147,6 +147,7 @@ const pageMotionFreezeControlQueueByTarget = new Map();
 const WORLD_TRACE_EVENT_LIMIT = 160;
 const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
+  TAB_CONTENT_REQUEST: "TAB_CONTENT_REQUEST",
   TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING",
   TAB_DEACTIVATE_MARKING: "TAB_DEACTIVATE_MARKING",
   TAB_APPLY_POST_SAVE_TRANSITION: "TAB_APPLY_POST_SAVE_TRANSITION",
@@ -165,6 +166,7 @@ const BACKGROUND_COMMANDS = Object.freeze({
 });
 const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
+  BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST,
   BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING,
   BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING,
   BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION,
@@ -926,6 +928,48 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT, async (cont
   return {
     ...result,
     runtime: getTabRuntimeSnapshot(context.tabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CONTENT_REQUEST, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for content command"
+    );
+  }
+
+  const message = payload && payload.message && typeof payload.message === "object"
+    ? payload.message
+    : null;
+  if (!message) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Missing content message payload",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const timeoutMs = Number(payload && payload.timeoutMs);
+  const response = await sendContentMessageToTab(
+    normalizedTabId,
+    message,
+    Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.trunc(timeoutMs) : 3000
+  );
+  if (!response) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      "Unable to reach content script",
+      { tabId: normalizedTabId, type: message.type || "" }
+    );
+  }
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    response,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
   };
 });
 
