@@ -512,7 +512,9 @@ test("remote config save delegates transport to background and hydrates the resp
   assert.match(backgroundSource, /if \(message\.type === "mergeServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);
   assert.match(saveBody, /type: "saveRemoteConfigSnapshot"/);
-  assert.match(saveBody, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
+  assert.match(saveBody, /const requestPayloadKey = buildTransferPayloadKey\("save-request"\);/);
+  assert.match(saveBody, /const stored = await putTransferPayload\("save-request", payload, \{/);
+  assert.match(saveBody, /payloadKey: requestPayloadKey/);
   assert.match(saveBody, /type: "mergeServerConfigIntoLocalSnapshot"/);
   assert.match(saveBody, /payloadKey: responsePayloadKey/);
   assert.doesNotMatch(saveBody, /await utils\.storageGet\(chrome\.storage\.session, responsePayloadKey\)/);
@@ -531,7 +533,8 @@ test("render-mode detection delegates the heavy html transport to background", (
   assert.match(backgroundSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
   assert.match(backgroundSource, /if \(message\.type === "requestRenderModeDetection"\) \{/);
   assert.match(detectBody, /type: "requestRenderModeDetection"/);
-  assert.match(detectBody, /await utils\.storageSet\(chrome\.storage\.session, \{/);
+  assert.match(detectBody, /const requestPayloadKey = buildTransferPayloadKey\("render-mode-request"\);/);
+  assert.match(detectBody, /const stored = await putTransferPayload\("render-mode-request", \{/);
   assert.match(detectBody, /rawHtml,/);
   assert.match(detectBody, /renderedHtml/);
   assert.match(detectBody, /normalizeRenderModeDetectionResult\(response\.payload\)/);

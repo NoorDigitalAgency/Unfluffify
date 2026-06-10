@@ -316,7 +316,9 @@ test("AI run start, status polling, and result transport use background messagin
   assert.match(popupSource, /messages\.requestTabRunAi\(tabId, \{/);
   assert.match(backgroundSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
   assert.match(startBlock, /type: "requestAiRunStartSnapshot"/);
-  assert.match(startBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \|\| \{\} \}\);/);
+  assert.match(startBlock, /const requestPayloadKey =\s*[\s\S]*buildTransferPayloadKey\("ai-run-start-request"\);/);
+  assert.match(startBlock, /const stored = await putTransferPayload\("ai-run-start-request", payload \|\| \{\}, \{/);
+  assert.match(startBlock, /payloadKey: requestPayloadKey/);
   assert.match(statusBlock, /type: "requestAiRunStatus"/);
   assert.match(statusBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(statusBlock, /endpointValue|tokenValue/);
@@ -324,8 +326,9 @@ test("AI run start, status polling, and result transport use background messagin
   assert.doesNotMatch(startBlock, /fetch\(computeSelectorsUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
   assert.match(resultBlock, /type: "requestAiRunResultSnapshot"/);
   assert.doesNotMatch(resultBlock, /endpointValue|tokenValue/);
-  assert.match(resultBlock, /await utils\.storageGet\(chrome\.storage\.session, payloadKey\)/);
-  assert.match(resultBlock, /await utils\.storageRemove\(chrome\.storage\.session, payloadKey\)/);
+  assert.match(resultBlock, /const loaded = payloadKey\s*[\s\S]*consumeTransferPayload\(payloadKey, \{/);
+  assert.match(resultBlock, /expectedType: "object"/);
+  assert.match(resultBlock, /removeInvalid: true/);
   assert.doesNotMatch(resultBlock, /fetch\(resultUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);
   assert.match(resultBlock, /selectorSet: normalizeAiSelectorSet\(data\)/);
 });

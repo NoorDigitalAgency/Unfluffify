@@ -57,6 +57,11 @@ import {
   setThemeSettings
 } from "./common/settings-store.js";
 import {
+  buildTransferPayloadKey,
+  consumeTransferPayload,
+  putTransferPayload
+} from "./background/transfer-payload-store.js";
+import {
   PopupText,
   ViewText,
   formatClearDomainCacheConfirm,
@@ -3361,13 +3366,16 @@ async function detectRenderModeViaEndpoint(options = {}) {
   }
   for (let attempt = 0; attempt < RENDER_MODE_DETECTION_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const requestPayloadKey = buildRemoteConfigTransferKey("render-mode-request");
-      await utils.storageSet(chrome.storage.session, {
-        [requestPayloadKey]: {
-          rawHtml,
-          renderedHtml
-        }
+      const requestPayloadKey = buildTransferPayloadKey("render-mode-request");
+      const stored = await putTransferPayload("render-mode-request", {
+        rawHtml,
+        renderedHtml
+      }, {
+        payloadKey: requestPayloadKey
       });
+      if (!stored.ok) {
+        throw new Error("Unable to persist render-mode request payload");
+      }
       const response = await messages.sendRuntimeMessage({
         type: "requestRenderModeDetection",
         payloadKey: requestPayloadKey
@@ -3407,13 +3415,6 @@ async function detectRenderModeViaEndpoint(options = {}) {
 
 function buildRemoteConfigLoadKey(tabId, siteId, endpointValue) {
   return `${tabId || ""}|${siteId || ""}|${endpointValue || ""}`;
-}
-
-function buildRemoteConfigTransferKey(scope = "payload") {
-  const normalizedScope = typeof scope === "string" && scope.trim()
-    ? scope.trim()
-    : "payload";
-  return `remote-config-${normalizedScope}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function loadRemoteConfigForCurrentPage(options = {}) {
@@ -3655,8 +3656,13 @@ async function syncBaseConfigToServer(options = {}) {
       filterPageMarking
     });
     try {
-      const requestPayloadKey = buildRemoteConfigTransferKey("save-request");
-      await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload });
+      const requestPayloadKey = buildTransferPayloadKey("save-request");
+      const stored = await putTransferPayload("save-request", payload, {
+        payloadKey: requestPayloadKey
+      });
+      if (!stored.ok) {
+        throw new Error("Unable to persist remote-config save payload");
+      }
       const response = await messages.sendRuntimeMessage({
         type: "saveRemoteConfigSnapshot",
         payloadKey: requestPayloadKey
@@ -8135,9 +8141,14 @@ async function requestAiRunStart({
   const requestPayloadKey =
     typeof payloadKey === "string" && payloadKey.trim()
       ? payloadKey.trim()
-      : buildRemoteConfigTransferKey("ai-run-start-request");
+      : buildTransferPayloadKey("ai-run-start-request");
   if (!payloadKey) {
-    await utils.storageSet(chrome.storage.session, { [requestPayloadKey]: payload || {} });
+    const stored = await putTransferPayload("ai-run-start-request", payload || {}, {
+      payloadKey: requestPayloadKey
+    });
+    if (!stored.ok) {
+      return { ok: false };
+    }
   }
   const response = await messages.sendRuntimeMessage({
     type: "requestAiRunStartSnapshot",
@@ -8172,15 +8183,13 @@ async function requestAiRunResult({ sessionId = "" } = {}) {
     return { ok: false };
   }
   const payloadKey = typeof response.payloadKey === "string" ? response.payloadKey : "";
-  const payloadStore = payloadKey
-    ? await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}))
-    : {};
-  const data = payloadKey && payloadStore && typeof payloadStore === "object"
-    ? payloadStore[payloadKey]
-    : null;
-  if (payloadKey) {
-    await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
-  }
+  const loaded = payloadKey
+    ? await consumeTransferPayload(payloadKey, {
+      expectedType: "object",
+      removeInvalid: true
+    })
+    : { ok: false };
+  const data = loaded.ok ? loaded.payload : null;
   if (
     !data ||
     typeof data !== "object" ||

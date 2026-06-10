@@ -2401,17 +2401,12 @@ function getNormalizedPageEntrySignature(pageUrl, entry) {
 async function replaceServerConfigIntoLocalSnapshot(options = {}) {
   const payloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   let rawPayload = options.payload;
-  try {
-    if (payloadKey) {
-      const payloadStore = await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}));
-      rawPayload = payloadStore && typeof payloadStore === "object"
-        ? payloadStore[payloadKey]
-        : null;
-    }
-  } finally {
-    if (payloadKey) {
-      await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
-    }
+  if (payloadKey) {
+    const loaded = await consumeTransferPayload(payloadKey, {
+      expectedType: "object",
+      removeInvalid: true
+    });
+    rawPayload = loaded.ok ? loaded.payload : null;
   }
   const normalizedPayload = configStore.normalizeConfigSyncPayload(rawPayload, "");
   const currentPageUrl = typeof options.currentPageUrl === "string" ? options.currentPageUrl.trim() : "";
@@ -2470,17 +2465,12 @@ async function replaceServerConfigIntoLocalSnapshot(options = {}) {
 async function mergeServerConfigIntoLocalSnapshot(options = {}) {
   const payloadKey = typeof options.payloadKey === "string" ? options.payloadKey.trim() : "";
   let payload = options && typeof options === "object" ? options.payload : null;
-  try {
-    if (payloadKey) {
-      const payloadStore = await utils.storageGet(chrome.storage.session, payloadKey).catch(() => ({}));
-      payload = payloadStore && typeof payloadStore === "object"
-        ? payloadStore[payloadKey]
-        : null;
-    }
-  } finally {
-    if (payloadKey) {
-      await utils.storageRemove(chrome.storage.session, payloadKey).catch(() => null);
-    }
+  if (payloadKey) {
+    const loaded = await consumeTransferPayload(payloadKey, {
+      expectedType: "object",
+      removeInvalid: true
+    });
+    payload = loaded.ok ? loaded.payload : null;
   }
   const invalidLoadedUrls = configStore.collectInvalidPageMarkingUrls(
     payload && typeof payload === "object" ? payload.pageMarkings : null
