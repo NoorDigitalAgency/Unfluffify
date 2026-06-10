@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A complete, Track B Phase B0 complete)
+Implementation status: IN_PROGRESS (Track A complete, Track B Phase B1 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -67,8 +67,8 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 ### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
 
 1. Phase B0 - Baseline + popup boundary guard: DONE.
-2. Phase B1 - popup/spinner.js: TODO.
-3. Phase B2 - popup/site-resolution.js: TODO.
+2. Phase B1 - popup/spinner.js: DONE.
+3. Phase B2 - popup/site-resolution.js: IN_PROGRESS.
 4. Phase B3 - popup/remote-config.js: TODO.
 5. Phase B4 - popup/render-mode-inspection.js: TODO.
 6. Phase B5 - popup/page-reconciliation.js: TODO.
@@ -249,12 +249,19 @@ Phase B0 - Baseline + popup boundary guard:
    Focused: node --test tests/popup-decomposition-boundary.test.js -> 1 pass / 0 fail
    Full:    npm test -> 799 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  a7b9660 test(popup): add decomposition boundary guard
+
+Phase B1 - spinner module extraction:
+   Files:   popup/spinner.js; popup.js; tests/popup-spinner.test.js; tests/popup-decomposition-boundary.test.js; tests/popup-marking-refresh.test.js; tests/popup-render-mode.test.js
+   Focused: node --test tests/popup-spinner.test.js tests/popup-decomposition-boundary.test.js tests/popup-marking-refresh.test.js tests/popup-render-mode.test.js -> 65 pass / 0 fail
+   Full:    npm test -> 803 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track B Phase B0 with:
-`test(popup): add decomposition boundary guard`, then proceed to Track B Phase
-B1 (`popup/spinner.js`). Do not start Track C until Track B is complete and
+Commit and push Track B Phase B1 with:
+`refactor(popup): extract spinner queue`, then proceed to Track B Phase B2
+(`popup/site-resolution.js`). Do not start Track C until Track B is complete and
 merged.

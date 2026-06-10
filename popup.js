@@ -92,6 +92,17 @@ import {
   logPopupReady
 } from "./popup/telemetry.js";
 import {
+  armSpinnerWatchdog as armSpinnerWatchdogOperation,
+  clearSpinnerWatchdog as clearSpinnerWatchdogOperation,
+  currentSpinnerMessage as currentSpinnerMessageOperation,
+  currentSpinnerSnapshot as currentSpinnerSnapshotOperation,
+  normalizeSpinnerReason as normalizeSpinnerReasonOperation,
+  popSpinner as popSpinnerOperation,
+  pushSpinner as pushSpinnerOperation,
+  runWithSpinner as runWithSpinnerOperation,
+  setSpinnerMessage as setSpinnerMessageOperation
+} from "./popup/spinner.js";
+import {
   refineXPathEntries
 } from "./common/xpath-utilities.js";
 import {
@@ -851,33 +862,50 @@ function isEditableTarget(el) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
-function currentSpinnerMessage() {
-  if (popupSpinnerQueue.size === 0) {
-    return "";
-  }
-  return [...popupSpinnerQueue.values()].at(-1).message;
+function getSpinnerDeps() {
+  return {
+    popupSpinnerQueue,
+    popupSpinnerKeyTabIds,
+    popupSpinnerWatchdogByKey,
+    spinnerWatchdogMs: SPINNER_WATCHDOG_MS,
+    uiModule,
+    windowRef: window,
+    cryptoRef: crypto,
+    getCurrentPopupTabId,
+    getPopupSpinnerVisible: () => popupSpinnerVisible,
+    setPopupSpinnerVisible: (value) => {
+      popupSpinnerVisible = Boolean(value);
+    },
+    getPopupSpinnerTimer: () => popupSpinnerTimer,
+    setPopupSpinnerTimer: (value) => {
+      popupSpinnerTimer = Number(value) || 0;
+    },
+    popSpinner: (key) => {
+      popSpinner(key);
+    },
+    logPopupSpinnerDebug,
+    setUiBusyFromCurrentSpinner,
+    syncUiBusyFromBrokerState,
+    syncSpinnerEntryToBackground,
+    removeSpinnerEntryFromBackground,
+    clearSpinnerQueueInBackground,
+    scheduleStaleInspectionBusyClear
+  };
 }
 
-function currentSpinnerSnapshot() {
-  if (popupSpinnerQueue.size === 0) {
-    return null;
-  }
-  const [key, entry] = [...popupSpinnerQueue.entries()].at(-1);
-  return { key, entry };
-}
-
-function normalizeSpinnerReason(reason, key, message) {
-  if (typeof reason === "string" && reason.trim()) {
-    return reason.trim();
-  }
-  if (typeof key === "string" && key.trim()) {
-    return `spinner:${key.trim()}`;
-  }
-  if (typeof message === "string" && message.trim()) {
-    return `message:${message.trim()}`;
-  }
-  return "popup-spinner";
-}
+const currentSpinnerMessage = () => currentSpinnerMessageOperation(getSpinnerDeps());
+const currentSpinnerSnapshot = () => currentSpinnerSnapshotOperation(getSpinnerDeps());
+const normalizeSpinnerReason = (reason, key, message) =>
+  normalizeSpinnerReasonOperation(getSpinnerDeps(), reason, key, message);
+const clearSpinnerWatchdog = (key) => clearSpinnerWatchdogOperation(getSpinnerDeps(), key);
+const armSpinnerWatchdog = (key) => armSpinnerWatchdogOperation(getSpinnerDeps(), key);
+const pushSpinner = (key, message, options = {}) =>
+  pushSpinnerOperation(getSpinnerDeps(), key, message, options);
+const setSpinnerMessage = (key, message) =>
+  setSpinnerMessageOperation(getSpinnerDeps(), key, message);
+const popSpinner = (key) => popSpinnerOperation(getSpinnerDeps(), key);
+const runWithSpinner = (key, message, task, options = {}) =>
+  runWithSpinnerOperation(getSpinnerDeps(), key, message, task, options);
 
 function buildSpinnerBusyDetails(key, entry) {
   const spinnerEntry = entry && typeof entry === "object" ? entry : {};
@@ -1140,151 +1168,6 @@ function connectBackgroundStatePort(tabId) {
   }
 }
 
-function clearSpinnerWatchdog(key) {
-  const timer = popupSpinnerWatchdogByKey.get(key);
-  if (timer) {
-    window.clearTimeout(timer);
-    popupSpinnerWatchdogByKey.delete(key);
-  }
-}
-
-function armSpinnerWatchdog(key) {
-  if (!key) {
-    return;
-  }
-  clearSpinnerWatchdog(key);
-  const timer = window.setTimeout(() => {
-    popupSpinnerWatchdogByKey.delete(key);
-    if (popupSpinnerQueue.has(key)) {
-      // The owning operation never settled (its runWithSpinner finally / manual
-      // popSpinner never ran). Fail open so the popup can never stay blocked.
-      logPopupSpinnerDebug("spinner-watchdog-failopen", { key });
-      popSpinner(key);
-    }
-  }, SPINNER_WATCHDOG_MS);
-  popupSpinnerWatchdogByKey.set(key, timer);
-}
-
-function pushSpinner(key, message, options = {}) {
-  const effectiveKey = (typeof key === "string" && key) ? key : crypto.randomUUID();
-  const msg = (typeof message === "string" && message.trim()) ? message.trim() : "";
-  const persistent = Boolean(options.persistent);
-  const source = typeof options.source === "string" && options.source.trim()
-    ? options.source.trim()
-    : "popup-spinner";
-  const reason = normalizeSpinnerReason(options.reason, effectiveKey, msg);
-  const startedAt = Date.now();
-  const isUpdate = popupSpinnerQueue.has(effectiveKey);
-  const tabId = state.currentTab && state.currentTab.id;
-
-  if (!isUpdate) {
-    const suppressIfActive = Boolean(options.suppressIfActive);
-    if (suppressIfActive && (popupSpinnerQueue.size > 0 || popupSpinnerVisible || popupSpinnerTimer)) {
-      return null;
-    }
-  }
-
-  const delayMs = (!isUpdate && Number.isFinite(options.delayMs))
-    ? Math.max(0, Math.trunc(options.delayMs))
-    : 0;
-
-  if (isUpdate) {
-    const existing = popupSpinnerQueue.get(effectiveKey);
-    if (msg) {
-      existing.message = msg;
-    }
-    existing.persistent = persistent;
-    existing.reason = reason;
-    existing.source = source;
-    if (popupSpinnerTimer) {
-      window.clearTimeout(popupSpinnerTimer);
-      popupSpinnerTimer = 0;
-      if (!popupSpinnerVisible) {
-        popupSpinnerVisible = true;
-        setUiBusyFromCurrentSpinner();
-      } else {
-        setUiBusyFromCurrentSpinner();
-      }
-    } else if (popupSpinnerVisible) {
-      const topKey = [...popupSpinnerQueue.keys()].at(-1);
-      if (topKey === effectiveKey) {
-        setUiBusyFromCurrentSpinner();
-      }
-    }
-    if (tabId) {
-      popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-    }
-    armSpinnerWatchdog(effectiveKey);
-    syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-    return effectiveKey;
-  }
-
-  popupSpinnerQueue.set(effectiveKey, { message: msg, persistent, reason, source, startedAt });
-  armSpinnerWatchdog(effectiveKey);
-  if (tabId) {
-    popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-  }
-
-  if (popupSpinnerVisible) {
-    logPopupSpinnerDebug("push:update-visible", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-    setUiBusyFromCurrentSpinner();
-    syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-    return effectiveKey;
-  }
-
-  if (delayMs > 0) {
-    if (!popupSpinnerTimer) {
-      popupSpinnerTimer = window.setTimeout(() => {
-        popupSpinnerTimer = 0;
-        if (popupSpinnerQueue.size === 0 || popupSpinnerVisible) {
-          return;
-        }
-        popupSpinnerVisible = true;
-        logPopupSpinnerDebug("push:delayed-show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-        setUiBusyFromCurrentSpinner();
-        syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-      }, delayMs);
-    }
-    return effectiveKey;
-  }
-
-  if (popupSpinnerTimer) {
-    window.clearTimeout(popupSpinnerTimer);
-    popupSpinnerTimer = 0;
-  }
-  popupSpinnerVisible = true;
-  logPopupSpinnerDebug("push:show", { key: effectiveKey, message: msg, persistent, reason, source, startedAt });
-  setUiBusyFromCurrentSpinner();
-  if (tabId) {
-    popupSpinnerKeyTabIds.set(effectiveKey, tabId);
-  }
-  syncSpinnerEntryToBackground(effectiveKey).catch(() => {});
-  return effectiveKey;
-}
-
-function setSpinnerMessage(key, message) {
-  if (!key || typeof key !== "string" || typeof message !== "string" || !message.trim()) {
-    return;
-  }
-  const entry = popupSpinnerQueue.get(key);
-  if (!entry) {
-    return;
-  }
-  entry.message = message.trim();
-  entry.reason = normalizeSpinnerReason(entry.reason, key, entry.message);
-  entry.source = typeof entry.source === "string" && entry.source ? entry.source : "popup-spinner";
-  // Message change = progress; reset the fail-open watchdog for this key.
-  armSpinnerWatchdog(key);
-  logPopupSpinnerDebug("set-message", { key, message: entry.message, reason: entry.reason, source: entry.source });
-  const tabId = state.currentTab && state.currentTab.id;
-  syncSpinnerEntryToBackground(key).catch(() => {});
-  if (popupSpinnerVisible) {
-    const topKey = [...popupSpinnerQueue.keys()].at(-1);
-    if (topKey === key) {
-      setUiBusyFromCurrentSpinner();
-    }
-  }
-}
 
 function clearStaleInspectionBusyClearTimer() {
   if (!popupStaleInspectionBusyClearTimer) {
@@ -1401,53 +1284,6 @@ function scheduleStaleInspectionBusyClear(
   popupStaleInspectionBusyClearTimer = window.setTimeout(() => {
     void run();
   }, 150);
-}
-
-function popSpinner(key) {
-  if (!key || typeof key !== "string") {
-    return;
-  }
-  clearSpinnerWatchdog(key);
-  const mappedTabId = popupSpinnerKeyTabIds.get(key);
-  if (!popupSpinnerQueue.has(key)) {
-    if (mappedTabId) {
-      popupSpinnerKeyTabIds.delete(key);
-      removeSpinnerEntryFromBackground(key, mappedTabId).catch(() => {});
-    }
-    return;
-  }
-  popupSpinnerKeyTabIds.delete(key);
-  popupSpinnerQueue.delete(key);
-  logPopupSpinnerDebug("pop", { key, mappedTabId });
-  removeSpinnerEntryFromBackground(key, mappedTabId || getCurrentPopupTabId()).catch(() => {});
-  if (popupSpinnerQueue.size > 0) {
-    if (popupSpinnerVisible) {
-      setUiBusyFromCurrentSpinner();
-      syncUiBusyFromBrokerState();
-    }
-    return;
-  }
-  if (popupSpinnerTimer) {
-    window.clearTimeout(popupSpinnerTimer);
-    popupSpinnerTimer = 0;
-  }
-  const tabId = state.currentTab && state.currentTab.id;
-  clearSpinnerQueueInBackground(tabId).catch(() => {});
-  if (popupSpinnerVisible) {
-    popupSpinnerVisible = false;
-    logPopupSpinnerDebug("pop:hide", { key, mappedTabId });
-    uiModule.setUiBusy(false);
-  }
-  scheduleStaleInspectionBusyClear(mappedTabId || tabId);
-}
-
-async function runWithSpinner(key, message, task, options = {}) {
-  const pushed = pushSpinner(key, message, options);
-  try {
-    return await task(pushed);
-  } finally {
-    popSpinner(pushed);
-  }
 }
 
 function isValidEmail(value) {

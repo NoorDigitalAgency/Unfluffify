@@ -600,34 +600,33 @@ test("popup blocks the interface with a spinner while page inspection is running
 });
 
 test("popup spinner queue pushSpinner returns key and handles delays correctly", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
   const pushBody = source.match(
-    /function pushSpinner\(key, message, options = \{\}\) \{([\s\S]*?)\n\}/
+    /export function pushSpinner\(deps, key, message, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
 
   // suppressIfActive path returns null when queue is active
   assert.match(pushBody, /suppressIfActive[\s\S]*?return null;/);
   // delay path sets timer and returns effectiveKey
-  assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?popupSpinnerTimer[\s\S]*?return effectiveKey;/);
+  assert.match(pushBody, /if \(delayMs > 0\) \{[\s\S]*?getPopupSpinnerTimer\(\)[\s\S]*?setPopupSpinnerTimer\([\s\S]*?return effectiveKey;/);
   // immediate show path sets popupSpinnerVisible and applies reason-aware busy details.
-  assert.match(pushBody, /popupSpinnerVisible = true;[\s\S]*?setUiBusyFromCurrentSpinner\(\)/);
-  assert.match(pushBody, /const reason = normalizeSpinnerReason\(options\.reason, effectiveKey, msg\);/);
+  assert.match(pushBody, /setPopupSpinnerVisible\(true\);[\s\S]*?setUiBusyFromCurrentSpinner\(\)/);
+  assert.match(pushBody, /const reason = normalizeSpinnerReason\(deps, options\.reason, effectiveKey, msg\);/);
   assert.match(pushBody, /const source = typeof options\.source === "string"/);
   // upsert path updates in-place without re-checking suppressIfActive
-  assert.match(pushBody, /const isUpdate = popupSpinnerQueue\.has\(effectiveKey\)/);
+  assert.match(pushBody, /const isUpdate = deps\.popupSpinnerQueue\.has\(effectiveKey\)/);
   assert.match(pushBody, /syncSpinnerEntryToBackground\(effectiveKey\)/);
 });
 
 test("popup spinner pop removes entries from the background broker", () => {
-  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
   const popBody = source.match(
-    /function popSpinner\(key\) \{([\s\S]*?)\n\}/
+    /export function popSpinner\(deps, key\) \{([\s\S]*?)\n\}/
   )[1];
 
-  assert.match(source, /const popupSpinnerKeyTabIds = new Map\(\);/);
-  assert.match(popBody, /const mappedTabId = popupSpinnerKeyTabIds\.get\(key\);/);
-  assert.match(popBody, /if \(!popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?removeSpinnerEntryFromBackground\(key, mappedTabId\)/);
-  assert.match(popBody, /removeSpinnerEntryFromBackground\(key, mappedTabId \|\| getCurrentPopupTabId\(\)\)/);
+  assert.match(popBody, /const mappedTabId = deps\.popupSpinnerKeyTabIds\.get\(key\);/);
+  assert.match(popBody, /if \(!deps\.popupSpinnerQueue\.has\(key\)\) \{[\s\S]*?deps\.removeSpinnerEntryFromBackground\(key, mappedTabId\)/);
+  assert.match(popBody, /deps\.removeSpinnerEntryFromBackground\(key, mappedTabId \|\| deps\.getCurrentPopupTabId\(\)\)/);
 });
 
 test("popup delegates spinner queue state to the background broker", () => {
@@ -810,8 +809,9 @@ test("marking enable does not send a redundant force refresh after TAB_ACTIVATE_
 
 test("marking enable upgrades the popup spinner to page inspection during reveal warmup", () => {
   const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const runWithSpinnerBody = source.match(
-    /async function runWithSpinner\(key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
+  const spinnerSource = readFileSync(new URL("../popup/spinner.js", import.meta.url), "utf8");
+  const runWithSpinnerBody = spinnerSource.match(
+    /export async function runWithSpinner\(deps, key, message, task, options = \{\}\) \{([\s\S]*?)\n\}/
   )[1];
   const enableBody = source.match(
     /async function handleEnableToggle\(event\) \{([\s\S]*?)\n\}\n\nasync function handleDeviceEmulationEnabledToggle/

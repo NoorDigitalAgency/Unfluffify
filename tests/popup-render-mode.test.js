@@ -207,7 +207,7 @@ test("nav settle and stale clear paths hold navInspect until post-set inspection
   const staleClearBlock = extractSourceBlock(
     popupSource,
     "function scheduleStaleInspectionBusyClear",
-    "function popSpinner"
+    "function isValidEmail"
   );
   const onUpdatedBlock = extractSourceBlock(
     popupSource,
