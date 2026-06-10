@@ -33,6 +33,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("remote-config-sync");
   assertImportsBackgroundModule("world-trace");
   assertImportsBackgroundModule("popup-state-broker");
+  assertImportsBackgroundModule("render-mode-inspector");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -80,4 +81,12 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("broadcastBrokerState");
   assertBackgroundDoesNotDefine("updateLifecycleState");
   assertBackgroundDoesNotDefine("clearNavInspectCurtain");
+  assertBackgroundDoesNotDefine("normalizeRenderModeOperationId");
+  assertBackgroundDoesNotDefine("waitForTabLoadStartInBackground");
+  assertBackgroundDoesNotDefine("waitForTabLoadCompleteInBackground");
+  assertBackgroundDoesNotDefine("ensureContentReadyForRenderModeInspectionInBackground");
+  assertBackgroundDoesNotDefine("sendRenderModeInspectionEndWithRetry");
+  assertBackgroundDoesNotDefine("runRenderModeInspectionBeginStep");
+  assertBackgroundDoesNotDefine("runRenderModeRevealFreezeStep");
+  assertBackgroundDoesNotDefine("runRenderModeCaptureHtmlStep");
 });

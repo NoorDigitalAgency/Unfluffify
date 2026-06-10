@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 
 test("background registers render-mode inspection commands as tab-scoped", () => {
@@ -34,6 +35,8 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, cap
   )[1];
 
   assert.match(commandBlock, /withBackgroundTabSpinner\([\s\S]*?reason: "tab-render-mode-inspection"/);
+  assert.match(backgroundSource, /from "\.\/background\/render-mode-inspector\.js"/);
+  assert.match(backgroundSource, /const renderModeInspector = createRenderModeInspector\(\{/);
   assert.match(commandBlock, /runRenderModeInspectionBeginStep\(normalizedTabId, operationId\)/);
   assert.match(commandBlock, /waitForTabLoadStartInBackground\(/);
   assert.match(commandBlock, /utils\.reloadPageWithJavaScriptControl\(/);
@@ -44,7 +47,7 @@ test("background TAB_RUN_RENDER_MODE_INSPECTION orchestrates reload, reveal, cap
 });
 
 test("background render-mode capture hides consent after HTML capture", () => {
-  const helperBlock = backgroundSource.match(
+  const helperBlock = renderModeInspectorSource.match(
     /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{([\s\S]*?)\n\}/
   )[1];
 

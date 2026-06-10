@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-10
 Branch at document creation: main
-Implementation status: IN_PROGRESS (Track A Phase 7 complete)
+Implementation status: IN_PROGRESS (Track A Phase 8 complete)
 Document commit scope: plan + handoff authoring only
 
 ## Read This First
@@ -58,7 +58,7 @@ Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
 6. Phase 5 - remote-config-sync module: DONE.
 7. Phase 6 - world-trace module: DONE.
 8. Phase 7 - popup-state-broker module (HIGH RISK): DONE.
-9. Phase 8 - render-mode-inspector module: TODO.
+9. Phase 8 - render-mode-inspector module: DONE.
 10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): TODO.
 11. Phase 10 - async error reporting (hardening): TODO.
 12. Phase 11 - per-tab state consolidation (hardening): TODO.
@@ -207,12 +207,19 @@ Phase 7 - popup-state-broker module:
    Focused: node --test tests/device-emulation-lifecycle.test.js tests/world-trace-contract.test.js tests/lifecycle-broker.test.js tests/popup-state-broker.test.js tests/background-decomposition-boundary.test.js -> 41 pass / 0 fail
    Full:    npm test -> 786 pass / 0 fail
    Live:    skipped by current requirement scope (not required for non-marking slices)
+   Commit:  87b5479 refactor(background): extract popup state broker
+
+Phase 8 - render-mode-inspector module:
+   Files:   background/render-mode-inspector.js; background.js; tests/render-mode-inspector.test.js; tests/background-render-mode-inspection.test.js; tests/render-mode-inspection-order.test.js; tests/background-decomposition-boundary.test.js
+   Focused: node --test tests/render-mode-inspector.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/background-decomposition-boundary.test.js -> 13 pass / 0 fail
+   Full:    npm test -> 789 pass / 0 fail
+   Live:    skipped by current requirement scope (not required for non-marking slices)
    Commit:  pending
 ```
 
 ## Next Action
 
-Commit and push Track A Phase 7 with:
-`refactor(background): extract popup state broker`, then proceed to Track A
-Phase 8 (render-mode-inspector extraction). Do not start Track B until Track A is
+Commit and push Track A Phase 8 with:
+`refactor(background): extract render-mode inspector`, then proceed to Track A
+Phase 9 (ai-run-orchestrator extraction). Do not start Track B until Track A is
 complete and merged; do not start Track C until Track B is complete and merged.

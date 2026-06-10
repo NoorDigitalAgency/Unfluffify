@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
 const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+const renderModeInspectorSource = readFileSync(new URL("../background/render-mode-inspector.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../content-main.js", import.meta.url), "utf8");
 const coreSource = readFileSync(new URL("../content/core.js", import.meta.url), "utf8");
 
@@ -52,14 +53,14 @@ test("background render mode command preserves reveal -> capture -> consent-hide
   assert.ok(captureIndex > revealIndex);
   assert.ok(endIndex > captureIndex);
   assert.match(
-    backgroundSource,
+    renderModeInspectorSource,
     /async function runRenderModeCaptureHtmlStep\(tabId, baseUrl, operationId\) \{[\s\S]*?captureRenderModeInspectionHtml[\s\S]*?hideConsentForInspection/
   );
 });
 
 test("background render mode orchestration waits for content readiness", () => {
   const readyBlock = extractSourceBlock(
-    backgroundSource,
+    renderModeInspectorSource,
     "async function ensureContentReadyForRenderModeInspectionInBackground",
     "async function sendRenderModeInspectionEndWithRetry"
   );
