@@ -8079,25 +8079,9 @@ async function applyPostSaveSilentTransition() {
   const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
     ? state.currentTab.id
     : null;
-  // Reset the content-side page entry to the saved baseline so its draft is no
-  // longer dirty (Discard detects no pending changes). This runs while marking
-  // is still enabled so the forceReloadPageEntry branch reseeds the baseline.
-  if (baseUrl) {
-    await messages.sendTabMessageWithRetry({
-      type: "configUpdated",
-      baseUrl,
-      forceReloadPageEntry: true
-    }, 2);
-  }
-  // Deterministically drop the CONTENT script out of marking mode into silent
-  // highlighting. Without this the page stays in marking mode after save while
-  // the popup shows silent controls, so the buttons never reset to silent/idle.
+  // Reset + mode drop are owned by background command authority for this tab.
   if (tabId !== null) {
-    await messages.sendTabMessageWithRetry({
-      type: "setEnabled",
-      enabled: false,
-      pageType: ""
-    }, 2);
+    await messages.requestTabApplyPostSaveTransition(tabId, { baseUrl });
   }
   state.currentDraftDirty = false;
   await alignPopupToSilentMode();
@@ -8204,11 +8188,12 @@ async function applyLocalPageDiscard() {
       targetConfig.pageMarkings[pageUrl] = clonePageMarkingEntry(backendEntry);
     }
   });
-  await messages.sendTabMessageWithRetry({
-    type: "configUpdated",
-    baseUrl,
-    forceReloadPageEntry: true
-  }, 2);
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  if (tabId !== null) {
+    await messages.requestTabApplyLocalDiscard(tabId, { baseUrl });
+  }
   await clearCurrentPageSaveReconciliation();
   state.aiSelectorsComputedSinceLastSubmit = false;
   state.aiSelectorsComputedBaseUrl = "";
@@ -8359,11 +8344,13 @@ async function applyComputedSelectorSet(selectorSet, { currentPageUrl = "", toke
   // Save/Preview enable until the next mark/unmark change.
   captureAiRunMarkingsFingerprint();
 
-  const previewResponse = await messages.sendTabMessage({
-    type: "showAiPreview",
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const previewResponse = await messages.requestTabShowAiPreview(tabId, {
     selectorSet
   });
-  const previewOpened = Boolean(previewResponse && previewResponse.ok);
+  const previewOpened = Boolean(previewResponse && previewResponse.ok && previewResponse.result);
   updateLastConfigSaveStatus(PopupText.ai.selectorsComputedLocally);
   // This state is intentionally unsynced; keep the tone non-muted until Save runs.
   state.lastConfigSaveStatusTone = "warning";
@@ -8867,11 +8854,13 @@ async function handlePreviewLatest() {
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-    const response = await messages.sendTabMessage({
-      type: "showAiPreview",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
@@ -8913,11 +8902,13 @@ async function handleMarkingPreview() {
   collapseTodoListForAutoCollapse();
   setPreviewBlocked(true, PopupText.preview.blockedActive);
   try {
-    const response = await messages.sendTabMessage({
-      type: "showAiPreview",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabShowAiPreview(tabId, {
       selectorSet
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.openFailed);
     }
     await refreshUi();
@@ -8932,8 +8923,11 @@ async function handleExitPreviewMode() {
   if (!await helpers.ensureActiveTab({ requireId: true })) {
     return;
   }
-  const response = await messages.sendTabMessage({ type: "closeAiPreview" });
-  if (!response || !response.ok) {
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const response = await messages.requestTabCloseAiPreview(tabId);
+  if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.preview.exitFailed);
   }
 }
@@ -8986,14 +8980,16 @@ async function handlePreviewShowAllCategoriesChange(event) {
     return;
   }
   try {
-    const response = await messages.sendTabMessage({
-      type: "setAiPreviewExpandedMode",
+    const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+      ? state.currentTab.id
+      : null;
+    const response = await messages.requestTabSetAiPreviewExpandedMode(tabId, {
       active: nextChecked
     });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || !response.result) {
       throw new Error(PopupText.preview.updateFailed);
     }
-    uiModule.setViewState(buildPreviewViewState(response));
+    uiModule.setViewState(buildPreviewViewState(response.result.previewState || null));
   } catch (error) {
     uiModule.setViewState({ previewShowAllCategories: previousChecked });
     uiModule.showToast((error && error.message) || PopupText.preview.updateFailed);
@@ -9006,11 +9002,13 @@ async function handlePreviewItemFocus(xpath) {
     return;
   }
   uiModule.setViewState({ previewFocusedXpath: xpath });
-  const response = await messages.sendTabMessage({
-    type: "focusElement",
+  const tabId = state.currentTab && Number.isFinite(state.currentTab.id)
+    ? state.currentTab.id
+    : null;
+  const response = await messages.requestTabFocusPreviewElement(tabId, {
     xpath
   });
-  if (!response || !response.ok) {
+  if (!response || !response.ok || !response.result) {
     uiModule.showToast(PopupText.explicitSelection.focusFailed);
     await refreshUi();
   }

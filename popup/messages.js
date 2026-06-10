@@ -8,6 +8,12 @@ const { state } = stateModule;
 const POPUP_GET_TAB_VIEW_STATE_COMMAND = "POPUP_GET_TAB_VIEW_STATE";
 const TAB_ACTIVATE_MARKING_COMMAND = "TAB_ACTIVATE_MARKING";
 const TAB_DEACTIVATE_MARKING_COMMAND = "TAB_DEACTIVATE_MARKING";
+const TAB_APPLY_POST_SAVE_TRANSITION_COMMAND = "TAB_APPLY_POST_SAVE_TRANSITION";
+const TAB_APPLY_LOCAL_DISCARD_COMMAND = "TAB_APPLY_LOCAL_DISCARD";
+const TAB_SHOW_AI_PREVIEW_COMMAND = "TAB_SHOW_AI_PREVIEW";
+const TAB_CLOSE_AI_PREVIEW_COMMAND = "TAB_CLOSE_AI_PREVIEW";
+const TAB_SET_AI_PREVIEW_EXPANDED_MODE_COMMAND = "TAB_SET_AI_PREVIEW_EXPANDED_MODE";
+const TAB_FOCUS_PREVIEW_ELEMENT_COMMAND = "TAB_FOCUS_PREVIEW_ELEMENT";
 const TAB_RUN_RENDER_MODE_INSPECTION_COMMAND = "TAB_RUN_RENDER_MODE_INSPECTION";
 const TAB_RUN_AI_COMMAND = "TAB_RUN_AI";
 
@@ -48,6 +54,179 @@ export function sendRuntimeMessage(message) {
     ) {
       const tail = response.traceEvents.slice(-5);
       logPopupMessageTrace("runtime:trace-tail", { count: tail.length, tail });
+
+export function requestTabApplyPostSaveTransition(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_APPLY_POST_SAVE_TRANSITION_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 15000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to apply save transition",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabApplyLocalDiscard(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_APPLY_LOCAL_DISCARD_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 10000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to discard page changes",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabShowAiPreview(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_SHOW_AI_PREVIEW_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 10000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to open preview",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabCloseAiPreview(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_CLOSE_AI_PREVIEW_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 10000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to close preview",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabSetAiPreviewExpandedMode(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_SET_AI_PREVIEW_EXPANDED_MODE_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 10000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to update preview mode",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
+}
+
+export function requestTabFocusPreviewElement(tabId, payload = {}, options = {}) {
+  if (!tabId) {
+    return Promise.resolve({
+      ok: false,
+      error: "Missing tab"
+    });
+  }
+  return requestRuntime({
+    type: TAB_FOCUS_PREVIEW_ELEMENT_COMMAND,
+    payload: payload && typeof payload === "object" ? payload : {}
+  }, {
+    tabId,
+    timeoutMs: Number.isFinite(options.timeoutMs) ? Math.trunc(options.timeoutMs) : 10000
+  }).then((result) => ({
+    ok: true,
+    result: result && typeof result === "object" ? result : {}
+  })).catch((error) => {
+    const reply = error && error.details && error.details.reply && typeof error.details.reply === "object"
+      ? error.details.reply
+      : null;
+    return {
+      ok: false,
+      code: typeof error.code === "string" ? error.code : (reply && reply.code) || "handler_failed",
+      error: (error && error.message) || (reply && reply.error) || "Unable to focus preview item",
+      details: reply && reply.details && typeof reply.details === "object" ? reply.details : {}
+    };
+  });
     }
     return response;
   });

@@ -68,10 +68,43 @@ test("background registers TAB_DEACTIVATE_MARKING as tab-scoped spinner command"
 test("background TAB_DEACTIVATE_MARKING routes content disable and tab state update", () => {
   const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const commandBody = source.match(
-    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nfunction maybeGetCommandPayloadForLedger/
+    /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_DEACTIVATE_MARKING, async \(context, payload\) => \{([\s\S]*?)\n\}\);\n\nregisterBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION/
   )[1];
 
   assert.match(commandBody, /await utils\.setTabState\(normalizedTabId, \{[\s\S]*?enabled: false/);
   assert.match(commandBody, /sendContentMessageToTab\(normalizedTabId, \{[\s\S]*?type: "setEnabled"[\s\S]*?enabled: false/);
   assert.match(commandBody, /contentAcknowledged: Boolean\(disableResponse && disableResponse\.ok\)/);
+});
+
+test("popup save/discard and preview surfaces delegate to background commands", () => {
+  const source = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+
+  assert.match(source, /messages\.requestTabApplyPostSaveTransition\(tabId, \{ baseUrl \}\)/);
+  assert.match(source, /messages\.requestTabApplyLocalDiscard\(tabId, \{ baseUrl \}\)/);
+  assert.match(source, /messages\.requestTabShowAiPreview\(tabId, \{/);
+  assert.match(source, /messages\.requestTabCloseAiPreview\(tabId\)/);
+  assert.match(source, /messages\.requestTabSetAiPreviewExpandedMode\(tabId, \{/);
+  assert.match(source, /messages\.requestTabFocusPreviewElement\(tabId, \{/);
+  assert.doesNotMatch(source, /type: "showAiPreview"/);
+  assert.doesNotMatch(source, /type: "closeAiPreview"/);
+  assert.doesNotMatch(source, /type: "setAiPreviewExpandedMode"/);
+});
+
+test("background registers save/discard and preview commands as tab-scoped commands", () => {
+  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+
+  assert.match(source, /TAB_APPLY_POST_SAVE_TRANSITION: "TAB_APPLY_POST_SAVE_TRANSITION"/);
+  assert.match(source, /TAB_APPLY_LOCAL_DISCARD: "TAB_APPLY_LOCAL_DISCARD"/);
+  assert.match(source, /TAB_SHOW_AI_PREVIEW: "TAB_SHOW_AI_PREVIEW"/);
+  assert.match(source, /TAB_CLOSE_AI_PREVIEW: "TAB_CLOSE_AI_PREVIEW"/);
+  assert.match(source, /TAB_SET_AI_PREVIEW_EXPANDED_MODE: "TAB_SET_AI_PREVIEW_EXPANDED_MODE"/);
+  assert.match(source, /TAB_FOCUS_PREVIEW_ELEMENT: "TAB_FOCUS_PREVIEW_ELEMENT"/);
+  assert.match(source, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION/);
+  assert.match(source, /TAB_SCOPED_BACKGROUND_COMMANDS = new Set\(\[[\s\S]*?BACKGROUND_COMMANDS\.TAB_FOCUS_PREVIEW_ELEMENT/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_POST_SAVE_TRANSITION, async \(context, payload\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_APPLY_LOCAL_DISCARD, async \(context, payload\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_SHOW_AI_PREVIEW, async \(context, payload\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_CLOSE_AI_PREVIEW, async \(context\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_SET_AI_PREVIEW_EXPANDED_MODE, async \(context, payload\) => \{/);
+  assert.match(source, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_FOCUS_PREVIEW_ELEMENT, async \(context, payload\) => \{/);
 });

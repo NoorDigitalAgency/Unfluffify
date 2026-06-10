@@ -1,6 +1,6 @@
 # Handoff - Service Worker Authority Refactor
 
-Last updated: 2026-06-10 (implementation checkpoints through Phase 6E ready to checkpoint)
+Last updated: 2026-06-10 (implementation checkpoints through Phase 6F ready to checkpoint)
 Branch at document creation: main
 Implementation status: IN PROGRESS
 Document commit scope: planning + active implementation handoff updates
@@ -178,37 +178,62 @@ Completed and pushed checkpoints:
       - `node --test tests/feature-flags.test.js tests/property-lock-render-mode.test.js tests/background-render-mode-inspection.test.js tests/render-mode-inspection-order.test.js tests/popup-render-mode.test.js` passed (38/38).
       - Full suite passed (690/690).
 
+11. Phase 6E checkpoint commit `e43e609`
+   - Message: `feat(background): orchestrate ai run command`
+   - Updated:
+      - `background.js` adds tab-scoped orchestration command `TAB_RUN_AI`.
+      - Background now owns AI run flow end-to-end for a tab: optional
+         current-page snapshot capture, payload preparation, optional raw XPath
+         refinement, AI run start, status polling, result fetch, selector-set
+         load, and compute-lock lifecycle/heartbeat handling.
+      - `popup.js` AI compute path now sends a single intent through
+         `messages.requestTabRunAi(...)` and applies returned selector sets
+         locally.
+      - `popup/messages.js` adds `requestTabRunAi`.
+      - Tests updated:
+         - `tests/ai-run.test.js`
+   - Verification at checkpoint:
+      - `node --test tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js` passed (77/77).
+      - Full suite passed (690/690).
+
 Current in-progress phase (ready for checkpoint commit/push at this handoff update):
 
-1. Phase 6E (AI run orchestration in background)
+1. Phase 6F (save, discard, preview, and send surfaces)
     - Updated:
-       - `background.js` adds tab-scoped orchestration command `TAB_RUN_AI`.
-       - Background now owns AI run flow end-to-end for a tab: optional
-          current-page snapshot capture, payload preparation, optional raw XPath
-          refinement, AI run start, status polling, result fetch, selector-set
-          load, and compute-lock lifecycle/heartbeat handling.
-       - `popup.js` AI compute path now sends a single intent through
-          `messages.requestTabRunAi(...)` and applies returned selector sets
-          locally.
-       - `popup/messages.js` adds `requestTabRunAi`.
+       - `background.js` adds tab-scoped commands for save/discard + preview
+          surfaces:
+          - `TAB_APPLY_POST_SAVE_TRANSITION`
+          - `TAB_APPLY_LOCAL_DISCARD`
+          - `TAB_SHOW_AI_PREVIEW`
+          - `TAB_CLOSE_AI_PREVIEW`
+          - `TAB_SET_AI_PREVIEW_EXPANDED_MODE`
+          - `TAB_FOCUS_PREVIEW_ELEMENT`
+       - `popup/messages.js` adds command helpers for the new tab-scoped
+          surfaces.
+       - `popup.js` now routes post-save transition, local discard refresh,
+          marking preview, silent preview, preview exit, preview expanded-mode
+          toggle, and preview item focus through background command intents.
        - Tests updated:
-          - `tests/ai-run.test.js`
+          - `tests/background-marking-activation.test.js`
+          - `tests/popup-marking-refresh.test.js`
+          - `tests/popup-ai-run-gating.test.js`
+          - `tests/preview-tooltip.test.js`
     - Verification in working tree before checkpoint commit:
-       - `node --test tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js` passed (77/77).
-       - Full suite passed (690/690).
+       - `node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js tests/ai-run.test.js` passed (98/98).
+       - Full suite passed (692/692).
 
 ## Resume From Here
 
-Next strict phase to implement after the Phase 6E checkpoint push:
+Next strict phase to implement after the Phase 6F checkpoint push:
 
-1. Phase 6F.
+1. Phase 7: remove direct popup-to-content authority.
 
 Recommended first commands to resume immediately after pull:
 
 ```bash
 git status --short
 git log --oneline -n 3
-node --test tests/ai-run.test.js tests/popup-ai-run-gating.test.js tests/popup-marking-refresh.test.js
+node --test tests/background-marking-activation.test.js tests/popup-marking-refresh.test.js tests/popup-ai-run-gating.test.js tests/preview-tooltip.test.js
 ```
 
 ## Read This First
@@ -233,16 +258,16 @@ As of this handoff:
    - lifecycle broker
    - page-motion freeze executeScript bridge
    - AI persistence/background network pieces
-4. Popup snapshot, marking activation/deactivation, render-mode inspection, and
-   AI run orchestration
+4. Popup snapshot, marking activation/deactivation, render-mode inspection,
+   AI run orchestration, and save/discard/preview tab-surface orchestration
    now route
    through background commands;
-   popup still directly orchestrates several remaining workflows.
+   Phase 7 will remove remaining direct popup-to-content authority.
 5. Content still owns marking/highlighting/consent/reveal/freeze logic.
 6. Page-world freeze/lazy-loading suppression now supports deterministic
    content->page-world relay with nonce-scoped request/reply; background
    executeScript remains as compatibility fallback.
-7. Next work is Phase 6F.
+7. Next work is Phase 7.
 
 ## First Commands For A Future Implementer
 

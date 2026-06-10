@@ -149,6 +149,12 @@ const BACKGROUND_COMMANDS = Object.freeze({
   TAB_BOOTSTRAP_CONTENT: "TAB_BOOTSTRAP_CONTENT",
   TAB_ACTIVATE_MARKING: "TAB_ACTIVATE_MARKING",
   TAB_DEACTIVATE_MARKING: "TAB_DEACTIVATE_MARKING",
+  TAB_APPLY_POST_SAVE_TRANSITION: "TAB_APPLY_POST_SAVE_TRANSITION",
+  TAB_APPLY_LOCAL_DISCARD: "TAB_APPLY_LOCAL_DISCARD",
+  TAB_SHOW_AI_PREVIEW: "TAB_SHOW_AI_PREVIEW",
+  TAB_CLOSE_AI_PREVIEW: "TAB_CLOSE_AI_PREVIEW",
+  TAB_SET_AI_PREVIEW_EXPANDED_MODE: "TAB_SET_AI_PREVIEW_EXPANDED_MODE",
+  TAB_FOCUS_PREVIEW_ELEMENT: "TAB_FOCUS_PREVIEW_ELEMENT",
   TAB_BEGIN_RENDER_MODE_INSPECTION: "TAB_BEGIN_RENDER_MODE_INSPECTION",
   TAB_RUN_REVEAL_FREEZE: "TAB_RUN_REVEAL_FREEZE",
   TAB_CAPTURE_RENDER_MODE_HTML: "TAB_CAPTURE_RENDER_MODE_HTML",
@@ -161,6 +167,12 @@ const TAB_SCOPED_BACKGROUND_COMMANDS = new Set([
   BACKGROUND_COMMANDS.TAB_BOOTSTRAP_CONTENT,
   BACKGROUND_COMMANDS.TAB_ACTIVATE_MARKING,
   BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING,
+  BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION,
+  BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD,
+  BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW,
+  BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW,
+  BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE,
+  BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT,
   BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION,
   BACKGROUND_COMMANDS.TAB_RUN_REVEAL_FREEZE,
   BACKGROUND_COMMANDS.TAB_CAPTURE_RENDER_MODE_HTML,
@@ -1196,6 +1208,229 @@ registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_DEACTIVATE_MARKING, async (con
       };
     }
   );
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_POST_SAVE_TRANSITION, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for save transition"
+    );
+  }
+
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const contentReady = await ensureContentMainForTab(normalizedTabId);
+  if (!contentReady || !contentReady.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      (contentReady && contentReady.error) || "Content activation failed",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const configUpdatedResponse = baseUrl
+    ? await sendContentMessageToTab(normalizedTabId, {
+      type: "configUpdated",
+      baseUrl,
+      forceReloadPageEntry: true
+    })
+    : null;
+  const disableResponse = await sendContentMessageToTab(normalizedTabId, {
+    type: "setEnabled",
+    enabled: false,
+    pageType: ""
+  });
+
+  const existingState = await utils.getTabState(normalizedTabId);
+  const existingBaseUrl = existingState && typeof existingState.baseUrl === "string"
+    ? existingState.baseUrl
+    : "";
+  await utils.setTabState(normalizedTabId, {
+    ...(existingState && typeof existingState === "object" ? existingState : {}),
+    enabled: false,
+    baseUrl: baseUrl || existingBaseUrl,
+    pageType: ""
+  });
+  updateTabRuntime(normalizedTabId, {
+    contentReady: true,
+    mode: "silent"
+  });
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    configUpdatedAcknowledged: Boolean(configUpdatedResponse && configUpdatedResponse.ok),
+    contentAcknowledged: Boolean(disableResponse && disableResponse.ok),
+    runtime: getTabRuntimeSnapshot(normalizedTabId),
+    state: await utils.getTabState(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_APPLY_LOCAL_DISCARD, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for discard command"
+    );
+  }
+
+  const baseUrl = normalizeActivationBaseUrl(payload && payload.baseUrl);
+  const contentReady = await ensureContentMainForTab(normalizedTabId);
+  if (!contentReady || !contentReady.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      (contentReady && contentReady.error) || "Content activation failed",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const response = baseUrl
+    ? await sendContentMessageToTab(normalizedTabId, {
+      type: "configUpdated",
+      baseUrl,
+      forceReloadPageEntry: true
+    })
+    : null;
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    contentAcknowledged: Boolean(response && response.ok),
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SHOW_AI_PREVIEW, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for preview command"
+    );
+  }
+
+  const contentReady = await ensureContentMainForTab(normalizedTabId);
+  if (!contentReady || !contentReady.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.CONTENT_UNAVAILABLE,
+      (contentReady && contentReady.error) || "Content activation failed",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const selectorSet = normalizeAiSelectorSet(payload && payload.selectorSet);
+  const response = await sendContentMessageToTab(normalizedTabId, {
+    type: "showAiPreview",
+    selectorSet
+  });
+  if (!response || !response.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      (response && response.error) || "Unable to open preview",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    previewState: response,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_CLOSE_AI_PREVIEW, async (context) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for preview close command"
+    );
+  }
+
+  const response = await sendContentMessageToTab(normalizedTabId, { type: "closeAiPreview" });
+  if (!response || !response.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      (response && response.error) || "Unable to close preview",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    previewState: response,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_SET_AI_PREVIEW_EXPANDED_MODE, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for preview expansion command"
+    );
+  }
+
+  const response = await sendContentMessageToTab(normalizedTabId, {
+    type: "setAiPreviewExpandedMode",
+    active: Boolean(payload && payload.active)
+  });
+  if (!response || !response.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      (response && response.error) || "Unable to update preview mode",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    previewState: response,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
+});
+
+registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_FOCUS_PREVIEW_ELEMENT, async (context, payload) => {
+  const normalizedTabId = normalizeBrokerTabId(context.tabId);
+  if (!normalizedTabId) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.INVALID_TAB,
+      "Missing tab for preview focus command"
+    );
+  }
+
+  const xpath = typeof payload?.xpath === "string" ? payload.xpath.trim() : "";
+  if (!xpath) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      "Missing xpath for preview focus command",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  const response = await sendContentMessageToTab(normalizedTabId, {
+    type: "focusElement",
+    xpath
+  });
+  if (!response || !response.ok) {
+    return context.replyFail(
+      MESSAGE_ERROR_CODES.HANDLER_FAILED,
+      (response && response.error) || "Unable to focus element",
+      { tabId: normalizedTabId }
+    );
+  }
+
+  return {
+    ok: true,
+    tabId: normalizedTabId,
+    runtime: getTabRuntimeSnapshot(normalizedTabId)
+  };
 });
 
 registerBackgroundCommand(BACKGROUND_COMMANDS.TAB_BEGIN_RENDER_MODE_INSPECTION, async (context, payload) => {
