@@ -286,6 +286,22 @@ test("settings store clears token when stage base changes", async () => {
   });
 });
 
+test("settings store preserves token when stage base matches after normalization", async () => {
+  const mock = createChromeSyncMock({
+    globalStageBase: "https://Stage.EXAMPLE.test/path",
+    globalToken: "secret-token"
+  });
+
+  await withChromeMock(mock.chromeMock, async () => {
+    const { saveGlobalStageBase } = await loadSettingsStoreModule();
+    const result = await saveGlobalStageBase("stage.example.test");
+
+    assert.equal(result.tokenCleared, false);
+    assert.equal(mock.storageItems.globalToken, "secret-token");
+    assert.equal(mock.storageItems.globalStageBase, "stage.example.test");
+  });
+});
+
 test("settings store saveLoginSettings writes stage base and token", async () => {
   const mock = createChromeSyncMock({});
 

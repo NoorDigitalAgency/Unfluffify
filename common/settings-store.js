@@ -1,4 +1,5 @@
 import { storageGet, storageSet } from "./storage-core.js";
+import { normalizeStageBase } from "./lynx-live-pages.js";
 
 const GLOBAL_AI_SETTINGS_SYNC_DEFAULTS = {
   globalToken: "",
@@ -215,9 +216,9 @@ export async function saveGlobalEndpoint(endpointValue) {
 }
 
 export async function saveGlobalStageBase(stageBaseValue) {
-  const nextStageBaseValue = normalizeStringValue(stageBaseValue);
+  const nextStageBaseValue = normalizeStageBase(stageBaseValue);
   const stored = await getGlobalSettingsWriteSnapshot();
-  const previousStageBase = normalizeStringValue(stored.stageBaseValue);
+  const previousStageBase = normalizeStageBase(stored.stageBaseValue);
   const tokenCleared = Boolean(stored.tokenValue) && previousStageBase !== nextStageBaseValue;
   const nextTokenValue = tokenCleared ? "" : stored.tokenValue;
   await storageSet(chrome.storage.sync, {
