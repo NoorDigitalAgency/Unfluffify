@@ -343,6 +343,7 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
+  const remoteConfigSyncSource = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
   const submitStart = popupSource.indexOf("async function submitSelectorSetToServer(");
   const submitEnd = popupSource.indexOf("async function handleSaveExcludes", submitStart);
   const assignmentStart = popupSource.indexOf("async function postPageTypeAssignmentsToAiServer(");
@@ -355,9 +356,10 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   const assignmentBlock = popupSource.slice(assignmentStart, assignmentEnd);
 
   assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-config-sync\.js"/);
   assert.match(remoteNetworkSource, /export async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
   assert.match(remoteNetworkSource, /export async function submitPageTypeAssignments\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteConfigSyncSource, /export async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitSelectorSetGraphqlUpdate"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitPageTypeAssignments"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "preparePageTypeAssignmentsSnapshot"\) \{/);
@@ -368,10 +370,10 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   assert.match(assignmentBlock, /type: "preparePageTypeAssignmentsSnapshot"/);
   assert.match(assignmentBlock, /type: "submitPageTypeAssignments"/);
   assert.match(assignmentBlock, /messages\.sendRuntimeMessage/);
-  assert.match(backgroundSource, /const urlsMissingRawHtml = assignments/);
-  assert.match(backgroundSource, /const payload = assignments\.map\(\(item\) => \{/);
-  assert.match(backgroundSource, /rawHtml:/);
-  assert.match(backgroundSource, /renderedHtml:/);
+  assert.match(remoteConfigSyncSource, /const urlsMissingRawHtml = assignments/);
+  assert.match(remoteConfigSyncSource, /const payload = assignments\.map\(\(item\) => \{/);
+  assert.match(remoteConfigSyncSource, /rawHtml:/);
+  assert.match(remoteConfigSyncSource, /renderedHtml:/);
   assert.doesNotMatch(assignmentBlock, /await utils\.storageSet\(chrome\.storage\.session, \{ \[requestPayloadKey\]: payload \}\);/);
   assert.doesNotMatch(assignmentBlock, /backfillRawHtmlForPages|getStoredPageHtmlSnapshot|buildLynxChecklistAssignments/);
   assert.doesNotMatch(assignmentBlock, /fetch\(assignPageTypesUrl|createConfigSyncHeaders|maybeUpdateStoredTokenFromResponse/);

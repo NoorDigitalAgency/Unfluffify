@@ -30,6 +30,7 @@ test("background decomposition guard: baseline background modules are imported",
   assertImportsBackgroundModule("live-page-client");
   assertImportsBackgroundModule("network-core");
   assertImportsBackgroundModule("remote-network");
+  assertImportsBackgroundModule("remote-config-sync");
   assertImportsBackgroundModule("tab-runtime");
   assertImportsBackgroundModule("tab-session-store");
   assertImportsBackgroundModule("spinner-operations");
@@ -61,4 +62,11 @@ test("background decomposition guard: baseline background modules are imported",
   assertBackgroundDoesNotDefine("requestAiRunStartSnapshot");
   assertBackgroundDoesNotDefine("requestAiRunResultSnapshot");
   assertBackgroundDoesNotDefine("fetchStaticPageHtmlForBackground");
+  assertBackgroundDoesNotDefine("collectStoredPageMarkingItems");
+  assertBackgroundDoesNotDefine("mergeSelectorsIntoConfig");
+  assertBackgroundDoesNotDefine("getRemoteManagedConfigSignature");
+  assertBackgroundDoesNotDefine("getNormalizedPageEntrySignature");
+  assertBackgroundDoesNotDefine("replaceServerConfigIntoLocalSnapshot");
+  assertBackgroundDoesNotDefine("mergeServerConfigIntoLocalSnapshot");
+  assertBackgroundDoesNotDefine("preparePageTypeAssignmentsSnapshot");
 });

@@ -406,9 +406,9 @@ test("property lock contract is documented with stable client and editor source-
 });
 
 test("background remote merges reconcile page markings by timestamp without wiping local saved pages", () => {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../background/remote-config-sync.js", import.meta.url), "utf8");
   const mergeStart = source.indexOf("async function mergeServerConfigIntoLocalSnapshot");
-  const mergeEnd = source.indexOf("async function loadRemoteConfigSnapshot", mergeStart);
+  const mergeEnd = source.indexOf("export async function preparePageTypeAssignmentsSnapshot", mergeStart);
   const mergeSource = source.slice(mergeStart, mergeEnd);
 
   assert.ok(mergeStart >= 0);
