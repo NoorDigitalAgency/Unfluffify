@@ -294,6 +294,7 @@ test("AI run recovery heartbeat and page lock are coordinated by background", ()
 test("AI run start, status polling, and result transport use background messaging with staged heavy bodies", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const statusStart = popupSource.indexOf("async function requestAiRunStatus(");
   const statusEnd = popupSource.indexOf("async function requestAiRunResult", statusStart);
   const startStart = popupSource.indexOf("async function requestAiRunStart(");
@@ -310,15 +311,16 @@ test("AI run start, status polling, and result transport use background messagin
   const startBlock = popupSource.slice(startStart, startEnd);
   const resultBlock = popupSource.slice(resultStart, resultEnd);
 
-  assert.match(backgroundSource, /async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /async function requestAiRunStatus\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function requestAiRunStartSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /export async function requestAiRunStatus\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /export async function requestAiRunResultSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /registerBackgroundCommand\(BACKGROUND_COMMANDS\.TAB_RUN_AI, async \(context, payload\) => \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunStartSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunStatus"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "requestAiRunResultSnapshot"\) \{/);
   assert.match(popupSource, /messages\.requestTabRunAi\(tabId, \{/);
-  assert.match(backgroundSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
+  assert.match(remoteNetworkSource, /parseAiRunStatusResponse\(await response\.json\(\)\)/);
   assert.match(startBlock, /type: "requestAiRunStartSnapshot"/);
   assert.match(startBlock, /const requestPayloadKey =\s*[\s\S]*buildTransferPayloadKey\("ai-run-start-request"\);/);
   assert.match(startBlock, /const stored = await putTransferPayload\("ai-run-start-request", payload \|\| \{\}, \{/);
@@ -340,6 +342,7 @@ test("AI run start, status polling, and result transport use background messagin
 test("selector submit GraphQL mutation and page-type assignment both use background transport", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const submitStart = popupSource.indexOf("async function submitSelectorSetToServer(");
   const submitEnd = popupSource.indexOf("async function handleSaveExcludes", submitStart);
   const assignmentStart = popupSource.indexOf("async function postPageTypeAssignmentsToAiServer(");
@@ -351,13 +354,14 @@ test("selector submit GraphQL mutation and page-type assignment both use backgro
   const submitBlock = popupSource.slice(submitStart, submitEnd);
   const assignmentBlock = popupSource.slice(assignmentStart, assignmentEnd);
 
-  assert.match(backgroundSource, /async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /async function submitPageTypeAssignments\(options = \{\}\) \{/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function submitSelectorSetGraphqlUpdate\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /export async function submitPageTypeAssignments\(options = \{\}\) \{/);
   assert.match(backgroundSource, /async function preparePageTypeAssignmentsSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitSelectorSetGraphqlUpdate"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "submitPageTypeAssignments"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "preparePageTypeAssignmentsSnapshot"\) \{/);
-  assert.match(backgroundSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
+  assert.match(remoteNetworkSource, /query: UPDATE_SCRAPING_CONDITIONS_MUTATION/);
   assert.match(submitBlock, /type: "submitSelectorSetGraphqlUpdate"/);
   assert.match(submitBlock, /messages\.sendRuntimeMessage/);
   assert.doesNotMatch(submitBlock, /fetch\(graphqlEndpoint|UPDATE_SCRAPING_CONDITIONS_MUTATION|maybeUpdateStoredTokenFromResponse/);

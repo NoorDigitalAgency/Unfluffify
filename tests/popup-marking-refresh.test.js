@@ -424,6 +424,7 @@ test("todo completion backend cache ignores local confirmed page markings unless
 test("invalid remote page pruning delegates the remove transport to background", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const removeBody = popupSource.match(
     /async function removePageMarkingFromRemote\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneRemoteInvalidPageMarkings/
   )[1];
@@ -431,9 +432,10 @@ test("invalid remote page pruning delegates the remove transport to background",
     /async function pruneRemoteInvalidPageMarkings\(options = \{\}\) \{([\s\S]*?)\n\}\n\nasync function pruneLocalInvalidPageMarkings/
   )[1];
 
-  assert.match(backgroundSource, /async function removeRemotePageMarking\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const removeUrl = resolveBackgroundEndpoint\(endpointValue, "\/remove"\);/);
-  assert.match(backgroundSource, /body: JSON\.stringify\(\{[\s\S]*?siteId: normalizedSiteId,[\s\S]*?url: pageUrl[\s\S]*?\}\)/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function removeRemotePageMarking\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /const removeUrl = resolveBackgroundEndpoint\(endpointValue, "\/remove"\);/);
+  assert.match(remoteNetworkSource, /body: JSON\.stringify\(\{[\s\S]*?siteId: normalizedSiteId,[\s\S]*?url: pageUrl[\s\S]*?\}\)/);
   assert.match(backgroundSource, /if \(message\.type === "removeRemotePageMarking"\) \{/);
   assert.match(removeBody, /type: "removeRemotePageMarking"/);
   assert.match(removeBody, /messages\.sendRuntimeMessage/);
@@ -482,13 +484,15 @@ test("login delegates the auth transport to background while popup keeps token p
 test("remote config load delegates transport to background and hydrates the payload from session storage", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const loadBody = popupSource.match(
     /async function loadRemoteConfigForCurrentPage\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction clearObserverRemoteConfigRefreshTimer/
   )[1];
 
-  assert.match(backgroundSource, /async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
-  assert.match(backgroundSource, /const stored = await putTransferPayload\("load", payload\);/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function loadRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /const loadUrl = resolveBackgroundEndpoint\(endpointValue, "\/load"\);/);
+  assert.match(remoteNetworkSource, /const stored = await putTransferPayload\("load", payload\);/);
   assert.match(backgroundSource, /async function replaceServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "replaceServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "loadRemoteConfigSnapshot"\) \{/);
@@ -503,15 +507,17 @@ test("remote config load delegates transport to background and hydrates the payl
 test("remote config save delegates transport to background and hydrates the response from session storage", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const saveBody = popupSource.match(
     /async function syncBaseConfigToServer\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction updateLoginActionState/
   )[1];
 
-  assert.match(backgroundSource, /async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
-  assert.match(backgroundSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
-  assert.match(backgroundSource, /const loaded = await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\);/);
-  assert.match(backgroundSource, /await removeTransferPayload\(requestPayloadKey\);/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function saveRemoteConfigSnapshot\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /const saveUrl = resolveBackgroundEndpoint\(endpointValue, "\/save"\);/);
+  assert.match(remoteNetworkSource, /const requestPayloadKey = typeof options\.payloadKey === "string" \? options\.payloadKey\.trim\(\) : "";/);
+  assert.match(remoteNetworkSource, /const loaded = await getTransferPayload\(requestPayloadKey, \{ expectedType: "object" \}\);/);
+  assert.match(remoteNetworkSource, /await removeTransferPayload\(requestPayloadKey\);/);
   assert.match(backgroundSource, /async function mergeServerConfigIntoLocalSnapshot\(options = \{\}\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "mergeServerConfigIntoLocalSnapshot"\) \{/);
   assert.match(backgroundSource, /if \(message\.type === "saveRemoteConfigSnapshot"\) \{/);
@@ -529,12 +535,14 @@ test("remote config save delegates transport to background and hydrates the resp
 test("render-mode detection delegates the heavy html transport to background", () => {
   const popupSource = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
   const backgroundSource = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const remoteNetworkSource = readFileSync(new URL("../background/remote-network.js", import.meta.url), "utf8");
   const detectBody = popupSource.match(
     /async function detectRenderModeViaEndpoint\(options = \{\}\) \{([\s\S]*?)\n\}\n\nfunction buildRemoteConfigLoadKey/
   )[1];
 
-  assert.match(backgroundSource, /async function requestRenderModeDetection\(options = \{\}\) \{/);
-  assert.match(backgroundSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
+  assert.match(backgroundSource, /from "\.\/background\/remote-network\.js"/);
+  assert.match(remoteNetworkSource, /export async function requestRenderModeDetection\(options = \{\}\) \{/);
+  assert.match(remoteNetworkSource, /const detectUrl = resolveBackgroundEndpoint\(endpointValue, "\/is_js_rendered"\);/);
   assert.match(backgroundSource, /if \(message\.type === "requestRenderModeDetection"\) \{/);
   assert.match(detectBody, /type: "requestRenderModeDetection"/);
   assert.match(detectBody, /const requestPayloadKey = buildTransferPayloadKey\("render-mode-request"\);/);
