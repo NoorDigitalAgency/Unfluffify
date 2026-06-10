@@ -58,6 +58,18 @@
   content production paths should call domain helpers rather than direct
   `chrome.storage` or `utils.storage*` wrappers. Page-local `localStorage` /
   `sessionStorage` usage is tracked separately from this Chrome storage rule.
+- The next architecture track is `.copilot/world-decomposition-plan.md`: a
+  three-track program decomposing `background.js` (Track A), then `popup.js`
+  (Track B), then peripheral `content-main.js` domains (Track C) into per-world
+  modules behavior-preservingly, then hardening (async reporting, state/timer
+  consolidation, managed timeouts). Background stateful domains use the
+  injected-state factory pattern from `background/spinner-operations.js`; popup
+  modules import the shared `popup/state.js` singleton; content modules use
+  function injection. Hard rules: never edit `content/core.js` or the locked
+  marking/visibility logic in any track; every new `content/*` module must be
+  added to `web_accessible_resources` (runtime footgun) with
+  `tests/manifest-permissions.test.js` updated; each slice needs focused + full
+  `npm test` + a live-harness check.
 
 ## AI Submission Rules
 

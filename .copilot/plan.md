@@ -4,9 +4,11 @@ Last updated: 2026-06-10
 
 ## Objective
 
-Continue the post-service-worker architecture cleanup by first hardening the two
-review findings from the completed authority refactor, then centralizing Chrome
-storage access behind managed domain stores.
+Decompose the three remaining monoliths (`background.js`, `popup.js`,
+`content-main.js`) into small, single-responsibility modules under their world
+folders, behavior-preservingly, plus bounded hardening (async error reporting,
+state/timer consolidation, managed timeouts). Run as three ordered tracks
+(Background -> Popup -> Content).
 
 Previous feature-flag stabilization, main-plan, and hotfix-plan work remains
 available as historical context or backlog. Do not resume older tracks unless
@@ -14,15 +16,21 @@ the user explicitly asks for them.
 
 ## Successor Architecture Refactor
 
-The service-worker authority refactor is complete through Phase 10 and merged to
-`main`. The next active architecture track is the storage-access layer refactor,
-which starts with the two post-review hardening findings and then centralizes
-Chrome storage access by domain.
+The service-worker authority refactor and the storage-access layer refactor are
+both COMPLETE and merged to `main`. The next active architecture track is the
+world decomposition program: extract `background.js`, then `popup.js`, then the
+peripheral `content-main.js` domains into per-world modules (behavior-preserving)
+plus targeted hardening. The locked marking/visibility logic and `content/core.js`
+are never edited.
 
 Use these documents before making implementation changes:
 
-1. `.copilot/storage-access-layer-plan.md`
-2. `.copilot/handoff-storage-access-layer.md`
+1. `.copilot/world-decomposition-plan.md`
+2. `.copilot/handoff-world-decomposition.md`
+
+Completed predecessor tracks (historical context only):
+
+1. `.copilot/storage-access-layer-plan.md` + `.copilot/handoff-storage-access-layer.md`
 
 Do not resume the old service-worker authority implementation track unless the
 user explicitly asks for it. Historical documents remain available for context:

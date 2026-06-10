@@ -1,0 +1,154 @@
+# Handoff - World Decomposition Program
+
+Last updated: 2026-06-10
+Branch at document creation: main
+Implementation status: NOT_STARTED (Track A Phase 0 pending)
+Document commit scope: plan + handoff authoring only
+
+## Read This First
+
+The active successor architecture plan is:
+
+1. `.copilot/world-decomposition-plan.md`
+
+Follow that file exactly, in order, one phase per commit, one track at a time
+(A -> B -> C). This handoff records current status, validation evidence, and the
+next exact step. Do not design or re-group; the plan is prescriptive.
+
+## Predecessor Status
+
+1. Storage-access-layer refactor is COMPLETE and merged to `main`
+   (`.copilot/storage-access-layer-plan.md`, last commit `2aaa641`).
+2. Post-review fixes for that track are merged (config cross-base write race,
+   command-router policy completeness, unscoped-command policy).
+3. Full suite at handoff authoring: `npm test` = 758 passed, 0 failed.
+4. Working tree clean; `main` aligned with `origin/main`.
+
+## Why This Program
+
+Three monoliths remain after the messaging/authority and storage layers were
+modularized: `background.js` (~4.8k), `popup.js` (~9.4k), and `content-main.js`
+(~9.5k, plus the locked `content/core.js` ~11.5k). The program decomposes them
+into single-responsibility modules behavior-preservingly, in three ordered
+tracks (Background -> Popup -> Content), with bounded hardening.
+
+Decision inputs (from the planning interview, 2026-06-10):
+
+1. Scope: all three worlds, as ordered tracks A/B/C. Background first.
+2. Depth: behavior-preserving extraction PLUS targeted hardening
+   (async error reporting, per-tab/popup state + timer consolidation, managed
+   timeouts).
+3. Validation: `node --test` source-contract + focused + full `npm test`, AND a
+   manual live-harness validation per slice.
+4. Guardrail: program-wide hard prohibition on touching locked marking/silent-
+   highlight/visibility/reconciliation logic and `content/core.js`. Track C may
+   only move explicitly-listed peripheral content domains and MUST keep them in
+   `web_accessible_resources`.
+
+## Phase Checklist
+
+Status values: TODO / IN_PROGRESS / DONE / BLOCKED.
+
+### Track A — Background (`background.js` -> `background/*`)
+
+1. Phase 0 - Baseline + boundary guard test: TODO.
+2. Phase 1 - command-ledger module: TODO.
+3. Phase 2 - live-page-client module: TODO.
+4. Phase 3 - network-core module: TODO.
+5. Phase 4 - remote-network module: TODO.
+6. Phase 5 - remote-config-sync module: TODO.
+7. Phase 6 - world-trace module: TODO.
+8. Phase 7 - popup-state-broker module (HIGH RISK): TODO.
+9. Phase 8 - render-mode-inspector module: TODO.
+10. Phase 9 - ai-run-orchestrator module (HIGHEST RISK): TODO.
+11. Phase 10 - async error reporting (hardening): TODO.
+12. Phase 11 - per-tab state consolidation (hardening): TODO.
+13. Phase 12 - managed timeouts (hardening, optional last): TODO.
+
+### Track B — Popup (`popup.js` -> `popup/*`) — starts after Track A is merged
+
+1. Phase B0 - Baseline + popup boundary guard: TODO.
+2. Phase B1 - popup/spinner.js: TODO.
+3. Phase B2 - popup/site-resolution.js: TODO.
+4. Phase B3 - popup/remote-config.js: TODO.
+5. Phase B4 - popup/render-mode-inspection.js: TODO.
+6. Phase B5 - popup/page-reconciliation.js: TODO.
+7. Phase B6 - popup/property-lock-ui.js (HIGH RISK): TODO.
+8. Phase B7 - popup/remote-support-ui.js: TODO.
+9. Phase B8 - popup/timers.js (hardening): TODO.
+
+### Track C — Content (peripheral only) — starts after Track B is merged
+
+1. Phase C0 - Baseline + content boundary guard + manifest allowlist assert: TODO.
+2. Phase C1 - content/page-telemetry-bridge.js: TODO.
+3. Phase C2 - content/remote-support-client.js: TODO.
+4. Phase C3 - content/property-lock-banner.js: TODO.
+
+Track C live scenarios (remote-support / property-lock sessions) depend on the
+paused/flaky orchestration harness; Track C slices may legitimately BLOCK. Never
+skip the live gate or the `web_accessible_resources` update for content slices.
+
+## First Commands For The Implementer
+
+```bash
+git status --short
+git fetch origin
+git pull --ff-only
+npm ci
+npm test
+rg -n '^(async function|function) [A-Za-z0-9_]+|^registerBackgroundCommand\(' background.js
+rg -n 'readFileSync\(new URL\("\.\./background\.js"' tests
+```
+
+If baseline `npm test` fails before any edit, STOP and record it here. Do not
+begin implementation on top of unexplained failures.
+
+## Hard Guardrails (repeat from plan)
+
+1. Behavior-preserving moves only; no contract/timeout/retry/key changes.
+2. Never edit `content/core.js` or any marking/silent-highlight/visibility/
+   reconciliation logic, in ANY track (program-wide invariant).
+3. Per-track file scope only: Track A = `background.js` + `background/` + tests;
+   Track B = `popup.js` + `popup/` + tests; Track C = `content-main.js` + the
+   allowed new `content/*` modules + `manifest.json` + tests.
+4. New modules must not access `chrome.storage` directly; route through the
+   approved stores (`tab-session-store`, `transfer-payload-store`,
+   `ai-run-record-store`, `storage-core`, `settings-store`).
+5. Every new `content/*` module MUST be added to `web_accessible_resources` in
+   the same slice (runtime footgun), with `tests/manifest-permissions.test.js`
+   updated.
+6. Update source-contract tests in lockstep with every move (tests that read
+   `background.js`/`popup.js`/`content-main.js` source will break otherwise).
+7. No circular imports. Background uses injected-state factories; popup uses the
+   shared `popup/state.js` singleton; content uses function injection for state.
+8. One phase per commit; focused + full + live validation before every push.
+
+## Validation Baseline
+
+Authoring baseline (no code changes yet):
+
+```bash
+npm test
+```
+
+Result: 758 passed, 0 failed (carried from the storage track's final state).
+
+Record per-slice results here as the track progresses, using this template:
+
+```
+Phase N - <module>:
+  Focused: node --test <files> -> <pass>/<fail>
+  Full:    npm test -> <pass>/<fail>
+  Live:    <fixture flow exercised> -> <pass|blocked + reason>
+  Commit:  <hash> <message>
+```
+
+## Next Action
+
+Execute Track A Phase 0 in `.copilot/world-decomposition-plan.md`: create
+`tests/background-decomposition-boundary.test.js` (asserting the six pre-existing
+`background/` modules are imported), run `npm test`, commit
+`test(background): add decomposition boundary guard`, push, then proceed to
+Track A Phase 1 (command-ledger extraction). Do not start Track B until Track A
+is complete and merged; do not start Track C until Track B is complete and
+merged.
